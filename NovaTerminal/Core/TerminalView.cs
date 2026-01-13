@@ -50,6 +50,9 @@ namespace NovaTerminal.Core
             Dispatcher.UIThread.InvokeAsync(InvalidateVisual);
         }
 
+        public event Action? OnReady;
+        private bool _isReady;
+
         protected override void OnSizeChanged(SizeChangedEventArgs e)
         {
             base.OnSizeChanged(e);
@@ -57,9 +60,25 @@ namespace NovaTerminal.Core
             {
                 int cols = (int)(e.NewSize.Width / _charWidth);
                 int rows = (int)(e.NewSize.Height / _charHeight);
+
                 if (cols > 0 && rows > 0)
                 {
                     _buffer.Resize(cols, rows);
+                    
+                    // Log for debugging
+                    try { System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/startup_debug.txt", $"[View Resize] {e.NewSize.Width}x{e.NewSize.Height} -> {cols} cols, {rows} rows\n"); } catch {}
+
+                    if (!_isReady)
+                    {
+                        // Ensure we don't start with a tiny transient layout (e.g. before Window is fully sized)
+                        // 40 cols is a reasonable minimum for a functional terminal.
+                        if (cols >= 40)
+                        {
+                            _isReady = true;
+                            OnReady?.Invoke();
+                            try { System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/startup_debug.txt", $"[OnReady Fired] {cols}x{rows}\n"); } catch {}
+                        }
+                    }
                 }
             }
         }

@@ -19,7 +19,7 @@ namespace NovaTerminal
             _shell = shell;
         }
 
-        public async Task StartAsync()
+        public async Task StartAsync(int cols, int rows)
         {
             var startInfo = new ProcessStartInfo
             {
@@ -53,9 +53,14 @@ namespace NovaTerminal
             startInfo.Environment["LANG"] = "C.UTF-8";
             startInfo.Environment["LC_ALL"] = "C.UTF-8";
             
-            // Hint initial size to the shell (Commonly 120x30 for modern HD screens)
-            startInfo.Environment["COLUMNS"] = "120";
-            startInfo.Environment["LINES"] = "30";
+            // Sync initial size to the shell
+            startInfo.Environment["COLUMNS"] = cols.ToString();
+            startInfo.Environment["LINES"] = rows.ToString();
+            
+            // Force colors for specific tools
+            startInfo.Environment["FORCE_COLOR"] = "1"; // Standard for many node/libs
+            startInfo.Environment["DOTNET_SYSTEM_CONSOLE_ALLOW_ANSI_COLOR_REDIRECTION"] = "1"; // .NET
+            startInfo.Environment["GIT_CONFIG_PARAMETERS"] = "'color.ui=always'"; // Git
             
             // For git specifically, it often checks isatty, but we can try basic vars. 
             // Note: Git for Windows might need 'git -c color.ui=always' if it strictly checks handles.
@@ -84,6 +89,27 @@ namespace NovaTerminal
             // Start reading threads
             _ = Task.Run(() => ReadStream(_process.StandardOutput.BaseStream));
             _ = Task.Run(() => ReadStream(_process.StandardError.BaseStream));
+            
+            // FORCE the shell to resize its buffer to match our UI
+            // Small delay to ensure shell is ready
+            await Task.Delay(100);
+            
+            if (_shell.EndsWith("cmd.exe"))
+            {
+                // CMD: Use mode command
+                _process.StandardInput.WriteLine($"mode con: cols={cols} lines={rows}");
+                _process.StandardInput.WriteLine("cls");
+                _process.StandardInput.Flush();
+            }
+            else if (_shell.EndsWith("powershell.exe") || _shell.EndsWith("pwsh.exe") || _shell.EndsWith("pwsh"))
+            {
+                // PowerShell: Set buffer and window size
+                // Buffer must be >= window size, so set buffer first with large height
+                _process.StandardInput.WriteLine($"$host.UI.RawUI.BufferSize = New-Object System.Management.Automation.Host.Size({cols}, 9999)");
+                _process.StandardInput.WriteLine($"$host.UI.RawUI.WindowSize = New-Object System.Management.Automation.Host.Size({cols}, {rows})");
+                _process.StandardInput.WriteLine("Clear-Host");
+                _process.StandardInput.Flush();
+            }
             
             await Task.CompletedTask;
         }

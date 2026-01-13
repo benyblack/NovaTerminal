@@ -102,11 +102,16 @@ namespace NovaTerminal
             tabs.SelectedItem = tabItem;
             _currentContext = ctx;
             
-            // Explicitly force focus to the view
+            // Explicitly force focus to the view (will attach visual tree)
             ctx.View.Focus();
 
-            // Start Session
-            _ = ctx.Session.StartAsync();
+            // Defer Start until View measures itself and fires OnReady
+            // This ensures we pass the CORRECT columns/rows to the shell environment.
+            ctx.View.OnReady += () => 
+            {
+                 // Start Session with actual measured size
+                 _ = ctx.Session.StartAsync(ctx.Buffer.Cols, ctx.Buffer.Rows);
+            };
         }
 
         private void OnTextInput(object? sender, TextInputEventArgs e)
