@@ -1,0 +1,116 @@
+[CSI J] mode=2 CursorRow=0
+[CSI H] row=0 col=0
+[CSI H] row=14 col=0
+[CSI K] mode=0 CursorRow=14 CursorCol=53
+[EraseToEnd] Row=14 FromCol=53 ToCols=114 (clearing 62 cells)
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=72
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=105
+[CSI H] row=14 col=54
+[CSI H] row=14 col=91
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=57
+[CSI H] row=14 col=54
+[CSI J] mode=2 CursorRow=0
+[CSI H] row=0 col=0
+[CSI H] row=14 col=0
+[CSI K] mode=0 CursorRow=14 CursorCol=53
+[EraseToEnd] Row=14 FromCol=53 ToCols=114 (clearing 62 cells)
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=72
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=105
+[CSI H] row=14 col=54
+[CSI H] row=14 col=91
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=57
+[CSI J] mode=2 CursorRow=0
+[CSI H] row=0 col=0
+[CSI H] row=14 col=0
+[CSI K] mode=0 CursorRow=14 CursorCol=53
+[EraseToEnd] Row=14 FromCol=53 ToCols=114 (clearing 62 cells)
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=72
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI J] mode=2 CursorRow=0
+[CSI H] row=0 col=0
+[CSI H] row=14 col=0
+[CSI K] mode=0 CursorRow=14 CursorCol=53
+[EraseToEnd] Row=14 FromCol=53 ToCols=114 (clearing 62 cells)
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=72
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI J] mode=2 CursorRow=0
+[CSI H] row=0 col=0
+[CSI H] row=14 col=0
+[CSI K] mode=0 CursorRow=14 CursorCol=53
+[EraseToEnd] Row=14 FromCol=53 ToCols=114 (clearing 62 cells)
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=72
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=57
+[CSI J] mode=2 CursorRow=0
+[CSI H] row=0 col=0
+[CSI H] row=14 col=0
+[CSI K] mode=0 CursorRow=14 CursorCol=53
+[EraseToEnd] Row=14 FromCol=53 ToCols=114 (clearing 62 cells)
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54
+[CSI H] row=14 col=72
+[CSI H] row=14 col=54
+[CSI H] row=14 col=54

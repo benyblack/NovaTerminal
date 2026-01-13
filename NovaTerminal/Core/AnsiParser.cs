@@ -166,9 +166,6 @@ namespace NovaTerminal.Core
                 case 'K': // Erase in Line
                     int mode = args.Length > 0 ? args[0] : 0;
                     
-                    // Debug logging
-                    try { System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/write_debug.txt", $"[CSI K mode={mode}] Row={_buffer.CursorRow} Col={_buffer.CursorCol}\n"); } catch {}
-                    
                     if (mode == 0) _buffer.EraseLineToEnd();
                     else if (mode == 1) _buffer.EraseLineFromStart();
                     else if (mode == 2) _buffer.EraseLineAll();

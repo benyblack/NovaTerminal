@@ -70,35 +70,20 @@ namespace NovaTerminal.Core
             CursorCol = Math.Clamp(CursorCol, 0, Cols - 1);
             
             // Auto-clear heuristic: If cursor jumped backward on same row (e.g., history navigation)
-            // Clear the entire command area to handle artifacts from longer previous commands
-            
-            // Debug: Log cursor jumps
-            if (CursorRow == _prevCursorRow && CursorCol < _prevCursorCol - 3)
-            {
-                try { 
-                    System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/write_debug.txt", 
-                        $"[JUMP] Row={CursorRow} From={_prevCursorCol} To={CursorCol} (jump={_prevCursorCol - CursorCol})\n"); 
-                } catch {}
-            }
             
             if (CursorRow == _prevCursorRow && CursorCol < _prevCursorCol - 3 && CursorCol >= 40 && CursorCol <= 80)
             {
-                // Cursor jumped back in command area - likely history navigation
-                // Always clear from current position to col 95 (full command area + buffer)
-                // This ensures longer previous commands don't leave artifacts
-                // Oh-My-Posh typically writes decorations at cols 100+
-                
-                try { 
-                    System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/write_debug.txt", 
-                        $"[AUTO-CLEAR] Row={CursorRow} From={CursorCol} To=95\n"); 
-                } catch {}
+                // Cursor jumped back in command area - history navigation detected
+                // Clear from current position to col 95 to remove command artifacts
+                // Note: PowerShell Oh-My-Posh may temporarily disappear during navigation
+                // This matches Windows Terminal behavior
                 
                 var row = _viewport[CursorRow];
                 for (int i = CursorCol; i < 95 && i < Cols; i++)
                 {
                     row.Cells[i] = new TerminalCell(' ', Colors.LightGray, Colors.Black);
                 }
-                _maxColThisRow = CursorCol; // Reset tracking
+                _maxColThisRow = CursorCol;
                 OnInvalidate?.Invoke();
             }
             
@@ -182,15 +167,6 @@ namespace NovaTerminal.Core
             // Write to viewport
             if (CursorRow >= 0 && CursorRow < Rows && CursorCol >= 0 && CursorCol < Cols)
             {
-                // Debug: Log significant writes
-                if (CursorRow == 14 && CursorCol >= 20 && CursorCol <= 80)
-                {
-                    try { 
-                        System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/write_debug.txt", 
-                            $"[WRITE] Row={CursorRow} Col={CursorCol} Char='{c}'\n"); 
-                    } catch {}
-                }
-                
                 _viewport[CursorRow].Cells[CursorCol] = new TerminalCell(c, fg, bg);
                 
                 // Track max column written on this row
@@ -325,7 +301,6 @@ namespace NovaTerminal.Core
             if (CursorRow < 0 || CursorRow >= Rows) return;
             var row = _viewport[CursorRow];
             
-            // Explicitly create new cells to force complete replacement
             for (int i = CursorCol; i < Cols; i++)
             {
                 row.Cells[i] = new TerminalCell(' ', Colors.LightGray, Colors.Black);
