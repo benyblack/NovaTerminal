@@ -51,6 +51,7 @@ namespace NovaTerminal.Core
         }
 
         public event Action? OnReady;
+        public event Action<int, int>? OnResize;
         private bool _isReady;
 
         protected override void OnSizeChanged(SizeChangedEventArgs e)
@@ -78,6 +79,11 @@ namespace NovaTerminal.Core
                             OnReady?.Invoke();
                             try { System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/startup_debug.txt", $"[OnReady Fired] {cols}x{rows}\n"); } catch {}
                         }
+                    }
+                    else
+                    {
+                        // Fire resize event for already-started sessions
+                        OnResize?.Invoke(cols, rows);
                     }
                 }
             }

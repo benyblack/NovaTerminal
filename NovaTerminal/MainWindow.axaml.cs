@@ -16,7 +16,7 @@ namespace NovaTerminal
         
         private class TabContext
         {
-            public TerminalSession Session { get; set; }
+            public ConPtySession Session { get; set; }
             public TerminalBuffer Buffer { get; set; }
             public AnsiParser Parser { get; set; }
             public TerminalView View { get; set; }
@@ -28,7 +28,7 @@ namespace NovaTerminal
                  Parser = new AnsiParser(Buffer);
                  View = new TerminalView();
                  View.SetBuffer(Buffer);
-                 Session = new TerminalSession(shell);
+                 Session = new ConPtySession(shell);
             }
         }
 
@@ -111,6 +111,12 @@ namespace NovaTerminal
             {
                  // Start Session with actual measured size
                  _ = ctx.Session.StartAsync(ctx.Buffer.Cols, ctx.Buffer.Rows);
+            };
+            
+            // Wire up resize events to ConPTY
+            ctx.View.OnResize += (cols, rows) => 
+            {
+                ctx.Session.Resize(cols, rows);
             };
         }
 
