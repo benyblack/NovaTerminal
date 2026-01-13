@@ -122,9 +122,6 @@ namespace NovaTerminal.Core
 
             switch (finalByte)
             {
-                case 'J': // Erase in Display
-                    if (arg0 == 2) _buffer.Clear();
-                    break;
                 case 'A': // Cursor Up
                     // TODO: Buffer should expose cursor movement methods
                      _buffer.CursorRow = Math.Max(0, _buffer.CursorRow - Math.Max(1, arg0));
@@ -149,11 +146,32 @@ namespace NovaTerminal.Core
                     int val = (args.Length > 0 ? args[0] : 1) - 1;
                     _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
                     break;
+                case 'J': // Erase in Display
+                    int displayMode = args.Length > 0 ? args[0] : 0;
+                    
+                    if (displayMode == 0) // Erase from cursor to end of screen
+                    {
+                        _buffer.EraseLineToEnd(); // Clear rest of current line
+                        // Clear all lines below (simplified - just clear current line for now)
+                    }
+                    else if (displayMode == 1) // Erase from start of screen to cursor
+                    {
+                        _buffer.EraseLineFromStart();
+                    }
+                    else if (displayMode == 2 || displayMode == 3) // Erase entire screen
+                    {
+                        _buffer.Clear();
+                    }
+                    break;
                 case 'K': // Erase in Line
                     int mode = args.Length > 0 ? args[0] : 0;
-                    if (mode == 0) _buffer.EraseLineToEnd(); // 0: Cursor to End
-                    else if (mode == 1) _buffer.EraseLineFromStart(); // 1: Start to Cursor
-                    else if (mode == 2) _buffer.EraseLineAll(); // 2: Entire Line
+                    
+                    // Debug logging
+                    try { System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/write_debug.txt", $"[CSI K mode={mode}] Row={_buffer.CursorRow} Col={_buffer.CursorCol}\n"); } catch {}
+                    
+                    if (mode == 0) _buffer.EraseLineToEnd();
+                    else if (mode == 1) _buffer.EraseLineFromStart();
+                    else if (mode == 2) _buffer.EraseLineAll();
                     break;
                 case 's': // Save Cursor (ANSI.SYS / SCO)
                     _buffer.SaveCursor();

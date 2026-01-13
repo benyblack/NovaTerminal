@@ -45,9 +45,17 @@ namespace NovaTerminal.Core
             InvalidateVisual();
         }
 
-        private void InvalidateBuffer()
+        public void InvalidateBuffer()
         {
-            Dispatcher.UIThread.InvokeAsync(InvalidateVisual);
+            // Try synchronous first to see if async dispatch is causing timing issues
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                InvalidateVisual();
+            }
+            else
+            {
+                Dispatcher.UIThread.InvokeAsync(InvalidateVisual);
+            }
         }
 
         public event Action? OnReady;

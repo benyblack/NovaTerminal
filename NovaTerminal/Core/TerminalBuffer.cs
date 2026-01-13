@@ -19,6 +19,11 @@ namespace NovaTerminal.Core
         
         public int CursorCol { get; set; }
         public int CursorRow { get; set; } // Row within viewport (0 to Rows-1)
+        
+        // Track previous position for auto-clear heuristic
+        private int _prevCursorCol = 0;
+        private int _prevCursorRow = 0;
+        private int _maxColThisRow = 0; // Track furthest column written on current row
 
         public Color CurrentForeground { get; set; } = Colors.LightGray;
         public Color CurrentBackground { get; set; } = Colors.Black;
@@ -63,10 +68,51 @@ namespace NovaTerminal.Core
             // Clamp cursor to viewport
             CursorRow = Math.Clamp(CursorRow, 0, Rows - 1);
             CursorCol = Math.Clamp(CursorCol, 0, Cols - 1);
+            
+            // Auto-clear heuristic: If cursor jumped backward on same row (e.g., history navigation)
+            // Clear the entire command area to handle artifacts from longer previous commands
+            
+            // Debug: Log cursor jumps
+            if (CursorRow == _prevCursorRow && CursorCol < _prevCursorCol - 3)
+            {
+                try { 
+                    System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/write_debug.txt", 
+                        $"[JUMP] Row={CursorRow} From={_prevCursorCol} To={CursorCol} (jump={_prevCursorCol - CursorCol})\n"); 
+                } catch {}
+            }
+            
+            if (CursorRow == _prevCursorRow && CursorCol < _prevCursorCol - 3 && CursorCol >= 40 && CursorCol <= 80)
+            {
+                // Cursor jumped back in command area - likely history navigation
+                // Always clear from current position to col 95 (full command area + buffer)
+                // This ensures longer previous commands don't leave artifacts
+                // Oh-My-Posh typically writes decorations at cols 100+
+                
+                try { 
+                    System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/write_debug.txt", 
+                        $"[AUTO-CLEAR] Row={CursorRow} From={CursorCol} To=95\n"); 
+                } catch {}
+                
+                var row = _viewport[CursorRow];
+                for (int i = CursorCol; i < 95 && i < Cols; i++)
+                {
+                    row.Cells[i] = new TerminalCell(' ', Colors.LightGray, Colors.Black);
+                }
+                _maxColThisRow = CursorCol; // Reset tracking
+                OnInvalidate?.Invoke();
+            }
+            
+            // Track row changes
+            if (CursorRow != _prevCursorRow)
+            {
+                _maxColThisRow = 0; // Reset max column for new row
+            }
 
             if (c == '\r') 
             {
                 CursorCol = 0;
+                _prevCursorCol = CursorCol;
+                _prevCursorRow = CursorRow;
                 return;
             }
             
@@ -136,11 +182,31 @@ namespace NovaTerminal.Core
             // Write to viewport
             if (CursorRow >= 0 && CursorRow < Rows && CursorCol >= 0 && CursorCol < Cols)
             {
+                // Debug: Log significant writes
+                if (CursorRow == 14 && CursorCol >= 20 && CursorCol <= 80)
+                {
+                    try { 
+                        System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/write_debug.txt", 
+                            $"[WRITE] Row={CursorRow} Col={CursorCol} Char='{c}'\n"); 
+                    } catch {}
+                }
+                
                 _viewport[CursorRow].Cells[CursorCol] = new TerminalCell(c, fg, bg);
+                
+                // Track max column written on this row
+                if (CursorCol > _maxColThisRow) _maxColThisRow = CursorCol;
+                
+                CursorCol++;
+                OnInvalidate?.Invoke();
+            }
+            else
+            {
+                CursorCol++; 
             }
             
-            CursorCol++; 
-            OnInvalidate?.Invoke();
+            // Update tracking
+            _prevCursorCol = CursorCol;
+            _prevCursorRow = CursorRow;
         }
 
         /// <summary>
@@ -258,9 +324,11 @@ namespace NovaTerminal.Core
         {
             if (CursorRow < 0 || CursorRow >= Rows) return;
             var row = _viewport[CursorRow];
+            
+            // Explicitly create new cells to force complete replacement
             for (int i = CursorCol; i < Cols; i++)
             {
-                row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground);
+                row.Cells[i] = new TerminalCell(' ', Colors.LightGray, Colors.Black);
             }
             OnInvalidate?.Invoke();
         }
@@ -271,7 +339,7 @@ namespace NovaTerminal.Core
             var row = _viewport[CursorRow];
             for (int i = 0; i <= CursorCol; i++)
             {
-                 row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground);
+                 row.Cells[i] = TerminalCell.Default;
             }
             OnInvalidate?.Invoke();
         }
@@ -282,7 +350,7 @@ namespace NovaTerminal.Core
             var row = _viewport[CursorRow];
             for (int i = 0; i < Cols; i++)
             {
-                 row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground);
+                 row.Cells[i] = TerminalCell.Default;
             }
             OnInvalidate?.Invoke();
         }

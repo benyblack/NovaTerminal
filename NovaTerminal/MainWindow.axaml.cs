@@ -113,10 +113,16 @@ namespace NovaTerminal
                  _ = ctx.Session.StartAsync(ctx.Buffer.Cols, ctx.Buffer.Rows);
             };
             
-            // Wire up resize events to ConPTY
+             // Wire up resize events to ConPTY
             ctx.View.OnResize += (cols, rows) => 
             {
                 ctx.Session.Resize(cols, rows);
+            };
+            
+            // Wire up buffer invalidate to view - THIS IS CRITICAL FOR RENDERING UPDATES
+            ctx.Buffer.OnInvalidate += () =>
+            {
+                ctx.View.InvalidateBuffer();
             };
         }
 
@@ -137,22 +143,111 @@ namespace NovaTerminal
         {
             if (_currentContext == null) return;
 
-            if (e.Key == Key.Enter)
+            string? sequence = null;
+
+            switch (e.Key)
             {
-                // _currentContext.Parser.Process("\r\n");
-                _currentContext.Session.SendInput("\r");
-                e.Handled = true;
+                case Key.Enter:
+                    _currentContext.Session.SendInput("\r");
+                    e.Handled = true;
+                    return;
+                    
+                case Key.Back:
+                    // Send DEL (0x7F) instead of BS (0x08) for proper backspace behavior
+                    _currentContext.Session.SendInput("\x7f");
+                    e.Handled = true;
+                    return;
+                    
+                case Key.Tab:
+                    _currentContext.Session.SendInput("\t");
+                    e.Handled = true;
+                    return;
+                    
+                // Arrow keys (VT100 sequences)
+                case Key.Up:
+                    sequence = "\x1b[A";
+                    break;
+                case Key.Down:
+                    sequence = "\x1b[B";
+                    break;
+                case Key.Right:
+                    sequence = "\x1b[C";
+                    break;
+                case Key.Left:
+                    sequence = "\x1b[D";
+                    break;
+                    
+                // Home/End
+                case Key.Home:
+                    sequence = "\x1b[H";
+                    break;
+                case Key.End:
+                    sequence = "\x1b[F";
+                    break;
+                    
+                // Page Up/Down
+                case Key.PageUp:
+                    sequence = "\x1b[5~";
+                    break;
+                case Key.PageDown:
+                    sequence = "\x1b[6~";
+                    break;
+                    
+                // Delete/Insert
+                case Key.Delete:
+                    sequence = "\x1b[3~";
+                    break;
+                case Key.Insert:
+                    sequence = "\x1b[2~";
+                    break;
+                    
+                // Function keys
+                case Key.F1:
+                    sequence = "\x1bOP";
+                    break;
+                case Key.F2:
+                    sequence = "\x1bOQ";
+                    break;
+                case Key.F3:
+                    sequence = "\x1bOR";
+                    break;
+                case Key.F4:
+                    sequence = "\x1bOS";
+                    break;
+                case Key.F5:
+                    sequence = "\x1b[15~";
+                    break;
+                case Key.F6:
+                    sequence = "\x1b[17~";
+                    break;
+                case Key.F7:
+                    sequence = "\x1b[18~";
+                    break;
+                case Key.F8:
+                    sequence = "\x1b[19~";
+                    break;
+                case Key.F9:
+                    sequence = "\x1b[20~";
+                    break;
+                case Key.F10:
+                    sequence = "\x1b[21~";
+                    break;
+                case Key.F11:
+                    sequence = "\x1b[23~";
+                    break;
+                case Key.F12:
+                    sequence = "\x1b[24~";
+                    break;
+                    
+                // Escape
+                case Key.Escape:
+                    sequence = "\x1b";
+                    break;
             }
-            else if (e.Key == Key.Back)
+
+            if (sequence != null)
             {
-                // _currentContext.Parser.Process("\b \b");
-                _currentContext.Session.SendInput("\b");
-                e.Handled = true;
-            }
-            else if (e.Key == Key.Tab)
-            {
-                // _currentContext.Parser.Process("\t");
-                _currentContext.Session.SendInput("\t");
+                _currentContext.Session.SendInput(sequence);
                 e.Handled = true;
             }
         }
