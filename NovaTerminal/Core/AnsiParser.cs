@@ -7,16 +7,17 @@ namespace NovaTerminal.Core
     public class AnsiParser
     {
         private TerminalBuffer _buffer;
-        private enum State { Normal, Esc, Csi }
+        private enum State { Normal, Esc, Csi, Osc, OscEsc }
         private State _state = State.Normal;
         private List<char> _paramBuffer = new List<char>();
+        private List<char> _oscStringBuffer = new List<char>(); // Used for OSC string content
 
         public AnsiParser(TerminalBuffer buffer)
         {
             _buffer = buffer;
         }
 
-        public void Process(string input)
+        public void Process(string input) // Renamed 'text' to 'input' to match original
         {
             foreach (char c in input)
             {
@@ -24,6 +25,17 @@ namespace NovaTerminal.Core
                 {
                     case State.Normal:
                         if (c == '\x1b') _state = State.Esc;
+                        else if (c == '\u009B') // C1 CSI
+                        {
+                            _state = State.Csi;
+                            _paramBuffer.Clear();
+                        }
+                        else if (c == '\u009D') // C1 OSC
+                        {
+                            _state = State.Osc;
+                            _oscStringBuffer.Clear();
+                        }
+                        else if (c == '\a') { /* Ignore BEL in normal text */ }
                         else _buffer.WriteChar(c);
                         break;
 
@@ -33,13 +45,40 @@ namespace NovaTerminal.Core
                             _state = State.Csi;
                             _paramBuffer.Clear();
                         }
+                        else if (c == ']') // OSC Start
+                        {
+                            _state = State.Osc;
+                            _oscStringBuffer.Clear();
+                        }
                         else
                         {
-                            // Unsupported escape sequence, just reset or print?
-                            // For simplicity, print the Esc char and this char?
-                            // Or ignore.
+                            // Fallback
                             _state = State.Normal;
-                            // _buffer.WriteChar(c); // Be careful echoing control chars
+                        }
+                        break;
+
+                    case State.Osc:
+                        if (c == '\a' || c == '\u009C') // BEL or ST (8-bit)
+                        {
+                            _state = State.Normal;
+                        }
+                        else if (c == '\x1b')
+                        {
+                            _state = State.OscEsc;
+                        }
+                        // Else consume
+                        break;
+                        
+                    case State.OscEsc:
+                        if (c == '\\') // ST Terminator (ESC \)
+                        {
+                            _state = State.Normal;
+                        }
+                        else
+                        {
+                            // Invalid termination, return to normal
+                            _state = State.Normal;
+                            // Optionally re-process c, but for safety just consume
                         }
                         break;
 
@@ -64,7 +103,8 @@ namespace NovaTerminal.Core
         private void HandleCsi(char finalByte)
         {
             string paramsStr = new string(_paramBuffer.ToArray());
-            string[] parts = paramsStr.Split(';', StringSplitOptions.RemoveEmptyEntries);
+            // Support both semi-colon and colon as separators (common in modern terminals)
+            string[] parts = paramsStr.Split(new char[] { ';', ':' }, StringSplitOptions.RemoveEmptyEntries);
             int[] args = new int[parts.Length];
             for(int i=0; i<parts.Length; i++) int.TryParse(parts[i], out args[i]);
 
@@ -105,45 +145,150 @@ namespace NovaTerminal.Core
         {
             if (args.Length == 0)
             {
-                // Reset
-                _buffer.CurrentForeground = Colors.LightGray;
-                _buffer.CurrentBackground = Colors.Black;
+                ResetColors();
                 return;
             }
 
-            foreach (var code in args)
+            for (int i = 0; i < args.Length; i++)
             {
+                int code = args[i];
+
                 if (code == 0)
                 {
+                    ResetColors();
+                }
+                else if (code >= 30 && code <= 37)
+                {
+                    _buffer.CurrentForeground = GetBasicColor(code - 30);
+                }
+                else if (code == 39)
+                {
                     _buffer.CurrentForeground = Colors.LightGray;
+                }
+                else if (code >= 40 && code <= 47)
+                {
+                    _buffer.CurrentBackground = GetBasicColor(code - 40);
+                }
+                else if (code == 49)
+                {
                     _buffer.CurrentBackground = Colors.Black;
                 }
-                else if (code >= 30 && code <= 37) // Foreground
+                else if (code == 1) // Bold
                 {
-                    _buffer.CurrentForeground = GetColor(code - 30);
+                    _buffer.IsBold = true;
+                    // Optional: Auto-brighten current color if it's a basic color?
+                    // Typically purely a state flag for upcoming chars.
                 }
-                else if (code >= 40 && code <= 47) // Background
+                else if (code == 22) // Normal Intensity (Not Bold)
                 {
-                    _buffer.CurrentBackground = GetColor(code - 40);
+                    _buffer.IsBold = false;
                 }
-                // Extended colors (38/48) TODO later
+                else if (code == 7) // Inverse
+                {
+                    _buffer.IsInverse = true;
+                }
+                else if (code == 27) // No Inverse
+                {
+                    _buffer.IsInverse = false;
+                }
+                else if (code >= 90 && code <= 97) // Bright Foreground
+                {
+                    _buffer.CurrentForeground = GetBasicColor(code - 90, bright: true);
+                }
+                else if (code >= 100 && code <= 107) // Bright Background
+                {
+                    _buffer.CurrentBackground = GetBasicColor(code - 100, bright: true);
+                }
+                else if (code == 38) // Extended Foreground
+                {
+                    var c = ParseExtendedColor(args, ref i);
+                    if (c.HasValue) _buffer.CurrentForeground = c.Value;
+                }
+                else if (code == 48) // Extended Background
+                {
+                    var c = ParseExtendedColor(args, ref i);
+                    if (c.HasValue) _buffer.CurrentBackground = c.Value;
+                }
             }
         }
 
-        private Color GetColor(int index)
+        private void ResetColors()
         {
-            switch(index)
+            _buffer.CurrentForeground = Colors.LightGray;
+            _buffer.CurrentBackground = Colors.Black;
+            _buffer.IsInverse = false;
+            _buffer.IsBold = false;
+        }
+
+        private Color? ParseExtendedColor(int[] args, ref int i)
+        {
+            if (i + 1 >= args.Length) return null;
+            
+            int mode = args[++i];
+            if (mode == 5) // 256 colors
             {
-                case 0: return Colors.Black;
-                case 1: return Colors.Red;
-                case 2: return Colors.Green;
-                case 3: return Colors.Yellow;
-                case 4: return Colors.Blue;
-                case 5: return Colors.Magenta;
-                case 6: return Colors.Cyan;
-                case 7: return Colors.White;
+                if (i + 1 >= args.Length) return null;
+                int index = args[++i];
+                return GetXtermColor(index);
+            }
+            else if (mode == 2) // TrueColor (Next 3 args are R, G, B)
+            {
+                if (i + 3 >= args.Length) return null;
+                byte r = (byte)args[++i];
+                byte g = (byte)args[++i];
+                byte b = (byte)args[++i];
+                return Color.FromRgb(r, g, b);
+            }
+            return null;
+        }
+
+        private Color GetBasicColor(int index, bool bright = false)
+        {
+            // Simple mapping for now
+            switch (index)
+            {
+                case 0: return bright ?  Color.FromRgb(85, 85, 85) : Colors.Black;
+                case 1: return bright ?  Color.FromRgb(255, 85, 85) : Colors.Red; // Red
+                case 2: return bright ?  Color.FromRgb(85, 255, 85) : Colors.Green; // Green
+                case 3: return bright ?  Color.FromRgb(255, 255, 85) : Colors.Yellow; // Yellow
+                case 4: return bright ?  Color.FromRgb(85, 85, 255) : Colors.Blue; // Blue
+                case 5: return bright ?  Color.FromRgb(255, 85, 255) : Colors.Magenta; // Magenta
+                case 6: return bright ?  Color.FromRgb(85, 255, 255) : Colors.Cyan; // Cyan
+                case 7: return bright ?  Colors.White : Colors.LightGray; // White
                 default: return Colors.White;
             }
+        }
+
+        private Color GetXtermColor(int index)
+        {
+            // 0-15: Standard colors
+            if (index < 16)
+            {
+                return GetBasicColor(index % 8, index >= 8);
+            }
+
+            // 16-231: 6x6x6 Cube
+            if (index < 232)
+            {
+                index -= 16;
+                int r = (index / 36);
+                int g = (index / 6) % 6;
+                int b = index % 6;
+
+                // Mapping 0-5 to 0-255: 0->0, 1->95, 2->135, 3->175, 4->215, 5->255
+                byte ToByte(int v) => (byte)(v == 0 ? 0 : (v * 40 + 55));
+                return Color.FromRgb(ToByte(r), ToByte(g), ToByte(b));
+            }
+
+            // 232-255: Grayscale
+            if (index < 256)
+            {
+                index -= 232;
+                byte v = (byte)(index * 10 + 8);
+                return Color.FromRgb(v, v, v);
+            }
+
+            return Colors.White;
         }
     }
 }

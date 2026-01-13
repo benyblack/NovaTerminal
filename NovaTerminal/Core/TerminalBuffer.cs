@@ -17,6 +17,8 @@ namespace NovaTerminal.Core
 
         public Color CurrentForeground { get; set; } = Colors.LightGray;
         public Color CurrentBackground { get; set; } = Colors.Black;
+        public bool IsInverse { get; set; }
+        public bool IsBold { get; set; }
 
         public event Action? OnInvalidate;
 
@@ -41,6 +43,8 @@ namespace NovaTerminal.Core
             AddNewLine();
             CursorCol = 0;
             CursorRow = 0;
+            IsInverse = false;
+            IsBold = false;
             OnInvalidate?.Invoke();
         }
 
@@ -85,7 +89,23 @@ namespace NovaTerminal.Core
                  if (CursorRow >= _lines.Count) AddNewLine();
             }
 
-            _lines[CursorRow].Cells[CursorCol] = new TerminalCell(c, CurrentForeground, CurrentBackground);
+            // Apply Attributes
+            Color fg = CurrentForeground;
+            Color bg = CurrentBackground;
+            
+            // Adjust for Bold (If generic colors, brighten them. If Extended/RGB, usually ignored or handled elsewhere, but we can try)
+            // For now, simpler: AnsiParser already handles Bold by picking Bright color indices. 
+            // So IsBold is mostly for "Text Weight" if we supported it, or re-brightening standard colors.
+            // Let's rely on AnsiParser setting the correct color for now.
+
+            if (IsInverse)
+            {
+                var tmp = fg;
+                fg = bg;
+                bg = tmp;
+            }
+
+            _lines[CursorRow].Cells[CursorCol] = new TerminalCell(c, fg, bg);
             CursorCol++; 
             OnInvalidate?.Invoke();
         }

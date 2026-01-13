@@ -21,14 +21,14 @@ namespace NovaTerminal
             public AnsiParser Parser { get; set; }
             public TerminalView View { get; set; }
             
-            public TabContext() 
+            public TabContext(string shell) 
             {
                  // 100x30 default
                  Buffer = new TerminalBuffer(100, 30);
                  Parser = new AnsiParser(Buffer);
                  View = new TerminalView();
                  View.SetBuffer(Buffer);
-                 Session = new TerminalSession();
+                 Session = new TerminalSession(shell);
             }
         }
 
@@ -40,8 +40,18 @@ namespace NovaTerminal
 
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
+
+            // Menu Items
+            var menuCmd = this.FindControl<MenuItem>("MenuCmd");
+            var menuPs = this.FindControl<MenuItem>("MenuPs");
+            var menuWsl = this.FindControl<MenuItem>("MenuWsl");
             
-            if (btnNew != null) btnNew.Click += (s, e) => AddTab();
+            // Removed default click handler to prevent double actions. 
+            // The Button acts purely as a flyout trigger.
+
+            if (menuCmd != null) menuCmd.Click += (s, e) => AddTab("cmd.exe");
+            if (menuPs != null) menuPs.Click += (s, e) => AddTab("powershell.exe");
+            if (menuWsl != null) menuWsl.Click += (s, e) => AddTab("wsl.exe");
             
             if (tabs != null)
             {
@@ -65,12 +75,12 @@ namespace NovaTerminal
             this.TextInput += OnTextInput;
         }
 
-        private void AddTab()
+        private void AddTab(string shell = "cmd.exe")
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
 
-            var ctx = new TabContext();
+            var ctx = new TabContext(shell);
             
             // Wire up output
             ctx.Session.OnOutputReceived += text => 
@@ -83,7 +93,7 @@ namespace NovaTerminal
 
             var tabItem = new TabItem
             {
-                Header = "Terminal",
+                Header = shell,
                 Content = ctx.View,
                 Tag = ctx
             };
@@ -105,7 +115,8 @@ namespace NovaTerminal
             
             if (!string.IsNullOrEmpty(e.Text))
             {
-               _currentContext.Parser.Process(e.Text); 
+               // Local echo removed; rely on shell echo
+               // _currentContext.Parser.Process(e.Text); 
                _currentContext.Session.SendInput(e.Text);
                e.Handled = true;
             }
@@ -117,19 +128,19 @@ namespace NovaTerminal
 
             if (e.Key == Key.Enter)
             {
-                _currentContext.Parser.Process("\r\n");
+                // _currentContext.Parser.Process("\r\n");
                 _currentContext.Session.SendInput("\r");
                 e.Handled = true;
             }
             else if (e.Key == Key.Back)
             {
-                _currentContext.Parser.Process("\b \b");
+                // _currentContext.Parser.Process("\b \b");
                 _currentContext.Session.SendInput("\b");
                 e.Handled = true;
             }
             else if (e.Key == Key.Tab)
             {
-                _currentContext.Parser.Process("\t");
+                // _currentContext.Parser.Process("\t");
                 _currentContext.Session.SendInput("\t");
                 e.Handled = true;
             }
