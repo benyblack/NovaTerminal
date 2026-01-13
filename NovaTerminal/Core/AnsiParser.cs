@@ -50,6 +50,16 @@ namespace NovaTerminal.Core
                             _state = State.Osc;
                             _oscStringBuffer.Clear();
                         }
+                        else if (c == '7') // DECSC Save Cursor
+                        {
+                            _buffer.SaveCursor();
+                            _state = State.Normal;
+                        }
+                        else if (c == '8') // DECRC Restore Cursor
+                        {
+                            _buffer.RestoreCursor();
+                            _state = State.Normal;
+                        }
                         else
                         {
                             // Fallback
@@ -134,6 +144,22 @@ namespace NovaTerminal.Core
                     int col = (args.Length > 1 ? args[1] : 1) - 1;
                     _buffer.CursorRow = Math.Clamp(row, 0, _buffer.Rows - 1);
                     _buffer.CursorCol = Math.Clamp(col, 0, _buffer.Cols - 1);
+                    break;
+                case 'G': // Cursor Horizontal Absolute (CHA)
+                    int val = (args.Length > 0 ? args[0] : 1) - 1;
+                    _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
+                    break;
+                case 'K': // Erase in Line
+                    int mode = args.Length > 0 ? args[0] : 0;
+                    if (mode == 0) _buffer.EraseLineToEnd(); // 0: Cursor to End
+                    else if (mode == 1) _buffer.EraseLineFromStart(); // 1: Start to Cursor
+                    else if (mode == 2) _buffer.EraseLineAll(); // 2: Entire Line
+                    break;
+                case 's': // Save Cursor (ANSI.SYS / SCO)
+                    _buffer.SaveCursor();
+                    break;
+                case 'u': // Restore Cursor (ANSI.SYS / SCO)
+                    _buffer.RestoreCursor();
                     break;
                 case 'm': // SGR (Select Graphic Rendition)
                     HandleSgr(args);

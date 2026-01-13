@@ -52,6 +52,11 @@ namespace NovaTerminal
             startInfo.Environment["CLICOLOR_FORCE"] = "1"; // Force color for some tools
             startInfo.Environment["LANG"] = "C.UTF-8";
             startInfo.Environment["LC_ALL"] = "C.UTF-8";
+            
+            // Hint initial size to the shell (Commonly 120x30 for modern HD screens)
+            startInfo.Environment["COLUMNS"] = "120";
+            startInfo.Environment["LINES"] = "30";
+            
             // For git specifically, it often checks isatty, but we can try basic vars. 
             // Note: Git for Windows might need 'git -c color.ui=always' if it strictly checks handles.
 

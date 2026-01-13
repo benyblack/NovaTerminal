@@ -243,5 +243,65 @@ namespace NovaTerminal.Core
              if (totalLines > Rows) startLine = totalLines - Rows;
              return CursorRow - startLine;
         }
+        // Saved Cursor State (DEC SC / DEC RC)
+        private int _savedCursorRow;
+        private int _savedCursorCol;
+        private Color _savedForeground = Colors.LightGray;
+        private Color _savedBackground = Colors.Black;
+        private bool _savedIsInverse;
+        private bool _savedIsBold;
+
+        public void SaveCursor()
+        {
+            _savedCursorRow = CursorRow;
+            _savedCursorCol = CursorCol;
+            _savedForeground = CurrentForeground;
+            _savedBackground = CurrentBackground;
+            _savedIsInverse = IsInverse;
+            _savedIsBold = IsBold;
+        }
+
+        public void RestoreCursor()
+        {
+            CursorRow = Math.Clamp(_savedCursorRow, 0, _lines.Count); 
+            CursorCol = Math.Clamp(_savedCursorCol, 0, Cols - 1);
+            CurrentForeground = _savedForeground;
+            CurrentBackground = _savedBackground;
+            IsInverse = _savedIsInverse;
+            IsBold = _savedIsBold;
+        }
+
+        public void EraseLineToEnd()
+        {
+            if (CursorRow >= _lines.Count) return;
+            var row = _lines[CursorRow];
+            for (int i = CursorCol; i < Cols; i++)
+            {
+                row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground);
+            }
+            OnInvalidate?.Invoke();
+        }
+
+        public void EraseLineFromStart()
+        {
+            if (CursorRow >= _lines.Count) return;
+            var row = _lines[CursorRow];
+            for (int i = 0; i <= CursorCol; i++) // Inclusive of cursor often? Standard is "start to cursor inclusive"
+            {
+                 row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground);
+            }
+            OnInvalidate?.Invoke();
+        }
+
+        public void EraseLineAll()
+        {
+            if (CursorRow >= _lines.Count) return;
+            var row = _lines[CursorRow];
+            for (int i = 0; i < Cols; i++)
+            {
+                 row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground);
+            }
+            OnInvalidate?.Invoke();
+        }
     }
 }

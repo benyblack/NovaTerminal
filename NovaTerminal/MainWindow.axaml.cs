@@ -23,8 +23,8 @@ namespace NovaTerminal
             
             public TabContext(string shell) 
             {
-                 // 100x30 default
-                 Buffer = new TerminalBuffer(100, 30);
+                 // Match the environment variable defaults (120x30)
+                 Buffer = new TerminalBuffer(120, 30);
                  Parser = new AnsiParser(Buffer);
                  View = new TerminalView();
                  View.SetBuffer(Buffer);
