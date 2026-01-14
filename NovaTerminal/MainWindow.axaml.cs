@@ -75,7 +75,19 @@ namespace NovaTerminal
             // Ideally individual Views handle input, but Window-level hook catches it all nicely for now.
             this.AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
             this.TextInput += OnTextInput;
+
+            // Initialize Vault
+            try
+            {
+                Vault = new VaultService();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[VAULT] Failed to initialize: {ex.Message}");
+            }
         }
+
+        public static VaultService? Vault { get; private set; }
 
         private void AddTab(string shell = "cmd.exe")
         {
