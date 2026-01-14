@@ -62,6 +62,8 @@ namespace NovaTerminal.Core
 
         public event Action<int, int>? ScrollStateChanged;
         private int _scrollOffset = 0;
+        private DispatcherTimer? _autoScrollTimer;
+        private int _autoScrollDirection = 0; // -1 up, 1 down
         
         public int ScrollOffset
         {
@@ -107,6 +109,81 @@ namespace NovaTerminal.Core
         public event Action? OnReady;
         public event Action<int, int>? OnResize;
         private bool _isReady;
+
+        private void StartAutoScroll(int direction)
+        {
+            _autoScrollDirection = direction;
+            if (_autoScrollTimer == null)
+            {
+                _autoScrollTimer = new DispatcherTimer(DispatcherPriority.Render);
+                _autoScrollTimer.Interval = TimeSpan.FromMilliseconds(50);
+                _autoScrollTimer.Tick += OnAutoScrollTick;
+            }
+            if (!_autoScrollTimer.IsEnabled)
+            {
+                _autoScrollTimer.Start();
+            }
+        }
+
+        private void StopAutoScroll()
+        {
+            if (_autoScrollTimer != null && _autoScrollTimer.IsEnabled)
+            {
+                _autoScrollTimer.Stop();
+            }
+        }
+
+        private void OnAutoScrollTick(object? sender, EventArgs e)
+        {
+            if (_buffer == null || _autoScrollDirection == 0) return;
+
+            // Adjust scroll offset
+            int newOffset = ScrollOffset - _autoScrollDirection; // Offset decreases when scrolling down (towards 0/end)
+            // Wait, ScrollOffset 0 is bottom (end). Higher values go back in history.
+            // If dragging DOWN (direction=1), we want to see newer lines -> Decrease Offset.
+            // If dragging UP (direction=-1), we want to see older lines -> Increase Offset.
+            
+            // Re-clamping logic:
+            int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
+            newOffset = Math.Clamp(newOffset, 0, maxScroll);
+
+            if (newOffset != ScrollOffset)
+            {
+                ScrollOffset = newOffset;
+                
+                // Update selection to current mouse position relative to NEW scroll
+                try 
+                {
+                    // Accessing pointer position is tricky inside timer without event args.
+                    // We can rely on the fact that OnPointerMoved updates _selection.End 
+                    // BUT OnPointerMoved fires on mouse move. If mouse is still, we need to update selection end based on new scroll.
+                    // Actually, simpler: The selection end is an absolute row. 
+                    // If we scroll, the mouse is now over a DIFFERENT absolute row.
+                    
+                    // We should track last known mouse position or just let the user move mouse.
+                    // But standard behavior is: hold mouse at bottom -> scroll -> selection expands.
+                    // To do this, we need to update _selection.End to the row currently at the bottom (or top) visual edge.
+                    
+                    int targetVisualRow = (_autoScrollDirection > 0) ? _buffer.Rows - 1 : 0;
+                    
+                    // Convert visual row to absolute row with NEW offset
+                    int totalLines = _buffer.TotalLines;
+                    int displayStart = Math.Max(0, totalLines - _buffer.Rows - ScrollOffset);
+                    int absRow = displayStart + targetVisualRow;
+                    
+                    // We need to keep the Column from the initial selection/drag. 
+                    // But for full line selection feeling, usually it goes to end/start of line.
+                    // Let's just update the Row, keep Col from existing selection end? No, that might be weird.
+                    // Ideally we'd poll mouse position, but complex in Avalonia without reference.
+                    // Let's assume extending to the full width of the new row is acceptable for vertical drag,
+                    // or just keep the previous column.
+                    
+                    _selection.End = (absRow, _selection.End.Col);
+                    InvalidateVisual();
+                }
+                catch { }
+            }
+        }
 
         protected override void OnSizeChanged(SizeChangedEventArgs e)
         {
@@ -157,6 +234,9 @@ namespace NovaTerminal.Core
             // Batching Lists
             
             // Iterate rows
+            int totalLines = _buffer.TotalLines;
+            int displayStart = Math.Max(0, totalLines - _buffer.Rows - _scrollOffset);
+
             for (int r = 0; r < _buffer.Rows; r++)
             {
                 double y = r * _charHeight;
@@ -192,20 +272,22 @@ namespace NovaTerminal.Core
                 }
 
                 // Pass 1.5: Selection Highlight (if any)
+                // Pass 1.5: Selection Highlight (if any)
                 if (_selection.IsActive)
                 {
-                    foreach (var (row, colStart, colEnd) in _selection.GetSelectedRanges(_buffer.Cols))
+                    // Calculate absolute row for visual row r
+                    int absRow = displayStart + r;
+                    var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, _buffer.Cols);
+                    
+                    if (isSelected)
                     {
-                        if (row == r)
-                        {
-                            var selRect = new Rect(
-                                colStart * _charWidth,
-                                y,
-                                (colEnd - colStart + 1) * _charWidth,
-                                _charHeight
-                            );
-                            context.FillRectangle(SelectionBrush, selRect);
-                        }
+                        var selRect = new Rect(
+                            colStart * _charWidth,
+                            y,
+                            (colEnd - colStart + 1) * _charWidth,
+                            _charHeight
+                        );
+                        context.FillRectangle(SelectionBrush, selRect);
                     }
                 }
 
@@ -396,10 +478,28 @@ namespace NovaTerminal.Core
             if (_isSelecting)
             {
                 var point = e.GetCurrentPoint(this);
-                var (row, col) = ScreenToTerminal(point.Position);
+                var (absRow, col) = ScreenToTerminal(point.Position);
                 
                 // Update selection end
-                _selection.End = (row, col);
+                _selection.End = (absRow, col);
+                
+                // Auto-scroll detection
+                double zoneSize = _charHeight * 2; // Drag within top/bottom 2 lines
+                if (point.Position.Y < zoneSize)
+                {
+                    // Near Top -> Scroll Up (Increase Offset)
+                    StartAutoScroll(-1);
+                }
+                else if (point.Position.Y > Bounds.Height - zoneSize)
+                {
+                    // Near Bottom -> Scroll Down (Decrease Offset)
+                    StartAutoScroll(1);
+                }
+                else
+                {
+                    StopAutoScroll();
+                }
+
                 InvalidateVisual();
             }
         }
@@ -419,6 +519,7 @@ namespace NovaTerminal.Core
             if (_isSelecting)
             {
                 _isSelecting = false;
+                StopAutoScroll();
                 
                 // If start == end, clear selection (was just a click)
                 if (_selection.Start == _selection.End)
@@ -549,11 +650,16 @@ namespace NovaTerminal.Core
             int startCol = col;
             int endCol = col;
 
+            // ScreenToTerminal now returns absolute rows.
+            // But SelectWord is usually called from visual clicks.
+            // ScreenToTerminal handles the conversion, so 'row' passed here IS absolute row.
+            // GetCellAbsolute is needed.
+
             // Find word boundaries (non-whitespace characters)
-            while (startCol > 0 && !IsWhitespace(_buffer.GetCell(startCol - 1, row).Character))
+            while (startCol > 0 && !IsWhitespace(_buffer.GetCellAbsolute(startCol - 1, row).Character))
                 startCol--;
 
-            while (endCol < _buffer.Cols - 1 && !IsWhitespace(_buffer.GetCell(endCol + 1, row).Character))
+            while (endCol < _buffer.Cols - 1 && !IsWhitespace(_buffer.GetCellAbsolute(endCol + 1, row).Character))
                 endCol++;
 
             _selection.Start = (row, startCol);
@@ -582,20 +688,31 @@ namespace NovaTerminal.Core
         }
 
         /// <summary>
-        /// Converts screen coordinates to terminal row/col.
+        /// Converts screen coordinates to terminal ABSOLUTE row/col.
         /// </summary>
         private (int Row, int Col) ScreenToTerminal(Point position)
         {
             if (_buffer == null) return (0, 0);
 
             int col = (int)(position.X / _charWidth);
-            int row = (int)(position.Y / _charHeight);
+            int visualRow = (int)(position.Y / _charHeight);
 
-            // Clamp to valid range
+            // Clamp visual row first
+            visualRow = Math.Clamp(visualRow, 0, _buffer.Rows - 1);
+            
+            // Convert to Absolute Row
+            // Visible Top Index = Total - Rows - Offset
+            int totalLines = _buffer.TotalLines;
+            int displayStart = Math.Max(0, totalLines - _buffer.Rows - _scrollOffset);
+            int absRow = displayStart + visualRow;
+
+            // Clamp columns
             col = Math.Clamp(col, 0, _buffer.Cols - 1);
-            row = Math.Clamp(row, 0, _buffer.Rows - 1);
+            
+            // AbsRow shouldn't need clamping if logic correct, but safety:
+            absRow = Math.Clamp(absRow, 0, totalLines - 1);
 
-            return (row, col);
+            return (absRow, col);
         }
     }
 }

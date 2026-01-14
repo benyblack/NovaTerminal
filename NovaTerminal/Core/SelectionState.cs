@@ -92,7 +92,7 @@ namespace NovaTerminal.Core
                 // Extract text from this row
                 for (int col = colStart; col <= colEnd; col++)
                 {
-                    var cell = buffer.GetCell(col, row);
+                    var cell = buffer.GetCellAbsolute(col, row);
                     sb.Append(cell.Character);
                 }
 
@@ -133,6 +133,23 @@ namespace NovaTerminal.Core
             {
                 return true; // Middle rows are fully selected
             }
+        }
+
+        public (bool IsSelected, int StartCol, int EndCol) GetSelectionRangeForRow(int row, int maxCols)
+        {
+            if (!IsActive) return (false, 0, 0);
+
+            var (startRow, startCol, endRow, endCol) = Normalize();
+
+            if (row < startRow || row > endRow) return (false, 0, 0);
+
+            int s = 0;
+            int e = maxCols - 1;
+
+            if (row == startRow) s = startCol;
+            if (row == endRow) e = endCol;
+
+            return (true, s, e);
         }
     }
 }

@@ -261,16 +261,23 @@ namespace NovaTerminal.Core
             
             int actualIndex = displayStart + fieldRow;
             
-            if (actualIndex < _scrollback.Count)
+            return GetCellAbsolute(col, actualIndex);
+        }
+
+        public TerminalCell GetCellAbsolute(int col, int absRow)
+        {
+            if (absRow < 0) return TerminalCell.Default;
+
+            if (absRow < _scrollback.Count)
             {
                 // Reading from scrollback
                 if (col < 0 || col >= Cols) return TerminalCell.Default;
-                return _scrollback[actualIndex].Cells[col];
+                return _scrollback[absRow].Cells[col];
             }
             else
             {
                 // Reading from viewport
-                int viewportRow = actualIndex - _scrollback.Count;
+                int viewportRow = absRow - _scrollback.Count;
                 if (viewportRow < 0 || viewportRow >= Rows) return TerminalCell.Default;
                 if (col < 0 || col >= Cols) return TerminalCell.Default;
                 return _viewport[viewportRow].Cells[col];
