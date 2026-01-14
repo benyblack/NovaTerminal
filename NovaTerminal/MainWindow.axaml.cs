@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using NovaTerminal.Core;
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace NovaTerminal
 {
@@ -157,6 +158,34 @@ namespace NovaTerminal
                     _currentContext.Session.SendInput("\x7f");
                     e.Handled = true;
                     return;
+
+                case Key.C:
+                    // Ctrl+C: Copy if selection exists, otherwise send Ctrl+C to shell
+                    if (e.KeyModifiers == KeyModifiers.Control)
+                    {
+                        if (_currentContext.View.HasSelection())
+                        {
+                            _ = _currentContext.View.CopySelectionToClipboard();
+                            _currentContext.View.ClearSelection();
+                            e.Handled = true;
+                            return;
+                        }
+                        // If no selection, send Ctrl+C to shell (interrupt)
+                        _currentContext.Session.SendInput("\x03");
+                        e.Handled = true;
+                        return;
+                    }
+                    break;
+
+                case Key.V:
+                    // Ctrl+V: Paste from clipboard
+                    if (e.KeyModifiers == KeyModifiers.Control)
+                    {
+                        _ = PasteFromClipboardAsync();
+                        e.Handled = true;
+                        return;
+                    }
+                    break;
                     
                 case Key.Tab:
                     _currentContext.Session.SendInput("\t");
@@ -249,6 +278,26 @@ namespace NovaTerminal
             {
                 _currentContext.Session.SendInput(sequence);
                 e.Handled = true;
+            }
+        }
+
+        private async Task PasteFromClipboardAsync()
+        {
+            try
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel?.Clipboard != null)
+                {
+                    var text = await topLevel.Clipboard.GetTextAsync();
+                    if (!string.IsNullOrEmpty(text))
+                    {
+                        _currentContext.Session.SendInput(text);
+                    }
+                }
+            }
+            catch
+            {
+                // Clipboard operations can fail silently
             }
         }
     }

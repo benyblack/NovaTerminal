@@ -1,11 +1,13 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Threading;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Threading.Tasks;
 
 namespace NovaTerminal.Core
 {
@@ -27,6 +29,11 @@ namespace NovaTerminal.Core
         private IGlyphTypeface? _glyphTypeface;
         private double _baselineOffset;
 
+        // Selection state
+        private readonly SelectionState _selection = new SelectionState();
+        private bool _isSelecting = false;
+        private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(100, 51, 153, 255));
+        
         public void SetBuffer(TerminalBuffer buffer)
         {
             if (_buffer != null) _buffer.OnInvalidate -= InvalidateVisual;
@@ -144,6 +151,24 @@ namespace NovaTerminal.Core
                     }
                 }
 
+                // Pass 1.5: Selection Highlight (if any)
+                if (_selection.IsActive)
+                {
+                    foreach (var (row, colStart, colEnd) in _selection.GetSelectedRanges(_buffer.Cols))
+                    {
+                        if (row == r)
+                        {
+                            var selRect = new Rect(
+                                colStart * _charWidth,
+                                y,
+                                (colEnd - colStart + 1) * _charWidth,
+                                _charHeight
+                            );
+                            context.FillRectangle(SelectionBrush, selRect);
+                        }
+                    }
+                }
+
                 // Pass 2: Foregrounds (Batched)
                 for (int c = 0; c < _buffer.Cols; c++)
                 {
@@ -240,6 +265,189 @@ namespace NovaTerminal.Core
                 double cursorY = visualCursorRow * _charHeight;
                 context.FillRectangle(Brushes.White, new Rect(cursorX, cursorY + _charHeight - 2, _charWidth, 2)); 
             }
+        }
+
+        // Mouse event handlers
+        protected override void OnPointerPressed(PointerPressedEventArgs e)
+        {
+            base.OnPointerPressed(e);
+
+            var point = e.GetCurrentPoint(this);
+            
+            if (point.Properties.IsLeftButtonPressed)
+            {
+                // Convert mouse position to terminal coordinates
+                var (row, col) = ScreenToTerminal(point.Position);
+                
+                // Check for double/triple-click
+                if (e.ClickCount == 2)
+                {
+                    // Double-click: Select word
+                    SelectWord(row, col);
+                    _isSelecting = false; // Don't start drag selection
+                }
+                else if (e.ClickCount >= 3)
+                {
+                    // Triple-click: Select line
+                    SelectLine(row);
+                    _isSelecting = false; // Don't start drag selection
+                }
+                else
+                {
+                    // Single click: Start selection
+                    _selection.Start = (row, col);
+                    _selection.End = (row, col);
+                    _selection.IsActive = true;
+                    _isSelecting = true;
+                }
+                
+                InvalidateVisual();
+            }
+        }
+
+        protected override void OnPointerMoved(PointerEventArgs e)
+        {
+            base.OnPointerMoved(e);
+
+            if (_isSelecting)
+            {
+                var point = e.GetCurrentPoint(this);
+                var (row, col) = ScreenToTerminal(point.Position);
+                
+                // Update selection end
+                _selection.End = (row, col);
+                InvalidateVisual();
+            }
+        }
+
+        protected override void OnPointerReleased(PointerReleasedEventArgs e)
+        {
+            base.OnPointerReleased(e);
+
+            if (_isSelecting)
+            {
+                _isSelecting = false;
+                
+                // If start == end, clear selection (was just a click)
+                if (_selection.Start == _selection.End)
+                {
+                    _selection.Clear();
+                    InvalidateVisual();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Copies selected text to clipboard.
+        /// </summary>
+        public async Task<bool> CopySelectionToClipboard()
+        {
+            if (!_selection.IsActive || _buffer == null)
+                return false;
+
+            try
+            {
+                var text = _selection.GetSelectedText(_buffer);
+                if (!string.IsNullOrEmpty(text))
+                {
+                    var topLevel = TopLevel.GetTopLevel(this);
+                    if (topLevel?.Clipboard != null)
+                    {
+                        await topLevel.Clipboard.SetTextAsync(text);
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // Clipboard operations can fail
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Returns selected text without copying to clipboard.
+        /// </summary>
+        public string? GetSelectedText()
+        {
+            if (!_selection.IsActive || _buffer == null)
+                return null;
+
+            return _selection.GetSelectedText(_buffer);
+        }
+
+        /// <summary>
+        /// Clears the current selection.
+        /// </summary>
+        public void ClearSelection()
+        {
+            _selection.Clear();
+            InvalidateVisual();
+        }
+
+        /// <summary>
+        /// Checks if there's an active selection.
+        /// </summary>
+        public bool HasSelection() => _selection.IsActive;
+
+        /// <summary>
+        /// Selects a word at the given position (double-click behavior).
+        /// </summary>
+        private void SelectWord(int row, int col)
+        {
+            if (_buffer == null) return;
+
+            int startCol = col;
+            int endCol = col;
+
+            // Find word boundaries (non-whitespace characters)
+            while (startCol > 0 && !IsWhitespace(_buffer.GetCell(startCol - 1, row).Character))
+                startCol--;
+
+            while (endCol < _buffer.Cols - 1 && !IsWhitespace(_buffer.GetCell(endCol + 1, row).Character))
+                endCol++;
+
+            _selection.Start = (row, startCol);
+            _selection.End = (row, endCol);
+            _selection.IsActive = true;
+        }
+
+        /// <summary>
+        /// Selects an entire line (triple-click behavior).
+        /// </summary>
+        private void SelectLine(int row)
+        {
+            if (_buffer == null) return;
+
+            _selection.Start = (row, 0);
+            _selection.End = (row, _buffer.Cols - 1);
+            _selection.IsActive = true;
+        }
+
+        /// <summary>
+        /// Checks if a character is whitespace.
+        /// </summary>
+        private static bool IsWhitespace(char c)
+        {
+            return char.IsWhiteSpace(c) || c == '\0';
+        }
+
+        /// <summary>
+        /// Converts screen coordinates to terminal row/col.
+        /// </summary>
+        private (int Row, int Col) ScreenToTerminal(Point position)
+        {
+            if (_buffer == null) return (0, 0);
+
+            int col = (int)(position.X / _charWidth);
+            int row = (int)(position.Y / _charHeight);
+
+            // Clamp to valid range
+            col = Math.Clamp(col, 0, _buffer.Cols - 1);
+            row = Math.Clamp(row, 0, _buffer.Rows - 1);
+
+            return (row, col);
         }
     }
 }
