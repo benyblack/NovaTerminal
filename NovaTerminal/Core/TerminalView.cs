@@ -33,6 +33,9 @@ namespace NovaTerminal.Core
         private readonly SelectionState _selection = new SelectionState();
         private bool _isSelecting = false;
         private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(100, 51, 153, 255));
+
+        // Session for sending mouse events
+        private ITerminalSession? _session;
         
         public void SetBuffer(TerminalBuffer buffer)
         {
@@ -50,6 +53,11 @@ namespace NovaTerminal.Core
             _glyphTypeface = _typeface.GlyphTypeface;
             
             InvalidateVisual();
+        }
+
+        public void SetSession(ITerminalSession session)
+        {
+            _session = session;
         }
 
         public void InvalidateBuffer()
@@ -276,7 +284,16 @@ namespace NovaTerminal.Core
             
             if (point.Properties.IsLeftButtonPressed)
             {
-                // Convert mouse position to terminal coordinates
+                // Check if application has enabled mouse reporting
+                if (_buffer != null && _buffer.IsMouseReportingActive())
+                {
+                    // Forward mouse event to shell
+                    SendMouseEvent(e, pressed: true);
+                    e.Handled = true;
+                    return;
+                }
+
+                // Normal mode: Handle selection
                 var (row, col) = ScreenToTerminal(point.Position);
                 
                 // Check for double/triple-click
@@ -309,6 +326,26 @@ namespace NovaTerminal.Core
         {
             base.OnPointerMoved(e);
 
+            // Forward motion events if mouse reporting is active
+            if (_buffer != null && _buffer.IsMouseReportingActive())
+            {
+                var point = e.GetCurrentPoint(this);
+                
+                // Only send motion when a button is actually pressed (drag)
+                // Mode 1003 should track motion during button press, not on hover
+                bool anyButtonPressed = point.Properties.IsLeftButtonPressed || 
+                                       point.Properties.IsMiddleButtonPressed || 
+                                       point.Properties.IsRightButtonPressed;
+                
+                if (anyButtonPressed)
+                {
+                    SendMouseEvent(e, pressed: true, motion: true);
+                }
+                
+                e.Handled = true;
+                return;
+            }
+
             if (_isSelecting)
             {
                 var point = e.GetCurrentPoint(this);
@@ -324,6 +361,14 @@ namespace NovaTerminal.Core
         {
             base.OnPointerReleased(e);
 
+            // Forward release events if mouse reporting is active
+            if (_buffer != null && _buffer.IsMouseReportingActive())
+            {
+                SendMouseEvent(e, pressed: false);
+                e.Handled = true;
+                return;
+            }
+
             if (_isSelecting)
             {
                 _isSelecting = false;
@@ -333,6 +378,62 @@ namespace NovaTerminal.Core
                 {
                     _selection.Clear();
                     InvalidateVisual();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Sends a mouse event to the shell in SGR format when mouse reporting is enabled.
+        /// </summary>
+        private void SendMouseEvent(PointerEventArgs e, bool pressed, bool motion = false)
+        {
+            if (_session == null || _buffer == null) return;
+
+            var point = e.GetCurrentPoint(this);
+            var (row, col) = ScreenToTerminal(point.Position);
+
+            // Convert to 1-indexed coordinates
+            int x = col + 1;
+            int y = row + 1;
+
+            // Determine button
+            int button = 0;
+            if (point.Properties.IsLeftButtonPressed) button = 0;
+            else if (point.Properties.IsMiddleButtonPressed) button = 1;
+            else if (point.Properties.IsRightButtonPressed) button = 2;
+
+            // Add motion flag if this is a motion event and AnyEvent mode is active
+            if (motion && _buffer.MouseModeAnyEvent)
+            {
+                button += 32; // Motion indicator
+            }
+
+            // Only send if we have SGR mode enabled
+            if (_buffer.MouseModeSGR)
+            {
+                // SGR format: CSI < button ; x ; y M/m
+                char finalChar = pressed ? 'M' : 'm';
+                string sequence = $"\x1b[<{button};{x};{y}{finalChar}";
+                
+                _session.SendInput(sequence);
+            }
+            else if (_buffer.IsMouseReportingActive())
+            {
+                // X10/Legacy format: CSI M bxy (fallback for WSL)
+                // Only send press events in X10 mode (no release)
+                if (pressed)
+                {
+                    // X10 format: button and coordinates are sent as single bytes offset by 32
+                    char buttonChar = (char)(32 + button);
+                    char xChar = (char)(32 + x);
+                    char yChar = (char)(32 + y);
+                    
+                    // Clamp to valid range (coordinates must be < 223)
+                    if (x < 223 && y < 223)
+                    {
+                        string sequence = $"\x1b[M{buttonChar}{xChar}{yChar}";
+                        _session.SendInput(sequence);
+                    }
                 }
             }
         }

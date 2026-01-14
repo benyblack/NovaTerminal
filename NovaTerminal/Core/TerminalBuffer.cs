@@ -30,6 +30,12 @@ namespace NovaTerminal.Core
         public bool IsInverse { get; set; }
         public bool IsBold { get; set; }
 
+        // Mouse reporting modes (for TUI apps like vim, htop)
+        public bool MouseModeX10 { get; set; }          // ?1000 - X10 mouse reporting
+        public bool MouseModeButtonEvent { get; set; }  // ?1002 - Button event tracking
+        public bool MouseModeAnyEvent { get; set; }     // ?1003 - Any event tracking
+        public bool MouseModeSGR { get; set; }          // ?1006 - SGR extended mode
+
         public event Action? OnInvalidate;
 
         public TerminalBuffer(int cols, int rows)
@@ -49,18 +55,31 @@ namespace NovaTerminal.Core
         }
 
         public void Clear()
+    {
+        // Clear viewport
+        for (int i = 0; i < Rows; i++)
         {
-            // Clear viewport
-            for (int i = 0; i < Rows; i++)
-            {
-                _viewport[i] = new TerminalRow(Cols);
-            }
-            
-            CursorCol = 0;
-            CursorRow = 0;
-            IsInverse = false;
-            IsBold = false;
-            OnInvalidate?.Invoke();
+            _viewport[i] = new TerminalRow(Cols);
+        }
+        
+        CursorCol = 0;
+        CursorRow = 0;
+        IsInverse = false;
+        IsBold = false;
+        
+        // NOTE: Do NOT reset mouse modes here!
+        // Mouse modes should only change via DEC private mode sequences,
+        // not from screen clearing operations (htop clears screen after enabling mouse)
+        
+        OnInvalidate?.Invoke();
+    }
+
+        /// <summary>
+        /// Checks if any mouse reporting mode is active.
+        /// </summary>
+        public bool IsMouseReportingActive()
+        {
+            return MouseModeX10 || MouseModeButtonEvent || MouseModeAnyEvent;
         }
 
         public void WriteChar(char c)

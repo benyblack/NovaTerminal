@@ -179,6 +179,47 @@ namespace NovaTerminal.Core
                 case 'm': // SGR (Select Graphic Rendition)
                     HandleSgr(args);
                     break;
+                case 'h': // Set Mode
+                case 'l': // Reset Mode
+                    // Check if this is a DEC Private Mode (CSI ? Ps h/l)
+                    if (paramsStr.StartsWith("?"))
+                    {
+                        bool enable = (finalByte == 'h');
+                        // Strip '?' and re-parse the mode numbers
+                        string modeStr = paramsStr.Substring(1);
+                        string[] modeParts = modeStr.Split(new char[] { ';', ':' }, StringSplitOptions.RemoveEmptyEntries);
+                        int[] modes = new int[modeParts.Length];
+                        for (int i = 0; i < modeParts.Length; i++)
+                            int.TryParse(modeParts[i], out modes[i]);
+                        
+                        HandleDECPrivateMode(modes, enable);
+                    }
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Handles DEC Private Mode sequences (CSI ? Ps h/l)
+        /// </summary>
+        private void HandleDECPrivateMode(int[] modes, bool enable)
+        {
+            foreach (int mode in modes)
+            {
+                switch (mode)
+                {
+                    case 1000: // X10 mouse reporting
+                        _buffer.MouseModeX10 = enable;
+                        break;
+                    case 1002: // Button event tracking
+                        _buffer.MouseModeButtonEvent = enable;
+                        break;
+                    case 1003: // Any event tracking  
+                        _buffer.MouseModeAnyEvent = enable;
+                        break;
+                    case 1006: // SGR extended mouse mode
+                        _buffer.MouseModeSGR = enable;
+                        break;
+                }
             }
         }
 

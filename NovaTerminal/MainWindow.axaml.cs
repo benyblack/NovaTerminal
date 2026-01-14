@@ -125,6 +125,10 @@ namespace NovaTerminal
             {
                 ctx.View.InvalidateBuffer();
             };
+
+            // Wire up session for mouse event forwarding
+            ctx.View.SetBuffer(ctx.Buffer);
+            ctx.View.SetSession(ctx.Session);
         }
 
         private void OnTextInput(object? sender, TextInputEventArgs e)

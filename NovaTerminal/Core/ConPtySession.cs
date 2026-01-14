@@ -10,7 +10,7 @@ namespace NovaTerminal.Core
     /// <summary>
     /// Manages a Windows Pseudo Console (ConPTY) session with a child process
     /// </summary>
-    public class ConPtySession : IDisposable
+    public class ConPtySession : ITerminalSession, IDisposable
     {
         private readonly string _shell;
         private IntPtr _hPC = IntPtr.Zero;
