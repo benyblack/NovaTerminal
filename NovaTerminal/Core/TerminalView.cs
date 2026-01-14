@@ -69,7 +69,7 @@ namespace NovaTerminal.Core
             }
             else
             {
-                Dispatcher.UIThread.InvokeAsync(InvalidateVisual);
+                Dispatcher.UIThread.InvokeAsync(InvalidateVisual, DispatcherPriority.Render);
             }
         }
 
@@ -115,6 +115,7 @@ namespace NovaTerminal.Core
         public override void Render(DrawingContext context)
         {
             base.Render(context);
+
             if (_buffer == null) return;
 
             // Clear background

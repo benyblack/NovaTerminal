@@ -123,17 +123,20 @@ namespace NovaTerminal.Core
             switch (finalByte)
             {
                 case 'A': // Cursor Up
-                    // TODO: Buffer should expose cursor movement methods
-                     _buffer.CursorRow = Math.Max(0, _buffer.CursorRow - Math.Max(1, arg0));
+                    _buffer.CursorRow = Math.Max(0, _buffer.CursorRow - Math.Max(1, arg0));
+                    _buffer.Invalidate();
                     break;
                 case 'B': // Cursor Down
-                     _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + Math.Max(1, arg0));
+                    _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + Math.Max(1, arg0));
+                    _buffer.Invalidate();
                     break;
                 case 'C': // Cursor Forward
-                     _buffer.CursorCol = Math.Min(_buffer.Cols - 1, _buffer.CursorCol + Math.Max(1, arg0));
+                    _buffer.CursorCol = Math.Min(_buffer.Cols - 1, _buffer.CursorCol + Math.Max(1, arg0));
+                    _buffer.Invalidate();
                     break;
                 case 'D': // Cursor Back
-                     _buffer.CursorCol = Math.Max(0, _buffer.CursorCol - Math.Max(1, arg0));
+                    _buffer.CursorCol = Math.Max(0, _buffer.CursorCol - Math.Max(1, arg0));
+                    _buffer.Invalidate();
                     break;
                 case 'H': // Cursor Position (row;col)
                 case 'f':
@@ -141,10 +144,12 @@ namespace NovaTerminal.Core
                     int col = (args.Length > 1 ? args[1] : 1) - 1;
                     _buffer.CursorRow = Math.Clamp(row, 0, _buffer.Rows - 1);
                     _buffer.CursorCol = Math.Clamp(col, 0, _buffer.Cols - 1);
+                    _buffer.Invalidate();
                     break;
                 case 'G': // Cursor Horizontal Absolute (CHA)
                     int val = (args.Length > 0 ? args[0] : 1) - 1;
                     _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
+                    _buffer.Invalidate();
                     break;
                 case 'J': // Erase in Display
                     int displayMode = args.Length > 0 ? args[0] : 0;
@@ -169,6 +174,10 @@ namespace NovaTerminal.Core
                     if (mode == 0) _buffer.EraseLineToEnd();
                     else if (mode == 1) _buffer.EraseLineFromStart();
                     else if (mode == 2) _buffer.EraseLineAll();
+                    break;
+                case 'X': // Erase Character (ECH)
+                    int count = args.Length > 0 ? args[0] : 1;
+                    _buffer.EraseCharacters(count);
                     break;
                 case 's': // Save Cursor (ANSI.SYS / SCO)
                     _buffer.SaveCursor();

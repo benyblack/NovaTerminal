@@ -72,7 +72,7 @@ namespace NovaTerminal
 
             // Handle Global Input (sent to current tab)
             // Ideally individual Views handle input, but Window-level hook catches it all nicely for now.
-            this.KeyDown += OnKeyDown;
+            this.AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
             this.TextInput += OnTextInput;
         }
 
@@ -96,7 +96,8 @@ namespace NovaTerminal
             {
                 Header = shell,
                 Content = ctx.View,
-                Tag = ctx
+                Tag = ctx,
+                Foreground = Avalonia.Media.Brushes.White,
             };
 
             tabs.Items.Add(tabItem);

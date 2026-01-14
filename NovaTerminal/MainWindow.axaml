@@ -22,7 +22,7 @@
              </Button>
         </StackPanel>
         
-        <TabControl Name="Tabs" Grid.Row="1" Background="Black">
+        <TabControl Name="Tabs" Grid.Row="1" Background="Black" Foreground="White" >
             <!-- Tabs added dynamically -->
         </TabControl>
     </Grid>

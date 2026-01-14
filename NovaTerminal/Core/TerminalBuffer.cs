@@ -74,6 +74,11 @@ namespace NovaTerminal.Core
         OnInvalidate?.Invoke();
     }
 
+        public void Invalidate()
+        {
+            OnInvalidate?.Invoke();
+        }
+
         /// <summary>
         /// Checks if any mouse reporting mode is active.
         /// </summary>
@@ -88,23 +93,7 @@ namespace NovaTerminal.Core
             CursorRow = Math.Clamp(CursorRow, 0, Rows - 1);
             CursorCol = Math.Clamp(CursorCol, 0, Cols - 1);
             
-            // Auto-clear heuristic: If cursor jumped backward on same row (e.g., history navigation)
-            
-            if (CursorRow == _prevCursorRow && CursorCol < _prevCursorCol - 3 && CursorCol >= 40 && CursorCol <= 80)
-            {
-                // Cursor jumped back in command area - history navigation detected
-                // Clear from current position to col 95 to remove command artifacts
-                // Note: PowerShell Oh-My-Posh may temporarily disappear during navigation
-                // This matches Windows Terminal behavior
-                
-                var row = _viewport[CursorRow];
-                for (int i = CursorCol; i < 95 && i < Cols; i++)
-                {
-                    row.Cells[i] = new TerminalCell(' ', Colors.LightGray, Colors.Black);
-                }
-                _maxColThisRow = CursorCol;
-                OnInvalidate?.Invoke();
-            }
+            // Auto-clear heuristic removed
             
             // Track row changes
             if (CursorRow != _prevCursorRow)
@@ -117,6 +106,7 @@ namespace NovaTerminal.Core
                 CursorCol = 0;
                 _prevCursorCol = CursorCol;
                 _prevCursorRow = CursorRow;
+                OnInvalidate?.Invoke();
                 return;
             }
             
@@ -144,6 +134,7 @@ namespace NovaTerminal.Core
             if (c == '\b') 
             {
                 if (CursorCol > 0) CursorCol--;
+                OnInvalidate?.Invoke();
                 return;
             }
             
@@ -345,6 +336,22 @@ namespace NovaTerminal.Core
             for (int i = 0; i < Cols; i++)
             {
                  row.Cells[i] = TerminalCell.Default;
+            }
+            OnInvalidate?.Invoke();
+        }
+
+        public void EraseCharacters(int count)
+        {
+            if (CursorRow < 0 || CursorRow >= Rows) return;
+            var row = _viewport[CursorRow];
+            
+            for (int i = 0; i < count; i++)
+            {
+                int col = CursorCol + i;
+                if (col >= Cols) break;
+                
+                // VT100/Xterm usually erase to current background color
+                row.Cells[col] = new TerminalCell(' ', CurrentForeground, CurrentBackground);
             }
             OnInvalidate?.Invoke();
         }
