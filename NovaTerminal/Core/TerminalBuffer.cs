@@ -20,6 +20,9 @@ namespace NovaTerminal.Core
         public int CursorCol { get; set; }
         public int CursorRow { get; set; } // Row within viewport (0 to Rows-1)
         
+        public IReadOnlyList<TerminalRow> ScrollbackRows => _scrollback;
+        public int TotalLines => _scrollback.Count + Rows;
+        
         // Track previous position for auto-clear heuristic
         private int _prevCursorCol = 0;
         private int _prevCursorRow = 0;
@@ -247,13 +250,14 @@ namespace NovaTerminal.Core
             OnInvalidate?.Invoke();
         }
 
-        public TerminalCell GetCell(int col, int fieldRow) 
+        public TerminalCell GetCell(int col, int fieldRow, int scrollOffset = 0) 
         {
             // fieldRow is the visual row (0 to Rows-1)
             // We show: [scrollback tail] + [viewport]
             
             int totalLines = _scrollback.Count + Rows;
-            int displayStart = Math.Max(0, _scrollback.Count + Rows - Rows); // Always show last Rows
+            // Visible Top Index = Total - Rows - Offset
+            int displayStart = Math.Max(0, totalLines - Rows - scrollOffset);
             
             int actualIndex = displayStart + fieldRow;
             
@@ -273,10 +277,21 @@ namespace NovaTerminal.Core
             }
         }
         
-        public int GetVisualCursorRow()
+        public int GetVisualCursorRow(int scrollOffset = 0)
         {
-            // Cursor is always in viewport, so it's at bottom of visible area
-            return CursorRow;
+            // Cursor is at _scrollback.Count + CursorRow
+            // Visible Start is _scrollback.Count + Rows - Rows - scrollOffset
+            
+            // Logical Index of Cursor:
+            // int cursorAbsIndex = _scrollback.Count + CursorRow;
+            // Logical Index of Screen Top:
+            // int screenTopAbsIndex = (_scrollback.Count) - scrollOffset; 
+            
+            // Visual Row = CursorAbs - ScreenTop
+            // = (_scrollback.Count + CursorRow) - (_scrollback.Count - scrollOffset)
+            // = CursorRow + scrollOffset
+            
+            return CursorRow + scrollOffset;
         }
         // Saved Cursor State (DEC SC / DEC RC)
         private int _savedCursorRow;

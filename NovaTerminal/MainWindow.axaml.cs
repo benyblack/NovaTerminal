@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
+using Avalonia.Controls.Primitives;
 using NovaTerminal.Core;
 using System;
 using System.Collections.Generic;
@@ -95,11 +96,71 @@ namespace NovaTerminal
             var tabItem = new TabItem
             {
                 Header = shell,
-                Content = ctx.View,
+                // Content = ctx.View, // Replaced by Grid below
                 Tag = ctx,
                 Foreground = Avalonia.Media.Brushes.White,
             };
-
+            
+            // Create Grid with ScrollBar (Overlay Mode)
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
+            
+            var scrollBar = new ScrollBar
+            {
+                Orientation = Avalonia.Layout.Orientation.Vertical,
+                AllowAutoHide = true,
+                Minimum = 0,
+                Maximum = 0,
+                ViewportSize = 20,
+                Visibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Visible,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                Width = 10,  // Thin
+                Opacity = 0.6 // Semi-transparent
+            };
+            
+            grid.Children.Add(ctx.View); // Layer 0
+            
+            grid.Children.Add(scrollBar); // Layer 1 (Top)
+            // No column setting needed (default 0)
+            
+            tabItem.Content = grid;
+            
+            // Scroll Logic
+            bool isUpdatingScroll = false;
+            
+            // UI -> View
+            scrollBar.ValueChanged += (s, e) => 
+            {
+                if (isUpdatingScroll) return;
+                // Invert logic: ScrollBar Top (0) -> History Top (Max Offset)
+                // ScrollBar Bottom (Max) -> History Bottom (0)
+                int newOffset = (int)(scrollBar.Maximum - e.NewValue);
+                ctx.View.SetScrollOffset(newOffset);
+            };
+            
+            // View -> UI
+            ctx.View.ScrollStateChanged += (offset, totalLines) => 
+            {
+                isUpdatingScroll = true;
+                try
+                {
+                    int rows = ctx.Buffer.Rows;
+                    int maxScroll = Math.Max(0, totalLines - rows);
+                    
+                    scrollBar.Maximum = maxScroll;
+                    scrollBar.ViewportSize = rows;
+                    scrollBar.LargeChange = rows;
+                    scrollBar.SmallChange = 3;
+                    
+                    // Invert
+                    scrollBar.Value = maxScroll - offset;
+                }
+                finally
+                {
+                    isUpdatingScroll = false;
+                }
+            };
+            
             tabs.Items.Add(tabItem);
             tabs.SelectedItem = tabItem;
             _currentContext = ctx;

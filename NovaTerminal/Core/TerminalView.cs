@@ -60,6 +60,26 @@ namespace NovaTerminal.Core
             _session = session;
         }
 
+        public event Action<int, int>? ScrollStateChanged;
+        private int _scrollOffset = 0;
+        
+        public int ScrollOffset
+        {
+            get => _scrollOffset;
+            set
+            {
+                if (_buffer == null) return;
+                int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
+                _scrollOffset = Math.Clamp(value, 0, maxScroll);
+                InvalidateBuffer();
+            }
+        }
+
+        public void SetScrollOffset(int offset)
+        {
+            ScrollOffset = offset;
+        }
+
         public void InvalidateBuffer()
         {
             // Try synchronous first to see if async dispatch is causing timing issues
@@ -70,6 +90,17 @@ namespace NovaTerminal.Core
             else
             {
                 Dispatcher.UIThread.InvokeAsync(InvalidateVisual, DispatcherPriority.Render);
+            }
+            
+            // Notify scroll change if buffer size changed (e.g. new lines added)
+            if (_buffer != null)
+            {
+                // We dispatch this too to ensure UI thread handles the event (since it might update ScrollBar)
+                Dispatcher.UIThread.Post(() => 
+                {
+                    if (_buffer != null) 
+                        ScrollStateChanged?.Invoke(_scrollOffset, _buffer.TotalLines);
+                });
             }
         }
 
@@ -134,7 +165,7 @@ namespace NovaTerminal.Core
                 // Pass 1: Backgrounds (Batched)
                 for (int c = 0; c < _buffer.Cols; c++)
                 {
-                    var cell = _buffer.GetCell(c, r);
+                    var cell = _buffer.GetCell(c, r, _scrollOffset);
                     if (cell.Background != Colors.Black)
                     {
                         var bg = cell.Background;
@@ -144,7 +175,7 @@ namespace NovaTerminal.Core
                         int k = c + 1;
                         while(k < _buffer.Cols)
                         {
-                            if (_buffer.GetCell(k, r).Background != bg) break;
+                            if (_buffer.GetCell(k, r, _scrollOffset).Background != bg) break;
                             k++;
                         }
                         
@@ -181,7 +212,7 @@ namespace NovaTerminal.Core
                 // Pass 2: Foregrounds (Batched)
                 for (int c = 0; c < _buffer.Cols; c++)
                 {
-                    var cell = _buffer.GetCell(c, r);
+                    var cell = _buffer.GetCell(c, r, _scrollOffset);
                     
                     if (cell.Character != ' ' && cell.Character != '\0')
                     {
@@ -218,7 +249,7 @@ namespace NovaTerminal.Core
                             int k = c + 1;
                             while(k < _buffer.Cols)
                             {
-                                var nextCell = _buffer.GetCell(k, r);
+                                var nextCell = _buffer.GetCell(k, r, _scrollOffset);
                                 if (nextCell.Foreground != fg) break;
                                 
                                 var nextChar = nextCell.Character;
@@ -267,7 +298,7 @@ namespace NovaTerminal.Core
 
             // Draw Cursor
             double cursorX = _buffer.CursorCol * _charWidth;
-            int visualCursorRow = _buffer.GetVisualCursorRow();
+            int visualCursorRow = _buffer.GetVisualCursorRow(_scrollOffset);
             
             if (visualCursorRow >= 0 && visualCursorRow < _buffer.Rows)
             {
@@ -277,6 +308,21 @@ namespace NovaTerminal.Core
         }
 
         // Mouse event handlers
+        protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+        {
+             base.OnPointerWheelChanged(e);
+             if (_buffer == null) return;
+             
+             // Scroll up (positive) -> Increase Offset
+             // Scroll down (negative) -> Decrease Offset
+             int delta = (int)(e.Delta.Y * 3); // 3 lines per notch
+             
+             // If scrolling UP (Delta > 0), we want to see History. History is at Offset > 0.
+             // So UP wheel means Increase Offset.
+             
+             ScrollOffset += delta; 
+        }
+
         protected override void OnPointerPressed(PointerPressedEventArgs e)
         {
             base.OnPointerPressed(e);
