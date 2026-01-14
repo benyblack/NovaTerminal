@@ -87,7 +87,8 @@ namespace NovaTerminal.Core
             _buffer.Lock.EnterReadLock();
             try
             {
-                canvas.Clear(SKColors.Black);
+                var themeBg = _buffer.Theme.Background;
+                canvas.Clear(new SKColor(themeBg.R, themeBg.G, themeBg.B, themeBg.A));
 
                 using var bgPaint = new SKPaint { Style = SKPaintStyle.Fill };
                 using var fgPaint = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
@@ -121,11 +122,11 @@ namespace NovaTerminal.Core
                     for (int c = 0; c < _buffer.Cols; c++)
                     {
                         var cell = _buffer.GetCell(c, r, _scrollOffset);
-                        var cellBg = cell.Background;
-                        var cellFg = cell.Foreground;
+                        var cellBg = cell.IsDefaultBackground ? themeBg : cell.Background;
+                        var cellFg = cell.IsDefaultForeground ? _buffer.Theme.Foreground : cell.Foreground;
                         if (cell.IsInverse) { var tmp = cellBg; cellBg = cellFg; cellFg = tmp; }
 
-                        if (cellBg != Colors.Black)
+                        if (cellBg != themeBg)
                         {
                             var bg = cellBg;
                             int runStart = c;
@@ -133,8 +134,9 @@ namespace NovaTerminal.Core
                             while(k < _buffer.Cols)
                             {
                                 var nextCell = _buffer.GetCell(k, r, _scrollOffset);
-                                var nextBg = nextCell.Background;
-                                if (nextCell.IsInverse) nextBg = nextCell.Foreground;
+                                var nextBg = nextCell.IsDefaultBackground ? themeBg : nextCell.Background;
+                                var nextFg = nextCell.IsDefaultForeground ? _buffer.Theme.Foreground : nextCell.Foreground;
+                                if (nextCell.IsInverse) nextBg = nextFg; // Simplified for comparison logic
                                 if (nextBg != bg) break;
                                 k++;
                             }
@@ -178,7 +180,10 @@ namespace NovaTerminal.Core
                         var cell = _buffer.GetCell(c, r, _scrollOffset);
                         if (cell.Character != ' ' && cell.Character != '\0')
                         {
-                            var fg = cell.IsInverse ? cell.Background : cell.Foreground;
+                            var cellBg = cell.IsDefaultBackground ? themeBg : cell.Background;
+                            var cellFg = cell.IsDefaultForeground ? _buffer.Theme.Foreground : cell.Foreground;
+                            var fg = cell.IsInverse ? cellBg : cellFg;
+                            
                             bool bold = cell.IsBold;
                             int runStart = c;
                             charBuffer[0] = cell.Character;
@@ -188,8 +193,11 @@ namespace NovaTerminal.Core
                             while(k < _buffer.Cols && count < charBuffer.Length)
                             {
                                 var next = _buffer.GetCell(k, r, _scrollOffset);
-                                var nextFg = next.IsInverse ? next.Background : next.Foreground;
-                                if (nextFg != fg || next.IsBold != bold || next.Character == '\0' || next.Character == ' ') break;
+                                var nBg = next.IsDefaultBackground ? themeBg : next.Background;
+                                var nFg = next.IsDefaultForeground ? _buffer.Theme.Foreground : next.Foreground;
+                                var nextFgMapped = next.IsInverse ? nBg : nFg;
+
+                                if (nextFgMapped != fg || next.IsBold != bold || next.Character == '\0' || next.Character == ' ') break;
                                  
                                 charBuffer[count++] = next.Character;
                                 k++;

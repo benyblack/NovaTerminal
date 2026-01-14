@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="NovaTerminal.SettingsWindow"
+        Title="Settings" Width="400" Height="450"
+        WindowStartupLocation="CenterOwner"
+        Background="#1e1e1e" Foreground="White">
+    
+    <Grid Margin="20" RowDefinitions="Auto, *, Auto">
+        <TextBlock Text="Terminal Settings" FontSize="20" FontWeight="Bold" Margin="0,0,0,20"/>
+        
+        <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="15">
+                <!-- Font Family -->
+                <StackPanel>
+                    <TextBlock Text="Font Family" Margin="0,0,0,5" Foreground="#AAA"/>
+                    <ComboBox Name="FontList" HorizontalAlignment="Stretch">
+                        <ComboBoxItem>Consolas</ComboBoxItem>
+                        <ComboBoxItem>Lucida Console</ComboBoxItem>
+                        <ComboBoxItem>Cascadia Mono</ComboBoxItem>
+                        <ComboBoxItem>JetBrains Mono</ComboBoxItem>
+                        <ComboBoxItem>Courier New</ComboBoxItem>
+                    </ComboBox>
+                </StackPanel>
+                
+                <!-- Font Size -->
+                <StackPanel>
+                    <TextBlock Text="Font Size" Margin="0,0,0,5" Foreground="#AAA"/>
+                    <NumericUpDown Name="FontSizeInput" Minimum="6" Maximum="72" Value="14"/>
+                </StackPanel>
+                
+                <!-- Theme -->
+                <StackPanel>
+                    <TextBlock Text="Theme" Margin="0,0,0,5" Foreground="#AAA"/>
+                    <ComboBox Name="ThemeList" HorizontalAlignment="Stretch">
+                        <ComboBoxItem>Default (Dark)</ComboBoxItem>
+                        <ComboBoxItem>Solarized Dark</ComboBoxItem>
+                    </ComboBox>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+        
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,20,0,0">
+            <Button Name="BtnCancel" Content="Cancel" Width="80" HorizontalContentAlignment="Center"/>
+            <Button Name="BtnSave" Content="Save" Width="80" HorizontalContentAlignment="Center" Background="#0078d4" Foreground="White"/>
+        </StackPanel>
+    </Grid>
+</Window>

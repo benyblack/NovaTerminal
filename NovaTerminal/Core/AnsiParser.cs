@@ -237,6 +237,10 @@ namespace NovaTerminal.Core
             if (args.Length == 0)
             {
                 ResetColors();
+                _buffer.IsDefaultForeground = true;
+                _buffer.IsDefaultBackground = true;
+                _buffer.IsBold = false;
+                _buffer.IsInverse = false;
                 return;
             }
 
@@ -247,22 +251,58 @@ namespace NovaTerminal.Core
                 if (code == 0)
                 {
                     ResetColors();
+                    _buffer.IsDefaultForeground = true;
+                    _buffer.IsDefaultBackground = true;
+                    _buffer.IsBold = false;
+                    _buffer.IsInverse = false;
                 }
                 else if (code >= 30 && code <= 37)
                 {
                     _buffer.CurrentForeground = GetBasicColor(code - 30);
+                    _buffer.IsDefaultForeground = false;
+                }
+                else if (code >= 90 && code <= 97)
+                {
+                    _buffer.CurrentForeground = GetBasicColor(code - 90, true);
+                    _buffer.IsDefaultForeground = false;
+                }
+                else if (code == 38)
+                {
+                    var color = ParseExtendedColor(args, ref i);
+                    if (color.HasValue)
+                    {
+                        _buffer.CurrentForeground = color.Value;
+                        _buffer.IsDefaultForeground = false;
+                    }
                 }
                 else if (code == 39)
                 {
-                    _buffer.CurrentForeground = Colors.LightGray;
+                    _buffer.CurrentForeground = _buffer.Theme.Foreground;
+                    _buffer.IsDefaultForeground = true;
                 }
                 else if (code >= 40 && code <= 47)
                 {
                     _buffer.CurrentBackground = GetBasicColor(code - 40);
+                    _buffer.IsDefaultBackground = false;
+                }
+                else if (code >= 100 && code <= 107)
+                {
+                    _buffer.CurrentBackground = GetBasicColor(code - 100, true);
+                    _buffer.IsDefaultBackground = false;
+                }
+                else if (code == 48)
+                {
+                    var color = ParseExtendedColor(args, ref i);
+                    if (color.HasValue)
+                    {
+                        _buffer.CurrentBackground = color.Value;
+                        _buffer.IsDefaultBackground = false;
+                    }
                 }
                 else if (code == 49)
                 {
-                    _buffer.CurrentBackground = Colors.Black;
+                    _buffer.CurrentBackground = _buffer.Theme.Background;
+                    _buffer.IsDefaultBackground = true;
                 }
                 else if (code == 1) // Bold
                 {
@@ -305,8 +345,8 @@ namespace NovaTerminal.Core
 
         private void ResetColors()
         {
-            _buffer.CurrentForeground = Colors.LightGray;
-            _buffer.CurrentBackground = Colors.Black;
+            _buffer.CurrentForeground = _buffer.Theme.Foreground;
+            _buffer.CurrentBackground = _buffer.Theme.Background;
             _buffer.IsInverse = false;
             _buffer.IsBold = false;
         }
@@ -335,24 +375,12 @@ namespace NovaTerminal.Core
 
         private Color GetBasicColor(int index, bool bright = false)
         {
-            // Simple mapping for now
-            switch (index)
-            {
-                case 0: return bright ?  Color.FromRgb(85, 85, 85) : Colors.Black;
-                case 1: return bright ?  Color.FromRgb(255, 85, 85) : Colors.Red; // Red
-                case 2: return bright ?  Color.FromRgb(85, 255, 85) : Colors.Green; // Green
-                case 3: return bright ?  Color.FromRgb(255, 255, 85) : Colors.Yellow; // Yellow
-                case 4: return bright ?  Color.FromRgb(85, 85, 255) : Colors.Blue; // Blue
-                case 5: return bright ?  Color.FromRgb(255, 85, 255) : Colors.Magenta; // Magenta
-                case 6: return bright ?  Color.FromRgb(85, 255, 255) : Colors.Cyan; // Cyan
-                case 7: return bright ?  Colors.White : Colors.LightGray; // White
-                default: return Colors.White;
-            }
+            return _buffer.Theme.GetAnsiColor(index, bright);
         }
 
         private Color GetXtermColor(int index)
         {
-            // 0-15: Standard colors
+            // 0-15: Standard colors from theme
             if (index < 16)
             {
                 return GetBasicColor(index % 8, index >= 8);

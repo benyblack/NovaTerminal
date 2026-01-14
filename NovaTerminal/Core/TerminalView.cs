@@ -32,6 +32,78 @@ namespace NovaTerminal.Core
         private SKFont? _skFont;
         private double _baselineOffset;
 
+        public double FontSize
+        {
+            get => _fontSize;
+            set
+            {
+                _fontSize = value;
+                ClearSkiaResources();
+                InvalidateVisual();
+            }
+        }
+
+        public Typeface Typeface
+        {
+            get => _typeface;
+            set
+            {
+                _typeface = value;
+                ClearSkiaResources();
+                InvalidateVisual();
+            }
+        }
+
+        public void ApplySettings(TerminalSettings settings)
+        {
+            _fontSize = settings.FontSize;
+            _typeface = new Typeface(settings.FontFamily);
+            
+            if (_buffer != null)
+            {
+                // Store old theme for color remapping
+                var oldTheme = _buffer.Theme;
+                
+                // Apply new theme
+                if (settings.ThemeName == "Solarized Dark")
+                    _buffer.Theme = TerminalTheme.SolarizedDark;
+                else
+                    _buffer.Theme = TerminalTheme.Dark;
+
+                // Update all existing cells, remapping old theme colors to new
+                _buffer.UpdateThemeColors(oldTheme);
+                
+                // Force immediate visual refresh
+                InvalidateVisual();
+            }
+
+            MeasureCharSize();
+
+            // Trigger resize based on new font metrics and current bounds
+            // BUT only if dimensions actually changed (to avoid overwriting theme-updated cells)
+            if (_buffer != null && _charWidth > 0 && _charHeight > 0)
+            {
+                int cols = (int)(Bounds.Width / _charWidth);
+                int rows = (int)(Bounds.Height / _charHeight);
+
+                if (cols > 0 && rows > 0 && (cols != _buffer.Cols || rows != _buffer.Rows))
+                {
+                    _buffer.Resize(cols, rows);
+                    OnResize?.Invoke(cols, rows);
+                }
+            }
+
+            InvalidateVisual();
+        }
+
+        private void ClearSkiaResources()
+        {
+            _skFont?.Dispose();
+            _skFont = null;
+            _skTypeface?.Dispose();
+            _skTypeface = null;
+        }
+
         // Selection state
         private readonly SelectionState _selection = new SelectionState();
         private bool _isSelecting = false;
@@ -46,6 +118,12 @@ namespace NovaTerminal.Core
             _buffer = buffer;
             if (_buffer != null) _buffer.OnInvalidate += InvalidateBuffer;
             
+            MeasureCharSize();
+            InvalidateVisual();
+        }
+
+        private void MeasureCharSize()
+        {
             // Measure char size and get GlyphTypeface
             var testText = new FormattedText("M", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, _fontSize, Brushes.White);
             _charWidth = testText.Width;
@@ -56,6 +134,7 @@ namespace NovaTerminal.Core
             _glyphTypeface = _typeface.GlyphTypeface;
             
             // OPTIMIZATION: Cache Skia Typeface & Font to avoid per-frame lookup/alloc
+            ClearSkiaResources();
             try
             {
                _skTypeface = SkiaSharp.SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
@@ -66,8 +145,6 @@ namespace NovaTerminal.Core
                }
             }
             catch { }
-            
-            InvalidateVisual();
         }
 
         public void SetSession(ITerminalSession session)

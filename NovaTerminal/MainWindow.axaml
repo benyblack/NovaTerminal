@@ -1,14 +1,12 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
         x:Class="NovaTerminal.MainWindow"
         Title="NovaTerminal"
-        Width="1000" Height="650"
+        Width="900" Height="600"
+        x:Name="RootWindow"
         Background="Black">
     
-    <Grid RowDefinitions="Auto, *">
+    <Grid RowDefinitions="Auto, *" x:Name="MainRoot">
         <StackPanel Orientation="Horizontal" Background="#202020">
              <!-- Focusable=False to prevent stealing keyboard focus on click -->
              <Button Name="BtnNewTab" Content=" + " Background="Transparent" Foreground="White" BorderThickness="0" Focusable="False">
@@ -20,6 +18,7 @@
                      </MenuFlyout>
                  </Button.Flyout>
              </Button>
+              <Button Name="SettingsBtn" Content=" ⚙ " Background="Transparent" Foreground="#AAA" BorderThickness="0" Focusable="False" Margin="10,0,0,0"/>
         </StackPanel>
         
         <Grid Grid.Row="1">

@@ -6,6 +6,7 @@ using Avalonia.Controls.Primitives;
 using NovaTerminal.Core;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 
 namespace NovaTerminal
@@ -35,21 +36,47 @@ namespace NovaTerminal
         }
 
         private TabContext? _currentContext;
+        private TerminalSettings _settings;
 
         public MainWindow()
         {
             InitializeComponent();
+            _settings = TerminalSettings.Load();
 
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
+            var settingsBtn = this.FindControl<Button>("SettingsBtn");
 
+            if (settingsBtn != null) settingsBtn.Click += async (s, e) => 
+            {
+                var sw = new SettingsWindow();
+                var result = await sw.ShowDialog<bool>(this);
+                if (result)
+                {
+                    _settings = TerminalSettings.Load();
+                    ApplyThemeToUI();
+                    // Apply to all active tabs
+                    if (tabs != null)
+                    {
+                        foreach (TabItem ti in tabs.Items.Cast<TabItem>())
+                        {
+                            if (ti.Tag is TabContext ctx)
+                            {
+                                ctx.View.ApplySettings(_settings);
+                                ctx.View.InvalidateVisual();
+                                ctx.Buffer.Invalidate();
+                            }
+                        }
+                    }
+                }
+            };
+
+            ApplyThemeToUI();
+            
             // Menu Items
             var menuCmd = this.FindControl<MenuItem>("MenuCmd");
             var menuPs = this.FindControl<MenuItem>("MenuPs");
             var menuWsl = this.FindControl<MenuItem>("MenuWsl");
-            
-            // Removed default click handler to prevent double actions. 
-            // The Button acts purely as a flyout trigger.
 
             if (menuCmd != null) menuCmd.Click += (s, e) => AddTab("cmd.exe");
             if (menuPs != null) menuPs.Click += (s, e) => AddTab("powershell.exe");
@@ -189,6 +216,7 @@ namespace NovaTerminal
             if (tabs == null) return;
 
             var ctx = new TabContext(shell);
+            ctx.View.ApplySettings(_settings);
             
             // Wire up output
             ctx.Session.OnOutputReceived += text => 
@@ -472,6 +500,51 @@ namespace NovaTerminal
             catch
             {
                 // Clipboard operations can fail silently
+            }
+        }
+
+        private void ApplyThemeToUI()
+        {
+            var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
+            var bgBrush = new Avalonia.Media.SolidColorBrush(theme.Background);
+            var fgBrush = new Avalonia.Media.SolidColorBrush(theme.Foreground);
+            
+            // Slightly darker for headers
+            var headerBg = Avalonia.Media.Color.FromArgb(255, 
+                (byte)Math.Max(0, theme.Background.R - 15), 
+                (byte)Math.Max(0, theme.Background.G - 15), 
+                (byte)Math.Max(0, theme.Background.B - 15));
+            var headerBrush = new Avalonia.Media.SolidColorBrush(headerBg);
+
+            this.Background = bgBrush;
+            
+            var mainRoot = this.FindControl<Grid>("MainRoot");
+            if (mainRoot != null) 
+            {
+                mainRoot.Background = bgBrush;
+                mainRoot.InvalidateVisual();
+            }
+
+            // First child of MainRoot is the TabStrip (StackPanel)
+            if (mainRoot != null && mainRoot.Children.Count > 0 && mainRoot.Children[0] is StackPanel sp)
+            {
+                sp.Background = headerBrush;
+                sp.InvalidateVisual();
+                sp.InvalidateArrange();
+            }
+
+            var searchPanel = this.FindControl<Border>("SearchPanel");
+            if (searchPanel != null) 
+            {
+                searchPanel.Background = headerBrush;
+                searchPanel.InvalidateVisual();
+            }
+
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs != null)
+            {
+                tabs.InvalidateVisual();
+                tabs.InvalidateArrange();
             }
         }
     }

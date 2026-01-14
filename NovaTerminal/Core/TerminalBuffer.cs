@@ -30,6 +30,9 @@ namespace NovaTerminal.Core
 
         public Color CurrentForeground { get; set; } = Colors.LightGray;
         public Color CurrentBackground { get; set; } = Colors.Black;
+        public bool IsDefaultForeground { get; set; } = true;
+        public bool IsDefaultBackground { get; set; } = true;
+        public TerminalTheme Theme { get; set; } = TerminalTheme.Dark;
         public bool IsInverse { get; set; }
         public bool IsBold { get; set; }
 
@@ -49,13 +52,16 @@ namespace NovaTerminal.Core
             Cols = cols;
             Rows = rows;
             
-            // Create fixed-size viewport
+            CurrentForeground = Theme.Foreground;
+            CurrentBackground = Theme.Background;
+            IsDefaultForeground = true;
+            IsDefaultBackground = true;
+
             _viewport = new TerminalRow[rows];
             for (int i = 0; i < rows; i++)
             {
-                _viewport[i] = new TerminalRow(cols);
+                _viewport[i] = new TerminalRow(cols, Theme.Foreground, Theme.Background);
             }
-            
             CursorRow = 0;
             CursorCol = 0;
         }
@@ -65,12 +71,11 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
-                // Clear viewport
+                _scrollback.Clear();
                 for (int i = 0; i < Rows; i++)
                 {
-                    _viewport[i] = new TerminalRow(Cols);
+                    _viewport[i] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
                 }
-                
                 CursorCol = 0;
                 CursorRow = 0;
                 IsInverse = false;
@@ -85,6 +90,101 @@ namespace NovaTerminal.Core
             // Mouse modes should only change via DEC private mode sequences,
             // not from screen clearing operations (htop clears screen after enabling mouse)
             
+            OnInvalidate?.Invoke();
+        }
+
+        public void UpdateThemeColors(TerminalTheme oldTheme)
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                var debugPath = @"d:\theme_debug.txt";
+                var debugLines = new System.Collections.Generic.List<string>();
+                debugLines.Add($"=== UpdateThemeColors called at {DateTime.Now} ===");
+                debugLines.Add($"Theme: {Theme.Name}");
+                
+                // Helper function to check if a color is "dark" (likely a background)
+                bool IsDarkColor(Color c)
+                {
+                    // Calculate perceived brightness
+                    double brightness = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
+                    return brightness < 0.3; // Dark if brightness < 30%
+                }
+                
+                int remappedCount = 0;
+                int totalCells = 0;
+                int darkCellsFound = 0;
+                
+                for (int r = 0; r < Rows; r++)
+                {
+                    for (int c = 0; c < Cols; c++)
+                    {
+                        ref var cell = ref _viewport[r].Cells[c];
+                        totalCells++;
+                        
+                        // Debug first few rows
+                        if (r < 3 && c < 5)
+                        {
+                            double brightness = (0.299 * cell.Background.R + 0.587 * cell.Background.G + 0.114 * cell.Background.B) / 255.0;
+                            debugLines.Add($"Cell[{r},{c}]: BG={cell.Background} (brightness={brightness:F2}), IsDefault={cell.IsDefaultBackground}, Char='{cell.Character}'");
+                        }
+                        
+                        // Always update cells marked as default
+                        if (cell.IsDefaultForeground)
+                        {
+                            cell.Foreground = Theme.Foreground;
+                        }
+                        if (cell.IsDefaultBackground)
+                        {
+                            cell.Background = Theme.Background;
+                        }
+                        
+                        // Convert dark backgrounds to theme background
+                        if (!cell.IsDefaultBackground && IsDarkColor(cell.Background))
+                        {
+                            darkCellsFound++;
+                            if (darkCellsFound <= 5)
+                            {
+                                debugLines.Add($"  -> Remapping dark BG at [{r},{c}]: {cell.Background} -> {Theme.Background}");
+                            }
+                            cell.Background = Theme.Background;
+                            cell.IsDefaultBackground = true;
+                            remappedCount++;
+                        }
+                    }
+                }
+                
+                debugLines.Add($"Total cells: {totalCells}, Dark cells found: {darkCellsFound}, Remapped: {remappedCount}");
+                System.IO.File.WriteAllLines(debugPath, debugLines);
+
+                // Also update scrollback (no debug for scrollback to keep it simple)
+                foreach (var row in _scrollback)
+                {
+                    for (int c = 0; c < row.Cells.Length; c++)
+                    {
+                        ref var cell = ref row.Cells[c];
+                        
+                        if (cell.IsDefaultForeground)
+                        {
+                            cell.Foreground = Theme.Foreground;
+                        }
+                        if (cell.IsDefaultBackground)
+                        {
+                            cell.Background = Theme.Background;
+                        }
+                        
+                        if (!cell.IsDefaultBackground && IsDarkColor(cell.Background))
+                        {
+                            cell.Background = Theme.Background;
+                            cell.IsDefaultBackground = true;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                Lock.ExitWriteLock();
+            }
             OnInvalidate?.Invoke();
         }
 
@@ -168,7 +268,7 @@ namespace NovaTerminal.Core
                          
                          if (CursorRow >= 0 && CursorRow < Rows && CursorCol >= 0 && CursorCol < Cols)
                          {
-                             _viewport[CursorRow].Cells[CursorCol] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold);
+                             _viewport[CursorRow].Cells[CursorCol] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground);
                              if (CursorCol > _maxColThisRow) _maxColThisRow = CursorCol;
                              CursorCol++;
                          }
@@ -192,8 +292,19 @@ namespace NovaTerminal.Core
                         
                         if (CursorRow >= Rows)
                         {
-                            ScrollUp();
-                            CursorRow = Rows - 1;
+                            // Scroll up
+                            if (Rows > 0)
+                            {
+                                _scrollback.Add(_viewport[0]);
+                                if (_scrollback.Count > MaxScrollbackLines) _scrollback.RemoveAt(0);
+
+                                for (int i = 0; i < Rows - 1; i++)
+                                {
+                                    _viewport[i] = _viewport[i + 1];
+                                }
+                                _viewport[Rows - 1] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+                            }
+                            CursorRow = Math.Max(0, Rows - 1);
                         }
                     }
 
@@ -392,7 +503,7 @@ namespace NovaTerminal.Core
                 var row = _viewport[CursorRow];
                 for (int i = CursorCol; i < Cols; i++)
                 {
-                     row.Cells[i] = TerminalCell.Default;
+                     row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                 }
             }
             finally
@@ -411,7 +522,7 @@ namespace NovaTerminal.Core
                 var row = _viewport[CursorRow];
                 for (int i = 0; i <= CursorCol; i++)
                 {
-                     row.Cells[i] = TerminalCell.Default;
+                     row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                 }
             }
             finally
@@ -430,7 +541,7 @@ namespace NovaTerminal.Core
                 var row = _viewport[CursorRow];
                 for (int i = 0; i < Cols; i++)
                 {
-                     row.Cells[i] = TerminalCell.Default;
+                     row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                 }
             }
             finally
