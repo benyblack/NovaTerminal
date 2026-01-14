@@ -364,14 +364,16 @@ namespace NovaTerminal
             try
             {
                 var topLevel = TopLevel.GetTopLevel(this);
+#pragma warning disable CS0618
                 if (topLevel?.Clipboard != null)
                 {
                     var text = await topLevel.Clipboard.GetTextAsync();
-                    if (!string.IsNullOrEmpty(text))
+                    if (!string.IsNullOrEmpty(text) && _currentContext != null)
                     {
                         _currentContext.Session.SendInput(text);
                     }
                 }
+#pragma warning restore CS0618
             }
             catch
             {

@@ -13,6 +13,8 @@ namespace NovaTerminal.Core
         private const string VaultFileName = "vault.dat";
         private readonly string _vaultPath;
         private Dictionary<string, string> _secrets;
+        
+#pragma warning disable CA1416 // Validate platform compatibility
 
         public VaultService()
         {

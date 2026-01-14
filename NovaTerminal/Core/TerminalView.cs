@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading.Tasks;
+using SkiaSharp;
 
 namespace NovaTerminal.Core
 {
@@ -27,6 +28,8 @@ namespace NovaTerminal.Core
         private double _charHeight;
 
         private IGlyphTypeface? _glyphTypeface;
+        private SKTypeface? _skTypeface;
+        private SKFont? _skFont;
         private double _baselineOffset;
 
         // Selection state
@@ -51,6 +54,18 @@ namespace NovaTerminal.Core
 
             // Try to get IGlyphTypeface for low-level rendering
             _glyphTypeface = _typeface.GlyphTypeface;
+            
+            // OPTIMIZATION: Cache Skia Typeface & Font to avoid per-frame lookup/alloc
+            try
+            {
+               _skTypeface = SkiaSharp.SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
+               if (_skTypeface != null)
+               {
+                   _skFont?.Dispose();
+                   _skFont = new SKFont(_skTypeface, (float)_fontSize);
+               }
+            }
+            catch { }
             
             InvalidateVisual();
         }
@@ -82,22 +97,85 @@ namespace NovaTerminal.Core
             ScrollOffset = offset;
         }
 
-        public void InvalidateBuffer()
+        private bool _isInvalidationPending = false;
+        
+        // Search state
+        private List<SearchMatch> _searchMatches = new List<SearchMatch>();
+        private int _activeSearchIndex = -1;
+
+        public void Search(string query)
         {
-            // Try synchronous first to see if async dispatch is causing timing issues
-            if (Dispatcher.UIThread.CheckAccess())
+            if (_buffer == null) return;
+            _searchMatches = _buffer.FindMatches(query);
+            _activeSearchIndex = _searchMatches.Count > 0 ? 0 : -1;
+            
+            if (_activeSearchIndex != -1)
             {
-                InvalidateVisual();
-            }
-            else
-            {
-                Dispatcher.UIThread.InvokeAsync(InvalidateVisual, DispatcherPriority.Render);
+                ScrollToMatch(_searchMatches[_activeSearchIndex]);
             }
             
+            InvalidateVisual();
+        }
+
+        public void NextMatch()
+        {
+            if (_searchMatches.Count == 0) return;
+            _activeSearchIndex = (_activeSearchIndex + 1) % _searchMatches.Count;
+            ScrollToMatch(_searchMatches[_activeSearchIndex]);
+            InvalidateVisual();
+        }
+
+        public void PrevMatch()
+        {
+            if (_searchMatches.Count == 0) return;
+            _activeSearchIndex = (_activeSearchIndex - 1 + _searchMatches.Count) % _searchMatches.Count;
+            ScrollToMatch(_searchMatches[_activeSearchIndex]);
+            InvalidateVisual();
+        }
+
+        public void ClearSearch()
+        {
+            _searchMatches.Clear();
+            _activeSearchIndex = -1;
+            InvalidateVisual();
+        }
+
+        private void ScrollToMatch(SearchMatch match)
+        {
+            if (_buffer == null) return;
+            
+            int totalLines = _buffer.TotalLines;
+            int viewportRows = _buffer.Rows;
+            
+            // match.AbsRow is 0-indexed from top of scrollback
+            // Current viewport shows [totalLines - viewportRows - _scrollOffset, totalLines - _scrollOffset]
+            
+            int viewTop = totalLines - viewportRows - _scrollOffset;
+            int viewBottom = totalLines - _scrollOffset;
+            
+            if (match.AbsRow < viewTop || match.AbsRow >= viewBottom)
+            {
+                // Put match in the middle if possible
+                int newScrollOffset = totalLines - match.AbsRow - (viewportRows / 2);
+                ScrollOffset = Math.Max(0, Math.Min(newScrollOffset, totalLines - viewportRows));
+            }
+        }
+
+        public void InvalidateBuffer()
+        {
+            if (_isInvalidationPending) return;
+            _isInvalidationPending = true;
+
+            Dispatcher.UIThread.Post(() => 
+            {
+                _isInvalidationPending = false;
+                InvalidateVisual();
+            }, DispatcherPriority.Render);
+            
             // Notify scroll change if buffer size changed (e.g. new lines added)
+            // This part we check every time but maybe also throttle?
             if (_buffer != null)
             {
-                // We dispatch this too to ensure UI thread handles the event (since it might update ScrollBar)
                 Dispatcher.UIThread.Post(() => 
                 {
                     if (_buffer != null) 
@@ -197,9 +275,6 @@ namespace NovaTerminal.Core
                 {
                     _buffer.Resize(cols, rows);
                     
-                    // Log for debugging
-                    try { System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/startup_debug.txt", $"[View Resize] {e.NewSize.Width}x{e.NewSize.Height} -> {cols} cols, {rows} rows\n"); } catch {}
-
                     if (!_isReady)
                     {
                         // Ensure we don't start with a tiny transient layout (e.g. before Window is fully sized)
@@ -208,7 +283,6 @@ namespace NovaTerminal.Core
                         {
                             _isReady = true;
                             OnReady?.Invoke();
-                            try { System.IO.File.AppendAllText("d:/projects/nova2/NovaTerminal/startup_debug.txt", $"[OnReady Fired] {cols}x{rows}\n"); } catch {}
                         }
                     }
                     else
@@ -222,171 +296,28 @@ namespace NovaTerminal.Core
 
         public override void Render(DrawingContext context)
         {
-            base.Render(context);
-
-            if (_buffer == null) return;
-
-            // Clear background
-            context.FillRectangle(Brushes.Black, this.Bounds);
-
-            if (_glyphTypeface == null) return; // Fallback? Or just wait for load?
-
-            // Batching Lists
-            
-            // Iterate rows
-            int totalLines = _buffer.TotalLines;
-            int displayStart = Math.Max(0, totalLines - _buffer.Rows - _scrollOffset);
-
-            for (int r = 0; r < _buffer.Rows; r++)
+            if (_buffer == null || _glyphTypeface == null) 
             {
-                double y = r * _charHeight;
-                double baselineY = y + _baselineOffset;
-
-                // Pass 1: Backgrounds (Batched)
-                for (int c = 0; c < _buffer.Cols; c++)
-                {
-                    var cell = _buffer.GetCell(c, r, _scrollOffset);
-                    if (cell.Background != Colors.Black)
-                    {
-                        var bg = cell.Background;
-                        int runStart = c;
-                        
-                        // Find run length
-                        int k = c + 1;
-                        while(k < _buffer.Cols)
-                        {
-                            if (_buffer.GetCell(k, r, _scrollOffset).Background != bg) break;
-                            k++;
-                        }
-                        
-                        // Draw single rect for the whole run
-                        int runLength = k - c;
-                        
-                         // To avoid sub-pixel gaps between adjacent runs, we can round-up or add slight overlap.
-                         // But simply drawing one big rect solves the internal gaps.
-                        var bgBrush = new SolidColorBrush(bg);
-                        context.FillRectangle(bgBrush, new Rect(runStart * _charWidth, y, runLength * _charWidth, _charHeight));
-                        
-                        c = k - 1;
-                    }
-                }
-
-                // Pass 1.5: Selection Highlight (if any)
-                // Pass 1.5: Selection Highlight (if any)
-                if (_selection.IsActive)
-                {
-                    // Calculate absolute row for visual row r
-                    int absRow = displayStart + r;
-                    var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, _buffer.Cols);
-                    
-                    if (isSelected)
-                    {
-                        var selRect = new Rect(
-                            colStart * _charWidth,
-                            y,
-                            (colEnd - colStart + 1) * _charWidth,
-                            _charHeight
-                        );
-                        context.FillRectangle(SelectionBrush, selRect);
-                    }
-                }
-
-                // Pass 2: Foregrounds (Batched)
-                for (int c = 0; c < _buffer.Cols; c++)
-                {
-                    var cell = _buffer.GetCell(c, r, _scrollOffset);
-                    
-                    if (cell.Character != ' ' && cell.Character != '\0')
-                    {
-                        Color fg = cell.Foreground;
-                        
-                        // Look ahead to find length of run with same FG
-                        int runStart = c;
-                        
-                        // Initialize run
-                        var glyphInfos = new List<GlyphInfo>();
-                        
-                        // Add first char
-                        ushort glyph = _glyphTypeface.GetGlyph(cell.Character);
-                        
-                        if (glyph == 0)
-                        {
-                            // Fallback using FormattedText
-                            var ft = new FormattedText(
-                                cell.Character.ToString(),
-                                CultureInfo.CurrentCulture,
-                                FlowDirection.LeftToRight,
-                                _typeface, 
-                                _fontSize,
-                                new SolidColorBrush(fg)
-                            );
-                            context.DrawText(ft, new Point(c * _charWidth, y));
-                        }
-                        else
-                        {
-                            // Normal glyph found
-                            glyphInfos.Add(new GlyphInfo(glyph, 0, _charWidth));
-                            
-                            // Continue run
-                            int k = c + 1;
-                            while(k < _buffer.Cols)
-                            {
-                                var nextCell = _buffer.GetCell(k, r, _scrollOffset);
-                                if (nextCell.Foreground != fg) break;
-                                
-                                var nextChar = nextCell.Character;
-                                if (nextChar == ' ' || nextChar == '\0') 
-                                {
-                                    // Spaces break the visual run of *glyphs* usually? 
-                                    // Actually, we can just skip drawing spaces but keep the run if color is same.
-                                    // But simpler to just treat space as a glyph if the font has it, or break.
-                                    // Ideally spaces are just empty. 
-                                    // Let's break for safety or handle space glyph.
-                                    // For now, simple logic: Break.
-                                    break; 
-                                }
-
-                                var nextGlyph = _glyphTypeface.GetGlyph(nextChar);
-                                
-                                if (nextGlyph == 0) 
-                                {
-                                    break;
-                                }
-                                
-                                glyphInfos.Add(new GlyphInfo(nextGlyph, k - c, _charWidth));
-                                k++;
-                            }
-
-                            // Flush Run
-                            if (glyphInfos.Count > 0)
-                            {
-                                var origin = new Point(runStart * _charWidth, baselineY);
-                                var glyphRun = new GlyphRun(
-                                    _glyphTypeface,
-                                    _fontSize,
-                                    characters: default, 
-                                    glyphInfos: glyphInfos,
-                                    baselineOrigin: origin
-                                );
-                                context.DrawGlyphRun(new SolidColorBrush(fg), glyphRun);
-                            }
-                            
-                            // Advance c
-                            c = k - 1;
-                        }
-                    }
-                }
+               return;
             }
 
-            // Draw Cursor
-            double cursorX = _buffer.CursorCol * _charWidth;
-            int visualCursorRow = _buffer.GetVisualCursorRow(_scrollOffset);
+            // Create and dispatch custom draw op
+            var drawOp = new TerminalDrawOperation(
+                new Rect(0, 0, Bounds.Width, Bounds.Height),
+                _buffer,
+                _scrollOffset,
+                _selection,
+                _charWidth,
+                _charHeight,
+                _baselineOffset,
+                _typeface,
+                _fontSize,
+                _glyphTypeface,
+                _skTypeface,
+                _skFont
+            );
             
-            if (visualCursorRow >= 0 && visualCursorRow < _buffer.Rows)
-            {
-                double cursorY = visualCursorRow * _charHeight;
-                context.FillRectangle(Brushes.White, new Rect(cursorX, cursorY + _charHeight - 2, _charWidth, 2)); 
-            }
+            context.Custom(drawOp);
         }
 
         // Mouse event handlers
