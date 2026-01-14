@@ -103,6 +103,8 @@ namespace NovaTerminal.Core
         private List<SearchMatch> _searchMatches = new List<SearchMatch>();
         private int _activeSearchIndex = -1;
 
+        public event Action<int, int>? SearchStateChanged;
+
         public void Search(string query)
         {
             if (_buffer == null) return;
@@ -114,6 +116,7 @@ namespace NovaTerminal.Core
                 ScrollToMatch(_searchMatches[_activeSearchIndex]);
             }
             
+            SearchStateChanged?.Invoke(_activeSearchIndex + 1, _searchMatches.Count);
             InvalidateVisual();
         }
 
@@ -122,6 +125,7 @@ namespace NovaTerminal.Core
             if (_searchMatches.Count == 0) return;
             _activeSearchIndex = (_activeSearchIndex + 1) % _searchMatches.Count;
             ScrollToMatch(_searchMatches[_activeSearchIndex]);
+            SearchStateChanged?.Invoke(_activeSearchIndex + 1, _searchMatches.Count);
             InvalidateVisual();
         }
 
@@ -130,6 +134,7 @@ namespace NovaTerminal.Core
             if (_searchMatches.Count == 0) return;
             _activeSearchIndex = (_activeSearchIndex - 1 + _searchMatches.Count) % _searchMatches.Count;
             ScrollToMatch(_searchMatches[_activeSearchIndex]);
+            SearchStateChanged?.Invoke(_activeSearchIndex + 1, _searchMatches.Count);
             InvalidateVisual();
         }
 
@@ -137,6 +142,7 @@ namespace NovaTerminal.Core
         {
             _searchMatches.Clear();
             _activeSearchIndex = -1;
+            SearchStateChanged?.Invoke(0, 0);
             InvalidateVisual();
         }
 
@@ -307,6 +313,8 @@ namespace NovaTerminal.Core
                 _buffer,
                 _scrollOffset,
                 _selection,
+                _searchMatches,
+                _activeSearchIndex,
                 _charWidth,
                 _charHeight,
                 _baselineOffset,

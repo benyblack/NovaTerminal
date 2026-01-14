@@ -55,6 +55,35 @@ namespace NovaTerminal
             if (menuPs != null) menuPs.Click += (s, e) => AddTab("powershell.exe");
             if (menuWsl != null) menuWsl.Click += (s, e) => AddTab("wsl.exe");
             
+            // Search UI controls
+            var searchPanel = this.FindControl<Border>("SearchPanel");
+            var searchBox = this.FindControl<TextBox>("SearchBox");
+            var searchPrev = this.FindControl<Button>("SearchPrev");
+            var searchNext = this.FindControl<Button>("SearchNext");
+            var searchClose = this.FindControl<Button>("SearchClose");
+            var searchCount = this.FindControl<TextBlock>("SearchCount");
+
+            if (searchBox != null)
+            {
+                searchBox.TextChanged += (s, e) => 
+                {
+                    if (_currentContext != null)
+                        _currentContext.View.Search(searchBox.Text ?? "");
+                };
+            }
+
+            if (searchPrev != null) searchPrev.Click += (s, e) => _currentContext?.View.PrevMatch();
+            if (searchNext != null) searchNext.Click += (s, e) => _currentContext?.View.NextMatch();
+            if (searchClose != null && searchPanel != null) 
+            {
+                searchClose.Click += (s, e) => 
+                {
+                    searchPanel.IsVisible = false;
+                    _currentContext?.View.ClearSearch();
+                    _currentContext?.View.Focus();
+                };
+            }
+
             if (tabs != null)
             {
                 tabs.SelectionChanged += (s, e) => 
@@ -62,19 +91,84 @@ namespace NovaTerminal
                    if (tabs.SelectedItem is TabItem ti && ti.Tag is TabContext ctx)
                    {
                        _currentContext = ctx;
-                       // Focus view?
+                       
+                       // Hook new state event
+                       ctx.View.SearchStateChanged -= UpdateSearchCountUI; // Ensure no double-hook
+                       ctx.View.SearchStateChanged += UpdateSearchCountUI;
+
+                       // Re-trigger search if panel is open to update the counter
+                       if (searchPanel != null && searchPanel.IsVisible && searchBox != null)
+                       {
+                           _currentContext.View.Search(searchBox.Text ?? "");
+                       }
+                       else if (searchCount != null)
+                       {
+                           searchCount.Text = "0/0";
+                       }
+
                        ctx.View.Focus();
                    }
                 };
+            }
+
+            void UpdateSearchCountUI(int idx, int total)
+            {
+                if (searchCount != null)
+                {
+                    Dispatcher.UIThread.Post(() => searchCount.Text = $"{idx}/{total}");
+                }
             }
             
             // Add initial tab
             AddTab();
 
             // Handle Global Input (sent to current tab)
-            // Ideally individual Views handle input, but Window-level hook catches it all nicely for now.
-            this.AddHandler(KeyDownEvent, OnKeyDown, RoutingStrategies.Tunnel);
-            this.TextInput += OnTextInput;
+            this.AddHandler(KeyDownEvent, (s, e) => 
+            {
+                // Toggling search via Ctrl+F
+                if (e.Key == Key.F && (e.KeyModifiers & KeyModifiers.Control) != 0)
+                {
+                    if (searchPanel != null)
+                    {
+                        searchPanel.IsVisible = !searchPanel.IsVisible;
+                        if (searchPanel.IsVisible) 
+                        {
+                            searchBox?.Focus();
+                            if (searchBox != null && !string.IsNullOrEmpty(searchBox.Text))
+                                _currentContext?.View.Search(searchBox.Text);
+                        }
+                        else
+                        {
+                            _currentContext?.View.ClearSearch();
+                            _currentContext?.View.Focus();
+                        }
+                    }
+                    e.Handled = true;
+                    return;
+                }
+
+                // Close search on Escape
+                if (e.Key == Key.Escape && searchPanel != null && searchPanel.IsVisible)
+                {
+                    searchPanel.IsVisible = false;
+                    _currentContext?.View.ClearSearch();
+                    _currentContext?.View.Focus();
+                    e.Handled = true;
+                    return;
+                }
+
+                // If search has focus, let search handle it (e.g. typing query)
+                if (searchBox != null && searchBox.IsFocused) return;
+
+                // Otherwise, it's terminal input
+                OnKeyDown(s, e);
+            }, RoutingStrategies.Tunnel);
+
+            this.TextInput += (s, e) => 
+            {
+                if (searchBox != null && searchBox.IsFocused) return;
+                OnTextInput(s, e);
+            };
 
             // Initialize Vault
             try
