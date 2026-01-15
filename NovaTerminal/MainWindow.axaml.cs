@@ -62,21 +62,27 @@ namespace NovaTerminal
                 {
                     _settings = TerminalSettings.Load();
                     ApplyThemeToUI();
-                    // Apply to all active tabs
-                    if (tabs != null)
+                    ApplySettingsToAllTabs();
+                }
+            };
+            
+            // Helper to broadcast settings
+            void ApplySettingsToAllTabs()
+            {
+                var tabs = this.FindControl<TabControl>("Tabs");
+                if (tabs != null)
+                {
+                    foreach (TabItem ti in tabs.Items.Cast<TabItem>())
                     {
-                        foreach (TabItem ti in tabs.Items.Cast<TabItem>())
+                        if (ti.Tag is TabContext ctx)
                         {
-                            if (ti.Tag is TabContext ctx)
-                            {
-                                ctx.View.ApplySettings(_settings);
-                                ctx.View.InvalidateVisual();
-                                ctx.Buffer.Invalidate();
-                            }
+                            ctx.View.ApplySettings(_settings);
+                            ctx.View.InvalidateVisual();
+                            ctx.Buffer.Invalidate();
                         }
                     }
                 }
-            };
+            }
 
             ApplyThemeToUI();
             
@@ -159,8 +165,62 @@ namespace NovaTerminal
             // Handle Global Input (sent to current tab)
             this.AddHandler(KeyDownEvent, (s, e) => 
             {
-                // Toggling search via Ctrl+F
-                if (e.Key == Key.F && (e.KeyModifiers & KeyModifiers.Control) != 0)
+                var modifiers = e.KeyModifiers;
+                bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
+                bool isShift = (modifiers & KeyModifiers.Shift) != 0;
+
+                // Zoom In (Ctrl + Plus/Equal)
+                if (isCtrl && (e.Key == Key.OemPlus || e.Key == Key.Add))
+                {
+                    if (_settings != null)
+                    {
+                        _settings.FontSize += 1;
+                        if (_settings.FontSize > 72) _settings.FontSize = 72;
+                        
+                        ApplySettingsToAllTabs();
+                        _settings.Save();
+                    }
+                    e.Handled = true;
+                    return;
+                }
+
+                // Zoom Out (Ctrl + Minus/Subtract)
+                if (isCtrl && (e.Key == Key.OemMinus || e.Key == Key.Subtract))
+                {
+                    if (_settings != null)
+                    {
+                        _settings.FontSize -= 1;
+                        if (_settings.FontSize < 6) _settings.FontSize = 6;
+                        
+                        ApplySettingsToAllTabs();
+                        _settings.Save();
+                    }
+                    e.Handled = true;
+                    return;
+                }
+
+                // New Tab (Ctrl + Shift + T)
+                if (isCtrl && isShift && e.Key == Key.T)
+                {
+                    AddTab();
+                    e.Handled = true;
+                    return;
+                }
+
+                // Close Tab (Ctrl + Shift + W)
+                if (isCtrl && isShift && e.Key == Key.W)
+                {
+                    if (tabs != null && tabs.SelectedItem is TabItem ti)
+                    {
+                        CloseTab(ti);
+                    }
+                    e.Handled = true;
+                    return;
+                }
+
+                // Toggle Search (Ctrl + Shift + F) matches README
+                // Also keeping Ctrl+F as a convenient alias
+                if ((isCtrl && isShift && e.Key == Key.F) || (isCtrl && e.Key == Key.F))
                 {
                     if (searchPanel != null)
                     {
@@ -180,6 +240,31 @@ namespace NovaTerminal
                     e.Handled = true;
                     return;
                 }
+                
+                // Tab Switching (Ctrl + Tab / Ctrl + Shift + Tab)
+                if (isCtrl && e.Key == Key.Tab && tabs != null)
+                {
+                     int count = tabs.Items.Count;
+                     if (count > 1)
+                     {
+                         int current = tabs.SelectedIndex;
+                         if (isShift)
+                         {
+                             // Previous
+                             current--;
+                             if (current < 0) current = count - 1;
+                         }
+                         else
+                         {
+                             // Next
+                             current++;
+                             if (current >= count) current = 0;
+                         }
+                         tabs.SelectedIndex = current;
+                     }
+                     e.Handled = true;
+                     return;
+                }
 
                 // Close search on Escape
                 if (e.Key == Key.Escape && searchPanel != null && searchPanel.IsVisible)
@@ -191,7 +276,7 @@ namespace NovaTerminal
                     return;
                 }
 
-                // If search has focus, let search handle it (e.g. typing query)
+                // If search has focus, let search handle it
                 if (searchBox != null && searchBox.IsFocused) return;
 
                 // Otherwise, it's terminal input
@@ -217,7 +302,33 @@ namespace NovaTerminal
 
         public static VaultService? Vault { get; private set; }
 
-        private void AddTab(string shell = "cmd.exe")
+        private void CloseTab(TabItem ti)
+        {
+            if (ti.Tag is TabContext ctx)
+            {
+                // Offload disposal to background thread to prevent UI freeze from native cleanup
+                Task.Run(() => 
+                {
+                    try 
+                    {
+                        ctx.Session?.Dispose(); 
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error disposing session: {ex.Message}");
+                    }
+                });
+            }
+            
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs != null)
+            {
+                tabs.Items.Remove(ti);
+            }
+        }
+
+        // Public for access from menu/shortcuts
+        void AddTab(string shell = "cmd.exe")
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
