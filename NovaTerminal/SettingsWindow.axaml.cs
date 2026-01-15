@@ -42,9 +42,11 @@ namespace NovaTerminal
         {
             var fontList = this.FindControl<ComboBox>("FontList");
             var fontSizeInput = this.FindControl<NumericUpDown>("FontSizeInput");
+            var scrollbackInput = this.FindControl<NumericUpDown>("ScrollbackInput");
             var themeList = this.FindControl<ComboBox>("ThemeList");
 
             if (fontSizeInput != null) fontSizeInput.Value = (decimal)_settings.FontSize;
+            if (scrollbackInput != null) scrollbackInput.Value = (decimal)_settings.MaxHistory;
 
             if (fontList != null)
             {
@@ -76,9 +78,11 @@ namespace NovaTerminal
         {
             var fontList = this.FindControl<ComboBox>("FontList");
             var fontSizeInput = this.FindControl<NumericUpDown>("FontSizeInput");
+            var scrollbackInput = this.FindControl<NumericUpDown>("ScrollbackInput");
             var themeList = this.FindControl<ComboBox>("ThemeList");
 
             if (fontSizeInput != null) _settings.FontSize = (double)(fontSizeInput.Value ?? 14);
+            if (scrollbackInput != null) _settings.MaxHistory = (int)(scrollbackInput.Value ?? 10000);
             
             if (fontList?.SelectedItem is ComboBoxItem fontItem)
                 _settings.FontFamily = fontItem.Content?.ToString() ?? "Consolas";

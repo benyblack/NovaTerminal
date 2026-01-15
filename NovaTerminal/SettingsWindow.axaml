@@ -28,6 +28,12 @@
                     <NumericUpDown Name="FontSizeInput" Minimum="6" Maximum="72" Value="14"/>
                 </StackPanel>
                 
+                <!-- Scrollback Limit -->
+                <StackPanel>
+                    <TextBlock Text="Scrollback Limit (Lines)" Margin="0,0,0,5" Foreground="#AAA"/>
+                    <NumericUpDown Name="ScrollbackInput" Minimum="100" Maximum="100000" Value="10000" Increment="1000"/>
+                </StackPanel>
+                
                 <!-- Theme -->
                 <StackPanel>
                     <TextBlock Text="Theme" Margin="0,0,0,5" Foreground="#AAA"/>

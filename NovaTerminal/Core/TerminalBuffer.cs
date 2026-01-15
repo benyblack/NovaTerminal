@@ -12,7 +12,7 @@ namespace NovaTerminal.Core
         
         // Scrollback buffer - historical lines that scrolled off the top
         private List<TerminalRow> _scrollback = new List<TerminalRow>();
-        private const int MaxScrollbackLines = 10000;
+        public int MaxHistory { get; set; } = 10000;
         
         public int Cols { get; private set; }
         public int Rows { get; private set; }
@@ -296,7 +296,7 @@ namespace NovaTerminal.Core
                             if (Rows > 0)
                             {
                                 _scrollback.Add(_viewport[0]);
-                                if (_scrollback.Count > MaxScrollbackLines) _scrollback.RemoveAt(0);
+                                if (_scrollback.Count > MaxHistory) _scrollback.RemoveAt(0);
 
                                 for (int i = 0; i < Rows - 1; i++)
                                 {
@@ -344,7 +344,7 @@ namespace NovaTerminal.Core
             _scrollback.Add(_viewport[0]);
             
             // Trim scrollback if needed
-            if (_scrollback.Count > MaxScrollbackLines)
+            if (_scrollback.Count > MaxHistory)
             {
                 _scrollback.RemoveAt(0);
             }

@@ -61,6 +61,8 @@ namespace NovaTerminal.Core
             
             if (_buffer != null)
             {
+                _buffer.MaxHistory = settings.MaxHistory;
+
                 // Store old theme for color remapping
                 var oldTheme = _buffer.Theme;
                 

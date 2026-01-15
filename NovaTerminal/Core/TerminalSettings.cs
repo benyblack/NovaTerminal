@@ -10,6 +10,7 @@ namespace NovaTerminal.Core
         private static string SettingsPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, SettingsFile);
 
         public double FontSize { get; set; } = 14;
+        public int MaxHistory { get; set; } = 10000;
         public string FontFamily { get; set; } = "Consolas";
         public string ThemeName { get; set; } = "Default";
 
