@@ -8,7 +8,6 @@
         <FluentTheme />
         <Style Selector="TabItem">
             <Setter Property="Foreground" Value="#CCCCCC"/>
-            <Setter Property="Background" Value="#202020"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="Margin" Value="0"/>
             <Setter Property="Padding" Value="12 8"/>
@@ -41,9 +40,8 @@
             <Setter Property="FontWeight" Value="SemiBold"/>
         </Style>
         <Style Selector="TabItem:selected /template/ Border#PART_Border">
-            <Setter Property="Background" Value="#1E1E1E"/>
+            <!-- Background and BorderBrush will be set dynamically by code -->
             <Setter Property="BorderThickness" Value="0 0 0 2"/>
-            <Setter Property="BorderBrush" Value="#007ACC"/>
         </Style>
         <Style Selector="TabItem:selected /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="TextElement.Foreground" Value="White"/>

@@ -3,6 +3,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.Controls.Primitives;
+using Avalonia.VisualTree;
 using NovaTerminal.Core;
 using System;
 using System.Collections.Generic;
@@ -157,6 +158,26 @@ namespace NovaTerminal
                 {
                     Dispatcher.UIThread.Post(() => searchCount.Text = $"{idx}/{total}");
                 }
+            }
+            // Handle tab selection changes to update border colors
+            if (tabs != null)
+            {
+                tabs.SelectionChanged += (s, e) =>
+                {
+                    var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
+                    var bgBrush = new Avalonia.Media.SolidColorBrush(theme.Background);
+                    var borderBrush = new Avalonia.Media.SolidColorBrush(theme.Blue);
+                    
+                    foreach (TabItem ti in tabs.Items.Cast<TabItem>())
+                    {
+                        var border = ti.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "PART_Border");
+                        if (border != null)
+                        {
+                            border.Background = bgBrush;
+                            border.BorderBrush = ti.IsSelected ? borderBrush : Avalonia.Media.Brushes.Transparent;
+                        }
+                    }
+                };
             }
             
             // Add initial tab
@@ -358,7 +379,7 @@ namespace NovaTerminal
             {
                 Header = tabHeaderText,  // Use TextBlock directly instead of string
                 Tag = ctx,
-                Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(32, 32, 32)),
+                // Background will be set by ApplyThemeToUI
                 Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White),
                 IsVisible = true,
                 Opacity = 1.0
@@ -428,12 +449,24 @@ namespace NovaTerminal
             tabs.SelectedItem = tabItem;
             _currentContext = ctx;
             
-            // Force visual invalidation to ensure tab renders properly with GPU acceleration
+            // Apply theme background to the new tab
+            var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
+            tabItem.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
+            
+            // Force visual invalidation and set border for selected tab
             Dispatcher.UIThread.Post(() =>
             {
                 tabItem.InvalidateVisual();
                 tabItem.InvalidateMeasure();
                 tabs.InvalidateVisual();
+                
+                // Set border for the newly selected tab
+                var border = tabItem.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "PART_Border");
+                if (border != null)
+                {
+                    border.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
+                    border.BorderBrush = new Avalonia.Media.SolidColorBrush(theme.Blue);
+                }
             }, DispatcherPriority.Render);
             
             // Explicitly force focus to the view (will attach visual tree)
@@ -672,7 +705,7 @@ namespace NovaTerminal
             // First child of MainRoot is the TabStrip (StackPanel)
             if (mainRoot != null && mainRoot.Children.Count > 0 && mainRoot.Children[0] is StackPanel sp)
             {
-                sp.Background = headerBrush;
+                sp.Background = bgBrush;  // Match theme background
                 sp.InvalidateVisual();
                 sp.InvalidateMeasure();
                 sp.InvalidateArrange();
@@ -688,12 +721,29 @@ namespace NovaTerminal
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs != null)
             {
-                // Now that XAML doesn't have hardcoded colors, we can set them dynamically
-                tabs.Background = headerBrush;
+                // Match terminal background instead of using darker header background
+                tabs.Background = bgBrush;
                 tabs.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White); // Keep white text for visibility
                 tabs.InvalidateVisual();
                 tabs.InvalidateMeasure();
                 tabs.InvalidateArrange();
+                
+                // Update all TabItem backgrounds and borders to match theme
+                var borderBrush = new Avalonia.Media.SolidColorBrush(theme.Blue);
+                foreach (TabItem ti in tabs.Items.Cast<TabItem>())
+                {
+                    ti.Background = bgBrush;
+                    
+                    // Set border color for all tabs based on selection state
+                    var border = ti.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "PART_Border");
+                    if (border != null)
+                    {
+                        border.Background = bgBrush;
+                        border.BorderBrush = ti.IsSelected ? borderBrush : Avalonia.Media.Brushes.Transparent;
+                    }
+                    
+                    ti.InvalidateVisual();
+                }
             }
             
             // Schedule a delayed second invalidation pass to ensure all visual updates are applied
