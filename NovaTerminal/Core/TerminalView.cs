@@ -17,6 +17,7 @@ namespace NovaTerminal.Core
         public TerminalView()
         {
             Focusable = true;
+            ClipToBounds = true;  // CRITICAL: Prevents SkiaSharp rendering from affecting other UI elements like tabs
         }
 
         private TerminalBuffer? _buffer;
@@ -380,32 +381,32 @@ namespace NovaTerminal.Core
         }
 
         public override void Render(DrawingContext context)
+    {
+        if (_buffer == null || _glyphTypeface == null) 
         {
-            if (_buffer == null || _glyphTypeface == null) 
-            {
-               return;
-            }
-
-            // Create and dispatch custom draw op
-            var drawOp = new TerminalDrawOperation(
-                new Rect(0, 0, Bounds.Width, Bounds.Height),
-                _buffer,
-                _scrollOffset,
-                _selection,
-                _searchMatches,
-                _activeSearchIndex,
-                _charWidth,
-                _charHeight,
-                _baselineOffset,
-                _typeface,
-                _fontSize,
-                _glyphTypeface,
-                _skTypeface,
-                _skFont
-            );
-            
-            context.Custom(drawOp);
+           return;
         }
+
+        // Create and dispatch custom draw op
+        var drawOp = new TerminalDrawOperation(
+            new Rect(0, 0, Bounds.Width, Bounds.Height),
+            _buffer,
+            _scrollOffset,
+            _selection,
+            _searchMatches,
+            _activeSearchIndex,
+            _charWidth,
+            _charHeight,
+            _baselineOffset,
+            _typeface,
+            _fontSize,
+            _glyphTypeface,
+            _skTypeface,
+            _skFont
+        );
+        
+        context.Custom(drawOp);
+    }
 
         // Mouse event handlers
         protected override void OnPointerWheelChanged(PointerWheelEventArgs e)

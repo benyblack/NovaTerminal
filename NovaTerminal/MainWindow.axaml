@@ -28,7 +28,7 @@
         </StackPanel>
         
         <Grid Grid.Row="1">
-            <TabControl Name="Tabs">
+            <TabControl Name="Tabs" RenderOptions.BitmapInterpolationMode="HighQuality">
                 <!-- Tabs added dynamically -->
             </TabControl>
 

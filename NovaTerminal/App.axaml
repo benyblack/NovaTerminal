@@ -8,6 +8,7 @@
         <FluentTheme />
         <Style Selector="TabItem">
             <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="Background" Value="#202020"/>
             <Setter Property="FontSize" Value="14"/>
             <Setter Property="Margin" Value="0"/>
             <Setter Property="Padding" Value="12 8"/>
@@ -43,6 +44,9 @@
             <Setter Property="Background" Value="#1E1E1E"/>
             <Setter Property="BorderThickness" Value="0 0 0 2"/>
             <Setter Property="BorderBrush" Value="#007ACC"/>
+        </Style>
+        <Style Selector="TabItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="TextElement.Foreground" Value="White"/>
         </Style>
     </Application.Styles>
 </Application>

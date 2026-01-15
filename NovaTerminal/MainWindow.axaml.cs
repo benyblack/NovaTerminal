@@ -161,7 +161,7 @@ namespace NovaTerminal
             
             // Add initial tab
             AddTab();
-
+            
             // Handle Global Input (sent to current tab)
             this.AddHandler(KeyDownEvent, (s, e) => 
             {
@@ -345,10 +345,23 @@ namespace NovaTerminal
                 });
             };
 
+            var tabHeaderText = new TextBlock
+            {
+                Text = shell,
+                Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White),
+                FontSize = 14,
+                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+            };
+            
             var tabItem = new TabItem
             {
-                Header = shell,
-                Tag = ctx
+                Header = tabHeaderText,  // Use TextBlock directly instead of string
+                Tag = ctx,
+                Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(32, 32, 32)),
+                Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White),
+                IsVisible = true,
+                Opacity = 1.0
             };
             
             // Create Grid with ScrollBar (Overlay Mode)
@@ -414,6 +427,14 @@ namespace NovaTerminal
             tabs.Items.Add(tabItem);
             tabs.SelectedItem = tabItem;
             _currentContext = ctx;
+            
+            // Force visual invalidation to ensure tab renders properly with GPU acceleration
+            Dispatcher.UIThread.Post(() =>
+            {
+                tabItem.InvalidateVisual();
+                tabItem.InvalidateMeasure();
+                tabs.InvalidateVisual();
+            }, DispatcherPriority.Render);
             
             // Explicitly force focus to the view (will attach visual tree)
             ctx.View.Focus();
@@ -634,11 +655,18 @@ namespace NovaTerminal
 
             this.Background = bgBrush;
             
+            // Force window-level invalidation to ensure complete redraw
+            this.InvalidateVisual();
+            this.InvalidateMeasure();
+            this.InvalidateArrange();
+            
             var mainRoot = this.FindControl<Grid>("MainRoot");
             if (mainRoot != null) 
             {
                 mainRoot.Background = bgBrush;
                 mainRoot.InvalidateVisual();
+                mainRoot.InvalidateMeasure();
+                mainRoot.InvalidateArrange();
             }
 
             // First child of MainRoot is the TabStrip (StackPanel)
@@ -646,6 +674,7 @@ namespace NovaTerminal
             {
                 sp.Background = headerBrush;
                 sp.InvalidateVisual();
+                sp.InvalidateMeasure();
                 sp.InvalidateArrange();
             }
 
@@ -663,8 +692,22 @@ namespace NovaTerminal
                 tabs.Background = headerBrush;
                 tabs.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White); // Keep white text for visibility
                 tabs.InvalidateVisual();
+                tabs.InvalidateMeasure();
                 tabs.InvalidateArrange();
             }
+            
+            // Schedule a delayed second invalidation pass to ensure all visual updates are applied
+            // This ensures the rendering completes even if the initial pass was optimized away
+            Dispatcher.UIThread.Post(() =>
+            {
+                this.InvalidateVisual();
+                mainRoot?.InvalidateVisual();
+                if (mainRoot != null && mainRoot.Children.Count > 0 && mainRoot.Children[0] is StackPanel sp2)
+                {
+                    sp2.InvalidateVisual();
+                }
+                tabs?.InvalidateVisual();
+            }, DispatcherPriority.Render);
         }
     }
 }
