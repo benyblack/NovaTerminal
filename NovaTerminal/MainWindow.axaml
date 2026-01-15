@@ -5,7 +5,13 @@
         Width="900" Height="600"
         x:Name="RootWindow"
         Background="Black">
-    
+    <Window.Resources>
+        <DataTemplate x:Key="TabHeaderTemplate">
+            <TextBlock Text="{Binding}" Foreground="White" 
+                       FontSize="14" VerticalAlignment="Center" 
+                       HorizontalAlignment="Center"/>
+        </DataTemplate>
+    </Window.Resources>
     <Grid RowDefinitions="Auto, *" x:Name="MainRoot">
         <StackPanel Orientation="Horizontal" Background="#202020">
              <!-- Focusable=False to prevent stealing keyboard focus on click -->
@@ -22,7 +28,7 @@
         </StackPanel>
         
         <Grid Grid.Row="1">
-            <TabControl Name="Tabs" Background="Black" Foreground="White" >
+            <TabControl Name="Tabs">
                 <!-- Tabs added dynamically -->
             </TabControl>
 

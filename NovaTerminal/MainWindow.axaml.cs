@@ -46,6 +46,13 @@ namespace NovaTerminal
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
             var settingsBtn = this.FindControl<Button>("SettingsBtn");
+            
+            // Set initial tab colors immediately
+            if (tabs != null)
+            {
+                tabs.Background = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.FromRgb(20, 20, 20));
+                tabs.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White);
+            }
 
             if (settingsBtn != null) settingsBtn.Click += async (s, e) => 
             {
@@ -230,9 +237,7 @@ namespace NovaTerminal
             var tabItem = new TabItem
             {
                 Header = shell,
-                // Content = ctx.View, // Replaced by Grid below
-                Tag = ctx,
-                Foreground = Avalonia.Media.Brushes.White,
+                Tag = ctx
             };
             
             // Create Grid with ScrollBar (Overlay Mode)
@@ -543,6 +548,9 @@ namespace NovaTerminal
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs != null)
             {
+                // Now that XAML doesn't have hardcoded colors, we can set them dynamically
+                tabs.Background = headerBrush;
+                tabs.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White); // Keep white text for visibility
                 tabs.InvalidateVisual();
                 tabs.InvalidateArrange();
             }
