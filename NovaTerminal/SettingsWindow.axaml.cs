@@ -16,6 +16,7 @@ namespace NovaTerminal
             
             PopulateFonts();
             LoadCurrentSettings();
+            ApplyTheme();
 
             var btnSave = this.FindControl<Button>("BtnSave");
             var btnCancel = this.FindControl<Button>("BtnCancel");
@@ -72,6 +73,13 @@ namespace NovaTerminal
                     }
                 }
             }
+        }
+
+        private void ApplyTheme()
+        {
+            var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
+            this.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
+            this.Foreground = new Avalonia.Media.SolidColorBrush(theme.Foreground);
         }
 
         private void SaveAndClose()

@@ -4,58 +4,78 @@
         Title="NovaTerminal"
         Width="900" Height="600"
         x:Name="RootWindow"
+        ExtendClientAreaToDecorationsHint="True"
+        ExtendClientAreaChromeHints="PreferSystemChrome"
         Background="Black">
     <Window.Resources>
         <DataTemplate x:Key="TabHeaderTemplate">
             <TextBlock Text="{Binding}" Foreground="White" 
-                       FontSize="14" VerticalAlignment="Center" 
-                       HorizontalAlignment="Center"/>
+                       FontSize="13" VerticalAlignment="Center" 
+                       HorizontalAlignment="Center"
+                       Margin="0,0,0,0"/>
         </DataTemplate>
     </Window.Resources>
-    <Grid RowDefinitions="Auto, *" x:Name="MainRoot">
-        <StackPanel Orientation="Horizontal" Background="#202020">
-             <!-- Focusable=False to prevent stealing keyboard focus on click -->
-             <Button Name="BtnNewTab" Content=" + " Background="Transparent" Foreground="White" BorderThickness="0" Focusable="False">
-                 <Button.Flyout>
-                     <MenuFlyout>
-                         <MenuItem Header="Command Prompt" Name="MenuCmd" />
-                         <MenuItem Header="PowerShell" Name="MenuPs" />
-                         <MenuItem Header="WSL (Ubuntu)" Name="MenuWsl" />
-                     </MenuFlyout>
-                 </Button.Flyout>
-             </Button>
-              <Button Name="SettingsBtn" Content=" ⚙ " Background="Transparent" Foreground="#AAA" BorderThickness="0" Focusable="False" Margin="10,0,0,0"/>
-        </StackPanel>
-        
-        <Grid Grid.Row="1">
-            <TabControl Name="Tabs" RenderOptions.BitmapInterpolationMode="HighQuality">
-                <!-- Tabs added dynamically -->
-            </TabControl>
+    <Grid x:Name="MainRoot">
+        <!-- TabControl spanning full window, headers in title bar area -->
+        <TabControl Name="Tabs" Margin="0,0,0,0"
+                    TabStripPlacement="Top"
+                    Padding="4"
+                    BorderThickness="0"
+                    RenderOptions.BitmapInterpolationMode="HighQuality">
+            <!-- Tabs added dynamically -->
+        </TabControl>
 
-            <!-- Search Overlay -->
-            <Border Name="SearchPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Right" 
-                    Margin="0,10,20,0" Background="#383838" CornerRadius="4" Padding="6" Width="420"
-                    BorderBrush="#505050" BorderThickness="1">
-                <Border.Resources>
-                    <SolidColorBrush x:Key="TextControlBackground">#1a1a1a</SolidColorBrush>
-                    <SolidColorBrush x:Key="TextControlBackgroundPointerOver">#1a1a1a</SolidColorBrush>
-                    <SolidColorBrush x:Key="TextControlBackgroundFocused">#1a1a1a</SolidColorBrush>
-                    <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
-                    <SolidColorBrush x:Key="TextControlForegroundPointerOver">White</SolidColorBrush>
-                    <SolidColorBrush x:Key="TextControlForegroundFocused">White</SolidColorBrush>
-                </Border.Resources>
-                <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto">
-                    <TextBox Name="SearchBox" Watermark="Search..." 
-                             BorderThickness="1" BorderBrush="#505050" 
-                             VerticalContentAlignment="Center" 
-                             Padding="8,4" Margin="2"/>
-                    <TextBlock Name="SearchCount" Grid.Column="1" Text="0/0" Foreground="#AAA" 
-                               VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
-                    <Button Name="SearchPrev" Grid.Column="2" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                    <Button Name="SearchNext" Grid.Column="3" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                    <Button Name="SearchClose" Grid.Column="4" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                </Grid>
-            </Border>
+        <!-- Overlay layer for custom buttons (Right aligned, leaving space for system caption buttons) -->
+        <Grid VerticalAlignment="Top" Height="32" HorizontalAlignment="Right" ZIndex="100" x:Name="TitleBar" Margin="0,4,140,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <!-- Focusable=False to prevent stealing keyboard focus on click -->
+                <Button Name="BtnNewTab" Content="+" 
+                        Background="Transparent" Foreground="#EEEEEE" 
+                        BorderThickness="0" Focusable="False" 
+                        Padding="10,5" 
+                        CornerRadius="4"
+                        ToolTip.Tip="New Tab">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuItem Header="Command Prompt" Name="MenuCmd" />
+                            <MenuItem Header="PowerShell" Name="MenuPs" />
+                            <MenuItem Header="WSL (Ubuntu)" Name="MenuWsl" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+                <Button Name="SettingsBtn" Content="⚙" 
+                        Background="Transparent" Foreground="#AAAAAA" 
+                        BorderThickness="0" Focusable="False" 
+                        Padding="10,5" 
+                        CornerRadius="4"
+                        Margin="4,0,0,0"
+                        ToolTip.Tip="Settings"/>
+            </StackPanel>
         </Grid>
+
+        <!-- Search Overlay -->
+        <Border Name="SearchPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Right" 
+                Margin="0,50,20,0" Background="#383838" CornerRadius="4" Padding="6" Width="420"
+                BorderBrush="#505050" BorderThickness="1" ZIndex="200">
+            <Border.Resources>
+                <SolidColorBrush x:Key="TextControlBackground">#1a1a1a</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlBackgroundPointerOver">#1a1a1a</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlBackgroundFocused">#1a1a1a</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlForegroundPointerOver">White</SolidColorBrush>
+                <SolidColorBrush x:Key="TextControlForegroundFocused">White</SolidColorBrush>
+            </Border.Resources>
+            <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto">
+                <TextBox Name="SearchBox" Watermark="Search..." 
+                         BorderThickness="1" BorderBrush="#505050" 
+                         VerticalContentAlignment="Center" 
+                         Padding="8,4" Margin="2"/>
+                <TextBlock Name="SearchCount" Grid.Column="1" Text="0/0" Foreground="#AAA" 
+                           VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
+                <Button Name="SearchPrev" Grid.Column="2" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                <Button Name="SearchNext" Grid.Column="3" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                <Button Name="SearchClose" Grid.Column="4" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

@@ -44,9 +44,24 @@ namespace NovaTerminal
             InitializeComponent();
             _settings = TerminalSettings.Load();
 
+
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
             var settingsBtn = this.FindControl<Button>("SettingsBtn");
+            var minimizeBtn = this.FindControl<Button>("MinimizeBtn");
+            var maximizeBtn = this.FindControl<Button>("MaximizeBtn");
+            var closeBtn = this.FindControl<Button>("CloseBtn");
+            var titleBar = this.FindControl<Grid>("TitleBar");
+            
+            // Drag window by title bar (if clicking empty space in our overlay)
+            if (titleBar != null)
+            {
+                titleBar.PointerPressed += (s, e) =>
+                {
+                    if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                        BeginMoveDrag(e);
+                };
+            }
             
             // Set initial tab colors immediately
             if (tabs != null)
@@ -702,13 +717,12 @@ namespace NovaTerminal
                 mainRoot.InvalidateArrange();
             }
 
-            // First child of MainRoot is the TabStrip (StackPanel)
-            if (mainRoot != null && mainRoot.Children.Count > 0 && mainRoot.Children[0] is StackPanel sp)
+            // Apply theme to title bar
+            var titleBar = this.FindControl<Grid>("TitleBar");
+            if (titleBar != null)
             {
-                sp.Background = bgBrush;  // Match theme background
-                sp.InvalidateVisual();
-                sp.InvalidateMeasure();
-                sp.InvalidateArrange();
+                titleBar.Background = bgBrush;
+                titleBar.InvalidateVisual();
             }
 
             var searchPanel = this.FindControl<Border>("SearchPanel");
