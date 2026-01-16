@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
+using Avalonia.Media;
 
 namespace NovaTerminal
 {
@@ -99,6 +100,37 @@ namespace NovaTerminal
                 {
                     _settings.BlurEffect = val;
                     UpdateTransparencyHints();
+                };
+
+                // Live preview for background image
+                sw.OnBgImageChanged += (path, opacity, stretch) =>
+                {
+                    _settings.BackgroundImagePath = path;
+                    _settings.BackgroundImageOpacity = opacity;
+                    _settings.BackgroundImageStretch = stretch;
+
+                    ApplyThemeToUI();       // Updates Window Background
+                    ApplySettingsToAllTabs(); // Updates Terminal Views (Transparent vs Opaque)
+                };
+
+                // Live preview for other settings
+                sw.OnFontChanged += (font) =>
+                {
+                    _settings.FontFamily = font;
+                    ApplySettingsToAllTabs();
+                };
+
+                sw.OnFontSizeChanged += (size) =>
+                {
+                    _settings.FontSize = size;
+                    ApplySettingsToAllTabs();
+                };
+
+                sw.OnThemeChanged += (theme) =>
+                {
+                    _settings.ThemeName = theme;
+                    ApplyThemeToUI(); // Update window chrome/backgrounds
+                    ApplySettingsToAllTabs(); // Update terminal colors
                 };
 
                 await sw.ShowDialog<bool>(this);
@@ -743,7 +775,39 @@ namespace NovaTerminal
             var mainRoot = this.FindControl<Grid>("MainRoot");
             if (mainRoot != null)
             {
-                mainRoot.Background = Avalonia.Media.Brushes.Transparent;
+                // MainRoot is just a container, background handled by window/grid
+            }
+
+            // Handle Background Image
+            var bgGrid = this.FindControl<Grid>("WindowBackground");
+            if (bgGrid != null)
+            {
+                if (!string.IsNullOrEmpty(_settings.BackgroundImagePath) && System.IO.File.Exists(_settings.BackgroundImagePath))
+                {
+                    try
+                    {
+                        var bitmap = new Avalonia.Media.Imaging.Bitmap(_settings.BackgroundImagePath);
+                        var brush = new ImageBrush(bitmap);
+
+                        // Map stretch setting
+                        if (Enum.TryParse<Stretch>(_settings.BackgroundImageStretch, out var stretch))
+                            brush.Stretch = stretch;
+                        else
+                            brush.Stretch = Stretch.UniformToFill;
+
+                        bgGrid.Background = brush;
+                        bgGrid.Opacity = _settings.BackgroundImageOpacity;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Failed to load bg image: {ex.Message}");
+                        bgGrid.Background = null;
+                    }
+                }
+                else
+                {
+                    bgGrid.Background = null;
+                }
             }
 
             // Force window-level invalidation to ensure complete redraw
@@ -754,12 +818,7 @@ namespace NovaTerminal
             // MainRoot correctly holds the background now
 
 
-            // WindowBackground disabled - terminal renders its own background
-            var winBg = this.FindControl<Grid>("WindowBackground");
-            if (winBg != null)
-            {
-                winBg.Background = Avalonia.Media.Brushes.Transparent;
-            }
+            // MainRoot correctly holds the background now
 
             // DragBorder provides draggable title bar background
             var dragBorder = this.FindControl<Border>("DragBorder");

@@ -28,6 +28,7 @@ namespace NovaTerminal.Core
         private double _charWidth;
         private double _charHeight;
         private double _windowOpacity = 1.0;
+        private bool _hasBackgroundImage = false;
 
         private IGlyphTypeface? _glyphTypeface;
         private SKTypeface? _skTypeface;
@@ -68,6 +69,7 @@ namespace NovaTerminal.Core
                 _typeface = new Typeface(settings.FontFamily);
             }
             _windowOpacity = settings.WindowOpacity;
+            _hasBackgroundImage = !string.IsNullOrEmpty(settings.BackgroundImagePath) && System.IO.File.Exists(settings.BackgroundImagePath);
 
             if (_buffer != null)
             {
@@ -416,7 +418,8 @@ namespace NovaTerminal.Core
                 _glyphTypeface,
                 _skTypeface,
                 _skFont,
-                _windowOpacity
+                _windowOpacity,
+                _hasBackgroundImage
             );
 
             context.Custom(drawOp);

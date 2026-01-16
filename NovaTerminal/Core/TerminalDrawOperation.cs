@@ -26,6 +26,7 @@ namespace NovaTerminal.Core
         private readonly SKTypeface? _skTypeface;
         private readonly SKFont? _skFont;
         private readonly float _opacity;
+        private readonly bool _transparentBackground;
 
         public Rect Bounds => _bounds;
 
@@ -44,7 +45,8 @@ namespace NovaTerminal.Core
             IGlyphTypeface glyphTypeface,
             SKTypeface? skTypeface,
             SKFont? skFont,
-            double opacity = 1.0)
+            double opacity = 1.0,
+            bool transparentBackground = false)
         {
             _bounds = bounds;
             _buffer = buffer;
@@ -61,6 +63,7 @@ namespace NovaTerminal.Core
             _skTypeface = skTypeface;
             _skFont = skFont;
             _opacity = (float)Math.Clamp(opacity, 0.0, 1.0);
+            _transparentBackground = transparentBackground;
         }
 
         public void Dispose()
@@ -102,6 +105,13 @@ namespace NovaTerminal.Core
 
                 var themeBg = new SKColor(_buffer.Theme.Background.R, _buffer.Theme.Background.G, _buffer.Theme.Background.B, alpha);
                 var themeFg = new SKColor(_buffer.Theme.Foreground.R, _buffer.Theme.Foreground.G, _buffer.Theme.Foreground.B, alpha);
+
+                // If background image is active, we force the theme background to be transparent
+                // so the image shows through.
+                if (_transparentBackground)
+                {
+                    themeBg = SKColors.Empty;
+                }
 
                 // Fill background with semi-transparent color (matches WindowBackground alpha)
                 bgPaint.Color = themeBg;
