@@ -27,6 +27,7 @@ namespace NovaTerminal.Core
         private double _fontSize = 14;
         private double _charWidth;
         private double _charHeight;
+        private double _windowOpacity = 1.0;
 
         private IGlyphTypeface? _glyphTypeface;
         private SKTypeface? _skTypeface;
@@ -57,16 +58,24 @@ namespace NovaTerminal.Core
 
         public void ApplySettings(TerminalSettings settings)
         {
+            // Check if font properties changed to avoid unnecessary Skia recreation (prevents crash on rapid opacity changes)
+            bool fontChanged = Math.Abs(_fontSize - settings.FontSize) > 0.01 ||
+                               (_typeface.FontFamily.Name != settings.FontFamily);
+
             _fontSize = settings.FontSize;
-            _typeface = new Typeface(settings.FontFamily);
-            
+            if (fontChanged)
+            {
+                _typeface = new Typeface(settings.FontFamily);
+            }
+            _windowOpacity = settings.WindowOpacity;
+
             if (_buffer != null)
             {
                 _buffer.MaxHistory = settings.MaxHistory;
 
                 // Store old theme for color remapping
                 var oldTheme = _buffer.Theme;
-                
+
                 // Apply new theme
                 if (settings.ThemeName == "Solarized Dark")
                     _buffer.Theme = TerminalTheme.SolarizedDark;
@@ -75,24 +84,28 @@ namespace NovaTerminal.Core
 
                 // Update all existing cells, remapping old theme colors to new
                 _buffer.UpdateThemeColors(oldTheme);
-                
+
                 // Force immediate visual refresh
                 InvalidateVisual();
             }
 
-            MeasureCharSize();
-
-            // Trigger resize based on new font metrics and current bounds
-            // BUT only if dimensions actually changed (to avoid overwriting theme-updated cells)
-            if (_buffer != null && _charWidth > 0 && _charHeight > 0)
+            // Only recreate resources if font changed
+            if (fontChanged)
             {
-                int cols = (int)(Bounds.Width / _charWidth);
-                int rows = (int)(Bounds.Height / _charHeight);
+                MeasureCharSize();
 
-                if (cols > 0 && rows > 0 && (cols != _buffer.Cols || rows != _buffer.Rows))
+                // Trigger resize based on new font metrics and current bounds
+                // BUT only if dimensions actually changed (to avoid overwriting theme-updated cells)
+                if (_buffer != null && _charWidth > 0 && _charHeight > 0)
                 {
-                    _buffer.Resize(cols, rows);
-                    OnResize?.Invoke(cols, rows);
+                    int cols = (int)(Bounds.Width / _charWidth);
+                    int rows = (int)(Bounds.Height / _charHeight);
+
+                    if (cols > 0 && rows > 0 && (cols != _buffer.Cols || rows != _buffer.Rows))
+                    {
+                        _buffer.Resize(cols, rows);
+                        OnResize?.Invoke(cols, rows);
+                    }
                 }
             }
 
@@ -114,13 +127,13 @@ namespace NovaTerminal.Core
 
         // Session for sending mouse events
         private ITerminalSession? _session;
-        
+
         public void SetBuffer(TerminalBuffer buffer)
         {
             if (_buffer != null) _buffer.OnInvalidate -= InvalidateVisual;
             _buffer = buffer;
             if (_buffer != null) _buffer.OnInvalidate += InvalidateBuffer;
-            
+
             MeasureCharSize();
             InvalidateVisual();
         }
@@ -135,17 +148,17 @@ namespace NovaTerminal.Core
 
             // Try to get IGlyphTypeface for low-level rendering
             _glyphTypeface = _typeface.GlyphTypeface;
-            
+
             // OPTIMIZATION: Cache Skia Typeface & Font to avoid per-frame lookup/alloc
             ClearSkiaResources();
             try
             {
-               _skTypeface = SkiaSharp.SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
-               if (_skTypeface != null)
-               {
-                   _skFont?.Dispose();
-                   _skFont = new SKFont(_skTypeface, (float)_fontSize);
-               }
+                _skTypeface = SkiaSharp.SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
+                if (_skTypeface != null)
+                {
+                    _skFont?.Dispose();
+                    _skFont = new SKFont(_skTypeface, (float)_fontSize);
+                }
             }
             catch { }
         }
@@ -159,7 +172,7 @@ namespace NovaTerminal.Core
         private int _scrollOffset = 0;
         private DispatcherTimer? _autoScrollTimer;
         private int _autoScrollDirection = 0; // -1 up, 1 down
-        
+
         public int ScrollOffset
         {
             get => _scrollOffset;
@@ -178,7 +191,7 @@ namespace NovaTerminal.Core
         }
 
         private bool _isInvalidationPending = false;
-        
+
         // Search state
         private List<SearchMatch> _searchMatches = new List<SearchMatch>();
         private int _activeSearchIndex = -1;
@@ -190,12 +203,12 @@ namespace NovaTerminal.Core
             if (_buffer == null) return;
             _searchMatches = _buffer.FindMatches(query);
             _activeSearchIndex = _searchMatches.Count > 0 ? 0 : -1;
-            
+
             if (_activeSearchIndex != -1)
             {
                 ScrollToMatch(_searchMatches[_activeSearchIndex]);
             }
-            
+
             SearchStateChanged?.Invoke(_activeSearchIndex + 1, _searchMatches.Count);
             InvalidateVisual();
         }
@@ -229,16 +242,16 @@ namespace NovaTerminal.Core
         private void ScrollToMatch(SearchMatch match)
         {
             if (_buffer == null) return;
-            
+
             int totalLines = _buffer.TotalLines;
             int viewportRows = _buffer.Rows;
-            
+
             // match.AbsRow is 0-indexed from top of scrollback
             // Current viewport shows [totalLines - viewportRows - _scrollOffset, totalLines - _scrollOffset]
-            
+
             int viewTop = totalLines - viewportRows - _scrollOffset;
             int viewBottom = totalLines - _scrollOffset;
-            
+
             if (match.AbsRow < viewTop || match.AbsRow >= viewBottom)
             {
                 // Put match in the middle if possible
@@ -252,19 +265,19 @@ namespace NovaTerminal.Core
             if (_isInvalidationPending) return;
             _isInvalidationPending = true;
 
-            Dispatcher.UIThread.Post(() => 
+            Dispatcher.UIThread.Post(() =>
             {
                 _isInvalidationPending = false;
                 InvalidateVisual();
             }, DispatcherPriority.Render);
-            
+
             // Notify scroll change if buffer size changed (e.g. new lines added)
             // This part we check every time but maybe also throttle?
             if (_buffer != null)
             {
-                Dispatcher.UIThread.Post(() => 
+                Dispatcher.UIThread.Post(() =>
                 {
-                    if (_buffer != null) 
+                    if (_buffer != null)
                         ScrollStateChanged?.Invoke(_scrollOffset, _buffer.TotalLines);
                 });
             }
@@ -303,10 +316,10 @@ namespace NovaTerminal.Core
 
             // Adjust scroll offset
             int newOffset = ScrollOffset - _autoScrollDirection; // Offset decreases when scrolling down (towards 0/end)
-            // Wait, ScrollOffset 0 is bottom (end). Higher values go back in history.
-            // If dragging DOWN (direction=1), we want to see newer lines -> Decrease Offset.
-            // If dragging UP (direction=-1), we want to see older lines -> Increase Offset.
-            
+                                                                 // Wait, ScrollOffset 0 is bottom (end). Higher values go back in history.
+                                                                 // If dragging DOWN (direction=1), we want to see newer lines -> Decrease Offset.
+                                                                 // If dragging UP (direction=-1), we want to see older lines -> Increase Offset.
+
             // Re-clamping logic:
             int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
             newOffset = Math.Clamp(newOffset, 0, maxScroll);
@@ -314,34 +327,34 @@ namespace NovaTerminal.Core
             if (newOffset != ScrollOffset)
             {
                 ScrollOffset = newOffset;
-                
+
                 // Update selection to current mouse position relative to NEW scroll
-                try 
+                try
                 {
                     // Accessing pointer position is tricky inside timer without event args.
                     // We can rely on the fact that OnPointerMoved updates _selection.End 
                     // BUT OnPointerMoved fires on mouse move. If mouse is still, we need to update selection end based on new scroll.
                     // Actually, simpler: The selection end is an absolute row. 
                     // If we scroll, the mouse is now over a DIFFERENT absolute row.
-                    
+
                     // We should track last known mouse position or just let the user move mouse.
                     // But standard behavior is: hold mouse at bottom -> scroll -> selection expands.
                     // To do this, we need to update _selection.End to the row currently at the bottom (or top) visual edge.
-                    
+
                     int targetVisualRow = (_autoScrollDirection > 0) ? _buffer.Rows - 1 : 0;
-                    
+
                     // Convert visual row to absolute row with NEW offset
                     int totalLines = _buffer.TotalLines;
                     int displayStart = Math.Max(0, totalLines - _buffer.Rows - ScrollOffset);
                     int absRow = displayStart + targetVisualRow;
-                    
+
                     // We need to keep the Column from the initial selection/drag. 
                     // But for full line selection feeling, usually it goes to end/start of line.
                     // Let's just update the Row, keep Col from existing selection end? No, that might be weird.
                     // Ideally we'd poll mouse position, but complex in Avalonia without reference.
                     // Let's assume extending to the full width of the new row is acceptable for vertical drag,
                     // or just keep the previous column.
-                    
+
                     _selection.End = (absRow, _selection.End.Col);
                     InvalidateVisual();
                 }
@@ -360,7 +373,7 @@ namespace NovaTerminal.Core
                 if (cols > 0 && rows > 0)
                 {
                     _buffer.Resize(cols, rows);
-                    
+
                     if (!_isReady)
                     {
                         // Ensure we don't start with a tiny transient layout (e.g. before Window is fully sized)
@@ -381,47 +394,48 @@ namespace NovaTerminal.Core
         }
 
         public override void Render(DrawingContext context)
-    {
-        if (_buffer == null || _glyphTypeface == null) 
         {
-           return;
-        }
+            if (_buffer == null || _glyphTypeface == null)
+            {
+                return;
+            }
 
-        // Create and dispatch custom draw op
-        var drawOp = new TerminalDrawOperation(
-            new Rect(0, 0, Bounds.Width, Bounds.Height),
-            _buffer,
-            _scrollOffset,
-            _selection,
-            _searchMatches,
-            _activeSearchIndex,
-            _charWidth,
-            _charHeight,
-            _baselineOffset,
-            _typeface,
-            _fontSize,
-            _glyphTypeface,
-            _skTypeface,
-            _skFont
-        );
-        
-        context.Custom(drawOp);
-    }
+            // Create and dispatch custom draw op
+            var drawOp = new TerminalDrawOperation(
+                new Rect(0, 0, Bounds.Width, Bounds.Height),
+                _buffer,
+                _scrollOffset,
+                _selection,
+                _searchMatches,
+                _activeSearchIndex,
+                _charWidth,
+                _charHeight,
+                _baselineOffset,
+                _typeface,
+                _fontSize,
+                _glyphTypeface,
+                _skTypeface,
+                _skFont,
+                _windowOpacity
+            );
+
+            context.Custom(drawOp);
+        }
 
         // Mouse event handlers
         protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
         {
-             base.OnPointerWheelChanged(e);
-             if (_buffer == null) return;
-             
-             // Scroll up (positive) -> Increase Offset
-             // Scroll down (negative) -> Decrease Offset
-             int delta = (int)(e.Delta.Y * 3); // 3 lines per notch
-             
-             // If scrolling UP (Delta > 0), we want to see History. History is at Offset > 0.
-             // So UP wheel means Increase Offset.
-             
-             ScrollOffset += delta; 
+            base.OnPointerWheelChanged(e);
+            if (_buffer == null) return;
+
+            // Scroll up (positive) -> Increase Offset
+            // Scroll down (negative) -> Decrease Offset
+            int delta = (int)(e.Delta.Y * 3); // 3 lines per notch
+
+            // If scrolling UP (Delta > 0), we want to see History. History is at Offset > 0.
+            // So UP wheel means Increase Offset.
+
+            ScrollOffset += delta;
         }
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -429,7 +443,7 @@ namespace NovaTerminal.Core
             base.OnPointerPressed(e);
 
             var point = e.GetCurrentPoint(this);
-            
+
             if (point.Properties.IsLeftButtonPressed)
             {
                 // Check if application has enabled mouse reporting
@@ -443,7 +457,7 @@ namespace NovaTerminal.Core
 
                 // Normal mode: Handle selection
                 var (row, col) = ScreenToTerminal(point.Position);
-                
+
                 // Check for double/triple-click
                 if (e.ClickCount == 2)
                 {
@@ -465,7 +479,7 @@ namespace NovaTerminal.Core
                     _selection.IsActive = true;
                     _isSelecting = true;
                 }
-                
+
                 InvalidateVisual();
             }
         }
@@ -478,18 +492,18 @@ namespace NovaTerminal.Core
             if (_buffer != null && _buffer.IsMouseReportingActive())
             {
                 var point = e.GetCurrentPoint(this);
-                
+
                 // Only send motion when a button is actually pressed (drag)
                 // Mode 1003 should track motion during button press, not on hover
-                bool anyButtonPressed = point.Properties.IsLeftButtonPressed || 
-                                       point.Properties.IsMiddleButtonPressed || 
+                bool anyButtonPressed = point.Properties.IsLeftButtonPressed ||
+                                       point.Properties.IsMiddleButtonPressed ||
                                        point.Properties.IsRightButtonPressed;
-                
+
                 if (anyButtonPressed)
                 {
                     SendMouseEvent(e, pressed: true, motion: true);
                 }
-                
+
                 e.Handled = true;
                 return;
             }
@@ -498,10 +512,10 @@ namespace NovaTerminal.Core
             {
                 var point = e.GetCurrentPoint(this);
                 var (absRow, col) = ScreenToTerminal(point.Position);
-                
+
                 // Update selection end
                 _selection.End = (absRow, col);
-                
+
                 // Auto-scroll detection
                 double zoneSize = _charHeight * 2; // Drag within top/bottom 2 lines
                 if (point.Position.Y < zoneSize)
@@ -539,7 +553,7 @@ namespace NovaTerminal.Core
             {
                 _isSelecting = false;
                 StopAutoScroll();
-                
+
                 // If start == end, clear selection (was just a click)
                 if (_selection.Start == _selection.End)
                 {
@@ -581,7 +595,7 @@ namespace NovaTerminal.Core
                 // SGR format: CSI < button ; x ; y M/m
                 char finalChar = pressed ? 'M' : 'm';
                 string sequence = $"\x1b[<{button};{x};{y}{finalChar}";
-                
+
                 _session.SendInput(sequence);
             }
             else if (_buffer.IsMouseReportingActive())
@@ -594,7 +608,7 @@ namespace NovaTerminal.Core
                     char buttonChar = (char)(32 + button);
                     char xChar = (char)(32 + x);
                     char yChar = (char)(32 + y);
-                    
+
                     // Clamp to valid range (coordinates must be < 223)
                     if (x < 223 && y < 223)
                     {
@@ -718,7 +732,7 @@ namespace NovaTerminal.Core
 
             // Clamp visual row first
             visualRow = Math.Clamp(visualRow, 0, _buffer.Rows - 1);
-            
+
             // Convert to Absolute Row
             // Visible Top Index = Total - Rows - Offset
             int totalLines = _buffer.TotalLines;
@@ -727,7 +741,7 @@ namespace NovaTerminal.Core
 
             // Clamp columns
             col = Math.Clamp(col, 0, _buffer.Cols - 1);
-            
+
             // AbsRow shouldn't need clamping if logic correct, but safety:
             absRow = Math.Clamp(absRow, 0, totalLines - 1);
 

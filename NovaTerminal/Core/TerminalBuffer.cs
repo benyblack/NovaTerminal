@@ -9,20 +9,20 @@ namespace NovaTerminal.Core
     {
         // Active viewport - what ConPTY writes to (fixed size)
         private TerminalRow[] _viewport;
-        
+
         // Scrollback buffer - historical lines that scrolled off the top
         private List<TerminalRow> _scrollback = new List<TerminalRow>();
         public int MaxHistory { get; set; } = 10000;
-        
+
         public int Cols { get; private set; }
         public int Rows { get; private set; }
-        
+
         public int CursorCol { get; set; }
         public int CursorRow { get; set; } // Row within viewport (0 to Rows-1)
-        
+
         public IReadOnlyList<TerminalRow> ScrollbackRows => _scrollback;
         public int TotalLines => _scrollback.Count + Rows;
-        
+
         // Track previous position for auto-clear heuristic
         private int _prevCursorCol = 0;
         private int _prevCursorRow = 0;
@@ -51,7 +51,7 @@ namespace NovaTerminal.Core
         {
             Cols = cols;
             Rows = rows;
-            
+
             CurrentForeground = Theme.Foreground;
             CurrentBackground = Theme.Background;
             IsDefaultForeground = true;
@@ -85,11 +85,11 @@ namespace NovaTerminal.Core
             {
                 Lock.ExitWriteLock();
             }
-            
+
             // NOTE: Do NOT reset mouse modes here!
             // Mouse modes should only change via DEC private mode sequences,
             // not from screen clearing operations (htop clears screen after enabling mouse)
-            
+
             OnInvalidate?.Invoke();
         }
 
@@ -102,7 +102,7 @@ namespace NovaTerminal.Core
                 var debugLines = new System.Collections.Generic.List<string>();
                 debugLines.Add($"=== UpdateThemeColors called at {DateTime.Now} ===");
                 debugLines.Add($"Theme: {Theme.Name}");
-                
+
                 // Helper function to check if a color is "dark" (likely a background)
                 bool IsDarkColor(Color c)
                 {
@@ -110,25 +110,25 @@ namespace NovaTerminal.Core
                     double brightness = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
                     return brightness < 0.3; // Dark if brightness < 30%
                 }
-                
+
                 int remappedCount = 0;
                 int totalCells = 0;
                 int darkCellsFound = 0;
-                
+
                 for (int r = 0; r < Rows; r++)
                 {
                     for (int c = 0; c < Cols; c++)
                     {
                         ref var cell = ref _viewport[r].Cells[c];
                         totalCells++;
-                        
+
                         // Debug first few rows
                         if (r < 3 && c < 5)
                         {
                             double brightness = (0.299 * cell.Background.R + 0.587 * cell.Background.G + 0.114 * cell.Background.B) / 255.0;
                             debugLines.Add($"Cell[{r},{c}]: BG={cell.Background} (brightness={brightness:F2}), IsDefault={cell.IsDefaultBackground}, Char='{cell.Character}'");
                         }
-                        
+
                         // Always update cells marked as default
                         if (cell.IsDefaultForeground)
                         {
@@ -138,7 +138,7 @@ namespace NovaTerminal.Core
                         {
                             cell.Background = Theme.Background;
                         }
-                        
+
                         // Convert dark backgrounds to theme background
                         if (!cell.IsDefaultBackground && IsDarkColor(cell.Background))
                         {
@@ -153,7 +153,7 @@ namespace NovaTerminal.Core
                         }
                     }
                 }
-                
+
                 debugLines.Add($"Total cells: {totalCells}, Dark cells found: {darkCellsFound}, Remapped: {remappedCount}");
                 System.IO.File.WriteAllLines(debugPath, debugLines);
 
@@ -163,7 +163,7 @@ namespace NovaTerminal.Core
                     for (int c = 0; c < row.Cells.Length; c++)
                     {
                         ref var cell = ref row.Cells[c];
-                        
+
                         if (cell.IsDefaultForeground)
                         {
                             cell.Foreground = Theme.Foreground;
@@ -172,7 +172,7 @@ namespace NovaTerminal.Core
                         {
                             cell.Background = Theme.Background;
                         }
-                        
+
                         if (!cell.IsDefaultBackground && IsDarkColor(cell.Background))
                         {
                             cell.Background = Theme.Background;
@@ -211,85 +211,85 @@ namespace NovaTerminal.Core
                 // Clamp cursor to viewport
                 CursorRow = Math.Clamp(CursorRow, 0, Rows - 1);
                 CursorCol = Math.Clamp(CursorCol, 0, Cols - 1);
-                
+
                 // Track row changes
                 if (CursorRow != _prevCursorRow)
                 {
                     _maxColThisRow = 0;
                 }
 
-                if (c == '\r') 
+                if (c == '\r')
                 {
                     CursorCol = 0;
                     _prevCursorCol = CursorCol;
                     _prevCursorRow = CursorRow;
                     // Invalidate handled at end
                 }
-                else if (c == '\n') 
+                else if (c == '\n')
                 {
                     // Mark current line as not wrapped
                     if (CursorRow >= 0 && CursorRow < Rows)
                     {
                         _viewport[CursorRow].IsWrapped = false;
                     }
-                    
+
                     CursorCol = 0;
                     CursorRow++;
-                    
+
                     // If we're past the bottom, scroll
                     if (CursorRow >= Rows)
                     {
                         ScrollUp();
-                        CursorRow = Rows - 1; 
+                        CursorRow = Rows - 1;
                     }
                 }
-                else if (c == '\b') 
+                else if (c == '\b')
                 {
                     if (CursorCol > 0) CursorCol--;
                 }
                 else if (c == '\t')
                 {
-                     int spaces = 4 - (CursorCol % 4);
-                     for (int i=0; i<spaces;i++)
-                     {
-                         if (CursorCol >= Cols)
-                         {
-                             if (CursorRow >= 0 && CursorRow < Rows)
-                                 _viewport[CursorRow].IsWrapped = true;
+                    int spaces = 4 - (CursorCol % 4);
+                    for (int i = 0; i < spaces; i++)
+                    {
+                        if (CursorCol >= Cols)
+                        {
+                            if (CursorRow >= 0 && CursorRow < Rows)
+                                _viewport[CursorRow].IsWrapped = true;
 
-                             CursorCol = 0;
-                             CursorRow++;
-                             if (CursorRow >= Rows)
-                             {
-                                 ScrollUp();
-                                 CursorRow = Rows - 1;
-                             }
-                         }
-                         
-                         if (CursorRow >= 0 && CursorRow < Rows && CursorCol >= 0 && CursorCol < Cols)
-                         {
-                             _viewport[CursorRow].Cells[CursorCol] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground);
-                             if (CursorCol > _maxColThisRow) _maxColThisRow = CursorCol;
-                             CursorCol++;
-                         }
-                         else
-                         {
-                             CursorCol++;
-                         }
-                     }
+                            CursorCol = 0;
+                            CursorRow++;
+                            if (CursorRow >= Rows)
+                            {
+                                ScrollUp();
+                                CursorRow = Rows - 1;
+                            }
+                        }
+
+                        if (CursorRow >= 0 && CursorRow < Rows && CursorCol >= 0 && CursorCol < Cols)
+                        {
+                            _viewport[CursorRow].Cells[CursorCol] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground);
+                            if (CursorCol > _maxColThisRow) _maxColThisRow = CursorCol;
+                            CursorCol++;
+                        }
+                        else
+                        {
+                            CursorCol++;
+                        }
+                    }
                 }
                 else
                 {
-                     // Normal Character
+                    // Normal Character
                     // Wrap if needed
                     if (CursorCol >= Cols)
                     {
                         if (CursorRow >= 0 && CursorRow < Rows)
                             _viewport[CursorRow].IsWrapped = true;
-                        
+
                         CursorCol = 0;
                         CursorRow++;
-                        
+
                         if (CursorRow >= Rows)
                         {
                             // Scroll up
@@ -311,15 +311,15 @@ namespace NovaTerminal.Core
                     // Write to viewport
                     if (CursorRow >= 0 && CursorRow < Rows && CursorCol >= 0 && CursorCol < Cols)
                     {
-                        _viewport[CursorRow].Cells[CursorCol] = new TerminalCell(c, CurrentForeground, CurrentBackground, IsInverse, IsBold);
-                        
+                        _viewport[CursorRow].Cells[CursorCol] = new TerminalCell(c, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground);
+
                         if (CursorCol > _maxColThisRow) _maxColThisRow = CursorCol;
-                        
+
                         CursorCol++;
                     }
                     else
                     {
-                        CursorCol++; 
+                        CursorCol++;
                     }
                 }
 
@@ -331,7 +331,7 @@ namespace NovaTerminal.Core
             {
                 Lock.ExitWriteLock();
             }
-            
+
             OnInvalidate?.Invoke();
         }
 
@@ -342,19 +342,19 @@ namespace NovaTerminal.Core
         {
             // Move top line to scrollback
             _scrollback.Add(_viewport[0]);
-            
+
             // Trim scrollback if needed
             if (_scrollback.Count > MaxHistory)
             {
                 _scrollback.RemoveAt(0);
             }
-            
+
             // Shift viewport up
             for (int i = 0; i < Rows - 1; i++)
             {
                 _viewport[i] = _viewport[i + 1];
             }
-            
+
             // Create new blank line at bottom
             _viewport[Rows - 1] = new TerminalRow(Cols);
         }
@@ -400,10 +400,10 @@ namespace NovaTerminal.Core
                         _viewport[i] = new TerminalRow(newCols);
                     }
                 }
-                
+
                 Cols = newCols;
                 Rows = newRows;
-                
+
                 // Clamp cursor
                 CursorRow = Math.Clamp(CursorRow, 0, Rows - 1);
                 CursorCol = Math.Clamp(CursorCol, 0, Cols - 1);
@@ -412,21 +412,21 @@ namespace NovaTerminal.Core
             {
                 Lock.ExitWriteLock();
             }
-            
+
             OnInvalidate?.Invoke();
         }
 
-        public TerminalCell GetCell(int col, int fieldRow, int scrollOffset = 0) 
+        public TerminalCell GetCell(int col, int fieldRow, int scrollOffset = 0)
         {
             // fieldRow is the visual row (0 to Rows-1)
             // We show: [scrollback tail] + [viewport]
-            
+
             int totalLines = _scrollback.Count + Rows;
             // Visible Top Index = Total - Rows - Offset
             int displayStart = Math.Max(0, totalLines - Rows - scrollOffset);
-            
+
             int actualIndex = displayStart + fieldRow;
-            
+
             return GetCellAbsolute(col, actualIndex);
         }
 
@@ -449,21 +449,21 @@ namespace NovaTerminal.Core
                 return _viewport[viewportRow].Cells[col];
             }
         }
-        
+
         public int GetVisualCursorRow(int scrollOffset = 0)
         {
             // Cursor is at _scrollback.Count + CursorRow
             // Visible Start is _scrollback.Count + Rows - Rows - scrollOffset
-            
+
             // Logical Index of Cursor:
             // int cursorAbsIndex = _scrollback.Count + CursorRow;
             // Logical Index of Screen Top:
             // int screenTopAbsIndex = (_scrollback.Count) - scrollOffset; 
-            
+
             // Visual Row = CursorAbs - ScreenTop
             // = (_scrollback.Count + CursorRow) - (_scrollback.Count - scrollOffset)
             // = CursorRow + scrollOffset
-            
+
             return CursorRow + scrollOffset;
         }
         // Saved Cursor State (DEC SC / DEC RC)
@@ -486,7 +486,7 @@ namespace NovaTerminal.Core
 
         public void RestoreCursor()
         {
-            CursorRow = Math.Clamp(_savedCursorRow, 0, Rows - 1); 
+            CursorRow = Math.Clamp(_savedCursorRow, 0, Rows - 1);
             CursorCol = Math.Clamp(_savedCursorCol, 0, Cols - 1);
             CurrentForeground = _savedForeground;
             CurrentBackground = _savedBackground;
@@ -503,7 +503,7 @@ namespace NovaTerminal.Core
                 var row = _viewport[CursorRow];
                 for (int i = CursorCol; i < Cols; i++)
                 {
-                     row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                    row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                 }
             }
             finally
@@ -522,7 +522,7 @@ namespace NovaTerminal.Core
                 var row = _viewport[CursorRow];
                 for (int i = 0; i <= CursorCol; i++)
                 {
-                     row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                    row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                 }
             }
             finally
@@ -541,7 +541,7 @@ namespace NovaTerminal.Core
                 var row = _viewport[CursorRow];
                 for (int i = 0; i < Cols; i++)
                 {
-                     row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                    row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                 }
             }
             finally
@@ -558,13 +558,13 @@ namespace NovaTerminal.Core
             {
                 if (CursorRow < 0 || CursorRow >= Rows) return;
                 var row = _viewport[CursorRow];
-                
+
                 for (int i = 0; i < count; i++)
                 {
                     int col = CursorCol + i;
                     if (col >= Cols) break;
-                    
-                    row.Cells[col] = new TerminalCell(' ', CurrentForeground, CurrentBackground);
+
+                    row.Cells[col] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                 }
             }
             finally
@@ -587,7 +587,7 @@ namespace NovaTerminal.Core
                 {
                     // Build row string
                     var row = (r < _scrollback.Count) ? _scrollback[r] : _viewport[r - _scrollback.Count];
-                    
+
                     // Optimization: Use a shared StringBuilder if this becomes a bottleneck
                     char[] chars = new char[Cols];
                     for (int c = 0; c < Cols; c++) chars[c] = row.Cells[c].Character;

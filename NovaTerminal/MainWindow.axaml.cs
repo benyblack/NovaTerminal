@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Avalonia;
 
 namespace NovaTerminal
 {
@@ -17,22 +18,22 @@ namespace NovaTerminal
         // Simple storage for active sessions
         // In a real VM pattern, we'd bind TabControl.Items to ObservableCollection.
         // For simplicity, we manipulate TabControl.Items directly.
-        
+
         private class TabContext
         {
             public ConPtySession Session { get; set; }
             public TerminalBuffer Buffer { get; set; }
             public AnsiParser Parser { get; set; }
             public TerminalView View { get; set; }
-            
-            public TabContext(string shell) 
+
+            public TabContext(string shell)
             {
-                 // Match the environment variable defaults (120x30)
-                 Buffer = new TerminalBuffer(120, 30);
-                 Parser = new AnsiParser(Buffer);
-                 View = new TerminalView();
-                 View.SetBuffer(Buffer);
-                 Session = new ConPtySession(shell);
+                // Match the environment variable defaults (120x30)
+                Buffer = new TerminalBuffer(120, 30);
+                Parser = new AnsiParser(Buffer);
+                View = new TerminalView();
+                View.SetBuffer(Buffer);
+                Session = new ConPtySession(shell);
             }
         }
 
@@ -52,7 +53,18 @@ namespace NovaTerminal
             var maximizeBtn = this.FindControl<Button>("MaximizeBtn");
             var closeBtn = this.FindControl<Button>("CloseBtn");
             var titleBar = this.FindControl<Grid>("TitleBar");
-            
+            var dragBorder = this.FindControl<Border>("DragBorder");
+
+            // Drag window by the drag border
+            if (dragBorder != null)
+            {
+                dragBorder.PointerPressed += (s, e) =>
+                {
+                    if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+                        BeginMoveDrag(e);
+                };
+            }
+
             // Drag window by title bar (if clicking empty space in our overlay)
             if (titleBar != null)
             {
@@ -62,7 +74,7 @@ namespace NovaTerminal
                         BeginMoveDrag(e);
                 };
             }
-            
+
             // Set initial tab colors immediately
             if (tabs != null)
             {
@@ -70,18 +82,26 @@ namespace NovaTerminal
                 tabs.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White);
             }
 
-            if (settingsBtn != null) settingsBtn.Click += async (s, e) => 
+            if (settingsBtn != null) settingsBtn.Click += async (s, e) =>
             {
                 var sw = new SettingsWindow();
-                var result = await sw.ShowDialog<bool>(this);
-                if (result)
+
+                // Live preview
+                sw.OnOpacityChanged += (val) =>
                 {
-                    _settings = TerminalSettings.Load();
+                    _settings.WindowOpacity = val;
                     ApplyThemeToUI();
                     ApplySettingsToAllTabs();
-                }
+                };
+
+                await sw.ShowDialog<bool>(this);
+
+                // Always reload and apply (handles Save vs Cancel automatically)
+                _settings = TerminalSettings.Load();
+                ApplyThemeToUI();
+                ApplySettingsToAllTabs();
             };
-            
+
             // Helper to broadcast settings
             void ApplySettingsToAllTabs()
             {
@@ -101,7 +121,7 @@ namespace NovaTerminal
             }
 
             ApplyThemeToUI();
-            
+
             // Menu Items
             var menuCmd = this.FindControl<MenuItem>("MenuCmd");
             var menuPs = this.FindControl<MenuItem>("MenuPs");
@@ -110,7 +130,7 @@ namespace NovaTerminal
             if (menuCmd != null) menuCmd.Click += (s, e) => AddTab("cmd.exe");
             if (menuPs != null) menuPs.Click += (s, e) => AddTab("powershell.exe");
             if (menuWsl != null) menuWsl.Click += (s, e) => AddTab("wsl.exe");
-            
+
             // Search UI controls
             var searchPanel = this.FindControl<Border>("SearchPanel");
             var searchBox = this.FindControl<TextBox>("SearchBox");
@@ -121,7 +141,7 @@ namespace NovaTerminal
 
             if (searchBox != null)
             {
-                searchBox.TextChanged += (s, e) => 
+                searchBox.TextChanged += (s, e) =>
                 {
                     if (_currentContext != null)
                         _currentContext.View.Search(searchBox.Text ?? "");
@@ -130,9 +150,9 @@ namespace NovaTerminal
 
             if (searchPrev != null) searchPrev.Click += (s, e) => _currentContext?.View.PrevMatch();
             if (searchNext != null) searchNext.Click += (s, e) => _currentContext?.View.NextMatch();
-            if (searchClose != null && searchPanel != null) 
+            if (searchClose != null && searchPanel != null)
             {
-                searchClose.Click += (s, e) => 
+                searchClose.Click += (s, e) =>
                 {
                     searchPanel.IsVisible = false;
                     _currentContext?.View.ClearSearch();
@@ -142,28 +162,28 @@ namespace NovaTerminal
 
             if (tabs != null)
             {
-                tabs.SelectionChanged += (s, e) => 
+                tabs.SelectionChanged += (s, e) =>
                 {
-                   if (tabs.SelectedItem is TabItem ti && ti.Tag is TabContext ctx)
-                   {
-                       _currentContext = ctx;
-                       
-                       // Hook new state event
-                       ctx.View.SearchStateChanged -= UpdateSearchCountUI; // Ensure no double-hook
-                       ctx.View.SearchStateChanged += UpdateSearchCountUI;
+                    if (tabs.SelectedItem is TabItem ti && ti.Tag is TabContext ctx)
+                    {
+                        _currentContext = ctx;
 
-                       // Re-trigger search if panel is open to update the counter
-                       if (searchPanel != null && searchPanel.IsVisible && searchBox != null)
-                       {
-                           _currentContext.View.Search(searchBox.Text ?? "");
-                       }
-                       else if (searchCount != null)
-                       {
-                           searchCount.Text = "0/0";
-                       }
+                        // Hook new state event
+                        ctx.View.SearchStateChanged -= UpdateSearchCountUI; // Ensure no double-hook
+                        ctx.View.SearchStateChanged += UpdateSearchCountUI;
 
-                       ctx.View.Focus();
-                   }
+                        // Re-trigger search if panel is open to update the counter
+                        if (searchPanel != null && searchPanel.IsVisible && searchBox != null)
+                        {
+                            _currentContext.View.Search(searchBox.Text ?? "");
+                        }
+                        else if (searchCount != null)
+                        {
+                            searchCount.Text = "0/0";
+                        }
+
+                        ctx.View.Focus();
+                    }
                 };
             }
 
@@ -182,24 +202,24 @@ namespace NovaTerminal
                     var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
                     var bgBrush = new Avalonia.Media.SolidColorBrush(theme.Background);
                     var borderBrush = new Avalonia.Media.SolidColorBrush(theme.Blue);
-                    
+
                     foreach (TabItem ti in tabs.Items.Cast<TabItem>())
                     {
                         var border = ti.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "PART_Border");
                         if (border != null)
                         {
-                            border.Background = bgBrush;
+                            border.Background = Avalonia.Media.Brushes.Transparent; // FORCE Transparent
                             border.BorderBrush = ti.IsSelected ? borderBrush : Avalonia.Media.Brushes.Transparent;
                         }
                     }
                 };
             }
-            
+
             // Add initial tab
             AddTab();
-            
+
             // Handle Global Input (sent to current tab)
-            this.AddHandler(KeyDownEvent, (s, e) => 
+            this.AddHandler(KeyDownEvent, (s, e) =>
             {
                 var modifiers = e.KeyModifiers;
                 bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
@@ -212,7 +232,7 @@ namespace NovaTerminal
                     {
                         _settings.FontSize += 1;
                         if (_settings.FontSize > 72) _settings.FontSize = 72;
-                        
+
                         ApplySettingsToAllTabs();
                         _settings.Save();
                     }
@@ -227,7 +247,7 @@ namespace NovaTerminal
                     {
                         _settings.FontSize -= 1;
                         if (_settings.FontSize < 6) _settings.FontSize = 6;
-                        
+
                         ApplySettingsToAllTabs();
                         _settings.Save();
                     }
@@ -261,7 +281,7 @@ namespace NovaTerminal
                     if (searchPanel != null)
                     {
                         searchPanel.IsVisible = !searchPanel.IsVisible;
-                        if (searchPanel.IsVisible) 
+                        if (searchPanel.IsVisible)
                         {
                             searchBox?.Focus();
                             if (searchBox != null && !string.IsNullOrEmpty(searchBox.Text))
@@ -276,30 +296,30 @@ namespace NovaTerminal
                     e.Handled = true;
                     return;
                 }
-                
+
                 // Tab Switching (Ctrl + Tab / Ctrl + Shift + Tab)
                 if (isCtrl && e.Key == Key.Tab && tabs != null)
                 {
-                     int count = tabs.Items.Count;
-                     if (count > 1)
-                     {
-                         int current = tabs.SelectedIndex;
-                         if (isShift)
-                         {
-                             // Previous
-                             current--;
-                             if (current < 0) current = count - 1;
-                         }
-                         else
-                         {
-                             // Next
-                             current++;
-                             if (current >= count) current = 0;
-                         }
-                         tabs.SelectedIndex = current;
-                     }
-                     e.Handled = true;
-                     return;
+                    int count = tabs.Items.Count;
+                    if (count > 1)
+                    {
+                        int current = tabs.SelectedIndex;
+                        if (isShift)
+                        {
+                            // Previous
+                            current--;
+                            if (current < 0) current = count - 1;
+                        }
+                        else
+                        {
+                            // Next
+                            current++;
+                            if (current >= count) current = 0;
+                        }
+                        tabs.SelectedIndex = current;
+                    }
+                    e.Handled = true;
+                    return;
                 }
 
                 // Close search on Escape
@@ -319,7 +339,7 @@ namespace NovaTerminal
                 OnKeyDown(s, e);
             }, RoutingStrategies.Tunnel);
 
-            this.TextInput += (s, e) => 
+            this.TextInput += (s, e) =>
             {
                 if (searchBox != null && searchBox.IsFocused) return;
                 OnTextInput(s, e);
@@ -343,11 +363,11 @@ namespace NovaTerminal
             if (ti.Tag is TabContext ctx)
             {
                 // Offload disposal to background thread to prevent UI freeze from native cleanup
-                Task.Run(() => 
+                Task.Run(() =>
                 {
-                    try 
+                    try
                     {
-                        ctx.Session?.Dispose(); 
+                        ctx.Session?.Dispose();
                     }
                     catch (Exception ex)
                     {
@@ -355,7 +375,7 @@ namespace NovaTerminal
                     }
                 });
             }
-            
+
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs != null)
             {
@@ -371,12 +391,13 @@ namespace NovaTerminal
 
             var ctx = new TabContext(shell);
             ctx.View.ApplySettings(_settings);
-            
+
             // Wire up output
-            ctx.Session.OnOutputReceived += text => 
+            ctx.Session.OnOutputReceived += text =>
             {
                 // Dispatch to UI for this specific tab
-                Dispatcher.UIThread.InvokeAsync(() => {
+                Dispatcher.UIThread.InvokeAsync(() =>
+                {
                     ctx.Parser.Process(text);
                 });
             };
@@ -387,23 +408,25 @@ namespace NovaTerminal
                 Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White),
                 FontSize = 14,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center
+                HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                Padding = new Avalonia.Thickness(10, 10, 10, 10),
+                Height = 32
             };
-            
+
             var tabItem = new TabItem
             {
-                Header = tabHeaderText,  // Use TextBlock directly instead of string
+                Header = tabHeaderText,
                 Tag = ctx,
-                // Background will be set by ApplyThemeToUI
                 Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White),
                 IsVisible = true,
-                Opacity = 1.0
+                Opacity = 1.0,
+                Padding = new Avalonia.Thickness(0) // Remove all padding
             };
-            
+
             // Create Grid with ScrollBar (Overlay Mode)
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
-            
+
             var scrollBar = new ScrollBar
             {
                 Orientation = Avalonia.Layout.Orientation.Vertical,
@@ -416,19 +439,19 @@ namespace NovaTerminal
                 Width = 10,  // Thin
                 Opacity = 0.6 // Semi-transparent
             };
-            
+
             grid.Children.Add(ctx.View); // Layer 0
-            
+
             grid.Children.Add(scrollBar); // Layer 1 (Top)
-            // No column setting needed (default 0)
-            
+                                          // No column setting needed (default 0)
+
             tabItem.Content = grid;
-            
+
             // Scroll Logic
             bool isUpdatingScroll = false;
-            
+
             // UI -> View
-            scrollBar.ValueChanged += (s, e) => 
+            scrollBar.ValueChanged += (s, e) =>
             {
                 if (isUpdatingScroll) return;
                 // Invert logic: ScrollBar Top (0) -> History Top (Max Offset)
@@ -436,21 +459,21 @@ namespace NovaTerminal
                 int newOffset = (int)(scrollBar.Maximum - e.NewValue);
                 ctx.View.SetScrollOffset(newOffset);
             };
-            
+
             // View -> UI
-            ctx.View.ScrollStateChanged += (offset, totalLines) => 
+            ctx.View.ScrollStateChanged += (offset, totalLines) =>
             {
                 isUpdatingScroll = true;
                 try
                 {
                     int rows = ctx.Buffer.Rows;
                     int maxScroll = Math.Max(0, totalLines - rows);
-                    
+
                     scrollBar.Maximum = maxScroll;
                     scrollBar.ViewportSize = rows;
                     scrollBar.LargeChange = rows;
                     scrollBar.SmallChange = 3;
-                    
+
                     // Invert
                     scrollBar.Value = maxScroll - offset;
                 }
@@ -459,48 +482,47 @@ namespace NovaTerminal
                     isUpdatingScroll = false;
                 }
             };
-            
+
             tabs.Items.Add(tabItem);
             tabs.SelectedItem = tabItem;
             _currentContext = ctx;
-            
-            // Apply theme background to the new tab
+
+            // Apply theme background (Transparent to let WindowBackground show through)
             var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
-            tabItem.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
-            
+
             // Force visual invalidation and set border for selected tab
             Dispatcher.UIThread.Post(() =>
             {
                 tabItem.InvalidateVisual();
                 tabItem.InvalidateMeasure();
                 tabs.InvalidateVisual();
-                
+
                 // Set border for the newly selected tab
                 var border = tabItem.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "PART_Border");
                 if (border != null)
                 {
-                    border.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
+                    border.Background = Avalonia.Media.Brushes.Transparent; // FORCE Transparent
                     border.BorderBrush = new Avalonia.Media.SolidColorBrush(theme.Blue);
                 }
             }, DispatcherPriority.Render);
-            
+
             // Explicitly force focus to the view (will attach visual tree)
             ctx.View.Focus();
 
             // Defer Start until View measures itself and fires OnReady
             // This ensures we pass the CORRECT columns/rows to the shell environment.
-            ctx.View.OnReady += () => 
+            ctx.View.OnReady += () =>
             {
-                 // Start Session with actual measured size
-                 _ = ctx.Session.StartAsync(ctx.Buffer.Cols, ctx.Buffer.Rows);
+                // Start Session with actual measured size
+                _ = ctx.Session.StartAsync(ctx.Buffer.Cols, ctx.Buffer.Rows);
             };
-            
-             // Wire up resize events to ConPTY
-            ctx.View.OnResize += (cols, rows) => 
+
+            // Wire up resize events to ConPTY
+            ctx.View.OnResize += (cols, rows) =>
             {
                 ctx.Session.Resize(cols, rows);
             };
-            
+
             // Wire up buffer invalidate to view - THIS IS CRITICAL FOR RENDERING UPDATES
             ctx.Buffer.OnInvalidate += () =>
             {
@@ -515,13 +537,13 @@ namespace NovaTerminal
         private void OnTextInput(object? sender, TextInputEventArgs e)
         {
             if (_currentContext == null) return;
-            
+
             if (!string.IsNullOrEmpty(e.Text))
             {
-               // Local echo removed; rely on shell echo
-               // _currentContext.Parser.Process(e.Text); 
-               _currentContext.Session.SendInput(e.Text);
-               e.Handled = true;
+                // Local echo removed; rely on shell echo
+                // _currentContext.Parser.Process(e.Text); 
+                _currentContext.Session.SendInput(e.Text);
+                e.Handled = true;
             }
         }
 
@@ -537,7 +559,7 @@ namespace NovaTerminal
                     _currentContext.Session.SendInput("\r");
                     e.Handled = true;
                     return;
-                    
+
                 case Key.Back:
                     // Send DEL (0x7F) instead of BS (0x08) for proper backspace behavior
                     _currentContext.Session.SendInput("\x7f");
@@ -571,12 +593,12 @@ namespace NovaTerminal
                         return;
                     }
                     break;
-                    
+
                 case Key.Tab:
                     _currentContext.Session.SendInput("\t");
                     e.Handled = true;
                     return;
-                    
+
                 // Arrow keys (VT100 sequences)
                 case Key.Up:
                     sequence = "\x1b[A";
@@ -590,7 +612,7 @@ namespace NovaTerminal
                 case Key.Left:
                     sequence = "\x1b[D";
                     break;
-                    
+
                 // Home/End
                 case Key.Home:
                     sequence = "\x1b[H";
@@ -598,7 +620,7 @@ namespace NovaTerminal
                 case Key.End:
                     sequence = "\x1b[F";
                     break;
-                    
+
                 // Page Up/Down
                 case Key.PageUp:
                     sequence = "\x1b[5~";
@@ -606,7 +628,7 @@ namespace NovaTerminal
                 case Key.PageDown:
                     sequence = "\x1b[6~";
                     break;
-                    
+
                 // Delete/Insert
                 case Key.Delete:
                     sequence = "\x1b[3~";
@@ -614,7 +636,7 @@ namespace NovaTerminal
                 case Key.Insert:
                     sequence = "\x1b[2~";
                     break;
-                    
+
                 // Function keys
                 case Key.F1:
                     sequence = "\x1bOP";
@@ -652,7 +674,7 @@ namespace NovaTerminal
                 case Key.F12:
                     sequence = "\x1b[24~";
                     break;
-                    
+
                 // Escape
                 case Key.Escape:
                     sequence = "\x1b";
@@ -691,75 +713,103 @@ namespace NovaTerminal
         private void ApplyThemeToUI()
         {
             var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
-            var bgBrush = new Avalonia.Media.SolidColorBrush(theme.Background);
-            var fgBrush = new Avalonia.Media.SolidColorBrush(theme.Foreground);
-            
-            // Slightly darker for headers
-            var headerBg = Avalonia.Media.Color.FromArgb(255, 
-                (byte)Math.Max(0, theme.Background.R - 15), 
-                (byte)Math.Max(0, theme.Background.G - 15), 
-                (byte)Math.Max(0, theme.Background.B - 15));
-            var headerBrush = new Avalonia.Media.SolidColorBrush(headerBg);
+            System.IO.File.AppendAllText("debug_ui.txt", $"ApplyTheme: Theme={theme.Name}, Opacity={_settings.WindowOpacity}, BG={theme.Background}\n");
 
-            this.Background = bgBrush;
-            
+            // Apply manual alpha to brushes (Skia doesn't honor parent opacity on this system)
+            var bgBrush = new Avalonia.Media.SolidColorBrush(theme.Background, _settings.WindowOpacity);
+            var fgBrush = new Avalonia.Media.SolidColorBrush(theme.Foreground);
+
+            // Title bar uses darker color WITH manual alpha to match terminal
+            var headerBg = Avalonia.Media.Color.FromRgb(
+                (byte)Math.Max(0, theme.Background.R - 15),
+                (byte)Math.Max(0, theme.Background.G - 15),
+                (byte)Math.Max(0, theme.Background.B - 15));
+            var headerBrush = new Avalonia.Media.SolidColorBrush(headerBg, _settings.WindowOpacity);
+
+            // Window and MainRoot are transparent
+            this.Background = Avalonia.Media.Brushes.Transparent;
+            this.Opacity = 1.0;
+            this.TransparencyLevelHint = new System.Collections.Generic.List<WindowTransparencyLevel>();
+
+            var mainRoot = this.FindControl<Grid>("MainRoot");
+            if (mainRoot != null)
+            {
+                mainRoot.Background = Avalonia.Media.Brushes.Transparent;
+                mainRoot.Opacity = 1.0;
+            }
+
             // Force window-level invalidation to ensure complete redraw
             this.InvalidateVisual();
             this.InvalidateMeasure();
             this.InvalidateArrange();
-            
-            var mainRoot = this.FindControl<Grid>("MainRoot");
-            if (mainRoot != null) 
+
+            // MainRoot correctly holds the background now
+
+
+            // WindowBackground disabled - terminal renders its own background
+            var winBg = this.FindControl<Grid>("WindowBackground");
+            if (winBg != null)
             {
-                mainRoot.Background = bgBrush;
-                mainRoot.InvalidateVisual();
-                mainRoot.InvalidateMeasure();
-                mainRoot.InvalidateArrange();
+                winBg.Background = Avalonia.Media.Brushes.Transparent;
             }
 
-            // Apply theme to title bar
+            // DragBorder provides draggable title bar background
+            var dragBorder = this.FindControl<Border>("DragBorder");
+            if (dragBorder != null)
+            {
+                dragBorder.Background = headerBrush; // Semi-transparent title bar
+            }
+
+            // Explicitly set Tabs background to Transparent to avoid Opaque rendering
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs != null)
+            {
+                tabs.Background = Avalonia.Media.Brushes.Transparent;
+                tabs.Padding = new Avalonia.Thickness(0, 0, 0, 0);
+            }
+
+            // TitleBar should remain transparent (buttons handle their own styling)
             var titleBar = this.FindControl<Grid>("TitleBar");
             if (titleBar != null)
             {
-                titleBar.Background = bgBrush;
+                // titleBar.Background = headerBrush; // Removed - keeps transparent background
                 titleBar.InvalidateVisual();
             }
 
             var searchPanel = this.FindControl<Border>("SearchPanel");
-            if (searchPanel != null) 
+            if (searchPanel != null)
             {
                 searchPanel.Background = headerBrush;
                 searchPanel.InvalidateVisual();
             }
 
-            var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs != null)
             {
-                // Match terminal background instead of using darker header background
-                tabs.Background = bgBrush;
-                tabs.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White); // Keep white text for visibility
+                // Tabs transparent to allow DragBorder to show and handle dragging
+                tabs.Background = Avalonia.Media.Brushes.Transparent;
+                tabs.Foreground = new Avalonia.Media.SolidColorBrush(Avalonia.Media.Colors.White);
                 tabs.InvalidateVisual();
                 tabs.InvalidateMeasure();
                 tabs.InvalidateArrange();
-                
+
                 // Update all TabItem backgrounds and borders to match theme
                 var borderBrush = new Avalonia.Media.SolidColorBrush(theme.Blue);
                 foreach (TabItem ti in tabs.Items.Cast<TabItem>())
                 {
-                    ti.Background = bgBrush;
-                    
+                    // ti.Background = ... removed - keep transparent (handled by App.xaml styles)
+
                     // Set border color for all tabs based on selection state
                     var border = ti.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "PART_Border");
                     if (border != null)
                     {
-                        border.Background = bgBrush;
+                        // border.Background = ... removed - keep transparent
                         border.BorderBrush = ti.IsSelected ? borderBrush : Avalonia.Media.Brushes.Transparent;
                     }
-                    
+
                     ti.InvalidateVisual();
                 }
             }
-            
+
             // Schedule a delayed second invalidation pass to ensure all visual updates are applied
             // This ensures the rendering completes even if the initial pass was optimized away
             Dispatcher.UIThread.Post(() =>

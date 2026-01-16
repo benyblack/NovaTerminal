@@ -16,6 +16,11 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             desktop.MainWindow = new MainWindow();
+
+            // Enable DevTools for debugging - Press F12 to open
+#if DEBUG
+            desktop.MainWindow.AttachDevTools();
+#endif
         }
 
         base.OnFrameworkInitializationCompleted();

@@ -6,34 +6,84 @@
         x:Name="RootWindow"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="PreferSystemChrome"
-        Background="Black">
+        TransparencyLevelHint=""
+        Background="Transparent">
     <Window.Resources>
         <DataTemplate x:Key="TabHeaderTemplate">
             <TextBlock Text="{Binding}" Foreground="White" 
-                       FontSize="13" VerticalAlignment="Center" 
+                       FontSize="10" VerticalAlignment="Center" 
                        HorizontalAlignment="Center"
+                       Padding="6,1,6,1"
                        Margin="0,0,0,0"/>
         </DataTemplate>
     </Window.Resources>
-    <Grid x:Name="MainRoot">
+    <Window.Styles>
+        <Style Selector="Button#BtnNewTab">
+            <Setter Property="Opacity" Value="0.6"/>
+        </Style>
+        <Style Selector="Button#BtnNewTab:pointerover">
+            <Setter Property="Opacity" Value="1.0"/>
+            <Setter Property="Background" Value="#40FFFFFF"/>
+        </Style>
+        <Style Selector="Button#SettingsBtn">
+            <Setter Property="Opacity" Value="0.6"/>
+        </Style>
+        <Style Selector="Button#SettingsBtn:pointerover">
+            <Setter Property="Opacity" Value="1.0"/>
+            <Setter Property="Background" Value="#40FFFFFF"/>
+        </Style>
+    </Window.Styles>
+    <Grid x:Name="MainRoot" Background="Transparent">
+        <!-- Unified background layer for the entire window -->
+        <Grid x:Name="WindowBackground" IsHitTestVisible="False" />
+
         <!-- TabControl spanning full window, headers in title bar area -->
-        <TabControl Name="Tabs" Margin="0,0,0,0"
+        <TabControl Name="Tabs" Margin="0"
                     TabStripPlacement="Top"
-                    Padding="4"
+                    Padding="0"
                     BorderThickness="0"
+                    ZIndex="60"
                     RenderOptions.BitmapInterpolationMode="HighQuality">
+            <TabControl.Styles>
+                <Style Selector="TabControl">
+                    <Setter Property="Template">
+                        <ControlTemplate>
+                            <DockPanel>
+                                <ItemsPresenter Name="PART_ItemsPresenter"
+                                              DockPanel.Dock="Top"
+                                              ItemsPanel="{TemplateBinding ItemsPanel}" />
+                                <ContentPresenter Name="PART_SelectedContentHost"
+                                                Margin="0,-2,1,0"
+                                                Content="{TemplateBinding SelectedContent}"
+                                                ContentTemplate="{TemplateBinding SelectedContentTemplate}" />
+                            </DockPanel>
+                        </ControlTemplate>
+                    </Setter>
+                </Style>
+            </TabControl.Styles>
             <!-- Tabs added dynamically -->
         </TabControl>
 
+        <!-- Draggable area for window movement (MUST be after Tabs to be on top) -->
+        <Border Name="DragBorder" 
+                VerticalAlignment="Top" 
+                Height="48" 
+                Background="Transparent"
+                ZIndex="50"
+                Margin="0,0,0,0"/>
+
         <!-- Overlay layer for custom buttons (Right aligned, leaving space for system caption buttons) -->
-        <Grid VerticalAlignment="Top" Height="32" HorizontalAlignment="Right" ZIndex="100" x:Name="TitleBar" Margin="0,4,140,0">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+        <Grid VerticalAlignment="Top" Height="32" HorizontalAlignment="Right" ZIndex="100" x:Name="TitleBar" Margin="0,4,140,0" Background="Transparent">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent">
                 <!-- Focusable=False to prevent stealing keyboard focus on click -->
                 <Button Name="BtnNewTab" Content="+" 
-                        Background="Transparent" Foreground="#EEEEEE" 
+                        Foreground="White"
                         BorderThickness="0" Focusable="False" 
-                        Padding="10,5" 
+                        FontSize="18"
+                        FontWeight="Light"
+                        Padding="8,4" 
                         CornerRadius="4"
+                        Margin="4,0,0,0"
                         ToolTip.Tip="New Tab">
                     <Button.Flyout>
                         <MenuFlyout>
@@ -44,9 +94,10 @@
                     </Button.Flyout>
                 </Button>
                 <Button Name="SettingsBtn" Content="⚙" 
-                        Background="Transparent" Foreground="#AAAAAA" 
+                        Foreground="White"
                         BorderThickness="0" Focusable="False" 
-                        Padding="10,5" 
+                        FontSize="16"
+                        Padding="8,4" 
                         CornerRadius="4"
                         Margin="4,0,0,0"
                         ToolTip.Tip="Settings"/>

@@ -13,6 +13,7 @@ namespace NovaTerminal.Core
         public int MaxHistory { get; set; } = 10000;
         public string FontFamily { get; set; } = "Consolas";
         public string ThemeName { get; set; } = "Default";
+        public double WindowOpacity { get; set; } = 1.0;
 
         public static TerminalSettings Load()
         {

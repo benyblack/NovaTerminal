@@ -1,8 +1,14 @@
 # NovaTerminal
 
-NovaTerminal is a high-performance, GPU-accelerated terminal emulator for Windows, built with **.NET 10**, **Avalonia UI**, and **SkiaSharp**. It leverages the modern Windows Pseudo Console (ConPTY) API to provide accurate terminal emulation while delivering a fluid, customizable user experience.
+NovaTerminal is a high-performance, GPU-accelerated terminal emulator for Windows, built with **.NET 10**, **Avalonia UI**, and **SkiaSharp**. It leverages the modern Windows Pseudo Console (ConPTY) API to provide accurate terminal emulation while delivering a fluid, customizable, and visually stunning user experience.
 
 ## ✨ Key Features
+
+### 💎 Modern UI & Aesthetics
+- **Seamless Transparency**: Fully synchronized window-level opacity/blur effects.
+- **Acrylic Design**: Custom window chrome with transparent tabs and title bar.
+- **Polished Controls**: Custom-styled window controls and tab headers that blend perfectly with the theme.
+- **Zero Artifacts**: Clean rendering with no white borders or visual glitches.
 
 ### 🚀 Performance & Rendering
 - **GPU Acceleration**: Custom rendering pipeline using **SkiaSharp** for high-speed text drawing.
@@ -11,18 +17,18 @@ NovaTerminal is a high-performance, GPU-accelerated terminal emulator for Window
 
 ### 🎨 Customization & Theming
 - **Theme Support**: Built-in themes (Dark, Solarized Dark) with support for custom JSON-based color schemes.
-- **Dynamic Settings**: Change fonts, font sizes, and scrollback limits on the fly via a dedicated Settings UI.
+- **Dynamic Settings**: Change fonts, font sizes, opacity, and scrollback limits on the fly.
 - **Intelligent Backgrounds**: Addresses "black block" artifacts by intelligently remapping historical content when switching themes.
 
 ### 🔍 Productivity Tools
-- **Multi-Tab Interface**: distinct sessions in a single window.
-- **Search Overlay**: integrated search functionality (`Ctrl+Shift+F`) with result highlighting and navigation.
-- **Configurable Scrollback**: Adjustable history limit (defualt 10,000 lines) to balance memory usage and history retention.
+- **Multi-Tab Interface**: Manage distinct sessions in a single window with smooth drag-and-drop support.
+- **Search Overlay**: Integrated search functionality (`Ctrl+Shift+F`) with result highlighting and navigation.
+- **Configurable Scrollback**: Adjustable history limit (default 10,000 lines).
 - **Secure Vault**: Encrypted secure storage using Windows DPAPI for managing API keys and secrets.
 
 ## 🛠️ Architecture
 
-- **UI Framework**: Avalonia UI (Cross-platform ready, currently optimized for Windows).
+- **UI Framework**: Avalonia UI (Cross-platform ready, optimized for Windows 11 aesthetics).
 - **Backend**: Win32 ConPTY API for authentic console behavior.
 - **Input Handling**: Full xterm-compatible input forwarding (mouse reporting, special keys).
 
@@ -38,6 +44,7 @@ NovaTerminal is a high-performance, GPU-accelerated terminal emulator for Window
 - `Ctrl+Shift+F`: Toggle Search
 - `Ctrl+Tab` / `Ctrl+Shift+Tab`: Switch Tabs
 - `Ctrl+Plus` / `Ctrl+Minus`: Zoom In/Out (Font Size)
+- `Ctrl+Scroll`: Zoom In/Out
 
 ## 📝 License
 
