@@ -10,6 +10,7 @@ namespace NovaTerminal
     {
         private TerminalSettings _settings;
         public event Action<double>? OnOpacityChanged;
+        public event Action<string>? OnBlurChanged;
 
         public SettingsWindow()
         {
@@ -24,6 +25,7 @@ namespace NovaTerminal
             var btnCancel = this.FindControl<Button>("BtnCancel");
             var opacitySlider = this.FindControl<Slider>("WindowOpacitySlider");
             var opacityDisplay = this.FindControl<TextBlock>("OpacityValueDisplay");
+            var blurList = this.FindControl<ComboBox>("BlurList");
 
             // Update opacity display when slider changes
             if (opacitySlider != null && opacityDisplay != null)
@@ -38,6 +40,17 @@ namespace NovaTerminal
                     {
                         opacityDisplay.Text = $"{(int)(opacitySlider.Value * 100)}%";
                         OnOpacityChanged?.Invoke(opacitySlider.Value);
+                    }
+                };
+            }
+
+            if (blurList != null)
+            {
+                blurList.SelectionChanged += (s, e) =>
+                {
+                    if (blurList.SelectedItem is ComboBoxItem item && item.Content != null)
+                    {
+                        OnBlurChanged?.Invoke(item.Content.ToString() ?? "Acrylic");
                     }
                 };
             }
@@ -90,6 +103,25 @@ namespace NovaTerminal
                     }
                 }
             }
+            var blurList = this.FindControl<ComboBox>("BlurList");
+            if (blurList != null)
+            {
+                // Select currently configured item
+                foreach (ComboBoxItem item in blurList.Items.Cast<ComboBoxItem>())
+                {
+                    if (item.Content?.ToString() == _settings.BlurEffect)
+                    {
+                        blurList.SelectedItem = item;
+                        break;
+                    }
+                }
+
+                // If nothing selected (e.g. first run or invalid value), default to Acrylic
+                if (blurList.SelectedItem == null && blurList.ItemCount > 0)
+                {
+                    blurList.SelectedIndex = 0;
+                }
+            }
 
             if (themeList != null)
             {
@@ -129,8 +161,17 @@ namespace NovaTerminal
             if (themeList?.SelectedItem is ComboBoxItem themeItem)
                 _settings.ThemeName = themeItem.Content?.ToString() ?? "Default";
 
+            var blurList = this.FindControl<ComboBox>("BlurList");
+            if (blurList?.SelectedItem is ComboBoxItem blurItem)
+                _settings.BlurEffect = blurItem.Content?.ToString() ?? "Acrylic";
+
             _settings.Save();
             Close(true); // Return true to indicate saved
+        }
+
+        public partial class Helper
+        {
+            // This method added via partial update manually
         }
     }
 }

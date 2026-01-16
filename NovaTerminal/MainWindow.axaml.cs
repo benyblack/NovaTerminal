@@ -94,12 +94,20 @@ namespace NovaTerminal
                     ApplySettingsToAllTabs();
                 };
 
+                // Live preview for blur
+                sw.OnBlurChanged += (val) =>
+                {
+                    _settings.BlurEffect = val;
+                    UpdateTransparencyHints();
+                };
+
                 await sw.ShowDialog<bool>(this);
 
                 // Always reload and apply (handles Save vs Cancel automatically)
                 _settings = TerminalSettings.Load();
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
+                UpdateTransparencyHints();
             };
 
             // Helper to broadcast settings
@@ -729,13 +737,13 @@ namespace NovaTerminal
             // Window and MainRoot are transparent
             this.Background = Avalonia.Media.Brushes.Transparent;
             this.Opacity = 1.0;
-            this.TransparencyLevelHint = new System.Collections.Generic.List<WindowTransparencyLevel>();
+
+            UpdateTransparencyHints();
 
             var mainRoot = this.FindControl<Grid>("MainRoot");
             if (mainRoot != null)
             {
                 mainRoot.Background = Avalonia.Media.Brushes.Transparent;
-                mainRoot.Opacity = 1.0;
             }
 
             // Force window-level invalidation to ensure complete redraw
@@ -822,6 +830,32 @@ namespace NovaTerminal
                 }
                 tabs?.InvalidateVisual();
             }, DispatcherPriority.Render);
+        }
+
+        private void UpdateTransparencyHints()
+        {
+            var hints = new System.Collections.Generic.List<WindowTransparencyLevel>();
+            switch (_settings.BlurEffect)
+            {
+                case "Mica":
+                    hints.Add(WindowTransparencyLevel.Mica);
+                    break;
+                case "Acrylic":
+                case "Blur": // Legacy mapping: Blur is often broken, so map to Acrylic
+                    hints.Add(WindowTransparencyLevel.AcrylicBlur);
+                    hints.Add(WindowTransparencyLevel.Blur);
+                    break;
+                case "None":
+                    // "None" means we want transparency BUT without system blur. 
+                    hints.Add(WindowTransparencyLevel.Transparent);
+                    break;
+                default:
+                    // Fallback
+                    hints.Add(WindowTransparencyLevel.AcrylicBlur);
+                    break;
+            }
+            this.TransparencyLevelHint = hints;
+            this.InvalidateVisual();
         }
     }
 }

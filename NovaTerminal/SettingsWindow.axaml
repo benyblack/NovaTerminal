@@ -55,6 +55,16 @@
                             TickFrequency="0.01"
                             IsSnapToTickEnabled="True"/>
                 </StackPanel>
+
+                <!-- Blur Effect -->
+                <StackPanel>
+                    <TextBlock Text="Blur Effect" Margin="0,0,0,5" Foreground="#AAA"/>
+                    <ComboBox Name="BlurList" HorizontalAlignment="Stretch">
+                        <ComboBoxItem>Acrylic</ComboBoxItem>
+                        <ComboBoxItem>Mica</ComboBoxItem>
+                        <ComboBoxItem>None</ComboBoxItem>
+                    </ComboBox>
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
         

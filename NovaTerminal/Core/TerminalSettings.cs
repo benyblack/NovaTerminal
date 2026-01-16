@@ -14,6 +14,7 @@ namespace NovaTerminal.Core
         public string FontFamily { get; set; } = "Consolas";
         public string ThemeName { get; set; } = "Default";
         public double WindowOpacity { get; set; } = 1.0;
+        public string BlurEffect { get; set; } = "Acrylic"; // Options: "None", "Acrylic", "Mica"
 
         public static TerminalSettings Load()
         {
