@@ -36,7 +36,7 @@ namespace NovaTerminal
                 View.SetBuffer(Buffer);
 
                 string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
-                Session = new RustPtySession(effectiveShell);
+                Session = new RustPtySession(effectiveShell, Buffer.Cols, Buffer.Rows);
             }
         }
 
@@ -440,11 +440,9 @@ namespace NovaTerminal
             // Wire up output
             ctx.Session.OnOutputReceived += text =>
             {
-                // Dispatch to UI for this specific tab
-                Dispatcher.UIThread.InvokeAsync(() =>
-                {
-                    ctx.Parser.Process(text);
-                });
+                // Run parser on background thread for performance
+                // TerminalBuffer is thread-safe
+                ctx.Parser.Process(text);
             };
 
             var tabHeaderText = new TextBlock
@@ -644,18 +642,18 @@ namespace NovaTerminal
                     e.Handled = true;
                     return;
 
-                // Arrow keys (VT100 sequences)
+                // Arrow keys (VT100 vs DECCKM)
                 case Key.Up:
-                    sequence = "\x1b[A";
+                    sequence = _currentContext.Buffer.IsApplicationCursorKeys ? "\x1bOA" : "\x1b[A";
                     break;
                 case Key.Down:
-                    sequence = "\x1b[B";
+                    sequence = _currentContext.Buffer.IsApplicationCursorKeys ? "\x1bOB" : "\x1b[B";
                     break;
                 case Key.Right:
-                    sequence = "\x1b[C";
+                    sequence = _currentContext.Buffer.IsApplicationCursorKeys ? "\x1bOC" : "\x1b[C";
                     break;
                 case Key.Left:
-                    sequence = "\x1b[D";
+                    sequence = _currentContext.Buffer.IsApplicationCursorKeys ? "\x1bOD" : "\x1b[D";
                     break;
 
                 // Home/End

@@ -78,7 +78,7 @@ namespace NovaTerminal.Core
                         }
                         // Else consume
                         break;
-                        
+
                     case State.OscEsc:
                         if (c == '\\') // ST Terminator (ESC \)
                         {
@@ -116,7 +116,7 @@ namespace NovaTerminal.Core
             // Support both semi-colon and colon as separators (common in modern terminals)
             string[] parts = paramsStr.Split(new char[] { ';', ':' }, StringSplitOptions.RemoveEmptyEntries);
             int[] args = new int[parts.Length];
-            for(int i=0; i<parts.Length; i++) int.TryParse(parts[i], out args[i]);
+            for (int i = 0; i < parts.Length; i++) int.TryParse(parts[i], out args[i]);
 
             int arg0 = args.Length > 0 ? args[0] : 0; // Default 0 varies by command
 
@@ -153,7 +153,7 @@ namespace NovaTerminal.Core
                     break;
                 case 'J': // Erase in Display
                     int displayMode = args.Length > 0 ? args[0] : 0;
-                    
+
                     if (displayMode == 0) // Erase from cursor to end of screen
                     {
                         _buffer.EraseLineToEnd(); // Clear rest of current line
@@ -170,7 +170,7 @@ namespace NovaTerminal.Core
                     break;
                 case 'K': // Erase in Line
                     int mode = args.Length > 0 ? args[0] : 0;
-                    
+
                     if (mode == 0) _buffer.EraseLineToEnd();
                     else if (mode == 1) _buffer.EraseLineFromStart();
                     else if (mode == 2) _buffer.EraseLineAll();
@@ -200,7 +200,7 @@ namespace NovaTerminal.Core
                         int[] modes = new int[modeParts.Length];
                         for (int i = 0; i < modeParts.Length; i++)
                             int.TryParse(modeParts[i], out modes[i]);
-                        
+
                         HandleDECPrivateMode(modes, enable);
                     }
                     break;
@@ -216,6 +216,12 @@ namespace NovaTerminal.Core
             {
                 switch (mode)
                 {
+                    case 1: // DECCKM - Cursor Keys Mode
+                        _buffer.IsApplicationCursorKeys = enable;
+                        break;
+                    case 7: // DECAWM - Auto Wrap Mode
+                        _buffer.IsAutoWrapMode = enable;
+                        break;
                     case 1000: // X10 mouse reporting
                         _buffer.MouseModeX10 = enable;
                         break;
@@ -354,7 +360,7 @@ namespace NovaTerminal.Core
         private Color? ParseExtendedColor(int[] args, ref int i)
         {
             if (i + 1 >= args.Length) return null;
-            
+
             int mode = args[++i];
             if (mode == 5) // 256 colors
             {

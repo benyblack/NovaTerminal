@@ -18,9 +18,26 @@ namespace NovaTerminal.Core
         {
             Focusable = true;
             ClipToBounds = true;  // CRITICAL: Prevents SkiaSharp rendering from affecting other UI elements like tabs
+
+            // Frame Limiter (60 FPS)
+            _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, OnRenderTimerTick);
+            _renderTimer.Start();
         }
 
         private TerminalBuffer? _buffer;
+
+        // Coalescing
+        private bool _isDirty;
+        private DispatcherTimer _renderTimer;
+
+        private void OnRenderTimerTick(object? sender, EventArgs e)
+        {
+            if (_isDirty)
+            {
+                _isDirty = false;
+                InvalidateVisual();
+            }
+        }
         // A robust list attempting to find ANY font with Powerline/Nerd symbols.
         private const string FontFamilyList = "MesloLGM Nerd Font, MesloLGS NF, Cascadia Code, Cascadia Mono, Fira Code, JetBrains Mono, Consolas, Segoe UI, Segoe Fluent Icons, Segoe UI Symbol, Monospace";
         private Typeface _typeface = new Typeface(FontFamilyList, FontStyle.Normal, FontWeight.Normal);
@@ -264,25 +281,7 @@ namespace NovaTerminal.Core
 
         public void InvalidateBuffer()
         {
-            if (_isInvalidationPending) return;
-            _isInvalidationPending = true;
-
-            Dispatcher.UIThread.Post(() =>
-            {
-                _isInvalidationPending = false;
-                InvalidateVisual();
-            }, DispatcherPriority.Render);
-
-            // Notify scroll change if buffer size changed (e.g. new lines added)
-            // This part we check every time but maybe also throttle?
-            if (_buffer != null)
-            {
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (_buffer != null)
-                        ScrollStateChanged?.Invoke(_scrollOffset, _buffer.TotalLines);
-                });
-            }
+            _isDirty = true;
         }
 
         public event Action? OnReady;
@@ -369,27 +368,36 @@ namespace NovaTerminal.Core
             base.OnSizeChanged(e);
             if (_buffer != null && _charWidth > 0 && _charHeight > 0)
             {
-                int cols = (int)(e.NewSize.Width / _charWidth);
+                // Padding must match TerminalDrawOperation (PaddingLeft = 4)
+                // We subtract padding from available width to avoid clipping last column
+                int availableWidth = Math.Max(0, (int)e.NewSize.Width - 4);
+
+                int cols = (int)(availableWidth / _charWidth);
                 int rows = (int)(e.NewSize.Height / _charHeight);
+
+                Console.WriteLine($"[TerminalView] OnSizeChanged: {e.NewSize.Width}x{e.NewSize.Height} -> {cols}cols x {rows}rows");
 
                 if (cols > 0 && rows > 0)
                 {
+                    // No snapshot - rely on Edge Extension + Sync Resize
                     _buffer.Resize(cols, rows);
 
                     if (!_isReady)
                     {
                         // Ensure we don't start with a tiny transient layout (e.g. before Window is fully sized)
-                        // 40 cols is a reasonable minimum for a functional terminal.
-                        if (cols >= 40)
+                        // 40 cols and 10 rows is a reasonable minimum for a functional terminal.
+                        if (cols >= 40 && rows >= 10)
                         {
                             _isReady = true;
                             OnReady?.Invoke();
+                            Console.WriteLine("[TerminalView] Ready! Initializing Session.");
                         }
                     }
                     else
                     {
                         // Fire resize event for already-started sessions
                         OnResize?.Invoke(cols, rows);
+                        InvalidateBuffer();
                     }
                 }
             }

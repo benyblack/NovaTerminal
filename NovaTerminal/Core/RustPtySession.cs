@@ -39,10 +39,11 @@ namespace NovaTerminal.Core
             public static extern void pty_close(IntPtr state);
         }
 
-        public RustPtySession(string shellCommand)
+        public RustPtySession(string shellCommand, int cols = 120, int rows = 30)
         {
-            // Initial size 80x24, will be resized by view
-            _ptyState = Native.pty_create(shellCommand, 80, 24);
+            // Initial size, default to a larger 120x30 to avoid "tiny terminal" syndrome for apps like mc
+            Console.WriteLine($"[RustPtySession] Creating session for '{shellCommand}' at {cols}x{rows}");
+            _ptyState = Native.pty_create(shellCommand, (ushort)cols, (ushort)rows);
 
             if (_ptyState == IntPtr.Zero)
             {
@@ -66,6 +67,7 @@ namespace NovaTerminal.Core
                 }
                 else if (read == 0) // EOF
                 {
+                    Console.WriteLine("[RustPtySession] EOF received.");
                     break;
                 }
                 else // Error
@@ -87,6 +89,7 @@ namespace NovaTerminal.Core
         public void Resize(int cols, int rows)
         {
             if (_ptyState == IntPtr.Zero || cols <= 0 || rows <= 0) return;
+            Console.WriteLine($"[RustPtySession] Resizing to {cols}x{rows}");
             Native.pty_resize(_ptyState, (ushort)cols, (ushort)rows);
         }
 

@@ -81,6 +81,7 @@ namespace NovaTerminal.Core
 
             using var lease = leaseFeature.Lease();
             var canvas = lease.SkCanvas;
+
             canvas.Save();
             DrawTerminal(canvas);
             canvas.Restore();

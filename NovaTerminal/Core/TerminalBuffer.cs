@@ -42,6 +42,10 @@ namespace NovaTerminal.Core
         public bool MouseModeAnyEvent { get; set; }     // ?1003 - Any event tracking
         public bool MouseModeSGR { get; set; }          // ?1006 - SGR extended mode
 
+        // Input modes
+        public bool IsApplicationCursorKeys { get; set; } // ?1 - DECCKM (Application Cursor Keys)
+        public bool IsAutoWrapMode { get; set; } = true;  // ?7 - DECAWM (Auto Wrap Mode)
+
         public event Action? OnInvalidate;
 
         // Thread safety
@@ -209,8 +213,9 @@ namespace NovaTerminal.Core
             try
             {
                 // Clamp cursor to viewport
+                // Allow CursorCol == Cols (Wrap Pending state)
                 CursorRow = Math.Clamp(CursorRow, 0, Rows - 1);
-                CursorCol = Math.Clamp(CursorCol, 0, Cols - 1);
+                CursorCol = Math.Clamp(CursorCol, 0, Cols);
 
                 // Track row changes
                 if (CursorRow != _prevCursorRow)
@@ -281,8 +286,16 @@ namespace NovaTerminal.Core
                 else
                 {
                     // Normal Character
-                    // Wrap if needed
-                    if (CursorCol >= Cols)
+
+                    // Handle DECAWM (Auto Wrap Mode)
+                    // If OFF, we clamp to the last column and overwrite it.
+                    if (!IsAutoWrapMode && CursorCol >= Cols)
+                    {
+                        CursorCol = Cols - 1;
+                    }
+
+                    // Wrap if needed (only if AutoWrap is ON)
+                    if (IsAutoWrapMode && CursorCol >= Cols)
                     {
                         if (CursorRow >= 0 && CursorRow < Rows)
                             _viewport[CursorRow].IsWrapped = true;
@@ -378,26 +391,43 @@ namespace NovaTerminal.Core
                 _viewport = new TerminalRow[newRows];
                 for (int i = 0; i < newRows; i++)
                 {
-                    if (i < oldRows)
+                    if (i < oldRows && i < oldViewport.Length)
                     {
-                        // Preserve existing row content
+                        // Preserve existing row content with Edge Extension
                         var row = oldViewport[i];
                         if (row.Cells.Length != newCols)
                         {
                             var oldCells = row.Cells;
+
+                            // Get template cell from the edge (for background extension)
+                            // This fixes "messy" htop/vim bars during resize
+                            var templateCell = (oldCols > 0) ? oldCells[oldCols - 1] : TerminalCell.Default;
+                            // Reset char to space, but keep colors
+                            templateCell = new TerminalCell(' ', templateCell.Foreground, templateCell.Background, templateCell.IsInverse, templateCell.IsBold, templateCell.IsDefaultForeground, templateCell.IsDefaultBackground);
+
                             row.Cells = new TerminalCell[newCols];
                             for (int j = 0; j < newCols; j++)
                             {
                                 if (j < oldCols) row.Cells[j] = oldCells[j];
-                                else row.Cells[j] = TerminalCell.Default;
+                                else row.Cells[j] = templateCell;
                             }
                         }
                         _viewport[i] = row;
                     }
                     else
                     {
-                        // Add new empty rows if expanding
-                        _viewport[i] = new TerminalRow(newCols);
+                        // Add new empty rows if expanding (Vertical Extension)
+                        // INTELLIGENT FILL: Use the background of the last valid row to fill the void.
+                        // This prevents "black flash" at the bottom when resizing htop/vim.
+                        var templateRowStyle = (i > 0 && _viewport[i - 1] != null) ? _viewport[i - 1].Cells[0] : TerminalCell.Default;
+                        var fillCell = new TerminalCell(' ', templateRowStyle.Foreground, templateRowStyle.Background, false, false, templateRowStyle.IsDefaultForeground, templateRowStyle.IsDefaultBackground);
+
+                        _viewport[i] = new TerminalRow(newCols, fillCell.Foreground, fillCell.Background);
+
+                        // Force fill if TerminalRow ctor doesn't support complex cells (it only takes colors usually)
+                        // Actually TerminalRow ctor usually fills with spaces of fg/bg.
+                        // Let's verify TerminalRow ctor or manually fill to be safe.
+                        for (int c = 0; c < newCols; c++) _viewport[i].Cells[c] = fillCell;
                     }
                 }
 
@@ -503,7 +533,7 @@ namespace NovaTerminal.Core
                 var row = _viewport[CursorRow];
                 for (int i = CursorCol; i < Cols; i++)
                 {
-                    row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                    row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                 }
             }
             finally
@@ -522,7 +552,7 @@ namespace NovaTerminal.Core
                 var row = _viewport[CursorRow];
                 for (int i = 0; i <= CursorCol; i++)
                 {
-                    row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                    row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                 }
             }
             finally
@@ -541,7 +571,7 @@ namespace NovaTerminal.Core
                 var row = _viewport[CursorRow];
                 for (int i = 0; i < Cols; i++)
                 {
-                    row.Cells[i] = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                    row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                 }
             }
             finally

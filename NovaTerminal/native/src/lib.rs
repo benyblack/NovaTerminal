@@ -39,7 +39,8 @@ pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut P
     // Split command string for arguments if necessary, usually it's just the shell
     // For simplicity, we assume 'cmd' is just the executable or we might need deeper parsing
     // But standard usage 'cmd.exe' or 'powershell.exe' works.
-    let cmd_builder = CommandBuilder::new(cmd_str.as_ref());
+    let mut cmd_builder = CommandBuilder::new(cmd_str.as_ref());
+    cmd_builder.env("TERM", "xterm-256color");
 
     // 5. Spawn
     let child = match pair.slave.spawn_command(cmd_builder) {
