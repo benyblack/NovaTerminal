@@ -22,19 +22,21 @@ namespace NovaTerminal
 
         private class TabContext
         {
-            public ConPtySession Session { get; set; }
+            public ITerminalSession Session { get; set; }
             public TerminalBuffer Buffer { get; set; }
             public AnsiParser Parser { get; set; }
             public TerminalView View { get; set; }
 
-            public TabContext(string shell)
+            public TabContext(string? shell)
             {
                 // Match the environment variable defaults (120x30)
                 Buffer = new TerminalBuffer(120, 30);
                 Parser = new AnsiParser(Buffer);
                 View = new TerminalView();
                 View.SetBuffer(Buffer);
-                Session = new ConPtySession(shell);
+
+                string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
+                Session = new RustPtySession(effectiveShell);
             }
         }
 
@@ -432,6 +434,9 @@ namespace NovaTerminal
             var ctx = new TabContext(shell);
             ctx.View.ApplySettings(_settings);
 
+            // Hook up resize
+            ctx.View.OnResize += (c, r) => ctx.Session.Resize(c, r);
+
             // Wire up output
             ctx.Session.OnOutputReceived += text =>
             {
@@ -554,7 +559,7 @@ namespace NovaTerminal
             ctx.View.OnReady += () =>
             {
                 // Start Session with actual measured size
-                _ = ctx.Session.StartAsync(ctx.Buffer.Cols, ctx.Buffer.Rows);
+                ctx.Session.Resize(ctx.Buffer.Cols, ctx.Buffer.Rows);
             };
 
             // Wire up resize events to ConPTY
