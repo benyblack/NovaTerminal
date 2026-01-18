@@ -142,8 +142,7 @@ namespace NovaTerminal.Core
                 case 'f':
                     int row = (args.Length > 0 ? args[0] : 1) - 1;
                     int col = (args.Length > 1 ? args[1] : 1) - 1;
-                    _buffer.CursorRow = Math.Clamp(row, 0, _buffer.Rows - 1);
-                    _buffer.CursorCol = Math.Clamp(col, 0, _buffer.Cols - 1);
+                    _buffer.SetCursorPosition(col, row);
                     _buffer.Invalidate();
                     break;
                 case 'G': // Cursor Horizontal Absolute (CHA)
@@ -165,7 +164,7 @@ namespace NovaTerminal.Core
                     }
                     else if (displayMode == 2 || displayMode == 3) // Erase entire screen
                     {
-                        _buffer.Clear();
+                        _buffer.Clear(resetCursor: false);
                     }
                     break;
                 case 'K': // Erase in Line

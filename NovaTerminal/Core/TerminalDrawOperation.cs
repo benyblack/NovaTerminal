@@ -27,6 +27,7 @@ namespace NovaTerminal.Core
         private readonly SKFont? _skFont;
         private readonly float _opacity;
         private readonly bool _transparentBackground;
+        private readonly bool _hideCursor;
 
         public Rect Bounds => _bounds;
 
@@ -46,7 +47,8 @@ namespace NovaTerminal.Core
             SKTypeface? skTypeface,
             SKFont? skFont,
             double opacity = 1.0,
-            bool transparentBackground = false)
+            bool transparentBackground = false,
+            bool hideCursor = false)
         {
             _bounds = bounds;
             _buffer = buffer;
@@ -63,7 +65,9 @@ namespace NovaTerminal.Core
             _skTypeface = skTypeface;
             _skFont = skFont;
             _opacity = (float)Math.Clamp(opacity, 0.0, 1.0);
+
             _transparentBackground = transparentBackground;
+            _hideCursor = hideCursor;
         }
 
         public void Dispose()
@@ -94,6 +98,12 @@ namespace NovaTerminal.Core
             _buffer.Lock.EnterReadLock();
             try
             {
+                // CRITICAL: Capture dimensions at render start to avoid race conditions
+                // If buffer is resized mid-render, using _buffer.Rows/Cols directly could cause
+                // reading garbage data or out-of-bounds access.
+                int bufferRows = _buffer.Rows;
+                int bufferCols = _buffer.Cols;
+
                 // Setup paints
                 using var bgPaint = new SKPaint { Style = SKPaintStyle.Fill };
                 using var fgPaint = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
@@ -129,14 +139,14 @@ namespace NovaTerminal.Core
                 int displayStart = (int)_scrollOffset;
                 if (displayStart < 0) displayStart = 0;
 
-                for (int r = 0; r < _buffer.Rows; r++)
+                for (int r = 0; r < bufferRows; r++)
                 {
                     float y = (float)(r * _charHeight) + paddingTop;
                     float baselineY = y + (float)_baselineOffset;
                     int absRow = displayStart + r;
 
                     // Pass 1: Custom Backgrounds
-                    for (int c = 0; c < _buffer.Cols; c++)
+                    for (int c = 0; c < bufferCols; c++)
                     {
                         var cell = _buffer.GetCell(c, r, _scrollOffset);
                         var cellBg = cell.IsDefaultBackground ? themeBg :
@@ -151,7 +161,7 @@ namespace NovaTerminal.Core
                             var bg = cellBg;
                             int runStart = c;
                             int k = c + 1;
-                            while (k < _buffer.Cols)
+                            while (k < bufferCols)
                             {
                                 var nextCell = _buffer.GetCell(k, r, _scrollOffset);
                                 var nextBg = nextCell.IsDefaultBackground ? themeBg :
@@ -173,7 +183,7 @@ namespace NovaTerminal.Core
                     // Selection & Search Matches
                     if (_selection.IsActive)
                     {
-                        var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, _buffer.Cols);
+                        var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
                         if (isSelected)
                         {
                             canvas.DrawRect((float)(colStart * _charWidth), y, (float)((colEnd - colStart + 1) * _charWidth), (float)_charHeight, selectionPaint);
@@ -194,7 +204,7 @@ namespace NovaTerminal.Core
                     }
 
                     // Pass 2: Foreground (Text)
-                    for (int c = 0; c < _buffer.Cols; c++)
+                    for (int c = 0; c < bufferCols; c++)
                     {
                         var cell = _buffer.GetCell(c, r, _scrollOffset);
                         if (cell.Character != ' ' && cell.Character != '\0')
@@ -206,7 +216,7 @@ namespace NovaTerminal.Core
                             int runStart = c;
                             var chars = new List<char> { cell.Character };
                             int k = c + 1;
-                            while (k < _buffer.Cols)
+                            while (k < bufferCols)
                             {
                                 var next = _buffer.GetCell(k, r, _scrollOffset);
                                 if (next.Character == ' ' || next.Character == '\0') break;
@@ -225,10 +235,13 @@ namespace NovaTerminal.Core
                 }
 
                 // Cursor
-                int visualCursorRow = _buffer.GetVisualCursorRow(_scrollOffset);
-                if (visualCursorRow >= 0 && visualCursorRow < _buffer.Rows)
+                if (!_hideCursor)
                 {
-                    canvas.DrawRect((float)(_buffer.CursorCol * _charWidth) + paddingLeft, (float)(visualCursorRow * _charHeight + _charHeight - 2) + paddingTop, (float)_charWidth, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
+                    int visualCursorRow = _buffer.GetVisualCursorRow(_scrollOffset);
+                    if (visualCursorRow >= 0 && visualCursorRow < bufferRows)
+                    {
+                        canvas.DrawRect((float)(_buffer.CursorCol * _charWidth) + paddingLeft, (float)(visualCursorRow * _charHeight + _charHeight - 2) + paddingTop, (float)_charWidth, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
+                    }
                 }
             }
             finally

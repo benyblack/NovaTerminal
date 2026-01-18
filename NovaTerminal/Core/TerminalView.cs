@@ -7,6 +7,7 @@ using Avalonia.Threading;
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Threading.Tasks;
 using SkiaSharp;
 
@@ -288,6 +289,22 @@ namespace NovaTerminal.Core
         public event Action<int, int>? OnResize;
         private bool _isReady;
 
+        // Discrete resize: track last sent dimensions to avoid redundant PTY resizes
+        private int _lastSentCols = 0;
+        private int _lastSentRows = 0;
+
+        // Throttle resize: limit how often we send resize to PTY (interval-based, not debounce)
+        private DispatcherTimer? _blinkTimer;
+        private bool _blinkState = true;
+        private DateTime _lastPtyResizeTime = DateTime.MinValue;
+        private DispatcherTimer? _resizeThrottleTimer;
+        private DispatcherTimer? _resizeEndTimer;
+        private bool _isResizing = false;
+        private const int ResizeThrottleMs = 50; // Minimum ms between PTY resizes
+        private const int ResizeEndDelayMs = 200; // Ms to wait after last resize before showing cursor again
+        private int _pendingCols = 0;
+        private int _pendingRows = 0;
+
         private void StartAutoScroll(int direction)
         {
             _autoScrollDirection = direction;
@@ -375,32 +392,130 @@ namespace NovaTerminal.Core
                 int cols = (int)(availableWidth / _charWidth);
                 int rows = (int)(e.NewSize.Height / _charHeight);
 
-                Console.WriteLine($"[TerminalView] OnSizeChanged: {e.NewSize.Width}x{e.NewSize.Height} -> {cols}cols x {rows}rows");
+                // Initialize resize end timer (debounce)
+                if (_resizeEndTimer == null)
+                {
+                    _resizeEndTimer = new DispatcherTimer(DispatcherPriority.Normal)
+                    {
+                        Interval = TimeSpan.FromMilliseconds(ResizeEndDelayMs)
+                    };
+                    _resizeEndTimer.Tick += (s, args) =>
+                    {
+                        _isResizing = false;
+                        _resizeEndTimer.Stop();
+                        InvalidateVisual(); // Redraw to show cursor
+                    };
+                }
 
                 if (cols > 0 && rows > 0)
                 {
-                    // No snapshot - rely on Edge Extension + Sync Resize
-                    _buffer.Resize(cols, rows);
+                    // DISCRETE RESIZE: Only trigger actual resize when cell dimensions change
+                    bool dimensionsChanged = (cols != _lastSentCols || rows != _lastSentRows);
 
-                    if (!_isReady)
+                    if (dimensionsChanged)
                     {
-                        // Ensure we don't start with a tiny transient layout (e.g. before Window is fully sized)
-                        // 40 cols and 10 rows is a reasonable minimum for a functional terminal.
-                        if (cols >= 40 && rows >= 10)
+                        _isResizing = true;
+                        _resizeEndTimer.Stop();
+                        _resizeEndTimer.Start();
+                    }
+
+                    // DEBUG: Log all resize events to file
+                    try
+                    {
+                        string logLine = $"[{DateTime.Now:HH:mm:ss.fff}] Size: {e.NewSize.Width:F0}x{e.NewSize.Height:F0} -> {cols}x{rows} | Changed: {dimensionsChanged} | Last: {_lastSentCols}x{_lastSentRows}";
+                        File.AppendAllText("debug_resize.log", logLine + Environment.NewLine);
+                    }
+                    catch { }
+
+                    if (dimensionsChanged)
+                    {
+                        // Track pending dimensions (but DON'T resize buffer yet - keep buffer/PTY in sync)
+                        _lastSentCols = cols;
+                        _lastSentRows = rows;
+
+                        if (!_isReady)
                         {
-                            _isReady = true;
-                            OnReady?.Invoke();
-                            Console.WriteLine("[TerminalView] Ready! Initializing Session.");
+                            // Ensure we don't start with a tiny transient layout (e.g. before Window is fully sized)
+                            // 40 cols and 10 rows is a reasonable minimum for a functional terminal.
+                            if (cols >= 40 && rows >= 10)
+                            {
+                                _isReady = true;
+                                // For initial ready, resize buffer immediately
+                                _buffer.Resize(cols, rows);
+                                OnReady?.Invoke();
+                                Console.WriteLine("[TerminalView] Ready! Initializing Session.");
+                            }
                         }
+                        else
+                        {
+                            // INTERVAL-BASED THROTTLE: Send resize if enough time passed, otherwise schedule
+                            _pendingCols = cols;
+                            _pendingRows = rows;
+
+                            var now = DateTime.Now;
+                            var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
+
+                            if (elapsed >= ResizeThrottleMs)
+                            {
+                                // Enough time passed - send immediately
+                                SendThrottledResize();
+                            }
+                            else
+                            {
+                                // Too soon - schedule for later (ensures we always send the final size)
+                                if (_resizeThrottleTimer == null)
+                                {
+                                    _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
+                                    {
+                                        Interval = TimeSpan.FromMilliseconds(ResizeThrottleMs)
+                                    };
+                                    _resizeThrottleTimer.Tick += OnResizeThrottleTick;
+                                }
+
+                                if (!_resizeThrottleTimer.IsEnabled)
+                                {
+                                    _resizeThrottleTimer.Start();
+                                }
+                                // Don't restart timer - let it fire at the scheduled time
+                            }
+                        }
+
+                        // Don't invalidate here - wait for resize to be sent
                     }
-                    else
-                    {
-                        // Fire resize event for already-started sessions
-                        OnResize?.Invoke(cols, rows);
-                        InvalidateBuffer();
-                    }
+                    // If dimensions haven't changed, we still might want to invalidate for visual refresh
+                    // but we DON'T send resize to PTY - this is the key optimization
                 }
             }
+        }
+
+        private void SendThrottledResize()
+        {
+            if (_pendingCols > 0 && _pendingRows > 0 && _buffer != null)
+            {
+                _lastPtyResizeTime = DateTime.Now;
+
+                try
+                {
+                    string logLine = $"[{DateTime.Now:HH:mm:ss.fff}] >>> THROTTLED RESIZE SENT: {_pendingCols}x{_pendingRows}";
+                    File.AppendAllText("debug_resize.log", logLine + Environment.NewLine);
+                }
+                catch { }
+
+                // Resize buffer AND send to PTY together - keeps them synchronized
+                // This prevents layout corruption where buffer size != PTY size
+                _buffer.Resize(_pendingCols, _pendingRows);
+                Console.WriteLine($"[TerminalView] Throttled resize sent: {_pendingCols}x{_pendingRows}");
+                OnResize?.Invoke(_pendingCols, _pendingRows);
+
+                InvalidateBuffer();
+            }
+        }
+
+        private void OnResizeThrottleTick(object? sender, EventArgs e)
+        {
+            // Timer fired - send any pending resize
+            _resizeThrottleTimer?.Stop();
+            SendThrottledResize();
         }
 
         public override void Render(DrawingContext context)
@@ -409,6 +524,9 @@ namespace NovaTerminal.Core
             {
                 return;
             }
+
+            // Hide cursor if we are throttling a resize
+            bool hideCursor = _isResizing;
 
             // Create and dispatch custom draw op
             var drawOp = new TerminalDrawOperation(
@@ -427,7 +545,8 @@ namespace NovaTerminal.Core
                 _skTypeface,
                 _skFont,
                 _windowOpacity,
-                _hasBackgroundImage
+                _hasBackgroundImage,
+                hideCursor
             );
 
             context.Custom(drawOp);

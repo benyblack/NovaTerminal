@@ -12,6 +12,9 @@ namespace NovaTerminal.Core
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _readTask;
 
+        // UTF-8 decoder with state - handles partial multi-byte sequences across reads
+        private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
+
         public event Action<string>? OnOutputReceived;
         public event Action<int>? OnExit;
 
@@ -57,13 +60,21 @@ namespace NovaTerminal.Core
         private void ReadLoop()
         {
             byte[] buffer = new byte[4096];
+            char[] charBuffer = new char[4096]; // For decoded characters
+
             while (!_cts.Token.IsCancellationRequested && _ptyState != IntPtr.Zero)
             {
                 int read = Native.pty_read(_ptyState, buffer, buffer.Length);
                 if (read > 0)
                 {
-                    string text = Encoding.UTF8.GetString(buffer, 0, read);
-                    OnOutputReceived?.Invoke(text);
+                    // Use the stateful decoder - it will hold incomplete multi-byte sequences
+                    // until more bytes arrive, preventing U+FFFD replacement characters
+                    int charCount = _utf8Decoder.GetChars(buffer, 0, read, charBuffer, 0);
+                    if (charCount > 0)
+                    {
+                        string text = new string(charBuffer, 0, charCount);
+                        OnOutputReceived?.Invoke(text);
+                    }
                 }
                 else if (read == 0) // EOF
                 {
