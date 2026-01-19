@@ -298,10 +298,7 @@ namespace NovaTerminal.Core
         private bool _blinkState = true;
         private DateTime _lastPtyResizeTime = DateTime.MinValue;
         private DispatcherTimer? _resizeThrottleTimer;
-        private DispatcherTimer? _resizeEndTimer;
-        private bool _isResizing = false;
         private const int ResizeThrottleMs = 50; // Minimum ms between PTY resizes
-        private const int ResizeEndDelayMs = 200; // Ms to wait after last resize before showing cursor again
         private int _pendingCols = 0;
         private int _pendingRows = 0;
 
@@ -392,20 +389,7 @@ namespace NovaTerminal.Core
                 int cols = (int)(availableWidth / _charWidth);
                 int rows = (int)(e.NewSize.Height / _charHeight);
 
-                // Initialize resize end timer (debounce)
-                if (_resizeEndTimer == null)
-                {
-                    _resizeEndTimer = new DispatcherTimer(DispatcherPriority.Normal)
-                    {
-                        Interval = TimeSpan.FromMilliseconds(ResizeEndDelayMs)
-                    };
-                    _resizeEndTimer.Tick += (s, args) =>
-                    {
-                        _isResizing = false;
-                        _resizeEndTimer.Stop();
-                        InvalidateVisual(); // Redraw to show cursor
-                    };
-                }
+
 
                 if (cols > 0 && rows > 0)
                 {
@@ -414,9 +398,9 @@ namespace NovaTerminal.Core
 
                     if (dimensionsChanged)
                     {
-                        _isResizing = true;
-                        _resizeEndTimer.Stop();
-                        _resizeEndTimer.Start();
+                        // Update tracking
+                        _lastSentCols = cols;
+                        _lastSentRows = rows;
                     }
 
                     // DEBUG: Log all resize events to file
@@ -430,8 +414,8 @@ namespace NovaTerminal.Core
                     if (dimensionsChanged)
                     {
                         // Track pending dimensions (but DON'T resize buffer yet - keep buffer/PTY in sync)
-                        _lastSentCols = cols;
-                        _lastSentRows = rows;
+                        // _lastSentCols = cols; // moved up
+                        // _lastSentRows = rows; // moved up
 
                         if (!_isReady)
                         {
@@ -526,7 +510,7 @@ namespace NovaTerminal.Core
             }
 
             // Hide cursor if we are throttling a resize
-            bool hideCursor = _isResizing;
+            bool hideCursor = false; // Simplified: Always show cursor to prevent flickering/gaps
 
             // Create and dispatch custom draw op
             var drawOp = new TerminalDrawOperation(
