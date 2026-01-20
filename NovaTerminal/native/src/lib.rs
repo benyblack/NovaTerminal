@@ -121,6 +121,16 @@ pub extern "C" fn pty_resize(state_ptr: *mut PtyState, cols: u16, rows: u16) {
         pixel_width: 0,
         pixel_height: 0,
     };
+
+    // Debug log
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open("rust_pty.log")
+    {
+        let _ = writeln!(f, "pty_resize: {}x{}", cols, rows);
+    }
+
     let _ = state.master.resize(size);
 }
 

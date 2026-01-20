@@ -4,6 +4,7 @@
         Title="NovaTerminal"
         Width="1200" Height="800"
         x:Name="RootWindow"
+        Icon="avares://NovaTerminal/Assets/nova_icon.png"
         ExtendClientAreaToDecorationsHint="True"
         ExtendClientAreaChromeHints="PreferSystemChrome"
         TransparencyLevelHint=""

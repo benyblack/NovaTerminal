@@ -136,14 +136,17 @@ namespace NovaTerminal.Core
                 const float paddingLeft = 4;
                 const float paddingTop = 0;
 
-                int displayStart = (int)_scrollOffset;
-                if (displayStart < 0) displayStart = 0;
+                // Correct calculation of displayStart (First visible absolute row)
+                int totalLines = _buffer.TotalLines;
+                int bufferRowsLocked = bufferRows; // Use local capture
+                // displayStart = Total - Rows - ScrollOffset
+                int absDisplayStart = Math.Max(0, totalLines - bufferRowsLocked - _scrollOffset);
 
                 for (int r = 0; r < bufferRows; r++)
                 {
                     float y = (float)(r * _charHeight) + paddingTop;
                     float baselineY = y + (float)_baselineOffset;
-                    int absRow = displayStart + r;
+                    int absRow = absDisplayStart + r;
 
                     // Pass 1: Custom Backgrounds
                     for (int c = 0; c < bufferCols; c++)

@@ -178,6 +178,14 @@ namespace NovaTerminal.Core
                     int count = args.Length > 0 ? args[0] : 1;
                     _buffer.EraseCharacters(count);
                     break;
+                case 'L': // Insert Line (IL)
+                    int linesToInsert = args.Length > 0 ? args[0] : 1;
+                    _buffer.InsertLines(linesToInsert);
+                    break;
+                case 'M': // Delete Line (DL)
+                    int linesToDelete = args.Length > 0 ? args[0] : 1;
+                    _buffer.DeleteLines(linesToDelete);
+                    break;
                 case 's': // Save Cursor (ANSI.SYS / SCO)
                     _buffer.SaveCursor();
                     break;

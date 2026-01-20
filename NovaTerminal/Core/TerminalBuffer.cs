@@ -343,17 +343,7 @@ namespace NovaTerminal.Core
                         if (_cursorRow >= Rows)
                         {
                             // Scroll up
-                            if (Rows > 0)
-                            {
-                                _scrollback.Add(_viewport[0]);
-                                if (_scrollback.Count > MaxHistory) _scrollback.RemoveAt(0);
-
-                                for (int i = 0; i < Rows - 1; i++)
-                                {
-                                    _viewport[i] = _viewport[i + 1];
-                                }
-                                _viewport[Rows - 1] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
-                            }
+                            ScrollUp();
                             _cursorRow = Math.Max(0, Rows - 1);
                         }
                     }
@@ -421,59 +411,21 @@ namespace NovaTerminal.Core
             {
                 if (newCols == Cols && newRows == Rows) return;
 
-                var oldViewport = _viewport;
-                var oldRows = Rows;
-                var oldCols = Cols;
+                int oldCols = Cols;
+                int oldRows = Rows;
 
-                _viewport = new TerminalRow[newRows];
-                for (int i = 0; i < newRows; i++)
-                {
-                    if (i < oldRows && i < oldViewport.Length)
-                    {
-                        // Preserve existing row content with Edge Extension
-                        var row = oldViewport[i];
-                        if (row.Cells.Length != newCols)
-                        {
-                            var oldCells = row.Cells;
-
-                            // Get template cell from the edge (for background extension)
-                            // This fixes "messy" htop/vim bars during resize
-                            var templateCell = (oldCols > 0) ? oldCells[oldCols - 1] : TerminalCell.Default;
-                            // Reset char to space, but keep colors
-                            templateCell = new TerminalCell(' ', templateCell.Foreground, templateCell.Background, templateCell.IsInverse, templateCell.IsBold, templateCell.IsDefaultForeground, templateCell.IsDefaultBackground);
-
-                            row.Cells = new TerminalCell[newCols];
-                            for (int j = 0; j < newCols; j++)
-                            {
-                                if (j < oldCols) row.Cells[j] = oldCells[j];
-                                else row.Cells[j] = templateCell;
-                            }
-                        }
-                        _viewport[i] = row;
-                    }
-                    else
-                    {
-                        // Add new empty rows if expanding (Vertical Extension)
-                        // INTELLIGENT FILL: Use the background of the last valid row to fill the void.
-                        // This prevents "black flash" at the bottom when resizing htop/vim.
-                        var templateRowStyle = (i > 0 && _viewport[i - 1] != null) ? _viewport[i - 1].Cells[0] : TerminalCell.Default;
-                        var fillCell = new TerminalCell(' ', templateRowStyle.Foreground, templateRowStyle.Background, false, false, templateRowStyle.IsDefaultForeground, templateRowStyle.IsDefaultBackground);
-
-                        _viewport[i] = new TerminalRow(newCols, fillCell.Foreground, fillCell.Background);
-
-                        // Force fill if TerminalRow ctor doesn't support complex cells (it only takes colors usually)
-                        // Actually TerminalRow ctor usually fills with spaces of fg/bg.
-                        // Let's verify TerminalRow ctor or manually fill to be safe.
-                        for (int c = 0; c < newCols; c++) _viewport[i].Cells[c] = fillCell;
-                    }
-                }
-
+                // Update Dimensions BEFORE Reflow might be needed for some helpers, 
+                // but Reflow MUST know the original size.
+                // Update Dimensions BEFORE Reflow, but we need old and new for Reflow
                 Cols = newCols;
                 Rows = newRows;
 
-                // Clamp cursor
+                // Full Reflow
+                Reflow(oldCols, oldRows, newCols, newRows);
+
+                // Ensure cursor is within bounds (allow Cols for wrap-pending state)
                 _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
-                _cursorCol = Math.Clamp(_cursorCol, 0, Cols - 1);
+                _cursorCol = Math.Clamp(_cursorCol, 0, Cols);
             }
             finally
             {
@@ -481,6 +433,314 @@ namespace NovaTerminal.Core
             }
 
             OnInvalidate?.Invoke();
+        }
+
+        private void Reflow(int oldCols, int oldRows, int newCols, int newRows)
+        {
+            if (newCols <= 0 || newRows <= 0) return;
+
+            // 1. Capture Cursor Content Pre-Resize
+            int absCursorPhysicalIdx = _scrollback.Count + _cursorRow;
+            int cursorLogicalIdx = -1;
+            int cursorInLogicalOffset = -1;
+
+            // 2. Physical Extraction with Padding Trim
+            var allPhysicalRows = new List<TerminalRow>();
+            for (int i = 0; i < _scrollback.Count; i++) allPhysicalRows.Add(_scrollback[i]);
+
+            // Find the last row in the viewport that has ANY content (including non-default background or non-space char)
+            int lastActiveVpRow = -1;
+            for (int i = 0; i < oldRows; i++)
+            {
+                var row = _viewport[i];
+                bool isEmpty = true;
+                foreach (var cell in row.Cells)
+                {
+                    if (cell.Character != ' ' && cell.Character != '\0' || !cell.IsDefaultBackground)
+                    {
+                        isEmpty = false;
+                        break;
+                    }
+                }
+                if (!isEmpty || i <= _cursorRow) lastActiveVpRow = i;
+            }
+
+            int vpRowsToTake = lastActiveVpRow + 1;
+            for (int i = 0; i < vpRowsToTake; i++) allPhysicalRows.Add(_viewport[i]);
+
+            // 3. Metadata-Aware Logical Reconstruction
+            var logicalLines = new List<(List<TerminalCell> Cells, bool IsWrapped, int StartPhysIdx)>();
+            List<TerminalCell>? currentLogical = null;
+            int currentStartPhys = -1;
+
+            for (int i = 0; i < allPhysicalRows.Count; i++)
+            {
+                var physRow = allPhysicalRows[i];
+                if (currentLogical == null)
+                {
+                    currentLogical = new List<TerminalCell>();
+                    currentStartPhys = i;
+                }
+
+                // Cursor Tracking
+                if (i == absCursorPhysicalIdx)
+                {
+                    cursorLogicalIdx = logicalLines.Count;
+                    cursorInLogicalOffset = currentLogical.Count + _cursorCol;
+                }
+
+                int validLen = physRow.Cells.Length;
+                if (!physRow.IsWrapped)
+                {
+                    // Calculate minimum length to preserve if this row contains the cursor
+                    // If cursor is on this row, we must not trim characters before the cursor
+                    int minResultLen = 0;
+                    if (i == absCursorPhysicalIdx)
+                    {
+                        // cursorCol is the index. So validLen must be at least cursorCol.
+                        // Example: "A " (Space at 1). Cursor at 2. validLen must be at least 2? No, cursorCol=2 means 2 chars?
+                        // If we have chars 0,1. Cursor at 2 means we are PAST the last char.
+                        // So we need to preserve up to index 1. Length 2.
+                        // So minResultLen = _cursorCol.
+                        minResultLen = _cursorCol;
+                    }
+
+                    // Trim trailing spaces (only if they use default background)
+                    while (validLen > minResultLen)
+                    {
+                        var cell = physRow.Cells[validLen - 1];
+                        if (cell.IsDefaultBackground && (cell.Character == ' ' || cell.Character == '\0')) validLen--;
+                        else break;
+                    }
+                }
+
+                for (int k = 0; k < validLen; k++) currentLogical.Add(physRow.Cells[k]);
+
+                if (!physRow.IsWrapped)
+                {
+                    logicalLines.Add((currentLogical, false, currentStartPhys));
+                    currentLogical = null;
+                }
+            }
+
+            if (currentLogical != null)
+            {
+                logicalLines.Add((currentLogical, true, currentStartPhys));
+            }
+
+
+            // 5. Distribution logic
+            _scrollback.Clear();
+            _viewport = new TerminalRow[newRows];
+            var allFlowedRows = new List<TerminalRow>();
+
+            int newCursorPhysRow = -1;
+            int newCursorPhysCol = -1;
+            int historyRowCount = 0; // Tracks physical rows generated from original history
+
+            // Identify the logical line index that starts the viewport
+            // The first viewport row in 'allPhysicalRows' was at index 'oldScrollbackCount'
+            // We need to find the first logical line that includes 'oldScrollbackCount' or higher.
+            int firstViewportLogicalIdx = logicalLines.Count; // Default to end
+            int oldScrollbackCount = absCursorPhysicalIdx - _cursorRow; // Re-derive or pass in? 
+            // Better to capture oldScrollbackCount at the start of Reflow.
+            // But we can infer it: absCursorPhysicalIdx is _scrollback.Count + _cursorRow.
+            // So _scrollback.Count = absCursorPhysicalIdx - _cursorRow.
+            // Wait, absCursorPhysicalIdx is calculated using CURRENT _cursorRow and _scrollback.Count.
+            // So yes, that works.
+            int splitPhysIndex = absCursorPhysicalIdx - _cursorRow;
+
+            // Find first logical line that starts at or after splitPhysIndex
+            for (int i = 0; i < logicalLines.Count; i++)
+            {
+                if (logicalLines[i].StartPhysIdx >= splitPhysIndex)
+                {
+                    firstViewportLogicalIdx = i;
+                    break;
+                }
+            }
+
+            for (int i = 0; i < logicalLines.Count; i++)
+            {
+                var lineCells = logicalLines[i].Cells;
+
+                // Track start of this logical line in flowed rows
+                int startFlowIndex = allFlowedRows.Count;
+
+                if (lineCells.Count == 0)
+                {
+                    // If this is the WIPED prompt, place cursor here
+                    if (i == cursorLogicalIdx) { newCursorPhysRow = allFlowedRows.Count; newCursorPhysCol = 0; }
+                    allFlowedRows.Add(new TerminalRow(newCols, Theme.Foreground, Theme.Background));
+                }
+                else
+                {
+                    int processed = 0;
+                    while (processed < lineCells.Count)
+                    {
+                        int remaining = lineCells.Count - processed;
+                        int take = Math.Min(remaining, newCols);
+
+                        // Mapping
+                        if (i == cursorLogicalIdx)
+                        {
+                            if (cursorInLogicalOffset >= processed && cursorInLogicalOffset < processed + newCols)
+                            {
+                                newCursorPhysRow = allFlowedRows.Count;
+                                newCursorPhysCol = cursorInLogicalOffset - processed;
+                            }
+                            else if (cursorInLogicalOffset == processed + newCols && remaining == newCols)
+                            {
+                                newCursorPhysRow = allFlowedRows.Count;
+                                newCursorPhysCol = newCols;
+                            }
+                        }
+
+                        var row = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                        for (int c = 0; c < take; c++) row.Cells[c] = lineCells[processed + c];
+
+                        // Style-Aware Padding
+                        if (take < newCols)
+                        {
+                            var last = row.Cells[take - 1];
+                            var def = new TerminalCell(' ', last.Foreground, last.Background, last.IsBold, last.IsInverse, last.IsDefaultForeground, last.IsDefaultBackground);
+                            for (int c = take; c < newCols; c++) row.Cells[c] = def;
+                        }
+
+                        if (remaining > newCols) row.IsWrapped = true;
+                        allFlowedRows.Add(row);
+                        processed += take;
+                    }
+                }
+
+                // If this line belongs to history (before viewport start), add its generated rows to count
+                if (i < firstViewportLogicalIdx)
+                {
+                    historyRowCount += (allFlowedRows.Count - startFlowIndex);
+                }
+            }
+
+            // 6. Final Layout (Anchor-to-Top of Viewport)
+            // We want _scrollback to contain AT LEAST 'historyRowCount'.
+            // But if the remaining lines (viewport content) > newRows, we must push some of them to SB (Shrink).
+            int total = allFlowedRows.Count;
+
+            // Base split: Everything that was history stays history.
+            int sbCount = historyRowCount;
+
+            // Shrink Adjustment: If active content doesn't fit in new viewport, overflow goes to SB.
+            int activeContentSize = total - historyRowCount;
+            if (activeContentSize > newRows)
+            {
+                sbCount += (activeContentSize - newRows);
+            }
+            // Grow Adjustment: If active content fits, we keep sbCount as is. Viewport will have padding at bottom.
+
+            // Ensure safety
+            sbCount = Math.Clamp(sbCount, 0, total);
+            int vpCount = total - sbCount;
+
+            for (int i = 0; i < sbCount; i++) _scrollback.Add(allFlowedRows[i]);
+
+            if (_scrollback.Count > MaxHistory)
+            {
+                int diff = _scrollback.Count - MaxHistory;
+                _scrollback.RemoveRange(0, diff);
+                sbCount -= diff;
+            }
+
+            // Fill viewport
+            // If vpCount < newRows (Growth), we will have empty space at the bottom (Top Anchoring).
+            int vIdx = 0;
+            for (int i = 0; i < vpCount; i++) _viewport[vIdx++] = allFlowedRows[sbCount + i]; // Offset by updated sbCount
+
+            // Pad remaining viewport rows (at the BOTTOM now)
+            while (vIdx < newRows)
+            {
+                _viewport[vIdx++] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+            }
+
+            // 7. Restore Cursor
+            if (newCursorPhysRow != -1)
+            {
+                // newCursorPhysRow is absolute index in allFlowedRows
+                // We need to map it to viewport relative.
+                // It might be in scrollback now!
+                if (newCursorPhysRow < sbCount)
+                {
+                    // Cursor pushed to scrollback?
+                    // We must clamp it to 0? Or keep it?
+                    // TerminalBuffer usually keeps cursor in Viewport.
+                    // But if we shrank so much the cursor is gone... 
+                    // We forcibly scroll? Or just clamp to top?
+                    _cursorRow = 0;
+                    // _scrollOffset adjustment would be needed here to keep it in view, but simplest is clamp.
+                }
+                else
+                {
+                    _cursorRow = newCursorPhysRow - sbCount;
+                }
+                _cursorCol = Math.Clamp(newCursorPhysCol, 0, newCols);
+            }
+            else
+            {
+                _cursorRow = newRows - 1;
+                _cursorCol = 0;
+            }
+
+            // 8. Surgical Wipe of Cursor Row
+            // We clear the row under the cursor to prevent "Ghost" prompts.
+            // The PTY/Shell is expected to redraw the prompt/input line on resize.
+            // If we don't wipe, we might end up with "Old Prompt" (Reflowed) + "New Prompt" (Redrawn)
+            // resulting in duplication or visual corruption.
+            if (_cursorRow >= 0 && _cursorRow < newRows)
+            {
+                _viewport[_cursorRow] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+            }
+        }
+
+        // Helper to resize a single row (Visual resize only - content clipping/padding)
+        private TerminalRow _ResizeRow(TerminalRow oldRow, int newWidth)
+        {
+            if (oldRow.Cells.Length == newWidth) return oldRow;
+
+            int oldWidth = oldRow.Cells.Length;
+
+            // Create new cell array
+            var newCells = new TerminalCell[newWidth];
+
+            try
+            {
+                // Logging removed
+            }
+            catch { }
+
+            // 1. Copy existing cells that fit
+            int copyLen = Math.Min(oldWidth, newWidth);
+            Array.Copy(oldRow.Cells, newCells, copyLen);
+
+            // 2. Fill remaining space (if growing)
+            if (newWidth > oldWidth)
+            {
+                // Use edge extension for background color
+                var templateCell = newCells[oldWidth - 1]; // Use last valid cell as template
+                                                           // Reset char to space
+                var fillCell = new TerminalCell(' ', templateCell.Foreground, templateCell.Background,
+                                                templateCell.IsInverse, templateCell.IsBold,
+                                                templateCell.IsDefaultForeground, templateCell.IsDefaultBackground);
+
+                for (int i = oldWidth; i < newWidth; i++)
+                {
+                    newCells[i] = fillCell;
+                }
+            }
+
+            // Return new row wrapper
+            var newRow = new TerminalRow(newWidth);
+            newRow.Cells = newCells;
+            newRow.IsWrapped = oldRow.IsWrapped; // Preserve wrap flag?
+
+            return newRow;
         }
 
         public TerminalCell GetCell(int col, int fieldRow, int scrollOffset = 0)
@@ -632,6 +892,78 @@ namespace NovaTerminal.Core
                     if (col >= Cols) break;
 
                     row.Cells[col] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+                }
+            }
+            finally
+            {
+                Lock.ExitWriteLock();
+            }
+            OnInvalidate?.Invoke();
+        }
+
+        public void InsertLines(int count)
+        {
+            try { System.IO.File.AppendAllText("resize_debug.log", $"[InsertLines] Count:{count} CursorRow:{_cursorRow}\n"); } catch { }
+            Lock.EnterWriteLock();
+            try
+            {
+                if (_cursorRow < 0 || _cursorRow >= Rows) return;
+
+                int top = _cursorRow;
+                int bottom = Rows - 1;
+                // Clip count to available space
+                int n = Math.Min(count, bottom - top + 1);
+
+                if (n <= 0) return;
+
+                // Shift lines DOWN
+                // To insert N lines at TOP, we must move lines starting at TOP down by N.
+                // We iterate backwards from (bottom - n) to top to avoid overwriting.
+                for (int i = bottom - n; i >= top; i--)
+                {
+                    _viewport[i + n] = _viewport[i];
+                }
+
+                // Fill the gap created at TOP with new blank lines
+                for (int i = 0; i < n; i++)
+                {
+                    _viewport[top + i] = new TerminalRow(Cols, CurrentForeground, CurrentBackground);
+                }
+            }
+            finally
+            {
+                Lock.ExitWriteLock();
+            }
+            OnInvalidate?.Invoke();
+        }
+
+        public void DeleteLines(int count)
+        {
+            try { System.IO.File.AppendAllText("resize_debug.log", $"[DeleteLines] Count:{count} CursorRow:{_cursorRow}\n"); } catch { }
+            Lock.EnterWriteLock();
+            try
+            {
+                if (_cursorRow < 0 || _cursorRow >= Rows) return;
+
+                int top = _cursorRow;
+                int bottom = Rows - 1;
+                // Clip count to available space
+                int n = Math.Min(count, bottom - top + 1);
+
+                if (n <= 0) return;
+
+                // Shift lines UP
+                // To delete N lines at TOP, we shift content from (top + n) UP to top.
+                // We iterate forwards.
+                for (int i = top; i <= bottom - n; i++)
+                {
+                    _viewport[i] = _viewport[i + n];
+                }
+
+                // Fill the gap created at BOTTOM with new blank lines
+                for (int i = 0; i < n; i++)
+                {
+                    _viewport[bottom - n + 1 + i] = new TerminalRow(Cols, CurrentForeground, CurrentBackground);
                 }
             }
             finally

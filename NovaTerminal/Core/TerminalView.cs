@@ -406,7 +406,7 @@ namespace NovaTerminal.Core
                     // DEBUG: Log all resize events to file
                     try
                     {
-                        string logLine = $"[{DateTime.Now:HH:mm:ss.fff}] Size: {e.NewSize.Width:F0}x{e.NewSize.Height:F0} -> {cols}x{rows} | Changed: {dimensionsChanged} | Last: {_lastSentCols}x{_lastSentRows}";
+                        string logLine = $"[{DateTime.Now:HH:mm:ss.fff}] Size: {e.NewSize.Width:F0}x{e.NewSize.Height:F0} -> {cols}x{rows} | Bounds: {Bounds.Width:F0}x{Bounds.Height:F0}";
                         File.AppendAllText("debug_resize.log", logLine + Environment.NewLine);
                     }
                     catch { }

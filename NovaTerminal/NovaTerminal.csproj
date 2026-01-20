@@ -24,6 +24,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Include="native\target\release\rusty_pty.dll">
       <Link>rusty_pty.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
