@@ -81,7 +81,7 @@ namespace NovaTerminal.Tests
         private List<TerminalRow> GetScrollback(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
-            return (List<TerminalRow>)field.GetValue(buffer);
+            return (List<TerminalRow>)field!.GetValue(buffer)!;
         }
 
         private string GetTextFromRow(TerminalRow row)
@@ -386,7 +386,7 @@ namespace NovaTerminal.Tests
         private TerminalRow[] GetViewport(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetPrivateField("_viewport");
-            return (TerminalRow[])field.GetValue(buffer);
+            return (TerminalRow[])field.GetValue(buffer)!;
         }
     }
 
@@ -416,7 +416,7 @@ namespace NovaTerminal.Tests
             // UNLESS we use reflection to get _viewport array, and modify it.
 
             var field = typeof(TerminalBuffer).GetPrivateField("_viewport");
-            var viewport = (TerminalRow[])field.GetValue(buffer);
+            var viewport = (TerminalRow[])field.GetValue(buffer)!;
             int cursorRow = buffer.CursorRow;
 
             // Add newline to advance
@@ -474,7 +474,7 @@ namespace NovaTerminal.Tests
 
             // Assert
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
-            var scrollback = (List<TerminalRow>)field.GetValue(buffer);
+            var scrollback = (List<TerminalRow>)field!.GetValue(buffer)!;
 
             static string GetTextFromRow(TerminalRow row)
             {
@@ -512,7 +512,7 @@ namespace NovaTerminal.Tests
 
             // Access _scrollback via reflection for thorough check
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
-            var sb = (List<TerminalRow>)field.GetValue(buffer);
+            var sb = (List<TerminalRow>)field!.GetValue(buffer)!;
 
             // Check Scrollback
             foreach (var row in sb)

@@ -602,8 +602,9 @@ namespace NovaTerminal.Core
                         // Style-Aware Padding
                         if (take < newCols)
                         {
-                            var last = row.Cells[take - 1];
-                            var def = new TerminalCell(' ', last.Foreground, last.Background, last.IsBold, last.IsInverse, last.IsDefaultForeground, last.IsDefaultBackground);
+                            // We use TRUE default style for padding, NOT the last character's style.
+                            // This prevents "Background Leakage" (e.g. blue/green bars) when resizing.
+                            var def = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                             for (int c = take; c < newCols; c++) row.Cells[c] = def;
                         }
 
@@ -688,14 +689,31 @@ namespace NovaTerminal.Core
                 _cursorCol = 0;
             }
 
-            // 8. Surgical Wipe of Cursor Row
-            // We clear the row under the cursor to prevent "Ghost" prompts.
-            // The PTY/Shell is expected to redraw the prompt/input line on resize.
-            // If we don't wipe, we might end up with "Old Prompt" (Reflowed) + "New Prompt" (Redrawn)
-            // resulting in duplication or visual corruption.
-            if (_cursorRow >= 0 && _cursorRow < newRows)
+            // 8. Conditional Cursor Row Clearing
+            // Clear cursor row ONLY on horizontal (width) changes where shells typically redraw.
+            // This prevents duplication in CMD while preserving prompts in PowerShell during vertical resize.
+            // 
+            // Rationale:
+            // - Horizontal resize: Width changes cause line rewrapping. Shells (CMD/PowerShell) typically
+            //   redraw the prompt after width changes, so clearing prevents ghost/duplicate prompts.
+            // - Vertical resize: Height-only changes don't affect wrapping. PowerShell often does NOT
+            //   redraw prompts on vertical resize, so we must preserve the reflowed content.
+            if (newCols != oldCols)
             {
-                _viewport[_cursorRow] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                if (_cursorRow >= 0 && _cursorRow < newRows)
+                {
+                    // Clear the cursor row
+                    _viewport[_cursorRow] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+
+
+                    // Also clear the next row to handle oh-my-posh right-aligned text
+                    // When prompts have sparse content (left + right side), the right side wraps to next line
+                    // Clearing both ensures no visual artifacts during resize
+                    if (_cursorRow + 1 < newRows)
+                    {
+                        _viewport[_cursorRow + 1] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                    }
+                }
             }
         }
 
@@ -722,12 +740,9 @@ namespace NovaTerminal.Core
             // 2. Fill remaining space (if growing)
             if (newWidth > oldWidth)
             {
-                // Use edge extension for background color
-                var templateCell = newCells[oldWidth - 1]; // Use last valid cell as template
-                                                           // Reset char to space
-                var fillCell = new TerminalCell(' ', templateCell.Foreground, templateCell.Background,
-                                                templateCell.IsInverse, templateCell.IsBold,
-                                                templateCell.IsDefaultForeground, templateCell.IsDefaultBackground);
+                // Use clean default background for new space
+                var fillCell = new TerminalCell(' ', Theme.Foreground, Theme.Background,
+                                                false, false, true, true);
 
                 for (int i = oldWidth; i < newWidth; i++)
                 {

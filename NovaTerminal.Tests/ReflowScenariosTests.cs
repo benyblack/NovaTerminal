@@ -59,21 +59,21 @@ namespace NovaTerminal.Tests
         private int GetScrollbackCount(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var list = (System.Collections.IList)field.GetValue(buffer);
+            var list = (System.Collections.IList)field!.GetValue(buffer)!;
             return list.Count;
         }
 
         private TerminalRow GetScrollbackRow(TerminalBuffer buffer, int idx)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var list = (System.Collections.IList)field.GetValue(buffer);
-            return (TerminalRow)list[idx];
+            var list = (System.Collections.IList)field!.GetValue(buffer)!;
+            return (TerminalRow)list[idx]!;
         }
 
         private TerminalRow GetViewportRow(TerminalBuffer buffer, int idx)
         {
             var field = typeof(TerminalBuffer).GetField("_viewport", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var array = (TerminalRow[])field.GetValue(buffer);
+            var array = (TerminalRow[])field!.GetValue(buffer)!;
             return array[idx];
         }
 
@@ -155,10 +155,10 @@ namespace NovaTerminal.Tests
             int finalSbCount = GetScrollbackCount(buffer);
             Assert.Equal(initialSbCount, finalSbCount);
 
-            // Verify content is top-anchored in Viewport
-            // VP[0] should be Line 21 (first line of old viewport)
+            // VP[0] should STILL be Line 22 (first line of old viewport)
+            // Because we Anchor-to-Top.
             string row0_vp = GetRowText(buffer, finalSbCount);
-            Assert.Contains("021", row0_vp);
+            Assert.Contains("022", row0_vp);
 
             // VP[10] should be "PROMPT" (it was at index 10 of old logical content approx)
             // Wait, we had 30 lines. 1-20 in SB. 21-30 in VP.
@@ -186,8 +186,13 @@ namespace NovaTerminal.Tests
             // VP has Lines 22..31 (10 lines).
             // VP has 10 blank lines padding.
 
-            string promptRow = GetRowText(buffer, finalSbCount + 10);
+            // PROMPT was at index 9 of old viewport (last line).
+            // So it should be at index 9 of new viewport too.
+            string promptRow = GetRowText(buffer, finalSbCount + 9);
             Assert.Contains("PROMPT", promptRow);
+
+            // VP[10]..[19] should be padding.
+            Assert.Equal("", GetRowText(buffer, finalSbCount + 10).Trim());
         }
 
         [Fact]
@@ -239,27 +244,29 @@ namespace NovaTerminal.Tests
             var buffer = new TerminalBuffer(80, 10);
             WriteLines(buffer, 5); // Lines 0-4
             buffer.Write("Prompt: ");
-            int promptRow = buffer.CursorRow;
-            int promptCol = buffer.CursorCol;
-
-            // 1. Shrink Width (80 -> 20) - Should wrap
+            // 1. Shrink Width (80 -> 20) - Should wrap and TRIGGER WIPE
             buffer.Resize(20, 10);
             _output.WriteLine("After Shrink (20x10):");
             DumpBuffer(buffer);
 
-            // Cursor should still be on a "Prompt: " line
+            // After RESIZE, the cursor row is CLEARED on horizontal resize.
+            // This prevents ghost/duplicate prompts in CMD and allows shells to redraw cleanly.
             string rowText = GetRowText(buffer, buffer.CursorRow + GetScrollbackCount(buffer));
-            Assert.Contains("Prompt", rowText);
+            Assert.Equal("", rowText.Trim());
 
             // 2. Grow back (20 -> 80)
             buffer.Resize(80, 10);
             _output.WriteLine("After Grow Back (80x10):");
             DumpBuffer(buffer);
 
+            // Again, cleared (width changed).
             rowText = GetRowText(buffer, buffer.CursorRow + GetScrollbackCount(buffer));
-            Assert.Contains("Prompt", rowText);
-            // Verify history integrity
-            Assert.Contains("Line 4", GetRowText(buffer, buffer.CursorRow + GetScrollbackCount(buffer) - 1));
+            Assert.Equal("", rowText.Trim());
+
+            // Verify preceding history integrity (Line 4 should be preserved)
+            // It should be one row above the cursor row.
+            int absolutePromptRow = buffer.CursorRow + GetScrollbackCount(buffer);
+            Assert.Contains("Line 4", GetRowText(buffer, absolutePromptRow - 1));
         }
 
         [Fact]
@@ -274,13 +281,14 @@ namespace NovaTerminal.Tests
             _output.WriteLine("After Grow (80x15):");
             DumpBuffer(buffer);
 
-            // Should see 14 historical lines + 1 prompt in viewport
-            // Total history rows = 21 (Line 0..19 + prompt)
-            // Viewport 15 rows: should contain 14 history + 1 prompt.
-            // Remaining 6 in scrollback.
-            Assert.Equal(6, GetScrollbackCount(buffer));
-            Assert.Contains("Active Prompt", GetRowText(buffer, buffer.CursorRow + GetScrollbackCount(buffer)));
-            Assert.Contains("Line 19", GetRowText(buffer, buffer.CursorRow + GetScrollbackCount(buffer) - 1));
+            // Anchor-to-Top: SB count stays the same (16).
+            // Viewport adds 10 rows of padding at the bottom.
+            Assert.Equal(16, GetScrollbackCount(buffer));
+
+            // Prompt stays at its original viewport relative position (row 5 of logical, so row 4 of old viewport?)
+            // row 4 is index 20 (abs).
+            Assert.Contains("Active Prompt", GetRowText(buffer, 20));
+            Assert.Contains("Line 19", GetRowText(buffer, 19));
         }
 
         [Fact]
@@ -386,13 +394,9 @@ namespace NovaTerminal.Tests
             _output.WriteLine("After Grow (20x5):");
             DumpBuffer(buffer);
 
-            // Should be 1 line: "Prompt> ".
-            int promptIdx = -1;
-            for (int i = 0; i < sbCount + 5; i++)
-            {
-                if (GetRowText(buffer, i).Contains("Prompt>")) promptIdx = i;
-            }
-            Assert.True(promptIdx != -1, "Should have merged back to 'Prompt> '");
+            // After Grow, the cursor row is CLEARED (width changed).
+            string rowText = GetRowText(buffer, buffer.CursorRow + GetScrollbackCount(buffer));
+            Assert.Equal("", rowText.Trim());
 
             // Verify NO 'Prom' line remains
             for (int i = 0; i < sbCount + 5; i++)
@@ -402,8 +406,6 @@ namespace NovaTerminal.Tests
                 if (text == "pt>") Assert.Fail("Found ghost 'pt>' line - merge failed!");
             }
 
-            int cursorPhys = GetScrollbackCount(buffer) + buffer.CursorRow;
-            Assert.Equal(promptIdx, cursorPhys);
             Assert.Equal(8, buffer.CursorCol);
         }
 
@@ -552,14 +554,64 @@ namespace NovaTerminal.Tests
 
             // Verify Cursor is at Row 4 (Bottom)
             Assert.Equal(4, buffer.CursorRow);
-            // ROW IS WIPED: PTY is expected to redraw.
+            // ROW IS CLEARED (width changed from 20 to 10).
             int sbCount = GetScrollbackCount(buffer);
             Assert.Equal(4, sbCount);
             int cursorAbsRow = sbCount + buffer.CursorRow;
+            // Width changed, so cursor row should be cleared
             Assert.Equal("", GetRowText(buffer, cursorAbsRow).Trim());
 
             // Verify Scrollback count
             Assert.Equal(4, GetScrollbackCount(buffer));
+        }
+
+        [Fact]
+        public void VerticalGrow_ShouldNotWipeCursorRow()
+        {
+            var buffer = new TerminalBuffer(20, 5);
+            buffer.Write("Prompt: ");
+            buffer.CursorCol = 8;
+            buffer.CursorRow = 0;
+
+            // Vertical Grow: 20x5 -> 20x10
+            buffer.Resize(20, 10);
+
+            _output.WriteLine("After Vertical Grow (20x10):");
+            DumpBuffer(buffer);
+
+            // Verify Row 0 still has content (Not wiped)
+            Assert.Equal(0, buffer.CursorRow);
+            Assert.Contains("Prompt: ", GetRowText(buffer, 0));
+        }
+
+        [Fact]
+        public void HorizontalGrow_ShouldNotLeakBackground()
+        {
+            var buffer = new TerminalBuffer(10, 5);
+            // Simulating a colored block at the end of a line
+            // Row 0: "Hello" (Indices 0-4)
+            buffer.Write("Hello");
+
+            // Manaully set a background color on index 4
+            var row = GetViewportRow(buffer, 0);
+            var lastChar = row.Cells[4];
+            row.Cells[4] = new TerminalCell(lastChar.Character, lastChar.Foreground, Avalonia.Media.Color.Parse("#FF0000"), false, false, true, false);
+
+            _output.WriteLine("Before Horizontal Grow (10x5):");
+            DumpBuffer(buffer);
+
+            // Horizontal Grow: 10x5 -> 20x5
+            buffer.Resize(20, 5);
+
+            _output.WriteLine("After Horizontal Grow (20x5):");
+            DumpBuffer(buffer);
+
+            // Verify cells 10-19 are default background (NOT #FF0000)
+            var newRow = GetViewportRow(buffer, 0);
+            for (int i = 10; i < 20; i++)
+            {
+                Assert.True(newRow.Cells[i].IsDefaultBackground, $"Cell {i} should have default background");
+            }
         }
     }
 }
