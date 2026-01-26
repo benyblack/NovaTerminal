@@ -95,28 +95,18 @@ namespace NovaTerminal.Tests
             Assert.Equal(prompt.Length, initialCursorCol);
 
             // Act: Shrink Width Horizontal (80 -> 60)
-            // This triggers cursor row clearing to prevent duplication.
+            // New behavior: cursor row is PRESERVED (PowerShell doesn't redraw on horizontal resize)
             buffer.Resize(60, 24);
 
-            // After resize, the cursor row should be CLEARED (to prevent ghost prompts).
-            // In practice, the shell (PowerShell/CMD) will redraw the prompt immediately after resize.
+            // Assert: Prompt should be preserved (not cleared)
             var row = GetRow(buffer, buffer.ScrollbackRows.Count + buffer.CursorRow);
             string text = GetRowText(row);
 
             _output.WriteLine($"Cursor Row Text after resize: '{text}'");
 
-            // The cursor row should be empty (cleared)
-            Assert.Equal("", text.Trim());
-
-            // Simulate the shell redrawing the prompt (which happens in real scenarios)
-            buffer.Write(prompt);
-
-            // Now verify the prompt exists
-            row = GetRow(buffer, buffer.ScrollbackRows.Count + buffer.CursorRow);
-            text = GetRowText(row);
-            _output.WriteLine($"Cursor Row Text after redraw: '{text}'");
-
+            // The prompt MUST be preserved for PowerShell
             Assert.Contains("PS C:\\Users\\Dev>", text);
+            Assert.NotEqual("", text.Trim());
         }
 
         // ====================================================================

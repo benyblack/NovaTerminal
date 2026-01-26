@@ -389,7 +389,9 @@ namespace NovaTerminal.Core
                 int cols = (int)(availableWidth / _charWidth);
                 int rows = (int)(e.NewSize.Height / _charHeight);
 
-
+                // Enforce minimum dimensions to prevent layout breakage on very small windows
+                cols = Math.Max(cols, 20);
+                rows = Math.Max(rows, 5);
 
                 if (cols > 0 && rows > 0)
                 {

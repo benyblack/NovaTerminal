@@ -249,19 +249,18 @@ namespace NovaTerminal.Tests
             _output.WriteLine("After Shrink (20x10):");
             DumpBuffer(buffer);
 
-            // After RESIZE, the cursor row is CLEARED on horizontal resize.
-            // This prevents ghost/duplicate prompts in CMD and allows shells to redraw cleanly.
+            // After RESIZE, cursor row is PRESERVED (for PowerShell compatibility).
             string rowText = GetRowText(buffer, buffer.CursorRow + GetScrollbackCount(buffer));
-            Assert.Equal("", rowText.Trim());
+            Assert.Contains("Prompt:", rowText);
 
             // 2. Grow back (20 -> 80)
             buffer.Resize(80, 10);
             _output.WriteLine("After Grow Back (80x10):");
             DumpBuffer(buffer);
 
-            // Again, cleared (width changed).
+            // Again, preserved.
             rowText = GetRowText(buffer, buffer.CursorRow + GetScrollbackCount(buffer));
-            Assert.Equal("", rowText.Trim());
+            Assert.Contains("Prompt:", rowText);
 
             // Verify preceding history integrity (Line 4 should be preserved)
             // It should be one row above the cursor row.
@@ -394,9 +393,9 @@ namespace NovaTerminal.Tests
             _output.WriteLine("After Grow (20x5):");
             DumpBuffer(buffer);
 
-            // After Grow, the cursor row is CLEARED (width changed).
+            // After Grow, cursor row is PRESERVED.
             string rowText = GetRowText(buffer, buffer.CursorRow + GetScrollbackCount(buffer));
-            Assert.Equal("", rowText.Trim());
+            Assert.Equal("Prompt>", rowText.Trim());
 
             // Verify NO 'Prom' line remains
             for (int i = 0; i < sbCount + 5; i++)
@@ -439,13 +438,13 @@ namespace NovaTerminal.Tests
             // Line 2: "> "    (Unwrapped)
             Assert.Equal("LongP", GetRowText(buffer, 0).Trim());
             Assert.True(GetRowWrapped(buffer, 0), "Line 0 should be wrapped");
-
             Assert.Equal("rompt", GetRowText(buffer, 1).Trim());
             Assert.True(GetRowWrapped(buffer, 1), "Line 1 should be wrapped");
 
             string line2 = GetRowText(buffer, 2);
-            // We expect LINE WIPED because Cursor is on it.
-            Assert.Equal("", line2.Trim());
+            // With new behavior: cursor row is PRESERVED (not wiped)
+            // So line 2 should contain "> " (the unwrapped continuation)
+            Assert.Contains(">", line2);
 
             // Cursor should be at Line 2, Col 2
             Assert.Equal(2, buffer.CursorRow);
@@ -457,21 +456,24 @@ namespace NovaTerminal.Tests
             _output.WriteLine("After Grow (20x10):");
             DumpBuffer(buffer);
 
-            // Verify Merge & Surgical Wipe
-            // Line 0: Should be CLEARED (Empty) because cursor is on it.
-            // PTY is expected to redraw it.
-            Assert.Equal("", GetRowText(buffer, 0).Trim());
+            // Verify Merge - with new behavior cursor row is PRESERVED
+            // Line 0: Should contain the merged prompt "LongPrompt>"
+            Assert.Contains("LongPrompt>", GetRowText(buffer, 0));
+            // Line 1 should be empty (the next row gets cleared for oh-my-posh)
             Assert.Equal("", GetRowText(buffer, 1).Trim());
 
             // Cursor should be at Line 0, Col 12
             Assert.Equal(0, buffer.CursorRow);
             Assert.Equal(12, buffer.CursorCol);
 
-            // Specifically check for Duplication (Ghost lines)
-            // If merge failed, we might have "LongP" on line 0 and "rompt..." on line 1
-            if (GetRowText(buffer, 1).Trim().Length > 0)
+            // Check no ghost wrapped segments remain (old "rompt" or "LongP" fragments)
+            for (int i = 2; i < 5; i++)
             {
-                Assert.Fail($"Found ghost content on Line 1: '{GetRowText(buffer, 1)}'");
+                string rowText = GetRowText(buffer, i).Trim();
+                if (rowText.Length > 0 && (rowText.Contains("LongP") || rowText.Contains("rompt")))
+                {
+                    Assert.Fail($"Found ghost wrapped segment on Line {i}: '{rowText}'");
+                }
             }
         }
 
@@ -554,12 +556,12 @@ namespace NovaTerminal.Tests
 
             // Verify Cursor is at Row 4 (Bottom)
             Assert.Equal(4, buffer.CursorRow);
-            // ROW IS CLEARED (width changed from 20 to 10).
+            // ROW IS PRESERVED (for PowerShell).
             int sbCount = GetScrollbackCount(buffer);
             Assert.Equal(4, sbCount);
             int cursorAbsRow = sbCount + buffer.CursorRow;
-            // Width changed, so cursor row should be cleared
-            Assert.Equal("", GetRowText(buffer, cursorAbsRow).Trim());
+            // Cursor row should have content
+            Assert.NotEqual("", GetRowText(buffer, cursorAbsRow).Trim());
 
             // Verify Scrollback count
             Assert.Equal(4, GetScrollbackCount(buffer));

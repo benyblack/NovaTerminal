@@ -3,6 +3,7 @@
         x:Class="NovaTerminal.MainWindow"
         Title="NovaTerminal"
         Width="1200" Height="800"
+        MinWidth="400" MinHeight="200"
         x:Name="RootWindow"
         Icon="avares://NovaTerminal/Assets/nova_icon.png"
         ExtendClientAreaToDecorationsHint="True"

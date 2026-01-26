@@ -1,6 +1,7 @@
 using Avalonia.Media;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace NovaTerminal.Core
@@ -414,6 +415,11 @@ namespace NovaTerminal.Core
                 int oldCols = Cols;
                 int oldRows = Rows;
 
+                // DEBUG: Log cursor before resize (Removed for thread safety)
+
+
+
+
                 // Update Dimensions BEFORE Reflow might be needed for some helpers, 
                 // but Reflow MUST know the original size.
                 // Update Dimensions BEFORE Reflow, but we need old and new for Reflow
@@ -423,9 +429,15 @@ namespace NovaTerminal.Core
                 // Full Reflow
                 Reflow(oldCols, oldRows, newCols, newRows);
 
+                // DEBUG: Log cursor after reflow (Removed for thread safety)
+
+
                 // Ensure cursor is within bounds (allow Cols for wrap-pending state)
                 _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
                 _cursorCol = Math.Clamp(_cursorCol, 0, Cols);
+
+                // Cursor clamped
+
             }
             finally
             {
@@ -492,29 +504,174 @@ namespace NovaTerminal.Core
                 int validLen = physRow.Cells.Length;
                 if (!physRow.IsWrapped)
                 {
-                    // Calculate minimum length to preserve if this row contains the cursor
-                    // If cursor is on this row, we must not trim characters before the cursor
-                    int minResultLen = 0;
-                    if (i == absCursorPhysicalIdx)
+                    // Smart trimming: Calculate last relevant content index
+                    // Include cells that are non-space OR have non-default background
+                    int lastContentIdx = -1;
+                    for (int scan = 0; scan < physRow.Cells.Length; scan++)
                     {
-                        // cursorCol is the index. So validLen must be at least cursorCol.
-                        // Example: "A " (Space at 1). Cursor at 2. validLen must be at least 2? No, cursorCol=2 means 2 chars?
-                        // If we have chars 0,1. Cursor at 2 means we are PAST the last char.
-                        // So we need to preserve up to index 1. Length 2.
-                        // So minResultLen = _cursorCol.
-                        minResultLen = _cursorCol;
+                        var cell = physRow.Cells[scan];
+                        if ((cell.Character != ' ' && cell.Character != '\0') || !cell.IsDefaultBackground)
+                        {
+                            lastContentIdx = scan;
+                        }
                     }
 
-                    // Trim trailing spaces (only if they use default background)
-                    while (validLen > minResultLen)
+                    // Determine valid length based on content
+                    if (lastContentIdx >= 0)
                     {
-                        var cell = physRow.Cells[validLen - 1];
-                        if (cell.IsDefaultBackground && (cell.Character == ' ' || cell.Character == '\0')) validLen--;
-                        else break;
+                        validLen = lastContentIdx + 1;
+                    }
+                    else
+                    {
+                        validLen = 0;
+                    }
+
+                    // Special case: Preserve padding up to the cursor if it's on this row
+                    if (i == absCursorPhysicalIdx && _cursorCol > validLen)
+                    {
+                        validLen = _cursorCol;
                     }
                 }
 
-                for (int k = 0; k < validLen; k++) currentLogical.Add(physRow.Cells[k]);
+                // Improved sparse row detection: Find the LARGEST contiguous gap
+                // This preserves middle content (e.g. "Left ... Middle ... Right")
+                bool isSparseRowRepositioned = false;
+                if (!physRow.IsWrapped && i >= Math.Max(0, absCursorPhysicalIdx - 2) && i <= absCursorPhysicalIdx)
+                {
+                    // Find largest gap strictly BETWEEN content
+                    // We need to know if the gap is followed by content, otherwise it's just trailing space
+                    // Scan logic:
+                    // 1. Identify all gaps.
+                    // 2. Identify the gap that is:
+                    //    a) Large (> 10)
+                    //    b) Followed by content (not end of line)
+                    //    c) The largest such gap in the row
+
+                    int bestGapStart = -1;
+                    int bestGapLength = 0;
+
+                    int currentScanStart = -1;
+                    int currentScanLength = 0;
+
+                    // First we need to find the "end of row content" to ignore trailing spaces
+                    int lastContentIndex = -1;
+                    for (int scan = physRow.Cells.Length - 1; scan >= 0; scan--)
+                    {
+                        var cell = physRow.Cells[scan];
+                        if (cell.Character != ' ' && cell.Character != '\0')
+                        {
+                            lastContentIndex = scan;
+                            break;
+                        }
+                    }
+
+                    if (lastContentIndex > 0)
+                    {
+                        // ONLY Scan up to lastContentIndex
+                        // This ensures any gap we find implies there is content AFTER it.
+                        for (int scan = 0; scan <= lastContentIndex; scan++)
+                        {
+                            var cell = physRow.Cells[scan];
+                            bool isSpace = (cell.Character == ' ' || cell.Character == '\0');
+
+                            if (isSpace)
+                            {
+                                if (currentScanStart == -1) currentScanStart = scan;
+                                currentScanLength++;
+                            }
+                            else
+                            {
+                                if (currentScanStart != -1)
+                                {
+                                    if (currentScanLength > bestGapLength)
+                                    {
+                                        bestGapLength = currentScanLength;
+                                        bestGapStart = currentScanStart;
+                                    }
+                                    currentScanStart = -1;
+                                    currentScanLength = 0;
+                                }
+                            }
+                        }
+                        // Check gap if content resumes exactly at lastContentIndex? handled by loop
+                        // The loop stops AT lastContentIndex. If the character at lastContentIndex is content,
+                        // the else block triggers and we check the gap before it. Correct.
+                    }
+
+                    // Determine threshold for gap
+                    // Standard: 10 spaces
+                    // Special: 2 spaces IF the content touches the right edge (implies a shrunk right-prompt)
+                    bool isRightPinned = lastContentIndex == physRow.Cells.Length - 1;
+                    int gapThreshold = isRightPinned ? 2 : 10;
+
+                    if (bestGapLength >= gapThreshold)
+                    {
+                        // We found a split!
+                        // Left+Middle = 0 .. bestGapStart (exclusive)
+                        // Gap = bestGapStart .. bestGapStart + bestGapLength
+                        // Right = bestGapStart + bestGapLength .. lastContentIndex (inclusive)
+
+                        int gapStart = bestGapStart;
+                        int gapEnd = bestGapStart + bestGapLength;
+                        int rightStart = gapEnd;
+                        int rightEnd = lastContentIndex;
+
+                        // Extract Left+Middle
+                        for (int k = 0; k < gapStart; k++)
+                        {
+                            currentLogical.Add(physRow.Cells[k]);
+                        }
+
+                        // Extract Right Part
+                        var rightCells = new List<TerminalCell>();
+                        for (int k = rightStart; k <= rightEnd; k++)
+                        {
+                            rightCells.Add(physRow.Cells[k]);
+                        }
+
+                        // Calculate new position
+                        int rightBlockWidth = rightCells.Count;
+                        int newRightPos = newCols - rightBlockWidth;
+
+                        int currentPos = currentLogical.Count; // This is effectively gapStart
+
+                        if (newRightPos > currentPos + 2 && (newRightPos + rightBlockWidth) <= newCols)
+                        {
+                            // Fill spaces
+                            var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                            for (int s = currentPos; s < newRightPos; s++)
+                            {
+                                currentLogical.Add(spaceFill);
+                            }
+                            // Add right content
+                            currentLogical.AddRange(rightCells);
+                        }
+                        else
+                        {
+                            // Truncate/Squish
+                            var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                            currentLogical.Add(spaceFill);
+                            currentLogical.Add(spaceFill);
+
+                            int available = newCols - currentLogical.Count;
+                            if (available > 0)
+                            {
+                                int take = Math.Min(available, rightCells.Count);
+                                int startOffset = rightCells.Count - take;
+                                for (int k = startOffset; k < rightCells.Count; k++)
+                                    currentLogical.Add(rightCells[k]);
+                            }
+                        }
+                        isSparseRowRepositioned = true;
+                    }
+
+                }
+
+                // Normal processing if not sparse row or repositioning failed
+                if (!isSparseRowRepositioned)
+                {
+                    for (int k = 0; k < validLen; k++) currentLogical.Add(physRow.Cells[k]);
+                }
 
                 if (!physRow.IsWrapped)
                 {
@@ -543,11 +700,11 @@ namespace NovaTerminal.Core
             // We need to find the first logical line that includes 'oldScrollbackCount' or higher.
             int firstViewportLogicalIdx = logicalLines.Count; // Default to end
             int oldScrollbackCount = absCursorPhysicalIdx - _cursorRow; // Re-derive or pass in? 
-            // Better to capture oldScrollbackCount at the start of Reflow.
-            // But we can infer it: absCursorPhysicalIdx is _scrollback.Count + _cursorRow.
-            // So _scrollback.Count = absCursorPhysicalIdx - _cursorRow.
-            // Wait, absCursorPhysicalIdx is calculated using CURRENT _cursorRow and _scrollback.Count.
-            // So yes, that works.
+                                                                        // Better to capture oldScrollbackCount at the start of Reflow.
+                                                                        // But we can infer it: absCursorPhysicalIdx is _scrollback.Count + _cursorRow.
+                                                                        // So _scrollback.Count = absCursorPhysicalIdx - _cursorRow.
+                                                                        // Wait, absCursorPhysicalIdx is calculated using CURRENT _cursorRow and _scrollback.Count.
+                                                                        // So yes, that works.
             int splitPhysIndex = absCursorPhysicalIdx - _cursorRow;
 
             // Find first logical line that starts at or after splitPhysIndex
@@ -689,29 +846,41 @@ namespace NovaTerminal.Core
                 _cursorCol = 0;
             }
 
-            // 8. Conditional Cursor Row Clearing
-            // Clear cursor row ONLY on horizontal (width) changes where shells typically redraw.
-            // This prevents duplication in CMD while preserving prompts in PowerShell during vertical resize.
+            // 8. Conditional Cursor Row Clearing (REFINED)
+            // Clear ONLY truly empty padding rows on horizontal resize, not actual wrapped content.
+            // This prevents duplication in CMD while preserving oh-my-posh sparse prompts in PowerShell.
             // 
             // Rationale:
-            // - Horizontal resize: Width changes cause line rewrapping. Shells (CMD/PowerShell) typically
-            //   redraw the prompt after width changes, so clearing prevents ghost/duplicate prompts.
-            // - Vertical resize: Height-only changes don't affect wrapping. PowerShell often does NOT
-            //   redraw prompts on vertical resize, so we must preserve the reflowed content.
+            // - Horizontal resize: Width changes cause line rewrapping. Some shells may duplicate prompts.
+            // - We only clear rows that are confirmed empty, not rows with actual content.
+            // - This preserves oh-my-posh right-aligned content that wraps to the next row.
             if (newCols != oldCols)
             {
-                if (_cursorRow >= 0 && _cursorRow < newRows)
+                if (_cursorRow >= 0 && _cursorRow < newRows && _cursorRow + 1 < newRows)
                 {
-                    // Clear the cursor row
-                    _viewport[_cursorRow] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                    var nextRow = _viewport[_cursorRow + 1];
 
-
-                    // Also clear the next row to handle oh-my-posh right-aligned text
-                    // When prompts have sparse content (left + right side), the right side wraps to next line
-                    // Clearing both ensures no visual artifacts during resize
-                    if (_cursorRow + 1 < newRows)
+                    // Only clear if:
+                    // 1. Row is NOT wrapped (not a continuation of a wrapped line)
+                    // 2. Row is completely empty (no non-space content)
+                    if (!nextRow.IsWrapped)
                     {
-                        _viewport[_cursorRow + 1] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                        // Check if row has any actual content
+                        bool hasContent = false;
+                        for (int c = 0; c < nextRow.Cells.Length; c++)
+                        {
+                            if (nextRow.Cells[c].Character != ' ' && nextRow.Cells[c].Character != '\0')
+                            {
+                                hasContent = true;
+                                break;
+                            }
+                        }
+
+                        // Only clear if truly empty (no content)
+                        if (!hasContent)
+                        {
+                            _viewport[_cursorRow + 1] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                        }
                     }
                 }
             }

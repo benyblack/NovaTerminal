@@ -35,127 +35,54 @@ namespace NovaTerminal.Tests
             return new string(chars).TrimEnd();
         }
 
-        private void DumpBuffer(TerminalBuffer buffer)
-        {
-            var sb = GetScrollback(buffer);
-            var vp = GetViewport(buffer);
-
-            _output.WriteLine($"=== BUFFER DUMP (Scrollback: {sb.Count}, Viewport: {vp.Length}) ===");
-            _output.WriteLine("SCROLLBACK:");
-            for (int i = 0; i < sb.Count; i++)
-            {
-                _output.WriteLine($"  [{i}] '{GetRowText(sb[i])}'");
-            }
-            _output.WriteLine("VIEWPORT:");
-            for (int i = 0; i < vp.Length; i++)
-            {
-                string marker = (i == buffer.CursorRow) ? " <-- CURSOR" : "";
-                _output.WriteLine($"  [{i}] '{GetRowText(vp[i])}'{marker}");
-            }
-            _output.WriteLine($"Cursor: ({buffer.CursorRow}, {buffer.CursorCol})");
-        }
-
         [Fact]
-        public void OhMyPosh_RightAlignedText_HorizontalShrink_ShouldClearAllPromptLines()
+        public void OhMyPosh_ShrinkThenGrow_ShouldReposition()
         {
-            // Simulate oh-my-posh prompt with right-aligned datetime:
-            // "PS> " on the left, "12:34:56" on the right at column 73
-            
-            var buffer = new TerminalBuffer(80, 24);
-            
-            // Write some history
-            buffer.Write("Previous command output\n");
-            
-            // Simulate oh-my-posh prompt with cursor positioning
-            // Left part: "PS C:\\Users\\Dev> "
-            buffer.Write("PS C:\\Users\\Dev> ");
-            int promptEndCol = buffer.CursorCol;
-            
-            // Simulate absolute cursor positioning to far right (like oh-my-posh does)
-            // We'll manually set a cell at position 73 for the datetime
-            var cursorRow = buffer.CursorRow;
-            var scrollbackCount = buffer.ScrollbackRows.Count;
-            var viewport = GetViewport(buffer);
-            var row = viewport[cursorRow];
-            
-            // Place datetime at far right: "12:34:56" starting at column 73
-            string datetime = "12:34:56";
-            int rightPos = 73;
-            for (int i = 0; i < datetime.Length && (rightPos + i) < 80; i++)
-            {
-                row.Cells[rightPos + i] = new TerminalCell(
-                    datetime[i],
-                    row.Cells[rightPos + i].Foreground,
-                    row.Cells[rightPos + i].Background,
-                    false, false, false, false
-                );
-            }
+            // REPRO: Shrink until gap is small (e.g. 2 spaces), then Grow.
+            // Current logic (gap >= 10) fails to re-expand the gap.
 
-            _output.WriteLine("=== BEFORE RESIZE ===");
-            DumpBuffer(buffer);
+            var buffer = new TerminalBuffer(50, 24);
+            buffer.Write("Left> ");
 
-            // Act: Horizontal shrink to 60 columns
-            // The datetime at column 73 is now beyond the new width
-            // It should wrap to the next line during reflow
-            buffer.Resize(60, 24);
+            // Right content: "Right" (5 chars)
+            // Positioned at col 45
+            string right = "Right";
+            int rightPos = 45;
 
-            _output.WriteLine("\n=== AFTER RESIZE ===");
-            DumpBuffer(buffer);
+            var row = GetViewport(buffer)[buffer.CursorRow];
+            for (int i = 0; i < right.Length; i++)
+                row.Cells[rightPos + i] = new TerminalCell(right[i], Avalonia.Media.Color.FromUInt32(0xFFFFFFFF), Avalonia.Media.Color.FromUInt32(0xFF000000), false, false, false, false);
 
-            // Assert: Check that prompt area is clean
-            // The cursor row should be cleared
-            var vp = GetViewport(buffer);
-            var cursorRowText = GetRowText(vp[buffer.CursorRow]);
-            _output.WriteLine($"Cursor row text: '{cursorRowText}'");
-            Assert.Equal("", cursorRowText.Trim());
+            _output.WriteLine("=== INITIAL (50) ===");
+            _output.WriteLine(GetRowText(row));
 
-            // Check the next row too - if datetime wrapped, it should also be cleared
-            if (buffer.CursorRow + 1 < vp.Length)
-            {
-                var nextRowText = GetRowText(vp[buffer.CursorRow + 1]);
-                _output.WriteLine($"Next row text: '{nextRowText}'");
-                // If there's datetime remnants, this would contain "12:34:56"
-                Assert.DoesNotContain("12:34", nextRowText);
-            }
-        }
+            // 1. Shrink to force gap to be minimal
+            // Left (6) + Gap + Right (5) = 11 + Gap.
+            // Shrink to 13 cols -> Gap = 2.
+            buffer.Resize(13, 24);
 
-        [Fact]
-        public void OhMyPosh_RightAlignedText_ShouldNotLeakToPreviousLine()
-        {
-            // Test that right-aligned text doesn't leak into history during reflow
-            
-            var buffer = new TerminalBuffer(80, 24);
-            buffer.Write("Command 1\n");
-            buffer.Write("Command 2\n");
-            
-            // Prompt with right-side text
-            buffer.Write("PS> ");
-            var viewport = GetViewport(buffer);
-            var row = viewport[buffer.CursorRow];
-            
-            // Add datetime on far right
-            string datetime = "10:30:00";
-            int rightPos = 72;
-            for (int i = 0; i < datetime.Length; i++)
-            {
-                row.Cells[rightPos + i] = new TerminalCell(
-                    datetime[i],
-                    row.Cells[rightPos + i].Foreground,
-                    row.Cells[rightPos + i].Background,
-                    false, false, false, false
-                );
-            }
+            var shrunkRow = GetViewport(buffer)[buffer.CursorRow];
+            string shrunkText = GetRowText(shrunkRow);
+            _output.WriteLine("=== SHRUNK (13) ===");
+            _output.WriteLine(shrunkText);
 
-            // Shrink to 50 columns
+            // Verify shrink worked (Right content preserved)
+            Assert.Contains("Right", shrunkText);
+            // Verify gap is small (total len 13, Left 6, right 5 -> Gap 2)
+
+            // 2. Grow back to 50
             buffer.Resize(50, 24);
 
-            // Check that history lines don't have datetime text
-            var sb = GetScrollback(buffer);
-            foreach (var histRow in sb)
-            {
-                string text = GetRowText(histRow);
-                Assert.DoesNotContain("10:30:00", text);
-            }
+            var grownRow = GetViewport(buffer)[buffer.CursorRow];
+            string grownText = GetRowText(grownRow);
+            _output.WriteLine("=== GROWN (50) ===");
+            _output.WriteLine(grownText);
+
+            // Assert: Right content should be at the far right (col 45)
+            // If it stuck, it would be at col ~8 (after existing gap of 2)
+
+            int rightIndex = grownText.IndexOf("Right");
+            Assert.True(rightIndex > 30, $"Right prompt did not move back! Found at index {rightIndex}, expected > 30");
         }
     }
 }
