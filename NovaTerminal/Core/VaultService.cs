@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-using Newtonsoft.Json;
+using System.Text.Json;
 
 namespace NovaTerminal.Core
 {
@@ -13,7 +13,7 @@ namespace NovaTerminal.Core
         private const string VaultFileName = "vault.dat";
         private readonly string _vaultPath;
         private Dictionary<string, string> _secrets;
-        
+
 #pragma warning disable CA1416 // Validate platform compatibility
 
         public VaultService()
@@ -75,12 +75,12 @@ namespace NovaTerminal.Core
 
             try
             {
-                string json = JsonConvert.SerializeObject(_secrets);
+                string json = JsonSerializer.Serialize(_secrets, AppJsonContext.Default.DictionaryStringString);
                 byte[] data = Encoding.UTF8.GetBytes(json);
-                
+
                 // Encrypt for Current User only
                 byte[] encrypted = ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser);
-                
+
                 File.WriteAllBytes(_vaultPath, encrypted);
             }
             catch (Exception ex)
@@ -96,12 +96,12 @@ namespace NovaTerminal.Core
             try
             {
                 byte[] encrypted = File.ReadAllBytes(_vaultPath);
-                
+
                 // Decrypt
                 byte[] data = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
                 string json = Encoding.UTF8.GetString(data);
-                
-                var loaded = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+
+                var loaded = JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringString);
                 if (loaded != null)
                 {
                     _secrets = loaded;

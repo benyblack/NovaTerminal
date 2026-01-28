@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using Newtonsoft.Json;
+using System.Text.Json;
 
 namespace NovaTerminal.Core
 {
@@ -28,7 +28,7 @@ namespace NovaTerminal.Core
                 try
                 {
                     string json = File.ReadAllText(SettingsPath);
-                    return JsonConvert.DeserializeObject<TerminalSettings>(json) ?? new TerminalSettings();
+                    return JsonSerializer.Deserialize(json, AppJsonContext.Default.TerminalSettings) ?? new TerminalSettings();
                 }
                 catch { }
             }
@@ -39,7 +39,7 @@ namespace NovaTerminal.Core
         {
             try
             {
-                string json = JsonConvert.SerializeObject(this, Formatting.Indented);
+                string json = JsonSerializer.Serialize(this, AppJsonContext.Default.TerminalSettings);
                 File.WriteAllText(SettingsPath, json);
             }
             catch { }
