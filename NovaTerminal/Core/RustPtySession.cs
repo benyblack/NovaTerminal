@@ -49,9 +49,26 @@ namespace NovaTerminal.Core
 
         public RustPtySession(string shellCommand, int cols = 120, int rows = 30)
         {
-            // Initial size, default to a larger 120x30 to avoid "tiny terminal" syndrome for apps like mc
-            Console.WriteLine($"[RustPtySession] Creating session for '{shellCommand}' at {cols}x{rows}");
-            _ptyState = Native.pty_create(shellCommand, (ushort)cols, (ushort)rows);
+            string effectiveShell = shellCommand;
+            string shellLower = shellCommand.ToLowerInvariant();
+
+            if (shellLower.EndsWith("cmd.exe"))
+            {
+                // CMD: /k runs command then remains interactive. > nul suppresses "Active code page" output.
+                effectiveShell = $"{shellCommand} /k chcp 65001 > nul";
+            }
+            else if (shellLower.Contains("powershell") || shellLower.Contains("pwsh"))
+            {
+                // PowerShell:
+                // We launch with -NoLogo to start empty.
+                // Then we INJECT the init script command via input.
+                // The script contains "Clear-Host", which wipes the injected text immediately.
+                // This avoids the "Persistent Echo" problem of command-line arguments.
+                effectiveShell = $"{shellCommand} -NoLogo";
+            }
+
+            Console.WriteLine($"[RustPtySession] Creating session for '{effectiveShell}' at {cols}x{rows}");
+            _ptyState = Native.pty_create(effectiveShell, (ushort)cols, (ushort)rows);
 
             if (_ptyState == IntPtr.Zero)
             {
@@ -61,6 +78,40 @@ namespace NovaTerminal.Core
             // Start reading and processing in background
             _readTask = Task.Run(ReadLoop);
             _processTask = Task.Run(ProcessLoop);
+
+            // POST-LAUNCH INJECTION for PowerShell
+            if (shellLower.Contains("powershell") || shellLower.Contains("pwsh"))
+            {
+                Task.Delay(100).ContinueWith(_ =>
+                {
+                    try
+                    {
+                        var sb = new StringBuilder();
+                        // 1. Set Encoding cleanly
+                        sb.AppendLine("$OutputEncoding = [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8;");
+                        // 2. Clear output (wipes the injected command text)
+                        sb.AppendLine("Clear-Host;");
+                        // 3. Print Banner
+                        sb.AppendLine("Write-Host 'Windows PowerShell';");
+                        sb.AppendLine("Write-Host 'Copyright (C) Microsoft Corporation. All rights reserved.';");
+                        sb.AppendLine("Write-Host ''");
+                        sb.AppendLine("Write-Host 'Install the latest PowerShell for new features and improvements! https://aka.ms/PSWindows';");
+                        sb.AppendLine("Write-Host ''");
+
+                        string tempScript = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nova_init_{Guid.NewGuid()}.ps1");
+                        System.IO.File.WriteAllText(tempScript, sb.ToString());
+
+                        // Inject the execution command
+                        // Use quotes to handle spaces in Temp path although rare
+                        string cleanPath = tempScript.Replace("'", "''");
+                        SendInput($"& '{cleanPath}'\r");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[RustPtySession] PS Injection Failed: {ex.Message}");
+                    }
+                });
+            }
         }
 
         private void ReadLoop()
@@ -73,12 +124,21 @@ namespace NovaTerminal.Core
                 int read = Native.pty_read(_ptyState, buffer, buffer.Length);
                 if (read > 0)
                 {
+                    // RAW BYTES DEBUG
+                    string hex = BitConverter.ToString(buffer, 0, read);
+                    try { System.IO.File.AppendAllText("pty_bytes.log", $"Read {read}: {hex}\n"); } catch { }
+
                     // Use the stateful decoder - it will hold incomplete multi-byte sequences
                     // until more bytes arrive, preventing U+FFFD replacement characters
                     int charCount = _utf8Decoder.GetChars(buffer, 0, read, charBuffer, 0);
                     if (charCount > 0)
                     {
                         string text = new string(charBuffer, 0, charCount);
+
+                        // CHAR DEBUG
+                        string debug = "";
+                        foreach (var c in text) debug += $"{(int)c:X4} ";
+                        try { System.IO.File.AppendAllText("pty_chars.log", $"Chars: {debug}\n"); } catch { }
 
                         // Bounded add with timeout - provides back-pressure to PTY
                         if (!_outputQueue.TryAdd(text, 50, _cts.Token))

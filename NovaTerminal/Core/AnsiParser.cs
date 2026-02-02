@@ -418,6 +418,14 @@ namespace NovaTerminal.Core
                 {
                     _buffer.IsInverse = false;
                 }
+                else if (code == 8) // Hidden
+                {
+                    _buffer.IsHidden = true;
+                }
+                else if (code == 28) // Visible (No Hidden)
+                {
+                    _buffer.IsHidden = false;
+                }
             }
         }
 
@@ -427,6 +435,7 @@ namespace NovaTerminal.Core
             _buffer.CurrentBackground = _buffer.Theme.Background;
             _buffer.IsInverse = false;
             _buffer.IsBold = false;
+            _buffer.IsHidden = false;
         }
 
         private Color? ParseExtendedColor(int[] args, ref int i)

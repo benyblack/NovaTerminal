@@ -210,29 +210,93 @@ namespace NovaTerminal.Core
                     for (int c = 0; c < bufferCols; c++)
                     {
                         var cell = _buffer.GetCell(c, r, _scrollOffset);
-                        if (cell.Character != ' ' && cell.Character != '\0')
+
+                        // Skip continuation cells (they are covered by the wide char in the previous cell)
+                        if (cell.IsWideContinuation) continue;
+
+                        // Respect Hidden Attribute
+                        if (cell.IsHidden)
+                        {
+                            // We still draw background if it's not default? Standard varies.
+                            // Usually "Hidden" means Foreground is same as Background, effectively invisible.
+                            // But usually usage is for passwords or internal signaling.
+                            // Let's draw nothing? Or just background.
+                            // Xterm: Draws background but no text.
+                            // Let's draw background only.
+                            if (!cell.IsDefaultBackground)
+                            {
+                                var cb = new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
+                                bgPaint.Color = cb;
+                                canvas.DrawRect((float)(c * _charWidth) + paddingLeft, (float)(r * _charHeight) + paddingTop, (float)_charWidth * (cell.IsWide ? 2 : 1), (float)_charHeight, bgPaint);
+                            }
+                            continue;
+                        }
+
+                        bool hasChar = (cell.Text != null) ? cell.Text.Length > 0 : (cell.Character != ' ' && cell.Character != '\0');
+
+                        if (hasChar)
                         {
                             var cb = cell.IsDefaultBackground ? themeBg : new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
                             var cf = cell.IsDefaultForeground ? themeFg : new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
                             var fg = cell.IsInverse ? cb : cf;
 
-                            int runStart = c;
-                            var chars = new List<char> { cell.Character };
-                            int k = c + 1;
-                            while (k < bufferCols)
+                            // If it's a wide char or complex text, draw it individually
+                            // We don't batch wide chars with standard chars to ensure spacing is correct
+                            if (cell.IsWide || !string.IsNullOrEmpty(cell.Text))
                             {
-                                var next = _buffer.GetCell(k, r, _scrollOffset);
-                                if (next.Character == ' ' || next.Character == '\0') break;
-                                var nb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
-                                var nf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
-                                if ((next.IsInverse ? nb : nf) != fg) break;
-                                chars.Add(next.Character);
-                                k++;
-                            }
+                                string text = cell.Text ?? cell.Character.ToString();
 
-                            fgPaint.Color = fg;
-                            canvas.DrawText(new string(chars.ToArray()), (float)(runStart * _charWidth) + paddingLeft, baselineY, font, fgPaint);
-                            c = k - 1;
+                                // FONT FALLBACK LOGIC
+                                // Check if primary font supports this character/grapheme
+                                int codepoint = char.ConvertToUtf32(text, 0);
+                                if (!tf.ContainsGlyph(codepoint))
+                                {
+                                    // Try to find a fallback font
+                                    using var fallbackTf = SKFontManager.Default.MatchCharacter(codepoint);
+                                    if (fallbackTf != null)
+                                    {
+                                        using var fallbackFont = new SKFont(fallbackTf, (float)_fontSize);
+                                        fallbackFont.Edging = SKFontEdging.Antialias;
+                                        fgPaint.Color = fg;
+                                        canvas.DrawText(text, (float)(c * _charWidth) + paddingLeft, baselineY, fallbackFont, fgPaint);
+                                    }
+                                    else
+                                    {
+                                        // No fallback found, draw with default (will likely show box)
+                                        fgPaint.Color = fg;
+                                        canvas.DrawText(text, (float)(c * _charWidth) + paddingLeft, baselineY, font, fgPaint);
+                                    }
+                                }
+                                else
+                                {
+                                    fgPaint.Color = fg;
+                                    canvas.DrawText(text, (float)(c * _charWidth) + paddingLeft, baselineY, font, fgPaint);
+                                }
+                            }
+                            else
+                            {
+                                // Batch simple chars for performance
+                                int runStart = c;
+                                var chars = new List<char> { cell.Character };
+                                int k = c + 1;
+                                while (k < bufferCols)
+                                {
+                                    var next = _buffer.GetCell(k, r, _scrollOffset);
+                                    if (next.IsWide || next.IsWideContinuation || !string.IsNullOrEmpty(next.Text)) break; // Stop at complex chars
+                                    if (next.Character == ' ' || next.Character == '\0') break;
+
+                                    var nb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
+                                    var nf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
+                                    if ((next.IsInverse ? nb : nf) != fg) break;
+
+                                    chars.Add(next.Character);
+                                    k++;
+                                }
+
+                                fgPaint.Color = fg;
+                                canvas.DrawText(new string(chars.ToArray()), (float)(runStart * _charWidth) + paddingLeft, baselineY, font, fgPaint);
+                                c = k - 1;
+                            }
                         }
                     }
                 }

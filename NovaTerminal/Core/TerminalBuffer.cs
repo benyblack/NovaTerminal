@@ -79,6 +79,7 @@ namespace NovaTerminal.Core
         public TerminalTheme Theme { get; set; } = TerminalTheme.Dark;
         public bool IsInverse { get; set; }
         public bool IsBold { get; set; }
+        public bool IsHidden { get; set; }
 
         // Mouse reporting modes (for TUI apps like vim, htop)
         public bool MouseModeX10 { get; set; }          // ?1000 - X10 mouse reporting
@@ -271,135 +272,163 @@ namespace NovaTerminal.Core
 
 
 
+        private char? _highSurrogateBuffer = null;
+
         public void WriteChar(char c)
         {
             Lock.EnterWriteLock();
             try
             {
-                // Clamp cursor to viewport
-                // Allow CursorCol == Cols (Wrap Pending state)
-                _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
-                _cursorCol = Math.Clamp(_cursorCol, 0, Cols);
+                // Handle Control Codes immediately (unless pending surrogate?)
+                // Actually, control codes can break a surrogate sequence, so we should check them first OR
+                // treat them as flushing the buffer.
+                // Simpler: If we have a high surrogate, ONLY the next char being a low surrogate is valid.
+                // Anything else flushes the high surrogate as a 'replacement char' or isolated char, then processes new char.
 
-                // Track row changes
-                if (_cursorRow != _prevCursorRow)
+                string? textToWrite = null;
+                bool isWide = false;
+
+                if (_highSurrogateBuffer.HasValue)
                 {
-                    _maxColThisRow = 0;
-                }
-
-                if (c == '\r')
-                {
-                    _cursorCol = 0;
-                    _prevCursorCol = _cursorCol;
-                    _prevCursorRow = _cursorRow;
-                    // Invalidate handled at end
-                }
-                else if (c == '\n')
-                {
-                    // Mark current line as not wrapped
-                    if (_cursorRow >= 0 && _cursorRow < Rows)
+                    if (char.IsLowSurrogate(c))
                     {
-                        _viewport[_cursorRow].IsWrapped = false;
-                    }
+                        // Form complete pair
+                        textToWrite = new string(new[] { _highSurrogateBuffer.Value, c });
+                        _highSurrogateBuffer = null;
 
-                    _cursorCol = 0;
-                    _cursorRow++;
-
-                    // If we're past the bottom, scroll
-                    if (_cursorRow >= Rows)
-                    {
-                        ScrollUpInternal();
-                        _cursorRow = Rows - 1;
-                    }
-                }
-                else if (c == '\b')
-                {
-                    if (_cursorCol > 0) _cursorCol--;
-                }
-                else if (c == '\t')
-                {
-                    int spaces = 4 - (_cursorCol % 4);
-                    for (int i = 0; i < spaces; i++)
-                    {
-                        if (_cursorCol >= Cols)
-                        {
-                            if (_cursorRow >= 0 && _cursorRow < Rows)
-                                _viewport[_cursorRow].IsWrapped = true;
-
-                            _cursorCol = 0;
-                            _cursorRow++;
-                            if (_cursorRow >= Rows)
-                            {
-                                ScrollUpInternal();
-                                _cursorRow = Rows - 1;
-                            }
-                        }
-
-                        if (_cursorRow >= 0 && _cursorRow < Rows && _cursorCol >= 0 && _cursorCol < Cols)
-                        {
-                            _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground);
-                            if (_cursorCol > _maxColThisRow) _maxColThisRow = _cursorCol;
-                            _cursorCol++;
-                        }
-                        else
-                        {
-                            _cursorCol++;
-                        }
-                    }
-                }
-                else
-                {
-                    // Normal Character
-
-                    // Handle DECAWM (Auto Wrap Mode)
-                    // If OFF, we clamp to the last column and overwrite it.
-                    if (!IsAutoWrapMode && _cursorCol >= Cols)
-                    {
-                        _cursorCol = Cols - 1;
-                    }
-
-                    // Wrap if needed (only if AutoWrap is ON)
-                    if (IsAutoWrapMode && _cursorCol >= Cols)
-                    {
-                        if (_cursorRow >= 0 && _cursorRow < Rows)
-                            _viewport[_cursorRow].IsWrapped = true;
-
-                        _cursorCol = 0;
-                        _cursorRow++;
-
-                        if (_cursorRow >= Rows)
-                        {
-                            // Scroll up
-                            ScrollUpInternal();
-                            _cursorRow = Math.Max(0, Rows - 1);
-                        }
-                    }
-
-                    // Write to viewport
-                    if (_cursorRow >= 0 && _cursorRow < Rows && _cursorCol >= 0 && _cursorCol < Cols)
-                    {
-                        _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(c, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground);
-
-                        if (_cursorCol > _maxColThisRow) _maxColThisRow = _cursorCol;
-
-                        _cursorCol++;
+                        // Check width (Naive: Emoji/CJK ranges or use Rune)
+                        // Allow simplistic check: assume non-ascii pairs might be wide?
+                        // Better: Use a dedicated library or heuristic. For now, assume emojis are wide-ish.
+                        // Let's assume IsWide = true for now for surrogates to test emoji
+                        isWide = true; // Most surrogate pairs (emoji, CJK extension) are wide.
                     }
                     else
                     {
-                        _cursorCol++;
+                        // Invalid sequence. Flush the high surrogate as best effort (or replacement)
+                        // Then process current 'c'.
+                        // For now, just drop/ignore the broken high surrogate to avoid complexities
+                        _highSurrogateBuffer = null;
+                        // Process 'c' as normal below
                     }
                 }
 
-                // Update tracking
-                _prevCursorCol = _cursorCol;
-                _prevCursorRow = _cursorRow;
+                if (textToWrite == null)
+                {
+                    if (char.IsHighSurrogate(c))
+                    {
+                        _highSurrogateBuffer = c;
+                        return; // Wait for low surrogate
+                    }
+
+                    // Not a surrogate, or a broke sequence start
+                    // Control codes
+                    if (c == '\r' || c == '\n' || c == '\b' || c == '\t' || c == '\a')
+                    {
+                        HandleControlCode(c);
+                        return;
+                    }
+
+                    // Normal char
+                    if (c >= 0x20)
+                    {
+                        textToWrite = c.ToString();
+                        // Check for CJK/Wide ranges if single char
+                        // Simple heuristic for CJK
+                        isWide = (c >= 0x1100 && c <= 0x115F) || // Hangul Jamo
+                                 (c >= 0x2E80 && c <= 0xA4CF && c != 0x303F) || // CJK Radicals..Yi
+                                 (c >= 0xAC00 && c <= 0xD7A3) || // Hangul Syllables
+                                 (c >= 0xF900 && c <= 0xFAFF) || // CJK Compatibility Ideographs
+                                 (c >= 0xFE10 && c <= 0xFE19) || // Vertical forms
+                                 (c >= 0xFE30 && c <= 0xFE6F) || // CJK Compatibility Forms
+                                 (c >= 0xFF00 && c <= 0xFF60) || // Fullwidth Forms
+                                 (c >= 0xFFE0 && c <= 0xFFE6);
+                    }
+                }
+
+                if (textToWrite != null)
+                {
+                    WriteContent(textToWrite, isWide);
+                }
             }
             finally
             {
                 Lock.ExitWriteLock();
             }
-
             OnInvalidate?.Invoke();
+        }
+
+        private void HandleControlCode(char c)
+        {
+            // Cursor logic extracted from old WriteChar
+            if (c == '\r')
+            {
+                _cursorCol = 0;
+                _prevCursorCol = _cursorCol;
+                _prevCursorRow = _cursorRow;
+            }
+            else if (c == '\n')
+            {
+                if (_cursorRow >= 0 && _cursorRow < Rows) _viewport[_cursorRow].IsWrapped = false;
+                _cursorCol = 0;
+                _cursorRow++;
+                if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
+            }
+            else if (c == '\b')
+            {
+                if (_cursorCol > 0) _cursorCol--;
+                // Handle backing over a wide char? (Should jump 2? standard terminals vary)
+                // For now, simple backspace.
+            }
+            else if (c == '\t')
+            {
+                int spaces = 4 - (_cursorCol % 4);
+                for (int i = 0; i < spaces; i++) WriteContent(" ", false);
+            }
+        }
+
+        private void WriteContent(string text, bool isWide)
+        {
+            // 1. Wrap if needed
+            int width = isWide ? 2 : 1;
+
+            // Handle auto-wrap
+            if (!IsAutoWrapMode && _cursorCol + width > Cols)
+            {
+                _cursorCol = Cols - width; // Clamp to end
+            }
+
+            if (IsAutoWrapMode && _cursorCol + width > Cols)
+            {
+                if (_cursorRow >= 0 && _cursorRow < Rows) _viewport[_cursorRow].IsWrapped = true;
+                _cursorCol = 0;
+                _cursorRow++;
+                if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
+            }
+
+            // 2. Write
+            if (_cursorRow >= 0 && _cursorRow < Rows && _cursorCol >= 0 && _cursorCol < Cols)
+            {
+                // If isWide, we need space for 2 cells.
+                if (isWide && _cursorCol + 1 < Cols)
+                {
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden);
+                    _viewport[_cursorRow].Cells[_cursorCol + 1] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden) { IsWideContinuation = true };
+                    _cursorCol += 2;
+                }
+                else if (!isWide)
+                {
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden);
+                    _cursorCol++;
+                }
+
+                // If IsWide but no space (last col), we might force wrap or clipped?
+                // For simplified logic: if generic wide char hits exact last col, wrap happens above.
+                // If it fits, we write.
+            }
+
+            if (_cursorCol > _maxColThisRow) _maxColThisRow = _cursorCol;
+            _prevCursorCol = _cursorCol;
+            _prevCursorRow = _cursorRow;
         }
 
         /// <summary>

@@ -36,10 +36,20 @@ pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut P
         CStr::from_ptr(cmd).to_string_lossy()
     };
 
-    // Split command string for arguments if necessary, usually it's just the shell
-    // For simplicity, we assume 'cmd' is just the executable or we might need deeper parsing
-    // But standard usage 'cmd.exe' or 'powershell.exe' works.
-    let mut cmd_builder = CommandBuilder::new(cmd_str.as_ref());
+    // Split command string for arguments
+    // Simple whitespace splitting to allow flags like "/k" or "-Command"
+    let parts: Vec<&str> = cmd_str.split_whitespace().collect();
+    // Fix: Use copied() to get &str from &&str, and do not reference the temporary result of as_ref()
+    let program = parts.get(0).copied().unwrap_or(cmd_str.as_ref());
+
+    let mut cmd_builder = CommandBuilder::new(program);
+
+    if parts.len() > 1 {
+        for arg in &parts[1..] {
+            cmd_builder.arg(arg);
+        }
+    }
+
     cmd_builder.env("TERM", "xterm-256color");
 
     // 5. Spawn
