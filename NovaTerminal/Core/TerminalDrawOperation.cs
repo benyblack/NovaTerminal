@@ -139,7 +139,7 @@ namespace NovaTerminal.Core
                 // Correct calculation of displayStart (First visible absolute row)
                 int totalLines = _buffer.TotalLines;
                 int bufferRowsLocked = bufferRows; // Use local capture
-                // displayStart = Total - Rows - ScrollOffset
+                                                   // displayStart = Total - Rows - ScrollOffset
                 int absDisplayStart = Math.Max(0, totalLines - bufferRowsLocked - _scrollOffset);
 
                 for (int r = 0; r < bufferRows; r++)
@@ -240,10 +240,10 @@ namespace NovaTerminal.Core
                 // Cursor
                 if (!_hideCursor)
                 {
-                    int visualCursorRow = _buffer.GetVisualCursorRow(_scrollOffset);
+                    int visualCursorRow = _buffer.GetVisualCursorRowInternal(_scrollOffset);
                     if (visualCursorRow >= 0 && visualCursorRow < bufferRows)
                     {
-                        canvas.DrawRect((float)(_buffer.CursorCol * _charWidth) + paddingLeft, (float)(visualCursorRow * _charHeight + _charHeight - 2) + paddingTop, (float)_charWidth, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
+                        canvas.DrawRect((float)(_buffer.InternalCursorCol * _charWidth) + paddingLeft, (float)(visualCursorRow * _charHeight + _charHeight - 2) + paddingTop, (float)_charWidth, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
                     }
                 }
             }

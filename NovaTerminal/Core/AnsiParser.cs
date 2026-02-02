@@ -123,12 +123,67 @@ namespace NovaTerminal.Core
             switch (finalByte)
             {
                 case 'A': // Cursor Up
-                    _buffer.CursorRow = Math.Max(0, _buffer.CursorRow - Math.Max(1, arg0));
-                    _buffer.Invalidate();
+                    {
+                        int dist = Math.Max(1, arg0);
+                        if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
+                            _buffer.CursorRow = Math.Max(_buffer.ScrollTop, _buffer.CursorRow - dist);
+                        else
+                            _buffer.CursorRow = Math.Max(0, _buffer.CursorRow - dist);
+                        _buffer.Invalidate();
+                    }
                     break;
                 case 'B': // Cursor Down
-                    _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + Math.Max(1, arg0));
-                    _buffer.Invalidate();
+                    {
+                        int dist = Math.Max(1, arg0);
+                        if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
+                            _buffer.CursorRow = Math.Min(_buffer.ScrollBottom, _buffer.CursorRow + dist);
+                        else
+                            _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + dist);
+                        _buffer.Invalidate();
+                    }
+                    break;
+                case 'r': // DECSTBM - Set Scrolling Region
+                    {
+                        int regionTop = (args.Length > 0 && args[0] > 0 ? args[0] : 1) - 1;
+                        int regionBottom = (args.Length > 1 && args[1] > 0 ? args[1] : _buffer.Rows) - 1;
+                        _buffer.SetScrollingRegion(regionTop, regionBottom);
+                        // Cursor moves to 1;1 after setting region
+                        _buffer.SetCursorPosition(0, 0);
+                    }
+                    break;
+                case '@': // ICH - Insert Character
+                    {
+                        int ichCount = Math.Max(1, arg0);
+                        _buffer.InsertCharacters(ichCount);
+                    }
+                    break;
+                case 'P': // DCH - Delete Character
+                    {
+                        int dchCount = Math.Max(1, arg0);
+                        _buffer.DeleteCharacters(dchCount);
+                    }
+                    break;
+                case 'S': // SU - Scroll Up
+                    {
+                        int suCount = Math.Max(1, arg0);
+                        for (int i = 0; i < suCount; i++) _buffer.ScrollUp();
+                    }
+                    break;
+                case 'T': // SD - Scroll Down
+                    {
+                        int sdCount = Math.Max(1, arg0);
+                        for (int i = 0; i < sdCount; i++) _buffer.ScrollDown();
+                    }
+                    break;
+                case 'd': // VPA - Vertical Position Absolute
+                    {
+                        int vpaRow = Math.Max(1, arg0) - 1;
+                        // VPA respects scrolling region? Usually absolute within screen, but let's stick to standard behavior (screen absolute)
+                        // If origin mode (DECOM) is set, it might be relative to margins, but we don't track DECOM yet. 
+                        // Assuming screen absolute for now.
+                        _buffer.CursorRow = Math.Clamp(vpaRow, 0, _buffer.Rows - 1);
+                        _buffer.Invalidate();
+                    }
                     break;
                 case 'C': // Cursor Forward
                     _buffer.CursorCol = Math.Min(_buffer.Cols - 1, _buffer.CursorCol + Math.Max(1, arg0));
@@ -156,11 +211,20 @@ namespace NovaTerminal.Core
                     if (displayMode == 0) // Erase from cursor to end of screen
                     {
                         _buffer.EraseLineToEnd(); // Clear rest of current line
-                        // Clear all lines below (simplified - just clear current line for now)
+                        // Clear all lines below cursor
+                        for (int r = _buffer.CursorRow + 1; r < _buffer.Rows; r++)
+                        {
+                            _buffer.EraseLineAll(r);
+                        }
                     }
                     else if (displayMode == 1) // Erase from start of screen to cursor
                     {
-                        _buffer.EraseLineFromStart();
+                        // Clear all lines above cursor
+                        for (int r = 0; r < _buffer.CursorRow; r++)
+                        {
+                            _buffer.EraseLineAll(r);
+                        }
+                        _buffer.EraseLineFromStart(); // Clear start of current line
                     }
                     else if (displayMode == 2 || displayMode == 3) // Erase entire screen
                     {
@@ -240,6 +304,25 @@ namespace NovaTerminal.Core
                         break;
                     case 1006: // SGR extended mouse mode
                         _buffer.MouseModeSGR = enable;
+                        break;
+                    case 47:    // Alternate screen (legacy)
+                    case 1047:  // Alternate screen
+                        if (enable)
+                            _buffer.SwitchToAltScreen();
+                        else
+                            _buffer.SwitchToMainScreen();
+                        break;
+                    case 1049:  // Alternate screen + save cursor
+                        if (enable)
+                        {
+                            _buffer.SaveCursor();
+                            _buffer.SwitchToAltScreen();
+                        }
+                        else
+                        {
+                            _buffer.SwitchToMainScreen();
+                            _buffer.RestoreCursor();
+                        }
                         break;
                 }
             }
@@ -334,24 +417,6 @@ namespace NovaTerminal.Core
                 else if (code == 27) // No Inverse
                 {
                     _buffer.IsInverse = false;
-                }
-                else if (code >= 90 && code <= 97) // Bright Foreground
-                {
-                    _buffer.CurrentForeground = GetBasicColor(code - 90, bright: true);
-                }
-                else if (code >= 100 && code <= 107) // Bright Background
-                {
-                    _buffer.CurrentBackground = GetBasicColor(code - 100, bright: true);
-                }
-                else if (code == 38) // Extended Foreground
-                {
-                    var c = ParseExtendedColor(args, ref i);
-                    if (c.HasValue) _buffer.CurrentForeground = c.Value;
-                }
-                else if (code == 48) // Extended Background
-                {
-                    var c = ParseExtendedColor(args, ref i);
-                    if (c.HasValue) _buffer.CurrentBackground = c.Value;
                 }
             }
         }

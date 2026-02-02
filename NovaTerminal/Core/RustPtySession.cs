@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -11,6 +12,10 @@ namespace NovaTerminal.Core
         private IntPtr _ptyState;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _readTask;
+        private Task? _processTask;
+
+        // Bounded queue for back-pressure - prevents OOM on high-throughput output
+        private readonly BlockingCollection<string> _outputQueue = new BlockingCollection<string>(boundedCapacity: 100);
 
         // UTF-8 decoder with state - handles partial multi-byte sequences across reads
         private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
@@ -53,8 +58,9 @@ namespace NovaTerminal.Core
                 throw new InvalidOperationException("Failed to create Rust PTY session.");
             }
 
-            // Start reading in background
+            // Start reading and processing in background
             _readTask = Task.Run(ReadLoop);
+            _processTask = Task.Run(ProcessLoop);
         }
 
         private void ReadLoop()
@@ -73,7 +79,12 @@ namespace NovaTerminal.Core
                     if (charCount > 0)
                     {
                         string text = new string(charBuffer, 0, charCount);
-                        OnOutputReceived?.Invoke(text);
+
+                        // Bounded add with timeout - provides back-pressure to PTY
+                        if (!_outputQueue.TryAdd(text, 50, _cts.Token))
+                        {
+                            Console.WriteLine("[RustPtySession] Output queue full, dropping data");
+                        }
                     }
                 }
                 else if (read == 0) // EOF
@@ -83,9 +94,26 @@ namespace NovaTerminal.Core
                 }
                 else // Error
                 {
-                    // Simple backoff on error
+                    // Reset decoder state on error to prevent corruption
+                    _utf8Decoder.Reset();
                     Thread.Sleep(50);
                 }
+            }
+            _outputQueue.CompleteAdding();
+        }
+
+        private void ProcessLoop()
+        {
+            try
+            {
+                foreach (var text in _outputQueue.GetConsumingEnumerable(_cts.Token))
+                {
+                    OnOutputReceived?.Invoke(text);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal shutdown
             }
             OnExit?.Invoke(0);
         }
@@ -109,6 +137,7 @@ namespace NovaTerminal.Core
             if (_ptyState != IntPtr.Zero)
             {
                 _cts.Cancel();
+                _outputQueue.CompleteAdding();
                 Native.pty_close(_ptyState);
                 _ptyState = IntPtr.Zero;
             }

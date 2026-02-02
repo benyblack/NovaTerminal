@@ -93,6 +93,25 @@ namespace NovaTerminal.Tests
             }
             return "";
         }
+
+        [Fact]
+        public void RestoreCursor_ShouldRestoreBold()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+
+            // Set bold and save cursor
+            buffer.IsBold = true;
+            buffer.SaveCursor();
+
+            // Change bold state
+            buffer.IsBold = false;
+
+            // Restore cursor
+            buffer.RestoreCursor();
+
+            // Assert: IsBold should be restored to true
+            Assert.True(buffer.IsBold);
+        }
         [Fact]
         public void Reflow_WithColoredGap_ShouldNotDuplicate()
         {

@@ -11,6 +11,11 @@ namespace NovaTerminal.Core
         // Active viewport - what ConPTY writes to (fixed size)
         private TerminalRow[] _viewport;
 
+        // Alternate screen buffer support (for vim, htop, less, etc.)
+        private TerminalRow[] _mainScreen;
+        private TerminalRow[] _altScreen;
+        private bool _isAltScreen = false;
+
         // Scrollback buffer - historical lines that scrolled off the top
         private List<TerminalRow> _scrollback = new List<TerminalRow>();
         public int MaxHistory { get; set; } = 10000;
@@ -54,6 +59,11 @@ namespace NovaTerminal.Core
         private int _cursorCol;
         private int _cursorRow;
 
+        // Internal access for rendering to avoid pseudo-recursion
+        internal int InternalCursorCol => _cursorCol;
+        internal int InternalCursorRow => _cursorRow;
+        internal int GetVisualCursorRowInternal(int scrollOffset) => _cursorRow + scrollOffset;
+
         public IReadOnlyList<TerminalRow> ScrollbackRows => _scrollback;
         public int TotalLines => _scrollback.Count + Rows;
 
@@ -80,15 +90,20 @@ namespace NovaTerminal.Core
         public bool IsApplicationCursorKeys { get; set; } // ?1 - DECCKM (Application Cursor Keys)
         public bool IsAutoWrapMode { get; set; } = true;  // ?7 - DECAWM (Auto Wrap Mode)
 
+        // Scrolling region support (for vim splits, tmux)
+        public int ScrollTop { get; set; } = 0;
+        public int ScrollBottom { get; set; }
+
         public event Action? OnInvalidate;
 
         // Thread safety
-        public readonly System.Threading.ReaderWriterLockSlim Lock = new System.Threading.ReaderWriterLockSlim(System.Threading.LockRecursionPolicy.SupportsRecursion);
+        public readonly System.Threading.ReaderWriterLockSlim Lock = new System.Threading.ReaderWriterLockSlim(System.Threading.LockRecursionPolicy.NoRecursion);
 
         public TerminalBuffer(int cols, int rows)
         {
             Cols = cols;
             Rows = rows;
+            ScrollBottom = rows - 1;  // Initialize scrolling region to full screen
 
             CurrentForeground = Theme.Foreground;
             CurrentBackground = Theme.Background;
@@ -100,8 +115,19 @@ namespace NovaTerminal.Core
             {
                 _viewport[i] = new TerminalRow(cols, Theme.Foreground, Theme.Background);
             }
+
+            // Initialize alternate screen buffer
+            _mainScreen = _viewport;  // Main screen is the default viewport
+            _altScreen = new TerminalRow[rows];
+            for (int i = 0; i < rows; i++)
+            {
+                _altScreen[i] = new TerminalRow(cols, Theme.Foreground, Theme.Background);
+            }
+
             _cursorRow = 0;
             _cursorCol = 0;
+            ScrollTop = 0;
+            ScrollBottom = rows - 1;
         }
 
         public void Clear(bool resetCursor = true)
@@ -282,7 +308,7 @@ namespace NovaTerminal.Core
                     // If we're past the bottom, scroll
                     if (_cursorRow >= Rows)
                     {
-                        ScrollUp();
+                        ScrollUpInternal();
                         _cursorRow = Rows - 1;
                     }
                 }
@@ -304,7 +330,7 @@ namespace NovaTerminal.Core
                             _cursorRow++;
                             if (_cursorRow >= Rows)
                             {
-                                ScrollUp();
+                                ScrollUpInternal();
                                 _cursorRow = Rows - 1;
                             }
                         }
@@ -344,7 +370,7 @@ namespace NovaTerminal.Core
                         if (_cursorRow >= Rows)
                         {
                             // Scroll up
-                            ScrollUp();
+                            ScrollUpInternal();
                             _cursorRow = Math.Max(0, Rows - 1);
                         }
                     }
@@ -365,8 +391,8 @@ namespace NovaTerminal.Core
                 }
 
                 // Update tracking
-                _prevCursorCol = CursorCol;
-                _prevCursorRow = CursorRow;
+                _prevCursorCol = _cursorCol;
+                _prevCursorRow = _cursorRow;
             }
             finally
             {
@@ -379,25 +405,133 @@ namespace NovaTerminal.Core
         /// <summary>
         /// Scrolls the viewport up by one line, moving top line to scrollback
         /// </summary>
-        private void ScrollUp()
+        /// <summary>
+        /// Scrolls the viewport up by one line.
+        /// Respects the scrolling region (ScrollTop/ScrollBottom).
+        /// Only adds to scrollback if scrolling the entire screen.
+        /// </summary>
+        public void ScrollUp()
         {
-            // Move top line to scrollback
-            _scrollback.Add(_viewport[0]);
-
-            // Trim scrollback if needed
-            if (_scrollback.Count > MaxHistory)
+            Lock.EnterWriteLock();
+            try
             {
-                _scrollback.RemoveAt(0);
+                ScrollUpInternal();
+            }
+            finally { Lock.ExitWriteLock(); }
+            Invalidate(); // Notify outside lock (optional, Invalidate delegates)
+        }
+
+        private void ScrollUpInternal()
+        {
+            // Check if we are scrolling the explicit region or full screen
+            bool isFullScreenScroll = (ScrollTop == 0 && ScrollBottom == Rows - 1);
+
+            // 1. If full screen and main screen, add to scrollback
+            if (isFullScreenScroll && !_isAltScreen)
+            {
+                _scrollback.Add(_viewport[0]);
+                if (_scrollback.Count > MaxHistory)
+                {
+                    _scrollback.RemoveAt(0);
+                }
             }
 
-            // Shift viewport up
-            for (int i = 0; i < Rows - 1; i++)
+            // 2. Shift rows up within the region
+            for (int i = ScrollTop; i < ScrollBottom; i++)
             {
                 _viewport[i] = _viewport[i + 1];
             }
 
-            // Create new blank line at bottom
-            _viewport[Rows - 1] = new TerminalRow(Cols);
+            // 3. Create new blank line at the bottom of the region
+            _viewport[ScrollBottom] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+        }
+
+        /// <summary>
+        /// Scrolls the viewport down by one line.
+        /// Respects the scrolling region (ScrollTop/ScrollBottom).
+        /// Lines scrolled off the bottom are lost.
+        /// </summary>
+        public void ScrollDown()
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                ScrollDownInternal();
+            }
+            finally { Lock.ExitWriteLock(); }
+            Invalidate();
+        }
+
+        private void ScrollDownInternal()
+        {
+            // Shift rows down within the region
+            for (int i = ScrollBottom; i > ScrollTop; i--)
+            {
+                _viewport[i] = _viewport[i - 1];
+            }
+
+            // Create new blank line at the top of the region
+            _viewport[ScrollTop] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+        }
+
+        public void InsertCharacters(int count)
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                if (_cursorRow < 0 || _cursorRow >= Rows) return;
+
+                int endCol = Math.Min(_cursorCol + count, Cols);
+                var row = _viewport[_cursorRow];
+
+                // Shift characters to right
+                // Start from end, move char at (c - count) to c
+                for (int c = Cols - 1; c >= endCol; c--)
+                {
+                    row.Cells[c] = row.Cells[c - count];
+                }
+
+                // Fill gap with default empty cells
+                var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+                for (int c = _cursorCol; c < endCol; c++)
+                {
+                    row.Cells[c] = empty;
+                }
+            }
+            finally { Lock.ExitWriteLock(); }
+            Invalidate(); // Use Invalidate() which handles the event call
+        }
+
+        public void DeleteCharacters(int count)
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                DeleteCharactersInternal(count);
+            }
+            finally { Lock.ExitWriteLock(); }
+            Invalidate();
+        }
+
+        private void DeleteCharactersInternal(int count)
+        {
+            if (_cursorRow < 0 || _cursorRow >= Rows) return;
+
+            int endCol = Cols - count;
+            var row = _viewport[_cursorRow];
+
+            // Shift characters to left
+            for (int c = _cursorCol; c < endCol; c++)
+            {
+                row.Cells[c] = row.Cells[c + count];
+            }
+
+            // Fill gap at end with empty cells
+            var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+            for (int c = endCol; c < Cols; c++)
+            {
+                row.Cells[c] = empty;
+            }
         }
 
         public void Write(string text)
@@ -426,17 +560,58 @@ namespace NovaTerminal.Core
                 Cols = newCols;
                 Rows = newRows;
 
-                // Full Reflow
-                Reflow(oldCols, oldRows, newCols, newRows);
+                if (_isAltScreen)
+                {
+                    // 1. Resize Alt Screen (Current Viewport)
+                    // TUI apps will redraw, so we just need a valid buffer of the new size.
+                    // We preserve what fits top-left to avoid flashing empty if redraw is slow.
+                    var oldAlt = _viewport;
+                    _viewport = new TerminalRow[newRows];
+                    for (int i = 0; i < newRows; i++)
+                    {
+                        _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                        if (i < oldAlt.Length)
+                        {
+                            int copyCols = Math.Min(oldCols, newCols);
+                            for (int c = 0; c < copyCols; c++)
+                            {
+                                _viewport[i].Cells[c] = oldAlt[i].Cells[c];
+                            }
+                        }
+                    }
 
-                // DEBUG: Log cursor after reflow (Removed for thread safety)
+                    // Cursor clamping for Alt Screen
+                    _cursorRow = Math.Clamp(_cursorRow, 0, newRows - 1);
+                    _cursorCol = Math.Clamp(_cursorCol, 0, newCols);
 
+                    // 2. Reflow Main Screen (Background)
+                    // We temporarily swap current viewport to MainScreen to let Reflow process it.
+                    var activeAlt = _viewport;
+                    _viewport = _mainScreen;
+                    try
+                    {
+                        // Reflow Main Screen (updates _viewport and _scrollback)
+                        Reflow(oldCols, oldRows, newCols, newRows);
+                        _mainScreen = _viewport; // Update stored main screen reference
+                    }
+                    finally
+                    {
+                        _viewport = activeAlt; // Restore Alt Screen
+                    }
+                }
+                else
+                {
+                    // Normal Main Screen Resize
+                    Reflow(oldCols, oldRows, newCols, newRows);
 
-                // Ensure cursor is within bounds (allow Cols for wrap-pending state)
-                _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
-                _cursorCol = Math.Clamp(_cursorCol, 0, Cols);
+                    // Cursor clamping for Main Screen
+                    _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
+                    _cursorCol = Math.Clamp(_cursorCol, 0, Cols);
+                }
 
-                // Cursor clamped
+                // Reset scrolling region to full screen on resize (standard terminal behavior)
+                ScrollTop = 0;
+                ScrollBottom = Rows - 1;
 
             }
             finally
@@ -1002,7 +1177,7 @@ namespace NovaTerminal.Core
             CurrentForeground = _savedForeground;
             CurrentBackground = _savedBackground;
             IsInverse = _savedIsInverse;
-            IsBold = IsBold;
+            IsBold = _savedIsBold;  // FIX: Restore from saved value
         }
 
         public void EraseLineToEnd()
@@ -1059,6 +1234,22 @@ namespace NovaTerminal.Core
             {
                 Lock.ExitWriteLock();
             }
+            OnInvalidate?.Invoke();
+        }
+
+        public void EraseLineAll(int rowIndex)
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                if (rowIndex < 0 || rowIndex >= Rows) return;
+                var row = _viewport[rowIndex];
+                for (int i = 0; i < Cols; i++)
+                {
+                    row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+                }
+            }
+            finally { Lock.ExitWriteLock(); }
             OnInvalidate?.Invoke();
         }
 
@@ -1170,6 +1361,92 @@ namespace NovaTerminal.Core
                 Lock.ExitWriteLock();
             }
         }
+
+        /// <summary>
+        /// Switch to alternate screen buffer (used by vim, htop, less, etc.)
+        /// </summary>
+        public void SwitchToAltScreen()
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                if (_isAltScreen) return;  // Already in alt screen
+
+                _isAltScreen = true;
+                _mainScreen = _viewport;  // Save current viewport as main screen
+
+                // CRITICAL FIX: Ensure Alt Screen buffer matches current dimensions
+                // If we resized while in Main Screen, _altScreen might be stale (wrong size).
+                if (_altScreen == null || _altScreen.Length != Rows || (_altScreen.Length > 0 && _altScreen[0].Cells.Length != Cols))
+                {
+                    _altScreen = new TerminalRow[Rows];
+                    for (int i = 0; i < Rows; i++)
+                    {
+                        _altScreen[i] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+                    }
+                }
+
+                _viewport = _altScreen;    // Switch to alt screen
+
+                // Clear alt screen cells (don't create new rows, reuse if possible)
+                for (int i = 0; i < Rows; i++)
+                {
+                    // Ensure the row has the correct columns (in case of uneven resize if reusing objects? no, we recreated above if mismatch)
+                    // If we didn't recreate above, it means dimensions matched.
+
+                    // Reset to default
+                    for (int c = 0; c < Cols; c++)
+                    {
+                        _viewport[i].Cells[c] = TerminalCell.Default;
+                    }
+                }
+
+                _cursorRow = 0;
+                _cursorCol = 0;
+                Invalidate();
+            }
+            finally { Lock.ExitWriteLock(); }
+        }
+
+        /// <summary>
+        /// Switch back to main screen buffer
+        /// </summary>
+        public void SwitchToMainScreen()
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                if (!_isAltScreen) return;  // Already in main screen
+
+                _isAltScreen = false;
+                _altScreen = _viewport;    // Save current viewport as alt screen
+                _viewport = _mainScreen;   // Restore main screen
+                Invalidate();
+            }
+            finally { Lock.ExitWriteLock(); }
+        }
+
+        /// <summary>
+        /// Set scrolling region (DECSTBM) for vim splits, tmux, etc.
+        /// </summary>
+        public void SetScrollingRegion(int top, int bottom)
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                ScrollTop = Math.Clamp(top, 0, Rows - 1);
+                ScrollBottom = Math.Clamp(bottom, 0, Rows - 1);
+
+                // Ensure valid region
+                if (ScrollTop > ScrollBottom)
+                {
+                    ScrollTop = 0;
+                    ScrollBottom = Rows - 1;
+                }
+            }
+            finally { Lock.ExitWriteLock(); }
+        }
+
 
         public List<SearchMatch> FindMatches(string query)
         {

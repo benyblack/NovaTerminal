@@ -48,6 +48,7 @@ namespace NovaTerminal.Core
         private double _windowOpacity = 1.0;
         private bool _hasBackgroundImage = false;
 
+
         private IGlyphTypeface? _glyphTypeface;
         private SKTypeface? _skTypeface;
         private SKFont? _skFont;
@@ -487,8 +488,9 @@ namespace NovaTerminal.Core
                 }
                 catch { }
 
-                // Resize buffer AND send to PTY together - keeps them synchronized
-                // This prevents layout corruption where buffer size != PTY size
+                // CRITICAL ORDER: Resize buffer FIRST (synchronously, under lock)
+                // THEN notify PTY (triggers SIGWINCH, new output uses new size)
+                // This prevents race where PTY sends data for new dimensions while buffer is mid-reflow
                 _buffer.Resize(_pendingCols, _pendingRows);
                 Console.WriteLine($"[TerminalView] Throttled resize sent: {_pendingCols}x{_pendingRows}");
                 OnResize?.Invoke(_pendingCols, _pendingRows);
@@ -506,7 +508,8 @@ namespace NovaTerminal.Core
 
         public override void Render(DrawingContext context)
         {
-            if (_buffer == null || _glyphTypeface == null)
+            var buffer = _buffer; // Capture local reference to prevent it becoming null mid-render (race condition)
+            if (buffer == null || _glyphTypeface == null)
             {
                 return;
             }
@@ -517,7 +520,7 @@ namespace NovaTerminal.Core
             // Create and dispatch custom draw op
             var drawOp = new TerminalDrawOperation(
                 new Rect(0, 0, Bounds.Width, Bounds.Height),
-                _buffer,
+                buffer,
                 _scrollOffset,
                 _selection,
                 _searchMatches,
