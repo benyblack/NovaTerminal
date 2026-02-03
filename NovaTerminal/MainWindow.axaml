@@ -34,6 +34,26 @@
             <Setter Property="Opacity" Value="1.0"/>
             <Setter Property="Background" Value="#40FFFFFF"/>
         </Style>
+
+        <!-- GridSplitter Custom Template for thinner lines with larger hit area -->
+        <Style Selector="GridSplitter">
+            <Setter Property="Background" Value="#2D2D2D"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Background="Transparent">
+                        <Rectangle Name="PART_Line" Fill="{TemplateBinding Background}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="GridSplitter[ResizeDirection=Columns] /template/ Rectangle#PART_Line">
+            <Setter Property="Width" Value="1"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="GridSplitter[ResizeDirection=Rows] /template/ Rectangle#PART_Line">
+            <Setter Property="Height" Value="1"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
     </Window.Styles>
     <Grid x:Name="MainRoot" Background="Transparent">
         <!-- Unified background layer for the entire window -->

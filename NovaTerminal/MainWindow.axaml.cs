@@ -351,19 +351,20 @@ namespace NovaTerminal
             newPane.ApplySettings(_settings);
             var grid = new Grid { Background = Brushes.Transparent, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch };
 
-            var dividerBrush = new SolidColorBrush(Color.FromRgb(60, 60, 60)); // Subtle gray
+            var dividerBrush = new SolidColorBrush(Color.FromRgb(45, 45, 45)); // Darker, cleaner line
 
             if (orientation == Avalonia.Layout.Orientation.Horizontal)
             {
                 grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
-                grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Pixel)); // 1px divider space
+                grid.ColumnDefinitions.Add(new ColumnDefinition(3, GridUnitType.Pixel)); // 3px hit area
                 grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
 
                 var splitter = new GridSplitter
                 {
-                    Width = 1,
+                    Width = 3,
                     Background = dividerBrush,
-                    ResizeDirection = GridResizeDirection.Columns
+                    ResizeDirection = GridResizeDirection.Columns,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
                 };
                 Grid.SetColumn(splitter, 1);
                 grid.Children.Add(splitter);
@@ -374,14 +375,15 @@ namespace NovaTerminal
             else
             {
                 grid.RowDefinitions.Add(new RowDefinition(1, GridUnitType.Star));
-                grid.RowDefinitions.Add(new RowDefinition(1, GridUnitType.Pixel)); // 1px divider space
+                grid.RowDefinitions.Add(new RowDefinition(3, GridUnitType.Pixel)); // 3px hit area
                 grid.RowDefinitions.Add(new RowDefinition(1, GridUnitType.Star));
 
                 var splitter = new GridSplitter
                 {
-                    Height = 1,
+                    Height = 3,
                     Background = dividerBrush,
-                    ResizeDirection = GridResizeDirection.Rows
+                    ResizeDirection = GridResizeDirection.Rows,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch
                 };
                 Grid.SetRow(splitter, 1);
                 grid.Children.Add(splitter);
