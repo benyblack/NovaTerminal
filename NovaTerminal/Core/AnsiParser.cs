@@ -9,15 +9,19 @@ namespace NovaTerminal.Core
         private TerminalBuffer _buffer;
         private enum State { Normal, Esc, Csi, Osc, OscEsc }
         private State _state = State.Normal;
-        private List<char> _paramBuffer = new List<char>();
-        private List<char> _oscStringBuffer = new List<char>(); // Used for OSC string content
+
+        // Zero-alloc buffers
+        private char[] _paramBuffer = new char[256];
+        private int _paramLen = 0;
+
+        private List<char> _oscStringBuffer = new List<char>(); // OSC strings can be long (titles, etc) - Keep List for now or limit
 
         public AnsiParser(TerminalBuffer buffer)
         {
             _buffer = buffer;
         }
 
-        public void Process(string input) // Renamed 'text' to 'input' to match original
+        public void Process(string input)
         {
             foreach (char c in input)
             {
@@ -28,14 +32,14 @@ namespace NovaTerminal.Core
                         else if (c == '\u009B') // C1 CSI
                         {
                             _state = State.Csi;
-                            _paramBuffer.Clear();
+                            _paramLen = 0;
                         }
                         else if (c == '\u009D') // C1 OSC
                         {
                             _state = State.Osc;
                             _oscStringBuffer.Clear();
                         }
-                        else if (c == '\a') { /* Ignore BEL in normal text */ }
+                        else if (c == '\a') { /* Ignore BEL */ }
                         else _buffer.WriteChar(c);
                         break;
 
@@ -43,66 +47,70 @@ namespace NovaTerminal.Core
                         if (c == '[')
                         {
                             _state = State.Csi;
-                            _paramBuffer.Clear();
+                            _paramLen = 0;
                         }
                         else if (c == ']') // OSC Start
                         {
                             _state = State.Osc;
                             _oscStringBuffer.Clear();
                         }
-                        else if (c == '7') // DECSC Save Cursor
+                        else if (c == '7') // Save Cursor
                         {
                             _buffer.SaveCursor();
                             _state = State.Normal;
                         }
-                        else if (c == '8') // DECRC Restore Cursor
+                        else if (c == '8') // Restore Cursor
                         {
                             _buffer.RestoreCursor();
                             _state = State.Normal;
                         }
                         else
                         {
-                            // Fallback
                             _state = State.Normal;
                         }
                         break;
 
                     case State.Osc:
-                        if (c == '\a' || c == '\u009C') // BEL or ST (8-bit)
+                        if (c == '\a' || c == '\u009C')
                         {
+                            // Handle OSC Here if needed (e.g. Title)
                             _state = State.Normal;
                         }
                         else if (c == '\x1b')
                         {
                             _state = State.OscEsc;
                         }
-                        // Else consume
+                        else
+                        {
+                            _oscStringBuffer.Add(c);
+                        }
                         break;
 
                     case State.OscEsc:
-                        if (c == '\\') // ST Terminator (ESC \)
+                        if (c == '\\')
                         {
+                            // Handle OSC Here
                             _state = State.Normal;
                         }
                         else
                         {
-                            // Invalid termination, return to normal
                             _state = State.Normal;
-                            // Optionally re-process c, but for safety just consume
                         }
                         break;
 
                     case State.Csi:
-                        // Collect Parameter bytes (0x30-0x3F) and Intermediate bytes (0x20-0x2F)
-                        // This includes digits, semicolon, ?, >, etc.
                         if (c >= 0x20 && c <= 0x3F)
                         {
-                            _paramBuffer.Add(c);
+                            // Collect params (limited to buffer size)
+                            if (_paramLen < _paramBuffer.Length)
+                            {
+                                _paramBuffer[_paramLen++] = c;
+                            }
                         }
                         else
                         {
-                            // Final byte (0x40-0x7E, usually @-~)
-                            HandleCsi(c);
+                            // Final byte
+                            HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
                             _state = State.Normal;
                         }
                         break;
@@ -110,15 +118,50 @@ namespace NovaTerminal.Core
             }
         }
 
-        private void HandleCsi(char finalByte)
+        private void HandleCsi(char finalByte, ReadOnlySpan<char> parameters)
         {
-            string paramsStr = new string(_paramBuffer.ToArray());
-            // Support both semi-colon and colon as separators (common in modern terminals)
-            string[] parts = paramsStr.Split(new char[] { ';', ':' }, StringSplitOptions.RemoveEmptyEntries);
-            int[] args = new int[parts.Length];
-            for (int i = 0; i < parts.Length; i++) int.TryParse(parts[i], out args[i]);
+            // Check for private mode prefix (?)
+            bool isPrivate = parameters.Length > 0 && parameters[0] == '?';
+            int startIdx = isPrivate ? 1 : 0;
 
-            int arg0 = args.Length > 0 ? args[0] : 0; // Default 0 varies by command
+            // Parse integers into stack buffer
+            // Max 32 args is generous for standard CSI; SGR can have more but we'll cap it for now to avoid complexity or allocations
+            Span<int> args = stackalloc int[32];
+            int argCount = 0;
+
+            int currentVal = 0;
+            bool hasVal = false;
+
+            for (int i = startIdx; i < parameters.Length; i++)
+            {
+                char c = parameters[i];
+                if (c >= '0' && c <= '9')
+                {
+                    currentVal = (currentVal * 10) + (c - '0');
+                    hasVal = true;
+                }
+                else if (c == ';' || c == ':')
+                {
+                    if (argCount < args.Length)
+                    {
+                        args[argCount++] = hasVal ? currentVal : 0;
+                    }
+                    currentVal = 0;
+                    hasVal = false;
+                }
+            }
+            // Add final arg
+            if (hasVal || (parameters.Length > startIdx && (parameters[parameters.Length - 1] == ';' || parameters[parameters.Length - 1] == ':')))
+            {
+                if (argCount < args.Length)
+                {
+                    args[argCount++] = hasVal ? currentVal : 0;
+                }
+            }
+
+            // Slice to actual count
+            ReadOnlySpan<int> validArgs = args.Slice(0, argCount);
+            int arg0 = argCount > 0 ? validArgs[0] : 0;
 
             switch (finalByte)
             {
@@ -144,8 +187,8 @@ namespace NovaTerminal.Core
                     break;
                 case 'r': // DECSTBM - Set Scrolling Region
                     {
-                        int regionTop = (args.Length > 0 && args[0] > 0 ? args[0] : 1) - 1;
-                        int regionBottom = (args.Length > 1 && args[1] > 0 ? args[1] : _buffer.Rows) - 1;
+                        int regionTop = (argCount > 0 && validArgs[0] > 0 ? validArgs[0] : 1) - 1;
+                        int regionBottom = (argCount > 1 && validArgs[1] > 0 ? validArgs[1] : _buffer.Rows) - 1;
                         _buffer.SetScrollingRegion(regionTop, regionBottom);
                         // Cursor moves to 1;1 after setting region
                         _buffer.SetCursorPosition(0, 0);
@@ -178,9 +221,6 @@ namespace NovaTerminal.Core
                 case 'd': // VPA - Vertical Position Absolute
                     {
                         int vpaRow = Math.Max(1, arg0) - 1;
-                        // VPA respects scrolling region? Usually absolute within screen, but let's stick to standard behavior (screen absolute)
-                        // If origin mode (DECOM) is set, it might be relative to margins, but we don't track DECOM yet. 
-                        // Assuming screen absolute for now.
                         _buffer.CursorRow = Math.Clamp(vpaRow, 0, _buffer.Rows - 1);
                         _buffer.Invalidate();
                     }
@@ -195,18 +235,18 @@ namespace NovaTerminal.Core
                     break;
                 case 'H': // Cursor Position (row;col)
                 case 'f':
-                    int row = (args.Length > 0 ? args[0] : 1) - 1;
-                    int col = (args.Length > 1 ? args[1] : 1) - 1;
+                    int row = (argCount > 0 ? validArgs[0] : 1) - 1;
+                    int col = (argCount > 1 ? validArgs[1] : 1) - 1;
                     _buffer.SetCursorPosition(col, row);
                     _buffer.Invalidate();
                     break;
                 case 'G': // Cursor Horizontal Absolute (CHA)
-                    int val = (args.Length > 0 ? args[0] : 1) - 1;
+                    int val = (argCount > 0 ? validArgs[0] : 1) - 1;
                     _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
                     _buffer.Invalidate();
                     break;
                 case 'J': // Erase in Display
-                    int displayMode = args.Length > 0 ? args[0] : 0;
+                    int displayMode = argCount > 0 ? validArgs[0] : 0;
 
                     if (displayMode == 0) // Erase from cursor to end of screen
                     {
@@ -232,22 +272,22 @@ namespace NovaTerminal.Core
                     }
                     break;
                 case 'K': // Erase in Line
-                    int mode = args.Length > 0 ? args[0] : 0;
+                    int mode = argCount > 0 ? validArgs[0] : 0;
 
                     if (mode == 0) _buffer.EraseLineToEnd();
                     else if (mode == 1) _buffer.EraseLineFromStart();
                     else if (mode == 2) _buffer.EraseLineAll();
                     break;
                 case 'X': // Erase Character (ECH)
-                    int count = args.Length > 0 ? args[0] : 1;
+                    int count = argCount > 0 ? validArgs[0] : 1;
                     _buffer.EraseCharacters(count);
                     break;
                 case 'L': // Insert Line (IL)
-                    int linesToInsert = args.Length > 0 ? args[0] : 1;
+                    int linesToInsert = argCount > 0 ? validArgs[0] : 1;
                     _buffer.InsertLines(linesToInsert);
                     break;
                 case 'M': // Delete Line (DL)
-                    int linesToDelete = args.Length > 0 ? args[0] : 1;
+                    int linesToDelete = argCount > 0 ? validArgs[0] : 1;
                     _buffer.DeleteLines(linesToDelete);
                     break;
                 case 's': // Save Cursor (ANSI.SYS / SCO)
@@ -257,22 +297,15 @@ namespace NovaTerminal.Core
                     _buffer.RestoreCursor();
                     break;
                 case 'm': // SGR (Select Graphic Rendition)
-                    HandleSgr(args);
+                    HandleSgr(validArgs);
                     break;
                 case 'h': // Set Mode
                 case 'l': // Reset Mode
                     // Check if this is a DEC Private Mode (CSI ? Ps h/l)
-                    if (paramsStr.StartsWith("?"))
+                    if (isPrivate)
                     {
                         bool enable = (finalByte == 'h');
-                        // Strip '?' and re-parse the mode numbers
-                        string modeStr = paramsStr.Substring(1);
-                        string[] modeParts = modeStr.Split(new char[] { ';', ':' }, StringSplitOptions.RemoveEmptyEntries);
-                        int[] modes = new int[modeParts.Length];
-                        for (int i = 0; i < modeParts.Length; i++)
-                            int.TryParse(modeParts[i], out modes[i]);
-
-                        HandleDECPrivateMode(modes, enable);
+                        HandleDECPrivateMode(validArgs, enable);
                     }
                     break;
             }
@@ -281,7 +314,7 @@ namespace NovaTerminal.Core
         /// <summary>
         /// Handles DEC Private Mode sequences (CSI ? Ps h/l)
         /// </summary>
-        private void HandleDECPrivateMode(int[] modes, bool enable)
+        private void HandleDECPrivateMode(ReadOnlySpan<int> modes, bool enable)
         {
             foreach (int mode in modes)
             {
@@ -328,7 +361,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        private void HandleSgr(int[] args)
+        private void HandleSgr(ReadOnlySpan<int> args)
         {
             if (args.Length == 0)
             {
@@ -403,8 +436,6 @@ namespace NovaTerminal.Core
                 else if (code == 1) // Bold
                 {
                     _buffer.IsBold = true;
-                    // Optional: Auto-brighten current color if it's a basic color?
-                    // Typically purely a state flag for upcoming chars.
                 }
                 else if (code == 22) // Normal Intensity (Not Bold)
                 {
@@ -438,7 +469,7 @@ namespace NovaTerminal.Core
             _buffer.IsHidden = false;
         }
 
-        private Color? ParseExtendedColor(int[] args, ref int i)
+        private Color? ParseExtendedColor(ReadOnlySpan<int> args, ref int i)
         {
             if (i + 1 >= args.Length) return null;
 

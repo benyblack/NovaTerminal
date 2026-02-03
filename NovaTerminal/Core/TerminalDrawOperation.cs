@@ -277,7 +277,15 @@ namespace NovaTerminal.Core
                             {
                                 // Batch simple chars for performance
                                 int runStart = c;
-                                var chars = new List<char> { cell.Character };
+
+                                // Use stack buffer to avoid List<char> allocations
+                                // Max run is remaining columns. Safe to stackalloc for typical terminal widths.
+                                int remaining = bufferCols - c;
+                                Span<char> runBuffer = remaining <= 1024 ? stackalloc char[remaining] : new char[remaining];
+                                int runLength = 0;
+
+                                runBuffer[runLength++] = cell.Character;
+
                                 int k = c + 1;
                                 while (k < bufferCols)
                                 {
@@ -289,12 +297,13 @@ namespace NovaTerminal.Core
                                     var nf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
                                     if ((next.IsInverse ? nb : nf) != fg) break;
 
-                                    chars.Add(next.Character);
+                                    runBuffer[runLength++] = next.Character;
                                     k++;
                                 }
 
                                 fgPaint.Color = fg;
-                                canvas.DrawText(new string(chars.ToArray()), (float)(runStart * _charWidth) + paddingLeft, baselineY, font, fgPaint);
+                                // Create string directly from span (allocates string only, no intermediate arrays)
+                                canvas.DrawText(new string(runBuffer.Slice(0, runLength)), (float)(runStart * _charWidth) + paddingLeft, baselineY, font, fgPaint);
                                 c = k - 1;
                             }
                         }
