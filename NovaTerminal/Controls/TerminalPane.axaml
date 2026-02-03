@@ -6,7 +6,7 @@
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="NovaTerminal.Controls.TerminalPane"
              Focusable="True"
-             Background="#141414">
+             Background="Transparent">
     
     <UserControl.Styles>
         <Style Selector="ScrollBar">
@@ -18,8 +18,8 @@
         </Style>
     </UserControl.Styles>
 
-    <Border Padding="1">
-        <Grid x:Name="RootGrid" Background="#141414">
+    <Border Padding="0">
+        <Grid x:Name="RootGrid" Background="Transparent">
             <!-- Terminal View Layer -->
             <core:TerminalView x:Name="TermView" />
 

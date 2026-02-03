@@ -351,7 +351,7 @@ namespace NovaTerminal
             newPane.ApplySettings(_settings);
             var grid = new Grid { Background = Brushes.Transparent, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch };
 
-            var dividerBrush = new SolidColorBrush(Color.FromRgb(45, 45, 45)); // Darker, cleaner line
+            var dividerBrush = new SolidColorBrush(Color.FromRgb(35, 35, 35)); // Even more subtle
 
             if (orientation == Avalonia.Layout.Orientation.Horizontal)
             {
@@ -364,7 +364,8 @@ namespace NovaTerminal
                     Width = 3,
                     Background = dividerBrush,
                     ResizeDirection = GridResizeDirection.Columns,
-                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
+                    Focusable = false
                 };
                 Grid.SetColumn(splitter, 1);
                 grid.Children.Add(splitter);
@@ -383,7 +384,8 @@ namespace NovaTerminal
                     Height = 3,
                     Background = dividerBrush,
                     ResizeDirection = GridResizeDirection.Rows,
-                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
+                    Focusable = false
                 };
                 Grid.SetRow(splitter, 1);
                 grid.Children.Add(splitter);

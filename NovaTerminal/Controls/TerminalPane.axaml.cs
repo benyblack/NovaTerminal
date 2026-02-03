@@ -51,6 +51,10 @@ namespace NovaTerminal.Controls
             // Search UI
             SetupSearch();
 
+            // Wire up focus syncing
+            TermView.GotFocus += (s, e) => UpdateFocusVisuals(true);
+            TermView.LostFocus += (s, e) => UpdateFocusVisuals(false);
+
             // Load Settings
             ApplySettings(TerminalSettings.Load());
         }
@@ -186,15 +190,16 @@ namespace NovaTerminal.Controls
         {
             if (FocusBorder != null)
             {
-                // Detect if we are the only pane in our immediate container or parent tree
-                // For MVP: Check if parent is a Grid with > 1 child.
-                bool isAlone = true;
-                if (Parent is Grid g && g.Children.Count > 1) isAlone = false;
-                else if (Parent is ContentPresenter) isAlone = true; // Tab root
-
-                FocusBorder.BorderBrush = (focused && !isAlone) ? Brushes.Cyan : Brushes.Transparent;
-                FocusBorder.Opacity = (focused && !isAlone) ? 0.8 : 0.0;
+                // Disable the old border visual
+                FocusBorder.IsVisible = false;
             }
+
+            // Option 1: Inactive Dimming
+            // Make inactive panes significantly faded (0.5 for clear contrast)
+            TermView.Opacity = focused ? 1.0 : 0.5;
+
+            // Re-render to ensure cursor state updates
+            TermView.InvalidateVisual();
         }
 
         protected override void OnKeyDown(KeyEventArgs e)

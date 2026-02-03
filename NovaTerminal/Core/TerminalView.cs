@@ -678,8 +678,8 @@ namespace NovaTerminal.Core
                 return;
             }
 
-            // Hide cursor if we are throttling a resize
-            bool hideCursor = false; // Simplified: Always show cursor to prevent flickering/gaps
+            // Hide cursor if we are not focused
+            bool hideCursor = !IsKeyboardFocusWithin;
 
             // Create and dispatch custom draw op
             var drawOp = new TerminalDrawOperation(
@@ -697,7 +697,7 @@ namespace NovaTerminal.Core
                 _glyphTypeface,
                 _skTypeface,
                 _skFont,
-                _windowOpacity,
+                _windowOpacity * (float)Opacity,
                 _hasBackgroundImage,
                 hideCursor,
                 VisualRoot?.RenderScaling ?? 1.0
