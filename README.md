@@ -5,32 +5,29 @@ NovaTerminal is a high-performance, GPU-accelerated terminal emulator for Window
 ## ✨ Key Features
 
 ### 💎 Modern UI & Aesthetics
-- **Seamless Transparency**: Fully synchronized window-level opacity/blur effects.
+- **Seamless Transparency**: Fully synchronized window-level opacity and blur effects (Mica, Acrylic).
 - **Acrylic Design**: Custom window chrome with transparent tabs and title bar.
+- **Background Images**: Support for background images with opacity and stretch settings.
+- **Discrete Resizing**: Smooth, step-based resizing logic to prevent visual artifacts.
 - **Polished Controls**: Custom-styled window controls and tab headers that blend perfectly with the theme.
-- **Zero Artifacts**: Clean rendering with no white borders or visual glitches.
 
 ### 🚀 Performance & Rendering
 - **GPU Acceleration**: Custom rendering pipeline using **SkiaSharp** for high-speed text drawing.
-- **Thread-Safe Buffer**: Robust concurrent architecture using `ReaderWriterLockSlim` to handle heavy output without UI freezing.
+- **Thread-Safe Buffer**: Robust concurrent architecture using `ReaderWriterLockSlim` to handle heavy output.
 - **Smart Invalidation**: Optimized redraw logic to minimize CPU/GPU usage during idle times.
 
-### 🎨 Customization & Theming
+### 🛠️ Profiles & Customization
+- **Multi-Profile Support**: Configure distinct profiles for PowerShell, CMD, WSL, or custom shells.
+- **Visual Overrides**: Set specific fonts, sizes, and themes per profile (e.g., larger font for WSL, separate theme for Admin shells).
+- **Live Settings**: Changes to backgrounds, opacity, and fonts apply immediately without restart.
 - **Theme Support**: Built-in themes (Dark, Solarized Dark) with support for custom JSON-based color schemes.
-- **Dynamic Settings**: Change fonts, font sizes, opacity, and scrollback limits on the fly.
-- **Intelligent Backgrounds**: Addresses "black block" artifacts by intelligently remapping historical content when switching themes.
 
 ### 🔍 Productivity Tools
-- **Multi-Tab Interface**: Manage distinct sessions in a single window with smooth drag-and-drop support.
-- **Search Overlay**: Integrated search functionality (`Ctrl+Shift+F`) with result highlighting and navigation.
-- **Configurable Scrollback**: Adjustable history limit (default 10,000 lines).
-- **Secure Vault**: Encrypted secure storage using Windows DPAPI for managing API keys and secrets.
-
-## 🛠️ Architecture
-
-- **UI Framework**: Avalonia UI (Cross-platform ready, optimized for Windows 11 aesthetics).
-- **Backend**: Win32 ConPTY API for authentic console behavior.
-- **Input Handling**: Full xterm-compatible input forwarding (mouse reporting, special keys).
+- **Command Palette**: `Ctrl+Shift+P` to access all commands via a searchable overlay.
+- **Split Panes**: Split tabs vertically (`Ctrl+Shift+D`) or horizontally (`Ctrl+Shift+E`) and resize them with drag-and-drop dividers.
+- **Multi-Tab Interface**: Manage distinct sessions in a single window.
+- **Pane Navigation**: Move focus between panes using `Alt + Arrow Keys`.
+- **Search Overlay**: Integrated search functionality (`Ctrl+Shift+F`) with result highlighting.
 
 ## 📦 Requirements
 
@@ -39,12 +36,29 @@ NovaTerminal is a high-performance, GPU-accelerated terminal emulator for Window
 
 ## ⌨️ Shortcuts
 
-- `Ctrl+Shift+T`: New Tab
-- `Ctrl+Shift+W`: Close Tab
-- `Ctrl+Shift+F`: Toggle Search
-- `Ctrl+Tab` / `Ctrl+Shift+Tab`: Switch Tabs
-- `Ctrl+Plus` / `Ctrl+Minus`: Zoom In/Out (Font Size)
-- `Ctrl+Scroll`: Zoom In/Out
+| Action | Shortcut |
+| :--- | :--- |
+| **General** | |
+| Command Palette | `Ctrl+Shift+P` |
+| New Tab | `Ctrl+Shift+T` |
+| Close Tab | `Ctrl+Shift+W` |
+| Settings | (via Command Palette) |
+| **View, Panes & Tabs** | |
+| Split Vertical | `Ctrl+Shift+D` |
+| Split Horizontal | `Ctrl+Shift+E` |
+| Next Tab | `Ctrl+Tab` |
+| Previous Tab | `Ctrl+Shift+Tab` |
+| Navigate Panes | `Alt + Arrow Keys` |
+| Zoom In/Out | `Ctrl + +/-` or `Ctrl + Scroll` |
+| **Edit** | |
+| Find / Search | `Ctrl+Shift+F` |
+| Paste | `Ctrl+V` |
+
+## 🛠️ Architecture
+
+- **UI Framework**: Avalonia UI (Cross-platform ready, optimized for Windows 11).
+- **Backend**: Win32 ConPTY API for authentic console behavior.
+- **Input Handling**: Full xterm-compatible input forwarding.
 
 ## 📝 License
 

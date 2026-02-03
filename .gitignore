@@ -489,3 +489,8 @@ test_repro*.txt
 
 # agent
 .agent/
+
+#ide
+.vscode/
+.idea/
+.vs/
