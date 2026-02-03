@@ -66,6 +66,21 @@ namespace NovaTerminal.Core
                     e.Handled = true;
                     return;
 
+                default:
+                    if (isCtrl && !e.KeyModifiers.HasFlag(KeyModifiers.Shift) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+                    {
+                        if (e.Key >= Key.A && e.Key <= Key.Z)
+                        {
+                            // Ctrl+A = 1, Ctrl+Z = 26
+                            // ASCII Control Characters
+                            char ctrlChar = (char)(e.Key - Key.A + 1);
+                            _session.SendInput(ctrlChar.ToString());
+                            e.Handled = true;
+                            return;
+                        }
+                    }
+                    break;
+
                 case Key.C:
                     if (isCtrl)
                     {
