@@ -599,6 +599,16 @@ namespace NovaTerminal
         {
             // 1. Register Default Commands
             CommandRegistry.Register("New Tab", "General", () => AddTab(), "Ctrl+Shift+T");
+
+            // Dynamic Profile Tabs
+            if (_settings.Profiles != null)
+            {
+                foreach (var profile in _settings.Profiles)
+                {
+                    CommandRegistry.Register($"New Tab: {profile.Name}", "Shell", () => AddTab(profile), "");
+                }
+            }
+
             CommandRegistry.Register("Close Tab", "General", () => { if (this.FindControl<TabControl>("Tabs")?.SelectedItem is TabItem ti) CloseTab(ti); }, "Ctrl+Shift+W");
             CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Vertical), "Ctrl+Shift+D");
             CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+E");
