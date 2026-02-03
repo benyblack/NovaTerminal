@@ -151,5 +151,24 @@
                 <Button Name="SearchClose" Grid.Column="4" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
             </Grid>
         </Border>
+
+        <!-- Command Palette Overlay -->
+        <Grid Name="CommandPaletteOverlay" ZIndex="999" IsVisible="False" Background="#80000000">
+            <Border Width="600" Height="400" Background="#252526" BorderBrush="#007ACC" BorderThickness="1" CornerRadius="4" VerticalAlignment="Top" Margin="0,80,0,0">
+                <Grid RowDefinitions="Auto, *">
+                    <TextBox Name="CommandSearchBox" Watermark="Type a command..." FontSize="14" Padding="10" BorderThickness="0,0,0,1" BorderBrush="#333333" Background="Transparent" Foreground="White" />
+                    <ListBox Name="CommandList" Grid.Row="1" Background="Transparent" BorderThickness="0">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate x:CompileBindings="False">
+                                <Grid ColumnDefinitions="*, 100">
+                                    <TextBlock Text="{Binding FullTitle}" Foreground="#E0E0E0" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding Shortcut}" Foreground="#888888" Margin="10,0,0,0" VerticalAlignment="Center" FontSize="11"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

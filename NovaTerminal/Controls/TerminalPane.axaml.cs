@@ -232,9 +232,9 @@ namespace NovaTerminal.Controls
                 FocusBorder.IsVisible = false;
             }
 
-            // Option 1: Inactive Dimming
-            // Make inactive panes significantly faded (0.5 for clear contrast)
-            TermView.Opacity = focused ? 1.0 : 0.5;
+            // Option 1: Inactive Dimming - DISABLED per user feedback
+            // TermView.Opacity = focused ? 1.0 : 0.5;
+            TermView.Opacity = 1.0;
 
             // Re-render to ensure cursor state updates
             TermView.InvalidateVisual();

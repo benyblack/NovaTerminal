@@ -166,12 +166,32 @@ namespace NovaTerminal
             var defaultProfile = _settings.Profiles.Find(p => p.Id == _settings.DefaultProfileId) ?? _settings.Profiles[0];
             AddTab(defaultProfile);
 
+            SetupCommandPalette();
+
             // Keyboard Shortcuts
             this.AddHandler(KeyDownEvent, (s, e) =>
             {
                 var modifiers = e.KeyModifiers;
                 bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
                 bool isShift = (modifiers & KeyModifiers.Shift) != 0;
+
+                if (isCtrl && isShift && e.Key == Key.P)
+                {
+                    ToggleCommandPalette();
+                    e.Handled = true;
+                    return;
+                }
+
+                var overlay = this.FindControl<Grid>("CommandPaletteOverlay");
+                if (overlay != null && overlay.IsVisible)
+                {
+                    // Trap keys when palette is open
+                    if (e.Key == Key.Escape) ToggleCommandPalette();
+                    // Let TextBox handle the rest, but prevent bubbling to terminal
+                    // Actually, if we are focused on the TextBox, we don't need to do much.
+                    // But if focus somehow escaped, we want to ensure we don't type in terminal.
+                    return;
+                }
 
                 if (isCtrl && (e.Key == Key.OemPlus || e.Key == Key.Add))
                 {
@@ -571,17 +591,143 @@ namespace NovaTerminal
             if (titleBar != null) titleBar.Background = headerBrush;
 
             var dragBorder = this.FindControl<Border>("DragBorder");
-            if (dragBorder != null) dragBorder.Background = headerBrush;
+            if (dragBorder != null) dragBorder.PointerPressed += (s, e) => BeginMoveDrag(e);
 
-            var tabs = this.FindControl<TabControl>("Tabs");
-            if (tabs != null)
+        }
+
+        private void SetupCommandPalette()
+        {
+            // 1. Register Default Commands
+            CommandRegistry.Register("New Tab", "General", () => AddTab(), "Ctrl+Shift+T");
+            CommandRegistry.Register("Close Tab", "General", () => { if (this.FindControl<TabControl>("Tabs")?.SelectedItem is TabItem ti) CloseTab(ti); }, "Ctrl+Shift+W");
+            CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Vertical), "Ctrl+Shift+D");
+            CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+E");
+            CommandRegistry.Register("Find in Terminal", "Edit", () => _currentPane?.ToggleSearch(), "Ctrl+Shift+F");
+            CommandRegistry.Register("Paste", "Edit", () => _ = PasteFromClipboardAsync(), "Ctrl+V");
+            CommandRegistry.Register("Settings", "General", () =>
             {
-                // Ensure the tab headers area matches the title bar
+                var settings = this.FindControl<MenuItem>("MenuManageProfiles");
+                // Simulate click or just instantiate settings window directly?
+                // Let's manually trigger the properly wired logic if possible, or duplicate nicely.
+                // Ideally we extract the OpenSettings logic. For now, let's just create a new window
+                var sw = new SettingsWindow(0);
+                sw.ShowDialog<bool>(this);
+            }, "");
+
+            // Themes
+            CommandRegistry.Register("Theme: Solarized Dark", "Theme", () => { _settings.ThemeName = "Solarized Dark"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
+            CommandRegistry.Register("Theme: Default Dark", "Theme", () => { _settings.ThemeName = "Default (Dark)"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
+
+            // 2. Wire UI
+            var overlay = this.FindControl<Grid>("CommandPaletteOverlay");
+            var box = this.FindControl<TextBox>("CommandSearchBox");
+            var list = this.FindControl<ListBox>("CommandList");
+
+            if (overlay != null)
+            {
+                overlay.PointerPressed += (s, e) =>
+                {
+                    // If we clicked the background overlay itself (not the border dialog), close it
+                    if (e.Source == overlay) ToggleCommandPalette();
+                };
             }
 
-            UpdateTabVisuals();
-            UpdateTransparencyHints();
+            if (box != null && list != null)
+            {
+                box.KeyUp += (s, e) =>
+                {
+                    if (e.Key == Key.Down)
+                    {
+                        list.SelectedIndex = Math.Min(list.ItemCount - 1, list.SelectedIndex + 1);
+                        list.ScrollIntoView(list.SelectedItem);
+                    }
+                    else if (e.Key == Key.Up)
+                    {
+                        list.SelectedIndex = Math.Max(0, list.SelectedIndex - 1);
+                        list.ScrollIntoView(list.SelectedItem);
+                    }
+                    else if (e.Key == Key.Enter)
+                    {
+                        if (list.SelectedItem is TerminalCommand cmd)
+                        {
+                            ExecuteCommand(cmd);
+                        }
+                    }
+                    else if (e.Key == Key.Escape)
+                    {
+                        ToggleCommandPalette();
+                    }
+                    else
+                    {
+                        var results = CommandRegistry.Search(box.Text ?? "");
+                        list.ItemsSource = results;
+                        if (results.Count > 0) list.SelectedIndex = 0;
+                    }
+                };
+
+                // Filter on text changed too for smoother feel
+                box.PropertyChanged += (s, e) =>
+                {
+                    if (e.Property.Name == "Text")
+                    {
+                        var results = CommandRegistry.Search(box.Text ?? "");
+                        list.ItemsSource = results;
+                        if (results.Count > 0) list.SelectedIndex = 0;
+                    }
+                };
+            }
+
+            if (list != null)
+            {
+                list.DoubleTapped += (s, e) =>
+                {
+                    if (list.SelectedItem is TerminalCommand cmd) ExecuteCommand(cmd);
+                };
+            }
         }
+
+        private void ToggleCommandPalette()
+        {
+            var overlay = this.FindControl<Grid>("CommandPaletteOverlay");
+            var box = this.FindControl<TextBox>("CommandSearchBox");
+            var list = this.FindControl<ListBox>("CommandList");
+
+            if (overlay == null) return;
+
+            bool isVisible = overlay.IsVisible;
+            overlay.IsVisible = !isVisible;
+
+            if (!isVisible)
+            {
+                // Opening
+                if (box != null && list != null)
+                {
+                    box.Text = "";
+                    list.ItemsSource = CommandRegistry.GetCommands().OrderBy(c => c.Category).ThenBy(c => c.Title).ToList();
+                    list.SelectedIndex = 0;
+                    box.Focus();
+                }
+            }
+            else
+            {
+                // Closing - return focus to terminal
+                _currentPane?.ActiveControl.Focus();
+            }
+        }
+
+        private void ExecuteCommand(TerminalCommand cmd)
+        {
+            ToggleCommandPalette(); // Close first
+            try
+            {
+                cmd.Action?.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error executing command {cmd.Title}: {ex.Message}");
+            }
+        }
+
 
         private void UpdateTransparencyHints()
         {
