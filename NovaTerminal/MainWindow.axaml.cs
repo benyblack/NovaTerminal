@@ -376,6 +376,18 @@ namespace NovaTerminal
                 if (freshProfile != null) profile = freshProfile;
             }
 
+            // Construct command if it's an SSH connection
+            if (profile.Type == ConnectionType.SSH)
+            {
+                string host = string.IsNullOrWhiteSpace(profile.SshHost) ? "localhost" : profile.SshHost;
+                string user = string.IsNullOrWhiteSpace(profile.SshUser) ? "" : $"{profile.SshUser}@";
+                string portString = profile.SshPort == 22 ? "" : $"-p {profile.SshPort} ";
+                string key = string.IsNullOrWhiteSpace(profile.SshKeyPath) ? "" : $"-i \"{profile.SshKeyPath}\" ";
+
+                profile.Command = "ssh.exe";
+                profile.Arguments = $"{portString}{key}{user}{host}";
+            }
+
             var pane = new TerminalPane(profile);
 
             pane.ApplySettings(_settings);
@@ -461,7 +473,18 @@ namespace NovaTerminal
             int oldRow = Grid.GetRow(originalPane);
             int oldCol = Grid.GetColumn(originalPane);
 
-            var newPane = new TerminalPane(originalPane.ShellCommand);
+            TerminalPane newPane;
+            if (originalPane.Profile != null)
+            {
+                // Create a copy of the profile for the new split pane
+                var profile = originalPane.Profile;
+                newPane = new TerminalPane(profile);
+            }
+            else
+            {
+                newPane = new TerminalPane(originalPane.ShellCommand);
+            }
+
             newPane.ApplySettings(_settings);
             var grid = new Grid { Background = Brushes.Transparent, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch };
 

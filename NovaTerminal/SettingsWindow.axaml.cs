@@ -13,6 +13,7 @@ namespace NovaTerminal
 
         private TerminalProfile? _selectedProfile;
         private System.Collections.Generic.List<TerminalProfile> _profilesList = new();
+        private readonly VaultService _vault = new();
 
         public event Action<double>? OnOpacityChanged;
         public event Action<string>? OnBlurChanged;
@@ -37,6 +38,11 @@ namespace NovaTerminal
                 Command = p.Command,
                 Arguments = p.Arguments,
                 StartingDirectory = p.StartingDirectory,
+                Type = p.Type,
+                SshHost = p.SshHost,
+                SshPort = p.SshPort,
+                SshUser = p.SshUser,
+                SshKeyPath = p.SshKeyPath,
                 FontFamily = p.FontFamily,
                 FontSize = p.FontSize,
                 ThemeName = p.ThemeName
@@ -117,6 +123,52 @@ namespace NovaTerminal
             if (commandInput != null) commandInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Command = commandInput.Text ?? ""; };
             if (argsInput != null) argsInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Arguments = argsInput.Text ?? ""; };
             if (cwdInput != null) cwdInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.StartingDirectory = cwdInput.Text ?? ""; };
+
+            // Connection Type and SSH Inputs
+            var typeList = this.FindControl<ComboBox>("ProfileTypeList");
+            var sshPanel = this.FindControl<StackPanel>("SshSettingsPanel");
+            var sshHostInput = this.FindControl<TextBox>("SshHostInput");
+            var sshPortInput = this.FindControl<NumericUpDown>("SshPortInput");
+            var sshUserInput = this.FindControl<TextBox>("SshUserInput");
+            var sshPasswordInput = this.FindControl<TextBox>("SshPasswordInput");
+            var sshKeyPathInput = this.FindControl<TextBox>("SshKeyPathInput");
+            var btnBrowseSshKey = this.FindControl<Button>("BtnBrowseSshKey");
+
+            if (typeList != null)
+            {
+                typeList.SelectionChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null)
+                    {
+                        _selectedProfile.Type = (ConnectionType)typeList.SelectedIndex;
+                        if (sshPanel != null) sshPanel.IsVisible = _selectedProfile.Type == ConnectionType.SSH;
+                    }
+                };
+            }
+
+            if (sshHostInput != null) sshHostInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.SshHost = sshHostInput.Text ?? ""; };
+            if (sshPortInput != null) sshPortInput.ValueChanged += (s, e) => { if (_selectedProfile != null && sshPortInput.Value.HasValue) _selectedProfile.SshPort = (int)sshPortInput.Value.Value; };
+            if (sshUserInput != null) sshUserInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.SshUser = sshUserInput.Text ?? ""; };
+            if (sshPasswordInput != null) sshPasswordInput.KeyUp += (s, e) =>
+            {
+                if (_selectedProfile != null)
+                    _vault.SetSecret($"profile_{_selectedProfile.Id}_password", sshPasswordInput.Text ?? "");
+            };
+            if (sshKeyPathInput != null) sshKeyPathInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.SshKeyPath = sshKeyPathInput.Text ?? ""; };
+
+            if (btnBrowseSshKey != null)
+            {
+                btnBrowseSshKey.Click += async (s, e) =>
+                {
+                    var dlg = new OpenFileDialog { Title = "Select Private Key", AllowMultiple = false };
+                    var result = await dlg.ShowAsync(this);
+                    if (result != null && result.Length > 0 && sshKeyPathInput != null)
+                    {
+                        sshKeyPathInput.Text = result[0];
+                        if (_selectedProfile != null) _selectedProfile.SshKeyPath = result[0];
+                    }
+                };
+            }
 
             var checkFont = this.FindControl<CheckBox>("CheckOverrideFont");
             var checkSize = this.FindControl<CheckBox>("CheckOverrideSize");
@@ -439,6 +491,21 @@ namespace NovaTerminal
             this.FindControl<TextBox>("ProfileCommandInput")!.Text = profile.Command;
             this.FindControl<TextBox>("ProfileArgsInput")!.Text = profile.Arguments ?? "";
             this.FindControl<TextBox>("ProfileCwdInput")!.Text = profile.StartingDirectory ?? "";
+
+            var typeList = this.FindControl<ComboBox>("ProfileTypeList");
+            if (typeList != null) typeList.SelectedIndex = (int)profile.Type;
+
+            var sshPanel = this.FindControl<StackPanel>("SshSettingsPanel");
+            if (sshPanel != null) sshPanel.IsVisible = profile.Type == ConnectionType.SSH;
+
+            this.FindControl<TextBox>("SshHostInput")!.Text = profile.SshHost ?? "";
+            this.FindControl<NumericUpDown>("SshPortInput")!.Value = profile.SshPort;
+            this.FindControl<TextBox>("SshUserInput")!.Text = profile.SshUser ?? "";
+            this.FindControl<TextBox>("SshKeyPathInput")!.Text = profile.SshKeyPath ?? "";
+
+            // Load password from vault
+            var pwdInput = this.FindControl<TextBox>("SshPasswordInput");
+            if (pwdInput != null) pwdInput.Text = _vault.GetSecret($"profile_{profile.Id}_password") ?? "";
 
             this.FindControl<CheckBox>("CheckOverrideFont")!.IsChecked = profile.FontFamily != null;
             this.FindControl<CheckBox>("CheckOverrideSize")!.IsChecked = profile.FontSize.HasValue;

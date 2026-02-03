@@ -2,6 +2,12 @@ using System;
 
 namespace NovaTerminal.Core
 {
+    public enum ConnectionType
+    {
+        Local,
+        SSH
+    }
+
     public class TerminalProfile
     {
         public Guid Id { get; set; } = Guid.NewGuid();
@@ -9,6 +15,13 @@ namespace NovaTerminal.Core
         public string Command { get; set; } = "cmd.exe";
         public string Arguments { get; set; } = "";
         public string StartingDirectory { get; set; } = "";
+
+        // Connection Settings
+        public ConnectionType Type { get; set; } = ConnectionType.Local;
+        public string SshHost { get; set; } = "";
+        public int SshPort { get; set; } = 22;
+        public string SshUser { get; set; } = "";
+        public string SshKeyPath { get; set; } = "";
 
         // Overrides (null means use global settings)
         public string? ThemeName { get; set; }

@@ -128,6 +128,48 @@
                             </StackPanel>
 
                             <Separator Background="#333" Margin="0,5"/>
+
+                            <StackPanel>
+                                <TextBlock Text="Connection Type" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <ComboBox Name="ProfileTypeList" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem>Local (CMD, PowerShell, WSL)</ComboBoxItem>
+                                    <ComboBoxItem>SSH</ComboBoxItem>
+                                </ComboBox>
+                            </StackPanel>
+
+                            <!-- SSH Specific Settings -->
+                            <StackPanel Name="SshSettingsPanel" Spacing="15" IsVisible="False">
+                                <Grid ColumnDefinitions="*, 80">
+                                    <StackPanel>
+                                        <TextBlock Text="Host" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                        <TextBox Name="SshHostInput" Watermark="e.g. 192.168.1.1 or example.com" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                        <TextBlock Text="Port" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                        <NumericUpDown Name="SshPortInput" Minimum="1" Maximum="65535" Value="22" />
+                                    </StackPanel>
+                                </Grid>
+
+                                <StackPanel>
+                                    <TextBlock Text="Username" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBox Name="SshUserInput" Watermark="e.g. root or ubuntu" />
+                                </StackPanel>
+
+                                <StackPanel>
+                                    <TextBlock Text="Password / Passphrase (Optional)" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBox Name="SshPasswordInput" PasswordChar="*" Watermark="Leave empty to prompt in terminal" />
+                                </StackPanel>
+
+                                <StackPanel>
+                                    <TextBlock Text="Private Key Path (Optional)" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBox Name="SshKeyPathInput" Watermark="Path to .pem, .key, etc." />
+                                        <Button Name="BtnBrowseSshKey" Grid.Column="1" Content="..." Margin="5,0,0,0" Width="40"/>
+                                    </Grid>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Separator Background="#333" Margin="0,5"/>
                             <Button Name="BtnSetDefault" Content="Set as Default" HorizontalAlignment="Left" Padding="10,4"/>
                             
                             <TextBlock Text="Visual Overrides (Experimental)" FontSize="14" FontWeight="SemiBold" Margin="0,5,0,0" Foreground="#888"/>
