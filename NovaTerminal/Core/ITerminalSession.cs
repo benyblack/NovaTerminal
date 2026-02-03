@@ -8,6 +8,7 @@ namespace NovaTerminal.Core
     {
         void SendInput(string input);
         void Resize(int cols, int rows);
+        string ShellCommand { get; }
         event System.Action<string>? OnOutputReceived;
         event System.Action<int>? OnExit;
     }

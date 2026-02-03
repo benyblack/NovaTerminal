@@ -47,8 +47,12 @@ namespace NovaTerminal.Core
             public static extern void pty_close(IntPtr state);
         }
 
+        public string ShellCommand { get; }
+
         public RustPtySession(string shellCommand, int cols = 120, int rows = 30)
         {
+            ShellCommand = shellCommand;
+
             string effectiveShell = shellCommand;
             string shellLower = shellCommand.ToLowerInvariant();
 

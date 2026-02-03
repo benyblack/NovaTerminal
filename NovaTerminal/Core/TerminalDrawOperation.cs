@@ -281,10 +281,9 @@ namespace NovaTerminal.Core
                                 // Batch simple chars for performance
                                 int runStart = c;
 
-                                // Use stack buffer to avoid List<char> allocations
-                                // Max run is remaining columns. Safe to stackalloc for typical terminal widths.
+                                // Avoid stackalloc in loop (CA2014)
                                 int remaining = bufferCols - c;
-                                Span<char> runBuffer = remaining <= 1024 ? stackalloc char[remaining] : new char[remaining];
+                                Span<char> runBuffer = new char[remaining]; // Allocation is safer than stack overflow
                                 int runLength = 0;
 
                                 runBuffer[runLength++] = cell.Character;

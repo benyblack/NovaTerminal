@@ -1,0 +1,61 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:core="clr-namespace:NovaTerminal.Core"
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+             x:Class="NovaTerminal.Controls.TerminalPane"
+             Focusable="True"
+             Background="#141414">
+    
+    <UserControl.Styles>
+        <Style Selector="ScrollBar">
+            <Setter Property="Opacity" Value="0.6"/>
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ScrollBar:pointerover">
+            <Setter Property="Opacity" Value="1.0"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Border Padding="1">
+        <Grid x:Name="RootGrid" Background="#141414">
+            <!-- Terminal View Layer -->
+            <core:TerminalView x:Name="TermView" />
+
+            <!-- ScrollBar Overlay -->
+            <ScrollBar x:Name="TermScrollBar"
+                       Orientation="Vertical"
+                       AllowAutoHide="True"
+                       Visibility="Visible"
+                       HorizontalAlignment="Right"
+                       Width="10"
+                       Minimum="0" Maximum="0"
+                       ViewportSize="20"/>
+
+            <!-- Search Overlay -->
+            <Border Name="SearchPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Right" 
+                    Margin="0,10,24,0" Background="#383838" CornerRadius="4" Padding="6" Width="400"
+                    BorderBrush="#505050" BorderThickness="1" ZIndex="200">
+                <Border.Resources>
+                    <SolidColorBrush x:Key="TextControlBackground">#1a1a1a</SolidColorBrush>
+                    <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
+                </Border.Resources>
+                <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto">
+                    <TextBox Name="SearchBox" Watermark="Search..." 
+                             BorderThickness="1" BorderBrush="#505050" 
+                             VerticalContentAlignment="Center" 
+                             Padding="8,4" Margin="2"/>
+                    <TextBlock Name="SearchCount" Grid.Column="1" Text="0/0" Foreground="#AAA" 
+                               VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
+                    <Button Name="SearchPrev" Grid.Column="2" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                    <Button Name="SearchNext" Grid.Column="3" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                    <Button Name="SearchClose" Grid.Column="4" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                </Grid>
+            </Border>
+            
+            <!-- Focus Indicator Border -->
+            <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" />
+        </Grid>
+    </Border>
+</UserControl>

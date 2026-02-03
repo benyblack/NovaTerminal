@@ -18,11 +18,126 @@ namespace NovaTerminal.Core
         public TerminalView()
         {
             Focusable = true;
-            ClipToBounds = true;  // CRITICAL: Prevents SkiaSharp rendering from affecting other UI elements like tabs
+            ClipToBounds = true;
 
-            // Frame Limiter (60 FPS)
+            // Allow receiving focus via click
+            PointerPressed += (s, e) => Focus();
+
             _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, OnRenderTimerTick);
             _renderTimer.Start();
+        }
+
+        protected override void OnTextInput(TextInputEventArgs e)
+        {
+            base.OnTextInput(e);
+            if (!e.Handled && _session != null && !string.IsNullOrEmpty(e.Text))
+            {
+                _session.SendInput(e.Text);
+                e.Handled = true;
+            }
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.Handled || _session == null) return;
+
+            // Handle keys that don't generate text input (Control codes, arrows, etc.)
+            // Logic copied from MainWindow
+            string? sequence = null;
+            bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+
+            switch (e.Key)
+            {
+                case Key.Enter:
+                    _session.SendInput("\r");
+                    e.Handled = true;
+                    return;
+                case Key.Back:
+                    _session.SendInput("\x7f");
+                    e.Handled = true;
+                    return;
+                case Key.Tab:
+                    _session.SendInput("\t");
+                    e.Handled = true;
+                    return;
+                case Key.Escape:
+                    _session.SendInput("\x1b");
+                    e.Handled = true;
+                    return;
+
+                case Key.C:
+                    if (isCtrl)
+                    {
+                        if (HasSelection())
+                        {
+                            _ = CopySelectionToClipboard();
+                            ClearSelection();
+                        }
+                        else
+                        {
+                            _session.SendInput("\x03");
+                        }
+                        e.Handled = true;
+                        return;
+                    }
+                    break;
+                case Key.V:
+                    if (isCtrl)
+                    {
+                        // Clipboard paste - handled by wrapping logic or we need dependency injection?
+                        // TerminalView technically doesn't know about Window's PasteFromClipboard.
+                        // But providing a way to paste is essential.
+                        // For now we might leave CTRL+V in MainWindow or raise an event?
+                        // MainWindow is better for accessing Clipboard safely.
+                        // So we WON'T handle Ctrl+V here, let it bubble/tunnel?
+                        // Actually MainWindow has a global handler for Ctrl+V.
+                        // If we don't handle it here, MainWindow will see it?
+                        // MainWindow's handler is Tunnel, so it sees it BEFORE this.
+                        // So Ctrl+V is fine in MainWindow.
+                    }
+                    break;
+
+                // Arrows
+                case Key.Up:
+                    sequence = _buffer != null && _buffer.IsApplicationCursorKeys ? "\x1bOA" : "\x1b[A";
+                    break;
+                case Key.Down:
+                    sequence = _buffer != null && _buffer.IsApplicationCursorKeys ? "\x1bOB" : "\x1b[B";
+                    break;
+                case Key.Right:
+                    sequence = _buffer != null && _buffer.IsApplicationCursorKeys ? "\x1bOC" : "\x1b[C";
+                    break;
+                case Key.Left:
+                    sequence = _buffer != null && _buffer.IsApplicationCursorKeys ? "\x1bOD" : "\x1b[D";
+                    break;
+                case Key.Home: sequence = "\x1b[H"; break;
+                case Key.End: sequence = "\x1b[F"; break;
+
+                // Function Keys
+                case Key.F1: sequence = "\x1bOP"; break;
+                case Key.F2: sequence = "\x1bOQ"; break;
+                case Key.F3: sequence = "\x1bOR"; break;
+                case Key.F4: sequence = "\x1bOS"; break;
+                case Key.F5: sequence = "\x1b[15~"; break;
+                case Key.F6: sequence = "\x1b[17~"; break;
+                case Key.F7: sequence = "\x1b[18~"; break;
+                case Key.F8: sequence = "\x1b[19~"; break;
+                case Key.F9: sequence = "\x1b[20~"; break;
+                case Key.F10: sequence = "\x1b[21~"; break;
+                case Key.F11: sequence = "\x1b[23~"; break;
+                case Key.F12: sequence = "\x1b[24~"; break;
+                case Key.Delete: sequence = "\x1b[3~"; break;
+                case Key.Insert: sequence = "\x1b[2~"; break;
+                case Key.PageUp: sequence = "\x1b[5~"; break;
+                case Key.PageDown: sequence = "\x1b[6~"; break;
+            }
+
+            if (sequence != null)
+            {
+                _session.SendInput(sequence);
+                e.Handled = true;
+            }
         }
 
         private TerminalBuffer? _buffer;
@@ -75,6 +190,9 @@ namespace NovaTerminal.Core
                 InvalidateVisual();
             }
         }
+
+        public int Cols => (_charWidth > 0) ? (int)(Math.Max(0, Bounds.Width - 4) / _charWidth) : 0;
+        public int Rows => (_charHeight > 0) ? (int)(Bounds.Height / _charHeight) : 0;
 
         public void ApplySettings(TerminalSettings settings)
         {
@@ -133,6 +251,25 @@ namespace NovaTerminal.Core
             InvalidateVisual();
         }
 
+        protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            base.OnAttachedToVisualTree(e);
+
+            // Ensure char metrics are available immediately upon attachment
+            MeasureCharSize();
+
+            _isDirty = true;
+            InvalidateVisual();
+        }
+
+        protected override void OnGotFocus(GotFocusEventArgs e)
+        {
+            base.OnGotFocus(e);
+            _isDirty = true;
+            InvalidateVisual();
+        }
+
+
         private void ClearSkiaResources()
         {
             _skFont?.Dispose();
@@ -159,13 +296,15 @@ namespace NovaTerminal.Core
             InvalidateVisual();
         }
 
-        private void MeasureCharSize()
+        public void MeasureCharSize()
         {
+            double scaling = VisualRoot?.RenderScaling ?? 1.0;
+
             // Measure char size and get GlyphTypeface
-            var testText = new FormattedText("M", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, _fontSize, Brushes.White);
-            _charWidth = testText.Width;
-            _charHeight = testText.Height;
-            _baselineOffset = testText.Baseline;
+            var testText = new FormattedText("M", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, _fontSize * scaling, Brushes.White);
+            _charWidth = testText.Width / scaling;
+            _charHeight = testText.Height / scaling;
+            _baselineOffset = testText.Baseline / scaling;
 
             // Try to get IGlyphTypeface for low-level rendering
             _glyphTypeface = _typeface.GlyphTypeface;
@@ -312,7 +451,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        public event Action? OnReady;
+        public event Action<int, int>? Ready;
         public event Action<int, int>? OnResize;
         private bool _isReady;
 
@@ -407,8 +546,19 @@ namespace NovaTerminal.Core
         protected override void OnSizeChanged(SizeChangedEventArgs e)
         {
             base.OnSizeChanged(e);
-            if (_buffer != null && _charWidth > 0 && _charHeight > 0)
+
+            // Force immediate render pass on any size change to prevent white panes
+            InvalidateVisual();
+
+            if (_buffer != null)
             {
+                if (_charWidth <= 0 || _charHeight <= 0)
+                {
+                    MeasureCharSize();
+                }
+
+                if (_charWidth <= 0 || _charHeight <= 0) return; // Still zero? Bail.
+
                 // Padding must match TerminalDrawOperation (PaddingLeft = 4)
                 // We subtract padding from available width to avoid clipping last column
                 int availableWidth = Math.Max(0, (int)e.NewSize.Width - 4);
@@ -417,8 +567,8 @@ namespace NovaTerminal.Core
                 int rows = (int)(e.NewSize.Height / _charHeight);
 
                 // Enforce minimum dimensions to prevent layout breakage on very small windows
-                cols = Math.Max(cols, 20);
-                rows = Math.Max(rows, 5);
+                cols = Math.Max(cols, 1);
+                rows = Math.Max(rows, 1);
 
                 if (cols > 0 && rows > 0)
                 {
@@ -432,66 +582,57 @@ namespace NovaTerminal.Core
                         _lastSentRows = rows;
                     }
 
+                    if (!_isReady)
+                    {
+                        _isReady = true;
+                        if (_buffer != null) _buffer.Resize(cols, rows);
+                        Ready?.Invoke(cols, rows);
+
+                        // Also trigger initial PTY resize to sync with layout
+                        OnResize?.Invoke(cols, rows);
+                    }
+
                     if (dimensionsChanged)
                     {
-                        // Track pending dimensions (but DON'T resize buffer yet - keep buffer/PTY in sync)
-                        // _lastSentCols = cols; // moved up
-                        // _lastSentRows = rows; // moved up
+                        // INTERVAL-BASED THROTTLE: Send resize if enough time passed, otherwise schedule
+                        _pendingCols = cols;
+                        _pendingRows = rows;
 
-                        if (!_isReady)
+                        var now = DateTime.Now;
+                        var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
+
+                        if (elapsed >= ResizeThrottleMs)
                         {
-                            // Ensure we don't start with a tiny transient layout (e.g. before Window is fully sized)
-                            // 40 cols and 10 rows is a reasonable minimum for a functional terminal.
-                            if (cols >= 40 && rows >= 10)
-                            {
-                                _isReady = true;
-                                // For initial ready, resize buffer immediately
-                                _buffer.Resize(cols, rows);
-                                OnReady?.Invoke();
-                                Console.WriteLine("[TerminalView] Ready! Initializing Session.");
-                            }
+                            // Enough time passed - send immediately
+                            SendThrottledResize();
                         }
                         else
                         {
-                            // INTERVAL-BASED THROTTLE: Send resize if enough time passed, otherwise schedule
-                            _pendingCols = cols;
-                            _pendingRows = rows;
-
-                            var now = DateTime.Now;
-                            var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
-
-                            if (elapsed >= ResizeThrottleMs)
+                            // Too soon - schedule for later (ensures we always send the final size)
+                            if (_resizeThrottleTimer == null)
                             {
-                                // Enough time passed - send immediately
-                                SendThrottledResize();
+                                _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
+                                {
+                                    Interval = TimeSpan.FromMilliseconds(ResizeThrottleMs)
+                                };
+                                _resizeThrottleTimer.Tick += OnResizeThrottleTick;
                             }
-                            else
-                            {
-                                // Too soon - schedule for later (ensures we always send the final size)
-                                if (_resizeThrottleTimer == null)
-                                {
-                                    _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
-                                    {
-                                        Interval = TimeSpan.FromMilliseconds(ResizeThrottleMs)
-                                    };
-                                    _resizeThrottleTimer.Tick += OnResizeThrottleTick;
-                                }
 
-                                if (!_resizeThrottleTimer.IsEnabled)
-                                {
-                                    _resizeThrottleTimer.Start();
-                                }
-                                // Don't restart timer - let it fire at the scheduled time
+                            if (!_resizeThrottleTimer.IsEnabled)
+                            {
+                                _resizeThrottleTimer.Start();
                             }
                         }
-
-                        // Don't invalidate here - wait for resize to be sent
                     }
-                    // If dimensions haven't changed, we still might want to invalidate for visual refresh
-                    // but we DON'T send resize to PTY - this is the key optimization
+
                 }
+
+                // Don't invalidate here - wait for resize to be sent
             }
+            // If dimensions haven't changed, we still might want to invalidate for visual refresh
+            // but we DON'T send resize to PTY - this is the key optimization
         }
+
 
         private void SendThrottledResize()
         {
@@ -520,8 +661,20 @@ namespace NovaTerminal.Core
         public override void Render(DrawingContext context)
         {
             var buffer = _buffer; // Capture local reference to prevent it becoming null mid-render (race condition)
-            if (buffer == null || _glyphTypeface == null)
+            if (buffer == null)
             {
+                // Absolute fallback: draw dark background even without a buffer
+                context.FillRectangle(new SolidColorBrush(Color.FromRgb(20, 20, 20), _windowOpacity), new Rect(0, 0, Bounds.Width, Bounds.Height));
+                return;
+            }
+
+            // Failsafe: Ensure we have fonts, but even if we don't, we should draw a background
+            // to avoid "white panes"
+            if (_glyphTypeface == null || _skTypeface == null)
+            {
+                // Fallback background fill if fonts aren't ready
+                var theme = buffer.Theme;
+                context.FillRectangle(new SolidColorBrush(theme.Background, _windowOpacity), new Rect(0, 0, Bounds.Width, Bounds.Height));
                 return;
             }
 

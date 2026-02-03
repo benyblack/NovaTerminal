@@ -55,7 +55,8 @@
                                               DockPanel.Dock="Top"
                                               ItemsPanel="{TemplateBinding ItemsPanel}" />
                                 <ContentPresenter Name="PART_SelectedContentHost"
-                                                Margin="0,-2,1,0"
+                                                Margin="0"
+                                                Background="Transparent"
                                                 Content="{TemplateBinding SelectedContent}"
                                                 ContentTemplate="{TemplateBinding SelectedContentTemplate}" />
                             </DockPanel>
