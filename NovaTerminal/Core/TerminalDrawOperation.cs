@@ -28,6 +28,7 @@ namespace NovaTerminal.Core
         private readonly float _opacity;
         private readonly bool _transparentBackground;
         private readonly bool _hideCursor;
+        private readonly double _renderScaling;
 
         public Rect Bounds => _bounds;
 
@@ -48,7 +49,8 @@ namespace NovaTerminal.Core
             SKFont? skFont,
             double opacity = 1.0,
             bool transparentBackground = false,
-            bool hideCursor = false)
+            bool hideCursor = false,
+            double renderScaling = 1.0)
         {
             _bounds = bounds;
             _buffer = buffer;
@@ -68,6 +70,7 @@ namespace NovaTerminal.Core
 
             _transparentBackground = transparentBackground;
             _hideCursor = hideCursor;
+            _renderScaling = renderScaling;
         }
 
         public void Dispose()
@@ -133,8 +136,8 @@ namespace NovaTerminal.Core
                 font.Edging = SKFontEdging.Antialias;
 
                 // Padding for terminal content
-                const float paddingLeft = 4;
-                const float paddingTop = 0;
+                float paddingLeft = (float)(4f * _renderScaling);
+                float paddingTop = 0;
 
                 // Correct calculation of displayStart (First visible absolute row)
                 int totalLines = _buffer.TotalLines;

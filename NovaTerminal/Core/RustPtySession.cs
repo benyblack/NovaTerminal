@@ -124,21 +124,12 @@ namespace NovaTerminal.Core
                 int read = Native.pty_read(_ptyState, buffer, buffer.Length);
                 if (read > 0)
                 {
-                    // RAW BYTES DEBUG
-                    string hex = BitConverter.ToString(buffer, 0, read);
-                    try { System.IO.File.AppendAllText("pty_bytes.log", $"Read {read}: {hex}\n"); } catch { }
-
                     // Use the stateful decoder - it will hold incomplete multi-byte sequences
                     // until more bytes arrive, preventing U+FFFD replacement characters
                     int charCount = _utf8Decoder.GetChars(buffer, 0, read, charBuffer, 0);
                     if (charCount > 0)
                     {
                         string text = new string(charBuffer, 0, charCount);
-
-                        // CHAR DEBUG
-                        string debug = "";
-                        foreach (var c in text) debug += $"{(int)c:X4} ";
-                        try { System.IO.File.AppendAllText("pty_chars.log", $"Chars: {debug}\n"); } catch { }
 
                         // Bounded add with timeout - provides back-pressure to PTY
                         if (!_outputQueue.TryAdd(text, 50, _cts.Token))

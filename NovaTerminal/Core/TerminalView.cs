@@ -179,6 +179,23 @@ namespace NovaTerminal.Core
                 {
                     _skFont?.Dispose();
                     _skFont = new SKFont(_skTypeface, (float)_fontSize);
+
+                    // IMPROVED METRICS: Use Skia metrics to respect line gap/leading
+                    var metrics = _skFont.Metrics;
+                    // Ascent is negative in Skia. Height = Descent - Ascent + Leading
+                    double skiaHeight = metrics.Descent - metrics.Ascent + metrics.Leading;
+                    if (skiaHeight > _charHeight)
+                    {
+                        _charHeight = Math.Ceiling(skiaHeight);
+                    }
+                    else
+                    {
+                        _charHeight = Math.Ceiling(_charHeight);
+                    }
+                }
+                else
+                {
+                    _charHeight = Math.Ceiling(_charHeight);
                 }
             }
             catch { }
@@ -284,6 +301,15 @@ namespace NovaTerminal.Core
         public void InvalidateBuffer()
         {
             _isDirty = true;
+            if (!_isInvalidationPending)
+            {
+                _isInvalidationPending = true;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _isInvalidationPending = false;
+                    InvalidateVisual();
+                }, DispatcherPriority.Render);
+            }
         }
 
         public event Action? OnReady;
@@ -406,14 +432,6 @@ namespace NovaTerminal.Core
                         _lastSentRows = rows;
                     }
 
-                    // DEBUG: Log all resize events to file
-                    try
-                    {
-                        string logLine = $"[{DateTime.Now:HH:mm:ss.fff}] Size: {e.NewSize.Width:F0}x{e.NewSize.Height:F0} -> {cols}x{rows} | Bounds: {Bounds.Width:F0}x{Bounds.Height:F0}";
-                        File.AppendAllText("debug_resize.log", logLine + Environment.NewLine);
-                    }
-                    catch { }
-
                     if (dimensionsChanged)
                     {
                         // Track pending dimensions (but DON'T resize buffer yet - keep buffer/PTY in sync)
@@ -481,13 +499,6 @@ namespace NovaTerminal.Core
             {
                 _lastPtyResizeTime = DateTime.Now;
 
-                try
-                {
-                    string logLine = $"[{DateTime.Now:HH:mm:ss.fff}] >>> THROTTLED RESIZE SENT: {_pendingCols}x{_pendingRows}";
-                    File.AppendAllText("debug_resize.log", logLine + Environment.NewLine);
-                }
-                catch { }
-
                 // CRITICAL ORDER: Resize buffer FIRST (synchronously, under lock)
                 // THEN notify PTY (triggers SIGWINCH, new output uses new size)
                 // This prevents race where PTY sends data for new dimensions while buffer is mid-reflow
@@ -535,7 +546,8 @@ namespace NovaTerminal.Core
                 _skFont,
                 _windowOpacity,
                 _hasBackgroundImage,
-                hideCursor
+                hideCursor,
+                VisualRoot?.RenderScaling ?? 1.0
             );
 
             context.Custom(drawOp);
@@ -723,17 +735,24 @@ namespace NovaTerminal.Core
                 // Only send press events in X10 mode (no release)
                 if (pressed)
                 {
+                    // FALLBACK: If coordinates exceed X10 limits (223), try force-sending SGR
+                    // because X10 cannot represent them. Most modern terminals accept SGR even if not explicitly requested.
+                    if (x >= 223 || y >= 223)
+                    {
+                        char finalChar = pressed ? 'M' : 'm';
+                        string sequence = $"\x1b[<{button};{x};{y}{finalChar}";
+                        _session.SendInput(sequence);
+                        return;
+                    }
+
                     // X10 format: button and coordinates are sent as single bytes offset by 32
                     char buttonChar = (char)(32 + button);
                     char xChar = (char)(32 + x);
                     char yChar = (char)(32 + y);
 
-                    // Clamp to valid range (coordinates must be < 223)
-                    if (x < 223 && y < 223)
-                    {
-                        string sequence = $"\x1b[M{buttonChar}{xChar}{yChar}";
-                        _session.SendInput(sequence);
-                    }
+                    // Clamp Check (redundant now but safe)
+                    string seqX10 = $"\x1b[M{buttonChar}{xChar}{yChar}";
+                    _session.SendInput(seqX10);
                 }
             }
         }

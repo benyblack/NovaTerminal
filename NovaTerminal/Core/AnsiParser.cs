@@ -7,7 +7,7 @@ namespace NovaTerminal.Core
     public class AnsiParser
     {
         private TerminalBuffer _buffer;
-        private enum State { Normal, Esc, Csi, Osc, OscEsc }
+        private enum State { Normal, Esc, Csi, Osc, OscEsc, Dcs, DcsEsc }
         private State _state = State.Normal;
 
         // Zero-alloc buffers
@@ -54,6 +54,10 @@ namespace NovaTerminal.Core
                             _state = State.Osc;
                             _oscStringBuffer.Clear();
                         }
+                        else if (c == 'P') // DCS Start (Device Control String) - Sixel, etc.
+                        {
+                            _state = State.Dcs;
+                        }
                         else if (c == '7') // Save Cursor
                         {
                             _buffer.SaveCursor();
@@ -62,6 +66,18 @@ namespace NovaTerminal.Core
                         else if (c == '8') // Restore Cursor
                         {
                             _buffer.RestoreCursor();
+                            _state = State.Normal;
+                        }
+                        else if (c == '(' || c == ')' || c == '*' || c == '+' || c == '-')
+                        {
+                            // G0/G1 charset selection - ignore for now but don't print
+                            _state = State.Normal;
+                        }
+                        else if (c >= 0x20 && c <= 0x7E)
+                        {
+                            // Unknown escape sequence followed by printable char?
+                            // Treat as literal printable character (fallback)
+                            _buffer.WriteChar(c);
                             _state = State.Normal;
                         }
                         else
@@ -96,6 +112,16 @@ namespace NovaTerminal.Core
                         {
                             _state = State.Normal;
                         }
+                        break;
+
+                    case State.Dcs:
+                        // Ignore everything until ST (ESC \)
+                        if (c == '\x1b') _state = State.DcsEsc;
+                        break;
+
+                    case State.DcsEsc:
+                        if (c == '\\') _state = State.Normal; // ST terminator
+                        else _state = State.Dcs; // False alarm, back to consuming
                         break;
 
                     case State.Csi:

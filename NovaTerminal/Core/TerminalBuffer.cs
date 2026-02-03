@@ -325,7 +325,8 @@ namespace NovaTerminal.Core
                     if (c == '\r' || c == '\n' || c == '\b' || c == '\t' || c == '\a')
                     {
                         HandleControlCode(c);
-                        return;
+                        // Do not return here - let execution fall through so finally block runs (unlocking)
+                        // and then OnInvalidate() runs.
                     }
 
                     // Normal char
