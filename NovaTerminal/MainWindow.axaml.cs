@@ -117,7 +117,41 @@ namespace NovaTerminal
             PopulateNewTabMenu();
 
             var menuManage = this.FindControl<MenuItem>("MenuManageProfiles");
-            if (menuManage != null) menuManage.Click += (s, e) => { /* TODO: Show Profiles UI */ };
+            if (menuManage != null) menuManage.Click += async (s, e) =>
+            {
+                var sw = new SettingsWindow(1); // Open logic Tab 1 (Profiles)
+                // Reuse the same logic as the main settings button
+                sw.OnOpacityChanged += (val) => { _settings.WindowOpacity = val; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
+                sw.OnBlurChanged += (val) => { _settings.BlurEffect = val; UpdateTransparencyHints(); };
+                sw.OnBgImageChanged += (path, opacity, stretch) =>
+                {
+                    _settings.BackgroundImagePath = path;
+                    _settings.BackgroundImageOpacity = opacity;
+                    _settings.BackgroundImageStretch = stretch;
+                    ApplyThemeToUI();
+                    ApplySettingsToAllTabs();
+                };
+                sw.OnFontChanged += (font) => { _settings.FontFamily = font; ApplySettingsToAllTabs(); };
+                sw.OnFontSizeChanged += (size) => { _settings.FontSize = size; ApplySettingsToAllTabs(); };
+                sw.OnThemeChanged += (theme) => { _settings.ThemeName = theme; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
+
+                await sw.ShowDialog<bool>(this);
+
+                // Use the settings object directly from the dialog to avoid disk I/O race conditions
+                if (sw.Settings != null)
+                {
+                    _settings = sw.Settings;
+                }
+                else
+                {
+                    _settings = TerminalSettings.Load();
+                }
+
+                PopulateNewTabMenu(); // Refresh menu just in case usage
+                ApplyThemeToUI();
+                ApplySettingsToAllTabs();
+                UpdateTransparencyHints();
+            };
 
             // Global Focus Tracking
             this.AddHandler(GotFocusEvent, (s, e) =>
@@ -227,7 +261,16 @@ namespace NovaTerminal
         public void ApplySettingsRecursive(Control? control, TerminalSettings settings)
         {
             if (control == null) return;
-            if (control is TerminalPane pane) pane.ApplySettings(settings);
+            if (control is TerminalPane pane)
+            {
+                // Refresh the profile object if possible to pick up overrides
+                if (pane.Profile != null)
+                {
+                    var updatedProfile = settings.Profiles.Find(p => p.Id == pane.Profile.Id);
+                    if (updatedProfile != null) pane.UpdateProfile(updatedProfile);
+                }
+                pane.ApplySettings(settings);
+            }
             else if (control is Panel panel) foreach (var child in panel.Children) if (child is Control c) ApplySettingsRecursive(c, settings);
                     else if (control is ContentControl cc) ApplySettingsRecursive(cc.Content as Control, settings);
         }
@@ -305,6 +348,12 @@ namespace NovaTerminal
             if (profile == null)
             {
                 profile = _settings.Profiles.Find(p => p.Id == _settings.DefaultProfileId) ?? _settings.Profiles[0];
+            }
+            else
+            {
+                // REFRESH the profile from settings to ensure we have the latest version (e.g. updated overrides)
+                var freshProfile = _settings.Profiles.Find(p => p.Id == profile.Id);
+                if (freshProfile != null) profile = freshProfile;
             }
 
             var pane = new TerminalPane(profile);

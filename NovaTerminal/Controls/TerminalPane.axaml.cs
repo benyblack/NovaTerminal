@@ -23,6 +23,10 @@ namespace NovaTerminal.Controls
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
 
+        public void UpdateProfile(TerminalProfile profile)
+        {
+            Profile = profile;
+        }
 
         public Control ActiveControl => TermView;
 

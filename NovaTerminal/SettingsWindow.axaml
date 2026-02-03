@@ -1,99 +1,166 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="NovaTerminal.SettingsWindow"
-        Title="Settings" Width="400" Height="450"
-        WindowStartupLocation="CenterOwner">
+        Title="Settings" Width="650" Height="500"
+        WindowStartupLocation="CenterOwner"
+        Background="#1E1E1E" Foreground="White">
     
-    <Grid Margin="20" RowDefinitions="Auto, *, Auto">
-        <TextBlock Text="Terminal Settings" FontSize="20" FontWeight="Bold" Margin="0,0,0,20"/>
+    <Grid Margin="15" RowDefinitions="Auto, *, Auto">
+        <TextBlock Text="Terminal Settings" FontSize="22" FontWeight="Bold" Margin="0,0,0,15"/>
         
-        <ScrollViewer Grid.Row="1">
-            <StackPanel Spacing="15">
-                <!-- Font Family -->
-                <StackPanel>
-                    <TextBlock Text="Font Family" Margin="0,0,0,5" Foreground="#AAA"/>
-                    <ComboBox Name="FontList" HorizontalAlignment="Stretch">
-                        <ComboBoxItem>Consolas</ComboBoxItem>
-                        <ComboBoxItem>Lucida Console</ComboBoxItem>
-                        <ComboBoxItem>Cascadia Mono</ComboBoxItem>
-                        <ComboBoxItem>JetBrains Mono</ComboBoxItem>
-                        <ComboBoxItem>Courier New</ComboBoxItem>
-                    </ComboBox>
-                </StackPanel>
-                
-                <!-- Font Size -->
-                <StackPanel>
-                    <TextBlock Text="Font Size" Margin="0,0,0,5" Foreground="#AAA"/>
-                    <NumericUpDown Name="FontSizeInput" Minimum="6" Maximum="72" Value="14"/>
-                </StackPanel>
-                
-                <!-- Scrollback Limit -->
-                <StackPanel>
-                    <TextBlock Text="Scrollback Limit (Lines)" Margin="0,0,0,5" Foreground="#AAA"/>
-                    <NumericUpDown Name="ScrollbackInput" Minimum="100" Maximum="100000" Value="10000" Increment="1000"/>
-                </StackPanel>
-                
-                <!-- Theme -->
-                <StackPanel>
-                    <TextBlock Text="Theme" Margin="0,0,0,5" Foreground="#AAA"/>
-                    <ComboBox Name="ThemeList" HorizontalAlignment="Stretch">
-                        <ComboBoxItem>Default (Dark)</ComboBoxItem>
-                        <ComboBoxItem>Solarized Dark</ComboBoxItem>
-                    </ComboBox>
-                </StackPanel>
-                
-                <!-- Window Opacity -->
-                <StackPanel>
-                    <Grid ColumnDefinitions="*, Auto">
-                        <TextBlock Text="Window Opacity" Margin="0,0,0,5" Foreground="#AAA"/>
-                        <TextBlock Name="OpacityValueDisplay" Grid.Column="1" Text="100%" Foreground="#AAA" HorizontalAlignment="Right"/>
+        <TabControl Name="MainTabs" Grid.Row="1">
+            <!-- Appearance Tab -->
+            <TabItem Header="Appearance">
+                <ScrollViewer Margin="0,10,0,0">
+                    <StackPanel Spacing="15" Margin="0,0,15,0">
+                        <!-- Font Family -->
+                        <StackPanel>
+                            <TextBlock Text="Font Family" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                            <ComboBox Name="FontList" HorizontalAlignment="Stretch">
+                                <ComboBoxItem>Consolas</ComboBoxItem>
+                                <ComboBoxItem>JetBrains Mono</ComboBoxItem>
+                            </ComboBox>
+                        </StackPanel>
+                        
+                        <!-- Font Size -->
+                        <StackPanel>
+                            <TextBlock Text="Font Size" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                            <NumericUpDown Name="FontSizeInput" Minimum="6" Maximum="72" Value="14"/>
+                        </StackPanel>
+                        
+                        <!-- Scrollback -->
+                        <StackPanel>
+                            <TextBlock Text="Scrollback Limit (Lines)" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                            <NumericUpDown Name="ScrollbackInput" Minimum="100" Maximum="100000" Value="10000" Increment="1000"/>
+                        </StackPanel>
+                        
+                        <!-- Theme -->
+                        <StackPanel>
+                            <TextBlock Text="Theme" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                            <ComboBox Name="ThemeList" HorizontalAlignment="Stretch">
+                                <ComboBoxItem>Default (Dark)</ComboBoxItem>
+                                <ComboBoxItem>Solarized Dark</ComboBoxItem>
+                            </ComboBox>
+                        </StackPanel>
+                        
+                        <Separator Background="#333" Margin="0,5"/>
+
+                        <!-- Window Opacity -->
+                        <StackPanel>
+                            <Grid ColumnDefinitions="*, Auto">
+                                <TextBlock Text="Window Opacity" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                                <TextBlock Name="OpacityValueDisplay" Grid.Column="1" Text="100%" Foreground="#AAA" HorizontalAlignment="Right" FontSize="12"/>
+                            </Grid>
+                            <Slider Name="WindowOpacitySlider" Minimum="0.2" Maximum="1.0" Value="1.0" TickFrequency="0.01" IsSnapToTickEnabled="True"/>
+                        </StackPanel>
+
+                        <!-- Blur -->
+                        <StackPanel>
+                            <TextBlock Text="Blur Effect" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                            <ComboBox Name="BlurList" HorizontalAlignment="Stretch">
+                                <ComboBoxItem>Acrylic</ComboBoxItem>
+                                <ComboBoxItem>Mica</ComboBoxItem>
+                                <ComboBoxItem>None</ComboBoxItem>
+                            </ComboBox>
+                        </StackPanel>
+
+                        <TextBlock Text="Background Image" FontSize="16" Margin="0,10,0,5" FontWeight="SemiBold"/>
+                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+                            <TextBox Name="BgImagePathInput" Watermark="Path onto image file..." Margin="0,0,10,0"/>
+                            <Button Name="BtnBrowseImage" Content="..." Grid.Column="1" Width="40" Margin="0,0,5,0"/>
+                            <Button Name="BtnClearImage" Content="✕" Grid.Column="2" Width="40" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto, *, Auto" Margin="0,0,0,10">
+                            <TextBlock Text="Image Opacity:" VerticalAlignment="Center" Width="100" Foreground="#AAA" FontSize="12"/>
+                            <Slider Name="BgImageOpacitySlider" Grid.Column="1" Minimum="0" Maximum="1" Margin="10,0"/>
+                            <TextBlock Name="BgImageOpacityDisplay" Grid.Column="2" Text="50%" VerticalAlignment="Center" FontSize="12"/>
+                        </Grid>
+                        
+                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
+                            <TextBlock Text="Stretch Mode:" VerticalAlignment="Center" Width="100" Foreground="#AAA" FontSize="12"/>
+                            <ComboBox Name="BgImageStretchList" Width="150">
+                                <ComboBoxItem>None</ComboBoxItem>
+                                <ComboBoxItem>Fill</ComboBoxItem>
+                                <ComboBoxItem>Uniform</ComboBoxItem>
+                                <ComboBoxItem>UniformToFill</ComboBoxItem>
+                            </ComboBox>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Profiles Tab -->
+            <TabItem Header="Profiles">
+                <Grid ColumnDefinitions="200, *" Margin="0,10,0,0">
+                    <!-- Profile List -->
+                    <Grid Grid.Column="0" RowDefinitions="*, Auto" Margin="0,0,10,0">
+                        <ListBox Name="ProfilesListBox" Background="#252525" BorderThickness="0">
+                            <!-- Items populated in code -->
+                        </ListBox>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="5" Margin="0,5,0,0">
+                            <Button Name="BtnAddProfile" Content="Add New" FontSize="12" Padding="8,4"/>
+                            <Button Name="BtnDeleteProfile" Content="Delete" FontSize="12" Padding="8,4" Background="#AA3333" Foreground="White"/>
+                        </StackPanel>
                     </Grid>
-                    <Slider Name="WindowOpacitySlider" 
-                            Minimum="0.2" 
-                            Maximum="1.0" 
-                            Value="1.0" 
-                            TickFrequency="0.01"
-                            IsSnapToTickEnabled="True"/>
-                </StackPanel>
 
-                <!-- Blur Effect -->
-                <StackPanel>
-                    <TextBlock Text="Blur Effect" Margin="0,0,0,5" Foreground="#AAA"/>
-                    <ComboBox Name="BlurList" HorizontalAlignment="Stretch">
-                        <ComboBoxItem>Acrylic</ComboBoxItem>
-                        <ComboBoxItem>Mica</ComboBoxItem>
-                        <ComboBoxItem>None</ComboBoxItem>
-                    </ComboBox>
-                </StackPanel>
+                    <!-- Profile Editor -->
+                    <ScrollViewer Grid.Column="1">
+                        <StackPanel Name="ProfileEditorPanel" Spacing="15" Margin="10,0,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Profile Name" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <TextBox Name="ProfileNameInput" />
+                            </StackPanel>
 
-                <TextBlock Text="Background Image" FontSize="16" Margin="0,15,0,10" FontWeight="SemiBold"/>
-                <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-                    <TextBox Name="BgImagePathInput" Watermark="Path onto image file..." Margin="0,0,10,0"/>
-                    <Button Name="BtnBrowseImage" Content="..." Grid.Column="1" Width="40" Margin="0,0,5,0"/>
-                    <Button Name="BtnClearImage" Content="✕" Grid.Column="2" Width="40" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                            <StackPanel>
+                                <TextBlock Text="Executable Path" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <TextBox Name="ProfileCommandInput" Watermark="e.g. cmd.exe, powershell.exe" />
+                            </StackPanel>
+
+                            <StackPanel>
+                                <TextBlock Text="Arguments" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <TextBox Name="ProfileArgsInput" Watermark="Optional arguments..." />
+                            </StackPanel>
+
+                            <StackPanel>
+                                <TextBlock Text="Starting Directory" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <TextBox Name="ProfileCwdInput" Watermark="Optional working directory..." />
+                            </StackPanel>
+
+                            <Separator Background="#333" Margin="0,5"/>
+                            <Button Name="BtnSetDefault" Content="Set as Default" HorizontalAlignment="Left" Padding="10,4"/>
+                            
+                            <TextBlock Text="Visual Overrides (Experimental)" FontSize="14" FontWeight="SemiBold" Margin="0,5,0,0" Foreground="#888"/>
+                            
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <CheckBox Name="CheckOverrideFont" Content="Font" VerticalAlignment="Center"/>
+                                <ComboBox Name="OverrideFontList" Width="200" IsEnabled="{Binding #CheckOverrideFont.IsChecked}">
+                                    <ComboBoxItem>Consolas</ComboBoxItem>
+                                    <ComboBoxItem>JetBrains Mono</ComboBoxItem>
+                                </ComboBox>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <CheckBox Name="CheckOverrideSize" Content="Size" VerticalAlignment="Center"/>
+                                <NumericUpDown Name="OverrideFontSizeInput" Minimum="6" Maximum="72" Value="14" Width="120" IsEnabled="{Binding #CheckOverrideSize.IsChecked}"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <CheckBox Name="CheckOverrideTheme" Content="Theme" VerticalAlignment="Center"/>
+                                <ComboBox Name="OverrideThemeList" Width="200" IsEnabled="{Binding #CheckOverrideTheme.IsChecked}">
+                                    <ComboBoxItem>Default (Dark)</ComboBoxItem>
+                                    <ComboBoxItem>Solarized Dark</ComboBoxItem>
+                                </ComboBox>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
                 </Grid>
-
-                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
-                    <TextBlock Text="Image Opacity:" VerticalAlignment="Center" Width="100"/>
-                    <Slider Name="BgImageOpacitySlider" Minimum="0" Maximum="1" Width="150"/>
-                    <TextBlock Name="BgImageOpacityDisplay" Text="50%" VerticalAlignment="Center"/>
-                </StackPanel>
-                
-                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
-                    <TextBlock Text="Stretch Mode:" VerticalAlignment="Center" Width="100"/>
-                    <ComboBox Name="BgImageStretchList" Width="150">
-                        <ComboBoxItem>None</ComboBoxItem>
-                        <ComboBoxItem>Fill</ComboBoxItem>
-                        <ComboBoxItem>Uniform</ComboBoxItem>
-                        <ComboBoxItem>UniformToFill</ComboBoxItem>
-                    </ComboBox>
-                </StackPanel>
-            </StackPanel>
-        </ScrollViewer>
+            </TabItem>
+        </TabControl>
         
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,20,0,0">
-            <Button Name="BtnCancel" Content="Cancel" Width="80" HorizontalContentAlignment="Center"/>
-            <Button Name="BtnSave" Content="Save" Width="80" HorizontalContentAlignment="Center" Background="#0078d4" Foreground="White"/>
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,15,0,0">
+            <Button Name="BtnCancel" Content="Cancel" Width="90" HorizontalContentAlignment="Center"/>
+            <Button Name="BtnSave" Content="Save" Width="90" HorizontalContentAlignment="Center" Background="#0078d4" Foreground="White"/>
         </StackPanel>
     </Grid>
 </Window>

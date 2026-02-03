@@ -9,6 +9,11 @@ namespace NovaTerminal
     public partial class SettingsWindow : Window
     {
         private TerminalSettings _settings;
+        public TerminalSettings Settings => _settings; // Expose for main window to grab without reloading disk
+
+        private TerminalProfile? _selectedProfile;
+        private System.Collections.Generic.List<TerminalProfile> _profilesList = new();
+
         public event Action<double>? OnOpacityChanged;
         public event Action<string>? OnBlurChanged;
         public event Action<string, double, string>? OnBgImageChanged;
@@ -16,13 +21,30 @@ namespace NovaTerminal
         public event Action<double>? OnFontSizeChanged;
         public event Action<string>? OnThemeChanged;
 
-        public SettingsWindow()
+        public SettingsWindow(int initialTab = 0)
         {
             InitializeComponent();
             _settings = TerminalSettings.Load();
 
+            var tabs = this.FindControl<TabControl>("MainTabs");
+            if (tabs != null) tabs.SelectedIndex = initialTab;
+
+            // Clone profiles for local editing
+            _profilesList = _settings.Profiles.Select(p => new TerminalProfile
+            {
+                Id = p.Id,
+                Name = p.Name,
+                Command = p.Command,
+                Arguments = p.Arguments,
+                StartingDirectory = p.StartingDirectory,
+                FontFamily = p.FontFamily,
+                FontSize = p.FontSize,
+                ThemeName = p.ThemeName
+            }).ToList();
+
             PopulateFonts();
             LoadCurrentSettings();
+            PopulateProfilesList();
             ApplyTheme();
 
             var btnSave = this.FindControl<Button>("BtnSave");
@@ -30,6 +52,180 @@ namespace NovaTerminal
             var opacitySlider = this.FindControl<Slider>("WindowOpacitySlider");
             var opacityDisplay = this.FindControl<TextBlock>("OpacityValueDisplay");
             var blurList = this.FindControl<ComboBox>("BlurList");
+
+            // Profile Controls
+            var profilesListBox = this.FindControl<ListBox>("ProfilesListBox");
+            var btnAddProfile = this.FindControl<Button>("BtnAddProfile");
+            var btnDeleteProfile = this.FindControl<Button>("BtnDeleteProfile");
+            var btnSetDefault = this.FindControl<Button>("BtnSetDefault");
+
+            if (profilesListBox != null)
+            {
+                profilesListBox.SelectionChanged += (s, e) =>
+                {
+                    if (profilesListBox.SelectedItem is ListBoxItem item && item.Tag is TerminalProfile profile)
+                    {
+                        SwitchSelectedProfile(profile);
+                    }
+                };
+            }
+
+            if (btnAddProfile != null)
+            {
+                btnAddProfile.Click += (s, e) =>
+                {
+                    var newProfile = new TerminalProfile { Name = "New Profile", Command = "cmd.exe" };
+                    _profilesList.Add(newProfile);
+                    PopulateProfilesList();
+                    if (profilesListBox != null) profilesListBox.SelectedIndex = _profilesList.Count - 1;
+                };
+            }
+
+            if (btnDeleteProfile != null)
+            {
+                btnDeleteProfile.Click += (s, e) =>
+                {
+                    if (_selectedProfile != null && _profilesList.Count > 1)
+                    {
+                        var index = _profilesList.IndexOf(_selectedProfile);
+                        _profilesList.Remove(_selectedProfile);
+                        PopulateProfilesList();
+                        if (profilesListBox != null) profilesListBox.SelectedIndex = Math.Clamp(index, 0, _profilesList.Count - 1);
+                    }
+                };
+            }
+
+            if (btnSetDefault != null)
+            {
+                btnSetDefault.Click += (s, e) =>
+                {
+                    if (_selectedProfile != null)
+                    {
+                        _settings.DefaultProfileId = _selectedProfile.Id;
+                        PopulateProfilesList(); // Refresh labels
+                    }
+                };
+            }
+
+            // Profile Editor Inputs
+            var nameInput = this.FindControl<TextBox>("ProfileNameInput");
+            var commandInput = this.FindControl<TextBox>("ProfileCommandInput");
+            var argsInput = this.FindControl<TextBox>("ProfileArgsInput");
+            var cwdInput = this.FindControl<TextBox>("ProfileCwdInput");
+
+            if (nameInput != null) nameInput.KeyUp += (s, e) => { if (_selectedProfile != null) { _selectedProfile.Name = nameInput.Text ?? ""; RefreshProfileListItem(_selectedProfile); } };
+            if (commandInput != null) commandInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Command = commandInput.Text ?? ""; };
+            if (argsInput != null) argsInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Arguments = argsInput.Text ?? ""; };
+            if (cwdInput != null) cwdInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.StartingDirectory = cwdInput.Text ?? ""; };
+
+            var checkFont = this.FindControl<CheckBox>("CheckOverrideFont");
+            var checkSize = this.FindControl<CheckBox>("CheckOverrideSize");
+            var checkTheme = this.FindControl<CheckBox>("CheckOverrideTheme");
+
+            var overrideFontList = this.FindControl<ComboBox>("OverrideFontList");
+            var overrideFontSize = this.FindControl<NumericUpDown>("OverrideFontSizeInput");
+            var overrideThemeList = this.FindControl<ComboBox>("OverrideThemeList");
+
+            // Logic: 
+            // - Checking the box initializes the override with the current global value if it was null
+            // - Unchecking sets it to null
+            // - changing the combo/input updates the override value directly
+
+            if (checkFont != null)
+            {
+                checkFont.IsCheckedChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null)
+                    {
+                        if (checkFont.IsChecked == true)
+                        {
+                            // If we are enabling, ensure we have a valid value (fallback to global)
+                            if (_selectedProfile.FontFamily == null) _selectedProfile.FontFamily = _settings.FontFamily;
+                            // Also ensure UI matches
+                            if (overrideFontList != null)
+                                foreach (ComboBoxItem item in overrideFontList.Items)
+                                    if (item.Content?.ToString() == _selectedProfile.FontFamily) overrideFontList.SelectedItem = item;
+                        }
+                        else
+                        {
+                            _selectedProfile.FontFamily = null;
+                        }
+                    }
+                };
+            }
+
+            if (overrideFontList != null)
+            {
+                overrideFontList.SelectionChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null && checkFont?.IsChecked == true && overrideFontList.SelectedItem is ComboBoxItem item)
+                    {
+                        _selectedProfile.FontFamily = item.Content?.ToString();
+                    }
+                };
+            }
+
+            if (checkSize != null)
+            {
+                checkSize.IsCheckedChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null)
+                    {
+                        if (checkSize.IsChecked == true)
+                        {
+                            if (_selectedProfile.FontSize == null) _selectedProfile.FontSize = _settings.FontSize;
+                            if (overrideFontSize != null) overrideFontSize.Value = (decimal)(_selectedProfile.FontSize ?? 14);
+                        }
+                        else
+                        {
+                            _selectedProfile.FontSize = null;
+                        }
+                    }
+                };
+            }
+
+            if (overrideFontSize != null)
+            {
+                overrideFontSize.ValueChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null && checkSize?.IsChecked == true && overrideFontSize.Value.HasValue)
+                    {
+                        _selectedProfile.FontSize = (double)overrideFontSize.Value.Value;
+                    }
+                };
+            }
+
+            if (checkTheme != null)
+            {
+                checkTheme.IsCheckedChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null)
+                    {
+                        if (checkTheme.IsChecked == true)
+                        {
+                            if (_selectedProfile.ThemeName == null) _selectedProfile.ThemeName = _settings.ThemeName;
+                            if (overrideThemeList != null)
+                                foreach (ComboBoxItem item in overrideThemeList.Items)
+                                    if (item.Content?.ToString() == _selectedProfile.ThemeName) overrideThemeList.SelectedItem = item;
+                        }
+                        else
+                        {
+                            _selectedProfile.ThemeName = null;
+                        }
+                    }
+                };
+            }
+
+            if (overrideThemeList != null)
+            {
+                overrideThemeList.SelectionChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null && checkTheme?.IsChecked == true && overrideThemeList.SelectedItem is ComboBoxItem item)
+                    {
+                        _selectedProfile.ThemeName = item.Content?.ToString();
+                    }
+                };
+            }
 
             // Core Settings Controls
             var fontList = this.FindControl<ComboBox>("FontList");
@@ -182,15 +378,94 @@ namespace NovaTerminal
         private void PopulateFonts()
         {
             var fontList = this.FindControl<ComboBox>("FontList");
-            if (fontList == null) return;
+            var overrideFontList = this.FindControl<ComboBox>("OverrideFontList");
 
-            fontList.Items.Clear();
+            if (fontList != null) fontList.Items.Clear();
+            if (overrideFontList != null) overrideFontList.Items.Clear();
+
             var fonts = SkiaSharp.SKFontManager.Default.FontFamilies
                 .OrderBy(f => f)
                 .Select(f => new ComboBoxItem { Content = f })
                 .ToList();
 
-            foreach (var f in fonts) fontList.Items.Add(f);
+            foreach (var f in fonts)
+            {
+                if (fontList != null) fontList.Items.Add(f);
+                // Create a separate instance for the second list to avoid visual tree parenting issues
+                if (overrideFontList != null) overrideFontList.Items.Add(new ComboBoxItem { Content = f.Content });
+            }
+        }
+
+        private void PopulateProfilesList()
+        {
+            var profilesListBox = this.FindControl<ListBox>("ProfilesListBox");
+            if (profilesListBox == null) return;
+
+            profilesListBox.Items.Clear();
+            foreach (var profile in _profilesList)
+            {
+                var isDefault = profile.Id == _settings.DefaultProfileId;
+                var displayName = profile.Name + (isDefault ? " (Default)" : "");
+                var item = new ListBoxItem
+                {
+                    Content = displayName,
+                    Tag = profile
+                };
+                profilesListBox.Items.Add(item);
+            }
+        }
+
+        private void RefreshProfileListItem(TerminalProfile profile)
+        {
+            var profilesListBox = this.FindControl<ListBox>("ProfilesListBox");
+            if (profilesListBox == null) return;
+
+            foreach (ListBoxItem item in profilesListBox.Items.Cast<ListBoxItem>())
+            {
+                if (item.Tag == profile)
+                {
+                    var isDefault = profile.Id == _settings.DefaultProfileId;
+                    item.Content = profile.Name + (isDefault ? " (Default)" : "");
+                    break;
+                }
+            }
+        }
+
+        private void SwitchSelectedProfile(TerminalProfile profile)
+        {
+            _selectedProfile = profile;
+
+            this.FindControl<TextBox>("ProfileNameInput")!.Text = profile.Name;
+            this.FindControl<TextBox>("ProfileCommandInput")!.Text = profile.Command;
+            this.FindControl<TextBox>("ProfileArgsInput")!.Text = profile.Arguments ?? "";
+            this.FindControl<TextBox>("ProfileCwdInput")!.Text = profile.StartingDirectory ?? "";
+
+            this.FindControl<CheckBox>("CheckOverrideFont")!.IsChecked = profile.FontFamily != null;
+            this.FindControl<CheckBox>("CheckOverrideSize")!.IsChecked = profile.FontSize.HasValue;
+            this.FindControl<CheckBox>("CheckOverrideTheme")!.IsChecked = profile.ThemeName != null;
+
+            // Sync values to override inputs
+            var overrideFontList = this.FindControl<ComboBox>("OverrideFontList");
+            if (overrideFontList != null)
+            {
+                var targetFont = profile.FontFamily ?? _settings.FontFamily;
+                foreach (ComboBoxItem item in overrideFontList.Items)
+                    if (item.Content?.ToString() == targetFont) { overrideFontList.SelectedItem = item; break; }
+            }
+
+            var overrideFontSize = this.FindControl<NumericUpDown>("OverrideFontSizeInput");
+            if (overrideFontSize != null)
+            {
+                overrideFontSize.Value = (decimal)(profile.FontSize ?? _settings.FontSize);
+            }
+
+            var overrideThemeList = this.FindControl<ComboBox>("OverrideThemeList");
+            if (overrideThemeList != null)
+            {
+                var targetTheme = profile.ThemeName ?? _settings.ThemeName;
+                foreach (ComboBoxItem item in overrideThemeList.Items)
+                    if (item.Content?.ToString() == targetTheme) { overrideThemeList.SelectedItem = item; break; }
+            }
         }
 
         private void LoadCurrentSettings()
@@ -319,6 +594,9 @@ namespace NovaTerminal
             if (bgOpacitySlider != null) _settings.BackgroundImageOpacity = bgOpacitySlider.Value;
             if (bgStretchList?.SelectedItem is ComboBoxItem stretchItem)
                 _settings.BackgroundImageStretch = stretchItem.Content?.ToString() ?? "UniformToFill";
+
+            // Sync profiles list back to settings
+            _settings.Profiles = _profilesList;
 
             _settings.Save();
             Close(true); // Return true to indicate saved
