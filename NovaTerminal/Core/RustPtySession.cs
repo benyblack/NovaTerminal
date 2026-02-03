@@ -32,6 +32,9 @@ namespace NovaTerminal.Core
             public static extern IntPtr pty_create(string cmd, ushort cols, ushort rows);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+            public static extern IntPtr pty_spawn(string cmd, string? args, string? cwd, ushort cols, ushort rows);
+
+            [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
             public static extern int pty_read(IntPtr state, byte[] buffer, int len);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
@@ -49,30 +52,31 @@ namespace NovaTerminal.Core
 
         public string ShellCommand { get; }
 
-        public RustPtySession(string shellCommand, int cols = 120, int rows = 30)
+        public RustPtySession(string shellCommand, int cols = 120, int rows = 30, string? args = null, string? cwd = null)
         {
             ShellCommand = shellCommand;
 
             string effectiveShell = shellCommand;
+            string combinedArgs = args ?? "";
             string shellLower = shellCommand.ToLowerInvariant();
 
             if (shellLower.EndsWith("cmd.exe"))
             {
-                // CMD: /k runs command then remains interactive. > nul suppresses "Active code page" output.
-                effectiveShell = $"{shellCommand} /k chcp 65001 > nul";
+                // CMD: /k runs command then remains interactive.
+                // Note: Output redirection like "> nul" doesn't work directly via PTY spawn,
+                // but we can pass /k chcp 65001.
+                effectiveShell = shellCommand;
+                combinedArgs = "/k chcp 65001 " + combinedArgs;
             }
             else if (shellLower.Contains("powershell") || shellLower.Contains("pwsh"))
             {
                 // PowerShell:
-                // We launch with -NoLogo to start empty.
-                // Then we INJECT the init script command via input.
-                // The script contains "Clear-Host", which wipes the injected text immediately.
-                // This avoids the "Persistent Echo" problem of command-line arguments.
-                effectiveShell = $"{shellCommand} -NoLogo";
+                effectiveShell = shellCommand;
+                combinedArgs = "-NoLogo " + combinedArgs;
             }
 
-            Console.WriteLine($"[RustPtySession] Creating session for '{effectiveShell}' at {cols}x{rows}");
-            _ptyState = Native.pty_create(effectiveShell, (ushort)cols, (ushort)rows);
+            Console.WriteLine($"[RustPtySession] Spawning '{effectiveShell}' args='{combinedArgs}' cwd='{cwd}' at {cols}x{rows}");
+            _ptyState = Native.pty_spawn(effectiveShell, combinedArgs.Trim(), cwd, (ushort)cols, (ushort)rows);
 
             if (_ptyState == IntPtr.Zero)
             {

@@ -18,6 +18,7 @@ namespace NovaTerminal.Controls
         public TerminalBuffer? Buffer { get; private set; }
         public AnsiParser? Parser { get; private set; }
         public string ShellCommand { get; private set; } = string.Empty;
+        public TerminalProfile? Profile { get; private set; }
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
@@ -30,7 +31,7 @@ namespace NovaTerminal.Controls
             InitializeComponent();
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
-            TermView.Ready += (c, r) => InitializeSession(null, c, r);
+            TermView.Ready += (c, r) => InitializeSession(null, null, c, r);
             SetupCommon();
         }
 
@@ -39,7 +40,17 @@ namespace NovaTerminal.Controls
             InitializeComponent();
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
-            TermView.Ready += (c, r) => InitializeSession(shell, c, r);
+            TermView.Ready += (c, r) => InitializeSession(shell, null, c, r);
+            SetupCommon();
+        }
+
+        public TerminalPane(TerminalProfile profile)
+        {
+            Profile = profile;
+            InitializeComponent();
+            Buffer = new TerminalBuffer(80, 24);
+            TermView.SetBuffer(Buffer);
+            TermView.Ready += (c, r) => InitializeSession(profile.Command, profile, c, r);
             SetupCommon();
         }
 
@@ -59,7 +70,7 @@ namespace NovaTerminal.Controls
             ApplySettings(TerminalSettings.Load());
         }
 
-        private void InitializeSession(string? shell, int cols, int rows)
+        private void InitializeSession(string? shell, TerminalProfile? profile, int cols, int rows)
         {
             if (Session != null || Buffer == null) return;
 
@@ -73,7 +84,10 @@ namespace NovaTerminal.Controls
             string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
             ShellCommand = effectiveShell;
 
-            Session = new RustPtySession(effectiveShell, cols, rows);
+            string args = profile?.Arguments ?? "";
+            string startingDir = profile?.StartingDirectory ?? "";
+
+            Session = new RustPtySession(effectiveShell, cols, rows, args, startingDir);
             TermView.SetSession(Session);
 
             // Wire up Output
@@ -90,7 +104,27 @@ namespace NovaTerminal.Controls
         public void ApplySettings(TerminalSettings settings)
         {
             _settings = settings;
-            TermView.ApplySettings(settings);
+
+            // Merge global settings with profile overrides
+            // We create a "copy" for the view to use, but we only override specific visual fields
+            var effectiveSettings = new TerminalSettings
+            {
+                FontSize = Profile?.FontSize ?? settings.FontSize,
+                FontFamily = Profile?.FontFamily ?? settings.FontFamily,
+                ThemeName = Profile?.ThemeName ?? settings.ThemeName,
+
+                // Inherit everything else from global
+                MaxHistory = settings.MaxHistory,
+                WindowOpacity = settings.WindowOpacity,
+                BlurEffect = settings.BlurEffect,
+                BackgroundImagePath = settings.BackgroundImagePath,
+                BackgroundImageOpacity = settings.BackgroundImageOpacity,
+                BackgroundImageStretch = settings.BackgroundImageStretch,
+                Profiles = settings.Profiles,
+                DefaultProfileId = settings.DefaultProfileId
+            };
+
+            TermView.ApplySettings(effectiveSettings);
             // Propagate theme to ScrollBar/Search if needed
         }
 
@@ -236,7 +270,7 @@ namespace NovaTerminal.Controls
             // Fallback: Ensure session is initialized if it wasn't yet (e.g. nested split timing)
             if (Session == null)
             {
-                InitializeSession(ShellCommand, TermView.Cols, TermView.Rows);
+                InitializeSession(ShellCommand, Profile, TermView.Cols, TermView.Rows);
             }
 
             // Force initial render availability

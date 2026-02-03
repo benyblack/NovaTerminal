@@ -110,9 +110,9 @@
                         ToolTip.Tip="New Tab">
                     <Button.Flyout>
                         <MenuFlyout>
-                            <MenuItem Header="Command Prompt" Name="MenuCmd" />
-                            <MenuItem Header="PowerShell" Name="MenuPs" />
-                            <MenuItem Header="WSL (Ubuntu)" Name="MenuWsl" />
+                            <!-- Populated dynamically -->
+                            <Separator />
+                            <MenuItem Header="Manage Profiles..." Name="MenuManageProfiles" />
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>

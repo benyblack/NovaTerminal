@@ -12,11 +12,14 @@ pub struct PtyState {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut PtyState {
-    // 1. Prepare the system
+pub extern "C" fn pty_spawn(
+    cmd: *const c_char,
+    args: *const c_char,
+    cwd: *const c_char,
+    cols: u16,
+    rows: u16,
+) -> *mut PtyState {
     let system = NativePtySystem::default();
-
-    // 2. Configure size
     let size = PtySize {
         rows,
         cols,
@@ -24,41 +27,47 @@ pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut P
         pixel_height: 0,
     };
 
-    // 3. Open PTY
     let pair = match system.openpty(size) {
         Ok(p) => p,
         Err(_) => return std::ptr::null_mut(),
     };
 
-    // 4. Configure command
     let cmd_str = unsafe {
-        assert!(!cmd.is_null());
+        if cmd.is_null() {
+            return std::ptr::null_mut();
+        }
         CStr::from_ptr(cmd).to_string_lossy()
     };
 
-    // Split command string for arguments
-    // Simple whitespace splitting to allow flags like "/k" or "-Command"
-    let parts: Vec<&str> = cmd_str.split_whitespace().collect();
-    // Fix: Use copied() to get &str from &&str, and do not reference the temporary result of as_ref()
-    let program = parts.get(0).copied().unwrap_or(cmd_str.as_ref());
+    let mut cmd_builder = CommandBuilder::new(cmd_str.as_ref());
 
-    let mut cmd_builder = CommandBuilder::new(program);
+    // Arguments handling
+    if !args.is_null() {
+        let args_str = unsafe { CStr::from_ptr(args).to_string_lossy() };
+        // Very basic argument splitting for now (we could improve this for quoted args if needed)
+        // portable-pty expects separate args
+        for arg in args_str.split_whitespace() {
+            if !arg.is_empty() {
+                cmd_builder.arg(arg);
+            }
+        }
+    }
 
-    if parts.len() > 1 {
-        for arg in &parts[1..] {
-            cmd_builder.arg(arg);
+    // CWD handling
+    if !cwd.is_null() {
+        let cwd_str = unsafe { CStr::from_ptr(cwd).to_string_lossy() };
+        if !cwd_str.is_empty() {
+            cmd_builder.cwd(cwd_str.as_ref());
         }
     }
 
     cmd_builder.env("TERM", "xterm-256color");
 
-    // 5. Spawn
     let child = match pair.slave.spawn_command(cmd_builder) {
         Ok(c) => c,
         Err(_) => return std::ptr::null_mut(),
     };
 
-    // 6. Get streams
     let reader = match pair.master.try_clone_reader() {
         Ok(r) => r,
         Err(_) => return std::ptr::null_mut(),
@@ -68,7 +77,6 @@ pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut P
         Err(_) => return std::ptr::null_mut(),
     };
 
-    // 7. Box and return
     let state = PtyState {
         reader,
         writer,
@@ -77,6 +85,11 @@ pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut P
     };
 
     Box::into_raw(Box::new(state))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut PtyState {
+    pty_spawn(cmd, std::ptr::null(), std::ptr::null(), cols, rows)
 }
 
 #[unsafe(no_mangle)]

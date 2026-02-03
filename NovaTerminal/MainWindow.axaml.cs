@@ -114,13 +114,10 @@ namespace NovaTerminal
 
             ApplyThemeToUI();
 
-            // Menu Items
-            var menuCmd = this.FindControl<MenuItem>("MenuCmd");
-            var menuPs = this.FindControl<MenuItem>("MenuPs");
-            var menuWsl = this.FindControl<MenuItem>("MenuWsl");
-            if (menuCmd != null) menuCmd.Click += (s, e) => AddTab("cmd.exe");
-            if (menuPs != null) menuPs.Click += (s, e) => AddTab("powershell.exe");
-            if (menuWsl != null) menuWsl.Click += (s, e) => AddTab("wsl.exe");
+            PopulateNewTabMenu();
+
+            var menuManage = this.FindControl<MenuItem>("MenuManageProfiles");
+            if (menuManage != null) menuManage.Click += (s, e) => { /* TODO: Show Profiles UI */ };
 
             // Global Focus Tracking
             this.AddHandler(GotFocusEvent, (s, e) =>
@@ -132,7 +129,8 @@ namespace NovaTerminal
                 }
             }, RoutingStrategies.Bubble | RoutingStrategies.Tunnel);
 
-            AddTab();
+            var defaultProfile = _settings.Profiles.Find(p => p.Id == _settings.DefaultProfileId) ?? _settings.Profiles[0];
+            AddTab(defaultProfile);
 
             // Keyboard Shortcuts
             this.AddHandler(KeyDownEvent, (s, e) =>
@@ -298,15 +296,23 @@ namespace NovaTerminal
             else if (control is ContentPresenter cp && cp.Content is Control childContent) DisposeControlTree(childContent);
         }
 
-        void AddTab(string shell = "cmd.exe")
+        void AddTab(TerminalProfile? profile = null)
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
-            var pane = new TerminalPane(shell);
+
+            // Fallback to default if null
+            if (profile == null)
+            {
+                profile = _settings.Profiles.Find(p => p.Id == _settings.DefaultProfileId) ?? _settings.Profiles[0];
+            }
+
+            var pane = new TerminalPane(profile);
+
             pane.ApplySettings(_settings);
             var tabItem = new TabItem
             {
-                Header = new TextBlock { Text = shell, Foreground = Brushes.White, FontSize = 12, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Padding = new Thickness(10, 4) },
+                Header = new TextBlock { Text = profile.Name, Foreground = Brushes.White, FontSize = 12, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Padding = new Thickness(10, 4) },
                 Content = pane
             };
             tabs.Items.Add(tabItem);
@@ -316,6 +322,45 @@ namespace NovaTerminal
             // Force visual update for the blue line (deferred so visual tree is ready)
             Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Render);
             Dispatcher.UIThread.Post(() => pane.ActiveControl.Focus());
+        }
+
+        private void PopulateNewTabMenu()
+        {
+            var btnNewTab = this.FindControl<Button>("BtnNewTab");
+            var flyout = btnNewTab?.Flyout as MenuFlyout;
+            if (flyout == null) return;
+
+            // Clear dynamic items (everything before the separator)
+            // Note: Simplest way is to rebuild the Flyout menu items list
+            var items = new Avalonia.Controls.ItemsControl().Items; // Temporary collection
+
+            int separatorIndex = -1;
+            for (int i = 0; i < flyout.Items.Count; i++)
+            {
+                if (flyout.Items[i] is Separator) { separatorIndex = i; break; }
+            }
+
+            // Keep only the separator and Manage Profiles
+            var footerItems = new System.Collections.Generic.List<object>();
+            if (separatorIndex != -1)
+            {
+                for (int i = separatorIndex; i < flyout.Items.Count; i++)
+                    footerItems.Add(flyout.Items[i]);
+            }
+
+            flyout.Items.Clear();
+
+            // Add profiles
+            foreach (var profile in _settings.Profiles)
+            {
+                var item = new MenuItem { Header = profile.Name };
+                item.Click += (s, e) => AddTab(profile);
+                flyout.Items.Add(item);
+            }
+
+            // Add footer back
+            foreach (var footer in footerItems)
+                flyout.Items.Add(footer);
         }
 
         private void UpdateTabVisuals()

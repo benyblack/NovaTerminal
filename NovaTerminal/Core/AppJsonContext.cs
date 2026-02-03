@@ -5,6 +5,8 @@ using NovaTerminal.Core;
 namespace NovaTerminal.Core
 {
     [JsonSerializable(typeof(TerminalSettings))]
+    [JsonSerializable(typeof(TerminalProfile))]
+    [JsonSerializable(typeof(List<TerminalProfile>))]
     [JsonSerializable(typeof(Dictionary<string, string>))]
     public partial class AppJsonContext : JsonSerializerContext
     {
