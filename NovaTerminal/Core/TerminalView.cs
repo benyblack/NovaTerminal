@@ -317,9 +317,12 @@ namespace NovaTerminal.Core
 
             // Measure char size and get GlyphTypeface
             var testText = new FormattedText("M", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, _fontSize * scaling, Brushes.White);
-            _charWidth = testText.Width / scaling;
-            _charHeight = testText.Height / scaling;
-            _baselineOffset = testText.Baseline / scaling;
+
+            // CEILING TO PHYSICAL PIXELS: Ensure char width/height are exact multiples of 1/scaling
+            // This prevents sub-pixel accumulation errors that lead to dark lines/light gaps
+            _charWidth = Math.Ceiling(testText.Width) / scaling;
+            _charHeight = Math.Ceiling(testText.Height) / scaling;
+            _baselineOffset = Math.Round(testText.Baseline) / scaling;
 
             // Try to get IGlyphTypeface for low-level rendering
             _glyphTypeface = _typeface.GlyphTypeface;
@@ -338,18 +341,47 @@ namespace NovaTerminal.Core
                     var metrics = _skFont.Metrics;
                     // Ascent is negative in Skia. Height = Descent - Ascent + Leading
                     double skiaHeight = metrics.Descent - metrics.Ascent + metrics.Leading;
+
                     if (skiaHeight > _charHeight)
                     {
-                        _charHeight = Math.Ceiling(skiaHeight);
+                        _charHeight = Math.Ceiling(skiaHeight * scaling) / scaling;
                     }
                     else
                     {
-                        _charHeight = Math.Ceiling(_charHeight);
+                        _charHeight = Math.Ceiling(_charHeight * scaling) / scaling;
+                    }
+
+                    // CENTERED BASELINE: Calculate baseline offset to vertically center the font EM square.
+                    double gap = _charHeight - skiaHeight;
+                    double rawBaseline = (-metrics.Ascent + gap / 2.0);
+
+                    // PARITY CHECK:
+                    // If the physical height is odd (e.g. 19px), the center is at X.5.
+                    // Standard Rounding might snap it up/down causing a 1px gap.
+                    // We check the parity of the physical height.
+                    long physicalHeight = (long)Math.Round(_charHeight * scaling);
+                    if (physicalHeight % 2 != 0)
+                    {
+                        // Odd height -> Use Floor to favor top alignment (closes top gap)
+                        _baselineOffset = Math.Floor(rawBaseline * scaling + 0.01) / scaling;
+                    }
+                    else
+                    {
+                        // Even height -> Use Round for perfect center
+                        _baselineOffset = Math.Round(rawBaseline * scaling) / scaling;
                     }
                 }
                 else
                 {
-                    _charHeight = Math.Ceiling(_charHeight);
+                    _charHeight = Math.Ceiling(_charHeight * scaling) / scaling;
+                    // Fallback for non-Skia (rare)
+                    _charHeight = Math.Ceiling(_charHeight * scaling) / scaling;
+
+                    long physicalHeight = (long)Math.Round(_charHeight * scaling);
+                    if (physicalHeight % 2 != 0)
+                        _baselineOffset = Math.Floor(_baselineOffset * scaling + 0.01) / scaling;
+                    else
+                        _baselineOffset = Math.Round(_baselineOffset * scaling) / scaling;
                 }
             }
             catch { }

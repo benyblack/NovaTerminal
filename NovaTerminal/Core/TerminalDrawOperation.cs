@@ -135,8 +135,8 @@ namespace NovaTerminal.Core
                 using var font = new SKFont(tf, (float)_fontSize);
                 font.Edging = SKFontEdging.Antialias;
 
-                // Padding for terminal content
-                float paddingLeft = (float)(4f * _renderScaling);
+                // Padding for terminal content (Logical 4 units)
+                float paddingLeft = 4f;
                 float paddingTop = 0;
 
                 // Correct calculation of displayStart (First visible absolute row)
@@ -147,7 +147,7 @@ namespace NovaTerminal.Core
 
                 for (int r = 0; r < bufferRows; r++)
                 {
-                    float y = (float)(r * _charHeight) + paddingTop;
+                    float y = (float)(Math.Round((r * _charHeight + paddingTop) * _renderScaling) / _renderScaling);
                     float baselineY = y + (float)_baselineOffset;
                     int absRow = absDisplayStart + r;
 
@@ -181,7 +181,9 @@ namespace NovaTerminal.Core
                             }
 
                             bgPaint.Color = bg;
-                            canvas.DrawRect((float)(runStart * _charWidth) + paddingLeft, y, (float)((k - runStart) * _charWidth), (float)_charHeight, bgPaint);
+                            float x1 = (float)(Math.Round((runStart * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                            float x2 = (float)(Math.Round((k * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                            canvas.DrawRect(x1, y, x2 - x1, (float)_charHeight, bgPaint);
                             c = k - 1;
                         }
                     }
@@ -192,7 +194,9 @@ namespace NovaTerminal.Core
                         var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
                         if (isSelected)
                         {
-                            canvas.DrawRect((float)(colStart * _charWidth), y, (float)((colEnd - colStart + 1) * _charWidth), (float)_charHeight, selectionPaint);
+                            float x1 = (float)(Math.Round((colStart * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                            float x2 = (float)(Math.Round(((colEnd + 1) * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                            canvas.DrawRect(x1, y, x2 - x1, (float)_charHeight, selectionPaint);
                         }
                     }
 
@@ -204,7 +208,9 @@ namespace NovaTerminal.Core
                             if (m.AbsRow == absRow)
                             {
                                 var p = (i == _activeSearchIndex) ? activeMatchPaint : matchPaint;
-                                canvas.DrawRect((float)(m.StartCol * _charWidth), y, (float)((m.EndCol - m.StartCol + 1) * _charWidth), (float)_charHeight, p);
+                                float x1 = (float)(Math.Round((m.StartCol * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                                float x2 = (float)(Math.Round(((m.EndCol + 1) * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                                canvas.DrawRect(x1, y, x2 - x1, (float)_charHeight, p);
                             }
                         }
                     }
@@ -220,17 +226,13 @@ namespace NovaTerminal.Core
                         // Respect Hidden Attribute
                         if (cell.IsHidden)
                         {
-                            // We still draw background if it's not default? Standard varies.
-                            // Usually "Hidden" means Foreground is same as Background, effectively invisible.
-                            // But usually usage is for passwords or internal signaling.
-                            // Let's draw nothing? Or just background.
-                            // Xterm: Draws background but no text.
-                            // Let's draw background only.
                             if (!cell.IsDefaultBackground)
                             {
                                 var cb = new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
                                 bgPaint.Color = cb;
-                                canvas.DrawRect((float)(c * _charWidth) + paddingLeft, (float)(r * _charHeight) + paddingTop, (float)_charWidth * (cell.IsWide ? 2 : 1), (float)_charHeight, bgPaint);
+                                float x1 = (float)(Math.Round((c * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                                float x2 = (float)(Math.Round(((c + (cell.IsWide ? 2 : 1)) * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                                canvas.DrawRect(x1, y, x2 - x1, (float)_charHeight, bgPaint);
                             }
                             continue;
                         }
@@ -261,19 +263,19 @@ namespace NovaTerminal.Core
                                         using var fallbackFont = new SKFont(fallbackTf, (float)_fontSize);
                                         fallbackFont.Edging = SKFontEdging.Antialias;
                                         fgPaint.Color = fg;
-                                        canvas.DrawText(text, (float)(c * _charWidth) + paddingLeft, baselineY, fallbackFont, fgPaint);
+                                        canvas.DrawText(text, (float)(Math.Round((c * _charWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, fallbackFont, fgPaint);
                                     }
                                     else
                                     {
                                         // No fallback found, draw with default (will likely show box)
                                         fgPaint.Color = fg;
-                                        canvas.DrawText(text, (float)(c * _charWidth) + paddingLeft, baselineY, font, fgPaint);
+                                        canvas.DrawText(text, (float)(Math.Round((c * _charWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
                                     }
                                 }
                                 else
                                 {
                                     fgPaint.Color = fg;
-                                    canvas.DrawText(text, (float)(c * _charWidth) + paddingLeft, baselineY, font, fgPaint);
+                                    canvas.DrawText(text, (float)(Math.Round((c * _charWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
                                 }
                             }
                             else
@@ -305,7 +307,7 @@ namespace NovaTerminal.Core
 
                                 fgPaint.Color = fg;
                                 // Create string directly from span (allocates string only, no intermediate arrays)
-                                canvas.DrawText(new string(runBuffer.Slice(0, runLength)), (float)(runStart * _charWidth) + paddingLeft, baselineY, font, fgPaint);
+                                canvas.DrawText(new string(runBuffer.Slice(0, runLength)), (float)(Math.Round((runStart * _charWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
                                 c = k - 1;
                             }
                         }
@@ -318,7 +320,10 @@ namespace NovaTerminal.Core
                     int visualCursorRow = _buffer.GetVisualCursorRowInternal(_scrollOffset);
                     if (visualCursorRow >= 0 && visualCursorRow < bufferRows)
                     {
-                        canvas.DrawRect((float)(_buffer.InternalCursorCol * _charWidth) + paddingLeft, (float)(visualCursorRow * _charHeight + _charHeight - 2) + paddingTop, (float)_charWidth, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
+                        float x1 = (float)(Math.Round((_buffer.InternalCursorCol * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                        float x2 = (float)(Math.Round(((_buffer.InternalCursorCol + 1) * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                        float cy = (float)(Math.Round((visualCursorRow * _charHeight + _charHeight - 2 + paddingTop) * _renderScaling) / _renderScaling);
+                        canvas.DrawRect(x1, cy, x2 - x1, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
                     }
                 }
             }
