@@ -149,7 +149,7 @@ namespace NovaTerminal
                 }
                 if (isCtrl && isShift && e.Key == Key.W)
                 {
-                    if (tabs?.SelectedItem is TabItem ti) CloseTab(ti);
+                    CloseActivePane();
                     e.Handled = true;
                     return;
                 }
@@ -282,6 +282,66 @@ namespace NovaTerminal
                 tabs.Items.Remove(ti);
                 if (tabs.Items.Count == 0) Close();
             }
+        }
+
+        private void CloseActivePane()
+        {
+            if (_currentPane == null) return;
+
+            // Check if we are in a split (Parent is Grid with multiple children/splitter)
+            if (_currentPane.Parent is Grid parentGrid && parentGrid.Children.Count >= 2)
+            {
+                // We are in a split!
+                // 1. Identify Sibling (The non-splitter control that isn't us)
+                var sibling = parentGrid.Children.OfType<Control>()
+                                    .FirstOrDefault(c => c != _currentPane && !(c is GridSplitter));
+
+                if (sibling != null)
+                {
+                    // 2. Identify Grandparent
+                    var grandParent = parentGrid.Parent;
+
+                    // 3. Detach visuals
+                    parentGrid.Children.Clear();
+
+                    // 4. Promote Sibling to Grandparent
+                    if (grandParent is ContentPresenter cp) cp.Content = sibling;
+                    else if (grandParent is TabItem tab) tab.Content = sibling;
+                    else if (grandParent is Grid gpGrid)
+                    {
+                        Grid.SetRow(sibling, Grid.GetRow(parentGrid));
+                        Grid.SetColumn(sibling, Grid.GetColumn(parentGrid));
+                        Grid.SetRowSpan(sibling, Grid.GetRowSpan(parentGrid));
+                        Grid.SetColumnSpan(sibling, Grid.GetColumnSpan(parentGrid));
+
+                        int index = gpGrid.Children.IndexOf(parentGrid);
+                        if (index >= 0)
+                        {
+                            gpGrid.Children.RemoveAt(index);
+                            gpGrid.Children.Insert(index, sibling);
+                        }
+                        else gpGrid.Children.Add(sibling);
+                    }
+                    else if (grandParent is Panel p)
+                    {
+                        int index = p.Children.IndexOf(parentGrid);
+                        p.Children.Remove(parentGrid);
+                        if (index >= 0) p.Children.Insert(index, sibling);
+                        else p.Children.Add(sibling);
+                    }
+
+                    // 5. Dispose the closed pane
+                    DisposeControlTree(_currentPane);
+
+                    // 6. Focus Sibling
+                    FocusFirstPane(sibling);
+                    return;
+                }
+            }
+
+            // Fallback: If not in a split, close the tab
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs?.SelectedItem is TabItem ti) CloseTab(ti);
         }
 
         private void DisposeControlTree(Control control)
@@ -590,7 +650,7 @@ namespace NovaTerminal
                 }
             }
 
-            CommandRegistry.Register("Close Tab", "General", () => { if (this.FindControl<TabControl>("Tabs")?.SelectedItem is TabItem ti) CloseTab(ti); }, "Ctrl+Shift+W");
+            CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), "Ctrl+Shift+W");
             CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Vertical), "Ctrl+Shift+D");
             CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+E");
             CommandRegistry.Register("Find in Terminal", "Edit", () => _currentPane?.ToggleSearch(), "Ctrl+Shift+F");
