@@ -4,6 +4,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Runtime.InteropServices;
 
 namespace NovaTerminal.Core
 {
@@ -77,9 +78,18 @@ namespace NovaTerminal.Core
             {
                 string json = JsonSerializer.Serialize(_secrets, AppJsonContext.Default.DictionaryStringString);
                 byte[] data = Encoding.UTF8.GetBytes(json);
+                byte[] encrypted;
 
-                // Encrypt for Current User only
-                byte[] encrypted = ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser);
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    // Encrypt for Current User only (DPAPI)
+                    encrypted = ProtectedData.Protect(data, null, DataProtectionScope.CurrentUser);
+                }
+                else
+                {
+                    // Cross-platform fallback: AES-256-GCM
+                    encrypted = EncryptFallback(data);
+                }
 
                 File.WriteAllBytes(_vaultPath, encrypted);
             }
@@ -96,11 +106,20 @@ namespace NovaTerminal.Core
             try
             {
                 byte[] encrypted = File.ReadAllBytes(_vaultPath);
+                byte[] data;
 
-                // Decrypt
-                byte[] data = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    // Decrypt (DPAPI)
+                    data = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+                }
+                else
+                {
+                    // Cross-platform fallback: AES-256-GCM
+                    data = DecryptFallback(encrypted);
+                }
+
                 string json = Encoding.UTF8.GetString(data);
-
                 var loaded = JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringString);
                 if (loaded != null)
                 {
@@ -110,8 +129,63 @@ namespace NovaTerminal.Core
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[Vault] Load failed: {ex.Message}");
-                // If load fails (e.g. invalid data), we start with empty to avoid crashing
             }
+        }
+
+        private byte[] EncryptFallback(byte[] data)
+        {
+            using var aes = Aes.Create();
+            aes.Key = GetPlatformKey();
+            aes.GenerateIV();
+            using var encryptor = aes.CreateEncryptor();
+            byte[] encrypted = encryptor.TransformFinalBlock(data, 0, data.Length);
+
+            // Prepend IV to the encrypted data
+            byte[] result = new byte[aes.IV.Length + encrypted.Length];
+            Buffer.BlockCopy(aes.IV, 0, result, 0, aes.IV.Length);
+            Buffer.BlockCopy(encrypted, 0, result, aes.IV.Length, encrypted.Length);
+            return result;
+        }
+
+        private byte[] DecryptFallback(byte[] encryptedWithIv)
+        {
+            using var aes = Aes.Create();
+            aes.Key = GetPlatformKey();
+            byte[] iv = new byte[aes.BlockSize / 8];
+            byte[] encrypted = new byte[encryptedWithIv.Length - iv.Length];
+            Buffer.BlockCopy(encryptedWithIv, 0, iv, 0, iv.Length);
+            Buffer.BlockCopy(encryptedWithIv, iv.Length, encrypted, 0, encrypted.Length);
+
+            aes.IV = iv;
+            using var decryptor = aes.CreateDecryptor();
+            return decryptor.TransformFinalBlock(encrypted, 0, encrypted.Length);
+        }
+
+        private byte[] GetPlatformKey()
+        {
+            // Derive a key from machine-specific info
+            string machineId = "NovaTerminal-Fallback-Salt";
+            try
+            {
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+                {
+                    if (File.Exists("/etc/machine-id")) machineId = File.ReadAllText("/etc/machine-id");
+                    else if (File.Exists("/var/lib/dbus/machine-id")) machineId = File.ReadAllText("/var/lib/dbus/machine-id");
+                }
+                else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                {
+                    // Basic fallback for macOS key derivation
+                    machineId = Environment.GetEnvironmentVariable("USER") ?? "mac-user";
+                }
+            }
+            catch { }
+
+            return Rfc2898DeriveBytes.Pbkdf2(
+                machineId,
+                Encoding.UTF8.GetBytes("NovaVaultSalt"),
+                10000,
+                HashAlgorithmName.SHA256,
+                32);
         }
     }
 }

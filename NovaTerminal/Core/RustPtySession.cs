@@ -13,6 +13,8 @@ namespace NovaTerminal.Core
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _readTask;
         private Task? _processTask;
+        private string? _savedPassword;
+        private bool _passwordSent = false;
 
         // Bounded queue for back-pressure - prevents OOM on high-throughput output
         private readonly BlockingCollection<string> _outputQueue = new BlockingCollection<string>(boundedCapacity: 100);
@@ -60,19 +62,18 @@ namespace NovaTerminal.Core
             string combinedArgs = args ?? "";
             string shellLower = shellCommand.ToLowerInvariant();
 
-            if (shellLower.EndsWith("cmd.exe"))
+            if (OperatingSystem.IsWindows())
             {
-                // CMD: /k runs command then remains interactive.
-                // Note: Output redirection like "> nul" doesn't work directly via PTY spawn,
-                // but we can pass /k chcp 65001.
-                effectiveShell = shellCommand;
-                combinedArgs = "/k chcp 65001 " + combinedArgs;
-            }
-            else if (shellLower.Contains("powershell") || shellLower.Contains("pwsh"))
-            {
-                // PowerShell:
-                effectiveShell = shellCommand;
-                combinedArgs = "-NoLogo " + combinedArgs;
+                if (shellLower.EndsWith("cmd.exe"))
+                {
+                    effectiveShell = shellCommand;
+                    combinedArgs = "/k chcp 65001 " + combinedArgs;
+                }
+                else if (shellLower.Contains("powershell") || shellLower.Contains("pwsh"))
+                {
+                    effectiveShell = shellCommand;
+                    combinedArgs = "-NoLogo " + combinedArgs;
+                }
             }
 
             Console.WriteLine($"[RustPtySession] Spawning '{effectiveShell}' args='{combinedArgs}' cwd='{cwd}' at {cols}x{rows}");
@@ -122,6 +123,12 @@ namespace NovaTerminal.Core
             }
         }
 
+        public void SetSavedPassword(string password)
+        {
+            _savedPassword = password;
+            _passwordSent = false;
+        }
+
         private void ReadLoop()
         {
             byte[] buffer = new byte[4096];
@@ -138,6 +145,21 @@ namespace NovaTerminal.Core
                     if (charCount > 0)
                     {
                         string text = new string(charBuffer, 0, charCount);
+
+                        // PASSWORD INJECTION (Mimics sshpass but integrated)
+                        if (!string.IsNullOrEmpty(_savedPassword) && !_passwordSent)
+                        {
+                            // Match common password prompts: "Password:", "password:", "[user]'s password:"
+                            if (text.Contains("password:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Task.Delay(200).ContinueWith(_ =>
+                                {
+                                    SendInput(_savedPassword + "\r");
+                                    _passwordSent = true;
+                                    Console.WriteLine("[RustPtySession] Automated password injected.");
+                                });
+                            }
+                        }
 
                         // Bounded add with timeout - provides back-pressure to PTY
                         if (!_outputQueue.TryAdd(text, 50, _cts.Token))

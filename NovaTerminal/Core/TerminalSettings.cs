@@ -26,12 +26,24 @@ namespace NovaTerminal.Core
 
         public static System.Collections.Generic.List<TerminalProfile> GetDefaultProfiles()
         {
-            return new System.Collections.Generic.List<TerminalProfile>
+            if (OperatingSystem.IsWindows())
             {
-                new TerminalProfile { Name = "Command Prompt", Command = "cmd.exe" },
-                new TerminalProfile { Name = "PowerShell", Command = "powershell.exe" },
-                new TerminalProfile { Name = "WSL (Ubuntu)", Command = "wsl.exe" }
-            };
+                return new System.Collections.Generic.List<TerminalProfile>
+                {
+                    new TerminalProfile { Name = "Command Prompt", Command = "cmd.exe" },
+                    new TerminalProfile { Name = "PowerShell", Command = "pwsh.exe" },
+                    new TerminalProfile { Name = "Windows PowerShell", Command = "powershell.exe" }
+                };
+            }
+            else
+            {
+                return new System.Collections.Generic.List<TerminalProfile>
+                {
+                    new TerminalProfile { Name = "Bash", Command = "/bin/bash" },
+                    new TerminalProfile { Name = "Zsh", Command = "/bin/zsh" },
+                    new TerminalProfile { Name = "Shell", Command = "/bin/sh" }
+                };
+            }
         }
 
         public TerminalSettings()

@@ -10,6 +10,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.IO;
+using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Layout;
@@ -376,6 +378,17 @@ namespace NovaTerminal
                 if (freshProfile != null) profile = freshProfile;
             }
 
+            // Ensure the command exists on this platform (handles shared settings between Windows/Linux)
+            if (profile.Type == ConnectionType.Local)
+            {
+                bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
+                if (!exists)
+                {
+                    profile.Command = ShellHelper.GetDefaultShell();
+                    profile.Arguments = ""; // Reset potentially platform-specific args
+                }
+            }
+
             // Construct command if it's an SSH connection
             if (profile.Type == ConnectionType.SSH)
             {
@@ -384,7 +397,7 @@ namespace NovaTerminal
                 string portString = profile.SshPort == 22 ? "" : $"-p {profile.SshPort} ";
                 string key = string.IsNullOrWhiteSpace(profile.SshKeyPath) ? "" : $"-i \"{profile.SshKeyPath}\" ";
 
-                profile.Command = "ssh.exe";
+                profile.Command = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "ssh.exe" : "ssh";
                 profile.Arguments = $"{portString}{key}{user}{host}";
             }
 

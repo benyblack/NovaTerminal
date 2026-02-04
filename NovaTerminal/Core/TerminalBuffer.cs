@@ -167,11 +167,6 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
-                var debugPath = @"d:\theme_debug.txt";
-                var debugLines = new System.Collections.Generic.List<string>();
-                debugLines.Add($"=== UpdateThemeColors called at {DateTime.Now} ===");
-                debugLines.Add($"Theme: {Theme.Name}");
-
                 // Helper function to check if a color is "dark" (likely a background)
                 bool IsDarkColor(Color c)
                 {
@@ -181,22 +176,12 @@ namespace NovaTerminal.Core
                 }
 
                 int remappedCount = 0;
-                int totalCells = 0;
-                int darkCellsFound = 0;
 
                 for (int r = 0; r < Rows; r++)
                 {
                     for (int c = 0; c < Cols; c++)
                     {
                         ref var cell = ref _viewport[r].Cells[c];
-                        totalCells++;
-
-                        // Debug first few rows
-                        if (r < 3 && c < 5)
-                        {
-                            double brightness = (0.299 * cell.Background.R + 0.587 * cell.Background.G + 0.114 * cell.Background.B) / 255.0;
-                            debugLines.Add($"Cell[{r},{c}]: BG={cell.Background} (brightness={brightness:F2}), IsDefault={cell.IsDefaultBackground}, Char='{cell.Character}'");
-                        }
 
                         // Always update cells marked as default
                         if (cell.IsDefaultForeground)
@@ -211,20 +196,12 @@ namespace NovaTerminal.Core
                         // Convert dark backgrounds to theme background
                         if (!cell.IsDefaultBackground && IsDarkColor(cell.Background))
                         {
-                            darkCellsFound++;
-                            if (darkCellsFound <= 5)
-                            {
-                                debugLines.Add($"  -> Remapping dark BG at [{r},{c}]: {cell.Background} -> {Theme.Background}");
-                            }
                             cell.Background = Theme.Background;
                             cell.IsDefaultBackground = true;
                             remappedCount++;
                         }
                     }
                 }
-
-                debugLines.Add($"Total cells: {totalCells}, Dark cells found: {darkCellsFound}, Remapped: {remappedCount}");
-                System.IO.File.WriteAllLines(debugPath, debugLines);
 
                 // Also update scrollback (no debug for scrollback to keep it simple)
                 foreach (var row in _scrollback)

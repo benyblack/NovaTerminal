@@ -28,12 +28,11 @@ namespace NovaTerminal.Core
             }
         }
 
-        private static bool InPath(string command)
+        public static bool InPath(string command)
         {
             var path = Environment.GetEnvironmentVariable("PATH");
             if (string.IsNullOrEmpty(path)) return false;
 
-            var ext = ".exe";
             var dirs = path.Split(Path.PathSeparator);
 
             foreach (var dir in dirs)

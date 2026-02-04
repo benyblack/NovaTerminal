@@ -92,6 +92,18 @@ namespace NovaTerminal.Controls
             string startingDir = profile?.StartingDirectory ?? "";
 
             Session = new RustPtySession(effectiveShell, cols, rows, args, startingDir);
+
+            // Fetch password from Vault for automated injection if it's an SSH connection
+            if (profile != null && profile.Type == ConnectionType.SSH)
+            {
+                var vault = new VaultService();
+                string? pwd = vault.GetSecret($"profile_{profile.Id}_password");
+                if (!string.IsNullOrEmpty(pwd))
+                {
+                    Session.SetSavedPassword(pwd);
+                }
+            }
+
             TermView.SetSession(Session);
 
             // Wire up Output
