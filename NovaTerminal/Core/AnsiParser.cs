@@ -7,7 +7,7 @@ namespace NovaTerminal.Core
     public class AnsiParser
     {
         private TerminalBuffer _buffer;
-        private enum State { Normal, Esc, Csi, Osc, OscEsc, Dcs, DcsEsc }
+        private enum State { Normal, Esc, Csi, Osc, OscEsc, Dcs, DcsEsc, Charset }
         private State _state = State.Normal;
 
         // Zero-alloc buffers
@@ -70,8 +70,8 @@ namespace NovaTerminal.Core
                         }
                         else if (c == '(' || c == ')' || c == '*' || c == '+' || c == '-')
                         {
-                            // G0/G1 charset selection - ignore for now but don't print
-                            _state = State.Normal;
+                            // G0/G1 charset selection - wait for the next char but don't print
+                            _state = State.Charset;
                         }
                         else if (c >= 0x20 && c <= 0x7E)
                         {
@@ -84,6 +84,11 @@ namespace NovaTerminal.Core
                         {
                             _state = State.Normal;
                         }
+                        break;
+
+                    case State.Charset:
+                        // Consume the charset designation character (e.g. 'B' in ESC ( B)
+                        _state = State.Normal;
                         break;
 
                     case State.Osc:
