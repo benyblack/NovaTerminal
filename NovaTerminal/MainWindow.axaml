@@ -21,14 +21,14 @@
     </Window.Resources>
     <Window.Styles>
         <Style Selector="Button#BtnNewTab">
-            <Setter Property="Opacity" Value="0.6"/>
+            <Setter Property="Opacity" Value="1.0"/>
         </Style>
         <Style Selector="Button#BtnNewTab:pointerover">
             <Setter Property="Opacity" Value="1.0"/>
             <Setter Property="Background" Value="#40FFFFFF"/>
         </Style>
         <Style Selector="Button#SettingsBtn">
-            <Setter Property="Opacity" Value="0.6"/>
+            <Setter Property="Opacity" Value="1.0"/>
         </Style>
         <Style Selector="Button#SettingsBtn:pointerover">
             <Setter Property="Opacity" Value="1.0"/>
@@ -101,6 +101,7 @@
                 <!-- Focusable=False to prevent stealing keyboard focus on click -->
                 <Button Name="BtnNewTab" Content="+" 
                         Foreground="White"
+                        Background="Transparent"
                         BorderThickness="0" Focusable="False" 
                         FontSize="18"
                         FontWeight="Light"
@@ -118,6 +119,7 @@
                 </Button>
                 <Button Name="SettingsBtn" Content="⚙" 
                         Foreground="White"
+                        Background="Transparent"
                         BorderThickness="0" Focusable="False" 
                         FontSize="16"
                         Padding="8,4" 

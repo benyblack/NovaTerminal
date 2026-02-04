@@ -561,7 +561,7 @@ namespace NovaTerminal
             }
 
             var titleBar = this.FindControl<Grid>("TitleBar");
-            if (titleBar != null) titleBar.Background = headerBrush;
+            if (titleBar != null) titleBar.Background = Brushes.Transparent;
 
             var dragBorder = this.FindControl<Border>("DragBorder");
             if (dragBorder != null) dragBorder.PointerPressed += (s, e) => BeginMoveDrag(e);
