@@ -29,6 +29,8 @@ namespace NovaTerminal.Core
             });
         }
 
+        public static void Clear() => _commands.Clear();
+
         public static List<TerminalCommand> GetCommands() => _commands;
 
         public static List<TerminalCommand> Search(string query)

@@ -456,6 +456,14 @@ namespace NovaTerminal
             profilesListBox.Items.Clear();
             foreach (var profile in _profilesList)
             {
+                // UI Polish: Only show profiles that make sense for the current platform
+                // (Matches logic in MainWindow.PopulateNewTabMenu)
+                if (profile.Type == ConnectionType.Local)
+                {
+                    bool exists = System.IO.File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
+                    if (!exists) continue;
+                }
+
                 var isDefault = profile.Id == _settings.DefaultProfileId;
                 var displayName = profile.Name + (isDefault ? " (Default)" : "");
                 var item = new ListBoxItem

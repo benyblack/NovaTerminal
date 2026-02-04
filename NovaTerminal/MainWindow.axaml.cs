@@ -58,47 +58,7 @@ namespace NovaTerminal
 
             if (settingsBtn != null) settingsBtn.Click += async (s, e) =>
             {
-                var sw = new SettingsWindow();
-                sw.OnOpacityChanged += (val) =>
-                {
-                    _settings.WindowOpacity = val;
-                    ApplyThemeToUI();
-                    ApplySettingsToAllTabs();
-                };
-                sw.OnBlurChanged += (val) =>
-                {
-                    _settings.BlurEffect = val;
-                    UpdateTransparencyHints();
-                };
-                sw.OnBgImageChanged += (path, opacity, stretch) =>
-                {
-                    _settings.BackgroundImagePath = path;
-                    _settings.BackgroundImageOpacity = opacity;
-                    _settings.BackgroundImageStretch = stretch;
-                    ApplyThemeToUI();
-                    ApplySettingsToAllTabs();
-                };
-                sw.OnFontChanged += (font) =>
-                {
-                    _settings.FontFamily = font;
-                    ApplySettingsToAllTabs();
-                };
-                sw.OnFontSizeChanged += (size) =>
-                {
-                    _settings.FontSize = size;
-                    ApplySettingsToAllTabs();
-                };
-                sw.OnThemeChanged += (theme) =>
-                {
-                    _settings.ThemeName = theme;
-                    ApplyThemeToUI();
-                    ApplySettingsToAllTabs();
-                };
-                await sw.ShowDialog<bool>(this);
-                _settings = TerminalSettings.Load();
-                ApplyThemeToUI();
-                ApplySettingsToAllTabs();
-                UpdateTransparencyHints();
+                await OpenSettings(0);
             };
 
             if (tabs != null)
@@ -121,38 +81,7 @@ namespace NovaTerminal
             var menuManage = this.FindControl<MenuItem>("MenuManageProfiles");
             if (menuManage != null) menuManage.Click += async (s, e) =>
             {
-                var sw = new SettingsWindow(1); // Open logic Tab 1 (Profiles)
-                // Reuse the same logic as the main settings button
-                sw.OnOpacityChanged += (val) => { _settings.WindowOpacity = val; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
-                sw.OnBlurChanged += (val) => { _settings.BlurEffect = val; UpdateTransparencyHints(); };
-                sw.OnBgImageChanged += (path, opacity, stretch) =>
-                {
-                    _settings.BackgroundImagePath = path;
-                    _settings.BackgroundImageOpacity = opacity;
-                    _settings.BackgroundImageStretch = stretch;
-                    ApplyThemeToUI();
-                    ApplySettingsToAllTabs();
-                };
-                sw.OnFontChanged += (font) => { _settings.FontFamily = font; ApplySettingsToAllTabs(); };
-                sw.OnFontSizeChanged += (size) => { _settings.FontSize = size; ApplySettingsToAllTabs(); };
-                sw.OnThemeChanged += (theme) => { _settings.ThemeName = theme; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
-
-                await sw.ShowDialog<bool>(this);
-
-                // Use the settings object directly from the dialog to avoid disk I/O race conditions
-                if (sw.Settings != null)
-                {
-                    _settings = sw.Settings;
-                }
-                else
-                {
-                    _settings = TerminalSettings.Load();
-                }
-
-                PopulateNewTabMenu(); // Refresh menu just in case usage
-                ApplyThemeToUI();
-                ApplySettingsToAllTabs();
-                UpdateTransparencyHints();
+                await OpenSettings(1); // Open Tab 1 (Profiles)
             };
 
             // Global Focus Tracking
@@ -169,6 +98,7 @@ namespace NovaTerminal
             AddTab(defaultProfile);
 
             SetupCommandPalette();
+            InitializeCommandPaletteUI();
 
             // Keyboard Shortcuts
             this.AddHandler(KeyDownEvent, (s, e) =>
@@ -447,6 +377,13 @@ namespace NovaTerminal
             // Add profiles
             foreach (var profile in _settings.Profiles)
             {
+                // UI Polish: Only show profiles that make sense for the current platform
+                if (profile.Type == ConnectionType.Local)
+                {
+                    bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
+                    if (!exists) continue; // Skip "Bash" on Windows or "cmd.exe" on Linux
+                }
+
                 var item = new MenuItem { Header = profile.Name };
                 item.Click += (s, e) => AddTab(profile);
                 flyout.Items.Add(item);
@@ -633,6 +570,8 @@ namespace NovaTerminal
 
         private void SetupCommandPalette()
         {
+            CommandRegistry.Clear();
+
             // 1. Register Default Commands
             CommandRegistry.Register("New Tab", "General", () => AddTab(), "Ctrl+Shift+T");
 
@@ -641,6 +580,12 @@ namespace NovaTerminal
             {
                 foreach (var profile in _settings.Profiles)
                 {
+                    // UI Polish: Only register commands for profiles that make sense for the current platform
+                    if (profile.Type == ConnectionType.Local)
+                    {
+                        bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
+                        if (!exists) continue;
+                    }
                     CommandRegistry.Register($"New Tab: {profile.Name}", "Shell", () => AddTab(profile), "");
                 }
             }
@@ -650,21 +595,19 @@ namespace NovaTerminal
             CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+E");
             CommandRegistry.Register("Find in Terminal", "Edit", () => _currentPane?.ToggleSearch(), "Ctrl+Shift+F");
             CommandRegistry.Register("Paste", "Edit", () => _ = PasteFromClipboardAsync(), "Ctrl+V");
-            CommandRegistry.Register("Settings", "General", () =>
+            CommandRegistry.Register("Settings", "General", async () =>
             {
-                var settings = this.FindControl<MenuItem>("MenuManageProfiles");
-                // Simulate click or just instantiate settings window directly?
-                // Let's manually trigger the properly wired logic if possible, or duplicate nicely.
-                // Ideally we extract the OpenSettings logic. For now, let's just create a new window
-                var sw = new SettingsWindow(0);
-                sw.ShowDialog<bool>(this);
+                await OpenSettings(0);
             }, "");
 
             // Themes
             CommandRegistry.Register("Theme: Solarized Dark", "Theme", () => { _settings.ThemeName = "Solarized Dark"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
             CommandRegistry.Register("Theme: Default Dark", "Theme", () => { _settings.ThemeName = "Default (Dark)"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
+        }
 
-            // 2. Wire UI
+        private void InitializeCommandPaletteUI()
+        {
+            // 2. Wire UI (Wires only ONCE)
             var overlay = this.FindControl<Grid>("CommandPaletteOverlay");
             var box = this.FindControl<TextBox>("CommandSearchBox");
             var list = this.FindControl<ListBox>("CommandList");
@@ -758,6 +701,47 @@ namespace NovaTerminal
             {
                 // Closing - return focus to terminal
                 _currentPane?.ActiveControl.Focus();
+            }
+        }
+
+        private async Task OpenSettings(int tabIndex)
+        {
+            var sw = new SettingsWindow(tabIndex);
+
+            // Wire up live preview events
+            sw.OnOpacityChanged += (val) => { _settings.WindowOpacity = val; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
+            sw.OnBlurChanged += (val) => { _settings.BlurEffect = val; UpdateTransparencyHints(); };
+            sw.OnBgImageChanged += (path, opacity, stretch) =>
+            {
+                _settings.BackgroundImagePath = path;
+                _settings.BackgroundImageOpacity = opacity;
+                _settings.BackgroundImageStretch = stretch;
+                ApplyThemeToUI();
+                ApplySettingsToAllTabs();
+            };
+            sw.OnFontChanged += (font) => { _settings.FontFamily = font; ApplySettingsToAllTabs(); };
+            sw.OnFontSizeChanged += (size) => { _settings.FontSize = size; ApplySettingsToAllTabs(); };
+            sw.OnThemeChanged += (theme) => { _settings.ThemeName = theme; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
+
+            bool saved = await sw.ShowDialog<bool>(this);
+
+            if (saved)
+            {
+                // Use the settings object directly from the dialog to avoid disk I/O race conditions
+                if (sw.Settings != null)
+                {
+                    _settings = sw.Settings;
+                }
+                else
+                {
+                    _settings = TerminalSettings.Load();
+                }
+
+                PopulateNewTabMenu();
+                SetupCommandPalette();
+                ApplyThemeToUI();
+                ApplySettingsToAllTabs();
+                UpdateTransparencyHints();
             }
         }
 

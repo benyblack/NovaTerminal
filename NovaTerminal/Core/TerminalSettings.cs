@@ -77,10 +77,52 @@ namespace NovaTerminal.Core
             {
                 settings.Profiles = GetDefaultProfiles();
             }
+            else
+            {
+                // Cross-platform polish: If we don't have any profile that matches a known shell for this OS,
+                // add the defaults for this OS so the user isn't stuck with invalid shells from another OS.
+                bool nativeShellsFound = settings.Profiles.Exists(p =>
+                    p.Type == ConnectionType.Local &&
+                    (File.Exists(p.Command) || ShellHelper.InPath(p.Command)));
 
-            if (settings.DefaultProfileId == Guid.Empty || !settings.Profiles.Exists(p => p.Id == settings.DefaultProfileId))
+                if (!nativeShellsFound)
+                {
+                    foreach (var def in GetDefaultProfiles())
+                    {
+                        if (!settings.Profiles.Exists(p => p.Command == def.Command))
+                        {
+                            settings.Profiles.Add(def);
+                        }
+                    }
+                }
+            }
+
+            // Ensure we have a valid default profile
+            bool defaultValid = settings.Profiles.Exists(p => p.Id == settings.DefaultProfileId);
+            if (settings.DefaultProfileId == Guid.Empty || !defaultValid)
             {
                 settings.DefaultProfileId = settings.Profiles[0].Id;
+            }
+            else
+            {
+                // If the default profile is a local command that doesn't exist on this OS, 
+                // try to pick a more appropriate default for the current platform.
+                var currentDefault = settings.Profiles.Find(p => p.Id == settings.DefaultProfileId);
+                if (currentDefault != null && currentDefault.Type == ConnectionType.Local)
+                {
+                    bool exists = File.Exists(currentDefault.Command) || ShellHelper.InPath(currentDefault.Command);
+                    if (!exists)
+                    {
+                        var better = settings.Profiles.Find(p =>
+                            p.Type == ConnectionType.Local &&
+                            (File.Exists(p.Command) || ShellHelper.InPath(p.Command)));
+
+                        if (better != null)
+                        {
+                            settings.DefaultProfileId = better.Id;
+                        }
+                    }
+                }
             }
 
             return settings;
