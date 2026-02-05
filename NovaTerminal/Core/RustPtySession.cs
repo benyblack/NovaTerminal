@@ -129,6 +129,14 @@ namespace NovaTerminal.Core
             _passwordSent = false;
         }
 
+        private NovaTerminal.Core.Replay.PtyRecorder? _recorder;
+
+        public void StartRecording(string filePath)
+        {
+            _recorder = new NovaTerminal.Core.Replay.PtyRecorder(filePath);
+            Console.WriteLine($"[RustPtySession] Recording started to: {filePath}");
+        }
+
         private void ReadLoop()
         {
             byte[] buffer = new byte[4096];
@@ -139,6 +147,9 @@ namespace NovaTerminal.Core
                 int read = Native.pty_read(_ptyState, buffer, buffer.Length);
                 if (read > 0)
                 {
+                    // Record raw bytes before any processing
+                    _recorder?.RecordChunk(buffer, read);
+
                     // Use the stateful decoder - it will hold incomplete multi-byte sequences
                     // until more bytes arrive, preventing U+FFFD replacement characters
                     int charCount = _utf8Decoder.GetChars(buffer, 0, read, charBuffer, 0);
@@ -219,6 +230,7 @@ namespace NovaTerminal.Core
             {
                 _cts.Cancel();
                 _outputQueue.CompleteAdding();
+                _recorder?.Dispose();
                 Native.pty_close(_ptyState);
                 _ptyState = IntPtr.Zero;
             }

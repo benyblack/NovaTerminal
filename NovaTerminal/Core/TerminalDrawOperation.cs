@@ -145,6 +145,7 @@ namespace NovaTerminal.Core
                                                    // displayStart = Total - Rows - ScrollOffset
                 int absDisplayStart = Math.Max(0, totalLines - bufferRowsLocked - _scrollOffset);
 
+                int dirtyCells = 0;
                 for (int r = 0; r < bufferRows; r++)
                 {
                     float y = (float)(Math.Round((r * _charHeight + paddingTop) * _renderScaling) / _renderScaling);
@@ -184,6 +185,7 @@ namespace NovaTerminal.Core
                             float x1 = (float)(Math.Round((runStart * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
                             float x2 = (float)(Math.Round((k * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
                             canvas.DrawRect(x1, y, x2 - x1, (float)_charHeight, bgPaint);
+                            dirtyCells += (k - runStart);
                             c = k - 1;
                         }
                     }
@@ -308,6 +310,7 @@ namespace NovaTerminal.Core
                                 fgPaint.Color = fg;
                                 // Create string directly from span (allocates string only, no intermediate arrays)
                                 canvas.DrawText(new string(runBuffer.Slice(0, runLength)), (float)(Math.Round((runStart * _charWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
+                                dirtyCells += (k - runStart);
                                 c = k - 1;
                             }
                         }
@@ -326,6 +329,9 @@ namespace NovaTerminal.Core
                         canvas.DrawRect(x1, cy, x2 - x1, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
                     }
                 }
+
+                // Currently every render is a full redraw in this custom operation
+                RendererStatistics.RecordFrame(fullRedraw: true, dirtyCells: dirtyCells);
             }
             finally
             {

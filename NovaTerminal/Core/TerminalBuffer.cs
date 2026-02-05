@@ -15,6 +15,7 @@ namespace NovaTerminal.Core
         private TerminalRow[] _mainScreen;
         private TerminalRow[] _altScreen;
         private bool _isAltScreen = false;
+        public bool IsAltScreenActive => _isAltScreen;
 
         // Scrollback buffer - historical lines that scrolled off the top
         private List<TerminalRow> _scrollback = new List<TerminalRow>();
@@ -65,6 +66,7 @@ namespace NovaTerminal.Core
         internal int GetVisualCursorRowInternal(int scrollOffset) => _cursorRow + scrollOffset;
 
         public IReadOnlyList<TerminalRow> ScrollbackRows => _scrollback;
+        public IReadOnlyList<TerminalRow> ViewportRows => _viewport;
         public int TotalLines => _scrollback.Count + Rows;
 
         // Track previous position for auto-clear heuristic
