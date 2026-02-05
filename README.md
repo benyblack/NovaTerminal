@@ -1,65 +1,147 @@
 # NovaTerminal
 
-NovaTerminal is a high-performance, GPU-accelerated terminal emulator for Windows, built with **.NET 10**, **Avalonia UI**, and **SkiaSharp**. It leverages the modern Windows Pseudo Console (ConPTY) API to provide accurate terminal emulation while delivering a fluid, customizable, and visually stunning user experience.
+**NovaTerminal** is a modern, cross-platform terminal emulator focused on  
+**correctness, performance, and predictability**.
 
-## ✨ Key Features
+Built with:
 
-### 💎 Modern UI & Aesthetics
-- **Seamless Transparency**: Fully synchronized window-level opacity and blur effects (Mica, Acrylic).
-- **Acrylic Design**: Custom window chrome with transparent tabs and title bar.
-- **Background Images**: Support for background images with opacity and stretch settings.
-- **Discrete Resizing**: Smooth, step-based resizing logic to prevent visual artifacts.
-- **Polished Controls**: Custom-styled window controls and tab headers that blend perfectly with the theme.
+- **.NET 10**
+- **Avalonia UI**
+- **Skia (GPU-accelerated rendering)**
+- **Rust-based PTY backend**
 
-### 🚀 Performance & Rendering
-- **GPU Acceleration**: Custom rendering pipeline using **SkiaSharp** for high-speed text drawing.
-- **Thread-Safe Buffer**: Robust concurrent architecture using `ReaderWriterLockSlim` to handle heavy output.
-- **Smart Invalidation**: Optimized redraw logic to minimize CPU/GPU usage during idle times.
+Supported platforms: **Windows · Linux · macOS**
 
-### 🛠️ Profiles & Customization
-- **Multi-Profile Support**: Configure distinct profiles for PowerShell, CMD, WSL, or custom shells.
-- **Visual Overrides**: Set specific fonts, sizes, and themes per profile (e.g., larger font for WSL, separate theme for Admin shells).
-- **Live Settings**: Changes to backgrounds, opacity, and fonts apply immediately without restart.
-- **Theme Support**: Built-in themes (Dark, Solarized Dark) with support for custom JSON-based color schemes.
+---
 
-### 🔍 Productivity Tools
-- **Command Palette**: `Ctrl+Shift+P` to access all commands via a searchable overlay.
-- **Split Panes**: Split tabs vertically (`Ctrl+Shift+D`) or horizontally (`Ctrl+Shift+E`) and resize them with drag-and-drop dividers.
-- **Multi-Tab Interface**: Manage distinct sessions in a single window.
-- **Pane Navigation**: Move focus between panes using `Alt + Arrow Keys`.
-- **Search Overlay**: Integrated search functionality (`Ctrl+Shift+F`) with result highlighting.
+## Why NovaTerminal?
 
-## 📦 Requirements
+Terminal emulators tend to fail quietly:
+a small bug in resize, wrapping, or alternate screen handling can break
+`vim`, `htop`, `tmux`, or SSH workflows.
 
-- **OS**: Windows 10 (1903+) or Windows 11.
-- **Runtime**: .NET 10.0 SDK/Runtime.
+NovaTerminal is built around one core principle:
 
-## ⌨️ Shortcuts
+> **Terminal correctness is enforced by automated tests, not guesswork.**
 
-| Action | Shortcut |
-| :--- | :--- |
-| **General** | |
-| Command Palette | `Ctrl+Shift+P` |
-| New Tab | `Ctrl+Shift+T` |
-| Close Tab | `Ctrl+Shift+W` |
-| Settings | (via Command Palette) |
-| **View, Panes & Tabs** | |
-| Split Vertical | `Ctrl+Shift+D` |
-| Split Horizontal | `Ctrl+Shift+E` |
-| Next Tab | `Ctrl+Tab` |
-| Previous Tab | `Ctrl+Shift+Tab` |
-| Navigate Panes | `Alt + Arrow Keys` |
-| Zoom In/Out | `Ctrl + +/-` or `Ctrl + Scroll` |
-| **Edit** | |
-| Find / Search | `Ctrl+Shift+F` |
-| Paste | `Ctrl+V` |
+---
 
-## 🛠️ Architecture
+## What Makes NovaTerminal Different
 
-- **UI Framework**: Avalonia UI (Cross-platform ready, optimized for Windows 11).
-- **Backend**: Win32 ConPTY API for authentic console behavior.
-- **Input Handling**: Full xterm-compatible input forwarding.
+### ✔ Correctness First
+- Deterministic VT / ANSI parsing
+- Lossless resize & reflow
+- Strict alternate screen isolation
+- Scrollback integrity
 
-## 📝 License
+UI features never override terminal semantics.
 
-This project is licensed under the MIT License.
+---
+
+### ✔ Truly Cross-Platform
+NovaTerminal guarantees **identical terminal behavior** across operating systems:
+
+- VT interpretation
+- buffer state
+- wrapping & reflow
+- search semantics
+
+Platform-specific differences are limited to:
+- window chrome
+- blur/transparency
+- global hotkeys
+- credential storage backends
+
+---
+
+### ✔ Test-Gated Development
+NovaTerminal treats automated testing as a first-class feature:
+
+- deterministic replay of real terminal sessions
+- cross-platform parity checks
+- renderer performance & flicker guards
+
+If a change cannot be tested, it does not ship.
+
+---
+
+## Architecture Overview
+
+┌──────────────────────────────┐
+│ UI Shell (Avalonia) │
+├──────────────────────────────┤
+│ Renderer (Skia, GPU) │
+│ - Cell-grid based │
+│ - Incremental redraw │
+├──────────────────────────────┤
+│ Terminal Core (Cross-Platform)│
+│ - VT / ANSI parser │
+│ - Screen & scrollback │
+│ - Reflow & wrapping │
+├──────────────────────────────┤
+│ PTY Backend (Rust) │
+└──────────────────────────────┘
+
+
+---
+
+## Current Features
+
+### Terminal
+- VT / ANSI parsing
+- Alternate screen support (`vim`, `less`, `htop`)
+- Scrollback buffer
+- Stable resize & reflow
+- Cell-based buffer model
+
+### UI
+- Tabs
+- Split panes
+- Command palette
+- Search overlay
+- Profiles (local & SSH)
+- Themes and fonts
+- Live settings (no restart)
+
+### Remote
+- SSH profiles
+- Cross-platform PTY abstraction
+- Secure credential handling (in progress)
+
+---
+
+## Project Status
+
+NovaTerminal is under **active development**.
+
+Current focus:
+- hardening terminal correctness
+- eliminating flicker and resize instability
+- expanding automated replay coverage
+
+Advanced features are intentionally secondary until correctness goals are met.
+
+---
+
+## Contributing
+
+Contributions are welcome.
+
+NovaTerminal has a strong correctness culture:
+- terminal core invariants are enforced
+- automated tests gate changes
+
+See `CONTRIBUTING.md` for details.
+
+---
+
+## Philosophy
+
+NovaTerminal aims to be:
+
+- **boring in behavior**
+- **predictable under stress**
+- **fast without shortcuts**
+- **cross-platform without divergence**
+
+A terminal you can trust.
