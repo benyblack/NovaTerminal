@@ -414,7 +414,7 @@ namespace NovaTerminal.Core
             ScrollOffset = offset;
         }
 
-        private bool _isInvalidationPending = false;
+
 
         // Search state
         private List<SearchMatch> _searchMatches = new List<SearchMatch>();
@@ -487,15 +487,9 @@ namespace NovaTerminal.Core
         public void InvalidateBuffer()
         {
             _isDirty = true;
-            if (!_isInvalidationPending)
-            {
-                _isInvalidationPending = true;
-                Dispatcher.UIThread.Post(() =>
-                {
-                    _isInvalidationPending = false;
-                    InvalidateVisual();
-                }, DispatcherPriority.Render);
-            }
+            // We rely on _renderTimer (16ms) to check _isDirty and call InvalidateVisual.
+            // This acts as a swap-chain throttle, preventing the PTY from flooding the UI thread 
+            // with millions of InvalidateVisual calls during cat/heavy output.
         }
 
         public event Action<int, int>? Ready;
