@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:core="clr-namespace:NovaTerminal.Core"
+             x:Class="NovaTerminal.Controls.TransferCenter">
+    <Grid RowDefinitions="Auto, *">
+        <Border Background="#2D2D2D" Padding="10">
+            <TextBlock Text="Recent Transfers" Foreground="White" FontWeight="Bold"/>
+        </Border>
+        
+        <ListBox Name="JobsList" Grid.Row="1" Background="#1E1E1E" BorderThickness="0">
+            <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="core:TransferJob">
+                    <Border BorderBrush="#333" BorderThickness="0,0,0,1" Padding="10">
+                        <Grid ColumnDefinitions="Auto, *, Auto" RowDefinitions="Auto, Auto">
+                            <!-- Icon -->
+                            <TextBlock Text="{Binding Direction, Converter={StaticResource DirectionConverter}}" 
+                                       Foreground="#888" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                            
+                            <!-- Info -->
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="{Binding FileName}" Foreground="White" FontWeight="SemiBold"/>
+                                <TextBlock Text="{Binding RemotePath}" Foreground="#888" FontSize="11"/>
+                                
+                                <ProgressBar Margin="0,5" Height="4" 
+                                           Value="{Binding Progress}" Minimum="0" Maximum="1"
+                                           IsVisible="{Binding State, Converter={StaticResource RunningConverter}}"/>
+                                
+                                <TextBlock Text="{Binding LastError}" Foreground="#F44336" FontSize="10" 
+                                           IsVisible="{Binding LastError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                           TextWrapping="Wrap"/>
+                            </StackPanel>
+                            
+                            <!-- Status -->
+                            <TextBlock Grid.Column="2" Grid.Row="0" 
+                                       Text="{Binding State}" 
+                                       Foreground="{Binding State, Converter={StaticResource StateBrushConverter}}"
+                                       FontSize="11" VerticalAlignment="Top"/>
+                            
+                            <!-- Profile -->
+                            <TextBlock Grid.Column="1" Grid.Row="1" 
+                                       Text="{Binding ProfileName}" Foreground="#666" FontSize="10" Margin="0,2,0,0"/>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+</UserControl>

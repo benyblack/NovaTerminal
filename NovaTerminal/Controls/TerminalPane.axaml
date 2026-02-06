@@ -20,6 +20,19 @@
 
     <Border Padding="0">
         <Grid x:Name="RootGrid" Background="Transparent">
+            <!-- Context Menu for SFTP Actions -->
+            <Grid.ContextMenu>
+                <ContextMenu Name="PaneContextMenu">
+                    <MenuItem Header="SFTP">
+                        <MenuItem Header="Upload File..." Name="MenuUploadFile" />
+                        <MenuItem Header="Upload Folder..." Name="MenuUploadFolder" />
+                        <Separator />
+                        <MenuItem Header="Download File..." Name="MenuDownloadFile" />
+                        <MenuItem Header="Download Folder..." Name="MenuDownloadFolder" />
+                    </MenuItem>
+                </ContextMenu>
+            </Grid.ContextMenu>
+
             <!-- Terminal View Layer -->
             <core:TerminalView x:Name="TermView" />
 
@@ -68,6 +81,11 @@
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0" Spacing="10">
                     <TextBlock Name="StatusBarLabel" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
                     <StackPanel Name="StatusBarRules" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"/>
+                    <Separator Width="1" Height="12" Background="#444" Margin="4,0" VerticalAlignment="Center"/>
+                    <StackPanel Name="SftpStatus" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center" IsVisible="False">
+                        <TextBlock Name="SftpIcon" Text="⬇" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock Name="SftpText" Foreground="White" FontSize="10" VerticalAlignment="Center"/>
+                    </StackPanel>
                 </StackPanel>
             </Border>
             

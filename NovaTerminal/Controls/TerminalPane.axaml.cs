@@ -24,6 +24,8 @@ namespace NovaTerminal.Controls
         public string ShellArgs { get; private set; } = string.Empty;
         public TerminalProfile? Profile { get; private set; }
 
+        public event Action<TerminalPane, TransferDirection, TransferKind>? RequestSftpTransfer;
+
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
         private DispatcherTimer? _statusTimer;
@@ -85,12 +87,35 @@ namespace NovaTerminal.Controls
             _statusTimer.Tick += (s, e) => UpdateForwardingStatus();
             _statusTimer.Start();
 
+            // SFTP Status
+            SftpService.Instance.JobUpdated += Sftp_JobUpdated;
+
             // Wire up focus syncing
             TermView.GotFocus += (s, e) => UpdateFocusVisuals(true);
             TermView.LostFocus += (s, e) => UpdateFocusVisuals(false);
 
             // Load Settings
             ApplySettings(TerminalSettings.Load());
+
+            // SFTP Context Menu
+            var contextMenu = RootGrid.ContextMenu;
+            if (contextMenu != null)
+            {
+                var sftpMenu = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(m => (string?)m.Header == "SFTP");
+                if (sftpMenu != null)
+                {
+                    foreach (var sub in sftpMenu.Items.OfType<MenuItem>())
+                    {
+                        if (sub.Name == "MenuUploadFile") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Upload, TransferKind.File);
+                        if (sub.Name == "MenuUploadFolder") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Upload, TransferKind.Folder);
+                        if (sub.Name == "MenuDownloadFile") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Download, TransferKind.File);
+                        if (sub.Name == "MenuDownloadFolder") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Download, TransferKind.Folder);
+                    }
+                }
+            }
+
+
+
         }
 
         private void InitializeSession(string? shell, TerminalProfile? profile, int cols, int rows, string? explicitArgs = null)
@@ -113,7 +138,15 @@ namespace NovaTerminal.Controls
                 // Ensure we have profiles for resolution. 
                 var profiles = _settings?.Profiles ?? new System.Collections.Generic.List<TerminalProfile>();
                 effectiveShell = "ssh.exe";
+                effectiveShell = "ssh.exe";
                 args = profile.GenerateSshArguments(profiles);
+            }
+
+            // Update SFTP Menu Visibility
+            // If it's not an SSH session, detach the context menu entirely to avoid "tiny empty box" artifacts
+            if (profile == null || profile.Type != ConnectionType.SSH)
+            {
+                RootGrid.ContextMenu = null;
             }
 
             ShellCommand = effectiveShell;
@@ -345,7 +378,45 @@ namespace NovaTerminal.Controls
         {
             _statusTimer?.Stop();
             _statusTimer = null;
+            SftpService.Instance.JobUpdated -= Sftp_JobUpdated;
             Session?.Dispose();
+        }
+
+        private void Sftp_JobUpdated(object? sender, TransferJob job)
+        {
+            if (job.SessionId != Session?.Id) return;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                var activeJobs = SftpService.Instance.Jobs
+                    .Where(j => j.SessionId == Session?.Id && j.State == TransferState.Running)
+                    .ToList();
+
+                if (activeJobs.Count > 0)
+                {
+                    SftpStatus.IsVisible = true;
+                    SftpIcon.Text = activeJobs.Any(j => j.Direction == TransferDirection.Upload) ? "⬆" : "⬇";
+                    SftpText.Text = $"SFTP: {activeJobs.Count} active transfers";
+                }
+                else
+                {
+                    var lastJob = SftpService.Instance.Jobs
+                        .Where(j => j.SessionId == Session?.Id)
+                        .OrderByDescending(j => j.FinishedAt)
+                        .FirstOrDefault();
+
+                    if (lastJob != null && lastJob.FinishedAt > DateTime.Now.AddSeconds(-10))
+                    {
+                        SftpStatus.IsVisible = true;
+                        SftpIcon.Text = lastJob.State == TransferState.Completed ? "✅" : "❌";
+                        SftpText.Text = lastJob.State == TransferState.Completed ? "SFTP complete" : $"SFTP failed: {lastJob.LastError}";
+                    }
+                    else
+                    {
+                        SftpStatus.IsVisible = false;
+                    }
+                }
+            });
         }
 
         private void UpdateForwardingStatus()

@@ -191,6 +191,22 @@
             </Grid>
         </Border>
 
+        <!-- Transfer Center Overlay -->
+        <Border Name="TransferOverlay" IsVisible="False" 
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Width="350" Height="400"
+                Margin="0,0,20,50"
+                Background="#1E1E1E" BorderBrush="#333" BorderThickness="1" CornerRadius="8"
+                ZIndex="600">
+            <Grid RowDefinitions="Auto, *">
+                <Grid Background="#2D2D2D" Height="32">
+                    <TextBlock Text="Recent Transfers" VerticalAlignment="Center" Margin="10,0" FontSize="12" FontWeight="Bold"/>
+                    <Button Name="BtnCloseTransfers" Content="✕" HorizontalAlignment="Right" Width="32" Background="Transparent" BorderThickness="0"/>
+                </Grid>
+                <controls:TransferCenter Name="TransferCenterControl" Grid.Row="1"/>
+            </Grid>
+        </Border>
+
         <!-- Command Palette Overlay -->
         <Grid Name="CommandPaletteOverlay" ZIndex="999" IsVisible="False" Background="#80000000">
             <Border Width="600" Height="400" Background="#252526" BorderBrush="#007ACC" BorderThickness="1" CornerRadius="4" VerticalAlignment="Top" Margin="0,80,0,0">
@@ -206,6 +222,20 @@
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- SFTP Path Prompt Overlay -->
+        <Grid Name="PathPromptOverlay" ZIndex="1000" IsVisible="False" Background="#80000000">
+            <Border Width="500" Background="#252526" BorderBrush="#007ACC" BorderThickness="1" CornerRadius="4" VerticalAlignment="Top" Margin="0,150,0,0" Padding="15">
+                <Grid RowDefinitions="Auto, Auto, Auto">
+                    <TextBlock Name="PathPromptTitle" Text="Remote Path" Foreground="White" FontSize="14" FontWeight="Bold" Margin="0,0,0,10"/>
+                    <TextBox Name="PathPromptBox" Grid.Row="1" Watermark="e.g. ~/logs" Margin="0,0,0,15" />
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10">
+                        <Button Name="BtnPathCancel" Content="Cancel" Width="80" />
+                        <Button Name="BtnPathConfirm" Content="Confirm" Width="80" Background="#007ACC" Foreground="White" />
+                    </StackPanel>
                 </Grid>
             </Border>
         </Grid>

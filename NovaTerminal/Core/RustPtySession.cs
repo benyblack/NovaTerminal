@@ -9,6 +9,7 @@ namespace NovaTerminal.Core
 {
     public class RustPtySession : ITerminalSession
     {
+        public Guid Id { get; } = Guid.NewGuid();
         private IntPtr _ptyState;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _readTask;

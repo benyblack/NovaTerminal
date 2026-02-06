@@ -76,6 +76,10 @@ namespace NovaTerminal.Core
         public string? FontFamily { get; set; }
         public double? FontSize { get; set; }
 
+        // SFTP Defaults
+        public string? DefaultRemoteDir { get; set; }
+        public string? DefaultLocalDir { get; set; }
+
         public string Group { get; set; } = "General";
         public System.Collections.Generic.List<string> Tags { get; set; } = new();
         public System.Collections.Generic.List<ForwardingRule> Forwards { get; set; } = new();

@@ -6,6 +6,7 @@ namespace NovaTerminal.Core
     /// </summary>
     public interface ITerminalSession : System.IDisposable
     {
+        System.Guid Id { get; }
         void SendInput(string input);
         void Resize(int cols, int rows);
         string ShellCommand { get; }

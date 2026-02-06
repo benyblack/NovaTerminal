@@ -15,6 +15,8 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Layout;
+using Avalonia.Platform.Storage;
+using System.IO;
 
 using NovaTerminal.Controls;
 
@@ -209,6 +211,7 @@ namespace NovaTerminal
 
             SetupCommandPalette();
             InitializeCommandPaletteUI();
+            InitializeTransferCenterUI();
 
             // Keyboard Shortcuts
             this.AddHandler(KeyDownEvent, (s, e) =>
@@ -547,6 +550,7 @@ namespace NovaTerminal
             }
 
             var pane = new TerminalPane(profile);
+            pane.RequestSftpTransfer += (srcPane, dir, kind) => _ = InitiateSftpTransfer(srcPane, dir, kind);
 
             pane.ApplySettings(_settings);
             var tabItem = new TabItem
@@ -836,9 +840,136 @@ namespace NovaTerminal
                 await OpenSettings(0);
             }, "");
 
+            // SFTP Actions
+            CommandRegistry.Register("SFTP: Upload File...", "Remote", () => _ = InitiateSftpTransfer(null, TransferDirection.Upload, TransferKind.File), "");
+            CommandRegistry.Register("SFTP: Upload Folder...", "Remote", () => _ = InitiateSftpTransfer(null, TransferDirection.Upload, TransferKind.Folder), "");
+            CommandRegistry.Register("SFTP: Download File...", "Remote", () => _ = InitiateSftpTransfer(null, TransferDirection.Download, TransferKind.File), "");
+            CommandRegistry.Register("SFTP: Download Folder...", "Remote", () => _ = InitiateSftpTransfer(null, TransferDirection.Download, TransferKind.Folder), "");
+            CommandRegistry.Register("SFTP: Show Transfers", "Remote", () => ToggleTransferCenter(), "");
+
             // Themes
             CommandRegistry.Register("Theme: Solarized Dark", "Theme", () => { _settings.ThemeName = "Solarized Dark"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
             CommandRegistry.Register("Theme: Default Dark", "Theme", () => { _settings.ThemeName = "Default (Dark)"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
+        }
+
+        private async Task InitiateSftpTransfer(TerminalPane? explicitPane, TransferDirection direction, TransferKind kind)
+        {
+            var pane = explicitPane ?? _currentPane;
+            if (pane == null || pane.Profile == null || pane.Profile.Type != ConnectionType.SSH)
+            {
+                // Only for SSH sessions
+                return;
+            }
+
+            var profile = _currentPane.Profile;
+            var sessionId = _currentPane.Session?.Id ?? Guid.Empty;
+
+            string? localPath = null;
+            string? remotePath = null;
+
+            if (direction == TransferDirection.Upload)
+            {
+                // File Picker
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel == null) return;
+
+                if (kind == TransferKind.File)
+                {
+                    var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Select File to Upload", AllowMultiple = false });
+                    if (files != null && files.Count > 0) localPath = files[0].Path.LocalPath;
+                }
+                else
+                {
+                    var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Select Folder to Upload", AllowMultiple = false });
+                    if (folders != null && folders.Count > 0) localPath = folders[0].Path.LocalPath;
+                }
+
+                if (string.IsNullOrEmpty(localPath)) return;
+
+                remotePath = await PromptForRemotePathAsync("Remote Destination Path", profile.DefaultRemoteDir ?? "~");
+            }
+            else
+            {
+                // Download
+                remotePath = await PromptForRemotePathAsync("Remote Source Path", profile.DefaultRemoteDir ?? "~");
+                if (string.IsNullOrEmpty(remotePath)) return;
+
+                // Folder/File Picker for destination
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel == null) return;
+
+                if (kind == TransferKind.File)
+                {
+                    var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = "Select Local Destination", SuggestedFileName = Path.GetFileName(remotePath) });
+                    if (file != null) localPath = file.Path.LocalPath;
+                }
+                else
+                {
+                    var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Select Local Destination Folder", AllowMultiple = false });
+                    if (folders != null && folders.Count > 0) localPath = folders[0].Path.LocalPath;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(localPath) && !string.IsNullOrEmpty(remotePath))
+            {
+                var job = new TransferJob
+                {
+                    SessionId = sessionId,
+                    ProfileName = profile.Name,
+                    Direction = direction,
+                    Kind = kind,
+                    LocalPath = localPath,
+                    RemotePath = remotePath
+                };
+                SftpService.Instance.AddJob(job);
+            }
+        }
+
+        private TaskCompletionSource<string?>? _pathPromptTcs;
+        private async Task<string?> PromptForRemotePathAsync(string title, string defaultValue)
+        {
+            var overlay = this.FindControl<Grid>("PathPromptOverlay");
+            var titleBlock = this.FindControl<TextBlock>("PathPromptTitle");
+            var box = this.FindControl<TextBox>("PathPromptBox");
+            var btnConfirm = this.FindControl<Button>("BtnPathConfirm");
+            var btnCancel = this.FindControl<Button>("BtnPathCancel");
+
+            if (overlay == null || box == null) return null;
+
+            titleBlock.Text = title;
+            box.Text = defaultValue;
+            overlay.IsVisible = true;
+            box.Focus();
+
+            _pathPromptTcs = new TaskCompletionSource<string?>();
+
+            EventHandler<Avalonia.Interactivity.RoutedEventArgs>? confirmHandler = null;
+            EventHandler<Avalonia.Interactivity.RoutedEventArgs>? cancelHandler = null;
+
+            confirmHandler = (s, e) =>
+            {
+                overlay.IsVisible = false;
+                _pathPromptTcs.TrySetResult(box.Text);
+            };
+
+            cancelHandler = (s, e) =>
+            {
+                overlay.IsVisible = false;
+                _pathPromptTcs.TrySetResult(null);
+            };
+
+            btnConfirm.Click += confirmHandler;
+            btnCancel.Click += cancelHandler;
+
+            try
+            {
+                return await _pathPromptTcs.Task;
+            }
+            finally
+            {
+                btnConfirm.Click -= confirmHandler;
+                btnCancel.Click -= cancelHandler;
+            }
         }
 
         private void InitializeCommandPaletteUI()
@@ -938,6 +1069,21 @@ namespace NovaTerminal
                 // Closing - return focus to terminal
                 _currentPane?.ActiveControl.Focus();
             }
+        }
+
+        private void ToggleTransferCenter()
+        {
+            var overlay = this.FindControl<Border>("TransferOverlay");
+            if (overlay != null)
+            {
+                overlay.IsVisible = !overlay.IsVisible;
+            }
+        }
+
+        private void InitializeTransferCenterUI()
+        {
+            var btnClose = this.FindControl<Button>("BtnCloseTransfers");
+            if (btnClose != null) btnClose.Click += (s, e) => ToggleTransferCenter();
         }
 
         private async Task OpenSettings(int tabIndex, Guid? profileId = null)
