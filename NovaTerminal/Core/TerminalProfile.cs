@@ -28,6 +28,11 @@ namespace NovaTerminal.Core
         public string? FontFamily { get; set; }
         public double? FontSize { get; set; }
 
+        public string Group { get; set; } = "General";
+        public System.Collections.Generic.List<string> Tags { get; set; } = new();
+        public string Icon { get; set; } = "Terminal";
+        public DateTime LastUsed { get; set; } = DateTime.MinValue;
+
         public override string ToString() => Name;
 
         public static TerminalProfile CreateDefault()

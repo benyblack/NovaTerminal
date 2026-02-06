@@ -22,7 +22,7 @@ namespace NovaTerminal
         public event Action<double>? OnFontSizeChanged;
         public event Action<string>? OnThemeChanged;
 
-        public SettingsWindow(int initialTab = 0)
+        public SettingsWindow(int initialTab = 0, Guid? initialProfileId = null)
         {
             InitializeComponent();
             _settings = TerminalSettings.Load();
@@ -176,11 +176,20 @@ namespace NovaTerminal
             var commandInput = this.FindControl<TextBox>("ProfileCommandInput");
             var argsInput = this.FindControl<TextBox>("ProfileArgsInput");
             var cwdInput = this.FindControl<TextBox>("ProfileCwdInput");
+            var groupInput = this.FindControl<TextBox>("ProfileGroupInput");
+            var tagsInput = this.FindControl<TextBox>("ProfileTagsInput");
 
             if (nameInput != null) nameInput.KeyUp += (s, e) => { if (_selectedProfile != null) { _selectedProfile.Name = nameInput.Text ?? ""; RefreshProfileListItem(_selectedProfile); } };
             if (commandInput != null) commandInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Command = commandInput.Text ?? ""; };
             if (argsInput != null) argsInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Arguments = argsInput.Text ?? ""; };
+            if (argsInput != null) argsInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Arguments = argsInput.Text ?? ""; };
             if (cwdInput != null) cwdInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.StartingDirectory = cwdInput.Text ?? ""; };
+            if (groupInput != null) groupInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Group = groupInput.Text ?? "General"; };
+            if (tagsInput != null) tagsInput.KeyUp += (s, e) =>
+            {
+                if (_selectedProfile != null)
+                    _selectedProfile.Tags = (tagsInput.Text ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            };
 
             // Connection Type and SSH Inputs
             var typeList = this.FindControl<ComboBox>("ProfileTypeList");
@@ -483,6 +492,20 @@ namespace NovaTerminal
 
             if (btnSave != null) btnSave.Click += (s, e) => SaveAndClose();
             if (btnCancel != null) btnCancel.Click += (s, e) => Close();
+
+            // Auto-select profile if requested
+            if (initialProfileId.HasValue && profilesListBox != null)
+            {
+                foreach (ListBoxItem item in profilesListBox.Items)
+                {
+                    if (item.Tag is TerminalProfile p && p.Id == initialProfileId.Value)
+                    {
+                        profilesListBox.SelectedItem = item;
+                        profilesListBox.ScrollIntoView(item);
+                        break;
+                    }
+                }
+            }
         }
 
         private void PopulateFonts()
@@ -552,7 +575,10 @@ namespace NovaTerminal
             this.FindControl<TextBox>("ProfileNameInput")!.Text = profile.Name;
             this.FindControl<TextBox>("ProfileCommandInput")!.Text = profile.Command;
             this.FindControl<TextBox>("ProfileArgsInput")!.Text = profile.Arguments ?? "";
+            this.FindControl<TextBox>("ProfileArgsInput")!.Text = profile.Arguments ?? "";
             this.FindControl<TextBox>("ProfileCwdInput")!.Text = profile.StartingDirectory ?? "";
+            this.FindControl<TextBox>("ProfileGroupInput")!.Text = profile.Group ?? "General";
+            this.FindControl<TextBox>("ProfileTagsInput")!.Text = string.Join(", ", profile.Tags ?? new System.Collections.Generic.List<string>());
 
             var typeList = this.FindControl<ComboBox>("ProfileTypeList");
             if (typeList != null) typeList.SelectedIndex = (int)profile.Type;

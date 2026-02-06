@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:NovaTerminal.Controls;assembly=NovaTerminal"
         x:Class="NovaTerminal.MainWindow"
         Title="NovaTerminal"
         Width="1200" Height="800"
@@ -117,6 +118,18 @@
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
+                <Button Name="BtnConnections" 
+                        Foreground="White"
+                        Background="Transparent"
+                        BorderThickness="0" Focusable="False" 
+                        Width="32" Height="32"
+                        Padding="4"
+                        CornerRadius="4"
+                        Margin="4,0,0,0"
+                        ToolTip.Tip="Connections">
+                    <!-- Material Design 'Dns' (Server) Icon -->
+                    <PathIcon Data="M19,15H5C3.34,15 2,16.34 2,18V20C2,21.66 3.34,23 5,23H19C20.66,23 22,21.66 22,20V18C22,16.34 20.66,15 19,15M8,20C7.45,20 7,19.55 7,19C7,18.45 7.45,18 8,18H9C9.55,18 10,18.45 10,19C10,19.55 9.55,20 9,20H8M19,9H5C3.34,9 2,10.34 2,12V14C2,15.66 3.34,17 5,17H19C20.66,17 22,15.66 22,14V12C22,10.34 20.66,9 19,9M8,14C7.45,14 7,13.55 7,13C7,12.45 7.45,12 8,12H9C9.55,12 10,12.45 10,13C10,13.55 9.55,14 9,14H8M19,3H5C3.34,3 2,4.34 2,6V8C2,9.66 3.34,11 5,11H19C20.66,11 22,9.66 22,8V6C22,4.34 20.66,3 19,3M8,8C7.45,8 7,7.55 7,7C7,6.45 7.45,6 8,6H9C9.55,6 10,6.45 10,7C10,7.55 9.55,8 9,8H8Z" Width="16" Height="16"/>
+                </Button>
                 <Button Name="SettingsBtn" Content="⚙" 
                         Foreground="White"
                         Background="Transparent"
@@ -141,16 +154,40 @@
                 <SolidColorBrush x:Key="TextControlForegroundPointerOver">White</SolidColorBrush>
                 <SolidColorBrush x:Key="TextControlForegroundFocused">White</SolidColorBrush>
             </Border.Resources>
-            <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto">
+            <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto, Auto, Auto">
                 <TextBox Name="SearchBox" Watermark="Search..." 
                          BorderThickness="1" BorderBrush="#505050" 
                          VerticalContentAlignment="Center" 
                          Padding="8,4" Margin="2"/>
-                <TextBlock Name="SearchCount" Grid.Column="1" Text="0/0" Foreground="#AAA" 
+                
+                <!-- Options -->
+                <ToggleButton Name="SearchCaseSensitive" Grid.Column="1" Content="Aa" 
+                              Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                              ToolTip.Tip="Match Case"/>
+                <ToggleButton Name="SearchRegex" Grid.Column="2" Content=".*" 
+                              Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                              ToolTip.Tip="Use Regular Expression"/>
+
+                <TextBlock Name="SearchCount" Grid.Column="3" Text="0/0" Foreground="#AAA" 
                            VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
-                <Button Name="SearchPrev" Grid.Column="2" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                <Button Name="SearchNext" Grid.Column="3" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                <Button Name="SearchClose" Grid.Column="4" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                <Button Name="SearchPrev" Grid.Column="4" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                <Button Name="SearchNext" Grid.Column="5" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                <Button Name="SearchClose" Grid.Column="6" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+            </Grid>
+        </Border>
+
+        <!-- Connection Manager Overlay -->
+        <Border Name="ConnectionOverlay" IsVisible="False" 
+                HorizontalAlignment="Center" VerticalAlignment="Center"
+                Width="800" Height="500"
+                Background="#1E1E1E" BorderBrush="#333" BorderThickness="1" CornerRadius="8"
+                ZIndex="500">
+            <Grid RowDefinitions="Auto, *">
+                <Grid Background="#2D2D2D" Height="40">
+                    <TextBlock Text="Connection Manager" VerticalAlignment="Center" Margin="15,0" FontWeight="Bold"/>
+                    <Button Name="BtnCloseConnections" Content="✕" HorizontalAlignment="Right" Width="40" Background="Transparent" BorderThickness="0"/>
+                </Grid>
+                <controls:ConnectionManager Name="ConnectionManagerControl" Grid.Row="1"/>
             </Grid>
         </Border>
 

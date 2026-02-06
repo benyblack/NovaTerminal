@@ -43,6 +43,28 @@ namespace NovaTerminal
             }
         }
 
+        private void ToggleConnections()
+        {
+            var overlay = this.FindControl<Border>("ConnectionOverlay");
+            var connManager = this.FindControl<ConnectionManager>("ConnectionManagerControl");
+
+            if (overlay != null)
+            {
+                overlay.IsVisible = !overlay.IsVisible;
+                if (overlay.IsVisible && connManager != null)
+                {
+                    connManager.LoadProfiles(_settings.Profiles);
+                    // Focus search
+                    var search = connManager.FindControl<TextBox>("SearchInput");
+                    search?.Focus();
+                }
+                else
+                {
+                    _currentPane?.ActiveControl.Focus();
+                }
+            }
+        }
+
         private void ToggleVisibility()
         {
             if (this.IsVisible)
@@ -102,10 +124,37 @@ namespace NovaTerminal
             }
 
 
+            var btnConnections = this.FindControl<Button>("BtnConnections");
+            var btnCloseConn = this.FindControl<Button>("BtnCloseConnections");
+            var connOverlay = this.FindControl<Border>("ConnectionOverlay");
+            var connManager = this.FindControl<ConnectionManager>("ConnectionManagerControl");
+
+            if (btnConnections != null) btnConnections.Click += (s, e) => ToggleConnections();
+            if (btnCloseConn != null) btnCloseConn.Click += (s, e) => ToggleConnections();
+
+            if (connManager != null)
+            {
+                connManager.OnConnect += (profile) =>
+                {
+                    AddTab(profile);
+                    ToggleConnections();
+                    // Save LastUsed update
+                    _settings.Save();
+                };
+                connManager.OnSyncRequested += HandleSshSync;
+                connManager.OnEditProfile += async (profile) =>
+                {
+                    // Open Settings (Tab 1 = Profiles), select profile
+                    await OpenSettings(1, profile.Id);
+                };
+            }
+
             if (settingsBtn != null) settingsBtn.Click += async (s, e) =>
             {
                 await OpenSettings(0);
             };
+
+
 
             if (tabs != null)
             {
@@ -269,6 +318,56 @@ namespace NovaTerminal
             }, RoutingStrategies.Tunnel);
 
             try { Vault = new VaultService(); } catch { }
+        }
+
+        private void HandleSshSync()
+        {
+            try
+            {
+                var sshProfiles = NovaTerminal.Core.ProfileImporter.ImportSshConfig();
+                bool changed = false;
+
+                foreach (var newProfile in sshProfiles)
+                {
+                    // Match by Name and Type
+                    var existing = _settings.Profiles.FirstOrDefault(p => p.Name == newProfile.Name && p.Type == NovaTerminal.Core.ConnectionType.SSH);
+                    if (existing != null)
+                    {
+                        // MERGE: Update technical details, preserve user metadata (Groups, Tags, Icon, LastUsed)
+                        bool diff = existing.SshHost != newProfile.SshHost ||
+                                    existing.SshPort != newProfile.SshPort ||
+                                    existing.SshUser != newProfile.SshUser ||
+                                    existing.SshKeyPath != newProfile.SshKeyPath;
+
+                        if (diff)
+                        {
+                            existing.SshHost = newProfile.SshHost;
+                            existing.SshPort = newProfile.SshPort;
+                            existing.SshUser = newProfile.SshUser;
+                            existing.SshKeyPath = newProfile.SshKeyPath;
+                            changed = true;
+                        }
+                    }
+                    else
+                    {
+                        // ADD: New profile
+                        _settings.Profiles.Add(newProfile);
+                        changed = true;
+                    }
+                }
+
+                if (changed)
+                {
+                    _settings.Save();
+                    // Reload UI
+                    var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
+                    connManager?.LoadProfiles(_settings.Profiles);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Sync Error: {ex.Message}");
+            }
         }
 
         public void ApplySettingsRecursive(Control? control, TerminalSettings settings)
@@ -822,9 +921,9 @@ namespace NovaTerminal
             }
         }
 
-        private async Task OpenSettings(int tabIndex)
+        private async Task OpenSettings(int tabIndex, Guid? profileId = null)
         {
-            var sw = new SettingsWindow(tabIndex);
+            var sw = new SettingsWindow(tabIndex, profileId);
 
             // Wire up live preview events
             sw.OnOpacityChanged += (val) => { _settings.WindowOpacity = val; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
@@ -860,6 +959,13 @@ namespace NovaTerminal
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
+
+                // Refresh Connection Manager if open (or just always update it)
+                var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
+                if (connManager != null)
+                {
+                    connManager.LoadProfiles(_settings.Profiles);
+                }
             }
         }
 
