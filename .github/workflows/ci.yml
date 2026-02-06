@@ -39,7 +39,6 @@ jobs:
         run: |
           cd NovaTerminal/native
           cargo build --release
-          mkdir -p ../native/target/release
           # Binary stays in target/release/rusty_pty.dll
 
       - name: Build Rust (Linux)
