@@ -9,6 +9,9 @@ using NovaTerminal.Core;
 using Avalonia.Controls.Presenters;
 using System;
 using System.Threading.Tasks;
+using System.Net.NetworkInformation;
+using System.Linq;
+using Avalonia.Controls.Shapes;
 
 namespace NovaTerminal.Controls
 {
@@ -23,6 +26,7 @@ namespace NovaTerminal.Controls
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
+        private DispatcherTimer? _statusTimer;
 
         public void UpdateProfile(TerminalProfile profile)
         {
@@ -75,6 +79,11 @@ namespace NovaTerminal.Controls
 
             // Search UI
             SetupSearch();
+
+            // Port Forwarding Status Timer
+            _statusTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _statusTimer.Tick += (s, e) => UpdateForwardingStatus();
+            _statusTimer.Start();
 
             // Wire up focus syncing
             TermView.GotFocus += (s, e) => UpdateFocusVisuals(true);
@@ -334,7 +343,105 @@ namespace NovaTerminal.Controls
 
         public void Dispose()
         {
+            _statusTimer?.Stop();
+            _statusTimer = null;
             Session?.Dispose();
+        }
+
+        private void UpdateForwardingStatus()
+        {
+            if (Profile == null || Profile.Forwards.Count == 0)
+            {
+                StatusBar.IsVisible = false;
+                return;
+            }
+
+            bool anyChanges = false;
+            foreach (var rule in Profile.Forwards)
+            {
+                var oldStatus = rule.Status;
+
+                if (rule.Type == ForwardingType.Remote)
+                {
+                    // For now, assume remote is active if session is alive
+                    rule.Status = (Session != null) ? ForwardingStatus.Active : ForwardingStatus.Stopped;
+                }
+                else
+                {
+                    bool isListening = CheckIfPortIsListening(rule);
+                    if (isListening) rule.Status = ForwardingStatus.Active;
+                    else if (Session != null) rule.Status = ForwardingStatus.Starting;
+                    else rule.Status = ForwardingStatus.Stopped;
+                }
+
+                if (oldStatus != rule.Status) anyChanges = true;
+            }
+
+            if (anyChanges || !StatusBar.IsVisible)
+            {
+                UpdateStatusBarUI();
+                (VisualRoot as MainWindow)?.UpdateTabVisuals();
+            }
+        }
+
+        private void UpdateStatusBarUI()
+        {
+            if (Profile == null) return;
+            StatusBar.IsVisible = true;
+            StatusBarLabel.Text = $"SSH ▸ {Profile.Name} ▸";
+            StatusBarRules.Children.Clear();
+
+            foreach (var rule in Profile.Forwards)
+            {
+                var container = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 4 };
+
+                var icon = new TextBlock
+                {
+                    Text = "🔁",
+                    FontSize = 10,
+                    Foreground = rule.Status switch
+                    {
+                        ForwardingStatus.Active => Brushes.LimeGreen,
+                        ForwardingStatus.Starting => Brushes.Yellow,
+                        ForwardingStatus.Failed => Brushes.Red,
+                        _ => Brushes.Gray
+                    },
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                };
+
+                var txt = new TextBlock
+                {
+                    Text = rule.Type switch
+                    {
+                        ForwardingType.Local => $"L:{rule.LocalAddress}→{rule.RemoteAddress}",
+                        ForwardingType.Remote => $"R:{rule.RemoteAddress}→{rule.LocalAddress}",
+                        ForwardingType.Dynamic => $"D:{rule.LocalAddress}",
+                        _ => ""
+                    },
+                    FontSize = 10,
+                    Foreground = Brushes.White,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+                };
+
+                container.Children.Add(icon);
+                container.Children.Add(txt);
+                StatusBarRules.Children.Add(container);
+            }
+        }
+
+        private bool CheckIfPortIsListening(ForwardingRule rule)
+        {
+            try
+            {
+                string portStr = rule.LocalAddress;
+                if (portStr.Contains(':')) portStr = portStr.Split(':').Last();
+                if (!int.TryParse(portStr, out int port)) return false;
+
+                var properties = IPGlobalProperties.GetIPGlobalProperties();
+                var listeners = properties.GetActiveTcpListeners();
+                return listeners.Any(l => l.Port == port);
+            }
+            catch { return false; }
         }
     }
 }

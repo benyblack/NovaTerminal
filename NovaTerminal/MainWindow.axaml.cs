@@ -542,13 +542,8 @@ namespace NovaTerminal
             // Construct command if it's an SSH connection
             if (profile.Type == ConnectionType.SSH)
             {
-                string host = string.IsNullOrWhiteSpace(profile.SshHost) ? "localhost" : profile.SshHost;
-                string user = string.IsNullOrWhiteSpace(profile.SshUser) ? "" : $"{profile.SshUser}@";
-                string portString = profile.SshPort == 22 ? "" : $"-p {profile.SshPort} ";
-                string key = string.IsNullOrWhiteSpace(profile.SshKeyPath) ? "" : $"-i \"{profile.SshKeyPath}\" ";
-
                 profile.Command = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "ssh.exe" : "ssh";
-                profile.Arguments = $"{portString}{key}{user}{host}";
+                profile.Arguments = profile.GenerateSshArguments(_settings.Profiles);
             }
 
             var pane = new TerminalPane(profile);
@@ -611,7 +606,7 @@ namespace NovaTerminal
                 flyout.Items.Add(footer);
         }
 
-        private void UpdateTabVisuals()
+        internal void UpdateTabVisuals()
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
@@ -626,6 +621,30 @@ namespace NovaTerminal
                 {
                     border.Background = Brushes.Transparent;
                     border.BorderBrush = ti.IsSelected ? borderBrush : Brushes.Transparent;
+                }
+
+                if (ti.Header is TextBlock tb && ti.Content is TerminalPane pane && pane.Profile != null)
+                {
+                    string profileName = pane.Profile.Name;
+                    var forwards = pane.Profile.Forwards;
+                    int activeCount = forwards.Count(f => f.Status == ForwardingStatus.Active);
+                    int startingCount = forwards.Count(f => f.Status == ForwardingStatus.Starting);
+                    bool hasFailed = forwards.Any(f => f.Status == ForwardingStatus.Failed);
+
+                    if (activeCount > 0 || startingCount > 0)
+                    {
+                        string badge = activeCount.ToString();
+                        if (startingCount > 0) badge += $" ({startingCount})";
+                        tb.Text = $"{profileName} 🔁 {badge}";
+                    }
+                    else if (hasFailed)
+                    {
+                        tb.Text = $"{profileName} ⚠️";
+                    }
+                    else
+                    {
+                        tb.Text = profileName;
+                    }
                 }
             }
         }

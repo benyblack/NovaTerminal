@@ -8,6 +8,46 @@ namespace NovaTerminal.Core
         SSH
     }
 
+    public enum ForwardingType
+    {
+        Local,
+        Remote,
+        Dynamic
+    }
+
+    public enum ForwardingStatus
+    {
+        Starting,
+        Active,
+        Degraded,
+        Failed,
+        Stopped
+    }
+
+    public class ForwardingRule
+    {
+        public ForwardingType Type { get; set; } = ForwardingType.Local;
+        public string LocalAddress { get; set; } = ""; // e.g. "8080" or "127.0.0.1:8080"
+        public string RemoteAddress { get; set; } = ""; // e.g. "10.0.0.5:80" (ignored for Dynamic)
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public ForwardingStatus Status { get; set; } = ForwardingStatus.Stopped;
+
+        [System.Text.Json.Serialization.JsonIgnore]
+        public string? LastError { get; set; }
+
+        public override string ToString()
+        {
+            return Type switch
+            {
+                ForwardingType.Local => $"-L {LocalAddress}:{RemoteAddress}",
+                ForwardingType.Remote => $"-R {RemoteAddress}:{LocalAddress}",
+                ForwardingType.Dynamic => $"-D {LocalAddress}",
+                _ => ""
+            };
+        }
+    }
+
     public class TerminalProfile
     {
         public Guid Id { get; set; } = Guid.NewGuid();
@@ -38,6 +78,7 @@ namespace NovaTerminal.Core
 
         public string Group { get; set; } = "General";
         public System.Collections.Generic.List<string> Tags { get; set; } = new();
+        public System.Collections.Generic.List<ForwardingRule> Forwards { get; set; } = new();
         public string Icon { get; set; } = "Terminal";
         public DateTime LastUsed { get; set; } = DateTime.MinValue;
 
@@ -110,6 +151,30 @@ namespace NovaTerminal.Core
             if (SshPort != 22)
             {
                 sb.Append($" -p {SshPort}");
+            }
+
+            // Port Forwarding
+            if (Forwards != null)
+            {
+                foreach (var rule in Forwards)
+                {
+                    if (string.IsNullOrWhiteSpace(rule.LocalAddress)) continue;
+
+                    switch (rule.Type)
+                    {
+                        case ForwardingType.Local:
+                            var localRem = string.IsNullOrWhiteSpace(rule.RemoteAddress) ? $"127.0.0.1:{rule.LocalAddress}" : rule.RemoteAddress;
+                            sb.Append($" -L {rule.LocalAddress}:{localRem}");
+                            break;
+                        case ForwardingType.Remote:
+                            var remRem = string.IsNullOrWhiteSpace(rule.RemoteAddress) ? $"127.0.0.1:{rule.LocalAddress}" : rule.RemoteAddress;
+                            sb.Append($" -R {remRem}:{rule.LocalAddress}");
+                            break;
+                        case ForwardingType.Dynamic:
+                            sb.Append($" -D {rule.LocalAddress}");
+                            break;
+                    }
+                }
             }
 
             // Target

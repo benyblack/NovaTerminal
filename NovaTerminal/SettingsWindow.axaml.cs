@@ -1,7 +1,13 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
 using NovaTerminal.Core;
 using System;
 using System.Linq;
+using System.Net.NetworkInformation;
+using Avalonia.Threading;
+using Avalonia.Media;
+using Avalonia.Controls.Shapes;
 using SkiaSharp;
 
 namespace NovaTerminal
@@ -21,6 +27,8 @@ namespace NovaTerminal
         public event Action<string>? OnFontChanged;
         public event Action<double>? OnFontSizeChanged;
         public event Action<string>? OnThemeChanged;
+
+        private DispatcherTimer? _statusTimer;
 
         public SettingsWindow() : this(0, null) { }
 
@@ -50,13 +58,28 @@ namespace NovaTerminal
                 ThemeName = p.ThemeName,
                 JumpHostProfileId = p.JumpHostProfileId,
                 UseSshAgent = p.UseSshAgent,
-                IdentityFilePath = p.IdentityFilePath
+                IdentityFilePath = p.IdentityFilePath,
+                Tags = p.Tags.ToList(),
+                Forwards = p.Forwards.Select(f => new ForwardingRule { Type = f.Type, LocalAddress = f.LocalAddress, RemoteAddress = f.RemoteAddress }).ToList()
             }).ToList();
 
             PopulateFonts();
             LoadCurrentSettings();
             PopulateProfilesList();
             ApplyTheme();
+
+            _statusTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+            _statusTimer.Tick += (s, e) => RefreshForwardsList();
+            _statusTimer.Start();
+
+            this.Closed += (s, e) =>
+            {
+                _statusTimer?.Stop();
+                _statusTimer = null;
+            };
 
             var btnSave = this.FindControl<Button>("BtnSave");
             var btnCancel = this.FindControl<Button>("BtnCancel");
@@ -91,6 +114,9 @@ namespace NovaTerminal
                     if (profilesListBox != null) profilesListBox.SelectedIndex = _profilesList.Count - 1;
                 };
             }
+
+            var btnAddRule = this.FindControl<Button>("BtnAddRule");
+            if (btnAddRule != null) btnAddRule.Click += BtnAddForward_Click;
 
             if (btnDeleteProfile != null)
             {
@@ -684,10 +710,145 @@ namespace NovaTerminal
             if (overrideThemeList != null)
             {
                 var targetTheme = profile.ThemeName ?? _settings.ThemeName;
-                foreach (ComboBoxItem item in overrideThemeList.Items)
-                    if (item.Content?.ToString() == targetTheme) { overrideThemeList.SelectedItem = item; break; }
+                foreach (var obj in overrideThemeList.Items)
+                    if (obj is ComboBoxItem item && item.Content?.ToString() == targetTheme) { overrideThemeList.SelectedItem = item; break; }
+            }
+
+            // Advanced SSH & Port Forwarding
+            if (profile.Type == ConnectionType.SSH)
+            {
+                PopulateJumpHostList(profile);
+
+                var radioAgent = this.FindControl<RadioButton>("RadioAuthAgent");
+                var radioKey = this.FindControl<RadioButton>("RadioAuthKey");
+                if (radioAgent != null) radioAgent.IsChecked = profile.UseSshAgent;
+                if (radioKey != null) radioKey.IsChecked = !profile.UseSshAgent;
+
+                var keyPathInput = this.FindControl<TextBox>("SshKeyPathInput");
+                var browseBtn = this.FindControl<Button>("BtnBrowseSshKey");
+                if (keyPathInput != null) { keyPathInput.Text = profile.IdentityFilePath ?? profile.SshKeyPath ?? ""; keyPathInput.IsEnabled = !profile.UseSshAgent; }
+                if (browseBtn != null) browseBtn.IsEnabled = !profile.UseSshAgent;
+
+                RefreshForwardsList();
             }
         }
+
+        private void PopulateJumpHostList(TerminalProfile current)
+        {
+            var combo = this.FindControl<ComboBox>("JumpHostList");
+            if (combo == null) return;
+
+            combo.Items.Clear();
+            var noneItem = new ComboBoxItem { Content = "Direct Connection (None)" };
+            combo.Items.Add(noneItem);
+            combo.SelectedItem = noneItem;
+
+            foreach (var p in _profilesList.Where(x => x.Type == ConnectionType.SSH && x.Id != current.Id))
+            {
+                var item = new ComboBoxItem { Content = p.Name, Tag = p.Id };
+                combo.Items.Add(item);
+                if (current.JumpHostProfileId == p.Id)
+                {
+                    combo.SelectedItem = item;
+                }
+            }
+        }
+
+        private void RefreshForwardsList()
+        {
+            var panel = this.FindControl<StackPanel>("ForwardsList");
+            if (panel == null || _selectedProfile == null) return;
+            panel.Children.Clear();
+            foreach (var f in _selectedProfile.Forwards)
+            {
+                var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto, *, Auto"), Margin = new Thickness(0, 2) };
+
+                // Status Indicator
+                bool isListening = CheckIfPortIsListening(f);
+                var dot = new Ellipse
+                {
+                    Width = 8,
+                    Height = 8,
+                    Fill = isListening ? Brushes.LimeGreen : Brushes.Gray,
+                    Margin = new Thickness(5, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                ToolTip.SetTip(dot, isListening ? "Active / Listening" : "Inactive");
+
+                var txt = new TextBlock { Text = f.ToString(), VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
+                var btn = new Button
+                {
+                    Content = "×",
+                    Classes = { "Danger" },
+                    Width = 24,
+                    Height = 24,
+                    Padding = new Thickness(0),
+                    Tag = f
+                };
+                btn.Click += BtnRemoveForward_Click;
+
+                Grid.SetColumn(dot, 0);
+                Grid.SetColumn(txt, 1);
+                Grid.SetColumn(btn, 2);
+
+                grid.Children.Add(dot);
+                grid.Children.Add(txt);
+                grid.Children.Add(btn);
+                panel.Children.Add(grid);
+            }
+        }
+
+        private bool CheckIfPortIsListening(ForwardingRule rule)
+        {
+            try
+            {
+                // Dynamic (-D) or Local (-L) both listen on a local port
+                if (rule.Type == ForwardingType.Remote) return false; // Remote forwards listen on the SERVER side
+
+                string portStr = rule.LocalAddress;
+                if (portStr.Contains(':')) portStr = portStr.Split(':').Last();
+                if (!int.TryParse(portStr, out int port)) return false;
+
+                var properties = IPGlobalProperties.GetIPGlobalProperties();
+                var listeners = properties.GetActiveTcpListeners();
+                return listeners.Any(l => l.Port == port);
+            }
+            catch { return false; }
+        }
+
+        private void BtnAddForward_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_selectedProfile == null) return;
+
+            var typeBox = this.FindControl<ComboBox>("RuleInputType");
+            var localBox = this.FindControl<TextBox>("RuleInputLocal");
+            var remoteBox = this.FindControl<TextBox>("RuleInputRemote");
+
+            if (string.IsNullOrWhiteSpace(localBox?.Text)) return;
+
+            var rule = new ForwardingRule
+            {
+                Type = (ForwardingType)(typeBox?.SelectedIndex ?? 0),
+                LocalAddress = localBox.Text.Trim(),
+                RemoteAddress = remoteBox?.Text?.Trim() ?? ""
+            };
+
+            _selectedProfile.Forwards.Add(rule);
+            RefreshForwardsList();
+
+            // Clear inputs
+            localBox.Text = "";
+            if (remoteBox != null) remoteBox.Text = "";
+        }
+
+        private void BtnRemoveForward_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+        {
+            if (_selectedProfile == null || sender is not Button btn || btn.Tag is not ForwardingRule rule) return;
+            _selectedProfile.Forwards.Remove(rule);
+            RefreshForwardsList();
+        }
+
+
 
         private void LoadCurrentSettings()
         {

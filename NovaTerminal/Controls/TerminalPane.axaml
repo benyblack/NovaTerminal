@@ -47,7 +47,6 @@
                              VerticalContentAlignment="Center" 
                              Padding="8,4" Margin="2"/>
                     
-                    <!-- Options -->
                     <ToggleButton Name="SearchCaseSensitive" Grid.Column="1" Content="Aa" 
                                   Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
                                   ToolTip.Tip="Match Case"/>
@@ -61,6 +60,15 @@
                     <Button Name="SearchNext" Grid.Column="5" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
                     <Button Name="SearchClose" Grid.Column="6" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
                 </Grid>
+            </Border>
+
+            <!-- Port Forwarding Status Bar -->
+            <Border Name="StatusBar" VerticalAlignment="Bottom" Height="22" Background="#CC1A1A1A" 
+                    BorderBrush="#333" BorderThickness="0,1,0,0" IsVisible="False" ZIndex="100">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0" Spacing="10">
+                    <TextBlock Name="StatusBarLabel" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
+                    <StackPanel Name="StatusBarRules" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"/>
+                </StackPanel>
             </Border>
             
             <!-- Focus Indicator Border -->

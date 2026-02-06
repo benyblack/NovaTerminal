@@ -186,6 +186,30 @@
                                         <!-- Items populated in code -->
                                     </ComboBox>
                                 </StackPanel>
+
+                                <StackPanel Spacing="5">
+                                    <TextBlock Text="Port Forwarding" Foreground="#AAA" FontSize="12"/>
+                                    <Border Background="#1A1A1A" BorderBrush="#333" BorderThickness="1" CornerRadius="4" Padding="5">
+                                        <StackPanel Spacing="5">
+                                            <StackPanel Name="ForwardsList" Spacing="2"/>
+                                            <Separator Background="#333"/>
+                                            <TextBlock Text="Add new rule:" Foreground="#666" FontSize="10"/>
+                                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                                <ComboBox Name="RuleInputType" SelectedIndex="0" Width="100">
+                                                    <ComboBoxItem>Local</ComboBoxItem>
+                                                    <ComboBoxItem>Remote</ComboBoxItem>
+                                                    <ComboBoxItem>Dynamic</ComboBoxItem>
+                                                </ComboBox>
+                                                <TextBox Name="RuleInputLocal" Watermark="8080" Width="100"/>
+                                                <TextBox Name="RuleInputRemote" Watermark="127.0.0.1:80" Width="100"/>
+                                                <Button Name="BtnAddRule" Content="+"/>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+
+
+
                             </StackPanel>
 
                             <Separator Background="#333" Margin="0,5"/>
