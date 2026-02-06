@@ -7,6 +7,7 @@ namespace NovaTerminal.Tests.RenderTests
     public class RendererMetricsTests
     {
         [Fact]
+        [Trait("Category", "RenderMetrics")]
         public void Statistics_AreInitiallyZero()
         {
             RendererStatistics.Reset();
@@ -14,6 +15,7 @@ namespace NovaTerminal.Tests.RenderTests
         }
 
         [Fact]
+        [Trait("Category", "RenderMetrics")]
         public void RecordFrame_IncrementsCounters()
         {
             RendererStatistics.Reset();

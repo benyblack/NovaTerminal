@@ -26,6 +26,7 @@ namespace NovaTerminal.Tests.ReplayTests
         }
 
         [Fact]
+        [Trait("Category", "Replay")]
         public async Task Replay_HelloWorld_MatchesGoldenMaster()
         {
             string recPath = Path.Combine(_fixturesDir, "hello_world.rec");
@@ -65,6 +66,7 @@ namespace NovaTerminal.Tests.ReplayTests
         }
 
         [Fact]
+        [Trait("Category", "Replay")]
         public async Task Replay_VimExit_RestoresMainBuffer()
         {
             string recPath = Path.Combine(_fixturesDir, "vim_exit.rec");
@@ -107,6 +109,7 @@ namespace NovaTerminal.Tests.ReplayTests
         }
 
         [Fact]
+        [Trait("Category", "Replay")]
         public async Task Replay_AltScreenCursor_ScopesIdeally()
         {
             string recPath = Path.Combine(_fixturesDir, "alt_screen_cursor.rec");
