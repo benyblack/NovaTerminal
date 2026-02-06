@@ -21,6 +21,9 @@ namespace NovaTerminal.Core
         public double BackgroundImageOpacity { get; set; } = 0.5;
         public string BackgroundImageStretch { get; set; } = "UniformToFill"; // Options: "None", "Acrylic", "Mica"
 
+        public bool QuakeModeEnabled { get; set; } = true;
+        public string GlobalHotkey { get; set; } = "Alt+OemTilde";
+
         public System.Collections.Generic.List<TerminalProfile> Profiles { get; set; } = new();
         public Guid DefaultProfileId { get; set; }
 

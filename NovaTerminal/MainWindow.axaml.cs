@@ -24,6 +24,52 @@ namespace NovaTerminal
     {
         private TerminalPane? _currentPane;
         private TerminalSettings _settings;
+        private GlobalHotkey? _globalHotkey;
+
+        protected override void OnOpened(EventArgs e)
+        {
+            base.OnOpened(e);
+            if (_settings.QuakeModeEnabled)
+            {
+                try
+                {
+                    _globalHotkey = new GlobalHotkey(this);
+                    _globalHotkey.OnHotkeyPressed += ToggleVisibility;
+                    // Register Alt (1) + ~ (0xC0). 
+                    // MVP Hardcoded. Future: Parse _settings.GlobalHotkey
+                    _globalHotkey.Register(1, 0xC0);
+                }
+                catch { /* Ignore P/Invoke errors on non-Windows */ }
+            }
+        }
+
+        private void ToggleVisibility()
+        {
+            if (this.IsVisible)
+            {
+                if (this.IsActive)
+                {
+                    // Visible and Focused -> Hide
+                    this.Hide();
+                }
+                else
+                {
+                    // Visible but Blur -> Focus
+                    this.Activate();
+                    this.Focus();
+                    _currentPane?.ActiveControl.Focus();
+                }
+            }
+            else
+            {
+                // Hidden -> Show
+                this.Show();
+                this.WindowState = WindowState.Normal;
+                this.Activate();
+                this.Focus();
+                _currentPane?.ActiveControl.Focus();
+            }
+        }
 
         public MainWindow()
         {
@@ -851,6 +897,7 @@ namespace NovaTerminal
             {
                 SessionManager.SaveSession(this, tabs);
             }
+            _globalHotkey?.Dispose();
         }
     }
 }
