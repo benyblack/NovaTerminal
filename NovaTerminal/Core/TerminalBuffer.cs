@@ -1478,7 +1478,7 @@ namespace NovaTerminal.Core
         }
 
 
-        public List<SearchMatch> FindMatches(string query)
+        public List<SearchMatch> FindMatches(string query, bool useRegex, bool caseSensitive)
         {
             if (string.IsNullOrEmpty(query)) return new List<SearchMatch>();
 
@@ -1486,6 +1486,22 @@ namespace NovaTerminal.Core
             Lock.EnterReadLock();
             try
             {
+                System.Text.RegularExpressions.Regex? regex = null;
+                if (useRegex)
+                {
+                    try
+                    {
+                        var options = caseSensitive ? System.Text.RegularExpressions.RegexOptions.None : System.Text.RegularExpressions.RegexOptions.IgnoreCase;
+                        regex = new System.Text.RegularExpressions.Regex(query, options);
+                    }
+                    catch
+                    {
+                        // Invalid regex - return empty or treat as literal? 
+                        // For now, return empty to indicate error/no match
+                        return matches;
+                    }
+                }
+
                 int totalRows = _scrollback.Count + Rows;
                 for (int r = 0; r < totalRows; r++)
                 {
@@ -1495,13 +1511,31 @@ namespace NovaTerminal.Core
                     // Optimization: Use a shared StringBuilder if this becomes a bottleneck
                     char[] chars = new char[Cols];
                     for (int c = 0; c < Cols; c++) chars[c] = row.Cells[c].Character;
+                    // Trim nulls/spaces from end for cleaner regex matching? 
+                    // No, terminal search usually matches against exact buffer content including whitespace.
                     string lineText = new string(chars);
 
-                    int index = lineText.IndexOf(query, StringComparison.OrdinalIgnoreCase);
-                    while (index != -1)
+                    if (useRegex && regex != null)
                     {
-                        matches.Add(new SearchMatch(r, index, index + query.Length - 1));
-                        index = lineText.IndexOf(query, index + 1, StringComparison.OrdinalIgnoreCase);
+                        // Regex Search
+                        foreach (System.Text.RegularExpressions.Match m in regex.Matches(lineText))
+                        {
+                            if (m.Success)
+                            {
+                                matches.Add(new SearchMatch(r, m.Index, m.Index + m.Length - 1));
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Text Search
+                        var comparison = caseSensitive ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+                        int index = lineText.IndexOf(query, comparison);
+                        while (index != -1)
+                        {
+                            matches.Add(new SearchMatch(r, index, index + query.Length - 1));
+                            index = lineText.IndexOf(query, index + 1, comparison);
+                        }
                     }
                 }
             }

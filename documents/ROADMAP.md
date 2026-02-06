@@ -221,6 +221,16 @@ These constraints are enforced by tests.
 
 ---
 
+## 1.4 Search Overlay
+
+### Deliverables
+- Floating search bar (VS Code style)
+- Regex and case-sensitive support
+- Highlight matches in scrollback
+- Navigation (Next/Prev)
+
+---
+
 # Phase 2 — Remote-First Differentiation
 
 > Win remote workflows without becoming a full multiplexer.

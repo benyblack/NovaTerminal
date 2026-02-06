@@ -41,16 +41,25 @@
                     <SolidColorBrush x:Key="TextControlBackground">#1a1a1a</SolidColorBrush>
                     <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
                 </Border.Resources>
-                <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto">
+                <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto, Auto, Auto">
                     <TextBox Name="SearchBox" Watermark="Search..." 
                              BorderThickness="1" BorderBrush="#505050" 
                              VerticalContentAlignment="Center" 
                              Padding="8,4" Margin="2"/>
-                    <TextBlock Name="SearchCount" Grid.Column="1" Text="0/0" Foreground="#AAA" 
+                    
+                    <!-- Options -->
+                    <ToggleButton Name="SearchCaseSensitive" Grid.Column="1" Content="Aa" 
+                                  Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                                  ToolTip.Tip="Match Case"/>
+                    <ToggleButton Name="SearchRegex" Grid.Column="2" Content=".*" 
+                                  Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                                  ToolTip.Tip="Use Regular Expression"/>
+
+                    <TextBlock Name="SearchCount" Grid.Column="3" Text="0/0" Foreground="#AAA" 
                                VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
-                    <Button Name="SearchPrev" Grid.Column="2" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                    <Button Name="SearchNext" Grid.Column="3" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                    <Button Name="SearchClose" Grid.Column="4" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                    <Button Name="SearchPrev" Grid.Column="4" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                    <Button Name="SearchNext" Grid.Column="5" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                    <Button Name="SearchClose" Grid.Column="6" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
                 </Grid>
             </Border>
             

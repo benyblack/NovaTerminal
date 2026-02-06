@@ -422,10 +422,10 @@ namespace NovaTerminal.Core
 
         public event Action<int, int>? SearchStateChanged;
 
-        public void Search(string query)
+        public void Search(string query, bool useRegex = false, bool caseSensitive = false)
         {
             if (_buffer == null) return;
-            _searchMatches = _buffer.FindMatches(query);
+            _searchMatches = _buffer.FindMatches(query, useRegex, caseSensitive);
             _activeSearchIndex = _searchMatches.Count > 0 ? 0 : -1;
 
             if (_activeSearchIndex != -1)

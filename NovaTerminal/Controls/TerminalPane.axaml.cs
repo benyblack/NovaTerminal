@@ -197,11 +197,13 @@ namespace NovaTerminal.Controls
 
         private void SetupSearch()
         {
-            SearchBox.TextChanged += (s, e) =>
-            {
-                if (!string.IsNullOrEmpty(SearchBox.Text))
-                    TermView.Search(SearchBox.Text);
-            };
+            void OnSearchTriggered(object? s, global::Avalonia.Interactivity.RoutedEventArgs e) => PerformSearch();
+
+            SearchBox.TextChanged += (s, e) => PerformSearch();
+
+            // Re-run search when options change
+            SearchCaseSensitive.Click += OnSearchTriggered;
+            SearchRegex.Click += OnSearchTriggered;
 
             SearchPrev.Click += (s, e) => TermView.PrevMatch();
             SearchNext.Click += (s, e) => TermView.NextMatch();
@@ -218,14 +220,27 @@ namespace NovaTerminal.Controls
             };
         }
 
+        private void PerformSearch()
+        {
+            if (!string.IsNullOrEmpty(SearchBox.Text))
+            {
+                bool useRegex = SearchRegex.IsChecked ?? false;
+                bool caseSensitive = SearchCaseSensitive.IsChecked ?? false;
+                TermView.Search(SearchBox.Text, useRegex, caseSensitive);
+            }
+            else
+            {
+                TermView.ClearSearch();
+            }
+        }
+
         public void ToggleSearch()
         {
             SearchPanel.IsVisible = !SearchPanel.IsVisible;
             if (SearchPanel.IsVisible)
             {
                 SearchBox.Focus();
-                if (!string.IsNullOrEmpty(SearchBox.Text))
-                    TermView.Search(SearchBox.Text);
+                PerformSearch();
             }
             else
             {
