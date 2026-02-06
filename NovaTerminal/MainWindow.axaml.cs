@@ -95,7 +95,22 @@ namespace NovaTerminal
             }, RoutingStrategies.Bubble | RoutingStrategies.Tunnel);
 
             var defaultProfile = _settings.Profiles.Find(p => p.Id == _settings.DefaultProfileId) ?? _settings.Profiles[0];
-            AddTab(defaultProfile);
+
+            // Attempt to restore session
+            if (tabs != null)
+            {
+                SessionManager.RestoreSession(this, tabs, _settings);
+
+                // If restore failed or was empty, load default tab
+                if (tabs.Items.Count == 0)
+                {
+                    AddTab(defaultProfile);
+                }
+            }
+            else
+            {
+                AddTab(defaultProfile);
+            }
 
             SetupCommandPalette();
             InitializeCommandPaletteUI();
@@ -830,6 +845,15 @@ namespace NovaTerminal
                 default: hints.Add(WindowTransparencyLevel.AcrylicBlur); break;
             }
             this.TransparencyLevelHint = hints;
+        }
+        protected override void OnClosing(WindowClosingEventArgs e)
+        {
+            base.OnClosing(e);
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs != null)
+            {
+                SessionManager.SaveSession(this, tabs);
+            }
         }
     }
 }

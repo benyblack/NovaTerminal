@@ -18,6 +18,7 @@ namespace NovaTerminal.Controls
         public TerminalBuffer? Buffer { get; private set; }
         public AnsiParser? Parser { get; private set; }
         public string ShellCommand { get; private set; } = string.Empty;
+        public string ShellArgs { get; private set; } = string.Empty;
         public TerminalProfile? Profile { get; private set; }
 
         private TerminalSettings? _settings;
@@ -48,6 +49,15 @@ namespace NovaTerminal.Controls
             SetupCommon();
         }
 
+        public TerminalPane(string shell, string args)
+        {
+            InitializeComponent();
+            Buffer = new TerminalBuffer(80, 24);
+            TermView.SetBuffer(Buffer);
+            TermView.Ready += (c, r) => InitializeSession(shell, null, c, r, args);
+            SetupCommon();
+        }
+
         public TerminalPane(TerminalProfile profile)
         {
             Profile = profile;
@@ -74,7 +84,7 @@ namespace NovaTerminal.Controls
             ApplySettings(TerminalSettings.Load());
         }
 
-        private void InitializeSession(string? shell, TerminalProfile? profile, int cols, int rows)
+        private void InitializeSession(string? shell, TerminalProfile? profile, int cols, int rows, string? explicitArgs = null)
         {
             if (Session != null || Buffer == null) return;
 
@@ -88,7 +98,8 @@ namespace NovaTerminal.Controls
             string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
             ShellCommand = effectiveShell;
 
-            string args = profile?.Arguments ?? "";
+            string args = explicitArgs ?? profile?.Arguments ?? "";
+            ShellArgs = args;
             string startingDir = profile?.StartingDirectory ?? "";
 
             Session = new RustPtySession(effectiveShell, cols, rows, args, startingDir);
