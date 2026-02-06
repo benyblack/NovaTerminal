@@ -101,6 +101,64 @@ namespace NovaTerminal
                 };
             }
 
+            var importStatus = this.FindControl<TextBlock>("ImportStatusText");
+
+            var btnImportWT = this.FindControl<Button>("BtnImportWT");
+            if (btnImportWT != null)
+            {
+                btnImportWT.Click += (s, e) =>
+                {
+                    var imported = ProfileImporter.ImportWindowsTerminalProfiles();
+                    int added = 0;
+                    foreach (var p in imported)
+                    {
+                        if (!_profilesList.Any(x => x.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            _profilesList.Add(p);
+                            added++;
+                        }
+                    }
+                    if (added > 0)
+                    {
+                        PopulateProfilesList();
+                        if (profilesListBox != null) profilesListBox.SelectedIndex = _profilesList.Count - 1;
+                        if (importStatus != null) importStatus.Text = $"Imported {added} profiles.";
+                    }
+                    else
+                    {
+                        if (importStatus != null) importStatus.Text = "No new profiles found.";
+                    }
+                };
+            }
+
+            var btnImportSSH = this.FindControl<Button>("BtnImportSSH");
+            if (btnImportSSH != null)
+            {
+                btnImportSSH.Click += (s, e) =>
+                {
+                    var imported = ProfileImporter.ImportSshConfig();
+                    int added = 0;
+                    foreach (var p in imported)
+                    {
+                        if (!_profilesList.Any(x => x.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            _profilesList.Add(p);
+                            added++;
+                        }
+                    }
+                    if (added > 0)
+                    {
+                        PopulateProfilesList();
+                        if (profilesListBox != null) profilesListBox.SelectedIndex = _profilesList.Count - 1;
+                        if (importStatus != null) importStatus.Text = $"Imported {added} SSH hosts.";
+                    }
+                    else
+                    {
+                        if (importStatus != null) importStatus.Text = "No new hosts found.";
+                    }
+                };
+            }
+
             if (btnSetDefault != null)
             {
                 btnSetDefault.Click += (s, e) =>
@@ -456,13 +514,9 @@ namespace NovaTerminal
             profilesListBox.Items.Clear();
             foreach (var profile in _profilesList)
             {
-                // UI Polish: Only show profiles that make sense for the current platform
-                // (Matches logic in MainWindow.PopulateNewTabMenu)
-                if (profile.Type == ConnectionType.Local)
-                {
-                    bool exists = System.IO.File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
-                    if (!exists) continue;
-                }
+                // UI Polish: Show all profiles the user has configured.
+                // Previously we hid "invalid" ones, but that hides imported WSL profiles if not found in path.
+                // Let the user see and fix them if broken.
 
                 var isDefault = profile.Id == _settings.DefaultProfileId;
                 var displayName = profile.Name + (isDefault ? " (Default)" : "");

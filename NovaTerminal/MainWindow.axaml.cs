@@ -452,12 +452,9 @@ namespace NovaTerminal
             // Add profiles
             foreach (var profile in _settings.Profiles)
             {
-                // UI Polish: Only show profiles that make sense for the current platform
-                if (profile.Type == ConnectionType.Local)
-                {
-                    bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
-                    if (!exists) continue; // Skip "Bash" on Windows or "cmd.exe" on Linux
-                }
+                // UI Polish: Show all profiles the user has configured.
+                // Previously we hid "invalid" ones, but that hides imported WSL profiles if not found in path.
+                // Let the user see and fix them if broken.
 
                 var item = new MenuItem { Header = profile.Name };
                 item.Click += (s, e) => AddTab(profile);

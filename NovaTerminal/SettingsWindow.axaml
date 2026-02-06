@@ -98,9 +98,18 @@
                         <ListBox Name="ProfilesListBox" Background="#252525" BorderThickness="0">
                             <!-- Items populated in code -->
                         </ListBox>
-                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="5" Margin="0,5,0,0">
-                            <Button Name="BtnAddProfile" Content="Add New" FontSize="12" Padding="8,4"/>
-                            <Button Name="BtnDeleteProfile" Content="Delete" FontSize="12" Padding="8,4" Background="#AA3333" Foreground="White"/>
+                        <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="5" Margin="0,5,10,0">
+                            <StackPanel Orientation="Horizontal" Spacing="5">
+                                <Button Name="BtnAddProfile" Content="Add New" FontSize="12" Padding="8,4"/>
+                                <Button Name="BtnDeleteProfile" Content="Delete" FontSize="12" Padding="8,4" Background="#AA3333" Foreground="White"/>
+                            </StackPanel>
+                            <Separator Background="#333" Margin="0,5"/>
+                            <TextBlock Text="Import From:" Foreground="#888" FontSize="11" Margin="0,0,0,2"/>
+                            <StackPanel Orientation="Vertical" Spacing="5">
+                                <Button Name="BtnImportWT" Content="Windows Terminal" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                                <Button Name="BtnImportSSH" Content="SSH Config" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                                <TextBlock Name="ImportStatusText" Text="" Foreground="#00FF00" FontSize="11" HorizontalAlignment="Center" Margin="0,5,0,0"/>
+                            </StackPanel>
                         </StackPanel>
                     </Grid>
 
