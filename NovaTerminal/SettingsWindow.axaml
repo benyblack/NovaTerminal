@@ -40,6 +40,10 @@
                             <ComboBox Name="ThemeList" HorizontalAlignment="Stretch">
                                 <ComboBoxItem>Default (Dark)</ComboBoxItem>
                                 <ComboBoxItem>Solarized Dark</ComboBoxItem>
+                                <ComboBoxItem>Dracula</ComboBoxItem>
+                                <ComboBoxItem>Monokai</ComboBoxItem>
+                                <ComboBoxItem>One Half Dark</ComboBoxItem>
+                                <ComboBoxItem>GitHub Dark</ComboBoxItem>
                             </ComboBox>
                         </StackPanel>
                         
@@ -248,6 +252,10 @@
                                 <ComboBox Name="OverrideThemeList" Width="200" IsEnabled="{Binding #CheckOverrideTheme.IsChecked}">
                                     <ComboBoxItem>Default (Dark)</ComboBoxItem>
                                     <ComboBoxItem>Solarized Dark</ComboBoxItem>
+                                    <ComboBoxItem>Dracula</ComboBoxItem>
+                                    <ComboBoxItem>Monokai</ComboBoxItem>
+                                    <ComboBoxItem>One Half Dark</ComboBoxItem>
+                                    <ComboBoxItem>GitHub Dark</ComboBoxItem>
                                 </ComboBox>
                             </StackPanel>
                         </StackPanel>

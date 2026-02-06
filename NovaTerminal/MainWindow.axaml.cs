@@ -765,7 +765,15 @@ namespace NovaTerminal
 
         private void ApplyThemeToUI()
         {
-            var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
+            var theme = _settings.ThemeName switch
+            {
+                "Solarized Dark" => TerminalTheme.SolarizedDark,
+                "Dracula" => TerminalTheme.Dracula,
+                "Monokai" => TerminalTheme.Monokai,
+                "One Half Dark" => TerminalTheme.OneHalfDark,
+                "GitHub Dark" => TerminalTheme.GitHubDark,
+                _ => TerminalTheme.Dark
+            };
 
             // Background brush for the main content area
             var bgBrush = new SolidColorBrush(theme.Background, _settings.WindowOpacity);

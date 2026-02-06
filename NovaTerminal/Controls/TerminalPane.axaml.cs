@@ -149,24 +149,47 @@ namespace NovaTerminal.Controls
                 RootGrid.ContextMenu = null;
             }
 
-            ShellCommand = effectiveShell;
-            ShellArgs = args;
             string startingDir = profile?.StartingDirectory ?? "";
-
-            Session = new RustPtySession(effectiveShell, cols, rows, args, startingDir);
-
-            // Fetch password from Vault for automated injection if it's an SSH connection
-            if (profile != null && profile.Type == ConnectionType.SSH)
+            Session = null;
+            try
             {
-                var vault = new VaultService();
-                string? pwd = vault.GetSecret($"profile_{profile.Id}_password");
-                if (!string.IsNullOrEmpty(pwd))
+                // If effectiveShell contains a space and is not a direct file, it's likely a combined command.
+                if (effectiveShell.Contains(' ') && !System.IO.File.Exists(effectiveShell))
                 {
-                    Session.SetSavedPassword(pwd);
-                }
-            }
+                    int firstSpace = effectiveShell.IndexOf(' ');
+                    string cmdPart = effectiveShell.Substring(0, firstSpace);
+                    string argPart = effectiveShell.Substring(firstSpace + 1);
 
-            TermView.SetSession(Session);
+                    effectiveShell = cmdPart;
+                    args = (argPart + " " + args).Trim();
+                }
+
+                ShellCommand = effectiveShell;
+                ShellArgs = args;
+
+                Session = new RustPtySession(effectiveShell, cols, rows, args, startingDir);
+
+                // Fetch password from Vault for SSH
+                if (profile != null && profile.Type == ConnectionType.SSH)
+                {
+                    var vault = new VaultService();
+                    string? pwd = vault.GetSecret($"profile_{profile.Id}_password");
+                    if (!string.IsNullOrEmpty(pwd))
+                    {
+                        Session.SetSavedPassword(pwd);
+                    }
+                }
+
+                TermView.SetSession(Session);
+            }
+            catch (Exception ex)
+            {
+                // Graceful failure: Log and show in terminal
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] Failed to spawn session: {ex.Message}");
+                Buffer.WriteContent($"\r\n[ERROR] Failed to spawn process: {effectiveShell}\r\n", false);
+                Buffer.WriteContent($"[DETAILS] {ex.Message}\r\n", false);
+                return;
+            }
 
             // Wire up Output
             Session.OnOutputReceived += text =>

@@ -255,7 +255,15 @@ namespace NovaTerminal.Core
 
                                 // FONT FALLBACK LOGIC
                                 // Check if primary font supports this character/grapheme
-                                int codepoint = char.ConvertToUtf32(text, 0);
+                                int codepoint = 0;
+                                try
+                                {
+                                    if (text.Length == 1) codepoint = text[0];
+                                    else if (text.Length == 2 && char.IsSurrogatePair(text[0], text[1])) codepoint = char.ConvertToUtf32(text, 0);
+                                    else { /* Invalid string, skip rendering */ continue; }
+                                }
+                                catch { continue; } // Extra safety
+
                                 if (!tf.ContainsGlyph(codepoint))
                                 {
                                     // Try to find a fallback font

@@ -940,7 +940,15 @@ namespace NovaTerminal
 
         private void ApplyTheme()
         {
-            var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
+            var theme = _settings.ThemeName switch
+            {
+                "Solarized Dark" => TerminalTheme.SolarizedDark,
+                "Dracula" => TerminalTheme.Dracula,
+                "Monokai" => TerminalTheme.Monokai,
+                "One Half Dark" => TerminalTheme.OneHalfDark,
+                "GitHub Dark" => TerminalTheme.GitHubDark,
+                _ => TerminalTheme.Dark
+            };
             this.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
             this.Foreground = new Avalonia.Media.SolidColorBrush(theme.Foreground);
         }

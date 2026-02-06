@@ -231,10 +231,15 @@ namespace NovaTerminal.Core
                 var oldTheme = _buffer.Theme;
 
                 // Apply new theme
-                if (settings.ThemeName == "Solarized Dark")
-                    _buffer.Theme = TerminalTheme.SolarizedDark;
-                else
-                    _buffer.Theme = TerminalTheme.Dark;
+                _buffer.Theme = settings.ThemeName switch
+                {
+                    "Solarized Dark" => TerminalTheme.SolarizedDark,
+                    "Dracula" => TerminalTheme.Dracula,
+                    "Monokai" => TerminalTheme.Monokai,
+                    "One Half Dark" => TerminalTheme.OneHalfDark,
+                    "GitHub Dark" => TerminalTheme.GitHubDark,
+                    _ => TerminalTheme.Dark
+                };
 
                 // Update all existing cells, remapping old theme colors to new
                 _buffer.UpdateThemeColors(oldTheme);

@@ -17,6 +17,9 @@ namespace NovaTerminal.Core
         public bool IsWideContinuation; // Placeholder for the 2nd column of a wide char
         public bool IsHidden;
 
+        public short FgIndex; // -1 = TrueColor/Default, 0-255 = Palette
+        public short BgIndex; // -1 = TrueColor/Default, 0-255 = Palette
+
         public static TerminalCell Default => new TerminalCell
         {
             Character = ' ',
@@ -30,10 +33,12 @@ namespace NovaTerminal.Core
             IsDirty = true,
             IsWide = false,
             IsWideContinuation = false,
-            IsHidden = false
+            IsHidden = false,
+            FgIndex = -1,
+            BgIndex = -1
         };
 
-        public TerminalCell(char c, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false)
+        public TerminalCell(char c, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1)
         {
             Character = c;
             Text = null;
@@ -47,9 +52,11 @@ namespace NovaTerminal.Core
             IsWide = false;
             IsWideContinuation = false;
             IsHidden = isHidden;
+            FgIndex = fgIdx;
+            BgIndex = bgIdx;
         }
 
-        public TerminalCell(string text, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false)
+        public TerminalCell(string text, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1)
         {
             Character = text.Length > 0 ? text[0] : ' ';
             Text = text;
@@ -63,6 +70,8 @@ namespace NovaTerminal.Core
             IsWide = true; // Assume explicit string ctor is for complex/wide chars
             IsWideContinuation = false;
             IsHidden = isHidden;
+            FgIndex = fgIdx;
+            BgIndex = bgIdx;
         }
     }
 }

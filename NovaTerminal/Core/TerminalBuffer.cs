@@ -88,6 +88,8 @@ namespace NovaTerminal.Core
 
         public Color CurrentForeground { get; set; } = Colors.LightGray;
         public Color CurrentBackground { get; set; } = Colors.Black;
+        public short CurrentFgIndex { get; set; } = -1;
+        public short CurrentBgIndex { get; set; } = -1;
         public bool IsDefaultForeground { get; set; } = true;
         public bool IsDefaultBackground { get; set; } = true;
         public TerminalTheme Theme { get; set; } = TerminalTheme.Dark;
@@ -181,63 +183,41 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
-                // Helper function to check if a color is "dark" (likely a background)
-                bool IsDarkColor(Color c)
+                void UpdateCell(ref TerminalCell cell)
                 {
-                    // Calculate perceived brightness
-                    double brightness = (0.299 * c.R + 0.587 * c.G + 0.114 * c.B) / 255.0;
-                    return brightness < 0.3; // Dark if brightness < 30%
-                }
+                    // Indices take precedence
+                    if (cell.FgIndex >= 0 && cell.FgIndex <= 15)
+                    {
+                        cell.Foreground = Theme.GetAnsiColor(cell.FgIndex, cell.FgIndex >= 8); // Simple mapping
+                    }
+                    else if (cell.IsDefaultForeground)
+                    {
+                        cell.Foreground = Theme.Foreground;
+                    }
 
-                int remappedCount = 0;
+                    if (cell.BgIndex >= 0 && cell.BgIndex <= 15)
+                    {
+                        cell.Background = Theme.GetAnsiColor(cell.BgIndex, cell.BgIndex >= 8);
+                    }
+                    else if (cell.IsDefaultBackground)
+                    {
+                        cell.Background = Theme.Background;
+                    }
+                }
 
                 for (int r = 0; r < Rows; r++)
                 {
                     for (int c = 0; c < Cols; c++)
                     {
-                        ref var cell = ref _viewport[r].Cells[c];
-
-                        // Always update cells marked as default
-                        if (cell.IsDefaultForeground)
-                        {
-                            cell.Foreground = Theme.Foreground;
-                        }
-                        if (cell.IsDefaultBackground)
-                        {
-                            cell.Background = Theme.Background;
-                        }
-
-                        // Convert dark backgrounds to theme background
-                        if (!cell.IsDefaultBackground && IsDarkColor(cell.Background))
-                        {
-                            cell.Background = Theme.Background;
-                            cell.IsDefaultBackground = true;
-                            remappedCount++;
-                        }
+                        UpdateCell(ref _viewport[r].Cells[c]);
                     }
                 }
 
-                // Also update scrollback (no debug for scrollback to keep it simple)
                 foreach (var row in _scrollback)
                 {
                     for (int c = 0; c < row.Cells.Length; c++)
                     {
-                        ref var cell = ref row.Cells[c];
-
-                        if (cell.IsDefaultForeground)
-                        {
-                            cell.Foreground = Theme.Foreground;
-                        }
-                        if (cell.IsDefaultBackground)
-                        {
-                            cell.Background = Theme.Background;
-                        }
-
-                        if (!cell.IsDefaultBackground && IsDarkColor(cell.Background))
-                        {
-                            cell.Background = Theme.Background;
-                            cell.IsDefaultBackground = true;
-                        }
+                        UpdateCell(ref row.Cells[c]);
                     }
                 }
             }
@@ -321,7 +301,7 @@ namespace NovaTerminal.Core
                     }
 
                     // Normal char
-                    if (c >= 0x20)
+                    if (c >= 0x20 && !char.IsSurrogate(c))
                     {
                         textToWrite = c.ToString();
                         // Check for CJK/Wide ranges if single char
@@ -378,7 +358,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        private void WriteContent(string text, bool isWide)
+        internal void WriteContent(string text, bool isWide)
         {
             // 1. Wrap if needed
             int width = isWide ? 2 : 1;
@@ -403,13 +383,13 @@ namespace NovaTerminal.Core
                 // If isWide, we need space for 2 cells.
                 if (isWide && _cursorCol + 1 < Cols)
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden);
-                    _viewport[_cursorRow].Cells[_cursorCol + 1] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden) { IsWideContinuation = true };
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex);
+                    _viewport[_cursorRow].Cells[_cursorCol + 1] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex) { IsWideContinuation = true };
                     _cursorCol += 2;
                 }
                 else if (!isWide)
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden);
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex);
                     _cursorCol++;
                 }
 
@@ -513,7 +493,7 @@ namespace NovaTerminal.Core
                 }
 
                 // Fill gap with default empty cells
-                var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+                var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground, false, CurrentFgIndex, CurrentBgIndex);
                 for (int c = _cursorCol; c < endCol; c++)
                 {
                     row.Cells[c] = empty;
@@ -548,7 +528,7 @@ namespace NovaTerminal.Core
             }
 
             // Fill gap at end with empty cells
-            var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+            var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground, false, CurrentFgIndex, CurrentBgIndex);
             for (int c = endCol; c < Cols; c++)
             {
                 row.Cells[c] = empty;

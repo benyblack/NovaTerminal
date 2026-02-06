@@ -399,6 +399,8 @@ namespace NovaTerminal.Core
                 ResetColors();
                 _buffer.IsDefaultForeground = true;
                 _buffer.IsDefaultBackground = true;
+                _buffer.CurrentFgIndex = -1; // Default
+                _buffer.CurrentBgIndex = -1; // Default
                 _buffer.IsBold = false;
                 _buffer.IsInverse = false;
                 return;
@@ -413,55 +415,83 @@ namespace NovaTerminal.Core
                     ResetColors();
                     _buffer.IsDefaultForeground = true;
                     _buffer.IsDefaultBackground = true;
+                    _buffer.CurrentFgIndex = -1;
+                    _buffer.CurrentBgIndex = -1;
                     _buffer.IsBold = false;
                     _buffer.IsInverse = false;
                 }
                 else if (code >= 30 && code <= 37)
                 {
                     _buffer.CurrentForeground = GetBasicColor(code - 30);
+                    _buffer.CurrentFgIndex = (short)(code - 30);
                     _buffer.IsDefaultForeground = false;
                 }
                 else if (code >= 90 && code <= 97)
                 {
                     _buffer.CurrentForeground = GetBasicColor(code - 90, true);
+                    _buffer.CurrentFgIndex = (short)((code - 90) + 8);
                     _buffer.IsDefaultForeground = false;
                 }
                 else if (code == 38)
                 {
-                    var color = ParseExtendedColor(args, ref i);
+                    short idx = -1;
+                    var color = ParseExtendedColor(args, ref i, out idx);
                     if (color.HasValue)
                     {
-                        _buffer.CurrentForeground = color.Value;
+                        // Snapping for Campbell Blue/Black
+                        if (idx == -1 && color.Value.R == 0 && color.Value.G == 55 && color.Value.B == 218) idx = 4; // #0037DA Blue
+                        if (idx == -1 && color.Value.R == 58 && color.Value.G == 150 && color.Value.B == 221) idx = 4; // #3A96DD Blue (PS)
+                        if (idx == -1 && color.Value.R == 12 && color.Value.G == 12 && color.Value.B == 12) idx = 0; // #0C0C0C Black
+                        if (idx == -1 && color.Value.R == 204 && color.Value.G == 204 && color.Value.B == 204) idx = 7; // #CCCCCC White
+                        if (idx == -1 && color.Value.R == 242 && color.Value.G == 242 && color.Value.B == 242) idx = 15; // #F2F2F2 Bright White
+
+                        // Use GetBasicColor ONLY for snapped or basic indices (0-15).
+                        // For 256-color indices (16-255) or TrueColor (-1), use the raw color.Value.
+                        _buffer.CurrentForeground = (idx >= 0 && idx <= 15) ? GetBasicColor(idx % 8, idx >= 8) : color.Value;
+                        _buffer.CurrentFgIndex = idx;
                         _buffer.IsDefaultForeground = false;
                     }
                 }
                 else if (code == 39)
                 {
                     _buffer.CurrentForeground = _buffer.Theme.Foreground;
+                    _buffer.CurrentFgIndex = -1;
                     _buffer.IsDefaultForeground = true;
                 }
                 else if (code >= 40 && code <= 47)
                 {
                     _buffer.CurrentBackground = GetBasicColor(code - 40);
+                    _buffer.CurrentBgIndex = (short)(code - 40);
                     _buffer.IsDefaultBackground = false;
                 }
                 else if (code >= 100 && code <= 107)
                 {
                     _buffer.CurrentBackground = GetBasicColor(code - 100, true);
+                    _buffer.CurrentBgIndex = (short)((code - 100) + 8);
                     _buffer.IsDefaultBackground = false;
                 }
                 else if (code == 48)
                 {
-                    var color = ParseExtendedColor(args, ref i);
+                    short idx = -1;
+                    var color = ParseExtendedColor(args, ref i, out idx);
                     if (color.HasValue)
                     {
-                        _buffer.CurrentBackground = color.Value;
+                        // Snapping for Campbell Blue/Black
+                        if (idx == -1 && color.Value.R == 0 && color.Value.G == 55 && color.Value.B == 218) idx = 4; // #0037DA Blue
+                        if (idx == -1 && color.Value.R == 58 && color.Value.G == 150 && color.Value.B == 221) idx = 4; // #3A96DD Blue (PS)
+                        if (idx == -1 && color.Value.R == 12 && color.Value.G == 12 && color.Value.B == 12) idx = 0; // #0C0C0C Black
+                        if (idx == -1 && color.Value.R == 204 && color.Value.G == 204 && color.Value.B == 204) idx = 7; // #CCCCCC White
+                        if (idx == -1 && color.Value.R == 242 && color.Value.G == 242 && color.Value.B == 242) idx = 15; // #F2F2F2 Bright White
+
+                        _buffer.CurrentBackground = (idx >= 0 && idx <= 15) ? GetBasicColor(idx % 8, idx >= 8) : color.Value;
+                        _buffer.CurrentBgIndex = idx;
                         _buffer.IsDefaultBackground = false;
                     }
                 }
                 else if (code == 49)
                 {
                     _buffer.CurrentBackground = _buffer.Theme.Background;
+                    _buffer.CurrentBgIndex = -1;
                     _buffer.IsDefaultBackground = true;
                 }
                 else if (code == 1) // Bold
@@ -495,21 +525,25 @@ namespace NovaTerminal.Core
         {
             _buffer.CurrentForeground = _buffer.Theme.Foreground;
             _buffer.CurrentBackground = _buffer.Theme.Background;
+            _buffer.CurrentFgIndex = -1;
+            _buffer.CurrentBgIndex = -1;
             _buffer.IsInverse = false;
             _buffer.IsBold = false;
             _buffer.IsHidden = false;
         }
 
-        private Color? ParseExtendedColor(ReadOnlySpan<int> args, ref int i)
+        private Color? ParseExtendedColor(ReadOnlySpan<int> args, ref int i, out short index)
         {
+            index = -1;
             if (i + 1 >= args.Length) return null;
 
             int mode = args[++i];
             if (mode == 5) // 256 colors
             {
                 if (i + 1 >= args.Length) return null;
-                int index = args[++i];
-                return GetXtermColor(index);
+                int idx = args[++i];
+                index = (short)idx; // Use the palette index!
+                return GetXtermColor(idx);
             }
             else if (mode == 2) // TrueColor (Next 3 args are R, G, B)
             {
