@@ -22,6 +22,8 @@ namespace NovaTerminal
         public event Action<double>? OnFontSizeChanged;
         public event Action<string>? OnThemeChanged;
 
+        public SettingsWindow() : this(0, null) { }
+
         public SettingsWindow(int initialTab = 0, Guid? initialProfileId = null)
         {
             InitializeComponent();
@@ -45,7 +47,10 @@ namespace NovaTerminal
                 SshKeyPath = p.SshKeyPath,
                 FontFamily = p.FontFamily,
                 FontSize = p.FontSize,
-                ThemeName = p.ThemeName
+                ThemeName = p.ThemeName,
+                JumpHostProfileId = p.JumpHostProfileId,
+                UseSshAgent = p.UseSshAgent,
+                IdentityFilePath = p.IdentityFilePath
             }).ToList();
 
             PopulateFonts();
@@ -219,23 +224,72 @@ namespace NovaTerminal
             if (sshPasswordInput != null) sshPasswordInput.KeyUp += (s, e) =>
             {
                 if (_selectedProfile != null)
-                    _vault.SetSecret($"profile_{_selectedProfile.Id}_password", sshPasswordInput.Text ?? "");
+                    _selectedProfile.Password = sshPasswordInput.Text ?? "";
             };
-            if (sshKeyPathInput != null) sshKeyPathInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.SshKeyPath = sshKeyPathInput.Text ?? ""; };
+
+            // Note: SshKeyPathInput binding is handled in the Advanced SSH Controls block below
+
+
+            // Advanced SSH Controls
+            var jumpList = this.FindControl<ComboBox>("JumpHostList");
+            var radioAgent = this.FindControl<RadioButton>("RadioAuthAgent");
+            var radioKey = this.FindControl<RadioButton>("RadioAuthKey");
+
+            if (jumpList != null)
+            {
+                jumpList.SelectionChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null && jumpList.SelectedItem is ComboBoxItem item)
+                    {
+                        if (item.Tag is Guid gid) _selectedProfile.JumpHostProfileId = gid;
+                        else _selectedProfile.JumpHostProfileId = null;
+                    }
+                };
+            }
+
+            if (radioAgent != null)
+            {
+                radioAgent.IsCheckedChanged += (s, e) =>
+                {
+                    if (_selectedProfile == null) return;
+                    _selectedProfile.UseSshAgent = (radioAgent.IsChecked == true);
+
+                    if (sshKeyPathInput != null) sshKeyPathInput.IsEnabled = !_selectedProfile.UseSshAgent;
+                    if (btnBrowseSshKey != null) btnBrowseSshKey.IsEnabled = !_selectedProfile.UseSshAgent;
+                };
+            }
 
             if (btnBrowseSshKey != null)
             {
                 btnBrowseSshKey.Click += async (s, e) =>
                 {
-                    var dlg = new OpenFileDialog { Title = "Select Private Key", AllowMultiple = false };
-                    var result = await dlg.ShowAsync(this);
-                    if (result != null && result.Length > 0 && sshKeyPathInput != null)
+                    var files = await this.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
                     {
-                        sshKeyPathInput.Text = result[0];
-                        if (_selectedProfile != null) _selectedProfile.SshKeyPath = result[0];
+                        Title = "Select Private Key",
+                        AllowMultiple = false
+                    });
+
+                    if (files.Count > 0 && sshKeyPathInput != null)
+                    {
+                        var path = files[0].Path.LocalPath;
+                        sshKeyPathInput.Text = path;
+                        if (_selectedProfile != null)
+                        {
+                            _selectedProfile.IdentityFilePath = path;
+                            _selectedProfile.SshKeyPath = path; // Backward compat sync
+                        }
                     }
                 };
             }
+            // Bind SshKeyPathInput directly to IdentityFilePath too
+            if (sshKeyPathInput != null) sshKeyPathInput.KeyUp += (s, e) =>
+            {
+                if (_selectedProfile != null)
+                {
+                    _selectedProfile.IdentityFilePath = sshKeyPathInput.Text ?? "";
+                    _selectedProfile.SshKeyPath = sshKeyPathInput.Text ?? ""; // Sync
+                }
+            };
 
             var checkFont = this.FindControl<CheckBox>("CheckOverrideFont");
             var checkSize = this.FindControl<CheckBox>("CheckOverrideSize");
@@ -593,7 +647,19 @@ namespace NovaTerminal
 
             // Load password from vault
             var pwdInput = this.FindControl<TextBox>("SshPasswordInput");
-            if (pwdInput != null) pwdInput.Text = _vault.GetSecret($"profile_{profile.Id}_password") ?? "";
+            if (pwdInput != null)
+            {
+                // Try new format first (specific to profile name)
+                string key = $"SSH:{profile.Name}:{profile.SshUser}@{profile.SshHost}";
+                // Fallback 1: Old shared format (User@Host)
+                // Fallback 2: Legacy ID format
+                string? pass = _vault.GetSecret(key)
+                            ?? _vault.GetSecret($"SSH:{profile.SshUser}@{profile.SshHost}")
+                            ?? _vault.GetSecret($"profile_{profile.Id}_password");
+
+                pwdInput.Text = pass ?? "";
+                profile.Password = pass; // Ensure object is sync'd
+            }
 
             this.FindControl<CheckBox>("CheckOverrideFont")!.IsChecked = profile.FontFamily != null;
             this.FindControl<CheckBox>("CheckOverrideSize")!.IsChecked = profile.FontSize.HasValue;
@@ -752,6 +818,21 @@ namespace NovaTerminal
 
             // Sync profiles list back to settings
             _settings.Profiles = _profilesList;
+
+            // Save passwords for any modified/visited SSH profiles
+            foreach (var p in _profilesList)
+            {
+                if (p.Type == ConnectionType.SSH && p.Password != null)
+                {
+                    // Include Profile Name to ensure uniqueness (distinct passwords per profile)
+                    // Format: "SSH:ProfileName:User@Host"
+                    string key = $"SSH:{p.Name}:{p.SshUser}@{p.SshHost}";
+                    if (!string.IsNullOrEmpty(p.Password))
+                        _vault.SetSecret(key, p.Password);
+                    else
+                        _vault.RemoveSecret(key);
+                }
+            }
 
             _settings.Save();
             Close(true); // Return true to indicate saved

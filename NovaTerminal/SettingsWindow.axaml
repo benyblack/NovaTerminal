@@ -170,11 +170,21 @@
                                 </StackPanel>
 
                                 <StackPanel>
-                                    <TextBlock Text="Private Key Path (Optional)" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
-                                    <Grid ColumnDefinitions="*, Auto">
-                                        <TextBox Name="SshKeyPathInput" Watermark="Path to .pem, .key, etc." />
-                                        <Button Name="BtnBrowseSshKey" Grid.Column="1" Content="..." Margin="5,0,0,0" Width="40"/>
+                                    <TextBlock Text="Authentication" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                    <RadioButton Name="RadioAuthAgent" Content="Use SSH Agent (Recommended)" GroupName="AuthMode" IsChecked="True" Margin="0,0,0,5"/>
+                                    <RadioButton Name="RadioAuthKey" Content="Use Identity File" GroupName="AuthMode" Margin="0,0,0,5"/>
+                                    
+                                    <Grid ColumnDefinitions="*, Auto" Margin="20,0,0,0">
+                                        <TextBox Name="SshKeyPathInput" Watermark="Path to private key (id_rsa, .pem)" IsEnabled="False"/>
+                                        <Button Name="BtnBrowseSshKey" Grid.Column="1" Content="..." Margin="5,0,0,0" Width="40" IsEnabled="False"/>
                                     </Grid>
+                                </StackPanel>
+
+                                <StackPanel>
+                                    <TextBlock Text="Jump Host (Bastion)" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                    <ComboBox Name="JumpHostList" HorizontalAlignment="Stretch" PlaceholderText="Direct Connection (None)">
+                                        <!-- Items populated in code -->
+                                    </ComboBox>
                                 </StackPanel>
                             </StackPanel>
 

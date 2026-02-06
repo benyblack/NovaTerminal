@@ -42,12 +42,56 @@ namespace NovaTerminal.Core
 
         public void SetSecret(string key, string value)
         {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                // Native Windows Credential Manager
+                // Key format usually: "NovaTerminal:SSH:User@Host"
+                string target = key.StartsWith("NovaTerminal:") ? key : $"NovaTerminal:{key}";
+                // Username is part of the target key in our schema, but CredWrite needs a username field.
+                // We'll extract it or just use a placeholder.
+                string username = "User";
+
+                // Extract username from key format:
+                // "NovaTerminal:SSH:User@Host" (Old)
+                // "NovaTerminal:SSH:ProfileName:User@Host" (New)
+                if (target.Contains(":SSH:"))
+                {
+                    string sshPart = target.Substring(target.IndexOf(":SSH:") + 5);
+                    // sshPart could be "User@Host" or "ProfileName:User@Host"
+
+                    int lastAt = sshPart.LastIndexOf('@');
+                    if (lastAt > 0)
+                    {
+                        string preHost = sshPart.Substring(0, lastAt); // "User" or "ProfileName:User"
+                        int lastColon = preHost.LastIndexOf(':');
+                        if (lastColon >= 0)
+                        {
+                            username = preHost.Substring(lastColon + 1);
+                        }
+                        else
+                        {
+                            username = preHost;
+                        }
+                    }
+                }
+
+                Native.Win32CredentialManager.Write(target, username, value);
+                return;
+            }
+
             _secrets[key] = value;
             Save();
         }
 
         public string? GetSecret(string key)
         {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                string target = key.StartsWith("NovaTerminal:") ? key : $"NovaTerminal:{key}";
+                var cred = Native.Win32CredentialManager.Read(target);
+                return cred?.Password;
+            }
+
             if (_secrets.TryGetValue(key, out var value))
             {
                 return value;
@@ -57,6 +101,12 @@ namespace NovaTerminal.Core
 
         public bool RemoveSecret(string key)
         {
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                string target = key.StartsWith("NovaTerminal:") ? key : $"NovaTerminal:{key}";
+                return Native.Win32CredentialManager.Delete(target);
+            }
+
             if (_secrets.Remove(key))
             {
                 Save();

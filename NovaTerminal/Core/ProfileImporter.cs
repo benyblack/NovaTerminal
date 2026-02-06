@@ -109,6 +109,7 @@ namespace NovaTerminal.Core
         public static List<TerminalProfile> ImportSshConfig()
         {
             var profiles = new List<TerminalProfile>();
+            var jumpMap = new Dictionary<TerminalProfile, string>(); // Profile -> ProxyJump raw string
             try
             {
                 var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -124,11 +125,13 @@ namespace NovaTerminal.Core
                     var trimmed = line.Trim();
                     if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith('#')) continue;
 
-                    var parts = Regex.Split(trimmed, @"\s+");
+                    // Support "Key Value" or "Key=Value"
+                    var parts = Regex.Split(trimmed, @"[\s=]+");
                     if (parts.Length < 2) continue;
 
                     string key = parts[0].ToLowerInvariant();
-                    string value = parts[1];
+                    // Join remaining parts to handle values with spaces (though rare in basic SSH config)
+                    string value = string.Join(" ", parts.Skip(1)).Trim();
 
                     if (key == "host")
                     {
@@ -153,7 +156,8 @@ namespace NovaTerminal.Core
                             Type = ConnectionType.SSH,
                             SshHost = value, // Default, might be overridden by HostName
                             Command = "ssh", // Placeholder
-                            Arguments = ""
+                            Arguments = "",
+                            Group = "Imported"
                         };
                     }
                     else if (currentProfile != null)
@@ -168,7 +172,15 @@ namespace NovaTerminal.Core
                         }
                         else if (key == "identityfile")
                         {
-                            currentProfile.SshKeyPath = value;
+                            // Expand ~ if present
+                            string path = value;
+                            if (path.StartsWith("~"))
+                            {
+                                path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), path.Substring(1).TrimStart('/', '\\'));
+                            }
+                            currentProfile.SshKeyPath = path;
+                            currentProfile.IdentityFilePath = path;
+                            currentProfile.UseSshAgent = false;
                         }
                         else if (key == "port")
                         {
@@ -177,12 +189,56 @@ namespace NovaTerminal.Core
                                 currentProfile.SshPort = port;
                             }
                         }
+                        else if (key == "proxyjump")
+                        {
+                            jumpMap[currentProfile] = value;
+                        }
                     }
                 }
 
                 if (currentProfile != null && !string.IsNullOrWhiteSpace(currentProfile.SshHost))
                 {
                     profiles.Add(currentProfile);
+                }
+
+                // POST-PROCESS: Resolve Jump Hosts
+                foreach (var entry in jumpMap)
+                {
+                    var targetProfile = entry.Key;
+                    var jumpPart = entry.Value;
+
+                    // Split by comma or space
+                    var hops = jumpPart.Split(new[] { ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                    TerminalProfile lastTarget = targetProfile;
+                    foreach (var hopName in hops.Reverse())
+                    {
+                        // Clean hopName (remove user@ if present for matching)
+                        string matchName = hopName;
+                        if (hopName.Contains('@')) matchName = hopName.Split('@').Last();
+                        if (matchName.Contains(':')) matchName = matchName.Split(':').First();
+
+                        var found = profiles.Find(p => p.SshHost.Equals(matchName, StringComparison.OrdinalIgnoreCase) ||
+                                                     p.Name.Equals($"SSH {matchName}", StringComparison.OrdinalIgnoreCase));
+
+                        if (found == null)
+                        {
+                            // Create a stub profile for the jump host if not found
+                            found = new TerminalProfile
+                            {
+                                Name = $"SSH {hopName} (Stub)",
+                                Type = ConnectionType.SSH,
+                                SshHost = matchName,
+                                Group = "Jump Hosts",
+                                UseSshAgent = true
+                            };
+                            if (hopName.Contains('@')) found.SshUser = hopName.Split('@').First();
+                            profiles.Add(found);
+                        }
+
+                        lastTarget.JumpHostProfileId = found.Id;
+                        lastTarget = found;
+                    }
                 }
             }
             catch (Exception ex)

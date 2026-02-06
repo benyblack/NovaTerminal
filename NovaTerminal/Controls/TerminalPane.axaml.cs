@@ -96,9 +96,18 @@ namespace NovaTerminal.Controls
 
             // Setup Session
             string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
-            ShellCommand = effectiveShell;
-
             string args = explicitArgs ?? profile?.Arguments ?? "";
+
+            // ADVANCED SSH: Generate correct argument chain for ssh.exe
+            if (profile != null && profile.Type == ConnectionType.SSH)
+            {
+                // Ensure we have profiles for resolution. 
+                var profiles = _settings?.Profiles ?? new System.Collections.Generic.List<TerminalProfile>();
+                effectiveShell = "ssh.exe";
+                args = profile.GenerateSshArguments(profiles);
+            }
+
+            ShellCommand = effectiveShell;
             ShellArgs = args;
             string startingDir = profile?.StartingDirectory ?? "";
 
