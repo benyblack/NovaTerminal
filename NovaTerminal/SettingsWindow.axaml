@@ -21,6 +21,9 @@
                                 <ComboBoxItem>JetBrains Mono</ComboBoxItem>
                             </ComboBox>
                         </StackPanel>
+
+                        <!-- Enable Ligatures -->
+                        <CheckBox Name="LigatureToggle" Content="Enable Programming Ligatures" Margin="0,5,0,0"/>
                         
                         <!-- Font Size -->
                         <StackPanel>
@@ -257,6 +260,11 @@
                                     <ComboBoxItem>One Half Dark</ComboBoxItem>
                                     <ComboBoxItem>GitHub Dark</ComboBoxItem>
                                 </ComboBox>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Spacing="10">
+                                <CheckBox Name="CheckOverrideLigatures" Content="Ligatures" VerticalAlignment="Center"/>
+                                <CheckBox Name="OverrideLigatureToggle" Content="Enabled" IsEnabled="{Binding #CheckOverrideLigatures.IsChecked}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </StackPanel>
                     </ScrollViewer>

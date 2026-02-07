@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace NovaTerminal.Core
 {
@@ -32,6 +33,10 @@ namespace NovaTerminal.Core
         // Scrollback buffer - historical lines that scrolled off the top
         private List<TerminalRow> _scrollback = new List<TerminalRow>();
         public int MaxHistory { get; set; } = 10000;
+
+        // Graphics support
+        private readonly List<TerminalImage> _images = new();
+        public IReadOnlyList<TerminalImage> Images => _images;
 
         public int Cols { get; private set; }
         public int Rows { get; private set; }
@@ -147,12 +152,41 @@ namespace NovaTerminal.Core
             ScrollBottom = rows - 1;
         }
 
+        public void AddImage(TerminalImage image)
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                _images.Add(image);
+            }
+            finally
+            {
+                Lock.ExitWriteLock();
+            }
+            Invalidate();
+        }
+
+        public void ClearImages()
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                _images.Clear();
+            }
+            finally
+            {
+                Lock.ExitWriteLock();
+            }
+            Invalidate();
+        }
+
         public void Clear(bool resetCursor = true)
         {
             Lock.EnterWriteLock();
             try
             {
                 _scrollback.Clear();
+                _images.Clear();
                 for (int i = 0; i < Rows; i++)
                 {
                     _viewport[i] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
@@ -299,21 +333,24 @@ namespace NovaTerminal.Core
                         // Do not return here - let execution fall through so finally block runs (unlocking)
                         // and then OnInvalidate() runs.
                     }
-
-                    // Normal char
-                    if (c >= 0x20 && !char.IsSurrogate(c))
+                    else if (c >= 0x20 && !char.IsSurrogate(c))
                     {
                         textToWrite = c.ToString();
-                        // Check for CJK/Wide ranges if single char
-                        // Simple heuristic for CJK
-                        isWide = (c >= 0x1100 && c <= 0x115F) || // Hangul Jamo
-                                 (c >= 0x2E80 && c <= 0xA4CF && c != 0x303F) || // CJK Radicals..Yi
-                                 (c >= 0xAC00 && c <= 0xD7A3) || // Hangul Syllables
-                                 (c >= 0xF900 && c <= 0xFAFF) || // CJK Compatibility Ideographs
-                                 (c >= 0xFE10 && c <= 0xFE19) || // Vertical forms
-                                 (c >= 0xFE30 && c <= 0xFE6F) || // CJK Compatibility Forms
-                                 (c >= 0xFF00 && c <= 0xFF60) || // Fullwidth Forms
-                                 (c >= 0xFFE0 && c <= 0xFFE6);
+                        // Accurate width detection using Rune
+                        var rune = new Rune(c);
+                        isWide = GetRuneWidth(rune) == 2;
+                    }
+                }
+                else
+                {
+                    // textToWrite was set from surrogate pair
+                    if (Rune.TryCreate(textToWrite[0], textToWrite[1], out var rune))
+                    {
+                        isWide = GetRuneWidth(rune) == 2;
+                    }
+                    else
+                    {
+                        isWide = true; // Fallback for complex graphemes
                     }
                 }
 
@@ -383,13 +420,16 @@ namespace NovaTerminal.Core
                 // If isWide, we need space for 2 cells.
                 if (isWide && _cursorCol + 1 < Cols)
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex);
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, true);
                     _viewport[_cursorRow].Cells[_cursorCol + 1] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex) { IsWideContinuation = true };
                     _cursorCol += 2;
                 }
-                else if (!isWide)
+                else
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex);
+                    // Note: if isWide is true but we are at the last column and AutoWrap is off, 
+                    // width was 2 but we only write 1 cell. The renderer handles IsWide=true by expanding,
+                    // so we still pass isWide to the cell if it's the intended width.
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, isWide);
                     _cursorCol++;
                 }
 
@@ -434,6 +474,21 @@ namespace NovaTerminal.Core
                 if (_scrollback.Count > MaxHistory)
                 {
                     _scrollback.RemoveAt(0);
+
+                    // Prune images or shift their absolute row indices
+                    for (int i = _images.Count - 1; i >= 0; i--)
+                    {
+                        var img = _images[i];
+                        if (img.IsSticky)
+                        {
+                            img.StartRow--;
+                            // If the image has completely scrolled out of the max history:
+                            if (img.StartRow + img.Rows < 0)
+                            {
+                                _images.RemoveAt(i);
+                            }
+                        }
+                    }
                 }
             }
 
@@ -927,6 +982,16 @@ namespace NovaTerminal.Core
                     {
                         int remaining = lineCells.Count - processed;
                         int take = Math.Min(remaining, newCols);
+
+                        // Prevent splitting a wide character across lines
+                        if (take < remaining && take > 0 && lineCells[processed + take - 1].IsWide)
+                        {
+                            take--; // This row will end with a space, wide char moves to next row
+                        }
+
+                        // If take is 0 but we have remaining (newCols is 1 and we have a wide char),
+                        // we're forced to just take it and let it be clipped, otherwise infinite loop.
+                        if (take == 0 && remaining > 0) take = 1;
 
                         // Mapping
                         if (i == cursorLogicalIdx)
@@ -1488,12 +1553,21 @@ namespace NovaTerminal.Core
                     // Build row string
                     var row = (r < _scrollback.Count) ? _scrollback[r] : _viewport[r - _scrollback.Count];
 
-                    // Optimization: Use a shared StringBuilder if this becomes a bottleneck
-                    char[] chars = new char[Cols];
-                    for (int c = 0; c < Cols; c++) chars[c] = row.Cells[c].Character;
-                    // Trim nulls/spaces from end for cleaner regex matching? 
-                    // No, terminal search usually matches against exact buffer content including whitespace.
-                    string lineText = new string(chars);
+                    // Build row string with mapping for wide/complex characters
+                    var sb = new StringBuilder();
+                    var colMapping = new List<int>(); // Maps string char index to buffer column
+
+                    for (int c = 0; c < Cols; c++)
+                    {
+                        var cell = row.Cells[c];
+                        if (cell.IsWideContinuation) continue;
+
+                        string text = cell.Text ?? cell.Character.ToString();
+                        int startIdx = sb.Length;
+                        sb.Append(text);
+                        for (int k = 0; k < text.Length; k++) colMapping.Add(c);
+                    }
+                    string lineText = sb.ToString();
 
                     if (useRegex && regex != null)
                     {
@@ -1502,7 +1576,9 @@ namespace NovaTerminal.Core
                         {
                             if (m.Success)
                             {
-                                matches.Add(new SearchMatch(r, m.Index, m.Index + m.Length - 1));
+                                int startCol = colMapping[m.Index];
+                                int endCol = colMapping[m.Index + m.Length - 1];
+                                matches.Add(new SearchMatch(r, startCol, endCol));
                             }
                         }
                     }
@@ -1513,7 +1589,9 @@ namespace NovaTerminal.Core
                         int index = lineText.IndexOf(query, comparison);
                         while (index != -1)
                         {
-                            matches.Add(new SearchMatch(r, index, index + query.Length - 1));
+                            int startCol = colMapping[index];
+                            int endCol = colMapping[index + query.Length - 1];
+                            matches.Add(new SearchMatch(r, startCol, endCol));
                             index = lineText.IndexOf(query, index + 1, comparison);
                         }
                     }
@@ -1524,6 +1602,35 @@ namespace NovaTerminal.Core
                 Lock.ExitReadLock();
             }
             return matches;
+        }
+
+        private int GetRuneWidth(Rune rune)
+        {
+            int cp = rune.Value;
+            // Simple check for CJK/Emoji ranges:
+            // 0x1100-0x115F: Hangul Jamo
+            // 0x2329-0x232A: Quotes
+            // 0x2E80-0xA4CF: CJK Radicals, Symbols, Punctuation, Ideographs
+            // 0xAC00-0xD7A3: Hangul Syllables
+            // 0xF900-0xFAFF: CJK Compatibility Ideographs
+            // 0xFE10-0xFE19: Vertical Forms
+            // 0xFE30-0xFE6F: CJK Compatibility Forms
+            // 0xFF00-0xFF60: Fullwidth Forms
+            // 0xFFE0-0xFFE6: Fullwidth Forms
+            // 0x20000-0x3FFFF: Supplementary Planes (mostly CJK)
+
+            if (cp >= 0x1100 && cp <= 0x115F) return 2;
+            if (cp == 0x2329 || cp == 0x232A) return 2;
+            if (cp >= 0x2E80 && cp <= 0xA4CF && cp != 0x303F) return 2;
+            if (cp >= 0xAC00 && cp <= 0xD7A3) return 2;
+            if (cp >= 0xF900 && cp <= 0xFAFF) return 2;
+            if (cp >= 0xFE10 && cp <= 0xFE19) return 2;
+            if (cp >= 0xFE30 && cp <= 0xFE6F) return 2;
+            if (cp >= 0xFF00 && cp <= 0xFF60) return 2;
+            if (cp >= 0xFFE0 && cp <= 0xFFE6) return 2;
+            if (cp >= 0x20000 && cp <= 0x3FFFF) return 2;
+
+            return 1;
         }
     }
 }

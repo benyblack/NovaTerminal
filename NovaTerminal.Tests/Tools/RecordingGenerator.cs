@@ -93,5 +93,52 @@ namespace NovaTerminal.Tests.Tools
             string restoreMain = "\u001b8";
             recorder.RecordChunk(Encoding.UTF8.GetBytes(restoreMain), restoreMain.Length);
         }
+        public static void GeneratePowerlinePrompt(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            using var recorder = new PtyRecorder(path);
+
+            // \u1b[38;2;40;44;52m\u1b[48;2;152;195;121m \uf17c \u1b[38;2;152;195;121m\u1b[48;2;97;175;239m\ue0b0\u1b[38;2;40;44;52m \uf07c ~/nova \u1b[38;2;97;175;239m\u1b[49m\ue0b0\u1b[0m 
+            // Simplified powerline-like sequence
+            string prompt = "\x1b[42;30m \uf17c Linux \x1b[44;32m\ue0b0\x1b[30m ~/nova \x1b[0;34m\ue0b0\x1b[0m ";
+            var data = Encoding.UTF8.GetBytes(prompt);
+            recorder.RecordChunk(data, data.Length);
+        }
+
+        public static void GenerateMixedUnicode(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            using var recorder = new PtyRecorder(path);
+
+            // ASCII + Emoji + CJK + Symbols
+            string text = "Hello \U0001f600 (Smile) | \u4e2d\u6587 (Chinese) | \u2665 (Heart)\r\n";
+            var data = Encoding.UTF8.GetBytes(text);
+            recorder.RecordChunk(data, data.Length);
+
+            // Emoji ZWJ sequences
+            string zwj = "Family: \U0001f468\u200d\U0001f469\u200d\U0001f467\r\n";
+            var zwjData = Encoding.UTF8.GetBytes(zwj);
+            recorder.RecordChunk(zwjData, zwjData.Length);
+        }
+
+        public static void GenerateWrappedText(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            using var recorder = new PtyRecorder(path);
+
+            // Long line with mixed content to test wrapping near emoji/cjk
+            string longLine = "This is a very long line that should wrap eventually. " +
+                              "Here is some Unicode: \u4e2d\u6587\u4e2d\u6587\u4e2d\u6587\u4e2d\u6587 " +
+                              "and some Emojis: \U0001f600\U0001f601\U0001f602\U0001f603\U0001f604 " +
+                              "to see how it wraps at the edge of the terminal buffer.\r\n";
+            var data = Encoding.UTF8.GetBytes(longLine);
+            recorder.RecordChunk(data, data.Length);
+        }
     }
 }

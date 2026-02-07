@@ -56,6 +56,7 @@ namespace NovaTerminal
                 FontFamily = p.FontFamily,
                 FontSize = p.FontSize,
                 ThemeName = p.ThemeName,
+                EnableLigatures = p.EnableLigatures,
                 JumpHostProfileId = p.JumpHostProfileId,
                 UseSshAgent = p.UseSshAgent,
                 IdentityFilePath = p.IdentityFilePath,
@@ -426,6 +427,53 @@ namespace NovaTerminal
                 };
             }
 
+            var ligatureToggle = this.FindControl<CheckBox>("LigatureToggle");
+            if (ligatureToggle != null)
+            {
+                ligatureToggle.IsCheckedChanged += (s, e) =>
+                {
+                    // No need to trigger event here as ligatures don't need immediate measure recalcs
+                    // but we refresh visual to show/hide them.
+                    // Actually, most programming ligatures change width slightly in some fonts, 
+                    // but in monospaced grids we usually shape them within cell bounds.
+                    // We'll let the user save to see the effect.
+                };
+            }
+
+            // Ligature Override Logic
+            var checkLigatures = this.FindControl<CheckBox>("CheckOverrideLigatures");
+            var overrideLigatureToggle = this.FindControl<CheckBox>("OverrideLigatureToggle");
+
+            if (checkLigatures != null)
+            {
+                checkLigatures.IsCheckedChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null)
+                    {
+                        if (checkLigatures.IsChecked == true)
+                        {
+                            if (_selectedProfile.EnableLigatures == null) _selectedProfile.EnableLigatures = _settings.EnableLigatures;
+                            if (overrideLigatureToggle != null) overrideLigatureToggle.IsChecked = _selectedProfile.EnableLigatures;
+                        }
+                        else
+                        {
+                            _selectedProfile.EnableLigatures = null;
+                        }
+                    }
+                };
+            }
+
+            if (overrideLigatureToggle != null)
+            {
+                overrideLigatureToggle.IsCheckedChanged += (s, e) =>
+                {
+                    if (_selectedProfile != null && checkLigatures?.IsChecked == true)
+                    {
+                        _selectedProfile.EnableLigatures = overrideLigatureToggle.IsChecked;
+                    }
+                };
+            }
+
             // Core Settings Controls
             var fontList = this.FindControl<ComboBox>("FontList");
             var fontSizeInput = this.FindControl<NumericUpDown>("FontSizeInput");
@@ -655,7 +703,6 @@ namespace NovaTerminal
             this.FindControl<TextBox>("ProfileNameInput")!.Text = profile.Name;
             this.FindControl<TextBox>("ProfileCommandInput")!.Text = profile.Command;
             this.FindControl<TextBox>("ProfileArgsInput")!.Text = profile.Arguments ?? "";
-            this.FindControl<TextBox>("ProfileArgsInput")!.Text = profile.Arguments ?? "";
             this.FindControl<TextBox>("ProfileCwdInput")!.Text = profile.StartingDirectory ?? "";
             this.FindControl<TextBox>("ProfileGroupInput")!.Text = profile.Group ?? "General";
             this.FindControl<TextBox>("ProfileTagsInput")!.Text = string.Join(", ", profile.Tags ?? new System.Collections.Generic.List<string>());
@@ -671,9 +718,8 @@ namespace NovaTerminal
             this.FindControl<TextBox>("SshUserInput")!.Text = profile.SshUser ?? "";
             this.FindControl<TextBox>("SshKeyPathInput")!.Text = profile.SshKeyPath ?? "";
 
-            // Load password from vault
             var pwdInput = this.FindControl<TextBox>("SshPasswordInput");
-            if (pwdInput != null)
+            if (pwdInput != null && profile != null)
             {
                 // Try new format first (specific to profile name)
                 string key = $"SSH:{profile.Name}:{profile.SshUser}@{profile.SshHost}";
@@ -690,13 +736,16 @@ namespace NovaTerminal
             this.FindControl<CheckBox>("CheckOverrideFont")!.IsChecked = profile.FontFamily != null;
             this.FindControl<CheckBox>("CheckOverrideSize")!.IsChecked = profile.FontSize.HasValue;
             this.FindControl<CheckBox>("CheckOverrideTheme")!.IsChecked = profile.ThemeName != null;
+            this.FindControl<CheckBox>("CheckOverrideLigatures")!.IsChecked = profile.EnableLigatures.HasValue;
 
             // Sync values to override inputs
+            var overrideLigatureToggle = this.FindControl<CheckBox>("OverrideLigatureToggle");
+            if (overrideLigatureToggle != null) overrideLigatureToggle.IsChecked = profile.EnableLigatures ?? _settings.EnableLigatures;
             var overrideFontList = this.FindControl<ComboBox>("OverrideFontList");
             if (overrideFontList != null)
             {
                 var targetFont = profile.FontFamily ?? _settings.FontFamily;
-                foreach (ComboBoxItem item in overrideFontList.Items)
+                foreach (ComboBoxItem item in overrideFontList.Items.Cast<ComboBoxItem>())
                     if (item.Content?.ToString() == targetFont) { overrideFontList.SelectedItem = item; break; }
             }
 
@@ -858,6 +907,7 @@ namespace NovaTerminal
             var themeList = this.FindControl<ComboBox>("ThemeList");
             var opacitySlider = this.FindControl<Slider>("WindowOpacitySlider");
             var opacityDisplay = this.FindControl<TextBlock>("OpacityValueDisplay");
+            var ligatureToggle = this.FindControl<CheckBox>("LigatureToggle");
 
             // Bg Image Controls
             var bgPathInput = this.FindControl<TextBox>("BgImagePathInput");
@@ -873,6 +923,8 @@ namespace NovaTerminal
                 if (opacityDisplay != null)
                     opacityDisplay.Text = $"{(int)(_settings.WindowOpacity * 100)}%";
             }
+
+            if (ligatureToggle != null) ligatureToggle.IsChecked = _settings.EnableLigatures;
 
             if (bgPathInput != null) bgPathInput.Text = _settings.BackgroundImagePath;
             if (bgOpacitySlider != null)
@@ -960,6 +1012,7 @@ namespace NovaTerminal
             var scrollbackInput = this.FindControl<NumericUpDown>("ScrollbackInput");
             var themeList = this.FindControl<ComboBox>("ThemeList");
             var opacitySlider = this.FindControl<Slider>("WindowOpacitySlider");
+            var ligatureToggle = this.FindControl<CheckBox>("LigatureToggle");
 
             // Bg Image inputs
             var bgPathInput = this.FindControl<TextBox>("BgImagePathInput");
@@ -970,6 +1023,7 @@ namespace NovaTerminal
             if (fontSizeInput != null) _settings.FontSize = (double)(fontSizeInput.Value ?? 14);
             if (scrollbackInput != null) _settings.MaxHistory = (int)(scrollbackInput.Value ?? 10000);
             if (opacitySlider != null) _settings.WindowOpacity = opacitySlider.Value;
+            if (ligatureToggle != null) _settings.EnableLigatures = ligatureToggle.IsChecked == true;
 
             if (fontList?.SelectedItem is ComboBoxItem fontItem)
                 _settings.FontFamily = fontItem.Content?.ToString() ?? "Consolas";

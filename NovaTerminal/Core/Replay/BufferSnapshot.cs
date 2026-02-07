@@ -27,14 +27,15 @@ namespace NovaTerminal.Core.Replay
             var rows = buffer.ViewportRows;
             snapshot.Lines = rows.Select(r =>
             {
-                // Simplified serialization: just text content + wrapping
-                // Ideal: serialize cells with colors, but text is good start for basic determinism
                 var sb = new StringBuilder();
                 foreach (var cell in r.Cells)
                 {
-                    sb.Append(cell.Character == '\0' ? ' ' : cell.Character);
+                    if (cell.IsWideContinuation) continue;
+
+                    string text = cell.Text ?? (cell.Character == '\0' ? " " : cell.Character.ToString());
+                    sb.Append(text);
                 }
-                return sb.ToString().TrimEnd(); // Trim for simpler comparison
+                return sb.ToString().TrimEnd();
             }).ToArray();
 
             return snapshot;

@@ -5,6 +5,7 @@ using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
 using SkiaSharp;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 namespace NovaTerminal.Core
@@ -12,9 +13,7 @@ namespace NovaTerminal.Core
     public class TerminalDrawOperation : ICustomDrawOperation
     {
         private readonly TerminalBuffer _buffer;
-        private readonly double _charWidth;
-        private readonly double _charHeight;
-        private readonly double _baselineOffset;
+        private readonly CellMetrics _metrics;
         private readonly int _scrollOffset;
         private readonly SelectionState _selection;
         private readonly List<SearchMatch>? _searchMatches;
@@ -25,6 +24,9 @@ namespace NovaTerminal.Core
         private readonly IGlyphTypeface _glyphTypeface;
         private readonly SKTypeface? _skTypeface;
         private readonly SKFont? _skFont;
+        private readonly bool _enableLigatures;
+        private readonly ConcurrentDictionary<int, SKTypeface?> _fallbackCache;
+        private readonly string[] _fallbackChain;
         private readonly float _opacity;
         private readonly bool _transparentBackground;
         private readonly bool _hideCursor;
@@ -39,14 +41,15 @@ namespace NovaTerminal.Core
             SelectionState selection,
             List<SearchMatch>? searchMatches,
             int activeSearchIndex,
-            double charWidth,
-            double charHeight,
-            double baselineOffset,
+            CellMetrics metrics,
             Typeface typeface,
             double fontSize,
             IGlyphTypeface glyphTypeface,
             SKTypeface? skTypeface,
             SKFont? skFont,
+            bool enableLigatures,
+            ConcurrentDictionary<int, SKTypeface?> fallbackCache,
+            string[] fallbackChain,
             double opacity = 1.0,
             bool transparentBackground = false,
             bool hideCursor = false,
@@ -58,14 +61,15 @@ namespace NovaTerminal.Core
             _selection = selection;
             _searchMatches = searchMatches;
             _activeSearchIndex = activeSearchIndex;
-            _charWidth = charWidth;
-            _charHeight = charHeight;
-            _baselineOffset = baselineOffset;
+            _metrics = metrics;
             _typeface = typeface;
             _fontSize = fontSize;
             _glyphTypeface = glyphTypeface;
             _skTypeface = skTypeface;
             _skFont = skFont;
+            _enableLigatures = enableLigatures;
+            _fallbackCache = fallbackCache;
+            _fallbackChain = fallbackChain;
             _opacity = (float)Math.Clamp(opacity, 0.0, 1.0);
 
             _transparentBackground = transparentBackground;
@@ -148,8 +152,8 @@ namespace NovaTerminal.Core
                 int dirtyCells = 0;
                 for (int r = 0; r < bufferRows; r++)
                 {
-                    float y = (float)(Math.Round((r * _charHeight + paddingTop) * _renderScaling) / _renderScaling);
-                    float baselineY = y + (float)_baselineOffset;
+                    float y = (float)(Math.Round((r * _metrics.CellHeight + paddingTop) * _renderScaling) / _renderScaling);
+                    float baselineY = y + (float)_metrics.Baseline;
                     int absRow = absDisplayStart + r;
 
                     // Pass 1: Custom Backgrounds
@@ -182,9 +186,9 @@ namespace NovaTerminal.Core
                             }
 
                             bgPaint.Color = bg;
-                            float x1 = (float)(Math.Round((runStart * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                            float x2 = (float)(Math.Round((k * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                            canvas.DrawRect(x1, y, x2 - x1, (float)_charHeight, bgPaint);
+                            float x1 = (float)(Math.Round((runStart * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                            float x2 = (float)(Math.Round((k * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                            canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, bgPaint);
                             dirtyCells += (k - runStart);
                             c = k - 1;
                         }
@@ -196,9 +200,9 @@ namespace NovaTerminal.Core
                         var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
                         if (isSelected)
                         {
-                            float x1 = (float)(Math.Round((colStart * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                            float x2 = (float)(Math.Round(((colEnd + 1) * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                            canvas.DrawRect(x1, y, x2 - x1, (float)_charHeight, selectionPaint);
+                            float x1 = (float)(Math.Round((colStart * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                            float x2 = (float)(Math.Round(((colEnd + 1) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                            canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, selectionPaint);
                         }
                     }
 
@@ -210,9 +214,9 @@ namespace NovaTerminal.Core
                             if (m.AbsRow == absRow)
                             {
                                 var p = (i == _activeSearchIndex) ? activeMatchPaint : matchPaint;
-                                float x1 = (float)(Math.Round((m.StartCol * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                                float x2 = (float)(Math.Round(((m.EndCol + 1) * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                                canvas.DrawRect(x1, y, x2 - x1, (float)_charHeight, p);
+                                float x1 = (float)(Math.Round((m.StartCol * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                                float x2 = (float)(Math.Round(((m.EndCol + 1) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                                canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, p);
                             }
                         }
                     }
@@ -232,9 +236,9 @@ namespace NovaTerminal.Core
                             {
                                 var cb = new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
                                 bgPaint.Color = cb;
-                                float x1 = (float)(Math.Round((c * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                                float x2 = (float)(Math.Round(((c + (cell.IsWide ? 2 : 1)) * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                                canvas.DrawRect(x1, y, x2 - x1, (float)_charHeight, bgPaint);
+                                float x1 = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                                float x2 = (float)(Math.Round(((c + (cell.IsWide ? 2 : 1)) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                                canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, bgPaint);
                             }
                             continue;
                         }
@@ -248,8 +252,8 @@ namespace NovaTerminal.Core
                             var fg = cell.IsInverse ? cb : cf;
 
                             // If it's a wide char or complex text, draw it individually
-                            // We don't batch wide chars with standard chars to ensure spacing is correct
-                            if (cell.IsWide || !string.IsNullOrEmpty(cell.Text))
+                            // We also draw individually if ligatures are disabled
+                            if (cell.IsWide || !string.IsNullOrEmpty(cell.Text) || !_enableLigatures)
                             {
                                 string text = cell.Text ?? cell.Character.ToString();
 
@@ -266,32 +270,56 @@ namespace NovaTerminal.Core
 
                                 if (!tf.ContainsGlyph(codepoint))
                                 {
-                                    // Try to find a fallback font
-                                    using var fallbackTf = SKFontManager.Default.MatchCharacter(codepoint);
+                                    // 1. Check Cache
+                                    if (!_fallbackCache.TryGetValue(codepoint, out var fallbackTf))
+                                    {
+                                        // 2. Check Explicit Chain (Fast)
+                                        foreach (var fontName in _fallbackChain)
+                                        {
+                                            var tfChain = SKTypeface.FromFamilyName(fontName);
+                                            // FromFamilyName might return default if font not found, 
+                                            // we need to check if it actually supports the char.
+                                            if (tfChain != null && tfChain.FamilyName == fontName && tfChain.ContainsGlyph(codepoint))
+                                            {
+                                                fallbackTf = tfChain;
+                                                break;
+                                            }
+                                            tfChain?.Dispose();
+                                        }
+
+                                        // 3. System Fallback (Slow)
+                                        if (fallbackTf == null)
+                                        {
+                                            fallbackTf = SKFontManager.Default.MatchCharacter(codepoint);
+                                        }
+
+                                        _fallbackCache.TryAdd(codepoint, fallbackTf);
+                                    }
+
                                     if (fallbackTf != null)
                                     {
                                         using var fallbackFont = new SKFont(fallbackTf, (float)_fontSize);
                                         fallbackFont.Edging = SKFontEdging.Antialias;
                                         fgPaint.Color = fg;
-                                        canvas.DrawText(text, (float)(Math.Round((c * _charWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, fallbackFont, fgPaint);
+                                        canvas.DrawText(text, (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, fallbackFont, fgPaint);
                                     }
                                     else
                                     {
-                                        // No fallback found, draw with default (will likely show box)
                                         fgPaint.Color = fg;
-                                        canvas.DrawText(text, (float)(Math.Round((c * _charWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
+                                        canvas.DrawText(text, (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
                                     }
                                 }
                                 else
                                 {
                                     fgPaint.Color = fg;
-                                    canvas.DrawText(text, (float)(Math.Round((c * _charWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
+                                    canvas.DrawText(text, (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
                                 }
                             }
                             else
                             {
                                 // Batch simple chars for performance
                                 int runStart = c;
+                                float runX = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
 
                                 // Avoid stackalloc in loop (CA2014)
                                 int remaining = bufferCols - c;
@@ -317,7 +345,7 @@ namespace NovaTerminal.Core
 
                                 fgPaint.Color = fg;
                                 // Create string directly from span (allocates string only, no intermediate arrays)
-                                canvas.DrawText(new string(runBuffer.Slice(0, runLength)), (float)(Math.Round((runStart * _charWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
+                                canvas.DrawText(new string(runBuffer.Slice(0, runLength)), runX, baselineY, font, fgPaint);
                                 dirtyCells += (k - runStart);
                                 c = k - 1;
                             }
@@ -331,9 +359,9 @@ namespace NovaTerminal.Core
                     int visualCursorRow = _buffer.GetVisualCursorRowInternal(_scrollOffset);
                     if (visualCursorRow >= 0 && visualCursorRow < bufferRows)
                     {
-                        float x1 = (float)(Math.Round((_buffer.InternalCursorCol * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                        float x2 = (float)(Math.Round(((_buffer.InternalCursorCol + 1) * _charWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                        float cy = (float)(Math.Round((visualCursorRow * _charHeight + _charHeight - 2 + paddingTop) * _renderScaling) / _renderScaling);
+                        float x1 = (float)(Math.Round((_buffer.InternalCursorCol * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                        float x2 = (float)(Math.Round(((_buffer.InternalCursorCol + 1) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                        float cy = (float)(Math.Round((visualCursorRow * _metrics.CellHeight + _metrics.CellHeight - 2 + paddingTop) * _renderScaling) / _renderScaling);
                         canvas.DrawRect(x1, cy, x2 - x1, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
                     }
                 }

@@ -93,7 +93,8 @@ namespace NovaTerminal.Core
                 for (int col = colStart; col <= colEnd; col++)
                 {
                     var cell = buffer.GetCellAbsolute(col, row);
-                    sb.Append(cell.Character);
+                    if (cell.IsWideContinuation) continue;
+                    sb.Append(cell.Text ?? cell.Character.ToString());
                 }
 
                 // Add line break if not the last row

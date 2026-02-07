@@ -38,7 +38,7 @@ namespace NovaTerminal.Core
             BgIndex = -1
         };
 
-        public TerminalCell(char c, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1)
+        public TerminalCell(char c, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1, bool isWide = false)
         {
             Character = c;
             Text = null;
@@ -49,14 +49,14 @@ namespace NovaTerminal.Core
             IsDefaultForeground = isDefaultFg;
             IsDefaultBackground = isDefaultBg;
             IsDirty = true;
-            IsWide = false;
+            IsWide = isWide;
             IsWideContinuation = false;
             IsHidden = isHidden;
             FgIndex = fgIdx;
             BgIndex = bgIdx;
         }
 
-        public TerminalCell(string text, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1)
+        public TerminalCell(string text, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1, bool isWide = false)
         {
             Character = text.Length > 0 ? text[0] : ' ';
             Text = text;
@@ -67,7 +67,7 @@ namespace NovaTerminal.Core
             IsDefaultForeground = isDefaultFg;
             IsDefaultBackground = isDefaultBg;
             IsDirty = true;
-            IsWide = true; // Assume explicit string ctor is for complex/wide chars
+            IsWide = isWide;
             IsWideContinuation = false;
             IsHidden = isHidden;
             FgIndex = fgIdx;

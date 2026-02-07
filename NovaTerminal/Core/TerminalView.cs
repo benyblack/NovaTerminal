@@ -5,6 +5,7 @@ using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Threading;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -13,6 +14,16 @@ using SkiaSharp;
 
 namespace NovaTerminal.Core
 {
+    public struct CellMetrics
+    {
+        public float CellWidth;
+        public float CellHeight;
+        public float Baseline;
+        public float Ascent;
+        public float Descent;
+        public float Leading;
+    }
+
     public class TerminalView : Control
     {
         public TerminalView()
@@ -173,16 +184,18 @@ namespace NovaTerminal.Core
         private const string FontFamilyList = "MesloLGM Nerd Font, MesloLGS NF, Cascadia Code, Cascadia Mono, Fira Code, JetBrains Mono, Consolas, Segoe UI, Segoe Fluent Icons, Segoe UI Symbol, Monospace";
         private Typeface _typeface = new Typeface(FontFamilyList, FontStyle.Normal, FontWeight.Normal);
         private double _fontSize = 14;
-        private double _charWidth;
-        private double _charHeight;
+        private CellMetrics _metrics;
         private double _windowOpacity = 1.0;
         private bool _hasBackgroundImage = false;
+        private bool _enableLigatures = false;
 
 
         private IGlyphTypeface? _glyphTypeface;
         private SKTypeface? _skTypeface;
         private SKFont? _skFont;
-        private double _baselineOffset;
+
+        private static readonly string[] FallbackChain = { "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Symbol" };
+        private readonly ConcurrentDictionary<int, SKTypeface?> _fallbackCache = new();
 
         public double FontSize
         {
@@ -206,8 +219,8 @@ namespace NovaTerminal.Core
             }
         }
 
-        public int Cols => (_charWidth > 0) ? (int)(Math.Max(0, Bounds.Width - 4) / _charWidth) : 0;
-        public int Rows => (_charHeight > 0) ? (int)(Bounds.Height / _charHeight) : 0;
+        public int Cols => (_metrics.CellWidth > 0) ? (int)(Math.Max(0, Bounds.Width - 4) / _metrics.CellWidth) : 0;
+        public int Rows => (_metrics.CellHeight > 0) ? (int)(Bounds.Height / _metrics.CellHeight) : 0;
 
         public void ApplySettings(TerminalSettings settings)
         {
@@ -220,6 +233,7 @@ namespace NovaTerminal.Core
             {
                 _typeface = new Typeface(settings.FontFamily);
             }
+            _enableLigatures = settings.EnableLigatures;
             _windowOpacity = settings.WindowOpacity;
             _hasBackgroundImage = !string.IsNullOrEmpty(settings.BackgroundImagePath) && System.IO.File.Exists(settings.BackgroundImagePath);
 
@@ -255,10 +269,10 @@ namespace NovaTerminal.Core
 
                 // Trigger resize based on new font metrics and current bounds
                 // BUT only if dimensions actually changed (to avoid overwriting theme-updated cells)
-                if (_buffer != null && _charWidth > 0 && _charHeight > 0)
+                if (_buffer != null && _metrics.CellWidth > 0 && _metrics.CellHeight > 0)
                 {
-                    int cols = (int)(Bounds.Width / _charWidth);
-                    int rows = (int)(Bounds.Height / _charHeight);
+                    int cols = (int)(Bounds.Width / _metrics.CellWidth);
+                    int rows = (int)(Bounds.Height / _metrics.CellHeight);
 
                     if (cols > 0 && rows > 0 && (cols != _buffer.Cols || rows != _buffer.Rows))
                     {
@@ -296,6 +310,12 @@ namespace NovaTerminal.Core
             _skFont = null;
             _skTypeface?.Dispose();
             _skTypeface = null;
+
+            // Should we clear fallback cache? 
+            // Only if the primary font family changes significantly?
+            // Actually, fallback depends on what the primary font LACKS.
+            // If primary font changes, what it lacks might change.
+            _fallbackCache.Clear();
         }
 
         // Selection state
@@ -320,76 +340,56 @@ namespace NovaTerminal.Core
         {
             double scaling = VisualRoot?.RenderScaling ?? 1.0;
 
-            // Measure char size and get GlyphTypeface
-            var testText = new FormattedText("M", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, _fontSize * scaling, Brushes.White);
-
-            // CEILING TO PHYSICAL PIXELS: Ensure char width/height are exact multiples of 1/scaling
-            // This prevents sub-pixel accumulation errors that lead to dark lines/light gaps
-            _charWidth = Math.Ceiling(testText.Width) / scaling;
-            _charHeight = Math.Ceiling(testText.Height) / scaling;
-            _baselineOffset = Math.Round(testText.Baseline) / scaling;
-
-            // Try to get IGlyphTypeface for low-level rendering
-            _glyphTypeface = _typeface.GlyphTypeface;
-
-            // OPTIMIZATION: Cache Skia Typeface & Font to avoid per-frame lookup/alloc
+            // Try to get SKTypeface first as it's our source of truth
             ClearSkiaResources();
             try
             {
                 _skTypeface = SkiaSharp.SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
                 if (_skTypeface != null)
                 {
-                    _skFont?.Dispose();
                     _skFont = new SKFont(_skTypeface, (float)_fontSize);
+                    _skFont.Edging = SKFontEdging.Antialias;
+                    _skFont.Hinting = SKFontHinting.Normal;
 
-                    // IMPROVED METRICS: Use Skia metrics to respect line gap/leading
-                    var metrics = _skFont.Metrics;
-                    // Ascent is negative in Skia. Height = Descent - Ascent + Leading
-                    double skiaHeight = metrics.Descent - metrics.Ascent + metrics.Leading;
+                    var m = _skFont.Metrics;
 
-                    if (skiaHeight > _charHeight)
-                    {
-                        _charHeight = Math.Ceiling(skiaHeight * scaling) / scaling;
-                    }
-                    else
-                    {
-                        _charHeight = Math.Ceiling(_charHeight * scaling) / scaling;
-                    }
+                    // Authority: Skia metrics
+                    float ascent = -m.Ascent;
+                    float descent = m.Descent;
+                    float leading = m.Leading;
+                    float height = ascent + descent + leading;
 
-                    // CENTERED BASELINE: Calculate baseline offset to vertically center the font EM square.
-                    double gap = _charHeight - skiaHeight;
-                    double rawBaseline = (-metrics.Ascent + gap / 2.0);
+                    // CELL WIDTH: Authority is 'M' or '0' width in Skia
+                    float width = _skFont.MeasureText("M");
 
-                    // PARITY CHECK:
-                    // If the physical height is odd (e.g. 19px), the center is at X.5.
-                    // Standard Rounding might snap it up/down causing a 1px gap.
-                    // We check the parity of the physical height.
-                    long physicalHeight = (long)Math.Round(_charHeight * scaling);
-                    if (physicalHeight % 2 != 0)
-                    {
-                        // Odd height -> Use Floor to favor top alignment (closes top gap)
-                        _baselineOffset = Math.Floor(rawBaseline * scaling + 0.01) / scaling;
-                    }
-                    else
-                    {
-                        // Even height -> Use Round for perfect center
-                        _baselineOffset = Math.Round(rawBaseline * scaling) / scaling;
-                    }
-                }
-                else
-                {
-                    _charHeight = Math.Ceiling(_charHeight * scaling) / scaling;
-                    // Fallback for non-Skia (rare)
-                    _charHeight = Math.Ceiling(_charHeight * scaling) / scaling;
+                    // PIXEL SNAP: Ensure width/height are exact physical pixel multiples
+                    // to prevent sub-pixel gaps in backgrounds.
+                    _metrics.CellWidth = (float)(Math.Ceiling(width * scaling) / scaling);
+                    _metrics.CellHeight = (float)(Math.Ceiling(height * scaling) / scaling);
 
-                    long physicalHeight = (long)Math.Round(_charHeight * scaling);
-                    if (physicalHeight % 2 != 0)
-                        _baselineOffset = Math.Floor(_baselineOffset * scaling + 0.01) / scaling;
-                    else
-                        _baselineOffset = Math.Round(_baselineOffset * scaling) / scaling;
+                    // Vertical centering logic for baseline
+                    float gap = _metrics.CellHeight - (ascent + descent + leading);
+                    _metrics.Baseline = (float)(Math.Round((ascent + gap / 2.0f) * scaling) / scaling);
+
+                    _metrics.Ascent = ascent;
+                    _metrics.Descent = descent;
+                    _metrics.Leading = leading;
+
+                    _glyphTypeface = _typeface.GlyphTypeface;
+                    return;
                 }
             }
             catch { }
+
+            // FALLBACK TO AVALONIA (Should be rare)
+            var testText = new FormattedText("M", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, _fontSize * scaling, Brushes.White);
+            _metrics.CellWidth = (float)(Math.Ceiling(testText.Width) / scaling);
+            _metrics.CellHeight = (float)(Math.Ceiling(testText.Height) / scaling);
+            _metrics.Baseline = (float)(Math.Round(testText.Baseline) / scaling);
+            _metrics.Ascent = (float)testText.Baseline;
+            _metrics.Descent = (float)(testText.Height - testText.Baseline);
+            _metrics.Leading = 0;
+            _glyphTypeface = _typeface.GlyphTypeface;
         }
 
         public void SetSession(ITerminalSession session)
@@ -598,19 +598,19 @@ namespace NovaTerminal.Core
 
             if (_buffer != null)
             {
-                if (_charWidth <= 0 || _charHeight <= 0)
+                if (_metrics.CellWidth <= 0 || _metrics.CellHeight <= 0)
                 {
                     MeasureCharSize();
                 }
 
-                if (_charWidth <= 0 || _charHeight <= 0) return; // Still zero? Bail.
+                if (_metrics.CellWidth <= 0 || _metrics.CellHeight <= 0) return; // Still zero? Bail.
 
                 // Padding must match TerminalDrawOperation (PaddingLeft = 4)
                 // We subtract padding from available width to avoid clipping last column
                 int availableWidth = Math.Max(0, (int)e.NewSize.Width - 4);
 
-                int cols = (int)(availableWidth / _charWidth);
-                int rows = (int)(e.NewSize.Height / _charHeight);
+                int cols = (int)(availableWidth / _metrics.CellWidth);
+                int rows = (int)(e.NewSize.Height / _metrics.CellHeight);
 
                 // Enforce minimum dimensions to prevent layout breakage on very small windows
                 cols = Math.Max(cols, 1);
@@ -728,28 +728,28 @@ namespace NovaTerminal.Core
             bool hideCursor = !IsKeyboardFocusWithin;
 
             // Create and dispatch custom draw op
-            var drawOp = new TerminalDrawOperation(
-                new Rect(0, 0, Bounds.Width, Bounds.Height),
-                buffer,
-                _scrollOffset,
+            var scaling = VisualRoot?.RenderScaling ?? 1.0;
+            context.Custom(new TerminalDrawOperation(
+                Bounds,
+                _buffer,
+                ScrollOffset,
                 _selection,
                 _searchMatches,
                 _activeSearchIndex,
-                _charWidth,
-                _charHeight,
-                _baselineOffset,
+                _metrics,
                 _typeface,
                 _fontSize,
-                _glyphTypeface,
+                _glyphTypeface!,
                 _skTypeface,
                 _skFont,
-                _windowOpacity * (float)Opacity,
+                _enableLigatures,
+                _fallbackCache,
+                FallbackChain,
+                _windowOpacity,
                 _hasBackgroundImage,
-                hideCursor,
-                VisualRoot?.RenderScaling ?? 1.0
-            );
-
-            context.Custom(drawOp);
+                !_blinkState,
+                scaling
+            ));
         }
 
         // Mouse event handlers
@@ -847,7 +847,7 @@ namespace NovaTerminal.Core
                 _selection.End = (absRow, col);
 
                 // Auto-scroll detection
-                double zoneSize = _charHeight * 2; // Drag within top/bottom 2 lines
+                double zoneSize = _metrics.CellHeight * 2; // Drag within top/bottom 2 lines
                 if (point.Position.Y < zoneSize)
                 {
                     // Near Top -> Scroll Up (Increase Offset)
@@ -1064,8 +1064,8 @@ namespace NovaTerminal.Core
         {
             if (_buffer == null) return (0, 0);
 
-            int col = (int)(position.X / _charWidth);
-            int visualRow = (int)(position.Y / _charHeight);
+            int col = (int)(position.X / _metrics.CellWidth);
+            int visualRow = (int)(position.Y / _metrics.CellHeight);
 
             // Clamp visual row first
             visualRow = Math.Clamp(visualRow, 0, _buffer.Rows - 1);

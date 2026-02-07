@@ -142,5 +142,91 @@ namespace NovaTerminal.Tests.ReplayTests
             Assert.Equal(10, buffer.CursorCol);
             Assert.Equal(10, buffer.CursorRow);
         }
+        [Fact]
+        [Trait("Category", "Replay")]
+        public async Task Replay_PowerlinePrompt_MatchesGoldenMaster()
+        {
+            string recPath = Path.Combine(_fixturesDir, "powerline_prompt.rec");
+            string snapPath = Path.Combine(_fixturesDir, "powerline_prompt.snap");
+
+            RecordingGenerator.GeneratePowerlinePrompt(recPath);
+
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new NovaTerminal.Core.AnsiParser(buffer);
+            var runner = new ReplayRunner(recPath);
+
+            await runner.RunAsync(async (data) =>
+            {
+                string text = System.Text.Encoding.UTF8.GetString(data);
+                parser.Process(text);
+                await Task.CompletedTask;
+            });
+
+            var snapshot = BufferSnapshot.Capture(buffer);
+
+            if (!File.Exists(snapPath) || System.Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            {
+                File.WriteAllText(snapPath, snapshot.ToFormattedString());
+            }
+            GoldenMaster.AssertMatches(snapshot, snapPath);
+        }
+
+        [Fact]
+        [Trait("Category", "Replay")]
+        public async Task Replay_MixedUnicode_MatchesGoldenMaster()
+        {
+            string recPath = Path.Combine(_fixturesDir, "mixed_unicode.rec");
+            string snapPath = Path.Combine(_fixturesDir, "mixed_unicode.snap");
+
+            RecordingGenerator.GenerateMixedUnicode(recPath);
+
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new NovaTerminal.Core.AnsiParser(buffer);
+            var runner = new ReplayRunner(recPath);
+
+            await runner.RunAsync(async (data) =>
+            {
+                string text = System.Text.Encoding.UTF8.GetString(data);
+                parser.Process(text);
+                await Task.CompletedTask;
+            });
+
+            var snapshot = BufferSnapshot.Capture(buffer);
+
+            if (!File.Exists(snapPath) || System.Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            {
+                File.WriteAllText(snapPath, snapshot.ToFormattedString());
+            }
+            GoldenMaster.AssertMatches(snapshot, snapPath);
+        }
+
+        [Fact]
+        [Trait("Category", "Replay")]
+        public async Task Replay_WrappedText_MatchesGoldenMaster()
+        {
+            string recPath = Path.Combine(_fixturesDir, "wrapped_text.rec");
+            string snapPath = Path.Combine(_fixturesDir, "wrapped_text.snap");
+
+            RecordingGenerator.GenerateWrappedText(recPath);
+
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new NovaTerminal.Core.AnsiParser(buffer);
+            var runner = new ReplayRunner(recPath);
+
+            await runner.RunAsync(async (data) =>
+            {
+                string text = System.Text.Encoding.UTF8.GetString(data);
+                parser.Process(text);
+                await Task.CompletedTask;
+            });
+
+            var snapshot = BufferSnapshot.Capture(buffer);
+
+            if (!File.Exists(snapPath) || System.Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            {
+                File.WriteAllText(snapPath, snapshot.ToFormattedString());
+            }
+            GoldenMaster.AssertMatches(snapshot, snapPath);
+        }
     }
 }

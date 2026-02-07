@@ -15,6 +15,7 @@ namespace NovaTerminal.Core
         public string ThemeName { get; set; } = "Default";
         public double WindowOpacity { get; set; } = 1.0;
         public string BlurEffect { get; set; } = "Acrylic";
+        public bool EnableLigatures { get; set; } = false;
 
         // Background Image Settings
         public string BackgroundImagePath { get; set; } = "";

@@ -75,6 +75,7 @@ namespace NovaTerminal.Core
         public string? ThemeName { get; set; }
         public string? FontFamily { get; set; }
         public double? FontSize { get; set; }
+        public bool? EnableLigatures { get; set; }
 
         // SFTP Defaults
         public string? DefaultRemoteDir { get; set; }
