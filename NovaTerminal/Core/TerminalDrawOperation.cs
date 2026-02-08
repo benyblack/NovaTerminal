@@ -22,8 +22,8 @@ namespace NovaTerminal.Core
         private readonly double _fontSize;
         private readonly Rect _bounds;
         private readonly IGlyphTypeface _glyphTypeface;
-        private readonly SKTypeface? _skTypeface;
-        private readonly SKFont? _skFont;
+        private readonly SharedSKTypeface? _skTypeface;
+        private readonly SharedSKFont? _skFont;
         private readonly bool _enableLigatures;
         private readonly ConcurrentDictionary<int, SKTypeface?> _fallbackCache;
         private readonly string[] _fallbackChain;
@@ -31,6 +31,11 @@ namespace NovaTerminal.Core
         private readonly bool _transparentBackground;
         private readonly bool _hideCursor;
         private readonly double _renderScaling;
+        private readonly int _bufferRows;
+        private readonly int _bufferCols;
+        private readonly int _totalLines;
+        private readonly int _cursorRow;
+        private readonly int _cursorCol;
 
         public Rect Bounds => _bounds;
 
@@ -45,15 +50,20 @@ namespace NovaTerminal.Core
             Typeface typeface,
             double fontSize,
             IGlyphTypeface glyphTypeface,
-            SKTypeface? skTypeface,
-            SKFont? skFont,
+            SharedSKTypeface? skTypeface,
+            SharedSKFont? skFont,
             bool enableLigatures,
             ConcurrentDictionary<int, SKTypeface?> fallbackCache,
             string[] fallbackChain,
-            double opacity = 1.0,
-            bool transparentBackground = false,
-            bool hideCursor = false,
-            double renderScaling = 1.0)
+            double opacity,
+            bool transparentBackground,
+            bool hideCursor,
+            double renderScaling = 1.0,
+            int snapshotRows = 0,
+            int snapshotCols = 0,
+            int totalLines = 0,
+            int cursorRow = 0,
+            int cursorCol = 0)
         {
             _bounds = bounds;
             _buffer = buffer;
@@ -75,10 +85,21 @@ namespace NovaTerminal.Core
             _transparentBackground = transparentBackground;
             _hideCursor = hideCursor;
             _renderScaling = renderScaling;
+            _skTypeface = skTypeface;
+            _skTypeface?.Increment();
+            _skFont = skFont;
+            _skFont?.Increment();
+            _bufferRows = snapshotRows;
+            _bufferCols = snapshotCols;
+            _totalLines = totalLines;
+            _cursorRow = cursorRow;
+            _cursorCol = cursorCol;
         }
 
         public void Dispose()
         {
+            _skTypeface?.Dispose();
+            _skFont?.Dispose();
         }
 
         public bool Equals(ICustomDrawOperation? other) => false;
@@ -105,11 +126,9 @@ namespace NovaTerminal.Core
             _buffer.Lock.EnterReadLock();
             try
             {
-                // CRITICAL: Capture dimensions at render start to avoid race conditions
-                // If buffer is resized mid-render, using _buffer.Rows/Cols directly could cause
-                // reading garbage data or out-of-bounds access.
-                int bufferRows = _buffer.Rows;
-                int bufferCols = _buffer.Cols;
+                // CRITICAL: Use captured dimensions to avoid race conditions
+                int bufferRows = _bufferRows;
+                int bufferCols = _bufferCols;
 
                 // Setup paints
                 using var bgPaint = new SKPaint { Style = SKPaintStyle.Fill };
@@ -135,8 +154,8 @@ namespace NovaTerminal.Core
                 bgPaint.Color = themeBg;
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
 
-                var tf = _skTypeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
-                using var font = new SKFont(tf, (float)_fontSize);
+                var tf = _skTypeface?.Typeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
+                using var font = (_skFont?.Font != null) ? new SKFont(_skFont.Font.Typeface, _skFont.Font.Size) : new SKFont(tf, (float)_fontSize);
                 font.Edging = SKFontEdging.Antialias;
 
                 // Padding for terminal content (Logical 4 units)
@@ -144,9 +163,9 @@ namespace NovaTerminal.Core
                 float paddingTop = 0;
 
                 // Correct calculation of displayStart (First visible absolute row)
-                int totalLines = _buffer.TotalLines;
+                int totalLines = _totalLines;
                 int bufferRowsLocked = bufferRows; // Use local capture
-                                                   // displayStart = Total - Rows - ScrollOffset
+                // displayStart = Total - Rows - ScrollOffset
                 int absDisplayStart = Math.Max(0, totalLines - bufferRowsLocked - _scrollOffset);
 
                 int dirtyCells = 0;
@@ -356,12 +375,15 @@ namespace NovaTerminal.Core
                 // Cursor
                 if (!_hideCursor)
                 {
-                    int visualCursorRow = _buffer.GetVisualCursorRowInternal(_scrollOffset);
-                    if (visualCursorRow >= 0 && visualCursorRow < bufferRows)
+                    int absCursorRow = (_totalLines - _bufferRows) + _cursorRow;
+                    int displayStart = Math.Max(0, _totalLines - _bufferRows - _scrollOffset);
+                    int visualRow = absCursorRow - displayStart;
+
+                    if (visualRow >= 0 && visualRow < bufferRows)
                     {
-                        float x1 = (float)(Math.Round((_buffer.InternalCursorCol * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                        float x2 = (float)(Math.Round(((_buffer.InternalCursorCol + 1) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                        float cy = (float)(Math.Round((visualCursorRow * _metrics.CellHeight + _metrics.CellHeight - 2 + paddingTop) * _renderScaling) / _renderScaling);
+                        float x1 = (float)(Math.Round((_cursorCol * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                        float x2 = (float)(Math.Round(((_cursorCol + 1) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                        float cy = (float)(Math.Round((visualRow * _metrics.CellHeight + _metrics.CellHeight - 2 + paddingTop) * _renderScaling) / _renderScaling);
                         canvas.DrawRect(x1, cy, x2 - x1, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
                     }
                 }

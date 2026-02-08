@@ -176,7 +176,7 @@ namespace NovaTerminal.Core
                         // Bounded add with timeout - provides back-pressure to PTY
                         if (!_outputQueue.TryAdd(text, 50, _cts.Token))
                         {
-                            Console.WriteLine("[RustPtySession] Output queue full, dropping data");
+                            // Quietly drop or handle back-pressure without logging every time
                         }
                     }
                 }

@@ -27,6 +27,7 @@ namespace NovaTerminal.Core
         // Alternate screen buffer support (for vim, htop, less, etc.)
         private TerminalRow[] _mainScreen;
         private TerminalRow[] _altScreen;
+        private List<TerminalRow> _mainScreenScrollback = new List<TerminalRow>(); // Preserve main screen scrollback
         private bool _isAltScreen = false;
         public bool IsAltScreenActive => _isAltScreen;
 
@@ -82,9 +83,12 @@ namespace NovaTerminal.Core
         internal int InternalCursorRow => _cursorRow;
         internal int GetVisualCursorRowInternal(int scrollOffset) => _cursorRow + scrollOffset;
 
+        // Internal access for properties to avoid recursive locking
+        internal int InternalTotalLines => _isAltScreen ? Rows : (_scrollback.Count + Rows);
+
         public IReadOnlyList<TerminalRow> ScrollbackRows => _scrollback;
         public IReadOnlyList<TerminalRow> ViewportRows => _viewport;
-        public int TotalLines => _scrollback.Count + Rows;
+        public int TotalLines => _isAltScreen ? Rows : (_scrollback.Count + Rows);
 
         // Track previous position for auto-clear heuristic
         private int _prevCursorCol = 0;
@@ -117,6 +121,7 @@ namespace NovaTerminal.Core
         public int ScrollBottom { get; set; }
 
         public event Action? OnInvalidate;
+        public event Action<bool>? OnScreenSwitched; // true for alt screen, false for main screen
 
         // Thread safety
         public readonly System.Threading.ReaderWriterLockSlim Lock = new System.Threading.ReaderWriterLockSlim(System.Threading.LockRecursionPolicy.NoRecursion);
@@ -687,6 +692,14 @@ namespace NovaTerminal.Core
             int cursorLogicalIdx = -1;
             int cursorInLogicalOffset = -1;
 
+            int absMainSavedIdx = _scrollback.Count + _mainSavedCursor.Row;
+            int mainSavedLogicalIdx = -1;
+            int mainSavedInLogicalOffset = -1;
+
+            int absAltSavedIdx = _scrollback.Count + _altSavedCursor.Row;
+            int altSavedLogicalIdx = -1;
+            int altSavedInLogicalOffset = -1;
+
             // 2. Physical Extraction with Padding Trim
 
             // Calculate how many viewport rows have content
@@ -703,7 +716,7 @@ namespace NovaTerminal.Core
                         break;
                     }
                 }
-                if (!isEmpty || i <= _cursorRow) lastActiveVpRow = i;
+                if (!isEmpty || i <= _cursorRow || i == _mainSavedCursor.Row || i == _altSavedCursor.Row) lastActiveVpRow = i;
             }
 
             int vpRowsToTake = lastActiveVpRow + 1;
@@ -739,6 +752,18 @@ namespace NovaTerminal.Core
                     {
                         cursorLogicalIdx = logicalLines.Count;
                         cursorInLogicalOffset = currentLogical.Count + _cursorCol;
+                    }
+
+                    if (i == absMainSavedIdx)
+                    {
+                        mainSavedLogicalIdx = logicalLines.Count;
+                        mainSavedInLogicalOffset = currentLogical.Count + _mainSavedCursor.Col;
+                    }
+
+                    if (i == absAltSavedIdx)
+                    {
+                        altSavedLogicalIdx = logicalLines.Count;
+                        altSavedInLogicalOffset = currentLogical.Count + _altSavedCursor.Col;
                     }
 
                     int validLen = physRow.Cells.Length;
@@ -938,6 +963,10 @@ namespace NovaTerminal.Core
 
             int newCursorPhysRow = -1;
             int newCursorPhysCol = -1;
+            int newMainSavedPhysRow = -1;
+            int newMainSavedPhysCol = -1;
+            int newAltSavedPhysRow = -1;
+            int newAltSavedPhysCol = -1;
             int historyRowCount = 0; // Tracks physical rows generated from original history
 
             // Identify the logical line index that starts the viewport
@@ -973,6 +1002,8 @@ namespace NovaTerminal.Core
                 {
                     // If this is the WIPED prompt, place cursor here
                     if (i == cursorLogicalIdx) { newCursorPhysRow = allFlowedRows.Count; newCursorPhysCol = 0; }
+                    if (i == mainSavedLogicalIdx) { newMainSavedPhysRow = allFlowedRows.Count; newMainSavedPhysCol = 0; }
+                    if (i == altSavedLogicalIdx) { newAltSavedPhysRow = allFlowedRows.Count; newAltSavedPhysCol = 0; }
                     allFlowedRows.Add(new TerminalRow(newCols, Theme.Foreground, Theme.Background));
                 }
                 else
@@ -1005,6 +1036,24 @@ namespace NovaTerminal.Core
                             {
                                 newCursorPhysRow = allFlowedRows.Count;
                                 newCursorPhysCol = newCols;
+                            }
+                        }
+
+                        if (i == mainSavedLogicalIdx)
+                        {
+                            if (mainSavedInLogicalOffset >= processed && mainSavedInLogicalOffset < processed + newCols)
+                            {
+                                newMainSavedPhysRow = allFlowedRows.Count;
+                                newMainSavedPhysCol = mainSavedInLogicalOffset - processed;
+                            }
+                        }
+
+                        if (i == altSavedLogicalIdx)
+                        {
+                            if (altSavedInLogicalOffset >= processed && altSavedInLogicalOffset < processed + newCols)
+                            {
+                                newAltSavedPhysRow = allFlowedRows.Count;
+                                newAltSavedPhysCol = altSavedInLogicalOffset - processed;
                             }
                         }
 
@@ -1099,6 +1148,20 @@ namespace NovaTerminal.Core
             {
                 _cursorRow = newRows - 1;
                 _cursorCol = 0;
+            }
+
+            // 7b. Restore Saved Cursors
+            if (newMainSavedPhysRow != -1)
+            {
+                if (newMainSavedPhysRow < sbCount) _mainSavedCursor.Row = 0;
+                else _mainSavedCursor.Row = newMainSavedPhysRow - sbCount;
+                _mainSavedCursor.Col = Math.Clamp(newMainSavedPhysCol, 0, newCols);
+            }
+            if (newAltSavedPhysRow != -1)
+            {
+                if (newAltSavedPhysRow < sbCount) _altSavedCursor.Row = 0;
+                else _altSavedCursor.Row = newAltSavedPhysRow - sbCount;
+                _altSavedCursor.Col = Math.Clamp(newAltSavedPhysCol, 0, newCols);
             }
 
             // 8. Conditional Cursor Row Clearing (REFINED)
@@ -1445,10 +1508,14 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
-                if (_isAltScreen) return;  // Already in alt screen
+                if (_isAltScreen) return;
 
                 _isAltScreen = true;
                 _mainScreen = _viewport;  // Save current viewport as main screen
+
+                // Reset scrolling region to full screen when switching screens
+                ScrollTop = 0;
+                ScrollBottom = Rows - 1;
 
                 // CRITICAL FIX: Ensure Alt Screen buffer matches current dimensions
                 // If we resized while in Main Screen, _altScreen might be stale (wrong size).
@@ -1479,6 +1546,7 @@ namespace NovaTerminal.Core
                 _cursorRow = 0;
                 _cursorCol = 0;
                 Invalidate();
+                OnScreenSwitched?.Invoke(true); // Notify that we switched to alt screen
             }
             finally { Lock.ExitWriteLock(); }
         }
@@ -1491,12 +1559,22 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
-                if (!_isAltScreen) return;  // Already in main screen
+                if (!_isAltScreen) return;
 
                 _isAltScreen = false;
                 _altScreen = _viewport;    // Save current viewport as alt screen
                 _viewport = _mainScreen;   // Restore main screen
+
+                // Reset scrolling region to full screen when switching back to main screen
+                ScrollTop = 0;
+                ScrollBottom = Rows - 1;
+
+                // Ensure cursor is within bounds after switching back to main screen
+                _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
+                _cursorCol = Math.Clamp(_cursorCol, 0, Cols - 1);
+
                 Invalidate();
+                OnScreenSwitched?.Invoke(false); // Notify that we switched back to main screen
             }
             finally { Lock.ExitWriteLock(); }
         }
@@ -1628,6 +1706,7 @@ namespace NovaTerminal.Core
             if (cp >= 0xFE30 && cp <= 0xFE6F) return 2;
             if (cp >= 0xFF00 && cp <= 0xFF60) return 2;
             if (cp >= 0xFFE0 && cp <= 0xFFE6) return 2;
+            if (cp >= 0x1F000 && cp <= 0x1FAFF) return 2;
             if (cp >= 0x20000 && cp <= 0x3FFFF) return 2;
 
             return 1;

@@ -1,5 +1,6 @@
 ﻿using Avalonia;
 using System;
+using NovaTerminal.Core;
 
 namespace NovaTerminal;
 
@@ -13,10 +14,15 @@ class Program
     {
         try
         {
+            // Log startup info
+            TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
+            TerminalLogger.Log("Log file path: " + TerminalLogger.GetLogFilePath());
+            
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
         catch (Exception ex)
         {
+            TerminalLogger.Log("Startup error: " + ex.ToString());
             System.IO.File.WriteAllText("startup_error.txt", ex.ToString());
             throw;
         }

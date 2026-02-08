@@ -191,8 +191,8 @@ namespace NovaTerminal.Core
 
 
         private IGlyphTypeface? _glyphTypeface;
-        private SKTypeface? _skTypeface;
-        private SKFont? _skFont;
+        private SharedSKTypeface? _skTypeface;
+        private SharedSKFont? _skFont;
 
         private static readonly string[] FallbackChain = { "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Symbol" };
         private readonly ConcurrentDictionary<int, SKTypeface?> _fallbackCache = new();
@@ -311,10 +311,6 @@ namespace NovaTerminal.Core
             _skTypeface?.Dispose();
             _skTypeface = null;
 
-            // Should we clear fallback cache? 
-            // Only if the primary font family changes significantly?
-            // Actually, fallback depends on what the primary font LACKS.
-            // If primary font changes, what it lacks might change.
             _fallbackCache.Clear();
         }
 
@@ -328,12 +324,87 @@ namespace NovaTerminal.Core
 
         public void SetBuffer(TerminalBuffer buffer)
         {
-            if (_buffer != null) _buffer.OnInvalidate -= InvalidateVisual;
+            if (_buffer != null)
+            {
+                _buffer.OnInvalidate -= InvalidateVisual;
+                _buffer.OnScreenSwitched -= OnScreenSwitched;
+            }
             _buffer = buffer;
-            if (_buffer != null) _buffer.OnInvalidate += InvalidateBuffer;
+            if (_buffer != null)
+            {
+                _buffer.OnInvalidate += InvalidateBuffer;
+                _buffer.OnScreenSwitched += OnScreenSwitched;
+            }
 
             MeasureCharSize();
             InvalidateVisual();
+        }
+
+        private bool _justSwitchedFromAltScreen = false;
+
+        private void OnScreenSwitched(bool isAltScreen)
+        {
+
+            // When switching back from alt screen to main screen, mark that transition
+            // to ensure the next content update resets scroll position
+            if (!isAltScreen && _buffer != null)
+            {
+                _justSwitchedFromAltScreen = true;
+                // Schedule scroll to cursor position after switching back to main screen
+                // Add a slight delay to handle potential buffering in remote connections
+                Dispatcher.UIThread.Post(async () =>
+                {
+                    // Small delay to allow any buffered output to be processed
+                    await Task.Delay(10);
+                    // Scroll to show the current cursor position
+                    EnsureCursorVisible();
+                }, DispatcherPriority.Render);
+            }
+            else
+            {
+                _justSwitchedFromAltScreen = false;
+            }
+        }
+
+        // Property to allow external components to check if we just switched from alt screen
+        public bool JustSwitchedFromAltScreen
+        {
+            get => _justSwitchedFromAltScreen;
+            set => _justSwitchedFromAltScreen = value;
+        }
+
+        // Method to ensure the cursor is visible in the view
+        public void EnsureCursorVisible()
+        {
+            if (_buffer == null) return;
+
+
+            // For remote environments (WSL/SSH), after screen transitions, ensure we're at the bottom
+            // where the prompt should be, rather than calculating based on cursor position
+            // This addresses the issue where new output doesn't scroll properly after mc exits
+            if (_justSwitchedFromAltScreen)
+            {
+                ScrollOffset = 0; // Always scroll to bottom after alt screen switch
+                _justSwitchedFromAltScreen = false; // Reset the flag
+            }
+            else
+            {
+                // Calculate the ideal scroll offset to show the cursor at the bottom of the viewport
+                int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
+
+                // Only follow the output if we're already near the bottom (within 2 lines)
+                // This allows users to scroll up and stay there while still following new output when appropriate
+                if (ScrollOffset <= 2)
+                {
+                    ScrollOffset = 0;
+                }
+                else
+                {
+                    // Maintain current scroll position if user has scrolled up
+                    // Make sure it's still within valid range
+                    ScrollOffset = Math.Min(ScrollOffset, maxScroll);
+                }
+            }
         }
 
         public void MeasureCharSize()
@@ -344,14 +415,17 @@ namespace NovaTerminal.Core
             ClearSkiaResources();
             try
             {
-                _skTypeface = SkiaSharp.SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
-                if (_skTypeface != null)
+                _skTypeface = new SharedSKTypeface(SkiaSharp.SKTypeface.FromFamilyName(_typeface.FontFamily.Name));
+                if (_skTypeface?.Typeface != null)
                 {
-                    _skFont = new SKFont(_skTypeface, (float)_fontSize);
-                    _skFont.Edging = SKFontEdging.Antialias;
-                    _skFont.Hinting = SKFontHinting.Normal;
+                    _skFont = new SharedSKFont(new SKFont(_skTypeface.Typeface, (float)_fontSize));
+                    if (_skFont.Font != null)
+                    {
+                        _skFont.Font.Edging = SKFontEdging.Antialias;
+                        _skFont.Font.Hinting = SKFontHinting.Normal;
+                    }
 
-                    var m = _skFont.Metrics;
+                    var m = _skFont.Font.Metrics;
 
                     // Authority: Skia metrics
                     float ascent = -m.Ascent;
@@ -360,7 +434,7 @@ namespace NovaTerminal.Core
                     float height = ascent + descent + leading;
 
                     // CELL WIDTH: Authority is 'M' or '0' width in Skia
-                    float width = _skFont.MeasureText("M");
+                    float width = _skFont.Font.MeasureText("M");
 
                     // PIXEL SNAP: Ensure width/height are exact physical pixel multiples
                     // to prevent sub-pixel gaps in backgrounds.
@@ -409,8 +483,13 @@ namespace NovaTerminal.Core
             {
                 if (_buffer == null) return;
                 int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
-                _scrollOffset = Math.Clamp(value, 0, maxScroll);
-                InvalidateBuffer();
+                int newValue = Math.Clamp(value, 0, maxScroll);
+                if (_scrollOffset != newValue)
+                {
+                    _scrollOffset = newValue;
+                    ScrollStateChanged?.Invoke(_scrollOffset, maxScroll);
+                    InvalidateBuffer();
+                }
             }
         }
 
@@ -506,8 +585,6 @@ namespace NovaTerminal.Core
         private int _lastSentRows = 0;
 
         // Throttle resize: limit how often we send resize to PTY (interval-based, not debounce)
-        private DispatcherTimer? _blinkTimer;
-        private bool _blinkState = true;
         private DateTime _lastPtyResizeTime = DateTime.MinValue;
         private DispatcherTimer? _resizeThrottleTimer;
         private const int ResizeThrottleMs = 50; // Minimum ms between PTY resizes
@@ -727,11 +804,24 @@ namespace NovaTerminal.Core
             // Hide cursor if we are not focused
             bool hideCursor = !IsKeyboardFocusWithin;
 
+            // Snapshot state under lock to prevent race conditions during resize
+            int snapshotRows, snapshotCols, totalLines, cursorRow, cursorCol;
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                snapshotRows = buffer.Rows;
+                snapshotCols = buffer.Cols;
+                totalLines = buffer.InternalTotalLines;
+                cursorRow = buffer.InternalCursorRow;
+                cursorCol = buffer.InternalCursorCol;
+            }
+            finally { buffer.Lock.ExitReadLock(); }
+
             // Create and dispatch custom draw op
             var scaling = VisualRoot?.RenderScaling ?? 1.0;
             context.Custom(new TerminalDrawOperation(
                 Bounds,
-                _buffer,
+                buffer,
                 ScrollOffset,
                 _selection,
                 _searchMatches,
@@ -746,9 +836,14 @@ namespace NovaTerminal.Core
                 _fallbackCache,
                 FallbackChain,
                 _windowOpacity,
-                _hasBackgroundImage,
-                !_blinkState,
-                scaling
+                _windowOpacity < 1.0,
+                hideCursor,
+                scaling,
+                snapshotRows,
+                snapshotCols,
+                totalLines,
+                cursorRow,
+                cursorCol
             ));
         }
 
@@ -758,12 +853,42 @@ namespace NovaTerminal.Core
             base.OnPointerWheelChanged(e);
             if (_buffer == null) return;
 
+            // If mouse reporting is active, send wheel events to the session
+            if (_buffer.IsMouseReportingActive())
+            {
+                // Wheel Up: button 64, Wheel Down: button 65
+                int button = e.Delta.Y > 0 ? 64 : 65;
+
+                // Add modifiers if needed (not strictly required for basic wheel, 
+                // but SGR supports it. For now, just button + 32 if motion, but wheel isn't motion)
+
+                var point = e.GetCurrentPoint(this);
+                var (row, col) = ScreenToTerminal(point.Position);
+                int x = col + 1;
+                int y = row + 1;
+
+                if (_buffer.MouseModeSGR)
+                {
+                    string sequence = $"\x1b[<{button};{x};{y}M";
+                    _session?.SendInput(sequence);
+                }
+                else
+                {
+                    // Fallback to legacy X10 if possible, though wheel is mostly an SGR/URXVT extension
+                    char buttonChar = (char)(32 + button);
+                    char xChar = (char)(32 + Math.Clamp(x, 1, 223));
+                    char yChar = (char)(32 + Math.Clamp(y, 1, 223));
+                    string sequence = $"\x1b[M{buttonChar}{xChar}{yChar}";
+                    _session?.SendInput(sequence);
+                }
+                e.Handled = true;
+                return;
+            }
+
+            // Standard scrolling
             // Scroll up (positive) -> Increase Offset
             // Scroll down (negative) -> Decrease Offset
             int delta = (int)(e.Delta.Y * 3); // 3 lines per notch
-
-            // If scrolling UP (Delta > 0), we want to see History. History is at Offset > 0.
-            // So UP wheel means Increase Offset.
 
             ScrollOffset += delta;
         }

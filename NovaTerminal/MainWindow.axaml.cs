@@ -16,7 +16,6 @@ using Avalonia;
 using Avalonia.Media;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
-using System.IO;
 
 using NovaTerminal.Controls;
 

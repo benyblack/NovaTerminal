@@ -79,6 +79,24 @@ namespace NovaTerminal.Controls
             // Wire up ScrollBar
             TermScrollBar.ValueChanged += ScrollBar_ValueChanged;
 
+            TermView.ScrollStateChanged += (offset, max) =>
+            {
+                // Dispatch to UI thread to update ScrollBar value
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _isUpdatingScroll = true;
+                    try
+                    {
+                        TermScrollBar.Maximum = max;
+                        TermScrollBar.Value = max - offset;
+                    }
+                    finally
+                    {
+                        _isUpdatingScroll = false;
+                    }
+                }, DispatcherPriority.Render);
+            };
+
             // Search UI
             SetupSearch();
 
@@ -264,6 +282,31 @@ namespace NovaTerminal.Controls
             {
                 _isUpdatingScroll = false;
             }
+
+            // When new output arrives, ensure the cursor is visible
+            // If we just switched from alt screen (like after exiting mc), ensure we're scrolled to show the cursor
+            Dispatcher.UIThread.Post(async () =>
+            {
+                TerminalLogger.Log($"[TERMINAL_PANE] UpdateScrollUI: JustSwitchedFromAltScreen = {TermView.JustSwitchedFromAltScreen}, Buffer TotalLines = {Buffer?.TotalLines}, Buffer Rows = {Buffer?.Rows}");
+
+                if (TermView.JustSwitchedFromAltScreen)
+                {
+                    TerminalLogger.Log($"[TERMINAL_PANE] UpdateScrollUI: Handling post-alt-screen-switch case");
+                    // Small delay to ensure screen switch processing is complete
+                    await Task.Delay(10);
+                    // Ensure cursor is visible after screen switch
+                    TermView.EnsureCursorVisible();
+                    // Note: EnsureCursorVisible() handles resetting the flag internally
+                }
+                else
+                {
+                    TerminalLogger.Log($"[TERMINAL_PANE] UpdateScrollUI: Handling normal output case");
+                    // For normal output, ensure the cursor is visible
+                    TermView.EnsureCursorVisible();
+                }
+
+                TerminalLogger.Log($"[TERMINAL_PANE] UpdateScrollUI: Final ScrollOffset = {TermView.ScrollOffset}");
+            }, DispatcherPriority.Render);
 
             // Failsafe: Force render on output
             TermView.InvalidateVisual();

@@ -23,12 +23,16 @@ namespace NovaTerminal.Core
 
         public void Process(string input)
         {
+
             foreach (char c in input)
             {
                 switch (_state)
                 {
                     case State.Normal:
-                        if (c == '\x1b') _state = State.Esc;
+                        if (c == '\x1b')
+                        {
+                            _state = State.Esc;
+                        }
                         else if (c == '\u009B') // C1 CSI
                         {
                             _state = State.Csi;
@@ -39,8 +43,14 @@ namespace NovaTerminal.Core
                             _state = State.Osc;
                             _oscStringBuffer.Clear();
                         }
-                        else if (c == '\a') { /* Ignore BEL */ }
-                        else _buffer.WriteChar(c);
+                        else if (c == '\a')
+                        {
+                            /* Ignore BEL */
+                        }
+                        else
+                        {
+                            _buffer.WriteChar(c);
+                        }
                         break;
 
                     case State.Esc:
@@ -151,6 +161,7 @@ namespace NovaTerminal.Core
 
         private void HandleCsi(char finalByte, ReadOnlySpan<char> parameters)
         {
+
             // Check for private mode prefix (?)
             bool isPrivate = parameters.Length > 0 && parameters[0] == '?';
             int startIdx = isPrivate ? 1 : 0;
@@ -193,6 +204,7 @@ namespace NovaTerminal.Core
             // Slice to actual count
             ReadOnlySpan<int> validArgs = args.Slice(0, argCount);
             int arg0 = argCount > 0 ? validArgs[0] : 0;
+
 
             switch (finalByte)
             {
@@ -336,6 +348,7 @@ namespace NovaTerminal.Core
                     if (isPrivate)
                     {
                         bool enable = (finalByte == 'h');
+                        Console.WriteLine($"[ANSI_PARSER] DEC Private Mode: enable={enable}, finalByte={finalByte}, args=[{string.Join(",", validArgs.ToArray())}]");
                         HandleDECPrivateMode(validArgs, enable);
                     }
                     break;
@@ -347,8 +360,10 @@ namespace NovaTerminal.Core
         /// </summary>
         private void HandleDECPrivateMode(ReadOnlySpan<int> modes, bool enable)
         {
+
             foreach (int mode in modes)
             {
+
                 switch (mode)
                 {
                     case 1: // DECCKM - Cursor Keys Mode
@@ -363,7 +378,7 @@ namespace NovaTerminal.Core
                     case 1002: // Button event tracking
                         _buffer.MouseModeButtonEvent = enable;
                         break;
-                    case 1003: // Any event tracking  
+                    case 1003: // Any event tracking
                         _buffer.MouseModeAnyEvent = enable;
                         break;
                     case 1006: // SGR extended mouse mode
@@ -371,10 +386,8 @@ namespace NovaTerminal.Core
                         break;
                     case 47:    // Alternate screen (legacy)
                     case 1047:  // Alternate screen
-                        if (enable)
-                            _buffer.SwitchToAltScreen();
-                        else
-                            _buffer.SwitchToMainScreen();
+                        if (enable) _buffer.SwitchToAltScreen();
+                        else _buffer.SwitchToMainScreen();
                         break;
                     case 1049:  // Alternate screen + save cursor
                         if (enable)
@@ -387,6 +400,10 @@ namespace NovaTerminal.Core
                             _buffer.SwitchToMainScreen();
                             _buffer.RestoreCursor();
                         }
+                        break;
+                    default:
+                        // Only log unhandled modes as they might be important for future features
+                        TerminalLogger.Log($"[ANSI_PARSER] Unhandled DEC Private Mode: {mode}, enable={enable}");
                         break;
                 }
             }
