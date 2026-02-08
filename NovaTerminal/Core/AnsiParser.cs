@@ -1,6 +1,7 @@
 using Avalonia.Media;
 using System;
 using System.Collections.Generic;
+using SkiaSharp;
 
 namespace NovaTerminal.Core
 {
@@ -105,6 +106,11 @@ namespace NovaTerminal.Core
                         if (c == '\a' || c == '\u009C')
                         {
                             // Handle OSC Here if needed (e.g. Title)
+                            string osc = new string(_oscStringBuffer.ToArray());
+                            if (osc.StartsWith("1337;File="))
+                            {
+                                HandleITerm2Image(osc);
+                            }
                             _state = State.Normal;
                         }
                         else if (c == '\x1b')
@@ -121,6 +127,11 @@ namespace NovaTerminal.Core
                         if (c == '\\')
                         {
                             // Handle OSC Here
+                            string osc = new string(_oscStringBuffer.ToArray());
+                            if (osc.StartsWith("1337;File="))
+                            {
+                                HandleITerm2Image(osc);
+                            }
                             _state = State.Normal;
                         }
                         else
@@ -571,6 +582,82 @@ namespace NovaTerminal.Core
                 return Color.FromRgb(r, g, b);
             }
             return null;
+        }
+
+        private void HandleITerm2Image(string osc)
+        {
+            // Format: 1337;File=name=...;size=...;width=...;height=...;inline=1:base64data
+            var parts = osc.Split(':', 2);
+            if (parts.Length < 2) return;
+
+            var argsPart = parts[0].Substring("1337;File=".Length);
+            var base64Data = parts[1];
+
+            var args = argsPart.Split(';');
+            int width = 0;
+            int height = 0;
+            bool inline = false;
+
+            foreach (var arg in args)
+            {
+                var kv = arg.Split('=');
+                if (kv.Length != 2) continue;
+                string key = kv[0].ToLower();
+                string val = kv[1];
+
+                if (key == "width") width = ParseDimension(val);
+                else if (key == "height") height = ParseDimension(val);
+                else if (key == "inline") inline = (val == "1");
+            }
+
+            if (!inline) return;
+
+            try
+            {
+                byte[] data = Convert.FromBase64String(base64Data);
+                using var ms = new System.IO.MemoryStream(data);
+                var bitmap = SKBitmap.Decode(ms);
+
+                if (bitmap != null)
+                {
+                    if (width == 0 && height == 0)
+                    {
+                        // Default: Scale to fit roughly 1/3 of the screen width, or 10 cells if tiny
+                        width = Math.Max(10, bitmap.Width / 10);
+                        height = Math.Max(1, (int)(width * ((double)bitmap.Height / bitmap.Width) * 0.5)); // 0.5 factor for cell aspect ratio
+                    }
+                    else if (width == 0)
+                    {
+                        width = Math.Max(1, (int)(height * ((double)bitmap.Width / bitmap.Height) * 2.0)); // 2.0 factor for cell aspect ratio
+                    }
+                    else if (height == 0)
+                    {
+                        height = Math.Max(1, (int)(width * ((double)bitmap.Height / bitmap.Width) * 0.5)); // 0.5 factor for cell aspect ratio
+                    }
+
+                    // Calculate absolute row
+                    int absRow = _buffer.CursorRow + (_buffer.TotalLines - _buffer.Rows);
+                    if (_buffer.IsAltScreenActive) absRow = _buffer.CursorRow;
+
+                    var img = new TerminalImage(bitmap, _buffer.CursorCol, absRow, width, height);
+                    _buffer.AddImage(img);
+
+                    // Advance cursor based on image width
+                    for (int i = 0; i < width; i++) _buffer.WriteContent(" ", false);
+                }
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] Failed to decode iTerm2 image: {ex.Message}");
+            }
+        }
+
+        private int ParseDimension(string val)
+        {
+            if (val.EndsWith("px")) return 0; // We want cell units for now
+            if (val.EndsWith("%")) return 0;
+            if (int.TryParse(val, out int result)) return result;
+            return 0;
         }
 
         private Color GetBasicColor(int index, bool bright = false)

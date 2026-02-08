@@ -143,13 +143,36 @@ namespace NovaTerminal.Core
                 bgPaint.Color = themeBg;
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
 
-                var tf = _skTypeface?.Typeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
-                using var font = (_skFont?.Font != null) ? new SKFont(_skFont.Font.Typeface, _skFont.Font.Size) : new SKFont(tf, (float)_fontSize);
-                font.Edging = SKFontEdging.Antialias;
-
                 float paddingLeft = 4f;
                 float paddingTop = 0;
                 int absDisplayStart = Math.Max(0, _totalLines - bufferRows - _scrollOffset);
+
+                // Pass 0: Images
+                foreach (var img in _buffer.Images)
+                {
+                    int visualY = img.CellY - absDisplayStart;
+
+                    // Only render if image is at least partially in viewport
+                    if (visualY + img.CellHeight > 0 && visualY < bufferRows)
+                    {
+                        float x = (float)(Math.Round((img.CellX * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                        float y = (float)(Math.Round((visualY * _metrics.CellHeight + paddingTop) * _renderScaling) / _renderScaling);
+                        float w = (float)(Math.Round((img.CellWidth * _metrics.CellWidth) * _renderScaling) / _renderScaling);
+                        float h = (float)(Math.Round((img.CellHeight * _metrics.CellHeight) * _renderScaling) / _renderScaling);
+
+                        var rect = new SKRect(x, y, x + w, y + h);
+
+                        // Clip to terminal bounds
+                        canvas.Save();
+                        canvas.ClipRect(new SKRect(paddingLeft, 0, (float)Bounds.Width, (float)Bounds.Height));
+                        canvas.DrawBitmap(img.Bitmap, rect);
+                        canvas.Restore();
+                    }
+                }
+
+                var tf = _skTypeface?.Typeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
+                using var font = (_skFont?.Font != null) ? new SKFont(_skFont.Font.Typeface, _skFont.Font.Size) : new SKFont(tf, (float)_fontSize);
+                font.Edging = SKFontEdging.Antialias;
 
                 int dirtyCells = 0;
                 for (int r = 0; r < bufferRows; r++)

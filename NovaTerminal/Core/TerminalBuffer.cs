@@ -176,6 +176,10 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
+                foreach (var img in _images)
+                {
+                    // ImageRegistry.Instance.RemoveImage(img.ImageId); // Optional: If we want shared bitmaps
+                }
                 _images.Clear();
             }
             finally
@@ -486,9 +490,9 @@ namespace NovaTerminal.Core
                         var img = _images[i];
                         if (img.IsSticky)
                         {
-                            img.StartRow--;
+                            img.CellY--;
                             // If the image has completely scrolled out of the max history:
-                            if (img.StartRow + img.Rows < 0)
+                            if (img.CellY + img.CellHeight < 0)
                             {
                                 _images.RemoveAt(i);
                             }
@@ -1017,6 +1021,27 @@ namespace NovaTerminal.Core
             int newAltSavedPhysRow = -1;
             int newAltSavedPhysCol = -1;
             int historyRowCount = 0; // Tracks physical rows generated from original history
+            var newStartFlowIndices = new int[logicalLines.Count];
+
+            // 5b. Anchor Images to Logical Positions before Reflow
+            var imageAnchors = new List<(TerminalImage Image, int LogicalLineIdx, int OffsetInLogicalLine)>();
+            for (int imgIdx = 0; imgIdx < _images.Count; imgIdx++)
+            {
+                var img = _images[imgIdx];
+                // Find which logical line contains img.CellY
+                for (int idx = 0; idx < logicalLines.Count; idx++)
+                {
+                    var start = logicalLines[idx].StartPhysIdx;
+                    var end = (idx + 1 < logicalLines.Count) ? logicalLines[idx + 1].StartPhysIdx : allPhysicalRows.Length;
+                    if (img.CellY >= start && img.CellY < end)
+                    {
+                        int rowOffset = img.CellY - start;
+                        int offsetInLine = rowOffset * oldCols + img.CellX;
+                        imageAnchors.Add((img, idx, offsetInLine));
+                        break;
+                    }
+                }
+            }
 
             // Identify the logical line index that starts the viewport
             // The first viewport row in 'allPhysicalRows' was at index 'oldScrollbackCount'
@@ -1129,6 +1154,8 @@ namespace NovaTerminal.Core
                 {
                     historyRowCount += (allFlowedRows.Count - startFlowIndex);
                 }
+
+                newStartFlowIndices[i] = startFlowIndex;
             }
 
             // 6. Final Layout (Anchor-to-Top of Viewport)
@@ -1153,11 +1180,12 @@ namespace NovaTerminal.Core
 
             for (int i = 0; i < sbCount; i++) _scrollback.Add(allFlowedRows[i]);
 
+            int discardedRows = 0;
             if (_scrollback.Count > MaxHistory)
             {
-                int diff = _scrollback.Count - MaxHistory;
-                _scrollback.RemoveRange(0, diff);
-                sbCount -= diff;
+                discardedRows = _scrollback.Count - MaxHistory;
+                _scrollback.RemoveRange(0, discardedRows);
+                sbCount -= discardedRows;
             }
 
             // Fill viewport
@@ -1197,6 +1225,26 @@ namespace NovaTerminal.Core
             {
                 _cursorRow = newRows - 1;
                 _cursorCol = 0;
+            }
+
+            // 8. Reposition Images
+            for (int i = _images.Count - 1; i >= 0; i--)
+            {
+                var img = _images[i];
+                // Find anchor
+                var anchor = imageAnchors.FirstOrDefault(a => a.Image == img);
+                if (anchor.Image != null)
+                {
+                    int newY = newStartFlowIndices[anchor.LogicalLineIdx] + (anchor.OffsetInLogicalLine / newCols);
+                    img.CellY = newY - discardedRows;
+                    img.CellX = anchor.OffsetInLogicalLine % newCols;
+
+                    // Prune if shifted out of history bounds
+                    if (img.CellY + img.CellHeight < 0)
+                    {
+                        _images.RemoveAt(i);
+                    }
+                }
             }
 
             // 7b. Restore Saved Cursors

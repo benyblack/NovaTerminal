@@ -167,6 +167,7 @@ namespace NovaTerminal.Core
         }
 
         private TerminalBuffer? _buffer;
+        public TerminalBuffer? Buffer => _buffer;
 
         // Coalescing
         private bool _isDirty;
