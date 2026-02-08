@@ -194,7 +194,39 @@ namespace NovaTerminal.Core
         private SharedSKTypeface? _skTypeface;
         private SharedSKFont? _skFont;
 
-        private static readonly string[] FallbackChain = { "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", "Segoe UI Symbol" };
+        private static readonly string[] FallbackChainNames = {
+            "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", // Emojis
+            "Segoe UI Symbol", "Symbola",                              // Symbols
+            "Cascadia Code", "Cascadia Mono", "Fira Code",             // Powerline/Ligature sources
+            "JetBrains Mono", "MesloLGS NF", "Consolas",              // Monospace Fallbacks
+            "Courier New", "Monospace"                                 // Last Resort
+        };
+
+        private static readonly List<SKTypeface> FallbackChain = new();
+        private static bool _fallbackChainInitialized = false;
+
+        private void EnsureFallbackChain()
+        {
+            if (_fallbackChainInitialized) return;
+            lock (FallbackChain)
+            {
+                if (_fallbackChainInitialized) return;
+                foreach (var name in FallbackChainNames)
+                {
+                    var tf = SKTypeface.FromFamilyName(name);
+                    if (tf != null && tf.FamilyName == name)
+                    {
+                        FallbackChain.Add(tf);
+                    }
+                    else
+                    {
+                        tf?.Dispose();
+                    }
+                }
+                _fallbackChainInitialized = true;
+            }
+        }
+
         private readonly ConcurrentDictionary<int, SKTypeface?> _fallbackCache = new();
 
         public double FontSize
@@ -236,6 +268,7 @@ namespace NovaTerminal.Core
             _enableLigatures = settings.EnableLigatures;
             _windowOpacity = settings.WindowOpacity;
             _hasBackgroundImage = !string.IsNullOrEmpty(settings.BackgroundImagePath) && System.IO.File.Exists(settings.BackgroundImagePath);
+            EnsureFallbackChain();
 
             if (_buffer != null)
             {
@@ -587,7 +620,7 @@ namespace NovaTerminal.Core
         // Throttle resize: limit how often we send resize to PTY (interval-based, not debounce)
         private DateTime _lastPtyResizeTime = DateTime.MinValue;
         private DispatcherTimer? _resizeThrottleTimer;
-        private const int ResizeThrottleMs = 50; // Minimum ms between PTY resizes
+        private const int ResizeThrottleMs = 100; // Minimum ms between PTY resizes
         private int _pendingCols = 0;
         private int _pendingRows = 0;
 
@@ -834,7 +867,7 @@ namespace NovaTerminal.Core
                 _skFont,
                 _enableLigatures,
                 _fallbackCache,
-                FallbackChain,
+                FallbackChain.ToArray(),
                 _windowOpacity,
                 _windowOpacity < 1.0,
                 hideCursor,

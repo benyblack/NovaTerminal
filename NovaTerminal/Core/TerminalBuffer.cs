@@ -610,14 +610,62 @@ namespace NovaTerminal.Core
                 int oldCols = Cols;
                 int oldRows = Rows;
 
-                // DEBUG: Log cursor before resize (Removed for thread safety)
+                if (newCols == oldCols)
+                {
+                    // FAST PATH: Width hasn't changed, no wrapping logic needed.
+                    // Just adjust Rows and redistribution.
+                    Rows = newRows;
 
+                    if (_isAltScreen)
+                    {
+                        var oldAlt = _viewport;
+                        _viewport = new TerminalRow[newRows];
+                        for (int i = 0; i < newRows; i++)
+                        {
+                            if (i < oldAlt.Length) _viewport[i] = oldAlt[i];
+                            else _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                        }
+                        _cursorRow = Math.Clamp(_cursorRow, 0, newRows - 1);
+                    }
+                    else
+                    {
+                        // Main screen: Still needs redistribution to maintain scrollback vs viewport split
+                        // but we don't need the expensive logical line reconstruction.
 
+                        // Combine all current rows
+                        var all = new List<TerminalRow>(_scrollback.Count + oldRows);
+                        all.AddRange(_scrollback);
+                        all.AddRange(_viewport);
 
+                        _scrollback.Clear();
+                        _viewport = new TerminalRow[newRows];
 
-                // Update Dimensions BEFORE Reflow might be needed for some helpers, 
-                // but Reflow MUST know the original size.
-                // Update Dimensions BEFORE Reflow, but we need old and new for Reflow
+                        int total = all.Count;
+                        int vpStart = Math.Max(0, total - newRows);
+
+                        for (int i = 0; i < vpStart; i++) _scrollback.Add(all[i]);
+                        for (int i = 0; i < newRows; i++)
+                        {
+                            if (vpStart + i < total) _viewport[i] = all[vpStart + i];
+                            else _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                        }
+
+                        // Clamping
+                        _cursorRow = Math.Clamp(_cursorRow + (oldRows - newRows), 0, newRows - 1); // rough guess, or smarter mapping
+                                                                                                   // Actually, _cursorRow is relative to Top of Viewport. 
+                                                                                                   // If we GROW the viewport DOWN, _cursorRow stay same.
+                                                                                                   // If we GROW the viewport UP (anchored to bottom), _cursorRow changes.
+                                                                                                   // Our current 'vpStart' anchors to BOTTOM of content.
+
+                        _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
+                        _cursorCol = Math.Clamp(_cursorCol, 0, Cols);
+                    }
+
+                    ScrollTop = 0;
+                    ScrollBottom = Rows - 1;
+                    return;
+                }
+
                 Cols = newCols;
                 Rows = newRows;
 
@@ -726,7 +774,7 @@ namespace NovaTerminal.Core
             var allPhysicalRows = System.Buffers.ArrayPool<TerminalRow>.Shared.Rent(totalPhysRows);
 
             // 3. Metadata-Aware Logical Reconstruction
-            var logicalLines = new List<(List<TerminalCell> Cells, bool IsWrapped, int StartPhysIdx)>();
+            var logicalLines = new List<(List<TerminalCell> Cells, bool IsWrapped, int StartPhysIdx)>(totalPhysRows);
 
             try
             {
@@ -959,7 +1007,8 @@ namespace NovaTerminal.Core
             // 5. Distribution logic
             _scrollback.Clear();
             _viewport = new TerminalRow[newRows];
-            var allFlowedRows = new List<TerminalRow>();
+            // Pre-allocate for the typical case of 1.2x expansion due to wrapping
+            var allFlowedRows = new List<TerminalRow>((int)(logicalLines.Count * 1.2));
 
             int newCursorPhysRow = -1;
             int newCursorPhysCol = -1;

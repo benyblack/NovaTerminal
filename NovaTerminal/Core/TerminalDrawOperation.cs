@@ -7,6 +7,8 @@ using SkiaSharp;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 
 namespace NovaTerminal.Core
 {
@@ -26,7 +28,7 @@ namespace NovaTerminal.Core
         private readonly SharedSKFont? _skFont;
         private readonly bool _enableLigatures;
         private readonly ConcurrentDictionary<int, SKTypeface?> _fallbackCache;
-        private readonly string[] _fallbackChain;
+        private readonly SKTypeface[] _fallbackChain;
         private readonly float _opacity;
         private readonly bool _transparentBackground;
         private readonly bool _hideCursor;
@@ -54,7 +56,7 @@ namespace NovaTerminal.Core
             SharedSKFont? skFont,
             bool enableLigatures,
             ConcurrentDictionary<int, SKTypeface?> fallbackCache,
-            string[] fallbackChain,
+            SKTypeface[] fallbackChain,
             double opacity,
             bool transparentBackground,
             bool hideCursor,
@@ -76,19 +78,16 @@ namespace NovaTerminal.Core
             _fontSize = fontSize;
             _glyphTypeface = glyphTypeface;
             _skTypeface = skTypeface;
+            _skTypeface?.Increment();
             _skFont = skFont;
+            _skFont?.Increment();
             _enableLigatures = enableLigatures;
             _fallbackCache = fallbackCache;
             _fallbackChain = fallbackChain;
             _opacity = (float)Math.Clamp(opacity, 0.0, 1.0);
-
             _transparentBackground = transparentBackground;
             _hideCursor = hideCursor;
             _renderScaling = renderScaling;
-            _skTypeface = skTypeface;
-            _skTypeface?.Increment();
-            _skFont = skFont;
-            _skFont?.Increment();
             _bufferRows = snapshotRows;
             _bufferCols = snapshotCols;
             _totalLines = totalLines;
@@ -126,31 +125,21 @@ namespace NovaTerminal.Core
             _buffer.Lock.EnterReadLock();
             try
             {
-                // CRITICAL: Use captured dimensions to avoid race conditions
                 int bufferRows = _bufferRows;
                 int bufferCols = _bufferCols;
 
-                // Setup paints
                 using var bgPaint = new SKPaint { Style = SKPaintStyle.Fill };
                 using var fgPaint = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
                 using var selectionPaint = new SKPaint { Color = new SKColor(51, 153, 255, 100) };
                 using var matchPaint = new SKPaint { Color = new SKColor(255, 255, 0, 100) };
                 using var activeMatchPaint = new SKPaint { Color = new SKColor(255, 128, 0, 150) };
 
-                // Calculate alpha from opacity setting for ALL terminal colors
                 byte alpha = (byte)(255 * _opacity);
-
                 var themeBg = new SKColor(_buffer.Theme.Background.R, _buffer.Theme.Background.G, _buffer.Theme.Background.B, alpha);
                 var themeFg = new SKColor(_buffer.Theme.Foreground.R, _buffer.Theme.Foreground.G, _buffer.Theme.Foreground.B, alpha);
 
-                // If background image is active, we force the theme background to be transparent
-                // so the image shows through.
-                if (_transparentBackground)
-                {
-                    themeBg = SKColors.Empty;
-                }
+                if (_transparentBackground) themeBg = SKColors.Empty;
 
-                // Fill background with semi-transparent color (matches WindowBackground alpha)
                 bgPaint.Color = themeBg;
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
 
@@ -158,15 +147,9 @@ namespace NovaTerminal.Core
                 using var font = (_skFont?.Font != null) ? new SKFont(_skFont.Font.Typeface, _skFont.Font.Size) : new SKFont(tf, (float)_fontSize);
                 font.Edging = SKFontEdging.Antialias;
 
-                // Padding for terminal content (Logical 4 units)
                 float paddingLeft = 4f;
                 float paddingTop = 0;
-
-                // Correct calculation of displayStart (First visible absolute row)
-                int totalLines = _totalLines;
-                int bufferRowsLocked = bufferRows; // Use local capture
-                // displayStart = Total - Rows - ScrollOffset
-                int absDisplayStart = Math.Max(0, totalLines - bufferRowsLocked - _scrollOffset);
+                int absDisplayStart = Math.Max(0, _totalLines - bufferRows - _scrollOffset);
 
                 int dirtyCells = 0;
                 for (int r = 0; r < bufferRows; r++)
@@ -175,36 +158,28 @@ namespace NovaTerminal.Core
                     float baselineY = y + (float)_metrics.Baseline;
                     int absRow = absDisplayStart + r;
 
-                    // Pass 1: Custom Backgrounds
+                    // Pass 1: Backgrounds
                     for (int c = 0; c < bufferCols; c++)
                     {
                         var cell = _buffer.GetCell(c, r, _scrollOffset);
-                        var cellBg = cell.IsDefaultBackground ? themeBg :
-                                    new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
-                        var cellFg = cell.IsDefaultForeground ? themeFg :
-                                    new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
-
+                        var cellBg = cell.IsDefaultBackground ? themeBg : new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
+                        var cellFg = cell.IsDefaultForeground ? themeFg : new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
                         if (cell.IsInverse) { var tmp = cellBg; cellBg = cellFg; cellFg = tmp; }
 
                         if (cellBg != themeBg)
                         {
-                            var bg = cellBg;
                             int runStart = c;
                             int k = c + 1;
                             while (k < bufferCols)
                             {
-                                var nextCell = _buffer.GetCell(k, r, _scrollOffset);
-                                var nextBg = nextCell.IsDefaultBackground ? themeBg :
-                                            new SKColor(nextCell.Background.R, nextCell.Background.G, nextCell.Background.B, alpha);
-                                var nextFg = nextCell.IsDefaultForeground ? themeFg :
-                                            new SKColor(nextCell.Foreground.R, nextCell.Foreground.G, nextCell.Foreground.B, alpha);
-                                if (nextCell.IsInverse) nextBg = nextFg;
-
-                                if (nextBg != bg) break;
+                                var n = _buffer.GetCell(k, r, _scrollOffset);
+                                var nb = n.IsDefaultBackground ? themeBg : new SKColor(n.Background.R, n.Background.G, n.Background.B, alpha);
+                                var nf = n.IsDefaultForeground ? themeFg : new SKColor(n.Foreground.R, n.Foreground.G, n.Foreground.B, alpha);
+                                if (n.IsInverse) nb = nf;
+                                if (nb != cellBg) break;
                                 k++;
                             }
-
-                            bgPaint.Color = bg;
+                            bgPaint.Color = cellBg;
                             float x1 = (float)(Math.Round((runStart * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
                             float x2 = (float)(Math.Round((k * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
                             canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, bgPaint);
@@ -213,7 +188,7 @@ namespace NovaTerminal.Core
                         }
                     }
 
-                    // Selection & Search Matches
+                    // Selection/Matches
                     if (_selection.IsActive)
                     {
                         var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
@@ -224,7 +199,6 @@ namespace NovaTerminal.Core
                             canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, selectionPaint);
                         }
                     }
-
                     if (_searchMatches != null)
                     {
                         for (int i = 0; i < _searchMatches.Count; i++)
@@ -241,144 +215,14 @@ namespace NovaTerminal.Core
                     }
 
                     // Pass 2: Foreground (Text)
-                    for (int c = 0; c < bufferCols; c++)
-                    {
-                        var cell = _buffer.GetCell(c, r, _scrollOffset);
-
-                        // Skip continuation cells (they are covered by the wide char in the previous cell)
-                        if (cell.IsWideContinuation) continue;
-
-                        // Respect Hidden Attribute
-                        if (cell.IsHidden)
-                        {
-                            if (!cell.IsDefaultBackground)
-                            {
-                                var cb = new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
-                                bgPaint.Color = cb;
-                                float x1 = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                                float x2 = (float)(Math.Round(((c + (cell.IsWide ? 2 : 1)) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                                canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, bgPaint);
-                            }
-                            continue;
-                        }
-
-                        bool hasChar = (cell.Text != null) ? cell.Text.Length > 0 : (cell.Character != ' ' && cell.Character != '\0');
-
-                        if (hasChar)
-                        {
-                            var cb = cell.IsDefaultBackground ? themeBg : new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
-                            var cf = cell.IsDefaultForeground ? themeFg : new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
-                            var fg = cell.IsInverse ? cb : cf;
-
-                            // If it's a wide char or complex text, draw it individually
-                            // We also draw individually if ligatures are disabled
-                            if (cell.IsWide || !string.IsNullOrEmpty(cell.Text) || !_enableLigatures)
-                            {
-                                string text = cell.Text ?? cell.Character.ToString();
-
-                                // FONT FALLBACK LOGIC
-                                // Check if primary font supports this character/grapheme
-                                int codepoint = 0;
-                                try
-                                {
-                                    if (text.Length == 1) codepoint = text[0];
-                                    else if (text.Length == 2 && char.IsSurrogatePair(text[0], text[1])) codepoint = char.ConvertToUtf32(text, 0);
-                                    else { /* Invalid string, skip rendering */ continue; }
-                                }
-                                catch { continue; } // Extra safety
-
-                                if (!tf.ContainsGlyph(codepoint))
-                                {
-                                    // 1. Check Cache
-                                    if (!_fallbackCache.TryGetValue(codepoint, out var fallbackTf))
-                                    {
-                                        // 2. Check Explicit Chain (Fast)
-                                        foreach (var fontName in _fallbackChain)
-                                        {
-                                            var tfChain = SKTypeface.FromFamilyName(fontName);
-                                            // FromFamilyName might return default if font not found, 
-                                            // we need to check if it actually supports the char.
-                                            if (tfChain != null && tfChain.FamilyName == fontName && tfChain.ContainsGlyph(codepoint))
-                                            {
-                                                fallbackTf = tfChain;
-                                                break;
-                                            }
-                                            tfChain?.Dispose();
-                                        }
-
-                                        // 3. System Fallback (Slow)
-                                        if (fallbackTf == null)
-                                        {
-                                            fallbackTf = SKFontManager.Default.MatchCharacter(codepoint);
-                                        }
-
-                                        _fallbackCache.TryAdd(codepoint, fallbackTf);
-                                    }
-
-                                    if (fallbackTf != null)
-                                    {
-                                        using var fallbackFont = new SKFont(fallbackTf, (float)_fontSize);
-                                        fallbackFont.Edging = SKFontEdging.Antialias;
-                                        fgPaint.Color = fg;
-                                        canvas.DrawText(text, (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, fallbackFont, fgPaint);
-                                    }
-                                    else
-                                    {
-                                        fgPaint.Color = fg;
-                                        canvas.DrawText(text, (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
-                                    }
-                                }
-                                else
-                                {
-                                    fgPaint.Color = fg;
-                                    canvas.DrawText(text, (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling), baselineY, font, fgPaint);
-                                }
-                            }
-                            else
-                            {
-                                // Batch simple chars for performance
-                                int runStart = c;
-                                float runX = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-
-                                // Avoid stackalloc in loop (CA2014)
-                                int remaining = bufferCols - c;
-                                Span<char> runBuffer = new char[remaining]; // Allocation is safer than stack overflow
-                                int runLength = 0;
-
-                                runBuffer[runLength++] = cell.Character;
-
-                                int k = c + 1;
-                                while (k < bufferCols)
-                                {
-                                    var next = _buffer.GetCell(k, r, _scrollOffset);
-                                    if (next.IsWide || next.IsWideContinuation || !string.IsNullOrEmpty(next.Text)) break; // Stop at complex chars
-                                    if (next.Character == ' ' || next.Character == '\0') break;
-
-                                    var nb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
-                                    var nf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
-                                    if ((next.IsInverse ? nb : nf) != fg) break;
-
-                                    runBuffer[runLength++] = next.Character;
-                                    k++;
-                                }
-
-                                fgPaint.Color = fg;
-                                // Create string directly from span (allocates string only, no intermediate arrays)
-                                canvas.DrawText(new string(runBuffer.Slice(0, runLength)), runX, baselineY, font, fgPaint);
-                                dirtyCells += (k - runStart);
-                                c = k - 1;
-                            }
-                        }
-                    }
+                    dirtyCells += DrawRowText(canvas, r, absRow, bufferCols, baselineY, font, fgPaint, themeFg, themeBg, alpha, tf);
                 }
 
-                // Cursor
                 if (!_hideCursor)
                 {
                     int absCursorRow = (_totalLines - _bufferRows) + _cursorRow;
                     int displayStart = Math.Max(0, _totalLines - _bufferRows - _scrollOffset);
                     int visualRow = absCursorRow - displayStart;
-
                     if (visualRow >= 0 && visualRow < bufferRows)
                     {
                         float x1 = (float)(Math.Round((_cursorCol * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
@@ -387,14 +231,120 @@ namespace NovaTerminal.Core
                         canvas.DrawRect(x1, cy, x2 - x1, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
                     }
                 }
-
-                // Currently every render is a full redraw in this custom operation
                 RendererStatistics.RecordFrame(fullRedraw: true, dirtyCells: dirtyCells);
             }
-            finally
+            finally { _buffer.Lock.ExitReadLock(); }
+        }
+
+        private int DrawRowText(SKCanvas canvas, int r, int absRow, int bufferCols, float baselineY, SKFont font, SKPaint fgPaint, SKColor themeFg, SKColor themeBg, byte alpha, SKTypeface primaryTf)
+        {
+            float paddingLeft = 4f;
+            int cellsRendered = 0;
+            StringBuilder runText = new StringBuilder(bufferCols);
+
+            for (int c = 0; c < bufferCols; c++)
             {
-                _buffer.Lock.ExitReadLock();
+                var cell = _buffer.GetCell(c, r, _scrollOffset);
+                if (cell.IsWideContinuation || cell.IsHidden) continue;
+
+                bool hasChar = (cell.Text != null) ? cell.Text.Length > 0 : (cell.Character != ' ' && cell.Character != '\0');
+                if (!hasChar) continue;
+
+                var cb = cell.IsDefaultBackground ? themeBg : new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
+                var cf = cell.IsDefaultForeground ? themeFg : new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
+                var fg = cell.IsInverse ? cb : cf;
+
+                // Ligature Batching (Phase 3.3)
+                if (_enableLigatures && !cell.IsWide && string.IsNullOrEmpty(cell.Text))
+                {
+                    int runStart = c;
+                    runText.Clear();
+                    runText.Append(cell.Character);
+                    int k = c + 1;
+                    while (k < bufferCols)
+                    {
+                        var next = _buffer.GetCell(k, r, _scrollOffset);
+                        if (next.IsWide || next.IsWideContinuation || !string.IsNullOrEmpty(next.Text) || next.IsHidden) break;
+                        if (next.Character == ' ' || next.Character == '\0') break;
+                        var ncb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
+                        var ncf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
+                        if ((next.IsInverse ? ncb : ncf) != fg) break;
+                        runText.Append(next.Character);
+                        k++;
+                    }
+                    fgPaint.Color = fg;
+                    float rx = (float)(Math.Round((runStart * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                    canvas.DrawText(runText.ToString(), rx, baselineY, font, fgPaint);
+                    cellsRendered += (k - runStart);
+                    c = k - 1;
+                    continue;
+                }
+
+                // Individual Handling with Width-0 support (Phase 3.4)
+                string text = cell.Text ?? cell.Character.ToString();
+                bool isWidth0 = false;
+                if (!string.IsNullOrEmpty(text))
+                {
+                    if (Rune.TryGetRuneAt(text, 0, out var rune))
+                    {
+                        var cat = Rune.GetUnicodeCategory(rune);
+                        isWidth0 = cat == UnicodeCategory.NonSpacingMark || cat == UnicodeCategory.EnclosingMark || cat == UnicodeCategory.SpacingCombiningMark;
+                    }
+                }
+
+                int codepoint = 0;
+                try
+                {
+                    if (text.Length == 1) codepoint = text[0];
+                    else if (text.Length == 2 && char.IsSurrogatePair(text[0], text[1])) codepoint = char.ConvertToUtf32(text[0], text[1]);
+                }
+                catch { }
+
+                SKTypeface? tfToUse = primaryTf;
+                if (codepoint != 0 && !primaryTf.ContainsGlyph(codepoint))
+                {
+                    if (!_fallbackCache.TryGetValue(codepoint, out tfToUse))
+                    {
+                        SKTypeface? found = null;
+                        foreach (var tfChain in _fallbackChain)
+                        {
+                            if (tfChain.ContainsGlyph(codepoint))
+                            {
+                                found = tfChain;
+                                break;
+                            }
+                        }
+
+                        if (found == null)
+                        {
+                            found = SKFontManager.Default.MatchCharacter(codepoint);
+                        }
+
+                        // Even if found is null, we store it (as null) to avoid searching again
+                        _fallbackCache.TryAdd(codepoint, found);
+                        tfToUse = found;
+                    }
+                }
+
+                if (tfToUse == null) tfToUse = primaryTf;
+
+                fgPaint.Color = fg;
+                float x = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                if (isWidth0 && c > 0) x = (float)(Math.Round(((c - 1) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+
+                if (tfToUse != null && tfToUse != primaryTf)
+                {
+                    using var fFont = new SKFont(tfToUse, (float)_fontSize);
+                    fFont.Edging = SKFontEdging.Antialias;
+                    canvas.DrawText(text, x, baselineY, fFont, fgPaint);
+                }
+                else
+                {
+                    canvas.DrawText(text, x, baselineY, font, fgPaint);
+                }
+                cellsRendered += (cell.IsWide ? 2 : 1);
             }
+            return cellsRendered;
         }
     }
 }
