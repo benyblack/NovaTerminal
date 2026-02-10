@@ -162,6 +162,7 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
+                TerminalLogger.Log($"[TERMINAL_BUFFER] AddImage: CellX={image.CellX}, CellY={image.CellY}, W={image.CellWidth}, H={image.CellHeight}");
                 _images.Add(image);
             }
             finally
@@ -484,18 +485,44 @@ namespace NovaTerminal.Core
                 {
                     _scrollback.RemoveAt(0);
 
-                    // Prune images or shift their absolute row indices
+                    // When physically removing row 0, all following rows shift down in index
+                    // So we must decrement CellY for ALL images.
                     for (int i = _images.Count - 1; i >= 0; i--)
                     {
                         var img = _images[i];
-                        if (img.IsSticky)
+                        img.CellY--;
+                        // If the image's entire area is now before the new index 0, prune it.
+                        if (img.CellY + img.CellHeight <= 0)
                         {
-                            img.CellY--;
-                            // If the image has completely scrolled out of the max history:
-                            if (img.CellY + img.CellHeight < 0)
-                            {
-                                _images.RemoveAt(i);
-                            }
+                            _images.RemoveAt(i);
+                        }
+                    }
+                }
+                // Note: If NOT pruning, we don't shift CellY. The absolute index of 
+                // viewport[0] didn't change (it just became the last index of scrollback).
+            }
+            else
+            {
+                // Regional scroll-up or Alternate screen scroll (no scrollback growth)
+                // Images that are partially or fully in the region need to be shifted UP (CellY--)
+                int absTop = _isAltScreen ? ScrollTop : (_scrollback.Count + ScrollTop);
+                int absBottom = _isAltScreen ? ScrollBottom : (_scrollback.Count + ScrollBottom);
+
+                for (int i = _images.Count - 1; i >= 0; i--)
+                {
+                    var img = _images[i];
+                    // If image overlaps with the scrolling region, it moves.
+                    // Accurate overlap: Ends after top AND Starts before bottom.
+                    if (img.IsSticky && img.CellY + img.CellHeight > absTop && img.CellY <= absBottom)
+                    {
+                        img.CellY--;
+
+                        // If image moved entirely above the region (and it was a regional scroll),
+                        // we might prune it if it's no longer visible in the region.
+                        // However, standard sticky images just move. Pruning only on MaxHistory is safer.
+                        if (img.CellY + img.CellHeight <= absTop && !isFullScreenScroll)
+                        {
+                            // Optional: _images.RemoveAt(i); 
                         }
                     }
                 }
@@ -529,6 +556,25 @@ namespace NovaTerminal.Core
 
         private void ScrollDownInternal()
         {
+            // Update images: Shift images in the region DOWN (CellY++)
+            int absTop = _isAltScreen ? ScrollTop : (_scrollback.Count + ScrollTop);
+            int absBottom = _isAltScreen ? ScrollBottom : (_scrollback.Count + ScrollBottom);
+
+            for (int i = _images.Count - 1; i >= 0; i--)
+            {
+                var img = _images[i];
+                // If image overlaps with the scrolling region, it moves.
+                if (img.IsSticky && img.CellY + img.CellHeight > absTop && img.CellY < absBottom)
+                {
+                    img.CellY++;
+                    // If the image moves below the region, remove it
+                    if (img.CellY > absBottom)
+                    {
+                        _images.RemoveAt(i);
+                    }
+                }
+            }
+
             // Shift rows down within the region
             for (int i = ScrollBottom; i > ScrollTop; i--)
             {
@@ -589,6 +635,24 @@ namespace NovaTerminal.Core
             for (int c = _cursorCol; c < endCol; c++)
             {
                 row.Cells[c] = row.Cells[c + count];
+            }
+
+            // Update images on this row: shift those to the right of cursor left
+            int absY = _isAltScreen ? _cursorRow : (_scrollback.Count + _cursorRow);
+            for (int i = _images.Count - 1; i >= 0; i--)
+            {
+                var img = _images[i];
+                if (img.IsSticky && img.CellY == absY && img.CellX >= _cursorCol)
+                {
+                    img.CellX -= count;
+                    if (img.CellX < _cursorCol)
+                    {
+                        // If it shifted but still starts before cursor? 
+                        // Actually, it should probably be removed if its original range was partially deleted.
+                        // But for simplicity, if it moves left of cursor, we let it stay or part-clip it.
+                        // Most terminals don't handle this perfectly. Let's just shift it.
+                    }
+                }
             }
 
             // Fill gap at end with empty cells
@@ -1534,6 +1598,23 @@ namespace NovaTerminal.Core
                     _viewport[i + n] = _viewport[i];
                 }
 
+                // Update images: Shift images starting at top DOWN by n
+                int absTop = _isAltScreen ? top : (_scrollback.Count + top);
+                int absBottom = _isAltScreen ? bottom : (_scrollback.Count + bottom);
+                for (int i = _images.Count - 1; i >= 0; i--)
+                {
+                    var img = _images[i];
+                    // If image starts in or below the insertion point, shift it down
+                    if (img.IsSticky && img.CellY >= absTop && img.CellY <= absBottom)
+                    {
+                        img.CellY += n;
+                        if (img.CellY > absBottom)
+                        {
+                            _images.RemoveAt(i);
+                        }
+                    }
+                }
+
                 // Fill the gap created at TOP with new blank lines
                 for (int i = 0; i < n; i++)
                 {
@@ -1568,6 +1649,30 @@ namespace NovaTerminal.Core
                 for (int i = top; i <= bottom - n; i++)
                 {
                     _viewport[i] = _viewport[i + n];
+                }
+
+                // Update images: Shift images below the deleted range UP by n
+                int absTop = _isAltScreen ? top : (_scrollback.Count + top);
+                int absBottom = _isAltScreen ? bottom : (_scrollback.Count + bottom);
+                int absDeletedEnd = absTop + n;
+
+                for (int i = _images.Count - 1; i >= 0; i--)
+                {
+                    var img = _images[i];
+                    // If image overlaps with or is below the deleted range
+                    if (img.IsSticky && img.CellY + img.CellHeight > absTop && img.CellY <= absBottom)
+                    {
+                        if (img.CellY < absDeletedEnd)
+                        {
+                            // Image starts in the deleted range
+                            _images.RemoveAt(i);
+                        }
+                        else
+                        {
+                            // Image is below the deleted range, shift it UP
+                            img.CellY -= n;
+                        }
+                    }
                 }
 
                 // Fill the gap created at BOTTOM with new blank lines

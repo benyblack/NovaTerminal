@@ -146,6 +146,13 @@ namespace NovaTerminal.Controls
             Buffer.Resize(cols, rows);
             Parser = new AnsiParser(Buffer);
 
+            // Sync initial metrics
+            float cw = TermView.Metrics.CellWidth;
+            float ch = TermView.Metrics.CellHeight;
+            if (cw > 0) Parser.CellWidth = cw;
+            if (ch > 0) Parser.CellHeight = ch;
+            TerminalLogger.Log($"[TERMINAL_PANE] Parser initialized: CellWidth={Parser.CellWidth} (view={cw}), CellHeight={Parser.CellHeight} (view={ch}), Cols={cols}, Rows={rows}");
+
             // Setup Session
             string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
             string args = explicitArgs ?? profile?.Arguments ?? "";
@@ -217,7 +224,18 @@ namespace NovaTerminal.Controls
             };
 
             // Wire up Resize
-            TermView.OnResize += (c, r) => Session?.Resize(c, r);
+            TermView.OnResize += (c, r) =>
+            {
+                if (Parser != null)
+                {
+                    float cw = TermView.Metrics.CellWidth;
+                    float ch = TermView.Metrics.CellHeight;
+                    if (cw > 0) Parser.CellWidth = cw;
+                    if (ch > 0) Parser.CellHeight = ch;
+                    TerminalLogger.Log($"[TERMINAL_PANE] OnResize sync: CellWidth={Parser.CellWidth} (view={cw}), CellHeight={Parser.CellHeight} (view={ch})");
+                }
+                Session?.Resize(c, r);
+            };
         }
 
         public void ApplySettings(TerminalSettings settings)
@@ -244,7 +262,16 @@ namespace NovaTerminal.Controls
             };
 
             TermView.ApplySettings(effectiveSettings);
-            // Propagate theme to ScrollBar/Search if needed
+
+            // Sync metrics to parser after settings change (font size, etc.)
+            if (Parser != null)
+            {
+                float cw = TermView.Metrics.CellWidth;
+                float ch = TermView.Metrics.CellHeight;
+                if (cw > 0) Parser.CellWidth = cw;
+                if (ch > 0) Parser.CellHeight = ch;
+                TerminalLogger.Log($"[TERMINAL_PANE] ApplySettings sync: CellWidth={Parser.CellWidth} (view={cw}), CellHeight={Parser.CellHeight} (view={ch})");
+            }
         }
 
 

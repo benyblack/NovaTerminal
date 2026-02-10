@@ -12,15 +12,15 @@ namespace NovaTerminal.Core
         public int CellHeight { get; } // Height in cells
         public int ZIndex { get; set; } = 0; // 0 = background layer
 
-        public SKBitmap Bitmap { get; }
+        public SKImage Image { get; }
 
         // If true, the image is "sticky" to the text and scrolls with it.
         public bool IsSticky { get; set; } = true;
 
-        public TerminalImage(SKBitmap bitmap, int cellX, int cellY, int cellWidth, int cellHeight)
+        public TerminalImage(SKImage image, int cellX, int cellY, int cellWidth, int cellHeight)
         {
             ImageId = Guid.NewGuid();
-            Bitmap = bitmap ?? throw new ArgumentNullException(nameof(bitmap));
+            Image = image ?? throw new ArgumentNullException(nameof(image));
             CellX = cellX;
             CellY = cellY;
             CellWidth = cellWidth;

@@ -26,6 +26,8 @@ namespace NovaTerminal.Core
 
     public class TerminalView : Control
     {
+        public CellMetrics Metrics => _metrics;
+
         public TerminalView()
         {
             Focusable = true;
@@ -843,8 +845,8 @@ namespace NovaTerminal.Core
             buffer.Lock.EnterReadLock();
             try
             {
-                snapshotRows = buffer.Rows;
-                snapshotCols = buffer.Cols;
+                snapshotRows = this.Rows; // Use visual capacity, not buffer size
+                snapshotCols = this.Cols;
                 totalLines = buffer.InternalTotalLines;
                 cursorRow = buffer.InternalCursorRow;
                 cursorCol = buffer.InternalCursorCol;

@@ -8,7 +8,7 @@ namespace NovaTerminal.Core
     public class AnsiParser
     {
         private TerminalBuffer _buffer;
-        private enum State { Normal, Esc, Csi, Osc, OscEsc, Dcs, DcsEsc, Charset }
+        private enum State { Normal, Esc, Csi, Osc, OscEsc, Dcs, DcsEsc, Charset, Apc, ApcEsc }
         private State _state = State.Normal;
 
         // Zero-alloc buffers
@@ -16,6 +16,14 @@ namespace NovaTerminal.Core
         private int _paramLen = 0;
 
         private List<char> _oscStringBuffer = new List<char>(); // OSC strings can be long (titles, etc) - Keep List for now or limit
+        private List<char> _apcStringBuffer = new List<char>();
+        private List<char> _dcsStringBuffer = new List<char>();
+        private System.Text.StringBuilder _kittyPayloadBuffer = new System.Text.StringBuilder();
+        private Dictionary<string, string> _kittyPendingParams = new();
+        private SixelDecoder _sixelDecoder = new();
+
+        public float CellWidth { get; set; } = 10.0f;  // Default fallback
+        public float CellHeight { get; set; } = 20.0f; // Default fallback
 
         public AnsiParser(TerminalBuffer buffer)
         {
@@ -39,10 +47,20 @@ namespace NovaTerminal.Core
                             _state = State.Csi;
                             _paramLen = 0;
                         }
+                        else if (c == '\u0090') // C1 DCS
+                        {
+                            _state = State.Dcs;
+                            _dcsStringBuffer.Clear();
+                        }
                         else if (c == '\u009D') // C1 OSC
                         {
                             _state = State.Osc;
                             _oscStringBuffer.Clear();
+                        }
+                        else if (c == '\u009F') // C1 APC
+                        {
+                            _state = State.Apc;
+                            _apcStringBuffer.Clear();
                         }
                         else if (c == '\a')
                         {
@@ -55,6 +73,7 @@ namespace NovaTerminal.Core
                         break;
 
                     case State.Esc:
+                        TerminalLogger.Log($"[ANSI_PARSER] State.Esc seeing: {c} (0x{(int)c:X})");
                         if (c == '[')
                         {
                             _state = State.Csi;
@@ -68,6 +87,12 @@ namespace NovaTerminal.Core
                         else if (c == 'P') // DCS Start (Device Control String) - Sixel, etc.
                         {
                             _state = State.Dcs;
+                            _dcsStringBuffer.Clear();
+                        }
+                        else if (c == '_') // APC Start
+                        {
+                            _state = State.Apc;
+                            _apcStringBuffer.Clear();
                         }
                         else if (c == '7') // Save Cursor
                         {
@@ -105,12 +130,8 @@ namespace NovaTerminal.Core
                     case State.Osc:
                         if (c == '\a' || c == '\u009C')
                         {
-                            // Handle OSC Here if needed (e.g. Title)
-                            string osc = new string(_oscStringBuffer.ToArray());
-                            if (osc.StartsWith("1337;File="))
-                            {
-                                HandleITerm2Image(osc);
-                            }
+                            TerminalLogger.Log($"[ANSI_PARSER] OSC Sentinel: BEL/ST detected. Buffer len: {_oscStringBuffer.Count}");
+                            HandleOsc(new string(_oscStringBuffer.ToArray()));
                             _state = State.Normal;
                         }
                         else if (c == '\x1b')
@@ -119,6 +140,10 @@ namespace NovaTerminal.Core
                         }
                         else
                         {
+                            if (_oscStringBuffer.Count < 50) // Only log the beginning of potential images to avoid huge logs
+                            {
+                                TerminalLogger.Log($"[ANSI_PARSER] State.Osc char: {c} (0x{(int)c:X})");
+                            }
                             _oscStringBuffer.Add(c);
                         }
                         break;
@@ -126,28 +151,64 @@ namespace NovaTerminal.Core
                     case State.OscEsc:
                         if (c == '\\')
                         {
-                            // Handle OSC Here
-                            string osc = new string(_oscStringBuffer.ToArray());
-                            if (osc.StartsWith("1337;File="))
-                            {
-                                HandleITerm2Image(osc);
-                            }
+                            TerminalLogger.Log($"[ANSI_PARSER] OSC Sentinel: ESC \\ detected. Buffer len: {_oscStringBuffer.Count}");
+                            HandleOsc(new string(_oscStringBuffer.ToArray()));
                             _state = State.Normal;
                         }
                         else
                         {
+                            TerminalLogger.Log($"[ANSI_PARSER] OSC Sentinel: ABORTED! Found 0x{(int)c:X} after ESC in OSC state.");
                             _state = State.Normal;
                         }
                         break;
 
                     case State.Dcs:
-                        // Ignore everything until ST (ESC \)
                         if (c == '\x1b') _state = State.DcsEsc;
+                        else _dcsStringBuffer.Add(c);
                         break;
 
                     case State.DcsEsc:
-                        if (c == '\\') _state = State.Normal; // ST terminator
-                        else _state = State.Dcs; // False alarm, back to consuming
+                        if (c == '\\')
+                        {
+                            HandleDcs(new string(_dcsStringBuffer.ToArray()));
+                            _state = State.Normal;
+                        }
+                        else
+                        {
+                            _dcsStringBuffer.Add('\x1b');
+                            _dcsStringBuffer.Add(c);
+                            _state = State.Dcs;
+                        }
+                        break;
+
+                    case State.Apc:
+                        if (c == '\x1b')
+                        {
+                            _state = State.ApcEsc;
+                        }
+                        else if (c == '\u009C') // C1 ST
+                        {
+                            HandleApc(new string(_apcStringBuffer.ToArray()));
+                            _state = State.Normal;
+                        }
+                        else
+                        {
+                            _apcStringBuffer.Add(c);
+                        }
+                        break;
+
+                    case State.ApcEsc:
+                        if (c == '\\')
+                        {
+                            HandleApc(new string(_apcStringBuffer.ToArray()));
+                            _state = State.Normal;
+                        }
+                        else
+                        {
+                            _apcStringBuffer.Add('\x1b');
+                            _apcStringBuffer.Add(c);
+                            _state = State.Apc;
+                        }
                         break;
 
                     case State.Csi:
@@ -296,7 +357,9 @@ namespace NovaTerminal.Core
                     break;
                 case 'G': // Cursor Horizontal Absolute (CHA)
                     int val = (argCount > 0 ? validArgs[0] : 1) - 1;
+                    int oldCol = _buffer.CursorCol;
                     _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
+                    TerminalLogger.Log($"[ANSI_PARSER] CHA: {val} (raw={arg0}). CursorCol: {oldCol} -> {_buffer.CursorCol}, BufferCols: {_buffer.Cols}");
                     _buffer.Invalidate();
                     break;
                 case 'J': // Erase in Display
@@ -305,7 +368,7 @@ namespace NovaTerminal.Core
                     if (displayMode == 0) // Erase from cursor to end of screen
                     {
                         _buffer.EraseLineToEnd(); // Clear rest of current line
-                        // Clear all lines below cursor
+                                                  // Clear all lines below cursor
                         for (int r = _buffer.CursorRow + 1; r < _buffer.Rows; r++)
                         {
                             _buffer.EraseLineAll(r);
@@ -355,7 +418,7 @@ namespace NovaTerminal.Core
                     break;
                 case 'h': // Set Mode
                 case 'l': // Reset Mode
-                    // Check if this is a DEC Private Mode (CSI ? Ps h/l)
+                          // Check if this is a DEC Private Mode (CSI ? Ps h/l)
                     if (isPrivate)
                     {
                         bool enable = (finalByte == 'h');
@@ -584,14 +647,335 @@ namespace NovaTerminal.Core
             return null;
         }
 
+        private void HandleDcs(string dcs)
+        {
+            TerminalLogger.Log($"[ANSI_PARSER] HandleDcs: {dcs.Substring(0, Math.Min(dcs.Length, 30))}...");
+
+            // Sixel Support (DCS Ps ; Pi ; Pj q <sixel_data> ST)
+            if (dcs.Contains('q'))
+            {
+                HandleSixel(dcs);
+            }
+            _dcsStringBuffer.Clear();
+        }
+
+        private void HandleSixel(string dcs)
+        {
+            TerminalLogger.Log($"[ANSI_PARSER] Sixel sequence detected. Decoding...");
+            try
+            {
+                var bitmap = _sixelDecoder.Decode(dcs);
+                if (bitmap != null)
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Sixel decoded successfully: {bitmap.Width}x{bitmap.Height}");
+
+                    // Calculate cell dimensions (rough estimate based on current font metrics)
+                    int widthCells = (int)Math.Max(1, Math.Ceiling(bitmap.Width / (CellWidth > 0 ? CellWidth : 10f)));
+                    int heightCells = (int)Math.Max(1, Math.Ceiling(bitmap.Height / (CellHeight > 0 ? CellHeight : 20f)));
+
+                    int absRow = _buffer.CursorRow + (_buffer.TotalLines - _buffer.Rows);
+                    if (_buffer.IsAltScreenActive) absRow = _buffer.CursorRow;
+
+                    TerminalLogger.Log($"[ANSI_PARSER] Sixel image placement: CursorCol={_buffer.CursorCol}, CursorRow={_buffer.CursorRow}, TotalLines={_buffer.TotalLines}, Rows={_buffer.Rows} -> absRow={absRow}");
+                    var img = new TerminalImage(SKImage.FromBitmap(bitmap), _buffer.CursorCol, absRow, widthCells, heightCells);
+                    _buffer.AddImage(img);
+
+                    // Position cursor at the end of the image or advance lines
+                    bool oldHidden = _buffer.IsHidden;
+                    _buffer.IsHidden = true;
+                    try
+                    {
+                        for (int y = 0; y < heightCells; y++)
+                        {
+                            for (int x = 0; x < widthCells; x++)
+                            {
+                                _buffer.WriteContent(" ", false);
+                            }
+                            if (y < heightCells - 1)
+                            {
+                                _buffer.WriteChar('\n');
+                                for (int x = 0; x < img.CellX; x++) _buffer.WriteContent(" ", false);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        _buffer.IsHidden = oldHidden;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] Sixel decode failed: {ex.Message}");
+            }
+        }
+
+        private void HandleOsc(string osc)
+        {
+            if (string.IsNullOrEmpty(osc)) return;
+            TerminalLogger.Log($"[ANSI_PARSER] HandleOsc: {osc.Substring(0, Math.Min(osc.Length, 30))}...");
+            if (osc.StartsWith("1337;File="))
+            {
+                HandleITerm2Image(osc);
+            }
+            else if (osc.StartsWith("1339;"))
+            {
+                string content = osc.Substring(5);
+                TerminalLogger.Log($"[ANSI_PARSER] HandleOsc 1339 content: {content.Substring(0, Math.Min(content.Length, 40))}...");
+                if (content.StartsWith("Kitty:") || content.StartsWith("K:"))
+                {
+                    int skip = content.StartsWith("Kitty:") ? 6 : 2;
+                    content = content.Substring(skip);
+                    HandleKittyGraphics(content);
+                }
+                else
+                {
+                    HandleSixel(content);
+                }
+            }
+        }
+
+        private void HandleApc(string content)
+        {
+            TerminalLogger.Log($"[ANSI_PARSER] HandleApc: {content.Substring(0, Math.Min(content.Length, 20))}...");
+            // Kitty protocol uses 'G' as command identifier in APC
+            if (content.StartsWith("G"))
+            {
+                HandleKittyGraphics(content.Substring(1));
+            }
+        }
+
+        private void HandleKittyGraphics(string content)
+        {
+            TerminalLogger.Log($"[ANSI_PARSER] HandleKittyGraphics: {content.Substring(0, Math.Min(content.Length, 40))}...");
+
+            // The Kitty protocol control string starts with 'G'.
+            if (content.StartsWith("G")) content = content.Substring(1);
+
+            // Format: params ; payload
+            var parts = content.Split(';', 2);
+            string paramsPart = parts[0];
+            string payload = parts.Length > 1 ? parts[1] : "";
+
+            // Parse params
+            var kvParams = paramsPart.Split(',');
+            foreach (var kv in kvParams)
+            {
+                var side = kv.Split('=');
+                if (side.Length == 2)
+                {
+                    _kittyPendingParams[side[0]] = side[1];
+                }
+                else if (kv.Length > 0)
+                {
+                    // Some flags might not have '='
+                    _kittyPendingParams[kv] = "1";
+                }
+            }
+
+            // Accumulate payload
+            _kittyPayloadBuffer.Append(payload);
+
+            // Check if more chunks are coming (m=1)
+            bool more = false;
+            if (paramsPart.Contains("m=1")) more = true;
+            else if (paramsPart.Contains("m=0")) more = false;
+            else if (_kittyPendingParams.TryGetValue("m", out var mVal)) more = (mVal == "1");
+
+            if (more)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] Kitty chunk received, waiting for more (m=1). Buffer size: {_kittyPayloadBuffer.Length}");
+                return;
+            }
+
+            // Process finalized image
+            try
+            {
+                string action = _kittyPendingParams.TryGetValue("a", out var aVal) ? aVal : "t";
+                TerminalLogger.Log($"[ANSI_PARSER] Kitty finalizing image. Action={action}, TotalPayload={_kittyPayloadBuffer.Length}");
+
+                if (action != "t" && action != "T")
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Kitty: skipping unsupported action '{action}'");
+                    return;
+                }
+
+                string combinedPayload = _kittyPayloadBuffer.ToString();
+                if (string.IsNullOrEmpty(combinedPayload)) return;
+
+                // Handle optional 'G' prefix
+                if (combinedPayload.StartsWith("G")) combinedPayload = combinedPayload.Substring(1);
+
+                TerminalLogger.Log($"[ANSI_PARSER] Kitty payload preview: {combinedPayload.Substring(0, Math.Min(combinedPayload.Length, 20))}...");
+                byte[] data = Convert.FromBase64String(combinedPayload);
+                if (data.Length >= 8)
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Kitty data magic: {BitConverter.ToString(data, 0, Math.Min(data.Length, 8))}, DecodedBytes={data.Length}");
+                }
+
+                SKImage? image = null;
+                try
+                {
+                    using var skData = SKData.CreateCopy(data);
+
+                    // Trace codec info
+                    using (var codec = SKCodec.Create(skData))
+                    {
+                        if (codec != null)
+                        {
+                            TerminalLogger.Log($"[ANSI_PARSER] SKCodec created: {codec.EncodedFormat}, Size={codec.Info.Width}x{codec.Info.Height}");
+                        }
+                        else
+                        {
+                            TerminalLogger.Log($"[ANSI_PARSER] SKCodec.Create failed for Kitty data (skData.Size={skData.Size})");
+                        }
+                    }
+
+                    image = SKImage.FromEncodedData(skData);
+                    if (image == null)
+                    {
+                        TerminalLogger.Log("[ANSI_PARSER] SKImage.FromEncodedData returned null.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] SkiaSharp exception during Kitty decode: {ex.Message}");
+                }
+
+                if (image == null)
+                {
+                    TerminalLogger.Log("[ANSI_PARSER] SkiaSharp failed to decode Kitty image data (image was null).");
+                    ClearKittyState();
+                    return;
+                }
+
+                TerminalLogger.Log($"[ANSI_PARSER] Kitty image decoded successfully: {image.Width}x{image.Height}");
+
+                // Guardrail: Limit pixel dimensions
+                if (image.Width > 2000 || image.Height > 2000)
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Kitty image pixel dimensions too large ({image.Width}x{image.Height}), skipping.");
+                    image.Dispose();
+                    ClearKittyState();
+                    return;
+                }
+
+                // Mapping Kitty params to our model
+                int width = 0;
+                int height = 0;
+
+                if (_kittyPendingParams.TryGetValue("c", out var cVal)) width = ParseDimension(cVal, isHeight: false);
+                if (_kittyPendingParams.TryGetValue("r", out var rVal)) height = ParseDimension(rVal, isHeight: true);
+
+                if (width == 0 && _kittyPendingParams.TryGetValue("w", out var wVal))
+                {
+                    string wSfx = wVal.EndsWith("px") || wVal.EndsWith("%") ? wVal : wVal + "px";
+                    width = ParseDimension(wSfx, isHeight: false);
+                }
+
+                if (height == 0 && _kittyPendingParams.TryGetValue("h", out var hVal))
+                {
+                    string hSfx = hVal.EndsWith("px") || hVal.EndsWith("%") ? hVal : hVal + "px";
+                    height = ParseDimension(hSfx, isHeight: true);
+                }
+
+                float effectiveCellWidth = CellWidth > 0 ? CellWidth : 10f;
+                float effectiveCellHeight = CellHeight > 0 ? CellHeight : 20f;
+                double cellRatio = (effectiveCellHeight > 0 && effectiveCellWidth > 0) ? (effectiveCellWidth / (double)effectiveCellHeight) : 0.5;
+                double imageRatio = (double)image.Height / image.Width;
+
+                if (width == 0 && height == 0)
+                {
+                    width = (int)Math.Max(1, Math.Ceiling(image.Width / effectiveCellWidth));
+                    height = (int)Math.Max(1, Math.Ceiling(width * cellRatio * imageRatio));
+                }
+                else if (width == 0)
+                {
+                    width = (int)Math.Max(1, Math.Ceiling(height / (cellRatio * imageRatio)));
+                }
+                else if (height == 0)
+                {
+                    height = (int)Math.Max(1, Math.Ceiling(width * cellRatio * imageRatio));
+                }
+
+                width = Math.Clamp(width, 1, 200);
+                height = Math.Clamp(height, 1, 200);
+
+                int absRow = _buffer.CursorRow + (_buffer.TotalLines - _buffer.Rows);
+                if (_buffer.IsAltScreenActive) absRow = _buffer.CursorRow;
+
+                TerminalLogger.Log($"[ANSI_PARSER] Kitty image placement: CursorCol={_buffer.CursorCol}, CursorRow={_buffer.CursorRow}, absRow={absRow}, widthCells={width}, heightCells={height}, effectiveCellW={effectiveCellWidth}, effectiveCellH={effectiveCellHeight}");
+                var img = new TerminalImage(image, _buffer.CursorCol, absRow, width, height);
+                _buffer.AddImage(img);
+
+                if (action == "T" || action == "t")
+                {
+                    bool oldHidden = _buffer.IsHidden;
+                    _buffer.IsHidden = true;
+                    try
+                    {
+                        string placeholder = "[IMAGE]";
+                        for (int y = 0; y < height; y++)
+                        {
+                            int written = 0;
+                            for (int i = 0; i < width; i++)
+                            {
+                                char cChar = placeholder[written % placeholder.Length];
+                                _buffer.WriteContent(cChar.ToString(), false);
+                                written++;
+                            }
+                            if (y < height - 1)
+                            {
+                                _buffer.WriteChar('\n');
+                                for (int i = 0; i < img.CellX; i++) _buffer.WriteContent(" ", false);
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        _buffer.IsHidden = oldHidden;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] Failed to decode Kitty image: {ex.Message}");
+                ClearKittyState();
+            }
+            finally
+            {
+                if (!more)
+                {
+                    ClearKittyState();
+                }
+            }
+        }
+
+        private void ClearKittyState()
+        {
+            _kittyPayloadBuffer.Clear();
+            _kittyPendingParams.Clear();
+        }
+
         private void HandleITerm2Image(string osc)
         {
-            // Format: 1337;File=name=...;size=...;width=...;height=...;inline=1:base64data
+            TerminalLogger.Log($"[ANSI_PARSER] HandleITerm2Image: {osc.Substring(0, Math.Min(osc.Length, 20))}...");
             var parts = osc.Split(':', 2);
-            if (parts.Length < 2) return;
+            if (parts.Length < 2)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] HandleITerm2Image failed: No ':' separator found in '{osc.Substring(0, Math.Min(osc.Length, 30))}'");
+                return;
+            }
+
+            if (!parts[0].StartsWith("1337;File="))
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] HandleITerm2Image failed: Prefix mismatch in '{parts[0]}'");
+                return;
+            }
 
             var argsPart = parts[0].Substring("1337;File=".Length);
             var base64Data = parts[1];
+            TerminalLogger.Log($"[ANSI_PARSER] iTerm2 args: {argsPart}, dataLen: {base64Data.Length}");
 
             var args = argsPart.Split(';');
             int width = 0;
@@ -605,8 +989,8 @@ namespace NovaTerminal.Core
                 string key = kv[0].ToLower();
                 string val = kv[1];
 
-                if (key == "width") width = ParseDimension(val);
-                else if (key == "height") height = ParseDimension(val);
+                if (key == "width") width = ParseDimension(val, isHeight: false);
+                else if (key == "height") height = ParseDimension(val, isHeight: true);
                 else if (key == "inline") inline = (val == "1");
             }
 
@@ -614,36 +998,93 @@ namespace NovaTerminal.Core
 
             try
             {
-                byte[] data = Convert.FromBase64String(base64Data);
-                using var ms = new System.IO.MemoryStream(data);
-                var bitmap = SKBitmap.Decode(ms);
-
-                if (bitmap != null)
+                // Guardrail: Limit base64 length to avoid excessive memory usage before decoding
+                if (base64Data.Length > 10 * 1024 * 1024) // 10MB limit
                 {
-                    if (width == 0 && height == 0)
-                    {
-                        // Default: Scale to fit roughly 1/3 of the screen width, or 10 cells if tiny
-                        width = Math.Max(10, bitmap.Width / 10);
-                        height = Math.Max(1, (int)(width * ((double)bitmap.Height / bitmap.Width) * 0.5)); // 0.5 factor for cell aspect ratio
-                    }
-                    else if (width == 0)
-                    {
-                        width = Math.Max(1, (int)(height * ((double)bitmap.Width / bitmap.Height) * 2.0)); // 2.0 factor for cell aspect ratio
-                    }
-                    else if (height == 0)
-                    {
-                        height = Math.Max(1, (int)(width * ((double)bitmap.Height / bitmap.Width) * 0.5)); // 0.5 factor for cell aspect ratio
-                    }
+                    TerminalLogger.Log("[ANSI_PARSER] Image data too large (>10MB), skipping.");
+                    return;
+                }
 
-                    // Calculate absolute row
-                    int absRow = _buffer.CursorRow + (_buffer.TotalLines - _buffer.Rows);
-                    if (_buffer.IsAltScreenActive) absRow = _buffer.CursorRow;
+                byte[] data = Convert.FromBase64String(base64Data);
+                TerminalLogger.Log($"[ANSI_PARSER] Base64 decoded to {data.Length} bytes.");
 
-                    var img = new TerminalImage(bitmap, _buffer.CursorCol, absRow, width, height);
-                    _buffer.AddImage(img);
+                using var skData = SKData.CreateCopy(data);
+                SKImage? image = SKImage.FromEncodedData(skData);
+                if (image == null)
+                {
+                    TerminalLogger.Log("[ANSI_PARSER] SkiaSharp failed to decode iTerm2 image data (SKImage was null).");
+                    return;
+                }
 
-                    // Advance cursor based on image width
-                    for (int i = 0; i < width; i++) _buffer.WriteContent(" ", false);
+                TerminalLogger.Log($"[ANSI_PARSER] Image decoded successfully: {image.Width}x{image.Height} pixels.");
+
+                // Guardrail: Limit pixel dimensions
+                if (image.Width > 2000 || image.Height > 2000)
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Image pixel dimensions too large ({image.Width}x{image.Height}), skipping.");
+                    image.Dispose();
+                    return;
+                }
+
+                if (width == 0 && height == 0)
+                {
+                    // Default: Scale to fit roughly 1/3 of the screen width, or 10 cells if tiny
+                    width = Math.Max(10, image.Width / 10);
+                    double cellRatio = (CellHeight > 0 && CellWidth > 0) ? (CellWidth / (double)CellHeight) : 0.5;
+                    double imageRatio = (double)image.Height / image.Width;
+                    height = Math.Max(1, (int)Math.Ceiling(width * cellRatio * imageRatio));
+                }
+                else if (width == 0)
+                {
+                    double cellRatio = (CellHeight > 0 && CellWidth > 0) ? (CellWidth / (double)CellHeight) : 0.5;
+                    double imageRatio = (double)image.Height / image.Width;
+                    width = Math.Max(1, (int)Math.Ceiling(height / (cellRatio * imageRatio)));
+                }
+                else if (height == 0)
+                {
+                    double cellRatio = (CellHeight > 0 && CellWidth > 0) ? (CellWidth / (double)CellHeight) : 0.5;
+                    double imageRatio = (double)image.Height / image.Width;
+                    height = Math.Max(1, (int)Math.Ceiling(width * cellRatio * imageRatio));
+                }
+
+                // Guardrail: Limit cell dimensions
+                width = Math.Clamp(width, 1, 200);
+                height = Math.Clamp(height, 1, 200);
+
+                // Calculate absolute row
+                int absRow = _buffer.CursorRow + (_buffer.TotalLines - _buffer.Rows);
+                if (_buffer.IsAltScreenActive) absRow = _buffer.CursorRow;
+
+                TerminalLogger.Log($"[ANSI_PARSER] iTerm2 image placement: CursorRow={_buffer.CursorRow}, TotalLines={_buffer.TotalLines}, Rows={_buffer.Rows} -> absRow={absRow}");
+                var img = new TerminalImage(image, _buffer.CursorCol, absRow, width, height);
+                _buffer.AddImage(img);
+
+                // Write placeholder text "[IMAGE]" into the cells occupied by the image
+                // This allows selection and copy/paste to work descriptively.
+                bool oldHidden = _buffer.IsHidden;
+                _buffer.IsHidden = true;
+                try
+                {
+                    string placeholder = "[IMAGE]";
+                    for (int y = 0; y < height; y++)
+                    {
+                        int written = 0;
+                        for (int i = 0; i < width; i++)
+                        {
+                            char cChar = placeholder[written % placeholder.Length];
+                            _buffer.WriteContent(cChar.ToString(), false);
+                            written++;
+                        }
+                        if (y < height - 1)
+                        {
+                            _buffer.WriteChar('\n');
+                            for (int i = 0; i < img.CellX; i++) _buffer.WriteContent(" ", false);
+                        }
+                    }
+                }
+                finally
+                {
+                    _buffer.IsHidden = oldHidden;
                 }
             }
             catch (Exception ex)
@@ -652,10 +1093,29 @@ namespace NovaTerminal.Core
             }
         }
 
-        private int ParseDimension(string val)
+        private int ParseDimension(string val, bool isHeight = false)
         {
-            if (val.EndsWith("px")) return 0; // We want cell units for now
-            if (val.EndsWith("%")) return 0;
+            if (string.IsNullOrEmpty(val)) return 0;
+
+            if (val.EndsWith("px"))
+            {
+                if (double.TryParse(val.Substring(0, val.Length - 2), out double px))
+                {
+                    // Convert pixels to cells based on current metrics
+                    float metric = isHeight ? CellHeight : CellWidth;
+                    return (int)Math.Max(1, Math.Ceiling(px / (metric > 0 ? metric : 10f)));
+                }
+            }
+            if (val.EndsWith("%"))
+            {
+                if (double.TryParse(val.Substring(0, val.Length - 1), out double pct))
+                {
+                    // % of terminal width/height in cells
+                    int total = isHeight ? _buffer.Rows : _buffer.Cols;
+                    return (int)Math.Max(1, (total * pct / 100.0));
+                }
+            }
+
             if (int.TryParse(val, out int result)) return result;
             return 0;
         }

@@ -148,6 +148,17 @@ namespace NovaTerminal.Core
                 int read = Native.pty_read(_ptyState, buffer, buffer.Length);
                 if (read > 0)
                 {
+                    // Debug: Log raw bytes if they look like escape sequences
+                    for (int i = 0; i < read; i++)
+                    {
+                        if (buffer[i] == 0x1b) // ESC
+                        {
+                            int nextIdx = i + 1;
+                            byte nextByte = nextIdx < read ? buffer[nextIdx] : (byte)0;
+                            TerminalLogger.Log($"[PTY_RAW] Seeing ESC (0x1B) followed by: 0x{nextByte:X} ({(char)nextByte})");
+                        }
+                    }
+
                     // Record raw bytes before any processing
                     _recorder?.RecordChunk(buffer, read);
 

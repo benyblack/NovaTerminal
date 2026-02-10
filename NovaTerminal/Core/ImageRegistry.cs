@@ -10,36 +10,75 @@ namespace NovaTerminal.Core
         public static ImageRegistry Instance => _instance.Value;
 
         private readonly ConcurrentDictionary<Guid, SKBitmap> _images = new();
+        private readonly System.Collections.Generic.LinkedList<Guid> _lruOrder = new();
+        private const int MaxImages = 200; // Bounded cache to prevent OOM
+        private readonly object _lock = new();
 
         private ImageRegistry() { }
 
         public Guid RegisterImage(SKBitmap bitmap)
         {
-            var id = Guid.NewGuid();
-            _images[id] = bitmap;
-            return id;
+            lock (_lock)
+            {
+                if (_images.Count >= MaxImages)
+                {
+                    // Evict oldest (least recently used or simply oldest)
+                    var oldest = _lruOrder.First;
+                    if (oldest != null)
+                    {
+                        if (_images.TryRemove(oldest.Value, out var oldBitmap))
+                        {
+                            oldBitmap.Dispose();
+                        }
+                        _lruOrder.RemoveFirst();
+                    }
+                }
+
+                var id = Guid.NewGuid();
+                _images[id] = bitmap;
+                _lruOrder.AddLast(id);
+                return id;
+            }
         }
 
         public SKBitmap? GetImage(Guid id)
         {
-            return _images.TryGetValue(id, out var bitmap) ? bitmap : null;
+            lock (_lock)
+            {
+                if (_images.TryGetValue(id, out var bitmap))
+                {
+                    // Move to end of LRU (most recently used)
+                    _lruOrder.Remove(id);
+                    _lruOrder.AddLast(id);
+                    return bitmap;
+                }
+                return null;
+            }
         }
 
         public void RemoveImage(Guid id)
         {
-            if (_images.TryRemove(id, out var bitmap))
+            lock (_lock)
             {
-                bitmap.Dispose();
+                if (_images.TryRemove(id, out var bitmap))
+                {
+                    bitmap.Dispose();
+                    _lruOrder.Remove(id);
+                }
             }
         }
 
         public void Clear()
         {
-            foreach (var bitmap in _images.Values)
+            lock (_lock)
             {
-                bitmap.Dispose();
+                foreach (var bitmap in _images.Values)
+                {
+                    bitmap.Dispose();
+                }
+                _images.Clear();
+                _lruOrder.Clear();
             }
-            _images.Clear();
         }
     }
 }

@@ -143,48 +143,33 @@ namespace NovaTerminal.Core
                 bgPaint.Color = themeBg;
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
 
+                // UNCONDITIONAL DEBUG DRAWING
+                using (var testPaint = new SKPaint { Color = SKColors.Red, Style = SKPaintStyle.Fill })
+                {
+                    canvas.DrawRect(0, 0, 20, 20, testPaint); // Red square at top-left
+                }
+                TerminalLogger.Log($"[RENDERER] DrawTerminal: Bounds={Bounds}, Scaling={_renderScaling}, CanvasClip={canvas.LocalClipBounds}, Matrix={canvas.TotalMatrix}");
+
                 float paddingLeft = 4f;
                 float paddingTop = 0;
-                int absDisplayStart = Math.Max(0, _totalLines - bufferRows - _scrollOffset);
+                int absDisplayStart = Math.Max(0, _totalLines - _bufferRows - _scrollOffset);
 
-                // Pass 0: Images
-                foreach (var img in _buffer.Images)
-                {
-                    int visualY = img.CellY - absDisplayStart;
-
-                    // Only render if image is at least partially in viewport
-                    if (visualY + img.CellHeight > 0 && visualY < bufferRows)
-                    {
-                        float x = (float)(Math.Round((img.CellX * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                        float y = (float)(Math.Round((visualY * _metrics.CellHeight + paddingTop) * _renderScaling) / _renderScaling);
-                        float w = (float)(Math.Round((img.CellWidth * _metrics.CellWidth) * _renderScaling) / _renderScaling);
-                        float h = (float)(Math.Round((img.CellHeight * _metrics.CellHeight) * _renderScaling) / _renderScaling);
-
-                        var rect = new SKRect(x, y, x + w, y + h);
-
-                        // Clip to terminal bounds
-                        canvas.Save();
-                        canvas.ClipRect(new SKRect(paddingLeft, 0, (float)Bounds.Width, (float)Bounds.Height));
-                        canvas.DrawBitmap(img.Bitmap, rect);
-                        canvas.Restore();
-                    }
-                }
-
-                var tf = _skTypeface?.Typeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
-                using var font = (_skFont?.Font != null) ? new SKFont(_skFont.Font.Typeface, _skFont.Font.Size) : new SKFont(tf, (float)_fontSize);
-                font.Edging = SKFontEdging.Antialias;
+                // Note: We use the snapshotted _totalLines and _bufferRows for the background/text pass
+                // to match the snapshot state. However, we should consider if images need a more 
+                // "live" view if they are being added rapidly. 
+                // For now, consistent snapshots are safer for a single frame.
 
                 int dirtyCells = 0;
+
+                // Pass 1: Backgrounds
                 for (int r = 0; r < bufferRows; r++)
                 {
                     float y = (float)(Math.Round((r * _metrics.CellHeight + paddingTop) * _renderScaling) / _renderScaling);
-                    float baselineY = y + (float)_metrics.Baseline;
                     int absRow = absDisplayStart + r;
 
-                    // Pass 1: Backgrounds
                     for (int c = 0; c < bufferCols; c++)
                     {
-                        var cell = _buffer.GetCell(c, r, _scrollOffset);
+                        var cell = _buffer.GetCellAbsolute(c, absRow);
                         var cellBg = cell.IsDefaultBackground ? themeBg : new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
                         var cellFg = cell.IsDefaultForeground ? themeFg : new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
                         if (cell.IsInverse) { var tmp = cellBg; cellBg = cellFg; cellFg = tmp; }
@@ -195,7 +180,7 @@ namespace NovaTerminal.Core
                             int k = c + 1;
                             while (k < bufferCols)
                             {
-                                var n = _buffer.GetCell(k, r, _scrollOffset);
+                                var n = _buffer.GetCellAbsolute(k, absRow);
                                 var nb = n.IsDefaultBackground ? themeBg : new SKColor(n.Background.R, n.Background.G, n.Background.B, alpha);
                                 var nf = n.IsDefaultForeground ? themeFg : new SKColor(n.Foreground.R, n.Foreground.G, n.Foreground.B, alpha);
                                 if (n.IsInverse) nb = nf;
@@ -211,7 +196,7 @@ namespace NovaTerminal.Core
                         }
                     }
 
-                    // Selection/Matches
+                    // Selection/Matches (also backgrounds)
                     if (_selection.IsActive)
                     {
                         var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
@@ -236,8 +221,46 @@ namespace NovaTerminal.Core
                             }
                         }
                     }
+                }
 
-                    // Pass 2: Foreground (Text)
+                // Pass 2: Images
+                if (_buffer.Images.Count > 0)
+                {
+                    TerminalLogger.Log($"[RENDERER] Drawing {_buffer.Images.Count} images. absDisplayStart={absDisplayStart}");
+                }
+                using var imagePaint = new SKPaint { Color = new SKColor(255, 255, 255, alpha), FilterQuality = SKFilterQuality.High };
+                foreach (var img in _buffer.Images)
+                {
+                    int visualY = img.CellY - absDisplayStart;
+
+                    // Only render if image is at least partially in viewport
+                    if (visualY + img.CellHeight > 0 && visualY < bufferRows)
+                    {
+                        float x = (float)(Math.Round((img.CellX * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                        float y = (float)(Math.Round((visualY * _metrics.CellHeight + paddingTop) * _renderScaling) / _renderScaling);
+                        float w = (float)(Math.Round((img.CellWidth * _metrics.CellWidth) * _renderScaling) / _renderScaling);
+                        float h = (float)(Math.Round((img.CellHeight * _metrics.CellHeight) * _renderScaling) / _renderScaling);
+
+                        var rect = new SKRect(x, y, x + w, y + h);
+                        // TerminalLogger.Log($"[RENDERER] Drawing image at CellX={img.CellX}, CellY={img.CellY} -> visualY={visualY}, rect={rect.Left:F1},{rect.Top:F1},{rect.Width:F1}x{rect.Height:F1}, alpha={alpha}, scaling={_renderScaling}");
+
+                        // Clip to terminal bounds
+                        canvas.Save();
+                        canvas.ClipRect(new SKRect(paddingLeft, 0, (float)Bounds.Width, (float)Bounds.Height));
+                        canvas.DrawImage(img.Image, rect, imagePaint);
+                        canvas.Restore();
+                    }
+                }
+
+                // Pass 3: Text
+                var tf = _skTypeface?.Typeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
+                using var font = (_skFont?.Font != null) ? new SKFont(_skFont.Font.Typeface, _skFont.Font.Size) : new SKFont(tf, (float)_fontSize);
+                font.Edging = SKFontEdging.Antialias;
+
+                for (int r = 0; r < bufferRows; r++)
+                {
+                    int absRow = absDisplayStart + r;
+                    float baselineY = (float)(Math.Round((r * _metrics.CellHeight + paddingTop + _metrics.Baseline) * _renderScaling) / _renderScaling);
                     dirtyCells += DrawRowText(canvas, r, absRow, bufferCols, baselineY, font, fgPaint, themeFg, themeBg, alpha, tf);
                 }
 
@@ -267,7 +290,7 @@ namespace NovaTerminal.Core
 
             for (int c = 0; c < bufferCols; c++)
             {
-                var cell = _buffer.GetCell(c, r, _scrollOffset);
+                var cell = _buffer.GetCellAbsolute(c, absRow);
                 if (cell.IsWideContinuation || cell.IsHidden) continue;
 
                 bool hasChar = (cell.Text != null) ? cell.Text.Length > 0 : (cell.Character != ' ' && cell.Character != '\0');
@@ -286,7 +309,7 @@ namespace NovaTerminal.Core
                     int k = c + 1;
                     while (k < bufferCols)
                     {
-                        var next = _buffer.GetCell(k, r, _scrollOffset);
+                        var next = _buffer.GetCellAbsolute(k, absRow);
                         if (next.IsWide || next.IsWideContinuation || !string.IsNullOrEmpty(next.Text) || next.IsHidden) break;
                         if (next.Character == ' ' || next.Character == '\0') break;
                         var ncb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
