@@ -1,30 +1,50 @@
-import base64
+import os
 import sys
+import time
 
 
-def send_sixel(image_path, wrapped=False):
-    # This is a very minimal Sixel-ish blob for testing if we can see ANY DCS sequences
-    # A real sixel starts with \eP...q
-    # We'll just send a small red block if we could, but let's just send some dummy Sixel data
-    # \ePq#0;2;100;0;0#0!100~-
-    # #0: color 0, 2: RGB, 100;0;0: Red
-    # #0: use color 0
-    # !100~: 100 sixels of pattern ~ (all 6 dots)
-    # -: carriage return
-    sixel_data = "\x1bPq#0;2;100;0;0#0!100~-\x1b\\"
+def ping_da():
+    print("Pinging for Device Attributes (DA1)...")
+    # Using byte literal to ensure no encoding issues
+    sys.stdout.buffer.write(b"\x1b[c")
+    sys.stdout.buffer.flush()
+    time.sleep(1.0)
 
-    if wrapped:
-        # Wrap in OSC 1339 as we did for Kitty
-        print(f"\x1b]1339;{sixel_data}\x07", end="", flush=True)
+
+def send_sixel(mode="raw"):
+    # A small red block in Sixel
+    # q = start sixel
+    # #0;2;100;0;0 = define color 0 as RGB 100,0,0
+    # #0 = use color 0
+    # !100~ = 100 pixels of bit pattern 126
+    # - = newline
+    sixel_data = b"q#0;2;100;0;0#0!100~-"
+
+    # Wrap in DCS for standard VT
+    dcs_sixel = b"\x1bP" + sixel_data + b"\x1b\\"
+
+    if mode == "wrapped":
+        print("Sending TUNNELED Sixel (OSC 1339)...")
+        sys.stdout.buffer.write(b"\x1b]1339;" + sixel_data + b"\x07")
+    elif mode == "da":
+        ping_da()
+    elif mode == "passthrough":
+        print("Manually enabling ConPTY Passthrough and sending Sixel...")
+        sys.stdout.buffer.write(b"\x1b[?9001h")
+        sys.stdout.buffer.flush()
+        time.sleep(0.1)
+        sys.stdout.buffer.write(dcs_sixel)
+    elif mode == "raw":
+        print("Sending RAW Sixel (DCS wrapped)...")
+        sys.stdout.buffer.write(dcs_sixel)
     else:
-        print(sixel_data, end="", flush=True)
+        print(f"Unknown mode: {mode}")
+        print("Available modes: raw, wrapped, da, passthrough")
+
+    sys.stdout.buffer.write(b"\n")
+    sys.stdout.buffer.flush()
 
 
 if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "unwrapped"
-    if mode == "wrapped":
-        print("Sending WRAPPED Sixel...")
-        send_sixel(None, True)
-    else:
-        print("Sending UNWRAPPED Sixel...")
-        send_sixel(None, False)
+    mode = sys.argv[1] if len(sys.argv) > 1 else "raw"
+    send_sixel(mode)

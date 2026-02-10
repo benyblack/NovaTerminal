@@ -143,11 +143,6 @@ namespace NovaTerminal.Core
                 bgPaint.Color = themeBg;
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
 
-                // UNCONDITIONAL DEBUG DRAWING
-                using (var testPaint = new SKPaint { Color = SKColors.Red, Style = SKPaintStyle.Fill })
-                {
-                    canvas.DrawRect(0, 0, 20, 20, testPaint); // Red square at top-left
-                }
                 TerminalLogger.Log($"[RENDERER] DrawTerminal: Bounds={Bounds}, Scaling={_renderScaling}, CanvasClip={canvas.LocalClipBounds}, Matrix={canvas.TotalMatrix}");
 
                 float paddingLeft = 4f;

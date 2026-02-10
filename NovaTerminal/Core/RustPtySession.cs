@@ -92,7 +92,7 @@ namespace NovaTerminal.Core
             // POST-LAUNCH INJECTION for PowerShell
             if (shellLower.Contains("powershell") || shellLower.Contains("pwsh"))
             {
-                Task.Delay(100).ContinueWith(_ =>
+                Task.Delay(300).ContinueWith(_ =>
                 {
                     try
                     {
@@ -112,7 +112,6 @@ namespace NovaTerminal.Core
                         System.IO.File.WriteAllText(tempScript, sb.ToString());
 
                         // Inject the execution command
-                        // Use quotes to handle spaces in Temp path although rare
                         string cleanPath = tempScript.Replace("'", "''");
                         SendInput($"& '{cleanPath}'\r");
                     }
@@ -148,14 +147,26 @@ namespace NovaTerminal.Core
                 int read = Native.pty_read(_ptyState, buffer, buffer.Length);
                 if (read > 0)
                 {
-                    // Debug: Log raw bytes if they look like escape sequences
+                    // Debug: Log raw bytes if they look like escape sequences or C1 controls
                     for (int i = 0; i < read; i++)
                     {
-                        if (buffer[i] == 0x1b) // ESC
+                        byte b = buffer[i];
+                        if (b == 0x1b) // ESC
                         {
-                            int nextIdx = i + 1;
-                            byte nextByte = nextIdx < read ? buffer[nextIdx] : (byte)0;
-                            TerminalLogger.Log($"[PTY_RAW] Seeing ESC (0x1B) followed by: 0x{nextByte:X} ({(char)nextByte})");
+                            StringBuilder hexSub = new StringBuilder();
+                            for (int j = 1; j <= 8 && i + j < read; j++)
+                            {
+                                hexSub.Append($"{buffer[i + j]:X2} ");
+                            }
+                            TerminalLogger.Log($"[PTY_RAW] ESC (0x1B) followed by: {hexSub}");
+                        }
+                        else if (b == 0x90) // C1 DCS
+                        {
+                            TerminalLogger.Log($"[PTY_RAW] Seeing C1 DCS (0x90)");
+                        }
+                        else if (b == 0x9B) // C1 CSI
+                        {
+                            TerminalLogger.Log($"[PTY_RAW] Seeing C1 CSI (0x9B)");
                         }
                     }
 
@@ -168,6 +179,14 @@ namespace NovaTerminal.Core
                     if (charCount > 0)
                     {
                         string text = new string(charBuffer, 0, charCount);
+
+                        // Debug: Detailed trace of ALL incoming text
+                        string sanitized = text.Replace("\x1b", "\\e").Replace("\r", "\\r").Replace("\n", "\\n");
+                        if (sanitized.Length > 0)
+                        {
+                            string preview = sanitized.Length > 100 ? sanitized.Substring(0, 100) + "..." : sanitized;
+                            TerminalLogger.Log($"[PTY_TRACE] {preview}");
+                        }
 
                         // PASSWORD INJECTION (Mimics sshpass but integrated)
                         if (!string.IsNullOrEmpty(_savedPassword) && !_passwordSent)

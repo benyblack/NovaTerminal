@@ -25,7 +25,6 @@ namespace NovaTerminal.Core
         // We use a dictionary or a list of bands to handle sparse/infinite vertically.
         // Each band is 6 pixels high.
         private readonly List<byte[]> _bands = new();
-        private int _bandWidth = 0;
 
         public SixelDecoder()
         {
@@ -60,7 +59,6 @@ namespace NovaTerminal.Core
             _maxHeight = 0;
             _bands.Clear();
             _placements.Clear();
-            _bandWidth = 800; // Initial guess, will grow
 
             int i = 0;
             while (i < data.Length)

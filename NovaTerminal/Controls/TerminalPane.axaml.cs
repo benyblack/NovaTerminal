@@ -223,6 +223,12 @@ namespace NovaTerminal.Controls
                 Dispatcher.UIThread.Post(UpdateScrollUI);
             };
 
+            // Wire up Parser responses (e.g. DA1)
+            Parser.OnResponse += response =>
+            {
+                Session.SendInput(response);
+            };
+
             // Wire up Resize
             TermView.OnResize += (c, r) =>
             {
