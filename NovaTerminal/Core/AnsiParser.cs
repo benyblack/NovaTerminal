@@ -234,7 +234,6 @@ namespace NovaTerminal.Core
 
         private void HandleCsi(char finalByte, ReadOnlySpan<char> parameters)
         {
-            TerminalLogger.Log($"[ANSI_PARSER] HandleCsi: {finalByte} (params: '{new string(parameters)}')");
 
             // Check for private mode prefix (?)
             bool isPrivate = parameters.Length > 0 && parameters[0] == '?';
@@ -424,7 +423,6 @@ namespace NovaTerminal.Core
                     if (isPrivate)
                     {
                         bool enable = (finalByte == 'h');
-                        Console.WriteLine($"[ANSI_PARSER] DEC Private Mode: enable={enable}, finalByte={finalByte}, args=[{string.Join(",", validArgs.ToArray())}]");
                         HandleDECPrivateMode(validArgs, enable);
                     }
                     break;
@@ -434,7 +432,6 @@ namespace NovaTerminal.Core
                         // Secondary Device Attributes
                         // CSI > 1 ; 1 0 ; 0 c (standard for VT220-ish)
                         OnResponse?.Invoke("\x1b[>1;10;0c");
-                        TerminalLogger.Log("[ANSI_PARSER] Handled Secondary DA query -> Sent generic response.");
                     }
                     else if (!isPrivate)
                     {
@@ -442,21 +439,18 @@ namespace NovaTerminal.Core
                         // Respond with VT220 + Sixel + ANSI Color
                         // CSI ? 6 2 ; 4 ; 2 2 c
                         OnResponse?.Invoke("\x1b[?62;4;22c");
-                        TerminalLogger.Log("[ANSI_PARSER] Handled Primary DA query -> Sent Sixel capability response.");
                     }
                     break;
                 case 'n': // DSR - Device Status Report
                     if (arg0 == 5) // Status Query
                     {
                         OnResponse?.Invoke("\x1b[0n");
-                        TerminalLogger.Log("[ANSI_PARSER] Handled DSR 5 (Status) -> Sent OK.");
                     }
                     else if (arg0 == 6) // Cursor Position Report (CPR)
                     {
                         // CSI r ; c R
                         string response = $"\x1b[{_buffer.CursorRow + 1};{_buffer.CursorCol + 1}R";
                         OnResponse?.Invoke(response);
-                        TerminalLogger.Log($"[ANSI_PARSER] Handled DSR 6 (CPR) -> Sent {response.Substring(1)}.");
                     }
                     else if (arg0 == 0) // DSR response (ignore)
                     {
@@ -691,7 +685,6 @@ namespace NovaTerminal.Core
 
         private void HandleDcs(string dcs)
         {
-            TerminalLogger.Log($"[ANSI_PARSER] HandleDcs: {dcs.Substring(0, Math.Min(dcs.Length, 30))}...");
 
             // Sixel Support (DCS Ps ; Pi ; Pj q <sixel_data> ST)
             if (dcs.Contains('q'))
@@ -703,22 +696,17 @@ namespace NovaTerminal.Core
 
         private void HandleSixel(string dcs)
         {
-            TerminalLogger.Log($"[ANSI_PARSER] Sixel sequence detected. Decoding...");
             try
             {
                 var bitmap = _sixelDecoder.Decode(dcs);
                 if (bitmap != null)
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Sixel decoded successfully: {bitmap.Width}x{bitmap.Height}");
-
                     // Calculate cell dimensions (rough estimate based on current font metrics)
                     int widthCells = (int)Math.Max(1, Math.Ceiling(bitmap.Width / (CellWidth > 0 ? CellWidth : 10f)));
                     int heightCells = (int)Math.Max(1, Math.Ceiling(bitmap.Height / (CellHeight > 0 ? CellHeight : 20f)));
 
                     int absRow = _buffer.CursorRow + (_buffer.TotalLines - _buffer.Rows);
                     if (_buffer.IsAltScreenActive) absRow = _buffer.CursorRow;
-
-                    TerminalLogger.Log($"[ANSI_PARSER] Sixel image placement: CursorCol={_buffer.CursorCol}, CursorRow={_buffer.CursorRow}, TotalLines={_buffer.TotalLines}, Rows={_buffer.Rows} -> absRow={absRow}");
 
                     // Decode now returns SKImage? or we convert. Let's see SixelDecoder.
                     using var skData = SKData.CreateCopy(System.Text.Encoding.UTF8.GetBytes(dcs));
@@ -759,7 +747,6 @@ namespace NovaTerminal.Core
         private void HandleOsc(string osc)
         {
             if (string.IsNullOrEmpty(osc)) return;
-            TerminalLogger.Log($"[ANSI_PARSER] HandleOsc: {osc.Substring(0, Math.Min(osc.Length, 30))}...");
             if (osc.StartsWith("1337;File="))
             {
                 HandleITerm2Image(osc);
@@ -767,7 +754,6 @@ namespace NovaTerminal.Core
             else if (osc.StartsWith("1339;"))
             {
                 string content = osc.Substring(5);
-                TerminalLogger.Log($"[ANSI_PARSER] HandleOsc 1339 content: {content.Substring(0, Math.Min(content.Length, 40))}...");
                 if (content.StartsWith("Kitty:") || content.StartsWith("K:"))
                 {
                     int skip = content.StartsWith("Kitty:") ? 6 : 2;
@@ -781,7 +767,6 @@ namespace NovaTerminal.Core
             }
             else
             {
-                TerminalLogger.Log($"[ANSI_PARSER] Unhandled OSC: {osc.Substring(0, Math.Min(osc.Length, 50))}...");
             }
         }
 

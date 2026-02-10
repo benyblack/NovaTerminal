@@ -140,16 +140,18 @@ mod win32 {
     }
 }
 
+use std::sync::{Arc, Mutex};
+
 // Structure to hold the PTY session state
 pub struct PtyState {
-    pub reader: Box<dyn Read + Send>,
-    pub writer: Box<dyn Write + Send>,
+    pub reader: Mutex<Box<dyn Read + Send>>,
+    pub writer: Mutex<Box<dyn Write + Send>>,
     #[cfg(windows)]
     pub h_pc: Option<windows_sys::Win32::System::Console::HPCON>,
     #[cfg(windows)]
     pub h_process: Option<windows_sys::Win32::Foundation::HANDLE>,
-    pub master: Option<Box<dyn portable_pty::MasterPty + Send>>,
-    pub child: Option<Box<dyn portable_pty::Child + Send>>,
+    pub master: Mutex<Option<Box<dyn portable_pty::MasterPty + Send>>>,
+    pub child: Mutex<Option<Box<dyn portable_pty::Child + Send>>>,
 }
 
 #[unsafe(no_mangle)]
@@ -191,14 +193,14 @@ pub extern "C" fn pty_spawn(
             rows,
         ) {
             let state = PtyState {
-                reader,
-                writer,
+                reader: Mutex::new(reader),
+                writer: Mutex::new(writer),
                 h_pc: Some(h_pc),
                 h_process: Some(h_process),
-                master: None,
-                child: None,
+                master: Mutex::new(None),
+                child: Mutex::new(None),
             };
-            return Box::into_raw(Box::new(state));
+            return Arc::into_raw(Arc::new(state)) as *mut PtyState;
         }
     }
 
@@ -246,17 +248,17 @@ pub extern "C" fn pty_spawn(
     };
 
     let state = PtyState {
-        reader,
-        writer,
+        reader: Mutex::new(reader),
+        writer: Mutex::new(writer),
         #[cfg(windows)]
         h_pc: None,
         #[cfg(windows)]
         h_process: None,
-        master: Some(pair.master),
-        child: Some(child),
+        master: Mutex::new(Some(pair.master)),
+        child: Mutex::new(Some(child)),
     };
 
-    Box::into_raw(Box::new(state))
+    Arc::into_raw(Arc::new(state)) as *mut PtyState
 }
 
 #[unsafe(no_mangle)]
@@ -269,20 +271,21 @@ pub extern "C" fn pty_read(state_ptr: *mut PtyState, buffer: *mut u8, len: c_int
     if state_ptr.is_null() {
         return -1;
     }
-    let state = unsafe { &mut *state_ptr };
+    let state = unsafe {
+        let arc = Arc::from_raw(state_ptr);
+        let cloned = arc.clone();
+        let _ = Arc::into_raw(arc);
+        cloned
+    };
 
-    let mut buf = vec![0u8; len as usize];
-    match state.reader.read(&mut buf) {
-        Ok(bytes_read) => {
-            if bytes_read == 0 {
-                return 0;
-            } // EOF
-            unsafe {
-                std::ptr::copy_nonoverlapping(buf.as_ptr(), buffer, bytes_read);
-            }
-            bytes_read as c_int
+    let buf = unsafe { std::slice::from_raw_parts_mut(buffer, len as usize) };
+    if let Ok(mut reader) = state.reader.lock() {
+        match reader.read(buf) {
+            Ok(n) => n as c_int,
+            Err(_) => -1,
         }
-        Err(_) => -1,
+    } else {
+        -1
     }
 }
 
@@ -291,15 +294,21 @@ pub extern "C" fn pty_write(state_ptr: *mut PtyState, buffer: *const u8, len: c_
     if state_ptr.is_null() {
         return -1;
     }
-    let state = unsafe { &mut *state_ptr };
+    let state = unsafe {
+        let arc = Arc::from_raw(state_ptr);
+        let cloned = arc.clone();
+        let _ = Arc::into_raw(arc);
+        cloned
+    };
 
     let buf = unsafe { std::slice::from_raw_parts(buffer, len as usize) };
-    match state.writer.write(buf) {
-        Ok(n) => {
-            let _ = state.writer.flush();
-            n as c_int
+    if let Ok(mut writer) = state.writer.lock() {
+        match writer.write(buf) {
+            Ok(n) => n as c_int,
+            Err(_) => -1,
         }
-        Err(_) => -1,
+    } else {
+        -1
     }
 }
 
@@ -308,7 +317,12 @@ pub extern "C" fn pty_resize(state_ptr: *mut PtyState, cols: u16, rows: u16) {
     if state_ptr.is_null() {
         return;
     }
-    let state = unsafe { &mut *state_ptr };
+    let state = unsafe {
+        let arc = Arc::from_raw(state_ptr);
+        let cloned = arc.clone();
+        let _ = Arc::into_raw(arc);
+        cloned
+    };
 
     #[cfg(windows)]
     {
@@ -324,14 +338,16 @@ pub extern "C" fn pty_resize(state_ptr: *mut PtyState, cols: u16, rows: u16) {
         }
     }
 
-    if let Some(ref master) = state.master {
-        let size = PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        };
-        let _ = master.resize(size);
+    if let Ok(master_opt) = state.master.lock() {
+        if let Some(ref master) = *master_opt {
+            let size = PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            };
+            let _ = master.resize(size);
+        }
     }
 }
 
@@ -340,7 +356,12 @@ pub extern "C" fn pty_get_pid(state_ptr: *mut PtyState) -> c_int {
     if state_ptr.is_null() {
         return -1;
     }
-    let state = unsafe { &mut *state_ptr };
+    let state = unsafe {
+        let arc = Arc::from_raw(state_ptr);
+        let cloned = arc.clone();
+        let _ = Arc::into_raw(arc);
+        cloned
+    };
 
     #[cfg(windows)]
     {
@@ -351,9 +372,11 @@ pub extern "C" fn pty_get_pid(state_ptr: *mut PtyState) -> c_int {
         }
     }
 
-    if let Some(ref child) = state.child {
-        if let Some(pid) = child.process_id() {
-            return pid as c_int;
+    if let Ok(child_opt) = state.child.lock() {
+        if let Some(ref child) = *child_opt {
+            if let Some(pid) = child.process_id() {
+                return pid as c_int;
+            }
         }
     }
     -1
@@ -364,7 +387,7 @@ pub extern "C" fn pty_close(state_ptr: *mut PtyState) {
     if state_ptr.is_null() {
         return;
     }
-    let mut state = unsafe { Box::from_raw(state_ptr) };
+    let state = unsafe { Arc::from_raw(state_ptr) };
 
     #[cfg(windows)]
     {

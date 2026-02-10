@@ -147,29 +147,6 @@ namespace NovaTerminal.Core
                 int read = Native.pty_read(_ptyState, buffer, buffer.Length);
                 if (read > 0)
                 {
-                    // Debug: Log raw bytes if they look like escape sequences or C1 controls
-                    for (int i = 0; i < read; i++)
-                    {
-                        byte b = buffer[i];
-                        if (b == 0x1b) // ESC
-                        {
-                            StringBuilder hexSub = new StringBuilder();
-                            for (int j = 1; j <= 8 && i + j < read; j++)
-                            {
-                                hexSub.Append($"{buffer[i + j]:X2} ");
-                            }
-                            TerminalLogger.Log($"[PTY_RAW] ESC (0x1B) followed by: {hexSub}");
-                        }
-                        else if (b == 0x90) // C1 DCS
-                        {
-                            TerminalLogger.Log($"[PTY_RAW] Seeing C1 DCS (0x90)");
-                        }
-                        else if (b == 0x9B) // C1 CSI
-                        {
-                            TerminalLogger.Log($"[PTY_RAW] Seeing C1 CSI (0x9B)");
-                        }
-                    }
-
                     // Record raw bytes before any processing
                     _recorder?.RecordChunk(buffer, read);
 
@@ -179,14 +156,6 @@ namespace NovaTerminal.Core
                     if (charCount > 0)
                     {
                         string text = new string(charBuffer, 0, charCount);
-
-                        // Debug: Detailed trace of ALL incoming text
-                        string sanitized = text.Replace("\x1b", "\\e").Replace("\r", "\\r").Replace("\n", "\\n");
-                        if (sanitized.Length > 0)
-                        {
-                            string preview = sanitized.Length > 100 ? sanitized.Substring(0, 100) + "..." : sanitized;
-                            TerminalLogger.Log($"[PTY_TRACE] {preview}");
-                        }
 
                         // PASSWORD INJECTION (Mimics sshpass but integrated)
                         if (!string.IsNullOrEmpty(_savedPassword) && !_passwordSent)

@@ -1003,12 +1003,12 @@ namespace NovaTerminal
                     if (e.Key == Key.Down)
                     {
                         list.SelectedIndex = Math.Min(list.ItemCount - 1, list.SelectedIndex + 1);
-                        list.ScrollIntoView(list.SelectedItem);
+                        list.ScrollIntoView(list.SelectedIndex);
                     }
                     else if (e.Key == Key.Up)
                     {
                         list.SelectedIndex = Math.Max(0, list.SelectedIndex - 1);
-                        list.ScrollIntoView(list.SelectedItem);
+                        list.ScrollIntoView(list.SelectedIndex);
                     }
                     else if (e.Key == Key.Enter)
                     {
