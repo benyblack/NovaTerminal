@@ -238,9 +238,19 @@ namespace NovaTerminal.Controls
                     float ch = TermView.Metrics.CellHeight;
                     if (cw > 0) Parser.CellWidth = cw;
                     if (ch > 0) Parser.CellHeight = ch;
-                    TerminalLogger.Log($"[TERMINAL_PANE] OnResize sync: CellWidth={Parser.CellWidth} (view={cw}), CellHeight={Parser.CellHeight} (view={ch})");
                 }
                 Session?.Resize(c, r);
+            };
+
+            // Metrics changed handling
+            TermView.MetricsChanged += (cw, ch) =>
+            {
+                if (Parser != null && cw > 0 && ch > 0)
+                {
+                    Parser.CellWidth = cw;
+                    Parser.CellHeight = ch;
+                    TerminalLogger.Log($"[TERMINAL_PANE] MetricsChanged: CellWidth={cw}, CellHeight={ch}");
+                }
             };
         }
 

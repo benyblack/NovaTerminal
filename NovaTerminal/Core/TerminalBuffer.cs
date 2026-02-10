@@ -222,6 +222,44 @@ namespace NovaTerminal.Core
             OnInvalidate?.Invoke();
         }
 
+        public void Reset()
+        {
+            // Full Reset (RIS)
+            Clear(true);
+            Lock.EnterWriteLock();
+            try
+            {
+                ScrollTop = 0;
+                ScrollBottom = Rows - 1;
+                IsAutoWrapMode = true;
+                IsApplicationCursorKeys = false;
+
+                // Reset SGR
+                IsInverse = false;
+                IsBold = false;
+                IsDefaultForeground = true;
+                IsDefaultBackground = true;
+                CurrentForeground = Theme.Foreground;
+                CurrentBackground = Theme.Background;
+                CurrentFgIndex = -1;
+                CurrentBgIndex = -1;
+
+                // Reset Mouse Modes
+                MouseModeX10 = false;
+                MouseModeButtonEvent = false;
+                MouseModeAnyEvent = false;
+                MouseModeSGR = false;
+
+                SwitchToMainScreen();
+                // _tabs.Clear(); // tabs not implemented yet
+            }
+            finally
+            {
+                Lock.ExitWriteLock();
+            }
+            OnInvalidate?.Invoke();
+        }
+
         public void UpdateThemeColors(TerminalTheme oldTheme)
         {
             Lock.EnterWriteLock();

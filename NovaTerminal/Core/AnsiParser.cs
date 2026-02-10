@@ -11,9 +11,16 @@ namespace NovaTerminal.Core
         private enum State { Normal, Esc, Csi, Osc, OscEsc, Dcs, DcsEsc, Charset, Apc, ApcEsc }
         private State _state = State.Normal;
 
+        // Flag to swallow a single newline after an inline image (common in scripts)
+        private bool _swallowNextNewline = false;
+
         // Zero-alloc buffers
         private char[] _paramBuffer = new char[256];
         private int _paramLen = 0;
+
+        // ConPTY Sync Fix: Track vertical offset caused by inline images that ConPTY doesn't see.
+        // This effectively "scrolls" the PTY's logical cursor to match our visual cursor.
+        private int _verticalOffset = 0;
 
         private List<char> _oscStringBuffer = new List<char>(); // OSC strings can be long (titles, etc) - Keep List for now or limit
         private List<char> _apcStringBuffer = new List<char>();
@@ -69,6 +76,20 @@ namespace NovaTerminal.Core
                         }
                         else
                         {
+                            if (_swallowNextNewline)
+                            {
+                                if (c == '\r' || c == '\n')
+                                {
+                                    // Swallow it
+                                    if (c == '\n') _swallowNextNewline = false; // Done
+                                    continue;
+                                }
+                                else
+                                {
+                                    // Non-newline char? Stop swallowing.
+                                    _swallowNextNewline = false;
+                                }
+                            }
                             _buffer.WriteChar(c);
                         }
                         break;
@@ -103,6 +124,12 @@ namespace NovaTerminal.Core
                         else if (c == '8') // Restore Cursor
                         {
                             _buffer.RestoreCursor();
+                            _state = State.Normal;
+                        }
+                        else if (c == 'c') // RIS - Reset to Initial State
+                        {
+                            _buffer.Reset(); // Ensure TerminalBuffer has a Reset method or use Clear
+                            _verticalOffset = 0;
                             _state = State.Normal;
                         }
                         else if (c == '(' || c == ')' || c == '*' || c == '+' || c == '-')
@@ -337,6 +364,7 @@ namespace NovaTerminal.Core
                 case 'd': // VPA - Vertical Position Absolute
                     {
                         int vpaRow = Math.Max(1, arg0) - 1;
+                        if (_verticalOffset > 0) vpaRow += _verticalOffset;
                         _buffer.CursorRow = Math.Clamp(vpaRow, 0, _buffer.Rows - 1);
                         _buffer.Invalidate();
                     }
@@ -353,6 +381,24 @@ namespace NovaTerminal.Core
                 case 'f':
                     int row = (argCount > 0 ? validArgs[0] : 1) - 1;
                     int col = (argCount > 1 ? validArgs[1] : 1) - 1;
+
+                    // ConPTY Fix: Apply vertical offset if active
+                    if (_verticalOffset > 0)
+                    {
+                        // Only apply if the requested row is "above" where we think we are?
+                        // Actually, ConPTY is absolute. If it says row 0, it means top of screen.
+                        // But we want top of screen + offset.
+                        row += _verticalOffset;
+
+                        // Clamp to prevent overflow (though SetCursorPosition handles bounds)
+                        if (row >= _buffer.Rows)
+                        {
+                            // If we push off screen, we might need to scroll?
+                            // For now, let SetCursorPosition clamp or we rely on buffer scrolling logic if we were writing text.
+                            // But CUP just moves cursor.
+                        }
+                    }
+
                     _buffer.SetCursorPosition(col, row);
                     _buffer.Invalidate();
                     break;
@@ -387,6 +433,7 @@ namespace NovaTerminal.Core
                     else if (displayMode == 2 || displayMode == 3) // Erase entire screen
                     {
                         _buffer.Clear(resetCursor: false);
+                        _verticalOffset = 0; // Reset offset on clear screen
                     }
                     break;
                 case 'K': // Erase in Line
@@ -714,17 +761,20 @@ namespace NovaTerminal.Core
                     var img = new TerminalImage(SKImage.FromBitmap(bitmap), _buffer.CursorCol, absRow, widthCells, heightCells);
                     _buffer.AddImage(img);
 
-                    // Position cursor at the end of the image or advance lines
+                    // Position cursor past the image
+                    // We move the cursor relative to current position, but try to avoid redundant newlines
+                    // Tools like 'viu' usually handle their own layout. 
+                    // We just need to ensure the buffer knows we've "used" these cells.
                     bool oldHidden = _buffer.IsHidden;
                     _buffer.IsHidden = true;
                     try
                     {
                         for (int y = 0; y < heightCells; y++)
                         {
-                            for (int x = 0; x < widthCells; x++)
-                            {
-                                _buffer.WriteContent(" ", false);
-                            }
+                            // 1. Advance horizontally on current row
+                            for (int x = 0; x < widthCells; x++) _buffer.WriteContent(" ", false);
+
+                            // 2. If more rows exist, move to next row and align to image start column
                             if (y < heightCells - 1)
                             {
                                 _buffer.WriteChar('\n');
@@ -829,9 +879,21 @@ namespace NovaTerminal.Core
                 string action = _kittyPendingParams.TryGetValue("a", out var aVal) ? aVal : "t";
                 TerminalLogger.Log($"[ANSI_PARSER] Kitty finalizing image. Action={action}, TotalPayload={_kittyPayloadBuffer.Length}");
 
+                if (action == "q")
+                {
+                    TerminalLogger.Log($"[ANSI_PARSER] Kitty: Handling query (a=q)");
+                    // Respond that we support Kitty graphics (Standard 'OK' response)
+                    // Format: \e_Gi=XX;OK\e\ where XX is the id from the request
+                    string id = _kittyPendingParams.TryGetValue("i", out var idVal) ? idVal : "31";
+                    OnResponse?.Invoke($"\x1b_Gi={id};OK\x1b\\");
+                    ClearKittyState();
+                    return;
+                }
+
                 if (action != "t" && action != "T")
                 {
                     TerminalLogger.Log($"[ANSI_PARSER] Kitty: skipping unsupported action '{action}'");
+                    ClearKittyState();
                     return;
                 }
 
@@ -845,7 +907,7 @@ namespace NovaTerminal.Core
                 byte[] data = Convert.FromBase64String(combinedPayload);
                 if (data.Length >= 8)
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Kitty data magic: {BitConverter.ToString(data, 0, Math.Min(data.Length, 8))}, DecodedBytes={data.Length}");
+                    TerminalLogger.Log($"[ANSI_PARSER] Kitty data magic: {BitConverter.ToString(data, 0, Math.Min(data.Length, 8))}, Decode");
                 }
 
                 SKImage? image = null;
@@ -949,16 +1011,11 @@ namespace NovaTerminal.Core
                     _buffer.IsHidden = true;
                     try
                     {
-                        string placeholder = "[IMAGE]";
                         for (int y = 0; y < height; y++)
                         {
-                            int written = 0;
-                            for (int i = 0; i < width; i++)
-                            {
-                                char cChar = placeholder[written % placeholder.Length];
-                                _buffer.WriteContent(cChar.ToString(), false);
-                                written++;
-                            }
+                            // 1. Advance horizontally on current row
+                            for (int i = 0; i < width; i++) _buffer.WriteContent(" ", false);
+
                             if (y < height - 1)
                             {
                                 _buffer.WriteChar('\n');
@@ -994,23 +1051,19 @@ namespace NovaTerminal.Core
 
         private void HandleITerm2Image(string osc)
         {
-            TerminalLogger.Log($"[ANSI_PARSER] HandleITerm2Image: {osc.Substring(0, Math.Min(osc.Length, 20))}...");
             var parts = osc.Split(':', 2);
             if (parts.Length < 2)
             {
-                TerminalLogger.Log($"[ANSI_PARSER] HandleITerm2Image failed: No ':' separator found in '{osc.Substring(0, Math.Min(osc.Length, 30))}'");
                 return;
             }
 
             if (!parts[0].StartsWith("1337;File="))
             {
-                TerminalLogger.Log($"[ANSI_PARSER] HandleITerm2Image failed: Prefix mismatch in '{parts[0]}'");
                 return;
             }
 
             var argsPart = parts[0].Substring("1337;File=".Length);
             var base64Data = parts[1];
-            TerminalLogger.Log($"[ANSI_PARSER] iTerm2 args: {argsPart}, dataLen: {base64Data.Length}");
 
             var args = argsPart.Split(';');
             int width = 0;
@@ -1036,86 +1089,112 @@ namespace NovaTerminal.Core
                 // Guardrail: Limit base64 length to avoid excessive memory usage before decoding
                 if (base64Data.Length > 10 * 1024 * 1024) // 10MB limit
                 {
-                    TerminalLogger.Log("[ANSI_PARSER] Image data too large (>10MB), skipping.");
                     return;
                 }
 
                 byte[] data = Convert.FromBase64String(base64Data);
-                TerminalLogger.Log($"[ANSI_PARSER] Base64 decoded to {data.Length} bytes.");
 
                 using var skData = SKData.CreateCopy(data);
                 SKImage? image = SKImage.FromEncodedData(skData);
                 if (image == null)
                 {
-                    TerminalLogger.Log("[ANSI_PARSER] SkiaSharp failed to decode iTerm2 image data (SKImage was null).");
                     return;
                 }
 
-                TerminalLogger.Log($"[ANSI_PARSER] Image decoded successfully: {image.Width}x{image.Height} pixels.");
 
                 // Guardrail: Limit pixel dimensions
                 if (image.Width > 2000 || image.Height > 2000)
                 {
-                    TerminalLogger.Log($"[ANSI_PARSER] Image pixel dimensions too large ({image.Width}x{image.Height}), skipping.");
                     image.Dispose();
                     return;
                 }
 
                 if (width == 0 && height == 0)
                 {
-                    // Default: Scale to fit roughly 1/3 of the screen width, or 10 cells if tiny
-                    width = Math.Max(10, image.Width / 10);
+                    // Default: Scale to fit 100% of image pixel width mapped to cells
+                    float divisor = CellWidth > 0 ? CellWidth : 10.0f;
+                    width = Math.Max(10, (int)Math.Ceiling(image.Width / divisor));
+
+                    // Sanity check: Clamp width to terminal width to prevent massive wrapping
+                    width = Math.Min(width, _buffer.Cols);
+
                     double cellRatio = (CellHeight > 0 && CellWidth > 0) ? (CellWidth / (double)CellHeight) : 0.5;
                     double imageRatio = (double)image.Height / image.Width;
-                    height = Math.Max(1, (int)Math.Ceiling(width * cellRatio * imageRatio));
+                    height = Math.Max(1, (int)Math.Round(width * cellRatio * imageRatio));
                 }
                 else if (width == 0)
                 {
                     double cellRatio = (CellHeight > 0 && CellWidth > 0) ? (CellWidth / (double)CellHeight) : 0.5;
                     double imageRatio = (double)image.Height / image.Width;
-                    width = Math.Max(1, (int)Math.Ceiling(height / (cellRatio * imageRatio)));
+                    width = Math.Max(1, (int)Math.Round(height / (cellRatio * imageRatio)));
                 }
                 else if (height == 0)
                 {
                     double cellRatio = (CellHeight > 0 && CellWidth > 0) ? (CellWidth / (double)CellHeight) : 0.5;
                     double imageRatio = (double)image.Height / image.Width;
-                    height = Math.Max(1, (int)Math.Ceiling(width * cellRatio * imageRatio));
+                    height = Math.Max(1, (int)Math.Round(width * cellRatio * imageRatio));
                 }
 
                 // Guardrail: Limit cell dimensions
-                width = Math.Clamp(width, 1, 200);
+                width = Math.Clamp(width, 1, Math.Min(200, _buffer.Cols));
                 height = Math.Clamp(height, 1, 200);
 
                 // Calculate absolute row
                 int absRow = _buffer.CursorRow + (_buffer.TotalLines - _buffer.Rows);
                 if (_buffer.IsAltScreenActive) absRow = _buffer.CursorRow;
 
-                TerminalLogger.Log($"[ANSI_PARSER] iTerm2 image placement: CursorRow={_buffer.CursorRow}, TotalLines={_buffer.TotalLines}, Rows={_buffer.Rows} -> absRow={absRow}");
                 var img = new TerminalImage(image, _buffer.CursorCol, absRow, width, height);
                 _buffer.AddImage(img);
 
-                // Write placeholder text "[IMAGE]" into the cells occupied by the image
-                // This allows selection and copy/paste to work descriptively.
+                // Finalize placement
                 bool oldHidden = _buffer.IsHidden;
-                _buffer.IsHidden = true;
+                int startRow = _buffer.CursorRow;
                 try
                 {
-                    string placeholder = "[IMAGE]";
+                    // Calculate visual lines required
+                    // Note: height is in cells.
                     for (int y = 0; y < height; y++)
                     {
-                        int written = 0;
+                        // 1. Remember row before writing
+                        int rowBefore = _buffer.CursorRow;
+
+                        // 2. Advance horizontally on current row (width spaces)
+                        // If width > Cols, WriteContent handles wrapping automatically
                         for (int i = 0; i < width; i++)
                         {
-                            char cChar = placeholder[written % placeholder.Length];
-                            _buffer.WriteContent(cChar.ToString(), false);
-                            written++;
+                            _buffer.WriteContent(" ", false);
                         }
+
+                        // 3. If valid row, force newline ONLY if we didn't already wrap
                         if (y < height - 1)
                         {
-                            _buffer.WriteChar('\n');
+                            // If cursor row is same as before, we fit on the line. Force newline.
+                            // If cursor row changed, we (auto) wrapped. Don't double-newline unless we are mid-line?
+                            // If we wrapped exactly to start of next line, we are good.
+                            // If width == Cols, we wrap to col 0 of next line.
+
+                            if (_buffer.CursorRow == rowBefore)
+                            {
+                                _buffer.WriteChar('\n');
+                            }
+
+                            // Move to image start col
                             for (int i = 0; i < img.CellX; i++) _buffer.WriteContent(" ", false);
                         }
                     }
+
+
+                    // Accumulate vertical offset for ConPTY sync
+                    // Use actual visual cursor delta instead of image height to account for scrolling/clamping
+                    int endRow = _buffer.CursorRow;
+                    int delta = endRow - startRow;
+                    // If we wrapped/scrolled, delta is how much further down the cursor is visually relative to start.
+                    // This maps PTY (Start) -> Visual (End).
+                    _verticalOffset += delta;
+
+
+                    // Set flag to swallow the next newline if it comes immediately
+                    _swallowNextNewline = true;
                 }
                 finally
                 {

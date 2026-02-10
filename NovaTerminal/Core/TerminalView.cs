@@ -28,6 +28,11 @@ namespace NovaTerminal.Core
     {
         public CellMetrics Metrics => _metrics;
 
+        /// <summary>
+        /// Fired when font metrics (cell width/height) change.
+        /// </summary>
+        public event Action<float, float>? MetricsChanged;
+
         public TerminalView()
         {
             Focusable = true;
@@ -498,6 +503,8 @@ namespace NovaTerminal.Core
             _metrics.Baseline = (float)(Math.Round(testText.Baseline) / scaling);
             _metrics.Ascent = (float)testText.Baseline;
             _metrics.Descent = (float)(testText.Height - testText.Baseline);
+
+            MetricsChanged?.Invoke(_metrics.CellWidth, _metrics.CellHeight);
             _metrics.Leading = 0;
             _glyphTypeface = _typeface.GlyphTypeface;
         }
