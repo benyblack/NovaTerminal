@@ -67,21 +67,22 @@ If a change cannot be tested, it does not ship.
 
 ## Architecture Overview
 
-┌──────────────────────────────┐
-│ UI Shell (Avalonia) │
-├──────────────────────────────┤
-│ Renderer (Skia, GPU) │
-│ - Cell-grid based │
-│ - Incremental redraw │
-├──────────────────────────────┤
+```
+┌───────────────────────────────┐
+│ UI Shell (Avalonia)           │
+├───────────────────────────────┤
+│ Renderer (Skia, GPU)          │
+│ - Cell-grid based             │
+│ - Incremental redraw          │
+├───────────────────────────────┤
 │ Terminal Core (Cross-Platform)│
-│ - VT / ANSI parser │
-│ - Screen & scrollback │
-│ - Reflow & wrapping │
-├──────────────────────────────┤
-│ PTY Backend (Rust) │
-└──────────────────────────────┘
-
+│ - VT / ANSI parser            │
+│ - Screen & scrollback         │
+│ - Reflow & wrapping           │
+├───────────────────────────────┤
+│ PTY Backend (Rust)            │
+└───────────────────────────────┘
+```
 
 ---
 
@@ -93,6 +94,13 @@ If a change cannot be tested, it does not ship.
 - Scrollback buffer
 - Stable resize & reflow
 - Cell-based buffer model
+- Thread-safe, crash-resistant PTY backend
+
+### Graphics & Protocol Support
+- **Sixel Graphics** (Verified with `libsixel`, `lsix`, `gnuplot`)
+- **iTerm2 Inline Images** (Verified with `imgcat`, `test_iterm2.py`)
+- **Kitty Graphics Protocol** (Verified with `fastfetch`, `iccat`)
+- **Proper ConPTY Synchronization** (Images render inline with prompts)
 
 ### UI
 - Tabs
