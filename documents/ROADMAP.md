@@ -134,7 +134,7 @@ These constraints are enforced by tests.
 - OSC handling:
   - window title
   - OSC 8 hyperlinks
-- Proper reset semantics (`ESC c` / RIS)
+- [x] Proper reset semantics (`ESC c` / RIS)
 
 ### Acceptance Criteria
 - Correct behavior in:
@@ -179,7 +179,7 @@ These constraints are enforced by tests.
 ### Deliverables
 - Incremental (cell-diff) rendering
 - Backing surface cache
-- Stable resize under load
+- [x] Stable resize under load (Thread-safe PTY backend)
 
 ### Acceptance Criteria
 - No visible flicker in:
@@ -198,36 +198,36 @@ These constraints are enforced by tests.
 ## 1.1 Session Restore & Workspaces
 
 ### Deliverables
-- Tab and pane restoration
-- Named workspaces
-- Optional startup restore
+- [x] Tab and pane restoration
+- [ ] Named workspaces
+- [x] Optional startup restore
 
 ---
 
 ## 1.2 Profile Import
 
 ### Deliverables
-- Import Windows Terminal profiles (Windows)
-- Import `~/.ssh/config`
-- Font and color scheme mapping where possible
+- [x] Import Windows Terminal profiles (Windows)
+- [x] Import `~/.ssh/config`
+- [x] Font and color scheme mapping where possible
 
 ---
 
 ## 1.3 Transient / Toggleable Terminal Window
 
 ### Deliverables
-- Toggle show/hide without destroying sessions
-- OS-adaptive behavior
+- [x] Toggle show/hide without destroying sessions (Quake Mode)
+- [x] OS-adaptive behavior
 
 ---
 
 ## 1.4 Search Overlay
 
 ### Deliverables
-- Floating search bar (VS Code style)
-- Regex and case-sensitive support
-- Highlight matches in scrollback
-- Navigation (Next/Prev)
+- [x] Floating search bar (VS Code style)
+- [x] Regex and case-sensitive support
+- [x] Highlight matches in scrollback
+- [x] Navigation (Next/Prev)
 
 ---
 
@@ -240,39 +240,39 @@ These constraints are enforced by tests.
 ## 2.1 First-Class SSH UX
 
 ### Deliverables
-- SSH connection manager
-- Tags, labels, groups
-- Jump host support
-- Identity selection UI
+- [x] SSH connection manager
+- [x] Tags, labels, groups
+- [x] Jump host support
+- [x] Identity selection UI
 
 ---
 
 ## 2.2 Credential Provider Abstraction
 
 ### Deliverables
-- Unified credential interface:
-  - Windows: DPAPI
-  - macOS: Keychain
-  - Linux: Secret Service
-- Explicit user consent
+- [x] Unified credential interface:
+  - [x] Windows: DPAPI
+  - [ ] macOS: Keychain
+  - [ ] Linux: Secret Service
+- [x] Explicit user consent
 
 ---
 
 ## 2.3 Port Forwarding UI
 
 ### Deliverables
-- Local / remote / dynamic forwarding
-- Persistent per profile
-- Visible status indicators
+- [x] Local / remote / dynamic forwarding
+- [x] Persistent per profile
+- [x] Visible status indicators
 
 ---
 
 ## 2.4 Lightweight SFTP Actions
 
 ### Deliverables
-- Upload/download actions
-- Command palette integration
-- No full file explorer
+- [x] Upload/download actions
+- [x] Command palette integration
+- [x] No full file explorer
 
 ---
 
@@ -285,15 +285,15 @@ These constraints are enforced by tests.
 ## 3.1 Inline Images
 
 ### Deliverables
-- iTerm2 image protocol
-- Optional Kitty graphics protocol
+- [x] iTerm2 image protocol
+- [x] Optional Kitty graphics protocol (Query support + Action support)
 
 ---
 
 ## 3.2 SIXEL (Optional)
 
 ### Deliverables
-- SIXEL rendering
+- [x] SIXEL rendering
 - No authoring tools
 
 ---

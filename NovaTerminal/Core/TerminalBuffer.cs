@@ -4,6 +4,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Globalization;
+
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("NovaTerminal.Tests")]
 
 namespace NovaTerminal.Core
 {
@@ -95,6 +100,11 @@ namespace NovaTerminal.Core
         private int _prevCursorRow = 0;
         private int _maxColThisRow = 0; // Track furthest column written on current row
 
+        private char? _highSurrogateBuffer = null;
+        private int _lastCharCol = -1;
+        private int _lastCharRow = -1;
+        private bool _isAfterZwj = false;
+
         public Color CurrentForeground { get; set; } = Colors.LightGray;
         public Color CurrentBackground { get; set; } = Colors.Black;
         public short CurrentFgIndex { get; set; } = -1;
@@ -162,7 +172,6 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
-                TerminalLogger.Log($"[TERMINAL_BUFFER] AddImage: CellX={image.CellX}, CellY={image.CellY}, W={image.CellWidth}, H={image.CellHeight}");
                 _images.Add(image);
             }
             finally
@@ -325,86 +334,43 @@ namespace NovaTerminal.Core
 
 
 
-        private char? _highSurrogateBuffer = null;
+
 
         public void WriteChar(char c)
         {
             Lock.EnterWriteLock();
             try
             {
-                // Handle Control Codes immediately (unless pending surrogate?)
-                // Actually, control codes can break a surrogate sequence, so we should check them first OR
-                // treat them as flushing the buffer.
-                // Simpler: If we have a high surrogate, ONLY the next char being a low surrogate is valid.
-                // Anything else flushes the high surrogate as a 'replacement char' or isolated char, then processes new char.
-
-                string? textToWrite = null;
-                bool isWide = false;
-
-                if (_highSurrogateBuffer.HasValue)
+                // Only treat as control if it's not a grapheme component (ZWJ, Variation Selectors)
+                // Only treat as control if it's not a grapheme component (ZWJ, Variation Selectors)
+                if (char.IsControl(c) && !char.IsSurrogate(c) && c != '\u200D' && !(c >= '\uFE00' && c <= '\uFE0F'))
                 {
-                    if (char.IsLowSurrogate(c))
-                    {
-                        // Form complete pair
-                        textToWrite = new string(new[] { _highSurrogateBuffer.Value, c });
-                        _highSurrogateBuffer = null;
-
-                        // Check width (Naive: Emoji/CJK ranges or use Rune)
-                        // Allow simplistic check: assume non-ascii pairs might be wide?
-                        // Better: Use a dedicated library or heuristic. For now, assume emojis are wide-ish.
-                        // Let's assume IsWide = true for now for surrogates to test emoji
-                        isWide = true; // Most surrogate pairs (emoji, CJK extension) are wide.
-                    }
-                    else
-                    {
-                        // Invalid sequence. Flush the high surrogate as best effort (or replacement)
-                        // Then process current 'c'.
-                        // For now, just drop/ignore the broken high surrogate to avoid complexities
-                        _highSurrogateBuffer = null;
-                        // Process 'c' as normal below
-                    }
+                    _highSurrogateBuffer = null;
+                    HandleControlCode(c);
+                    _isAfterZwj = false;
+                    _lastCharCol = -1;
                 }
-
-                if (textToWrite == null)
+                else
                 {
                     if (char.IsHighSurrogate(c))
                     {
                         _highSurrogateBuffer = c;
-                        return; // Wait for low surrogate
+                        return;
                     }
 
-                    // Not a surrogate, or a broke sequence start
-                    // Control codes
-                    if (c == '\r' || c == '\n' || c == '\b' || c == '\t' || c == '\a')
+                    string grapheme;
+                    if (_highSurrogateBuffer.HasValue && char.IsLowSurrogate(c))
                     {
-                        HandleControlCode(c);
-                        // Do not return here - let execution fall through so finally block runs (unlocking)
-                        // and then OnInvalidate() runs.
-                    }
-                    else if (c >= 0x20 && !char.IsSurrogate(c))
-                    {
-                        textToWrite = c.ToString();
-                        // Accurate width detection using Rune
-                        var rune = new Rune(c);
-                        isWide = GetRuneWidth(rune) == 2;
-                    }
-                }
-                else
-                {
-                    // textToWrite was set from surrogate pair
-                    if (Rune.TryCreate(textToWrite[0], textToWrite[1], out var rune))
-                    {
-                        isWide = GetRuneWidth(rune) == 2;
+                        grapheme = new string(new[] { _highSurrogateBuffer.Value, c });
+                        _highSurrogateBuffer = null;
                     }
                     else
                     {
-                        isWide = true; // Fallback for complex graphemes
+                        _highSurrogateBuffer = null;
+                        grapheme = c.ToString();
                     }
-                }
 
-                if (textToWrite != null)
-                {
-                    WriteContent(textToWrite, isWide);
+                    WriteGraphemeInternal(grapheme);
                 }
             }
             finally
@@ -412,6 +378,12 @@ namespace NovaTerminal.Core
                 Lock.ExitWriteLock();
             }
             OnInvalidate?.Invoke();
+        }
+
+        private void FlushGrapheme()
+        {
+            // No-op in new simplified logic, but kept for compatibility if called elsewhere
+            _highSurrogateBuffer = null;
         }
 
         private void HandleControlCode(char c)
@@ -443,10 +415,121 @@ namespace NovaTerminal.Core
             }
         }
 
-        internal void WriteContent(string text, bool isWide)
+        internal void WriteContent(string text, bool ignored = false)
         {
-            // 1. Wrap if needed
-            int width = isWide ? 2 : 1;
+            FlushGrapheme(); // Ensure any single char buffered by WriteChar is handled
+            var enumerator = StringInfo.GetTextElementEnumerator(text);
+            while (enumerator.MoveNext())
+            {
+                WriteGraphemeInternal(enumerator.GetTextElement());
+            }
+        }
+
+        private void WriteGraphemeInternal(string grapheme)
+        {
+            if (string.IsNullOrEmpty(grapheme)) return;
+
+            Rune firstRune = grapheme.EnumerateRunes().First();
+            bool isCombining = IsCombining(firstRune);
+
+
+            // ATTACHMENT LOGIC:
+
+            // If it's a combining mark OR we just had a ZWJ, try to attach to the previous cell.
+            // We allow this even if _lastCharCol is -1, as the look-back logic can find the base.
+            if ((isCombining || _isAfterZwj) && _cursorRow == _lastCharRow)
+            {
+                int attachCol = -1;
+
+                // 1. Try sequential marker first
+                if (_lastCharCol >= 0 && _cursorCol >= _lastCharCol && _cursorCol <= _lastCharCol + 8)
+                {
+                    // Verify if this is a suitable base for skin tones (look back for a non-space)
+                    int searchCol = _cursorCol - 1;
+                    while (searchCol >= 0)
+                    {
+                        var target = _viewport[_cursorRow].Cells[searchCol];
+
+                        if (target.IsWideContinuation) { searchCol--; continue; }
+                        if (!string.IsNullOrEmpty(target.Text) || (target.Character != ' ' && target.Character != '\0'))
+                        {
+                            attachCol = searchCol;
+                            break;
+                        }
+                        searchCol--;
+                        if (searchCol < _lastCharCol - 4) break; // Don't look too far back
+                    }
+                }
+
+                // 2. Look-back fallback (only if sequential marker didn't find anything)
+                if (attachCol < 0 && _cursorCol > 0)
+                {
+                    var prev = _viewport[_cursorRow].Cells[_cursorCol - 1];
+                    if (prev.IsWideContinuation && _cursorCol > 1)
+                    {
+                        attachCol = _cursorCol - 2;
+                    }
+                    else if (!string.IsNullOrEmpty(prev.Text) || (prev.Character != ' ' && prev.Character != '\0'))
+                    {
+                        attachCol = _cursorCol - 1;
+                    }
+                }
+
+                if (attachCol >= 0)
+                {
+                    // MODIFICATION: Must assign back to array for struct update or use ref correctly
+                    ref var cell = ref _viewport[_cursorRow].Cells[attachCol];
+                    if (!cell.IsWideContinuation)
+                    {
+                        string existing = cell.Text ?? cell.Character.ToString();
+                        string oldText = cell.Text;
+                        cell.Text = existing + grapheme;
+                        cell.IsDirty = true; // Force redraw
+
+                        // Re-evaluate width of the merged cluster
+                        int newWidth = GetGraphemeWidth(cell.Text);
+
+                        // ALWAYS enforce wide flag and continuation for width >= 2
+                        // This fixes the case where we attach to an already-wide char but the neighbor
+                        // might have been corrupted or cleared.
+                        if (newWidth >= 2)
+                        {
+                            cell.IsWide = true;
+                            if (attachCol + 1 < Cols)
+                            {
+                                // Ensure next cell is a continuation
+                                ref var nextCell = ref _viewport[_cursorRow].Cells[attachCol + 1];
+                                if (!nextCell.IsWideContinuation)
+                                {
+                                    nextCell = new TerminalCell(' ', cell.Foreground, cell.Background, cell.IsInverse, cell.IsBold, cell.IsDefaultForeground, cell.IsDefaultBackground, cell.IsHidden, cell.FgIndex, cell.BgIndex) { IsWideContinuation = true };
+                                }
+
+                                // If the cursor was waiting at the next cell, and we just expanded into it, push the cursor forward.
+                                if (_cursorCol == attachCol + 1)
+                                {
+                                    _cursorCol++;
+                                    if (_cursorCol > Cols) _cursorCol = Cols;
+                                }
+                            }
+                        }
+                    }
+
+
+                    _isAfterZwj = IsLastRuneZwj(grapheme);
+                    Invalidate();
+                    return; // CRITICAL: Stop here, don't write again to current cursor
+                }
+
+                else
+                {
+                }
+            }
+            else if (isCombining || _isAfterZwj)
+            {
+            }
+
+            // NORMAL WRITE LOGIC:
+            int width = GetGraphemeWidth(grapheme);
 
             // Handle auto-wrap
             if (!IsAutoWrapMode && _cursorCol + width > Cols)
@@ -462,38 +545,79 @@ namespace NovaTerminal.Core
                 if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
             }
 
-            // 2. Write
+            // Write to buffer
             if (_cursorRow >= 0 && _cursorRow < Rows && _cursorCol >= 0 && _cursorCol < Cols)
             {
-                // If isWide, we need space for 2 cells.
-                if (isWide && _cursorCol + 1 < Cols)
+                // Clear any existing continuations in the space we're about to occupy
+                for (int i = 0; i < width && _cursorCol + i < Cols; i++)
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, true);
-                    _viewport[_cursorRow].Cells[_cursorCol + 1] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex) { IsWideContinuation = true };
-                    _cursorCol += 2;
+                    _viewport[_cursorRow].Cells[_cursorCol + i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex);
+                }
+
+                if (width >= 2 && _cursorCol + 1 < Cols)
+                {
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, true);
+
+                    int maxCont = Math.Min(width, Cols - _cursorCol);
+                    for (int i = 1; i < maxCont; i++)
+                    {
+                        _viewport[_cursorRow].Cells[_cursorCol + i].IsWideContinuation = true;
+                    }
+
+                    _lastCharCol = _cursorCol;
+                    _lastCharRow = _cursorRow;
+                    _cursorCol += width;
                 }
                 else
                 {
-                    // Note: if isWide is true but we are at the last column and AutoWrap is off, 
-                    // width was 2 but we only write 1 cell. The renderer handles IsWide=true by expanding,
-                    // so we still pass isWide to the cell if it's the intended width.
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(text, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, isWide);
-                    _cursorCol++;
-                }
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, width == 2);
 
-                // If IsWide but no space (last col), we might force wrap or clipped?
-                // For simplified logic: if generic wide char hits exact last col, wrap happens above.
-                // If it fits, we write.
+                    _lastCharCol = _cursorCol;
+                    _lastCharRow = _cursorRow;
+                    _cursorCol += width;
+                }
             }
 
             if (_cursorCol > _maxColThisRow) _maxColThisRow = _cursorCol;
             _prevCursorCol = _cursorCol;
             _prevCursorRow = _cursorRow;
+            this._isAfterZwj = IsLastRuneZwj(grapheme);
         }
 
-        /// <summary>
-        /// Scrolls the viewport up by one line, moving top line to scrollback
-        /// </summary>
+        private bool IsLastRuneZwj(string grapheme)
+        {
+            if (string.IsNullOrEmpty(grapheme)) return false;
+            // ZWJ is U+200D
+            foreach (var rune in grapheme.EnumerateRunes())
+            {
+                if (rune.Value == 0x200D) return true; // Any ZWJ in the grapheme makes it "joining"
+            }
+            return false;
+        }
+
+        private bool IsCombining(Rune rune)
+        {
+            var cat = Rune.GetUnicodeCategory(rune);
+
+            // Standard combining marks and modifiers
+            if (cat == UnicodeCategory.NonSpacingMark ||
+                cat == UnicodeCategory.SpacingCombiningMark ||
+                cat == UnicodeCategory.EnclosingMark ||
+                cat == UnicodeCategory.ModifierSymbol)
+                return true;
+
+            // Emoji specific joining and variation characters
+            var val = rune.Value;
+            if (val >= 0x200B && val <= 0x200F) return true; // ZWSP, ZWNJ, ZWJ, etc
+            if (val >= 0xFE00 && val <= 0xFE0F) return true; // Variation Selectors
+            if (val >= 0x1F3FB && val <= 0x1F3FF) return true; // Skin Tone Modifiers
+
+            // Tag sequences (for flags etc)
+            if (val >= 0xE0020 && val <= 0xE007F) return true;
+
+            return false;
+        }
+
         /// <summary>
         /// Scrolls the viewport up by one line.
         /// Respects the scrolling region (ScrollTop/ScrollBottom).
@@ -743,11 +867,23 @@ namespace NovaTerminal.Core
                         all.AddRange(_scrollback);
                         all.AddRange(_viewport);
 
+                        int initialSbCount = _scrollback.Count;
                         _scrollback.Clear();
                         _viewport = new TerminalRow[newRows];
 
                         int total = all.Count;
-                        int vpStart = Math.Max(0, total - newRows);
+                        int vpStart;
+                        if (newRows < oldRows)
+                        {
+                            // Shrink height: push top of viewport to scrollback
+                            vpStart = initialSbCount + (oldRows - newRows);
+                        }
+                        else
+                        {
+                            // Grow height: anchor to top of current viewport (add padding at bottom)
+                            vpStart = initialSbCount;
+                        }
+                        vpStart = Math.Max(0, Math.Min(vpStart, total));
 
                         for (int i = 0; i < vpStart; i++) _scrollback.Add(all[i]);
                         for (int i = 0; i < newRows; i++)
@@ -756,15 +892,16 @@ namespace NovaTerminal.Core
                             else _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
                         }
 
-                        // Clamping
-                        _cursorRow = Math.Clamp(_cursorRow + (oldRows - newRows), 0, newRows - 1); // rough guess, or smarter mapping
-                                                                                                   // Actually, _cursorRow is relative to Top of Viewport. 
-                                                                                                   // If we GROW the viewport DOWN, _cursorRow stay same.
-                                                                                                   // If we GROW the viewport UP (anchored to bottom), _cursorRow changes.
-                                                                                                   // Our current 'vpStart' anchors to BOTTOM of content.
+                        // Clamping and relative adjustment
+                        if (newRows < oldRows)
+                        {
+                            // If we shrank, the cursor moves up relative to the viewport top
+                            _cursorRow -= (oldRows - newRows);
+                        }
+                        // If we grew, _cursorRow stays same (anchored to top)
 
-                        _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
-                        _cursorCol = Math.Clamp(_cursorCol, 0, Cols);
+                        _cursorRow = Math.Clamp(_cursorRow, 0, newRows - 1);
+                        _cursorCol = Math.Clamp(_cursorCol, 0, newCols);
                     }
 
                     ScrollTop = 0;
@@ -1922,31 +2059,74 @@ namespace NovaTerminal.Core
             return matches;
         }
 
+        internal int GetGraphemeWidth(string textElement)
+        {
+            if (string.IsNullOrEmpty(textElement)) return 0;
+
+            // Common case: single char
+            if (textElement.Length == 1)
+            {
+                return GetRuneWidth(new Rune(textElement[0]));
+            }
+
+            int totalBaseWidth = 0;
+            bool hasEmoji = false;
+            bool hasZwj = false;
+            bool hasModifier = false;
+
+            foreach (var rune in textElement.EnumerateRunes())
+            {
+                int val = rune.Value;
+                // ZWJ (U+200D) or Variations/Modifiers
+                if (val == 0x200D) { hasZwj = true; continue; }
+                if (val >= 0x1F3FB && val <= 0x1F3FF) { hasModifier = true; continue; }
+                if (IsCombining(rune)) continue;
+
+                int w = GetRuneWidth(rune);
+                if (totalBaseWidth == 0) totalBaseWidth = w;
+                else if (!hasZwj) totalBaseWidth += w; // Only sum widths if NOT a ZWJ sequence
+
+                if (w == 2) hasEmoji = true;
+            }
+
+            // Normal rule: Graphemes are at least the sum of their base parts.
+            // For ZWJ sequences or modified emojis, we treat them as 2 cells if they contain emojis.
+            if (hasZwj || hasModifier)
+            {
+                return hasEmoji ? 2 : Math.Max(1, totalBaseWidth);
+            }
+
+            if (totalBaseWidth == 0) return 0;
+            return totalBaseWidth;
+        }
+
         private int GetRuneWidth(Rune rune)
         {
-            int cp = rune.Value;
-            // Simple check for CJK/Emoji ranges:
-            // 0x1100-0x115F: Hangul Jamo
-            // 0x2329-0x232A: Quotes
-            // 0x2E80-0xA4CF: CJK Radicals, Symbols, Punctuation, Ideographs
-            // 0xAC00-0xD7A3: Hangul Syllables
-            // 0xF900-0xFAFF: CJK Compatibility Ideographs
-            // 0xFE10-0xFE19: Vertical Forms
-            // 0xFE30-0xFE6F: CJK Compatibility Forms
-            // 0xFF00-0xFF60: Fullwidth Forms
-            // 0xFFE0-0xFFE6: Fullwidth Forms
-            // 0x20000-0x3FFFF: Supplementary Planes (mostly CJK)
+            // IMPORTANT: Combiners and Joining characters MUST have 0 width 
+            // to avoid moving the cursor if they fail to attach.
+            if (IsCombining(rune)) return 0;
 
+            int cp = rune.Value;
+
+            // Zero-width / control / format (safety)
+            if (cp < 32 || (cp >= 0x7F && cp <= 0x9F)) return 0;
+
+            // Hangul Jamo (Leading)
             if (cp >= 0x1100 && cp <= 0x115F) return 2;
-            if (cp == 0x2329 || cp == 0x232A) return 2;
+
+            // Symbols / Dingbats / Emoticons (Most are 2 cells)
+            if (cp >= 0x2329 && cp <= 0x232A) return 2;
+            if (cp >= 0x2600 && cp <= 0x27BF) return 2;
+
+            // CJK / Hangul / Fullwidth
             if (cp >= 0x2E80 && cp <= 0xA4CF && cp != 0x303F) return 2;
             if (cp >= 0xAC00 && cp <= 0xD7A3) return 2;
             if (cp >= 0xF900 && cp <= 0xFAFF) return 2;
-            if (cp >= 0xFE10 && cp <= 0xFE19) return 2;
-            if (cp >= 0xFE30 && cp <= 0xFE6F) return 2;
-            if (cp >= 0xFF00 && cp <= 0xFF60) return 2;
-            if (cp >= 0xFFE0 && cp <= 0xFFE6) return 2;
-            if (cp >= 0x1F000 && cp <= 0x1FAFF) return 2;
+            if (cp >= 0xFE10 && cp <= 0xFE6F) return 2;
+            if (cp >= 0xFF00 && cp <= 0xFFEF) return 2;
+
+            // Primary Emoji & Supplementary CJK Blocks
+            if (cp >= 0x1F000 && cp <= 0x1FBFF) return 2;
             if (cp >= 0x20000 && cp <= 0x3FFFF) return 2;
 
             return 1;

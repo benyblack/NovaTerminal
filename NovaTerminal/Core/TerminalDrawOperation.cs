@@ -9,6 +9,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Linq;
 
 namespace NovaTerminal.Core
 {
@@ -27,7 +28,7 @@ namespace NovaTerminal.Core
         private readonly SharedSKTypeface? _skTypeface;
         private readonly SharedSKFont? _skFont;
         private readonly bool _enableLigatures;
-        private readonly ConcurrentDictionary<int, SKTypeface?> _fallbackCache;
+        private readonly ConcurrentDictionary<string, SKTypeface?> _fallbackCache;
         private readonly SKTypeface[] _fallbackChain;
         private readonly float _opacity;
         private readonly bool _transparentBackground;
@@ -55,7 +56,7 @@ namespace NovaTerminal.Core
             SharedSKTypeface? skTypeface,
             SharedSKFont? skFont,
             bool enableLigatures,
-            ConcurrentDictionary<int, SKTypeface?> fallbackCache,
+            ConcurrentDictionary<string, SKTypeface?> fallbackCache,
             SKTypeface[] fallbackChain,
             double opacity,
             bool transparentBackground,
@@ -143,7 +144,6 @@ namespace NovaTerminal.Core
                 bgPaint.Color = themeBg;
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
 
-                TerminalLogger.Log($"[RENDERER] DrawTerminal: Bounds={Bounds}, Scaling={_renderScaling}, CanvasClip={canvas.LocalClipBounds}, Matrix={canvas.TotalMatrix}");
 
                 float paddingLeft = 4f;
                 float paddingTop = 0;
@@ -321,48 +321,62 @@ namespace NovaTerminal.Core
                     continue;
                 }
 
+                if (cell.IsWideContinuation) continue;
+
                 // Individual Handling with Width-0 support (Phase 3.4)
                 string text = cell.Text ?? cell.Character.ToString();
-                bool isWidth0 = false;
-                if (!string.IsNullOrEmpty(text))
+
+                SKTypeface? tfToUse = primaryTf;
+                bool needsEmojiFallback = false;
+                int primaryCodepoint = 0;
+                int w = _buffer.GetGraphemeWidth(text);
+                foreach (var rune in text.EnumerateRunes())
                 {
-                    if (Rune.TryGetRuneAt(text, 0, out var rune))
+                    int cp = rune.Value;
+                    if (primaryCodepoint == 0) primaryCodepoint = cp;
+
+                    if ((cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF) || (cp == 0x200D))
                     {
-                        var cat = Rune.GetUnicodeCategory(rune);
-                        isWidth0 = cat == UnicodeCategory.NonSpacingMark || cat == UnicodeCategory.EnclosingMark || cat == UnicodeCategory.SpacingCombiningMark;
+                        needsEmojiFallback = true;
+                        break;
                     }
                 }
 
-                int codepoint = 0;
-                try
+                if (needsEmojiFallback || (primaryCodepoint != 0 && !primaryTf.ContainsGlyph(primaryCodepoint)))
                 {
-                    if (text.Length == 1) codepoint = text[0];
-                    else if (text.Length == 2 && char.IsSurrogatePair(text[0], text[1])) codepoint = char.ConvertToUtf32(text[0], text[1]);
-                }
-                catch { }
+                    // search fallback chain...
+                    string lookupKey = needsEmojiFallback ? text : primaryCodepoint.ToString();
 
-                SKTypeface? tfToUse = primaryTf;
-                if (codepoint != 0 && !primaryTf.ContainsGlyph(codepoint))
-                {
-                    if (!_fallbackCache.TryGetValue(codepoint, out tfToUse))
+                    if (!_fallbackCache.TryGetValue(lookupKey, out tfToUse))
                     {
                         SKTypeface? found = null;
-                        foreach (var tfChain in _fallbackChain)
+
+                        // SPECIAL: Force Segoe UI Emoji for any complex cluster to ensure ligatures
+                        if (needsEmojiFallback)
                         {
-                            if (tfChain.ContainsGlyph(codepoint))
+                            found = SKTypeface.FromFamilyName("Segoe UI Emoji");
+                            TerminalLogger.Log($"[RENDERER] Forcing Segoe UI Emoji for '{text}' (needsEmojiFallback={needsEmojiFallback})");
+                        }
+
+                        // If not forced or Segoe failed, try fallback chain
+                        if (found == null)
+                        {
+                            foreach (var tfChain in _fallbackChain)
                             {
-                                found = tfChain;
-                                break;
+                                if (tfChain.ContainsGlyph(primaryCodepoint))
+                                {
+                                    found = tfChain;
+                                    break;
+                                }
                             }
                         }
 
                         if (found == null)
                         {
-                            found = SKFontManager.Default.MatchCharacter(codepoint);
+                            found = SKFontManager.Default.MatchCharacter(primaryCodepoint);
                         }
 
-                        // Even if found is null, we store it (as null) to avoid searching again
-                        _fallbackCache.TryAdd(codepoint, found);
+                        _fallbackCache.TryAdd(lookupKey, found);
                         tfToUse = found;
                     }
                 }
@@ -371,7 +385,28 @@ namespace NovaTerminal.Core
 
                 fgPaint.Color = fg;
                 float x = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                if (isWidth0 && c > 0) x = (float)(Math.Round(((c - 1) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                if (w == 0 && c > 0)
+                {
+                    // Back up to the base cell if we're over a wide continuation (rare for width-0 but supported)
+                    int baseCol = c - 1;
+                    while (baseCol > 0 && _buffer.GetCellAbsolute(baseCol, absRow).IsWideContinuation) baseCol--;
+                    x = (float)(Math.Round((baseCol * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                }
+
+
+
+                // PERFORMANCE OPTIMIZATION: Only use SaveLayer for wide/emoji characters
+                // most terminal text is width-1 and doesn't need this overhead.
+                bool useLayer = w > 1 || needsEmojiFallback;
+
+                if (useLayer)
+                {
+                    // CLIPPING FIX: Use SaveLayer for strict isolation
+                    // We add a tiny bit of extra width (2px scaled) to prevent aggressive clipping of modifiers
+                    float clipWidth = (float)(Math.Round((w * _metrics.CellWidth) * _renderScaling + 2.0) / _renderScaling);
+                    var layerRect = new SKRect(x, 0, x + clipWidth, (float)Bounds.Height);
+                    canvas.SaveLayer(layerRect, null);
+                }
 
                 if (tfToUse != null && tfToUse != primaryTf)
                 {
@@ -383,7 +418,13 @@ namespace NovaTerminal.Core
                 {
                     canvas.DrawText(text, x, baselineY, font, fgPaint);
                 }
-                cellsRendered += (cell.IsWide ? 2 : 1);
+
+                if (useLayer)
+                {
+                    canvas.Restore();
+                }
+
+                cellsRendered += w;
             }
             return cellsRendered;
         }

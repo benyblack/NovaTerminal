@@ -151,7 +151,6 @@ namespace NovaTerminal.Controls
             float ch = TermView.Metrics.CellHeight;
             if (cw > 0) Parser.CellWidth = cw;
             if (ch > 0) Parser.CellHeight = ch;
-            TerminalLogger.Log($"[TERMINAL_PANE] Parser initialized: CellWidth={Parser.CellWidth} (view={cw}), CellHeight={Parser.CellHeight} (view={ch}), Cols={cols}, Rows={rows}");
 
             // Setup Session
             string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
@@ -249,7 +248,6 @@ namespace NovaTerminal.Controls
                 {
                     Parser.CellWidth = cw;
                     Parser.CellHeight = ch;
-                    TerminalLogger.Log($"[TERMINAL_PANE] MetricsChanged: CellWidth={cw}, CellHeight={ch}");
                 }
             };
         }
@@ -286,7 +284,6 @@ namespace NovaTerminal.Controls
                 float ch = TermView.Metrics.CellHeight;
                 if (cw > 0) Parser.CellWidth = cw;
                 if (ch > 0) Parser.CellHeight = ch;
-                TerminalLogger.Log($"[TERMINAL_PANE] ApplySettings sync: CellWidth={Parser.CellWidth} (view={cw}), CellHeight={Parser.CellHeight} (view={ch})");
             }
         }
 
@@ -330,11 +327,9 @@ namespace NovaTerminal.Controls
             // If we just switched from alt screen (like after exiting mc), ensure we're scrolled to show the cursor
             Dispatcher.UIThread.Post(async () =>
             {
-                TerminalLogger.Log($"[TERMINAL_PANE] UpdateScrollUI: JustSwitchedFromAltScreen = {TermView.JustSwitchedFromAltScreen}, Buffer TotalLines = {Buffer?.TotalLines}, Buffer Rows = {Buffer?.Rows}");
 
                 if (TermView.JustSwitchedFromAltScreen)
                 {
-                    TerminalLogger.Log($"[TERMINAL_PANE] UpdateScrollUI: Handling post-alt-screen-switch case");
                     // Small delay to ensure screen switch processing is complete
                     await Task.Delay(10);
                     // Ensure cursor is visible after screen switch
@@ -343,12 +338,10 @@ namespace NovaTerminal.Controls
                 }
                 else
                 {
-                    TerminalLogger.Log($"[TERMINAL_PANE] UpdateScrollUI: Handling normal output case");
                     // For normal output, ensure the cursor is visible
                     TermView.EnsureCursorVisible();
                 }
 
-                TerminalLogger.Log($"[TERMINAL_PANE] UpdateScrollUI: Final ScrollOffset = {TermView.ScrollOffset}");
             }, DispatcherPriority.Render);
 
             // Failsafe: Force render on output

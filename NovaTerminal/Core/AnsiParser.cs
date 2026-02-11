@@ -95,7 +95,7 @@ namespace NovaTerminal.Core
                         break;
 
                     case State.Esc:
-                        TerminalLogger.Log($"[ANSI_PARSER] State.Esc seeing: {c} (0x{(int)c:X})");
+                        // Log only in non-performance-critical scenarios if needed
                         if (c == '[')
                         {
                             _state = State.Csi;
@@ -158,7 +158,6 @@ namespace NovaTerminal.Core
                     case State.Osc:
                         if (c == '\a' || c == '\u009C')
                         {
-                            TerminalLogger.Log($"[ANSI_PARSER] OSC Sentinel: BEL/ST detected. Buffer len: {_oscStringBuffer.Count}");
                             HandleOsc(new string(_oscStringBuffer.ToArray()));
                             _state = State.Normal;
                         }
@@ -170,7 +169,6 @@ namespace NovaTerminal.Core
                         {
                             if (_oscStringBuffer.Count < 50) // Only log the beginning of potential images to avoid huge logs
                             {
-                                TerminalLogger.Log($"[ANSI_PARSER] State.Osc char: {c} (0x{(int)c:X})");
                             }
                             _oscStringBuffer.Add(c);
                         }
@@ -179,13 +177,11 @@ namespace NovaTerminal.Core
                     case State.OscEsc:
                         if (c == '\\')
                         {
-                            TerminalLogger.Log($"[ANSI_PARSER] OSC Sentinel: ESC \\ detected. Buffer len: {_oscStringBuffer.Count}");
                             HandleOsc(new string(_oscStringBuffer.ToArray()));
                             _state = State.Normal;
                         }
                         else
                         {
-                            TerminalLogger.Log($"[ANSI_PARSER] OSC Sentinel: ABORTED! Found 0x{(int)c:X} after ESC in OSC state.");
                             _state = State.Normal;
                         }
                         break;
@@ -406,7 +402,6 @@ namespace NovaTerminal.Core
                     int val = (argCount > 0 ? validArgs[0] : 1) - 1;
                     int oldCol = _buffer.CursorCol;
                     _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
-                    TerminalLogger.Log($"[ANSI_PARSER] CHA: {val} (raw={arg0}). CursorCol: {oldCol} -> {_buffer.CursorCol}, BufferCols: {_buffer.Cols}");
                     _buffer.Invalidate();
                     break;
                 case 'J': // Erase in Display
@@ -556,11 +551,9 @@ namespace NovaTerminal.Core
                         }
                         break;
                     case 9001: // ConPTY Passthrough Mode
-                        TerminalLogger.Log($"[ANSI_PARSER] ConPTY Passthrough Mode: {(enable ? "ENABLED" : "DISABLED")}");
                         break;
                     default:
                         // Only log unhandled modes as they might be important for future features
-                        TerminalLogger.Log($"[ANSI_PARSER] Unhandled DEC Private Mode: {mode}, enable={enable}");
                         break;
                 }
             }

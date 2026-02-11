@@ -235,7 +235,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        private readonly ConcurrentDictionary<int, SKTypeface?> _fallbackCache = new();
+        private readonly ConcurrentDictionary<string, SKTypeface?> _fallbackCache = new();
 
         public double FontSize
         {
