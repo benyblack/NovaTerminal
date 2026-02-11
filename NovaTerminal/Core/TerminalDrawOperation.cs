@@ -39,6 +39,7 @@ namespace NovaTerminal.Core
         private readonly int _totalLines;
         private readonly int _cursorRow;
         private readonly int _cursorCol;
+        private readonly RowImageCache? _rowCache;
 
         public Rect Bounds => _bounds;
 
@@ -66,7 +67,8 @@ namespace NovaTerminal.Core
             int snapshotCols = 0,
             int totalLines = 0,
             int cursorRow = 0,
-            int cursorCol = 0)
+            int cursorCol = 0,
+            RowImageCache? rowCache = null)
         {
             _bounds = bounds;
             _buffer = buffer;
@@ -94,6 +96,7 @@ namespace NovaTerminal.Core
             _totalLines = totalLines;
             _cursorRow = cursorRow;
             _cursorCol = cursorCol;
+            _rowCache = rowCache;
         }
 
         public void Dispose()
@@ -255,7 +258,36 @@ namespace NovaTerminal.Core
                 for (int r = 0; r < bufferRows; r++)
                 {
                     int absRow = absDisplayStart + r;
+                    float y = (float)(Math.Round((r * _metrics.CellHeight + paddingTop) * _renderScaling) / _renderScaling);
                     float baselineY = (float)(Math.Round((r * _metrics.CellHeight + paddingTop + _metrics.Baseline) * _renderScaling) / _renderScaling);
+
+                    // CACHE CHECK:
+                    var row = _buffer.GetRowAbsolute(absRow);
+                    if (_rowCache != null && row != null)
+                    {
+                        var cachedPicture = _rowCache.Get(absRow, row.Revision);
+                        if (cachedPicture != null)
+                        {
+                            canvas.DrawPicture(cachedPicture, 0, y);
+                            dirtyCells += bufferCols; // Count as rendered
+                            continue;
+                        }
+
+                        // CACHE MISS: Record the row as vector commands (SKPicture)
+                        // This ensures 100% sharpness regardless of DPI scaling.
+                        using var recorder = new SKPictureRecorder();
+                        using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, (float)_metrics.CellHeight));
+
+                        // Draw text at logical baseline 0..CellHeight
+                        DrawRowText(rowCanvas, r, absRow, bufferCols, (float)_metrics.Baseline, font, fgPaint, themeFg, themeBg, alpha, tf);
+
+                        var snapshot = recorder.EndRecording();
+                        _rowCache.Add(absRow, row.Revision, snapshot);
+                        canvas.DrawPicture(snapshot, 0, y);
+                        dirtyCells += bufferCols;
+                        continue;
+                    }
+
                     dirtyCells += DrawRowText(canvas, r, absRow, bufferCols, baselineY, font, fgPaint, themeFg, themeBg, alpha, tf);
                 }
 

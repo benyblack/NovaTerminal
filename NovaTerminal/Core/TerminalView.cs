@@ -26,6 +26,7 @@ namespace NovaTerminal.Core
 
     public class TerminalView : Control
     {
+        private readonly RowImageCache _rowCache = new();
         public CellMetrics Metrics => _metrics;
 
         /// <summary>
@@ -353,6 +354,7 @@ namespace NovaTerminal.Core
             _skTypeface = null;
 
             _fallbackCache.Clear();
+            _rowCache.Clear();
         }
 
         // Selection state
@@ -450,6 +452,7 @@ namespace NovaTerminal.Core
 
         public void MeasureCharSize()
         {
+            _rowCache.Clear();
             double scaling = VisualRoot?.RenderScaling ?? 1.0;
 
             // Try to get SKTypeface first as it's our source of truth
@@ -810,6 +813,7 @@ namespace NovaTerminal.Core
                 // THEN notify PTY (triggers SIGWINCH, new output uses new size)
                 // This prevents race where PTY sends data for new dimensions while buffer is mid-reflow
                 _buffer.Resize(_pendingCols, _pendingRows);
+                _rowCache.Clear();
                 Console.WriteLine($"[TerminalView] Throttled resize sent: {_pendingCols}x{_pendingRows}");
                 OnResize?.Invoke(_pendingCols, _pendingRows);
 
@@ -886,7 +890,8 @@ namespace NovaTerminal.Core
                 snapshotCols,
                 totalLines,
                 cursorRow,
-                cursorCol
+                cursorCol,
+                _rowCache
             ));
         }
 

@@ -485,6 +485,7 @@ namespace NovaTerminal.Core
                         string oldText = cell.Text;
                         cell.Text = existing + grapheme;
                         cell.IsDirty = true; // Force redraw
+                        _viewport[_cursorRow].TouchRevision();
 
                         // Re-evaluate width of the merged cluster
                         int newWidth = GetGraphemeWidth(cell.Text);
@@ -564,6 +565,7 @@ namespace NovaTerminal.Core
                         _viewport[_cursorRow].Cells[_cursorCol + i].IsWideContinuation = true;
                     }
 
+                    _viewport[_cursorRow].TouchRevision();
                     _lastCharCol = _cursorCol;
                     _lastCharRow = _cursorRow;
                     _cursorCol += width;
@@ -572,6 +574,7 @@ namespace NovaTerminal.Core
                 {
                     _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, width == 2);
 
+                    _viewport[_cursorRow].TouchRevision();
                     _lastCharCol = _cursorCol;
                     _lastCharRow = _cursorRow;
                     _cursorCol += width;
@@ -698,6 +701,15 @@ namespace NovaTerminal.Core
 
             // 3. Create new blank line at the bottom of the region
             _viewport[ScrollBottom] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+            // Revisions are already handled by being a NEW row (Revision 0 is different from old row)
+            // But if we want to be explicit:
+            // _viewport[ScrollBottom].TouchRevision();
+
+            // All shifted rows in the region should have their revision incremented 
+            // if we are using Absolute Row Index + Revision as the key.
+            // If the row object itself is moved to a new index, it MUST be re-rendered 
+            // if we cache by viewport index.
+            for (int i = ScrollTop; i <= ScrollBottom; i++) _viewport[i].TouchRevision();
         }
 
         /// <summary>
@@ -745,6 +757,8 @@ namespace NovaTerminal.Core
 
             // Create new blank line at the top of the region
             _viewport[ScrollTop] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+
+            for (int i = ScrollTop; i <= ScrollBottom; i++) _viewport[i].TouchRevision();
         }
 
         public void InsertCharacters(int count)
@@ -770,6 +784,7 @@ namespace NovaTerminal.Core
                 {
                     row.Cells[c] = empty;
                 }
+                row.TouchRevision();
             }
             finally { Lock.ExitWriteLock(); }
             Invalidate(); // Use Invalidate() which handles the event call
@@ -823,6 +838,7 @@ namespace NovaTerminal.Core
             {
                 row.Cells[c] = empty;
             }
+            row.TouchRevision();
         }
 
         public void Write(string text)
@@ -1595,6 +1611,15 @@ namespace NovaTerminal.Core
             return GetCellAbsolute(col, actualIndex);
         }
 
+        public TerminalRow? GetRowAbsolute(int absRow)
+        {
+            if (absRow < 0) return null;
+            if (absRow < _scrollback.Count) return _scrollback[absRow];
+            int viewportRow = absRow - _scrollback.Count;
+            if (viewportRow < 0 || viewportRow >= Rows) return null;
+            return _viewport[viewportRow];
+        }
+
         public TerminalCell GetCellAbsolute(int col, int absRow)
         {
             if (absRow < 0) return TerminalCell.Default;
@@ -1665,6 +1690,7 @@ namespace NovaTerminal.Core
                 {
                     row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                 }
+                row.TouchRevision();
             }
             finally
             {
@@ -1684,6 +1710,7 @@ namespace NovaTerminal.Core
                 {
                     row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                 }
+                row.TouchRevision();
             }
             finally
             {
@@ -1698,16 +1725,9 @@ namespace NovaTerminal.Core
             try
             {
                 if (_cursorRow < 0 || _cursorRow >= Rows) return;
-                var row = _viewport[_cursorRow];
-                for (int i = 0; i < Cols; i++)
-                {
-                    row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
-                }
+                ClearRowInternal(_cursorRow);
             }
-            finally
-            {
-                Lock.ExitWriteLock();
-            }
+            finally { Lock.ExitWriteLock(); }
             OnInvalidate?.Invoke();
         }
 
@@ -1717,14 +1737,21 @@ namespace NovaTerminal.Core
             try
             {
                 if (rowIndex < 0 || rowIndex >= Rows) return;
-                var row = _viewport[rowIndex];
-                for (int i = 0; i < Cols; i++)
-                {
-                    row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
-                }
+                ClearRowInternal(rowIndex);
             }
             finally { Lock.ExitWriteLock(); }
             OnInvalidate?.Invoke();
+        }
+
+        private void ClearRowInternal(int rowIndex)
+        {
+            var row = _viewport[rowIndex];
+            var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+            for (int i = 0; i < Cols; i++)
+            {
+                row.Cells[i] = empty;
+            }
+            row.TouchRevision();
         }
 
         public void EraseCharacters(int count)
@@ -1742,6 +1769,7 @@ namespace NovaTerminal.Core
 
                     row.Cells[col] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                 }
+                row.TouchRevision();
             }
             finally
             {
