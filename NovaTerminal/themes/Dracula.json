@@ -1,0 +1,22 @@
+{
+  "Name": "Dracula",
+  "Foreground": "#FF5F1F",
+  "Background": "#282a36",
+  "CursorColor": "#f8f8f2",
+  "Black": "#21222c",
+  "Red": "#ff5555",
+  "Green": "#50fa7b",
+  "Yellow": "#f1fa8c",
+  "Blue": "#bd93f9",
+  "Magenta": "#ff79c6",
+  "Cyan": "#8be9fd",
+  "White": "#f8f8f2",
+  "BrightBlack": "#6272a4",
+  "BrightRed": "#ff6e6e",
+  "BrightGreen": "#69ff94",
+  "BrightYellow": "#ffffa5",
+  "BrightBlue": "#d6acff",
+  "BrightMagenta": "#ff92df",
+  "BrightCyan": "#a4ffff",
+  "BrightWhite": "#ffffff"
+}

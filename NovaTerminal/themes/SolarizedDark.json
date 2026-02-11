@@ -1,0 +1,22 @@
+{
+  "Name": "Solarized Dark",
+  "Foreground": "#839496",
+  "Background": "#002b36",
+  "CursorColor": "#ffffff",
+  "Black": "#073642",
+  "Red": "#dc322f",
+  "Green": "#859900",
+  "Yellow": "#b58900",
+  "Blue": "#268bd2",
+  "Magenta": "#d33682",
+  "Cyan": "#2aa198",
+  "White": "#eee8d5",
+  "BrightBlack": "#002b36",
+  "BrightRed": "#cb4b16",
+  "BrightGreen": "#586e75",
+  "BrightYellow": "#657b83",
+  "BrightBlue": "#839496",
+  "BrightMagenta": "#6c71c4",
+  "BrightCyan": "#93a1a1",
+  "BrightWhite": "#fdf6e3"
+}

@@ -287,15 +287,10 @@ namespace NovaTerminal.Core
                 var oldTheme = _buffer.Theme;
 
                 // Apply new theme
-                _buffer.Theme = settings.ThemeName switch
-                {
-                    "Solarized Dark" => TerminalTheme.SolarizedDark,
-                    "Dracula" => TerminalTheme.Dracula,
-                    "Monokai" => TerminalTheme.Monokai,
-                    "One Half Dark" => TerminalTheme.OneHalfDark,
-                    "GitHub Dark" => TerminalTheme.GitHubDark,
-                    _ => TerminalTheme.Dark
-                };
+                _buffer.Theme = settings.ActiveTheme;
+
+                // Clear row cache as colors are now baked into SKPictures
+                _rowCache.Clear();
 
                 // Update all existing cells, remapping old theme colors to new
                 _buffer.UpdateThemeColors(oldTheme);
@@ -457,6 +452,8 @@ namespace NovaTerminal.Core
 
             // Try to get SKTypeface first as it's our source of truth
             ClearSkiaResources();
+            bool skiaSuccess = false;
+
             try
             {
                 _skTypeface = new SharedSKTypeface(SkiaSharp.SKTypeface.FromFamilyName(_typeface.FontFamily.Name));
@@ -467,48 +464,50 @@ namespace NovaTerminal.Core
                     {
                         _skFont.Font.Edging = SKFontEdging.Antialias;
                         _skFont.Font.Hinting = SKFontHinting.Normal;
+
+                        var m = _skFont.Font.Metrics;
+
+                        // Authority: Skia metrics
+                        float ascent = -m.Ascent;
+                        float descent = m.Descent;
+                        float leading = m.Leading;
+                        float height = ascent + descent + leading;
+
+                        // CELL WIDTH: Authority is 'M' or '0' width in Skia
+                        float width = _skFont.Font.MeasureText("M");
+
+                        // PIXEL SNAP: Ensure width/height are exact physical pixel multiples
+                        _metrics.CellWidth = (float)(Math.Ceiling(width * scaling) / scaling);
+                        _metrics.CellHeight = (float)(Math.Ceiling(height * scaling) / scaling);
+
+                        // Vertical centering logic for baseline
+                        float gap = _metrics.CellHeight - (ascent + descent + leading);
+                        _metrics.Baseline = (float)(Math.Round((ascent + gap / 2.0f) * scaling) / scaling);
+
+                        _metrics.Ascent = ascent;
+                        _metrics.Descent = descent;
+                        _metrics.Leading = leading;
+
+                        _glyphTypeface = _typeface.GlyphTypeface;
+                        skiaSuccess = true;
                     }
-
-                    var m = _skFont.Font.Metrics;
-
-                    // Authority: Skia metrics
-                    float ascent = -m.Ascent;
-                    float descent = m.Descent;
-                    float leading = m.Leading;
-                    float height = ascent + descent + leading;
-
-                    // CELL WIDTH: Authority is 'M' or '0' width in Skia
-                    float width = _skFont.Font.MeasureText("M");
-
-                    // PIXEL SNAP: Ensure width/height are exact physical pixel multiples
-                    // to prevent sub-pixel gaps in backgrounds.
-                    _metrics.CellWidth = (float)(Math.Ceiling(width * scaling) / scaling);
-                    _metrics.CellHeight = (float)(Math.Ceiling(height * scaling) / scaling);
-
-                    // Vertical centering logic for baseline
-                    float gap = _metrics.CellHeight - (ascent + descent + leading);
-                    _metrics.Baseline = (float)(Math.Round((ascent + gap / 2.0f) * scaling) / scaling);
-
-                    _metrics.Ascent = ascent;
-                    _metrics.Descent = descent;
-                    _metrics.Leading = leading;
-
-                    _glyphTypeface = _typeface.GlyphTypeface;
-                    return;
                 }
             }
             catch { }
 
-            // FALLBACK TO AVALONIA (Should be rare)
-            var testText = new FormattedText("M", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, _fontSize * scaling, Brushes.White);
-            _metrics.CellWidth = (float)(Math.Ceiling(testText.Width) / scaling);
-            _metrics.CellHeight = (float)(Math.Ceiling(testText.Height) / scaling);
-            _metrics.Baseline = (float)(Math.Round(testText.Baseline) / scaling);
-            _metrics.Ascent = (float)testText.Baseline;
-            _metrics.Descent = (float)(testText.Height - testText.Baseline);
+            if (!skiaSuccess)
+            {
+                // FALLBACK TO AVALONIA (Should be rare)
+                var testText = new FormattedText("M", CultureInfo.CurrentCulture, FlowDirection.LeftToRight, _typeface, _fontSize * scaling, Brushes.White);
+                _metrics.CellWidth = (float)(Math.Ceiling(testText.Width) / scaling);
+                _metrics.CellHeight = (float)(Math.Ceiling(testText.Height) / scaling);
+                _metrics.Baseline = (float)(Math.Round(testText.Baseline) / scaling);
+                _metrics.Ascent = (float)testText.Baseline;
+                _metrics.Descent = (float)(testText.Height - testText.Baseline);
+                _metrics.Leading = 0;
+            }
 
             MetricsChanged?.Invoke(_metrics.CellWidth, _metrics.CellHeight);
-            _metrics.Leading = 0;
             _glyphTypeface = _typeface.GlyphTypeface;
         }
 

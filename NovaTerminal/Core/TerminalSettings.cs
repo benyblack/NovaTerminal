@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace NovaTerminal.Core
 {
@@ -27,6 +28,31 @@ namespace NovaTerminal.Core
 
         public System.Collections.Generic.List<TerminalProfile> Profiles { get; set; } = new();
         public Guid DefaultProfileId { get; set; }
+
+        private TerminalTheme? _activeTheme;
+        private ThemeManager? _themeManager;
+
+        [JsonIgnore]
+        public ThemeManager ThemeManager => _themeManager ??= new ThemeManager();
+
+        [JsonIgnore]
+        public TerminalTheme ActiveTheme
+        {
+            get
+            {
+                if (_activeTheme == null || _activeTheme.Name != ThemeName)
+                {
+                    ThemeManager.LoadThemes();
+                    _activeTheme = ThemeManager.GetTheme(ThemeName);
+                }
+                return _activeTheme;
+            }
+        }
+
+        public void RefreshActiveTheme()
+        {
+            _activeTheme = null;
+        }
 
         public static System.Collections.Generic.List<TerminalProfile> GetDefaultProfiles()
         {

@@ -111,7 +111,7 @@ namespace NovaTerminal.Core
         public short CurrentBgIndex { get; set; } = -1;
         public bool IsDefaultForeground { get; set; } = true;
         public bool IsDefaultBackground { get; set; } = true;
-        public TerminalTheme Theme { get; set; } = TerminalTheme.Dark;
+        public TerminalTheme Theme { get; set; } = new TerminalTheme();
         public bool IsInverse { get; set; }
         public bool IsBold { get; set; }
         public bool IsHidden { get; set; }
@@ -274,6 +274,10 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
+                // Sync current buffer defaults to new theme
+                if (IsDefaultForeground) CurrentForeground = Theme.Foreground;
+                if (IsDefaultBackground) CurrentBackground = Theme.Background;
+
                 void UpdateCell(ref TerminalCell cell)
                 {
                     // Indices take precedence

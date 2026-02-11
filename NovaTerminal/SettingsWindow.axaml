@@ -2,8 +2,25 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="NovaTerminal.SettingsWindow"
         Title="Settings" Width="650" Height="500"
-        WindowStartupLocation="CenterOwner"
-        Background="#1E1E1E" Foreground="White">
+        WindowStartupLocation="CenterOwner">
+    
+    <Window.Styles>
+        <Style Selector="TabItem">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+        <Style Selector="TabItem:selected">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <!-- Ensure template parts don't override the foreground -->
+        <Style Selector="TabItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+        </Style>
+        <Style Selector="TabItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+             <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+        </Style>
+    </Window.Styles>
     
     <Grid Margin="15" RowDefinitions="Auto, *, Auto">
         <TextBlock Text="Terminal Settings" FontSize="22" FontWeight="Bold" Margin="0,0,0,15"/>
@@ -15,7 +32,7 @@
                     <StackPanel Spacing="15" Margin="0,0,15,0">
                         <!-- Font Family -->
                         <StackPanel>
-                            <TextBlock Text="Font Family" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                            <TextBlock Text="Font Family" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
                             <ComboBox Name="FontList" HorizontalAlignment="Stretch">
                                 <ComboBoxItem>Consolas</ComboBoxItem>
                                 <ComboBoxItem>JetBrains Mono</ComboBoxItem>
@@ -27,27 +44,119 @@
                         
                         <!-- Font Size -->
                         <StackPanel>
-                            <TextBlock Text="Font Size" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                            <TextBlock Text="Font Size" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
                             <NumericUpDown Name="FontSizeInput" Minimum="6" Maximum="72" Value="14"/>
                         </StackPanel>
                         
                         <!-- Scrollback -->
                         <StackPanel>
-                            <TextBlock Text="Scrollback Limit (Lines)" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                            <TextBlock Text="Scrollback Limit (Lines)" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
                             <NumericUpDown Name="ScrollbackInput" Minimum="100" Maximum="100000" Value="10000" Increment="1000"/>
                         </StackPanel>
                         
                         <!-- Theme -->
                         <StackPanel>
-                            <TextBlock Text="Theme" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
-                            <ComboBox Name="ThemeList" HorizontalAlignment="Stretch">
-                                <ComboBoxItem>Default (Dark)</ComboBoxItem>
-                                <ComboBoxItem>Solarized Dark</ComboBoxItem>
-                                <ComboBoxItem>Dracula</ComboBoxItem>
-                                <ComboBoxItem>Monokai</ComboBoxItem>
-                                <ComboBoxItem>One Half Dark</ComboBoxItem>
-                                <ComboBoxItem>GitHub Dark</ComboBoxItem>
-                            </ComboBox>
+                            <TextBlock Text="Theme" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
+                            <Grid ColumnDefinitions="*, Auto, Auto, Auto">
+                                <ComboBox Name="ThemeList" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem>Default (Dark)</ComboBoxItem>
+                                </ComboBox>
+                                <Button Name="BtnEditTheme" Grid.Column="1" Content="Edit" Margin="5,0,0,0" Padding="10,4" />
+                                <Button Name="BtnImportTheme" Grid.Column="2" Content="Import" Margin="5,0,0,0" Padding="10,4" />
+                                <Button Name="BtnNewTheme" Grid.Column="3" Content="+" Margin="5,0,0,0" Width="32" HorizontalContentAlignment="Center" ToolTip.Tip="New Theme" />
+                            </Grid>
+                            
+                            <!-- Theme Editor Panel (Hidden by default) -->
+                            <Border Name="ThemeEditorPanel" TextElement.Foreground="White" IsVisible="False" Margin="0,10,0,0" Padding="12" Background="#252525" BorderBrush="#444" BorderThickness="1" CornerRadius="4">
+                                <StackPanel Spacing="10">
+                                    <Grid ColumnDefinitions="*, Auto">
+                                        <TextBlock Text="Theme Editor" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                        <Button Name="BtnCloseEditor" Grid.Column="1" Content="✕" Background="Transparent" BorderThickness="0" Padding="5,2"/>
+                                    </Grid>
+                                    
+                                    <StackPanel>
+                                        <TextBlock Text="Theme Name" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
+                                        <TextBox Name="EditThemeNameInput" IsReadOnly="False" />
+                                    </StackPanel>
+
+                                    <!-- Global Colors -->
+                                    <UniformGrid Columns="2">
+                                        <StackPanel Margin="0,0,5,0">
+                                            <TextBlock Text="Foreground" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
+                                            <TextBox Name="EditThemeFgInput" Watermark="#RRGGBB" />
+                                        </StackPanel>
+                                        <StackPanel Margin="5,0,0,0">
+                                            <TextBlock Text="Background" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
+                                            <TextBox Name="EditThemeBgInput" Watermark="#RRGGBB" />
+                                        </StackPanel>
+                                        <StackPanel Margin="0,5,5,0">
+                                            <TextBlock Text="Cursor" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
+                                            <TextBox Name="EditThemeCursorInput" Watermark="#RRGGBB" />
+                                        </StackPanel>
+                                    </UniformGrid>
+
+                                    <TextBlock Text="ANSI Palette" Opacity="0.7" FontSize="10" Margin="0,5,0,0"/>
+                                    <UniformGrid Rows="2" Columns="8" Name="EditorSwatchGrid">
+                                        <!-- Populated via binding or code, but let's put placeholders for layout -->
+                                        <Button Name="EditSwatch0" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch1" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch2" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch3" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch4" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch5" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch6" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch7" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch8" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch9" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch10" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch11" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch12" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch13" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch14" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                        <Button Name="EditSwatch15" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
+                                    </UniformGrid>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
+                                        <Button Name="BtnSaveTheme" Content="Save Theme" Classes="accent" />
+                                        <Button Name="BtnDeleteTheme" Content="Delete" Background="#441111" />
+                                        <TextBlock Name="ThemeEditorStatus" VerticalAlignment="Center" FontSize="11" Opacity="0.7"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Visual Preview Area -->
+                            <Border Name="ThemePreviewArea" Margin="0,10,0,0" Padding="10" Background="#111" BorderBrush="#333" BorderThickness="1" CornerRadius="4">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="Preview" FontSize="10" Opacity="0.7" Margin="0,0,0,5"/>
+                                    <TextBlock Text="Supports .png, .jpg, .bmp" FontSize="10" Opacity="0.5" FontStyle="Italic" Margin="0,2,0,5"/>
+                                    
+                                    <!-- Sample Text -->
+                                    <Border Name="SampleTextBorder" Padding="10" CornerRadius="4">
+                                        <TextBlock Name="SampleTextBlock" Text="The quick brown fox jumps over the lazy dog." />
+                                    </Border>
+                                    
+                                    <!-- ANSI Swatches -->
+                                    <UniformGrid Rows="2" Columns="8" HorizontalAlignment="Center">
+                                        <Border Name="Swatch0" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Black" />
+                                        <Border Name="Swatch1" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Red" />
+                                        <Border Name="Swatch2" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Green" />
+                                        <Border Name="Swatch3" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Yellow" />
+                                        <Border Name="Swatch4" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Blue" />
+                                        <Border Name="Swatch5" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Magenta" />
+                                        <Border Name="Swatch6" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Cyan" />
+                                        <Border Name="Swatch7" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="White" />
+                                        
+                                        <Border Name="Swatch8" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Black" />
+                                        <Border Name="Swatch9" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Red" />
+                                        <Border Name="Swatch10" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Green" />
+                                        <Border Name="Swatch11" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Yellow" />
+                                        <Border Name="Swatch12" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Blue" />
+                                        <Border Name="Swatch13" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Magenta" />
+                                        <Border Name="Swatch14" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Cyan" />
+                                        <Border Name="Swatch15" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright White" />
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                         
                         <Separator Background="#333" Margin="0,5"/>
@@ -55,15 +164,15 @@
                         <!-- Window Opacity -->
                         <StackPanel>
                             <Grid ColumnDefinitions="*, Auto">
-                                <TextBlock Text="Window Opacity" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
-                                <TextBlock Name="OpacityValueDisplay" Grid.Column="1" Text="100%" Foreground="#AAA" HorizontalAlignment="Right" FontSize="12"/>
+                                <TextBlock Text="Window Opacity" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
+                                <TextBlock Name="OpacityValueDisplay" Grid.Column="1" Text="100%" Opacity="0.7" HorizontalAlignment="Right" FontSize="12"/>
                             </Grid>
                             <Slider Name="WindowOpacitySlider" Minimum="0.2" Maximum="1.0" Value="1.0" TickFrequency="0.01" IsSnapToTickEnabled="True"/>
                         </StackPanel>
 
                         <!-- Blur -->
                         <StackPanel>
-                            <TextBlock Text="Blur Effect" Margin="0,0,0,5" Foreground="#AAA" FontSize="12"/>
+                            <TextBlock Text="Blur Effect" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
                             <ComboBox Name="BlurList" HorizontalAlignment="Stretch">
                                 <ComboBoxItem>Acrylic</ComboBoxItem>
                                 <ComboBoxItem>Mica</ComboBoxItem>
@@ -102,7 +211,7 @@
                 <Grid ColumnDefinitions="200, *" Margin="0,10,0,0">
                     <!-- Profile List -->
                     <Grid Grid.Column="0" RowDefinitions="*, Auto" Margin="0,0,10,0">
-                        <ListBox Name="ProfilesListBox" Background="#252525" BorderThickness="0">
+                        <ListBox Name="ProfilesListBox" BorderThickness="0" Background="Transparent">
                             <!-- Items populated in code -->
                         </ListBox>
                         <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="5" Margin="0,5,10,0">
@@ -110,8 +219,8 @@
                                 <Button Name="BtnAddProfile" Content="Add New" FontSize="12" Padding="8,4"/>
                                 <Button Name="BtnDeleteProfile" Content="Delete" FontSize="12" Padding="8,4" Background="#AA3333" Foreground="White"/>
                             </StackPanel>
-                            <Separator Background="#333" Margin="0,5"/>
-                            <TextBlock Text="Import From:" Foreground="#888" FontSize="11" Margin="0,0,0,2"/>
+                            <Separator Opacity="0.2" Margin="0,5"/>
+                            <TextBlock Text="Import From:" Opacity="0.7" FontSize="11" Margin="0,0,0,2"/>
                             <StackPanel Orientation="Vertical" Spacing="5">
                                 <Button Name="BtnImportWT" Content="Windows Terminal" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
                                 <Button Name="BtnImportSSH" Content="SSH Config" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
@@ -124,29 +233,29 @@
                     <ScrollViewer Grid.Column="1">
                         <StackPanel Name="ProfileEditorPanel" Spacing="15" Margin="10,0,0,0">
                             <StackPanel>
-                                <TextBlock Text="Profile Name" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <TextBlock Text="Profile Name" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                 <TextBox Name="ProfileNameInput" />
                             </StackPanel>
 
                             <StackPanel>
-                                <TextBlock Text="Executable Path" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <TextBlock Text="Executable Path" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                 <TextBox Name="ProfileCommandInput" Watermark="e.g. cmd.exe, powershell.exe" />
                             </StackPanel>
 
                             <StackPanel>
-                                <TextBlock Text="Arguments" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <TextBlock Text="Arguments" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                 <TextBox Name="ProfileArgsInput" Watermark="Optional arguments..." />
                             </StackPanel>
 
                             <StackPanel>
-                                <TextBlock Text="Starting Directory" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <TextBlock Text="Starting Directory" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                 <TextBox Name="ProfileCwdInput" Watermark="Optional working directory..." />
                             </StackPanel>
 
-                            <Separator Background="#333" Margin="0,5"/>
+                            <Separator Opacity="0.2" Margin="0,5"/>
 
                             <StackPanel>
-                                <TextBlock Text="Connection Type" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                <TextBlock Text="Connection Type" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                 <ComboBox Name="ProfileTypeList" HorizontalAlignment="Stretch">
                                     <ComboBoxItem>Local (CMD, PowerShell, WSL)</ComboBoxItem>
                                     <ComboBoxItem>SSH</ComboBoxItem>
@@ -157,27 +266,27 @@
                             <StackPanel Name="SshSettingsPanel" Spacing="15" IsVisible="False">
                                 <Grid ColumnDefinitions="*, 80">
                                     <StackPanel>
-                                        <TextBlock Text="Host" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                        <TextBlock Text="Host" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                         <TextBox Name="SshHostInput" Watermark="e.g. 192.168.1.1 or example.com" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                        <TextBlock Text="Port" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                        <TextBlock Text="Port" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                         <NumericUpDown Name="SshPortInput" Minimum="1" Maximum="65535" Value="22" />
                                     </StackPanel>
                                 </Grid>
 
                                 <StackPanel>
-                                    <TextBlock Text="Username" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBlock Text="Username" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                     <TextBox Name="SshUserInput" Watermark="e.g. root or ubuntu" />
                                 </StackPanel>
 
                                 <StackPanel>
-                                    <TextBlock Text="Password / Passphrase (Optional)" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBlock Text="Password / Passphrase (Optional)" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                     <TextBox Name="SshPasswordInput" PasswordChar="*" Watermark="Leave empty to prompt in terminal" />
                                 </StackPanel>
 
                                 <StackPanel>
-                                    <TextBlock Text="Authentication" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBlock Text="Authentication" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                     <RadioButton Name="RadioAuthAgent" Content="Use SSH Agent (Recommended)" GroupName="AuthMode" IsChecked="True" Margin="0,0,0,5"/>
                                     <RadioButton Name="RadioAuthKey" Content="Use Identity File" GroupName="AuthMode" Margin="0,0,0,5"/>
                                     
@@ -188,15 +297,15 @@
                                 </StackPanel>
 
                                 <StackPanel>
-                                    <TextBlock Text="Jump Host (Bastion)" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
+                                    <TextBlock Text="Jump Host (Bastion)" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
                                     <ComboBox Name="JumpHostList" HorizontalAlignment="Stretch" PlaceholderText="Direct Connection (None)">
                                         <!-- Items populated in code -->
                                     </ComboBox>
                                 </StackPanel>
 
                                 <StackPanel Spacing="5">
-                                    <TextBlock Text="Port Forwarding" Foreground="#AAA" FontSize="12"/>
-                                    <Border Background="#1A1A1A" BorderBrush="#333" BorderThickness="1" CornerRadius="4" Padding="5">
+                                    <TextBlock Text="Port Forwarding" Opacity="0.7" FontSize="12"/>
+                                    <Border Background="#1A1A1A" TextElement.Foreground="White" BorderBrush="#333" BorderThickness="1" CornerRadius="4" Padding="5">
                                         <StackPanel Spacing="5">
                                             <StackPanel Name="ForwardsList" Spacing="2"/>
                                             <Separator Background="#333"/>

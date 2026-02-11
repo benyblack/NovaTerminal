@@ -3,9 +3,9 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:core="clr-namespace:NovaTerminal.Core"
+             xmlns:local="clr-namespace:NovaTerminal.Controls"
              x:Class="NovaTerminal.Controls.ConnectionManager"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="500"
-             Background="#1E1E1E">
+             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="500">
 
     <Grid ColumnDefinitions="250, *" Margin="10">
         <!-- Sidebar: Groups & Tags -->
@@ -35,7 +35,7 @@
         <Grid Grid.Column="1" RowDefinitions="Auto, *" Margin="10,0,0,0">
             <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
                 <TextBlock Text="Connections" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                <TextBlock Name="SelectedGroupTitle" Text="" Foreground="#888" VerticalAlignment="Bottom" Margin="5,0,0,4"/>
+        <TextBlock Name="SelectedGroupTitle" Text="" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" VerticalAlignment="Bottom" Margin="5,0,0,4"/>
             </StackPanel>
 
             <ScrollViewer Grid.Row="1">
@@ -47,7 +47,8 @@
                     </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="core:TerminalProfile">
-                            <Button Background="#2D2D2D" BorderThickness="1" BorderBrush="#333" 
+                            <Button Background="{Binding CardBackground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" 
+                                    BorderThickness="1" BorderBrush="#333" 
                                     Width="200" Height="80" Margin="0,0,10,10"
                                     HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                                     Click="OnConnectionClick" Tag="{Binding}">
@@ -56,10 +57,10 @@
                                         <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
                                         <Button Grid.Column="1" Width="20" Height="20" Padding="2" Background="Transparent" BorderThickness="0"
                                                 ToolTip.Tip="Edit Connection" Tag="{Binding}" Click="OnEditClick">
-                                            <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" Width="12" Height="12" Foreground="#888"/>
+                                            <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" Width="12" Height="12" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"/>
                                         </Button>
                                     </Grid>
-                                    <TextBlock Grid.Row="1" Text="{Binding Command}" Foreground="#AAA" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
+                                    <TextBlock Grid.Row="1" Text="{Binding Command}" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
                                     <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right">
                                         <!-- Group Badge -->
                                         <Border Background="#444" CornerRadius="3" Padding="4,1" IsVisible="{Binding Group, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">

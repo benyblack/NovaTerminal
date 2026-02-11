@@ -8,7 +8,7 @@ using System.Net.NetworkInformation;
 using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia.Controls.Shapes;
-using SkiaSharp;
+using Avalonia.Styling;
 
 namespace NovaTerminal
 {
@@ -29,6 +29,7 @@ namespace NovaTerminal
         public event Action<string>? OnThemeChanged;
 
         private DispatcherTimer? _statusTimer;
+        private TerminalTheme? _editingTheme;
 
         public SettingsWindow() : this(0, null) { }
 
@@ -36,6 +37,7 @@ namespace NovaTerminal
         {
             InitializeComponent();
             _settings = TerminalSettings.Load();
+            ApplyTheme();
 
             var tabs = this.FindControl<TabControl>("MainTabs");
             if (tabs != null) tabs.SelectedIndex = initialTab;
@@ -65,6 +67,253 @@ namespace NovaTerminal
             }).ToList();
 
             PopulateFonts();
+            PopulateThemes();
+
+            var themeList = this.FindControl<ComboBox>("ThemeList");
+            var overrideThemeList = this.FindControl<ComboBox>("OverrideThemeList");
+            var fontList = this.FindControl<ComboBox>("FontList");
+            var fontSizeInput = this.FindControl<NumericUpDown>("FontSizeInput");
+            var opacitySlider = this.FindControl<Slider>("WindowOpacitySlider");
+            var opacityDisplay = this.FindControl<TextBlock>("OpacityValueDisplay");
+            var blurList = this.FindControl<ComboBox>("BlurList");
+            var profilesListBox = this.FindControl<ListBox>("ProfilesListBox");
+            var btnAddProfile = this.FindControl<Button>("BtnAddProfile");
+            var btnDeleteProfile = this.FindControl<Button>("BtnDeleteProfile");
+            var btnSetDefault = this.FindControl<Button>("BtnSetDefault");
+            var btnSave = this.FindControl<Button>("BtnSave");
+            var btnCancel = this.FindControl<Button>("BtnCancel");
+            var nameInput = this.FindControl<TextBox>("ProfileNameInput");
+            var commandInput = this.FindControl<TextBox>("ProfileCommandInput");
+            var argsInput = this.FindControl<TextBox>("ProfileArgsInput");
+            var cwdInput = this.FindControl<TextBox>("ProfileCwdInput");
+            var groupInput = this.FindControl<TextBox>("ProfileGroupInput");
+            var tagsInput = this.FindControl<TextBox>("ProfileTagsInput");
+            var typeList = this.FindControl<ComboBox>("ProfileTypeList");
+            var sshPanel = this.FindControl<StackPanel>("SshSettingsPanel");
+            var sshHostInput = this.FindControl<TextBox>("SshHostInput");
+            var sshPortInput = this.FindControl<NumericUpDown>("SshPortInput");
+            var sshUserInput = this.FindControl<TextBox>("SshUserInput");
+            var sshPasswordInput = this.FindControl<TextBox>("SshPasswordInput");
+            var sshKeyPathInput = this.FindControl<TextBox>("SshKeyPathInput");
+            var btnBrowseSshKey = this.FindControl<Button>("BtnBrowseSshKey");
+            var jumpList = this.FindControl<ComboBox>("JumpHostList");
+            var radioAgent = this.FindControl<RadioButton>("RadioAuthAgent");
+            var radioKey = this.FindControl<RadioButton>("RadioAuthKey");
+            var checkFont = this.FindControl<CheckBox>("CheckOverrideFont");
+            var checkSize = this.FindControl<CheckBox>("CheckOverrideSize");
+            var checkTheme = this.FindControl<CheckBox>("CheckOverrideTheme");
+            var overrideFontList = this.FindControl<ComboBox>("OverrideFontList");
+            var overrideFontSize = this.FindControl<NumericUpDown>("OverrideFontSizeInput");
+            var ligatureToggle = this.FindControl<CheckBox>("LigatureToggle");
+            var checkLigatures = this.FindControl<CheckBox>("CheckOverrideLigatures");
+            var overrideLigatureToggle = this.FindControl<CheckBox>("OverrideLigatureToggle");
+            var bgPathInput = this.FindControl<TextBox>("BgImagePathInput");
+            var bgOpacitySlider = this.FindControl<Slider>("BgImageOpacitySlider");
+            var bgStretchList = this.FindControl<ComboBox>("BgImageStretchList");
+            var bgOpacityDisplay = this.FindControl<TextBlock>("BgImageOpacityDisplay");
+            var importStatus = this.FindControl<TextBlock>("ImportStatusText");
+            var btnImportWT = this.FindControl<Button>("BtnImportWT");
+            var btnImportSSH = this.FindControl<Button>("BtnImportSSH");
+            var btnAddRule = this.FindControl<Button>("BtnAddRule");
+
+            // Theme Editor Controls
+            var btnEditTheme = this.FindControl<Button>("BtnEditTheme");
+            var btnNewTheme = this.FindControl<Button>("BtnNewTheme");
+            var btnCloseEditor = this.FindControl<Button>("BtnCloseEditor");
+            var btnSaveTheme = this.FindControl<Button>("BtnSaveTheme");
+            var btnDeleteTheme = this.FindControl<Button>("BtnDeleteTheme");
+            var btnImportTheme = this.FindControl<Button>("BtnImportTheme");
+            var themeEditorPanel = this.FindControl<Border>("ThemeEditorPanel");
+            var editThemeNameInput = this.FindControl<TextBox>("EditThemeNameInput");
+            var editThemeFgInput = this.FindControl<TextBox>("EditThemeFgInput");
+            var editThemeBgInput = this.FindControl<TextBox>("EditThemeBgInput");
+            var editThemeCursorInput = this.FindControl<TextBox>("EditThemeCursorInput");
+            var themeEditorStatus = this.FindControl<TextBlock>("ThemeEditorStatus");
+
+            if (btnImportTheme != null)
+            {
+                btnImportTheme.Click += async (s, e) =>
+                {
+                    var topLevel = TopLevel.GetTopLevel(this);
+                    if (topLevel != null)
+                    {
+                        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
+                        {
+                            Title = "Import Theme",
+                            AllowMultiple = false,
+                            FileTypeFilter = new[]
+                            {
+                                new Avalonia.Platform.Storage.FilePickerFileType("Theme Files") { Patterns = new[] { "*.json", "*.itermcolors" } }
+                            }
+                        });
+
+                        if (files.Count > 0)
+                        {
+                            string path = files[0].Path.LocalPath;
+                            string importedThemeName = _settings.ThemeManager.ImportTheme(path);
+                            if (!string.IsNullOrEmpty(importedThemeName))
+                            {
+                                PopulateThemes();
+                                // Select the imported theme
+                                if (themeList != null)
+                                {
+                                    foreach (ComboBoxItem it in themeList.Items.Cast<ComboBoxItem>())
+                                    {
+                                        if (it.Content?.ToString() == importedThemeName)
+                                        {
+                                            themeList.SelectedItem = it;
+                                            OnThemeChanged?.Invoke(importedThemeName);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+            }
+
+            if (btnEditTheme != null)
+            {
+                btnEditTheme.Click += (s, e) =>
+                {
+                    if (themeList?.SelectedItem is ComboBoxItem item)
+                    {
+                        var themeName = item.Content?.ToString() ?? "Default";
+                        var theme = _settings.ThemeManager.GetTheme(themeName);
+                        OpenThemeEditor(theme.Clone());
+                    }
+                };
+            }
+
+            if (btnNewTheme != null)
+            {
+                btnNewTheme.Click += (s, e) =>
+                {
+                    OpenThemeEditor(new TerminalTheme { Name = "New Theme" });
+                };
+            }
+
+            if (btnCloseEditor != null)
+            {
+                btnCloseEditor.Click += (s, e) =>
+                {
+                    if (themeEditorPanel != null) themeEditorPanel.IsVisible = false;
+                };
+            }
+
+            if (btnSaveTheme != null)
+            {
+                btnSaveTheme.Click += (s, e) =>
+                {
+                    if (_editingTheme != null)
+                    {
+                        if (string.IsNullOrWhiteSpace(editThemeNameInput?.Text))
+                        {
+                            if (themeEditorStatus != null) themeEditorStatus.Text = "Name required";
+                            return;
+                        }
+
+                        _editingTheme.Name = editThemeNameInput.Text;
+                        _settings.ThemeManager.SaveTheme(_editingTheme);
+                        PopulateThemes();
+
+                        // Select the saved theme in the list
+                        if (themeList != null)
+                        {
+                            foreach (ComboBoxItem it in themeList.Items.Cast<ComboBoxItem>())
+                            {
+                                if (it.Content?.ToString() == _editingTheme.Name)
+                                {
+                                    themeList.SelectedItem = it;
+                                    _settings.RefreshActiveTheme();
+                                    OnThemeChanged?.Invoke(_editingTheme.Name);
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (themeEditorStatus != null) themeEditorStatus.Text = "Saved!";
+                        DispatcherTimer.RunOnce(() => { if (themeEditorStatus != null) themeEditorStatus.Text = ""; }, TimeSpan.FromSeconds(2));
+                    }
+                };
+            }
+
+            if (btnDeleteTheme != null)
+            {
+                btnDeleteTheme.Click += (s, e) =>
+                {
+                    if (_editingTheme != null && _editingTheme.Name != "Default")
+                    {
+                        _settings.ThemeManager.DeleteTheme(_editingTheme.Name);
+                        PopulateThemes();
+                        if (themeList != null) themeList.SelectedIndex = 0;
+                        if (themeEditorPanel != null) themeEditorPanel.IsVisible = false;
+                    }
+                };
+            }
+
+            // Wire up ANSI swatch inputs
+            for (int i = 0; i < 16; i++)
+            {
+                int index = i;
+                var swatchBtn = this.FindControl<Button>($"EditSwatch{index}");
+                if (swatchBtn != null)
+                {
+                    swatchBtn.Click += (s, e) => OpenSwatchFlyout(swatchBtn, index);
+                }
+            }
+
+            // Real-time updates for global color inputs
+            if (editThemeFgInput != null) editThemeFgInput.TextChanged += (s, e) =>
+            {
+                if (Color.TryParse(editThemeFgInput.Text, out var color) && _editingTheme != null)
+                {
+                    _editingTheme.Foreground = color;
+                    UpdateThemePreview(_editingTheme, "Editor");
+                }
+            };
+            if (editThemeBgInput != null) editThemeBgInput.TextChanged += (s, e) =>
+            {
+                if (Color.TryParse(editThemeBgInput.Text, out var color) && _editingTheme != null)
+                {
+                    _editingTheme.Background = color;
+                    UpdateThemePreview(_editingTheme, "Editor");
+                }
+            };
+            if (editThemeCursorInput != null) editThemeCursorInput.TextChanged += (s, e) =>
+            {
+                if (Color.TryParse(editThemeCursorInput.Text, out var color) && _editingTheme != null)
+                {
+                    _editingTheme.CursorColor = color;
+                    UpdateThemePreview(_editingTheme, "Editor");
+                }
+            };
+
+            if (themeList != null)
+            {
+                themeList.SelectionChanged += (s, e) =>
+                {
+                    if (themeList.SelectedItem is ComboBoxItem item)
+                    {
+                        var theme = _settings.ThemeManager.GetTheme(item.Content?.ToString() ?? "Default");
+                        UpdateThemePreview(theme, "Main");
+                    }
+                };
+            }
+
+            if (overrideThemeList != null)
+            {
+                overrideThemeList.SelectionChanged += (s, e) =>
+                {
+                    if (overrideThemeList.SelectedItem is ComboBoxItem item)
+                    {
+                        var theme = _settings.ThemeManager.GetTheme(item.Content?.ToString() ?? "Default");
+                        UpdateThemePreview(theme, "Override");
+                    }
+                };
+            }
+
             LoadCurrentSettings();
             PopulateProfilesList();
             ApplyTheme();
@@ -82,18 +331,7 @@ namespace NovaTerminal
                 _statusTimer = null;
             };
 
-            var btnSave = this.FindControl<Button>("BtnSave");
-            var btnCancel = this.FindControl<Button>("BtnCancel");
-            var opacitySlider = this.FindControl<Slider>("WindowOpacitySlider");
-            var opacityDisplay = this.FindControl<TextBlock>("OpacityValueDisplay");
-            var blurList = this.FindControl<ComboBox>("BlurList");
-
             // Profile Controls
-            var profilesListBox = this.FindControl<ListBox>("ProfilesListBox");
-            var btnAddProfile = this.FindControl<Button>("BtnAddProfile");
-            var btnDeleteProfile = this.FindControl<Button>("BtnDeleteProfile");
-            var btnSetDefault = this.FindControl<Button>("BtnSetDefault");
-
             if (profilesListBox != null)
             {
                 profilesListBox.SelectionChanged += (s, e) =>
@@ -116,9 +354,6 @@ namespace NovaTerminal
                 };
             }
 
-            var btnAddRule = this.FindControl<Button>("BtnAddRule");
-            if (btnAddRule != null) btnAddRule.Click += BtnAddForward_Click;
-
             if (btnDeleteProfile != null)
             {
                 btnDeleteProfile.Click += (s, e) =>
@@ -133,9 +368,6 @@ namespace NovaTerminal
                 };
             }
 
-            var importStatus = this.FindControl<TextBlock>("ImportStatusText");
-
-            var btnImportWT = this.FindControl<Button>("BtnImportWT");
             if (btnImportWT != null)
             {
                 btnImportWT.Click += (s, e) =>
@@ -163,7 +395,6 @@ namespace NovaTerminal
                 };
             }
 
-            var btnImportSSH = this.FindControl<Button>("BtnImportSSH");
             if (btnImportSSH != null)
             {
                 btnImportSSH.Click += (s, e) =>
@@ -204,16 +435,8 @@ namespace NovaTerminal
             }
 
             // Profile Editor Inputs
-            var nameInput = this.FindControl<TextBox>("ProfileNameInput");
-            var commandInput = this.FindControl<TextBox>("ProfileCommandInput");
-            var argsInput = this.FindControl<TextBox>("ProfileArgsInput");
-            var cwdInput = this.FindControl<TextBox>("ProfileCwdInput");
-            var groupInput = this.FindControl<TextBox>("ProfileGroupInput");
-            var tagsInput = this.FindControl<TextBox>("ProfileTagsInput");
-
             if (nameInput != null) nameInput.KeyUp += (s, e) => { if (_selectedProfile != null) { _selectedProfile.Name = nameInput.Text ?? ""; RefreshProfileListItem(_selectedProfile); } };
             if (commandInput != null) commandInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Command = commandInput.Text ?? ""; };
-            if (argsInput != null) argsInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Arguments = argsInput.Text ?? ""; };
             if (argsInput != null) argsInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Arguments = argsInput.Text ?? ""; };
             if (cwdInput != null) cwdInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.StartingDirectory = cwdInput.Text ?? ""; };
             if (groupInput != null) groupInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.Group = groupInput.Text ?? "General"; };
@@ -224,15 +447,6 @@ namespace NovaTerminal
             };
 
             // Connection Type and SSH Inputs
-            var typeList = this.FindControl<ComboBox>("ProfileTypeList");
-            var sshPanel = this.FindControl<StackPanel>("SshSettingsPanel");
-            var sshHostInput = this.FindControl<TextBox>("SshHostInput");
-            var sshPortInput = this.FindControl<NumericUpDown>("SshPortInput");
-            var sshUserInput = this.FindControl<TextBox>("SshUserInput");
-            var sshPasswordInput = this.FindControl<TextBox>("SshPasswordInput");
-            var sshKeyPathInput = this.FindControl<TextBox>("SshKeyPathInput");
-            var btnBrowseSshKey = this.FindControl<Button>("BtnBrowseSshKey");
-
             if (typeList != null)
             {
                 typeList.SelectionChanged += (s, e) =>
@@ -254,14 +468,7 @@ namespace NovaTerminal
                     _selectedProfile.Password = sshPasswordInput.Text ?? "";
             };
 
-            // Note: SshKeyPathInput binding is handled in the Advanced SSH Controls block below
-
-
             // Advanced SSH Controls
-            var jumpList = this.FindControl<ComboBox>("JumpHostList");
-            var radioAgent = this.FindControl<RadioButton>("RadioAuthAgent");
-            var radioKey = this.FindControl<RadioButton>("RadioAuthKey");
-
             if (jumpList != null)
             {
                 jumpList.SelectionChanged += (s, e) =>
@@ -308,7 +515,6 @@ namespace NovaTerminal
                     }
                 };
             }
-            // Bind SshKeyPathInput directly to IdentityFilePath too
             if (sshKeyPathInput != null) sshKeyPathInput.KeyUp += (s, e) =>
             {
                 if (_selectedProfile != null)
@@ -318,19 +524,7 @@ namespace NovaTerminal
                 }
             };
 
-            var checkFont = this.FindControl<CheckBox>("CheckOverrideFont");
-            var checkSize = this.FindControl<CheckBox>("CheckOverrideSize");
-            var checkTheme = this.FindControl<CheckBox>("CheckOverrideTheme");
-
-            var overrideFontList = this.FindControl<ComboBox>("OverrideFontList");
-            var overrideFontSize = this.FindControl<NumericUpDown>("OverrideFontSizeInput");
-            var overrideThemeList = this.FindControl<ComboBox>("OverrideThemeList");
-
-            // Logic: 
-            // - Checking the box initializes the override with the current global value if it was null
-            // - Unchecking sets it to null
-            // - changing the combo/input updates the override value directly
-
+            // Overrides Logic
             if (checkFont != null)
             {
                 checkFont.IsCheckedChanged += (s, e) =>
@@ -339,9 +533,7 @@ namespace NovaTerminal
                     {
                         if (checkFont.IsChecked == true)
                         {
-                            // If we are enabling, ensure we have a valid value (fallback to global)
                             if (_selectedProfile.FontFamily == null) _selectedProfile.FontFamily = _settings.FontFamily;
-                            // Also ensure UI matches
                             if (overrideFontList != null)
                                 foreach (ComboBoxItem item in overrideFontList.Items)
                                     if (item.Content?.ToString() == _selectedProfile.FontFamily) overrideFontList.SelectedItem = item;
@@ -427,22 +619,13 @@ namespace NovaTerminal
                 };
             }
 
-            var ligatureToggle = this.FindControl<CheckBox>("LigatureToggle");
+            // Ligatures
             if (ligatureToggle != null)
             {
                 ligatureToggle.IsCheckedChanged += (s, e) =>
                 {
-                    // No need to trigger event here as ligatures don't need immediate measure recalcs
-                    // but we refresh visual to show/hide them.
-                    // Actually, most programming ligatures change width slightly in some fonts, 
-                    // but in monospaced grids we usually shape them within cell bounds.
-                    // We'll let the user save to see the effect.
                 };
             }
-
-            // Ligature Override Logic
-            var checkLigatures = this.FindControl<CheckBox>("CheckOverrideLigatures");
-            var overrideLigatureToggle = this.FindControl<CheckBox>("OverrideLigatureToggle");
 
             if (checkLigatures != null)
             {
@@ -474,11 +657,7 @@ namespace NovaTerminal
                 };
             }
 
-            // Core Settings Controls
-            var fontList = this.FindControl<ComboBox>("FontList");
-            var fontSizeInput = this.FindControl<NumericUpDown>("FontSizeInput");
-            var themeList = this.FindControl<ComboBox>("ThemeList");
-
+            // Core Settings
             if (fontList != null)
             {
                 fontList.SelectionChanged += (s, e) =>
@@ -507,22 +686,15 @@ namespace NovaTerminal
                 {
                     if (themeList.SelectedItem is ComboBoxItem item && item.Content != null)
                     {
-                        OnThemeChanged?.Invoke(item.Content.ToString() ?? "Default");
-
-                        // Also apply theme to Settings Window itself for preview consistency
-                        // (Optional, user might prefer settings window stays static, but it's nice)
-                        // Actually, let's keep SettingsWindow static for now to avoid complexity, main window is what matters.
+                        var themeName = item.Content.ToString() ?? "Default";
+                        OnThemeChanged?.Invoke(themeName);
+                        var theme = _settings.ThemeManager.GetTheme(themeName);
+                        ApplyTheme(theme);
                     }
                 };
             }
 
-            // Bg Image Controls
-            var bgPathInput = this.FindControl<TextBox>("BgImagePathInput");
-            var bgOpacitySlider = this.FindControl<Slider>("BgImageOpacitySlider");
-            var bgStretchList = this.FindControl<ComboBox>("BgImageStretchList");
-            var bgOpacityDisplay = this.FindControl<TextBlock>("BgImageOpacityDisplay");
-
-            // Define trigger helper
+            // Bg Image
             void TriggerBgUpdate()
             {
                 var path = bgPathInput?.Text ?? "";
@@ -557,13 +729,9 @@ namespace NovaTerminal
                 bgStretchList.SelectionChanged += (s, e) => TriggerBgUpdate();
             }
 
-            // Update opacity display when slider changes
             if (opacitySlider != null && opacityDisplay != null)
             {
-                // Set initial value
                 opacityDisplay.Text = $"{(int)(opacitySlider.Value * 100)}%";
-
-                // Update on change
                 opacitySlider.PropertyChanged += (s, e) =>
                 {
                     if (e.Property == Avalonia.Controls.Primitives.RangeBase.ValueProperty)
@@ -618,6 +786,7 @@ namespace NovaTerminal
                 };
             }
 
+            if (btnAddRule != null) btnAddRule.Click += BtnAddForward_Click;
             if (btnSave != null) btnSave.Click += (s, e) => SaveAndClose();
             if (btnCancel != null) btnCancel.Click += (s, e) => Close();
 
@@ -654,6 +823,27 @@ namespace NovaTerminal
                 if (fontList != null) fontList.Items.Add(f);
                 // Create a separate instance for the second list to avoid visual tree parenting issues
                 if (overrideFontList != null) overrideFontList.Items.Add(new ComboBoxItem { Content = f.Content });
+            }
+        }
+
+        private void PopulateThemes()
+        {
+            _settings.ThemeManager.LoadThemes();
+            var themeList = this.FindControl<ComboBox>("ThemeList");
+            var overrideThemeList = this.FindControl<ComboBox>("OverrideThemeList");
+
+            if (themeList != null) themeList.Items.Clear();
+            if (overrideThemeList != null) overrideThemeList.Items.Clear();
+
+            var themes = _settings.ThemeManager.GetAvailableThemes()
+                .OrderBy(t => t)
+                .Select(t => new ComboBoxItem { Content = t })
+                .ToList();
+
+            foreach (var t in themes)
+            {
+                if (themeList != null) themeList.Items.Add(t);
+                if (overrideThemeList != null) overrideThemeList.Items.Add(new ComboBoxItem { Content = t.Content });
             }
         }
 
@@ -990,19 +1180,126 @@ namespace NovaTerminal
             }
         }
 
-        private void ApplyTheme()
+        private void UpdateThemePreview(TerminalTheme theme, string context)
         {
-            var theme = _settings.ThemeName switch
+            // Update the single preview area we have regardless of whether it's the global theme 
+            // or a profile override being touched.
+            var sampleBorder = this.FindControl<Border>("SampleTextBorder");
+            var sampleText = this.FindControl<TextBlock>("SampleTextBlock");
+            var previewArea = this.FindControl<Border>("ThemePreviewArea");
+
+            if (sampleBorder != null) sampleBorder.Background = new SolidColorBrush(theme.Background);
+            if (sampleText != null) sampleText.Foreground = new SolidColorBrush(theme.Foreground);
+
+            // Also update the container background to match the theme (so it doesn't look like a black box in a light theme)
+            // But lets make it slightly different so we can distinguish the "terminal area"
+            if (previewArea != null)
             {
-                "Solarized Dark" => TerminalTheme.SolarizedDark,
-                "Dracula" => TerminalTheme.Dracula,
-                "Monokai" => TerminalTheme.Monokai,
-                "One Half Dark" => TerminalTheme.OneHalfDark,
-                "GitHub Dark" => TerminalTheme.GitHubDark,
-                _ => TerminalTheme.Dark
+                previewArea.Background = new SolidColorBrush(theme.Background);
+                // Ensure the preview label is visible against this background
+                var children = (previewArea.Child as StackPanel)?.Children;
+                if (children != null && children.Count > 0 && children[0] is TextBlock label)
+                {
+                    // Calculate contrast for the label
+                    double lum = (0.299 * theme.Background.R + 0.587 * theme.Background.G + 0.114 * theme.Background.B) / 255.0;
+                    label.Foreground = lum > 0.5 ? Brushes.Black : Brushes.White;
+                }
+            }
+
+            for (int i = 0; i < 16; i++)
+            {
+                var swatch = this.FindControl<Border>($"Swatch{i}");
+                if (swatch != null)
+                {
+                    swatch.Background = new SolidColorBrush(theme.GetAnsiColor(i % 8, i >= 8));
+                }
+            }
+        }
+
+        private void OpenThemeEditor(TerminalTheme theme)
+        {
+            _editingTheme = theme;
+            var panel = this.FindControl<Border>("ThemeEditorPanel");
+            var nameInput = this.FindControl<TextBox>("EditThemeNameInput");
+            var fgInput = this.FindControl<TextBox>("EditThemeFgInput");
+            var bgInput = this.FindControl<TextBox>("EditThemeBgInput");
+            var cursorInput = this.FindControl<TextBox>("EditThemeCursorInput");
+            var btnDelete = this.FindControl<Button>("BtnDeleteTheme");
+
+            if (panel != null) panel.IsVisible = true;
+            if (nameInput != null) nameInput.Text = theme.Name;
+            if (fgInput != null) fgInput.Text = theme.Foreground.ToString();
+            if (bgInput != null) bgInput.Text = theme.Background.ToString();
+            if (cursorInput != null) cursorInput.Text = theme.CursorColor.ToString();
+
+            if (btnDelete != null) btnDelete.IsEnabled = theme.Name != "Default";
+
+            UpdateEditorSwatches();
+            UpdateThemePreview(theme, "Editor");
+        }
+
+        private void UpdateEditorSwatches()
+        {
+            if (_editingTheme == null) return;
+            for (int i = 0; i < 16; i++)
+            {
+                var btn = this.FindControl<Button>($"EditSwatch{i}");
+                if (btn != null)
+                {
+                    btn.Background = new SolidColorBrush(_editingTheme.GetAnsiColor(i % 8, i >= 8));
+                }
+            }
+        }
+
+        private void OpenSwatchFlyout(Button target, int index)
+        {
+            if (_editingTheme == null) return;
+
+            var current = _editingTheme.GetAnsiColor(index % 8, index >= 8);
+            var hexInput = new TextBox { Text = current.ToString(), Width = 100 };
+            var preview = new Border { Width = 30, Height = 30, Background = new SolidColorBrush(current), CornerRadius = new CornerRadius(4), Margin = new Thickness(5, 0, 0, 0) };
+
+            hexInput.TextChanged += (s, e) =>
+            {
+                if (Color.TryParse(hexInput.Text, out var color))
+                {
+                    preview.Background = new SolidColorBrush(color);
+                    _editingTheme.SetAnsiColor(index % 8, index >= 8, color);
+                    target.Background = new SolidColorBrush(color);
+                    UpdateThemePreview(_editingTheme, "Editor");
+                }
             };
+
+            var content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(10),
+                Children = { hexInput, preview }
+            };
+
+            var flyout = new Flyout { Content = content };
+            flyout.ShowAt(target);
+        }
+
+        private void ApplyTheme(TerminalTheme? theme = null)
+        {
+            if (theme == null) theme = _settings.ActiveTheme;
+
+            var contrastColor = theme.GetContrastForeground();
+            var contrastForeground = new SolidColorBrush(contrastColor);
+
             this.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
-            this.Foreground = new Avalonia.Media.SolidColorBrush(theme.Foreground);
+            this.Foreground = contrastForeground;
+
+            // Set the window theme variant so standard controls (ComboBox, ScrollBar, etc.) adapt
+            this.RequestedThemeVariant = contrastColor == Colors.Black ? ThemeVariant.Light : ThemeVariant.Dark;
+
+            // Ensure Profile Editor Panel stays readable (it has dark background)
+            var profilePanel = this.FindControl<Border>("ThemeEditorPanel");
+            if (profilePanel != null)
+            {
+                // Already set Force White in XAML, but good to double check if needed
+            }
         }
 
         private void SaveAndClose()

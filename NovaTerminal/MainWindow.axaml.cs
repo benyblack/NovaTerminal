@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Styling;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -99,6 +100,13 @@ namespace NovaTerminal
         {
             InitializeComponent();
             _settings = TerminalSettings.Load();
+
+            // Ensure visual tree is ready for initial tab border
+            this.Loaded += (s, e) =>
+            {
+                // Give layout one more tick to settle
+                Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Input);
+            };
 
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
@@ -562,8 +570,17 @@ namespace NovaTerminal
             tabs.SelectedItem = tabItem;
             _currentPane = pane;
 
-            // Force visual update for the blue line (deferred so visual tree is ready)
-            Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Render);
+            // Defer visual update until layout is complete (ensures template is applied)
+            EventHandler? layoutHandler = null;
+            layoutHandler = (s, e) =>
+            {
+                tabItem.LayoutUpdated -= layoutHandler;
+                Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Input);
+            };
+            tabItem.LayoutUpdated += layoutHandler;
+
+            // Fallback: Post anyway
+            Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Input);
             Dispatcher.UIThread.Post(() => pane.ActiveControl.Focus());
         }
 
@@ -615,39 +632,49 @@ namespace NovaTerminal
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
 
-            var theme = (_settings.ThemeName == "Solarized Dark") ? TerminalTheme.SolarizedDark : TerminalTheme.Dark;
+            var theme = _settings.ActiveTheme;
             var borderBrush = new SolidColorBrush(theme.Blue);
+
+            // Calculate contrasting foreground for tabs
+            double luminance = (0.299 * theme.Background.R + 0.587 * theme.Background.G + 0.114 * theme.Background.B) / 255.0;
+            var contrastForeground = luminance > 0.5 ? Brushes.Black : Brushes.White;
 
             foreach (TabItem ti in tabs.Items.Cast<TabItem>())
             {
                 var border = ti.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "PART_Border");
                 if (border != null)
                 {
-                    border.Background = Brushes.Transparent;
+                    // Let Style handle Background (e.g. #33FFFFFF on select)
+                    // border.Background = Brushes.Transparent; 
                     border.BorderBrush = ti.IsSelected ? borderBrush : Brushes.Transparent;
                 }
 
-                if (ti.Header is TextBlock tb && ti.Content is TerminalPane pane && pane.Profile != null)
+                if (ti.Header is TextBlock tb)
                 {
-                    string profileName = pane.Profile.Name;
-                    var forwards = pane.Profile.Forwards;
-                    int activeCount = forwards.Count(f => f.Status == ForwardingStatus.Active);
-                    int startingCount = forwards.Count(f => f.Status == ForwardingStatus.Starting);
-                    bool hasFailed = forwards.Any(f => f.Status == ForwardingStatus.Failed);
+                    tb.Foreground = contrastForeground;
 
-                    if (activeCount > 0 || startingCount > 0)
+                    if (ti.Content is TerminalPane pane && pane.Profile != null)
                     {
-                        string badge = activeCount.ToString();
-                        if (startingCount > 0) badge += $" ({startingCount})";
-                        tb.Text = $"{profileName} 🔁 {badge}";
-                    }
-                    else if (hasFailed)
-                    {
-                        tb.Text = $"{profileName} ⚠️";
-                    }
-                    else
-                    {
-                        tb.Text = profileName;
+                        string profileName = pane.Profile.Name;
+                        var forwards = pane.Profile.Forwards;
+                        int activeCount = forwards.Count(f => f.Status == ForwardingStatus.Active);
+                        int startingCount = forwards.Count(f => f.Status == ForwardingStatus.Starting);
+                        bool hasFailed = forwards.Any(f => f.Status == ForwardingStatus.Failed);
+
+                        if (activeCount > 0 || startingCount > 0)
+                        {
+                            string badge = activeCount.ToString();
+                            if (startingCount > 0) badge += $" ({startingCount})";
+                            tb.Text = $"{profileName} 🔁 {badge}";
+                        }
+                        else if (hasFailed)
+                        {
+                            tb.Text = $"{profileName} ⚠️";
+                        }
+                        else
+                        {
+                            tb.Text = profileName;
+                        }
                     }
                 }
             }
@@ -765,15 +792,7 @@ namespace NovaTerminal
 
         private void ApplyThemeToUI()
         {
-            var theme = _settings.ThemeName switch
-            {
-                "Solarized Dark" => TerminalTheme.SolarizedDark,
-                "Dracula" => TerminalTheme.Dracula,
-                "Monokai" => TerminalTheme.Monokai,
-                "One Half Dark" => TerminalTheme.OneHalfDark,
-                "GitHub Dark" => TerminalTheme.GitHubDark,
-                _ => TerminalTheme.Dark
-            };
+            var theme = _settings.ActiveTheme;
 
             // Background brush for the main content area
             var bgBrush = new SolidColorBrush(theme.Background, _settings.WindowOpacity);
@@ -808,12 +827,56 @@ namespace NovaTerminal
                 }
             }
 
+            var contrastColor = theme.GetContrastForeground();
+            var contrastForeground = new SolidColorBrush(contrastColor);
+
+            // Set the window theme variant to ensure OS caption buttons (Min/Max/Close)
+            // adapt to the background brightness (Dark background -> Light buttons, Light background -> Dark buttons).
+            this.RequestedThemeVariant = contrastColor == Colors.Black ? ThemeVariant.Light : ThemeVariant.Dark;
+
+            // Apply to Window Foreground (inherited by many controls)
+            this.Foreground = contrastForeground;
+
+            // Apply to Title Bar Buttons
+            var btnNew = this.FindControl<Button>("BtnNewTab");
+            var btnSettings = this.FindControl<Button>("SettingsBtn");
+            var btnConns = this.FindControl<Button>("BtnConnections");
+
+            if (btnNew != null) btnNew.Foreground = contrastForeground;
+            if (btnSettings != null) btnSettings.Foreground = contrastForeground;
+            if (btnConns != null) btnConns.Foreground = contrastForeground;
+
+            // Force update of tab borders (blue line) since theme color changed
+            UpdateTabVisuals();
+
             var titleBar = this.FindControl<Grid>("TitleBar");
             if (titleBar != null) titleBar.Background = Brushes.Transparent;
 
             var dragBorder = this.FindControl<Border>("DragBorder");
-            if (dragBorder != null) dragBorder.PointerPressed += (s, e) => BeginMoveDrag(e);
+            if (dragBorder != null)
+            {
+                dragBorder.Background = headerBrush;
+            }
 
+            var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
+            if (connManager != null)
+            {
+                connManager.ApplyTheme(theme);
+            }
+
+            var connTitleBar = this.FindControl<Grid>("ConnectionTitleBar");
+            var connTitleText = this.FindControl<TextBlock>("ConnectionTitleText");
+            var btnCloseConn = this.FindControl<Button>("BtnCloseConnections");
+
+            if (connTitleBar != null) connTitleBar.Background = new SolidColorBrush(theme.Background.R < 127 ?
+                Color.FromRgb((byte)(theme.Background.R + 20), (byte)(theme.Background.G + 20), (byte)(theme.Background.B + 20)) :
+                Color.FromRgb((byte)Math.Max(0, theme.Background.R - 20), (byte)Math.Max(0, theme.Background.G - 20), (byte)Math.Max(0, theme.Background.B - 20)));
+
+            if (connTitleText != null) connTitleText.Foreground = contrastForeground;
+            if (btnCloseConn != null) btnCloseConn.Foreground = contrastForeground;
+
+            var connOverlay = this.FindControl<Border>("ConnectionOverlay");
+            if (connOverlay != null) connOverlay.Background = new SolidColorBrush(theme.Background);
         }
 
         private void SetupCommandPalette()
@@ -869,8 +932,8 @@ namespace NovaTerminal
                 return;
             }
 
-            var profile = _currentPane.Profile;
-            var sessionId = _currentPane.Session?.Id ?? Guid.Empty;
+            var profile = pane.Profile;
+            var sessionId = pane.Session?.Id ?? Guid.Empty;
 
             string? localPath = null;
             string? remotePath = null;
@@ -894,12 +957,12 @@ namespace NovaTerminal
 
                 if (string.IsNullOrEmpty(localPath)) return;
 
-                remotePath = await PromptForRemotePathAsync("Remote Destination Path", profile.DefaultRemoteDir ?? "~");
+                remotePath = await PromptForRemotePathAsync("Remote Destination Path", profile!.DefaultRemoteDir ?? "~");
             }
             else
             {
                 // Download
-                remotePath = await PromptForRemotePathAsync("Remote Source Path", profile.DefaultRemoteDir ?? "~");
+                remotePath = await PromptForRemotePathAsync("Remote Source Path", profile!.DefaultRemoteDir ?? "~");
                 if (string.IsNullOrEmpty(remotePath)) return;
 
                 // Folder/File Picker for destination
@@ -942,7 +1005,7 @@ namespace NovaTerminal
             var btnConfirm = this.FindControl<Button>("BtnPathConfirm");
             var btnCancel = this.FindControl<Button>("BtnPathCancel");
 
-            if (overlay == null || box == null) return null;
+            if (overlay == null || box == null || titleBlock == null || btnConfirm == null || btnCancel == null) return null;
 
             titleBlock.Text = title;
             box.Text = defaultValue;
@@ -1111,7 +1174,15 @@ namespace NovaTerminal
             };
             sw.OnFontChanged += (font) => { _settings.FontFamily = font; ApplySettingsToAllTabs(); };
             sw.OnFontSizeChanged += (size) => { _settings.FontSize = size; ApplySettingsToAllTabs(); };
-            sw.OnThemeChanged += (theme) => { _settings.ThemeName = theme; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
+            sw.OnThemeChanged += (theme) =>
+        {
+            // Force reload themes to pick up any changes from settings window
+            _settings.ThemeManager.ReloadThemes();
+            _settings.RefreshActiveTheme();
+            _settings.ThemeName = theme;
+            ApplyThemeToUI();
+            ApplySettingsToAllTabs();
+        };
 
             bool saved = await sw.ShowDialog<bool>(this);
 

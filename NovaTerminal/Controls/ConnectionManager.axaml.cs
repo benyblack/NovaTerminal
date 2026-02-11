@@ -1,5 +1,7 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Threading;
 using NovaTerminal.Core;
 using System;
@@ -21,6 +23,40 @@ namespace NovaTerminal.Controls
         {
             InitializeComponent();
             SearchInput.TextChanged += (s, e) => FilterConnections();
+        }
+
+        public static readonly StyledProperty<IBrush> CardBackgroundProperty =
+            AvaloniaProperty.Register<ConnectionManager, IBrush>(nameof(CardBackground));
+
+        public IBrush CardBackground
+        {
+            get => GetValue(CardBackgroundProperty);
+            set => SetValue(CardBackgroundProperty, value);
+        }
+
+        public static readonly StyledProperty<IBrush> SecondaryForegroundProperty =
+            AvaloniaProperty.Register<ConnectionManager, IBrush>(nameof(SecondaryForeground));
+
+        public IBrush SecondaryForeground
+        {
+            get => GetValue(SecondaryForegroundProperty);
+            set => SetValue(SecondaryForegroundProperty, value);
+        }
+
+        public void ApplyTheme(TerminalTheme theme)
+        {
+            this.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
+            this.Foreground = new Avalonia.Media.SolidColorBrush(theme.Foreground);
+
+            // Card background calculation
+            var cardColor = theme.Background;
+            if (theme.Background.R < 127) // Dark theme assumption
+                cardColor = Avalonia.Media.Color.FromRgb((byte)Math.Min(255, cardColor.R + 25), (byte)Math.Min(255, cardColor.G + 25), (byte)Math.Min(255, cardColor.B + 25));
+            else // Light theme assumption
+                cardColor = Avalonia.Media.Color.FromRgb((byte)Math.Max(0, cardColor.R - 15), (byte)Math.Max(0, cardColor.G - 15), (byte)Math.Max(0, cardColor.B - 15));
+
+            CardBackground = new Avalonia.Media.SolidColorBrush(cardColor);
+            SecondaryForeground = new Avalonia.Media.SolidColorBrush(theme.Foreground) { Opacity = 0.7 };
         }
 
         private void OnSyncClick(object? sender, RoutedEventArgs e)
