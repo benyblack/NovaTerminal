@@ -301,10 +301,10 @@ These constraints are enforced by tests.
 ## 3.3 Font & Text Excellence
 
 ### Deliverables
-- Ligature toggle
-- Fallback font chain
-- Emoji width correctness
-- DPI-safe metrics
+- [x] Ligature toggle
+- [x] Fallback font chain
+- [x] Emoji width correctness
+- [x] DPI-safe metrics
 
 ---
 
