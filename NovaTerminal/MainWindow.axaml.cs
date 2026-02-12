@@ -605,7 +605,10 @@ namespace NovaTerminal
             if (separatorIndex != -1)
             {
                 for (int i = separatorIndex; i < flyout.Items.Count; i++)
-                    footerItems.Add(flyout.Items[i]);
+                {
+                    var footer = flyout.Items[i];
+                    if (footer != null) footerItems.Add(footer);
+                }
             }
 
             flyout.Items.Clear();

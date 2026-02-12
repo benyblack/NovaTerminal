@@ -39,7 +39,7 @@ namespace NovaTerminal.Core
             _palette[7] = new SixelColor(255, 255, 255);
         }
 
-        public SKBitmap Decode(string dcs)
+        public SKBitmap? Decode(string dcs)
         {
             // dcs is everything between 'q' and 'ST'
             int qIdx = dcs.IndexOf('q');
@@ -186,7 +186,7 @@ namespace NovaTerminal.Core
             _placements.Add(new SixelPlacement { X = x, Y = y, ColorIdx = colorIdx, Bits = (byte)bits });
         }
 
-        private SKBitmap RenderToBitmap()
+        private SKBitmap? RenderToBitmap()
         {
             if (_maxWidth <= 0 || _maxHeight <= 0) return null;
 

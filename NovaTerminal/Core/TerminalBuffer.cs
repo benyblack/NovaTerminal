@@ -532,7 +532,6 @@ namespace NovaTerminal.Core
                     if (!cell.IsWideContinuation)
                     {
                         string existing = cell.Text ?? cell.Character.ToString();
-                        string oldText = cell.Text;
                         cell.Text = existing + grapheme;
                         cell.IsDirty = true; // Force redraw
                         _viewport[_cursorRow].TouchRevision();

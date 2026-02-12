@@ -535,7 +535,7 @@ namespace NovaTerminal
                         {
                             if (_selectedProfile.FontFamily == null) _selectedProfile.FontFamily = _settings.FontFamily;
                             if (overrideFontList != null)
-                                foreach (ComboBoxItem item in overrideFontList.Items)
+                                foreach (var item in overrideFontList.Items.OfType<ComboBoxItem>())
                                     if (item.Content?.ToString() == _selectedProfile.FontFamily) overrideFontList.SelectedItem = item;
                         }
                         else
@@ -597,7 +597,7 @@ namespace NovaTerminal
                         {
                             if (_selectedProfile.ThemeName == null) _selectedProfile.ThemeName = _settings.ThemeName;
                             if (overrideThemeList != null)
-                                foreach (ComboBoxItem item in overrideThemeList.Items)
+                                foreach (var item in overrideThemeList.Items.OfType<ComboBoxItem>())
                                     if (item.Content?.ToString() == _selectedProfile.ThemeName) overrideThemeList.SelectedItem = item;
                         }
                         else
@@ -758,16 +758,26 @@ namespace NovaTerminal
             {
                 btnBrowse.Click += async (s, e) =>
                 {
-                    var dlg = new OpenFileDialog();
-                    dlg.Filters.Add(new FileDialogFilter { Name = "Images", Extensions = { "png", "jpg", "jpeg", "bmp", "webp" } });
-                    dlg.AllowMultiple = false;
-                    var result = await dlg.ShowAsync(this);
-                    if (result != null && result.Length > 0)
+                    var topLevel = TopLevel.GetTopLevel(this);
+                    if (topLevel != null)
                     {
-                        if (bgPathInput != null)
+                        var files = await topLevel.StorageProvider.OpenFilePickerAsync(new Avalonia.Platform.Storage.FilePickerOpenOptions
                         {
-                            bgPathInput.Text = result[0];
-                            TriggerBgUpdate();
+                            Title = "Select Background Image",
+                            AllowMultiple = false,
+                            FileTypeFilter = new[]
+                            {
+                                new Avalonia.Platform.Storage.FilePickerFileType("Images") { Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.bmp", "*.webp" } }
+                            }
+                        });
+
+                        if (files.Count > 0)
+                        {
+                            if (bgPathInput != null)
+                            {
+                                bgPathInput.Text = files[0].Path.LocalPath;
+                                TriggerBgUpdate();
+                            }
                         }
                     }
                 };
@@ -793,7 +803,7 @@ namespace NovaTerminal
             // Auto-select profile if requested
             if (initialProfileId.HasValue && profilesListBox != null)
             {
-                foreach (ListBoxItem item in profilesListBox.Items)
+                foreach (var item in profilesListBox.Items.OfType<ListBoxItem>())
                 {
                     if (item.Tag is TerminalProfile p && p.Id == initialProfileId.Value)
                     {
@@ -909,7 +919,7 @@ namespace NovaTerminal
             this.FindControl<TextBox>("SshKeyPathInput")!.Text = profile.SshKeyPath ?? "";
 
             var pwdInput = this.FindControl<TextBox>("SshPasswordInput");
-            if (pwdInput != null && profile != null)
+            if (pwdInput != null)
             {
                 // Try new format first (specific to profile name)
                 string key = $"SSH:{profile.Name}:{profile.SshUser}@{profile.SshHost}";
