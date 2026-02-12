@@ -40,218 +40,229 @@ namespace NovaTerminal.Core
 
         public void Process(string input)
         {
+            if (string.IsNullOrEmpty(input)) return;
+            RendererStatistics.RecordBytes(input.Length * sizeof(char)); // Simplified for char count
 
-            foreach (char c in input)
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
             {
-                switch (_state)
+                foreach (char c in input)
                 {
-                    case State.Normal:
-                        if (c == '\x1b')
-                        {
-                            _state = State.Esc;
-                        }
-                        else if (c == '\u009B') // C1 CSI
-                        {
-                            _state = State.Csi;
-                            _paramLen = 0;
-                        }
-                        else if (c == '\u0090') // C1 DCS
-                        {
-                            _state = State.Dcs;
-                            _dcsStringBuffer.Clear();
-                        }
-                        else if (c == '\u009D') // C1 OSC
-                        {
-                            _state = State.Osc;
-                            _oscStringBuffer.Clear();
-                        }
-                        else if (c == '\u009F') // C1 APC
-                        {
-                            _state = State.Apc;
-                            _apcStringBuffer.Clear();
-                        }
-                        else if (c == '\a')
-                        {
-                            /* Ignore BEL */
-                        }
-                        else
-                        {
-                            if (_swallowNextNewline)
+                    switch (_state)
+                    {
+                        case State.Normal:
+                            if (c == '\x1b')
                             {
-                                if (c == '\r' || c == '\n')
+                                _state = State.Esc;
+                            }
+                            else if (c == '\u009B') // C1 CSI
+                            {
+                                _state = State.Csi;
+                                _paramLen = 0;
+                            }
+                            else if (c == '\u0090') // C1 DCS
+                            {
+                                _state = State.Dcs;
+                                _dcsStringBuffer.Clear();
+                            }
+                            else if (c == '\u009D') // C1 OSC
+                            {
+                                _state = State.Osc;
+                                _oscStringBuffer.Clear();
+                            }
+                            else if (c == '\u009F') // C1 APC
+                            {
+                                _state = State.Apc;
+                                _apcStringBuffer.Clear();
+                            }
+                            else if (c == '\a')
+                            {
+                                /* Ignore BEL */
+                            }
+                            else
+                            {
+                                if (_swallowNextNewline)
                                 {
-                                    // Swallow it
-                                    if (c == '\n') _swallowNextNewline = false; // Done
-                                    continue;
+                                    if (c == '\r' || c == '\n')
+                                    {
+                                        // Swallow it
+                                        if (c == '\n') _swallowNextNewline = false; // Done
+                                        continue;
+                                    }
+                                    else
+                                    {
+                                        // Non-newline char? Stop swallowing.
+                                        _swallowNextNewline = false;
+                                    }
                                 }
-                                else
+                                _buffer.WriteChar(c);
+                            }
+                            break;
+
+                        case State.Esc:
+                            // Log only in non-performance-critical scenarios if needed
+                            if (c == '[')
+                            {
+                                _state = State.Csi;
+                                _paramLen = 0;
+                            }
+                            else if (c == ']') // OSC Start
+                            {
+                                _state = State.Osc;
+                                _oscStringBuffer.Clear();
+                            }
+                            else if (c == 'P') // DCS Start (Device Control String) - Sixel, etc.
+                            {
+                                _state = State.Dcs;
+                                _dcsStringBuffer.Clear();
+                            }
+                            else if (c == '_') // APC Start
+                            {
+                                _state = State.Apc;
+                                _apcStringBuffer.Clear();
+                            }
+                            else if (c == '7') // Save Cursor
+                            {
+                                _buffer.SaveCursor();
+                                _state = State.Normal;
+                            }
+                            else if (c == '8') // Restore Cursor
+                            {
+                                _buffer.RestoreCursor();
+                                _state = State.Normal;
+                            }
+                            else if (c == 'c') // RIS - Reset to Initial State
+                            {
+                                _buffer.Reset(); // Ensure TerminalBuffer has a Reset method or use Clear
+                                _verticalOffset = 0;
+                                _state = State.Normal;
+                            }
+                            else if (c == '(' || c == ')' || c == '*' || c == '+' || c == '-')
+                            {
+                                // G0/G1 charset selection - wait for the next char but don't print
+                                _state = State.Charset;
+                            }
+                            else if (c >= 0x20 && c <= 0x7E)
+                            {
+                                // Unknown escape sequence followed by printable char?
+                                // Treat as literal printable character (fallback)
+                                _buffer.WriteChar(c);
+                                _state = State.Normal;
+                            }
+                            else
+                            {
+                                _state = State.Normal;
+                            }
+                            break;
+
+                        case State.Charset:
+                            // Consume the charset designation character (e.g. 'B' in ESC ( B)
+                            _state = State.Normal;
+                            break;
+
+                        case State.Osc:
+                            if (c == '\a' || c == '\u009C')
+                            {
+                                HandleOsc(new string(_oscStringBuffer.ToArray()));
+                                _state = State.Normal;
+                            }
+                            else if (c == '\x1b')
+                            {
+                                _state = State.OscEsc;
+                            }
+                            else
+                            {
+                                if (_oscStringBuffer.Count < 50) // Only log the beginning of potential images to avoid huge logs
                                 {
-                                    // Non-newline char? Stop swallowing.
-                                    _swallowNextNewline = false;
+                                }
+                                _oscStringBuffer.Add(c);
+                            }
+                            break;
+
+                        case State.OscEsc:
+                            if (c == '\\')
+                            {
+                                HandleOsc(new string(_oscStringBuffer.ToArray()));
+                                _state = State.Normal;
+                            }
+                            else
+                            {
+                                _state = State.Normal;
+                            }
+                            break;
+
+                        case State.Dcs:
+                            if (c == '\x1b') _state = State.DcsEsc;
+                            else _dcsStringBuffer.Add(c);
+                            break;
+
+                        case State.DcsEsc:
+                            if (c == '\\')
+                            {
+                                HandleDcs(new string(_dcsStringBuffer.ToArray()));
+                                _state = State.Normal;
+                            }
+                            else
+                            {
+                                _dcsStringBuffer.Add('\x1b');
+                                _dcsStringBuffer.Add(c);
+                                _state = State.Dcs;
+                            }
+                            break;
+
+                        case State.Apc:
+                            if (c == '\x1b')
+                            {
+                                _state = State.ApcEsc;
+                            }
+                            else if (c == '\u009C') // C1 ST
+                            {
+                                HandleApc(new string(_apcStringBuffer.ToArray()));
+                                _state = State.Normal;
+                            }
+                            else
+                            {
+                                _apcStringBuffer.Add(c);
+                            }
+                            break;
+
+                        case State.ApcEsc:
+                            if (c == '\\')
+                            {
+                                HandleApc(new string(_apcStringBuffer.ToArray()));
+                                _state = State.Normal;
+                            }
+                            else
+                            {
+                                _apcStringBuffer.Add('\x1b');
+                                _apcStringBuffer.Add(c);
+                                _state = State.Apc;
+                            }
+                            break;
+
+                        case State.Csi:
+                            if (c >= 0x20 && c <= 0x3F)
+                            {
+                                // Collect params (limited to buffer size)
+                                if (_paramLen < _paramBuffer.Length)
+                                {
+                                    _paramBuffer[_paramLen++] = c;
                                 }
                             }
-                            _buffer.WriteChar(c);
-                        }
-                        break;
-
-                    case State.Esc:
-                        // Log only in non-performance-critical scenarios if needed
-                        if (c == '[')
-                        {
-                            _state = State.Csi;
-                            _paramLen = 0;
-                        }
-                        else if (c == ']') // OSC Start
-                        {
-                            _state = State.Osc;
-                            _oscStringBuffer.Clear();
-                        }
-                        else if (c == 'P') // DCS Start (Device Control String) - Sixel, etc.
-                        {
-                            _state = State.Dcs;
-                            _dcsStringBuffer.Clear();
-                        }
-                        else if (c == '_') // APC Start
-                        {
-                            _state = State.Apc;
-                            _apcStringBuffer.Clear();
-                        }
-                        else if (c == '7') // Save Cursor
-                        {
-                            _buffer.SaveCursor();
-                            _state = State.Normal;
-                        }
-                        else if (c == '8') // Restore Cursor
-                        {
-                            _buffer.RestoreCursor();
-                            _state = State.Normal;
-                        }
-                        else if (c == 'c') // RIS - Reset to Initial State
-                        {
-                            _buffer.Reset(); // Ensure TerminalBuffer has a Reset method or use Clear
-                            _verticalOffset = 0;
-                            _state = State.Normal;
-                        }
-                        else if (c == '(' || c == ')' || c == '*' || c == '+' || c == '-')
-                        {
-                            // G0/G1 charset selection - wait for the next char but don't print
-                            _state = State.Charset;
-                        }
-                        else if (c >= 0x20 && c <= 0x7E)
-                        {
-                            // Unknown escape sequence followed by printable char?
-                            // Treat as literal printable character (fallback)
-                            _buffer.WriteChar(c);
-                            _state = State.Normal;
-                        }
-                        else
-                        {
-                            _state = State.Normal;
-                        }
-                        break;
-
-                    case State.Charset:
-                        // Consume the charset designation character (e.g. 'B' in ESC ( B)
-                        _state = State.Normal;
-                        break;
-
-                    case State.Osc:
-                        if (c == '\a' || c == '\u009C')
-                        {
-                            HandleOsc(new string(_oscStringBuffer.ToArray()));
-                            _state = State.Normal;
-                        }
-                        else if (c == '\x1b')
-                        {
-                            _state = State.OscEsc;
-                        }
-                        else
-                        {
-                            if (_oscStringBuffer.Count < 50) // Only log the beginning of potential images to avoid huge logs
+                            else
                             {
+                                // Final byte
+                                HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
+                                _state = State.Normal;
                             }
-                            _oscStringBuffer.Add(c);
-                        }
-                        break;
-
-                    case State.OscEsc:
-                        if (c == '\\')
-                        {
-                            HandleOsc(new string(_oscStringBuffer.ToArray()));
-                            _state = State.Normal;
-                        }
-                        else
-                        {
-                            _state = State.Normal;
-                        }
-                        break;
-
-                    case State.Dcs:
-                        if (c == '\x1b') _state = State.DcsEsc;
-                        else _dcsStringBuffer.Add(c);
-                        break;
-
-                    case State.DcsEsc:
-                        if (c == '\\')
-                        {
-                            HandleDcs(new string(_dcsStringBuffer.ToArray()));
-                            _state = State.Normal;
-                        }
-                        else
-                        {
-                            _dcsStringBuffer.Add('\x1b');
-                            _dcsStringBuffer.Add(c);
-                            _state = State.Dcs;
-                        }
-                        break;
-
-                    case State.Apc:
-                        if (c == '\x1b')
-                        {
-                            _state = State.ApcEsc;
-                        }
-                        else if (c == '\u009C') // C1 ST
-                        {
-                            HandleApc(new string(_apcStringBuffer.ToArray()));
-                            _state = State.Normal;
-                        }
-                        else
-                        {
-                            _apcStringBuffer.Add(c);
-                        }
-                        break;
-
-                    case State.ApcEsc:
-                        if (c == '\\')
-                        {
-                            HandleApc(new string(_apcStringBuffer.ToArray()));
-                            _state = State.Normal;
-                        }
-                        else
-                        {
-                            _apcStringBuffer.Add('\x1b');
-                            _apcStringBuffer.Add(c);
-                            _state = State.Apc;
-                        }
-                        break;
-
-                    case State.Csi:
-                        if (c >= 0x20 && c <= 0x3F)
-                        {
-                            // Collect params (limited to buffer size)
-                            if (_paramLen < _paramBuffer.Length)
-                            {
-                                _paramBuffer[_paramLen++] = c;
-                            }
-                        }
-                        else
-                        {
-                            // Final byte
-                            HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
-                            _state = State.Normal;
-                        }
-                        break;
+                            break;
+                    }
                 }
+            }
+            finally
+            {
+                sw.Stop();
+                RendererStatistics.RecordParseTime(sw.ElapsedMilliseconds);
             }
         }
 
