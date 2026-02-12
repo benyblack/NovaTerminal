@@ -165,6 +165,59 @@ namespace NovaTerminal.Tests.Tools
             recorder.RecordChunk(Encoding.UTF8.GetBytes(box), box.Length);
         }
 
+        public static void GenerateMidnightCommander_Resized_100x30(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            using var recorder = new PtyRecorder(path);
+
+            // 1. Draw 100x30 box
+            string box = "\x1b[1;1H\x1b[44;37m" + new string('=', 100) +
+                         "\x1b[30;1H" + new string('=', 100);
+            for (int i = 2; i < 30; i++)
+            {
+                box += $"\x1b[{i};1H|\x1b[{i};100H|";
+            }
+            box += "\x1b[15;40H Midnight Commander (100x30) "; // Centered roughly
+            box += "\x1b[0m";
+            recorder.RecordChunk(Encoding.UTF8.GetBytes(box), box.Length);
+        }
+
+        public static void GenerateMidnightCommander_Menu(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            using var recorder = new PtyRecorder(path);
+
+            // 1. Draw base MC interface (Cyan background blue box)
+            string baseUi = "\x1b[1;1H\x1b[44;37m" + new string(' ', 80 * 24) + "\x1b[1;1H";
+            recorder.RecordChunk(Encoding.UTF8.GetBytes(baseUi), baseUi.Length);
+
+            // 2. Simulate F9 (Menu) -> "Left" Menu Drops Down
+            // Menu at (1,1) to (10,6), Grey background
+            string menu = "\x1b[2;2H\x1b[47;30m Listing mode \x1b[3;2H Quick view   \x1b[4;2H Info         \x1b[5;2H Tree         \x1b[0m";
+            recorder.RecordChunk(Encoding.UTF8.GetBytes(menu), menu.Length);
+        }
+
+        public static void GenerateMidnightCommander_Dialog(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            using var recorder = new PtyRecorder(path);
+
+            // 1. Base UI
+            string baseUi = "\x1b[1;1H\x1b[44;37m" + new string(' ', 80 * 24) + "\x1b[1;1H";
+            recorder.RecordChunk(Encoding.UTF8.GetBytes(baseUi), baseUi.Length);
+
+            // 2. Center Dialog " Delete "
+            // Box at (10, 20) with red background
+            string dialog = "\x1b[10;20H\x1b[41;37m      Delete      \x1b[11;20H  file.txt? [Y/n] \x1b[12;20H                  \x1b[0m";
+            recorder.RecordChunk(Encoding.UTF8.GetBytes(dialog), dialog.Length);
+        }
+
         public static void GenerateOhMyPosh(string path)
         {
             var dir = Path.GetDirectoryName(path);

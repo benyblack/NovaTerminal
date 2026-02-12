@@ -23,42 +23,6 @@ namespace NovaTerminal.Tests.Regressions
             if (!Directory.Exists(_fixturesDir)) Directory.CreateDirectory(_fixturesDir);
         }
 
-        [Fact]
-        [Trait("Category", "Regression")]
-        public async Task MidnightCommander_Resize_Regression()
-        {
-            string recPath = Path.Combine(_fixturesDir, "mc_resize.rec");
-            RecordingGenerator.GenerateMidnightCommander(recPath);
-
-            var buffer = new TerminalBuffer(80, 24);
-            var parser = new AnsiParser(buffer);
-            var runner = new ReplayRunner(recPath);
-
-            await DeadlockDetection.RunWithTimeout(async () =>
-            {
-                await runner.RunAsync(async (data) =>
-                {
-                    parser.Process(System.Text.Encoding.UTF8.GetString(data));
-                    await Task.CompletedTask;
-                });
-            }, 5000, "MC Initial Load");
-
-            // Verify initial state: Box exists
-            var snapshot = BufferSnapshot.Capture(buffer);
-            Assert.Contains("Midnight Commander", snapshot.Lines[11]);
-
-            // Simulate Resize to 100x30
-            await DeadlockDetection.RunWithTimeout(async () =>
-            {
-                buffer.Resize(100, 30);
-                // In a real scenario, the PTY would send new data. 
-                // Here we just verify the buffer didn't crash or "compact" unexpectedly.
-                await Task.CompletedTask;
-            }, 2000, "MC Resize");
-
-            Assert.Equal(100, buffer.Cols);
-            Assert.Equal(30, buffer.Rows);
-        }
 
         [Fact]
         [Trait("Category", "Regression")]

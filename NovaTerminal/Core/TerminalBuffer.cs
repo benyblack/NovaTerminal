@@ -604,6 +604,10 @@ namespace NovaTerminal.Core
 
         private bool IsCombining(Rune rune)
         {
+            // ASCII characters are never combining. 
+            // This fixes '^' (U+005E) being treated as ModifierSymbol -> Combining (Width 0).
+            if (rune.Value < 0x80) return false;
+
             var cat = Rune.GetUnicodeCategory(rune);
 
             // Standard combining marks and modifiers
@@ -956,14 +960,20 @@ namespace NovaTerminal.Core
                     _cursorRow = Math.Clamp(_cursorRow, 0, newRows - 1);
                     _cursorCol = Math.Clamp(_cursorCol, 0, newCols);
 
-                    // 2. Reflow Main Screen (Background)
-                    // We temporarily swap current viewport to MainScreen to let Reflow process it.
+                    // 2. Resize Main Screen (Background)
+                    // We temporarily swap current viewport to MainScreen to let Resize process it.
                     var activeAlt = _viewport;
                     _viewport = _mainScreen;
                     try
                     {
-                        // Reflow Main Screen (updates _viewport and _scrollback)
-                        Reflow(oldCols, oldRows, newCols, newRows);
+                        if (oldCols == newCols && oldRows != newRows)
+                        {
+                            Reshape(newRows);
+                        }
+                        else
+                        {
+                            Reflow(oldCols, oldRows, newCols, newRows);
+                        }
                         _mainScreen = _viewport; // Update stored main screen reference
                     }
                     finally
@@ -974,7 +984,14 @@ namespace NovaTerminal.Core
                 else
                 {
                     // Normal Main Screen Resize
-                    Reflow(oldCols, oldRows, newCols, newRows);
+                    if (oldCols == newCols && oldRows != newRows)
+                    {
+                        Reshape(newRows);
+                    }
+                    else
+                    {
+                        Reflow(oldCols, oldRows, newCols, newRows);
+                    }
 
                     // Cursor clamping for Main Screen
                     _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
@@ -992,6 +1009,82 @@ namespace NovaTerminal.Core
             }
 
             OnInvalidate?.Invoke();
+        }
+
+        /// <summary>
+        /// Optimized vertical resize (height change only).
+        /// Re-wrapping text (Reflow) is destructive and unnecessary when width is constant.
+        /// Unconditionally Reflowing can cause layout corruption in TUIs (like Midnight Commander).
+        /// </summary>
+        private void Reshape(int newRows)
+        {
+            int oldRows = _viewport.Length;
+            if (newRows == oldRows) return;
+
+            var newViewport = new TerminalRow[newRows];
+
+            if (newRows > oldRows)
+            {
+                // GROW: Pull lines from scrollback logic
+                // We need (newRows - oldRows) extra lines at the top.
+                int linesNeeded = newRows - oldRows;
+                int linesAvailable = _scrollback.Count;
+                int linesToPull = Math.Min(linesNeeded, linesAvailable);
+
+                // 1. Pull lines from Scrollback
+                for (int i = 0; i < linesToPull; i++)
+                {
+                    // Get 'linesToPull' lines from the END of scrollback
+                    // Order: If we pull 2 lines (idx 98, 99).
+                    // NewViewport[0] = 98. NewViewport[1] = 99.
+                    newViewport[i] = _scrollback[_scrollback.Count - linesToPull + i];
+                }
+
+                // 2. Remove pulled lines from scrollback
+                if (linesToPull > 0)
+                {
+                    _scrollback.RemoveRange(_scrollback.Count - linesToPull, linesToPull);
+                }
+
+                // 3. Copy OLD Viewport
+                for (int i = 0; i < oldRows; i++)
+                {
+                    newViewport[linesToPull + i] = _viewport[i];
+                }
+
+                // 4. Fill remaining empty space at bottom
+                // (If we didn't have enough history to fill the top)
+                int filledRows = linesToPull + oldRows;
+                for (int i = filledRows; i < newRows; i++)
+                {
+                    newViewport[i] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+                }
+
+                // Adjust cursor: Content moved DOWN by 'linesToPull'
+                _cursorRow += linesToPull;
+            }
+            else
+            {
+                // SHRINK: Push lines to scrollback logic
+                int linesToPush = oldRows - newRows;
+
+                // 1. Push top lines to scrollback
+                for (int i = 0; i < linesToPush; i++)
+                {
+                    _scrollback.Add(_viewport[i]);
+                }
+
+                // 2. Copy remaining lines to new viewport
+                for (int i = 0; i < newRows; i++)
+                {
+                    newViewport[i] = _viewport[linesToPush + i];
+                }
+
+                // Adjust cursor: Content moved UP by 'linesToPush'
+                _cursorRow -= linesToPush;
+            }
+
+            _viewport = newViewport;
         }
 
         private void Reflow(int oldCols, int oldRows, int newCols, int newRows)
@@ -1052,6 +1145,7 @@ namespace NovaTerminal.Core
                 for (int i = 0; i < totalPhysRows; i++)
                 {
                     var physRow = allPhysicalRows[i];
+
                     if (currentLogical == null)
                     {
                         currentLogical = new List<TerminalCell>();
@@ -1078,7 +1172,75 @@ namespace NovaTerminal.Core
                     }
 
                     int validLen = physRow.Cells.Length;
-                    if (!physRow.IsWrapped)
+
+                    // HEURISTIC: TUI Border Protection
+                    // If a line is marked as Wrapped, but it ends with a box-drawing character OR a colored background,
+                    // it is likely a fixed-width TUI element that should NOT flow into the next line on resize.
+                    bool ignoreWrap = false;
+                    if (physRow.IsWrapped)
+                    {
+                        // 1. Check for TUI Background Fill (at the very edge)
+                        // TUI apps often fill the background with a specific color (e.g. blue for MC).
+                        // If the last cell has a non-default background AND is a SPACE, it likely hit the edge of a panel.
+                        // We must NOT trigger this for regular text (e.g. "Hint" with black BG), or it won't reflow.
+                        if (physRow.Cells.Length > 0)
+                        {
+                            // Scan backwards for the last actual content (skipping newly allocated nulls from resize)
+                            TerminalCell lastCell = default;
+                            bool found = false;
+                            for (int k = physRow.Cells.Length - 1; k >= 0; k--)
+                            {
+                                if (physRow.Cells[k].Character != '\0')
+                                {
+                                    lastCell = physRow.Cells[k];
+                                    found = true;
+                                    break;
+                                }
+                            }
+
+                            if (found && lastCell.Character == ' ' && !lastCell.IsDefaultBackground)
+                            {
+                                ignoreWrap = true;
+                            }
+                            else
+                            {
+                                // 2. Check for Border Characters (ignoring trailing spaces)
+                                for (int k = physRow.Cells.Length - 1; k >= 0; k--)
+                                {
+                                    var c = physRow.Cells[k];
+                                    char ch = c.Character;
+                                    if (ch != ' ' && ch != '\0')
+                                    {
+                                        // Vertical bars, corners, etc.
+                                        // U+2500 to U+257F are Box Drawing. 
+                                        // U+2580 to U+259F are Block Elements (Full Block, Shades, etc.) used for scrollbars/shadows.
+                                        // U+FF00 to U+FFEF are Halfwidth and Fullwidth Forms (includes Fullwidth Pipe U+FF5C).
+                                        // '|' is standard vertical bar (U+007C).
+                                        // '+' and '-' can be ASCII borders.
+                                        // '>' is often used by MC to indicate horizontal scroll overflow.
+                                        if (ch == '|' || ch == '+' || ch == '-' || ch == '>' ||
+                                           (ch >= '\u2500' && ch <= '\u257F') ||
+                                           (ch >= '\u2580' && ch <= '\u259F') ||
+                                           (ch >= '\uFF00' && ch <= '\uFFEF'))
+                                        {
+                                            ignoreWrap = true;
+                                        }
+                                        // Special Case: MC Headers like ".[^]" often end with ']' or '^'.
+                                        // These are text characters, so we can't protect them globally (would break text wrapping).
+                                        // However, in TUI headers, they typically have a specific background color.
+                                        // Also protect Arrows '↑' (U+2191) and '↓' (U+2193) which are sometimes used as sort indicators.
+                                        else if ((ch == ']' || ch == '[' || ch == '^' || ch == '\u2191' || ch == '\u2193') && !c.IsDefaultBackground)
+                                        {
+                                            ignoreWrap = true;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (!physRow.IsWrapped || ignoreWrap)
                     {
                         // Smart trimming: Calculate last relevant content index
                         // Include cells that are non-space OR have non-default background
@@ -1249,7 +1411,7 @@ namespace NovaTerminal.Core
                         for (int k = 0; k < validLen; k++) currentLogical.Add(physRow.Cells[k]);
                     }
 
-                    if (!physRow.IsWrapped)
+                    if (!physRow.IsWrapped || ignoreWrap)
                     {
                         logicalLines.Add((currentLogical, false, currentStartPhys));
                         currentLogical = null;
