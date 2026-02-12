@@ -370,9 +370,7 @@ namespace NovaTerminal
                 if (changed)
                 {
                     _settings.Save();
-                    // Reload UI
-                    var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
-                    connManager?.LoadProfiles(_settings.Profiles);
+                    RefreshProfileUIs();
                 }
             }
             catch (Exception ex)
@@ -1201,8 +1199,7 @@ namespace NovaTerminal
                     _settings = TerminalSettings.Load();
                 }
 
-                PopulateNewTabMenu();
-                SetupCommandPalette();
+                RefreshProfileUIs();
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
@@ -1213,6 +1210,19 @@ namespace NovaTerminal
                 {
                     connManager.LoadProfiles(_settings.Profiles);
                 }
+            }
+        }
+
+        private void RefreshProfileUIs()
+        {
+            PopulateNewTabMenu();
+            SetupCommandPalette();
+
+            // Refresh Connection Manager if open (or just always update it)
+            var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
+            if (connManager != null)
+            {
+                connManager.LoadProfiles(_settings.Profiles);
             }
         }
 
