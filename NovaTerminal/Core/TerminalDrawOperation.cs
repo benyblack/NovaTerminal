@@ -4,6 +4,7 @@ using Avalonia.Platform;
 using Avalonia.Rendering.SceneGraph;
 using Avalonia.Skia;
 using SkiaSharp;
+using SkiaSharp.HarfBuzz;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -444,11 +445,28 @@ namespace NovaTerminal.Core
                 {
                     using var fFont = new SKFont(tfToUse, (float)_fontSize);
                     fFont.Edging = SKFontEdging.Antialias;
-                    canvas.DrawText(text, x, baselineY, fFont, fgPaint);
+
+                    if (needsEmojiFallback)
+                    {
+                        using var shaper = new SKShaper(tfToUse);
+                        canvas.DrawShapedText(shaper, text, x, baselineY, fFont, fgPaint);
+                    }
+                    else
+                    {
+                        canvas.DrawText(text, x, baselineY, fFont, fgPaint);
+                    }
                 }
                 else
                 {
-                    canvas.DrawText(text, x, baselineY, font, fgPaint);
+                    if (needsEmojiFallback)
+                    {
+                        using var shaper = new SKShaper(tfToUse ?? primaryTf);
+                        canvas.DrawShapedText(shaper, text, x, baselineY, font, fgPaint);
+                    }
+                    else
+                    {
+                        canvas.DrawText(text, x, baselineY, font, fgPaint);
+                    }
                 }
 
                 if (useLayer)
