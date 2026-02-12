@@ -197,6 +197,7 @@ namespace NovaTerminal.Core
         private double _windowOpacity = 1.0;
         private bool _hasBackgroundImage = false;
         private bool _enableLigatures = false;
+        private bool _enableComplexShaping = true;
 
 
         private IGlyphTypeface? _glyphTypeface;
@@ -275,6 +276,7 @@ namespace NovaTerminal.Core
                 _typeface = new Typeface(settings.FontFamily);
             }
             _enableLigatures = settings.EnableLigatures;
+            _enableComplexShaping = settings.EnableComplexShaping;
             _windowOpacity = settings.WindowOpacity;
             _hasBackgroundImage = !string.IsNullOrEmpty(settings.BackgroundImagePath) && System.IO.File.Exists(settings.BackgroundImagePath);
             EnsureFallbackChain();
@@ -890,7 +892,8 @@ namespace NovaTerminal.Core
                 totalLines,
                 cursorRow,
                 cursorCol,
-                _rowCache
+                _rowCache,
+                _enableComplexShaping
             ));
         }
 

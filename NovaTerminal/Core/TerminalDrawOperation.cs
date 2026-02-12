@@ -41,6 +41,7 @@ namespace NovaTerminal.Core
         private readonly int _cursorRow;
         private readonly int _cursorCol;
         private readonly RowImageCache? _rowCache;
+        private readonly bool _enableComplexShaping;
 
         public Rect Bounds => _bounds;
 
@@ -69,7 +70,8 @@ namespace NovaTerminal.Core
             int totalLines = 0,
             int cursorRow = 0,
             int cursorCol = 0,
-            RowImageCache? rowCache = null)
+            RowImageCache? rowCache = null,
+            bool enableComplexShaping = true)
         {
             _bounds = bounds;
             _buffer = buffer;
@@ -98,6 +100,7 @@ namespace NovaTerminal.Core
             _cursorRow = cursorRow;
             _cursorCol = cursorCol;
             _rowCache = rowCache;
+            _enableComplexShaping = enableComplexShaping;
         }
 
         public void Dispose()
@@ -314,7 +317,6 @@ namespace NovaTerminal.Core
         {
             float paddingLeft = 4f;
             int cellsRendered = 0;
-            StringBuilder runText = new StringBuilder(bufferCols);
 
             for (int c = 0; c < bufferCols; c++)
             {
@@ -328,153 +330,232 @@ namespace NovaTerminal.Core
                 var cf = cell.IsDefaultForeground ? themeFg : new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
                 var fg = cell.IsInverse ? cb : cf;
 
-                // Ligature Batching (Phase 3.3)
-                if (_enableLigatures && !cell.IsWide && string.IsNullOrEmpty(cell.Text))
+                int runStart = c;
+                int k = c;
+
+                if (_enableComplexShaping)
                 {
-                    int runStart = c;
-                    runText.Clear();
-                    runText.Append(cell.Character);
-                    int k = c + 1;
+                    // PHASE 2: Run-based shaping
+                    StringBuilder runBuilder = new StringBuilder();
+                    int totalRunWidth = 0;
+                    bool runNeedsComplexShaping = false;
+
                     while (k < bufferCols)
                     {
                         var next = _buffer.GetCellAbsolute(k, absRow);
-                        if (next.IsWide || next.IsWideContinuation || !string.IsNullOrEmpty(next.Text) || next.IsHidden) break;
-                        if (next.Character == ' ' || next.Character == '\0') break;
+                        if (next.IsHidden) { k++; continue; }
+                        if (next.IsWideContinuation) { k++; continue; }
+
                         var ncb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
                         var ncf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
-                        if ((next.IsInverse ? ncb : ncf) != fg) break;
-                        runText.Append(next.Character);
-                        k++;
-                    }
-                    fgPaint.Color = fg;
-                    float rx = (float)(Math.Round((runStart * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                    canvas.DrawText(runText.ToString(), rx, baselineY, font, fgPaint);
-                    cellsRendered += (k - runStart);
-                    c = k - 1;
-                    continue;
-                }
+                        var nfg = next.IsInverse ? ncb : ncf;
 
-                if (cell.IsWideContinuation) continue;
+                        if (nfg != fg) break;
 
-                // Individual Handling with Width-0 support (Phase 3.4)
-                string text = cell.Text ?? cell.Character.ToString();
+                        string cellText = next.Text ?? next.Character.ToString();
 
-                SKTypeface? tfToUse = primaryTf;
-                bool needsEmojiFallback = false;
-                int primaryCodepoint = 0;
-                int w = _buffer.GetGraphemeWidth(text);
-                foreach (var rune in text.EnumerateRunes())
-                {
-                    int cp = rune.Value;
-                    if (primaryCodepoint == 0) primaryCodepoint = cp;
-
-                    if ((cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF) || (cp == 0x200D))
-                    {
-                        needsEmojiFallback = true;
-                        break;
-                    }
-                }
-
-                if (needsEmojiFallback || (primaryCodepoint != 0 && !primaryTf.ContainsGlyph(primaryCodepoint)))
-                {
-                    // search fallback chain...
-                    string lookupKey = needsEmojiFallback ? text : primaryCodepoint.ToString();
-
-                    if (!_fallbackCache.TryGetValue(lookupKey, out tfToUse))
-                    {
-                        SKTypeface? found = null;
-
-                        // SPECIAL: Force Segoe UI Emoji for any complex cluster to ensure ligatures
-                        if (needsEmojiFallback)
+                        // We check if this cell adds any "complexity" to the run
+                        foreach (var rune in cellText.EnumerateRunes())
                         {
-                            found = SKTypeface.FromFamilyName("Segoe UI Emoji");
-                            TerminalLogger.Log($"[RENDERER] Forcing Segoe UI Emoji for '{text}' (needsEmojiFallback={needsEmojiFallback})");
-                        }
-
-                        // If not forced or Segoe failed, try fallback chain
-                        if (found == null)
-                        {
-                            foreach (var tfChain in _fallbackChain)
+                            int cp = rune.Value;
+                            // Check for Emojis, Arabic, Indic, Hebrew, Surrogates, etc.
+                            if ((cp >= 0x0590 && cp <= 0x0FFF) || // Hebrew, Arabic, Syriac, Thaana, Devanagari, Bengali, etc.
+                                (cp >= 0x1F300 && cp <= 0x1FAFF) ||
+                                (cp >= 0x2600 && cp <= 0x27BF) ||
+                                (cp == 0x200D))
                             {
-                                if (tfChain.ContainsGlyph(primaryCodepoint))
-                                {
-                                    found = tfChain;
-                                    break;
-                                }
+                                runNeedsComplexShaping = true;
                             }
                         }
 
-                        if (found == null)
+                        runBuilder.Append(cellText);
+                        totalRunWidth += _buffer.GetGraphemeWidth(cellText);
+                        k++;
+                    }
+
+                    string runText = runBuilder.ToString();
+                    float rx = (float)(Math.Round((runStart * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                    fgPaint.Color = fg;
+
+                    if (runNeedsComplexShaping)
+                    {
+                        // Use HarfBuzz for the whole run
+                        SKTypeface? tfToUse = primaryTf;
+
+                        // Find the first character that requires fallback (if any)
+                        int fallbackChar = 0;
+                        foreach (var rune in runText.EnumerateRunes())
                         {
-                            found = SKFontManager.Default.MatchCharacter(primaryCodepoint);
+                            int cp = rune.Value;
+                            if (cp > 127 && !primaryTf.ContainsGlyph(cp))
+                            {
+                                fallbackChar = cp;
+                                break;
+                            }
                         }
 
-                        _fallbackCache.TryAdd(lookupKey, found);
-                        tfToUse = found;
-                    }
-                }
+                        if (fallbackChar != 0)
+                        {
+                            string lookupKey = fallbackChar.ToString();
+                            if (!_fallbackCache.TryGetValue(lookupKey, out tfToUse))
+                            {
+                                SKTypeface? found = null;
+                                // Heuristic: Check if it's an emoji range
+                                if ((fallbackChar >= 0x1F300 && fallbackChar <= 0x1FAFF) ||
+                                    (fallbackChar >= 0x2600 && fallbackChar <= 0x27BF) ||
+                                    (fallbackChar == 0x200D))
+                                {
+                                    found = SKTypeface.FromFamilyName("Segoe UI Emoji");
+                                }
 
-                if (tfToUse == null) tfToUse = primaryTf;
+                                if (found == null)
+                                {
+                                    foreach (var tfChain in _fallbackChain)
+                                    {
+                                        if (tfChain.ContainsGlyph(fallbackChar))
+                                        {
+                                            found = tfChain;
+                                            break;
+                                        }
+                                    }
+                                }
 
-                fgPaint.Color = fg;
-                float x = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                if (w == 0 && c > 0)
-                {
-                    // Back up to the base cell if we're over a wide continuation (rare for width-0 but supported)
-                    int baseCol = c - 1;
-                    while (baseCol > 0 && _buffer.GetCellAbsolute(baseCol, absRow).IsWideContinuation) baseCol--;
-                    x = (float)(Math.Round((baseCol * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                }
+                                if (found == null) found = SKFontManager.Default.MatchCharacter(fallbackChar);
+                                _fallbackCache.TryAdd(lookupKey, found);
+                                tfToUse = found;
+                            }
+                        }
 
+                        if (tfToUse == null) tfToUse = primaryTf;
 
+                        bool useLayer = totalRunWidth > 1;
+                        if (useLayer)
+                        {
+                            float clipWidth = (float)(Math.Round((totalRunWidth * _metrics.CellWidth) * _renderScaling + 2.0) / _renderScaling);
+                            var layerRect = new SKRect(rx, 0, rx + clipWidth, (float)Bounds.Height);
+                            canvas.SaveLayer(layerRect, null);
+                        }
 
-                // PERFORMANCE OPTIMIZATION: Only use SaveLayer for wide/emoji characters
-                // most terminal text is width-1 and doesn't need this overhead.
-                bool useLayer = w > 1 || needsEmojiFallback;
-
-                if (useLayer)
-                {
-                    // CLIPPING FIX: Use SaveLayer for strict isolation
-                    // We add a tiny bit of extra width (2px scaled) to prevent aggressive clipping of modifiers
-                    float clipWidth = (float)(Math.Round((w * _metrics.CellWidth) * _renderScaling + 2.0) / _renderScaling);
-                    var layerRect = new SKRect(x, 0, x + clipWidth, (float)Bounds.Height);
-                    canvas.SaveLayer(layerRect, null);
-                }
-
-                if (tfToUse != null && tfToUse != primaryTf)
-                {
-                    using var fFont = new SKFont(tfToUse, (float)_fontSize);
-                    fFont.Edging = SKFontEdging.Antialias;
-
-                    if (needsEmojiFallback)
-                    {
+                        using var fFont = new SKFont(tfToUse, (float)_fontSize);
+                        fFont.Edging = SKFontEdging.Antialias;
                         using var shaper = new SKShaper(tfToUse);
-                        canvas.DrawShapedText(shaper, text, x, baselineY, fFont, fgPaint);
+                        canvas.DrawShapedText(shaper, runText, rx, baselineY, fFont, fgPaint);
+
+                        if (useLayer) canvas.Restore();
                     }
                     else
                     {
-                        canvas.DrawText(text, x, baselineY, fFont, fgPaint);
+                        // Simple run
+                        canvas.DrawText(runText, rx, baselineY, font, fgPaint);
                     }
+
+                    cellsRendered += totalRunWidth;
+                    c = k - 1;
                 }
                 else
                 {
-                    if (needsEmojiFallback)
+                    // PHASE 1: Legacy (Cluster-by-Cluster) logic with single-cluster HarfBuzz support
+                    // This is used if EnableComplexShaping is turned off.
+
+                    // Initial ligature batching check (simple optimization for pure ASCII)
+                    if (_enableLigatures && !cell.IsWide && string.IsNullOrEmpty(cell.Text))
                     {
-                        using var shaper = new SKShaper(tfToUse ?? primaryTf);
-                        canvas.DrawShapedText(shaper, text, x, baselineY, font, fgPaint);
+                        runStart = c;
+                        StringBuilder simpleRun = new StringBuilder();
+                        simpleRun.Append(cell.Character);
+                        k = c + 1;
+                        while (k < bufferCols)
+                        {
+                            var next = _buffer.GetCellAbsolute(k, absRow);
+                            if (next.IsWide || next.IsWideContinuation || !string.IsNullOrEmpty(next.Text) || next.IsHidden) break;
+                            if (next.Character == ' ' || next.Character == '\0') break;
+                            var ncb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
+                            var ncf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
+                            if ((next.IsInverse ? ncb : ncf) != fg) break;
+                            simpleRun.Append(next.Character);
+                            k++;
+                        }
+                        fgPaint.Color = fg;
+                        float rx = (float)(Math.Round((runStart * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                        canvas.DrawText(simpleRun.ToString(), rx, baselineY, font, fgPaint);
+                        cellsRendered += (k - runStart);
+                        c = k - 1;
+                        continue;
+                    }
+
+                    // Individual Handling (Existing Phase 1 logic)
+                    string text = cell.Text ?? cell.Character.ToString();
+                    SKTypeface? tfToUse = primaryTf;
+                    bool needsEmojiFallback = false;
+                    int primaryCodepoint = 0;
+                    int w = _buffer.GetGraphemeWidth(text);
+                    foreach (var rune in text.EnumerateRunes())
+                    {
+                        int cp = rune.Value;
+                        if (primaryCodepoint == 0) primaryCodepoint = cp;
+                        if ((cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF) || (cp == 0x200D))
+                        {
+                            needsEmojiFallback = true;
+                            break;
+                        }
+                    }
+
+                    if (needsEmojiFallback || (primaryCodepoint != 0 && !primaryTf.ContainsGlyph(primaryCodepoint)))
+                    {
+                        string lookupKey = needsEmojiFallback ? text : primaryCodepoint.ToString();
+                        if (!_fallbackCache.TryGetValue(lookupKey, out tfToUse))
+                        {
+                            SKTypeface? found = null;
+                            if (needsEmojiFallback) found = SKTypeface.FromFamilyName("Segoe UI Emoji");
+                            if (found == null)
+                            {
+                                foreach (var tfChain in _fallbackChain)
+                                {
+                                    if (tfChain.ContainsGlyph(primaryCodepoint)) { found = tfChain; break; }
+                                }
+                            }
+                            if (found == null) found = SKFontManager.Default.MatchCharacter(primaryCodepoint);
+                            _fallbackCache.TryAdd(lookupKey, found);
+                            tfToUse = found;
+                        }
+                    }
+
+                    if (tfToUse == null) tfToUse = primaryTf;
+                    fgPaint.Color = fg;
+                    float x = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
+                    bool useLayer = w > 1 || needsEmojiFallback;
+
+                    if (useLayer)
+                    {
+                        float clipWidth = (float)(Math.Round((w * _metrics.CellWidth) * _renderScaling + 2.0) / _renderScaling);
+                        var layerRect = new SKRect(x, 0, x + clipWidth, (float)Bounds.Height);
+                        canvas.SaveLayer(layerRect, null);
+                    }
+
+                    if (tfToUse != null && tfToUse != primaryTf)
+                    {
+                        using var fFont = new SKFont(tfToUse, (float)_fontSize);
+                        fFont.Edging = SKFontEdging.Antialias;
+                        if (needsEmojiFallback)
+                        {
+                            using var shaper = new SKShaper(tfToUse);
+                            canvas.DrawShapedText(shaper, text, x, baselineY, fFont, fgPaint);
+                        }
+                        else canvas.DrawText(text, x, baselineY, fFont, fgPaint);
                     }
                     else
                     {
-                        canvas.DrawText(text, x, baselineY, font, fgPaint);
+                        if (needsEmojiFallback)
+                        {
+                            using var shaper = new SKShaper(tfToUse ?? primaryTf);
+                            canvas.DrawShapedText(shaper, text, x, baselineY, font, fgPaint);
+                        }
+                        else canvas.DrawText(text, x, baselineY, font, fgPaint);
                     }
-                }
 
-                if (useLayer)
-                {
-                    canvas.Restore();
+                    if (useLayer) canvas.Restore();
+                    cellsRendered += w;
                 }
-
-                cellsRendered += w;
             }
             return cellsRendered;
         }

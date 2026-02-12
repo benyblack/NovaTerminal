@@ -41,6 +41,9 @@
 
                         <!-- Enable Ligatures -->
                         <CheckBox Name="LigatureToggle" Content="Enable Programming Ligatures" Margin="0,5,0,0"/>
+
+                        <!-- Enable Complex Shaping -->
+                        <CheckBox Name="ComplexShapingToggle" Content="Enable Complex Shaping (Run-level HarfBuzz)" Margin="0,5,0,0"/>
                         
                         <!-- Font Size -->
                         <StackPanel>

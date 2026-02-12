@@ -1104,6 +1104,7 @@ namespace NovaTerminal
             var bgOpacitySlider = this.FindControl<Slider>("BgImageOpacitySlider");
             var bgOpacityDisplay = this.FindControl<TextBlock>("BgImageOpacityDisplay");
             var bgStretchList = this.FindControl<ComboBox>("BgImageStretchList");
+            var complexShapingToggle = this.FindControl<CheckBox>("ComplexShapingToggle");
 
             if (fontSizeInput != null) fontSizeInput.Value = (decimal)_settings.FontSize;
             if (scrollbackInput != null) scrollbackInput.Value = (decimal)_settings.MaxHistory;
@@ -1115,6 +1116,7 @@ namespace NovaTerminal
             }
 
             if (ligatureToggle != null) ligatureToggle.IsChecked = _settings.EnableLigatures;
+            if (complexShapingToggle != null) complexShapingToggle.IsChecked = _settings.EnableComplexShaping;
 
             if (bgPathInput != null) bgPathInput.Text = _settings.BackgroundImagePath;
             if (bgOpacitySlider != null)
@@ -1310,6 +1312,7 @@ namespace NovaTerminal
             var themeList = this.FindControl<ComboBox>("ThemeList");
             var opacitySlider = this.FindControl<Slider>("WindowOpacitySlider");
             var ligatureToggle = this.FindControl<CheckBox>("LigatureToggle");
+            var complexShapingToggle = this.FindControl<CheckBox>("ComplexShapingToggle");
 
             // Bg Image inputs
             var bgPathInput = this.FindControl<TextBox>("BgImagePathInput");
@@ -1321,6 +1324,7 @@ namespace NovaTerminal
             if (scrollbackInput != null) _settings.MaxHistory = (int)(scrollbackInput.Value ?? 10000);
             if (opacitySlider != null) _settings.WindowOpacity = opacitySlider.Value;
             if (ligatureToggle != null) _settings.EnableLigatures = ligatureToggle.IsChecked == true;
+            if (complexShapingToggle != null) _settings.EnableComplexShaping = complexShapingToggle.IsChecked == true;
 
             if (fontList?.SelectedItem is ComboBoxItem fontItem)
                 _settings.FontFamily = fontItem.Content?.ToString() ?? "Consolas";
