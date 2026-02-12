@@ -3,7 +3,8 @@
 **Objective**: Ensure the parser and buffer state accurately reflect the incoming byte stream without OS-specific behavioral drift.
 
 ## 1. Parser Invariants & Sequences
-- **Action**: Run the `NovaTerminal.Tests` unit test suite.
+- **Status**: `[Automated]`
+- **Action**: Run the `NovaTerminal.Tests` unit test suite (specifically `AnsiParserTests.cs` and `AlternateScreenTests.cs`).
 - **Verification**: `AnsiParser` should correctly identify and dispatch ESC, CSI, OSC, and DEC sequences without corruption.
 - **Mouse Reporting**: Verify `SGR` mouse tracking (CSI < ... m/M). Use a tool like `vttest` or `mouse-test`.
 - **Primary/Secondary DA**: Verification of `CSI > c` and `CSI c` responses for terminal identification.

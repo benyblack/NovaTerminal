@@ -3,7 +3,8 @@
 **Objective**: Ensure text layout and history are preserved during window state changes.
 
 ## 1. Reflow & Wrapping
-- **Action**: Output a long string that wraps multiple lines.
+- **Status**: `[Automated]`
+- **Action**: Run `ReflowScenariosTests.cs` and `ReflowRegressionTests.cs`.
 - **Action**: Resize the window horizontally.
 - **Expected**: Text reflows correctly based on row metadata (soft vs hard wraps). No "scattered text."
 - **Boundary Edge Cases**: Verify CJK characters and Emojis that land exactly on the wrap boundary during a shrink operation. They should move to the next line as a unit.

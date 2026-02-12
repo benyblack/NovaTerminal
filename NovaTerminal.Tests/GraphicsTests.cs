@@ -24,7 +24,7 @@ namespace NovaTerminal.Tests
             Assert.NotNull(bitmap);
             Assert.Equal(100, bitmap.Width);
             Assert.True(bitmap.Height >= 1);
-            
+
             // Check first pixel (should be red)
             SKColor color = bitmap.GetPixel(0, 0);
             Assert.Equal(255, color.Red);
@@ -38,12 +38,11 @@ namespace NovaTerminal.Tests
             // Arrange
             var buffer = new TerminalBuffer(80, 24);
             var parser = new AnsiParser(buffer);
-            bool sixelDetected = false;
-            
+
             // The parser doesn't have a direct "ImageReceived" event but it stores them in the buffer
             // For this test, we verify that the DCS string is correctly passed to the decoder logic
             // via PTY or similar, but here we can just check if images were added to the buffer.
-            
+
             string tunneledSixel = "\x1b]1339;q#0;2;100;0;0#0!10~\x07";
 
             // Act
@@ -54,7 +53,7 @@ namespace NovaTerminal.Tests
             // Since it's private, we might need to check if the buffer's dirty flag or similar is set, 
             // or use reflection if we really want to verify content.
             // For now, let's verify it doesn't crash and potentially check if we can add a public way to count images.
-            Assert.True(true); 
+            Assert.True(true);
         }
 
         [Fact]

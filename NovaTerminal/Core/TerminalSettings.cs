@@ -48,6 +48,7 @@ namespace NovaTerminal.Core
                 }
                 return _activeTheme;
             }
+            set => _activeTheme = value;
         }
 
         public void RefreshActiveTheme()

@@ -1,0 +1,18 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  NovaTerminal -> D:\projects\nova2\NovaTerminal\bin\Debug\net10.0\NovaTerminal.dll
+D:\projects\nova2\NovaTerminal.Tests\HeadlessUITests.cs(12,10): error CS0246: The type or namespace name 'AvaloniaTestAttribute' could not be found (are you missing a using directive or an assembly reference?) [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\HeadlessUITests.cs(12,10): error CS0246: The type or namespace name 'AvaloniaTest' could not be found (are you missing a using directive or an assembly reference?) [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\HeadlessUITests.cs(32,10): error CS0246: The type or namespace name 'AvaloniaTestAttribute' could not be found (are you missing a using directive or an assembly reference?) [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\HeadlessUITests.cs(32,10): error CS0246: The type or namespace name 'AvaloniaTest' could not be found (are you missing a using directive or an assembly reference?) [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+
+Build FAILED.
+
+D:\projects\nova2\NovaTerminal.Tests\HeadlessUITests.cs(12,10): error CS0246: The type or namespace name 'AvaloniaTestAttribute' could not be found (are you missing a using directive or an assembly reference?) [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\HeadlessUITests.cs(12,10): error CS0246: The type or namespace name 'AvaloniaTest' could not be found (are you missing a using directive or an assembly reference?) [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\HeadlessUITests.cs(32,10): error CS0246: The type or namespace name 'AvaloniaTestAttribute' could not be found (are you missing a using directive or an assembly reference?) [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\HeadlessUITests.cs(32,10): error CS0246: The type or namespace name 'AvaloniaTest' could not be found (are you missing a using directive or an assembly reference?) [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+    0 Warning(s)
+    4 Error(s)
+
+Time Elapsed 00:00:00.76
