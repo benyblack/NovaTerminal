@@ -561,6 +561,10 @@ namespace NovaTerminal.Core
                             _buffer.RestoreCursor();
                         }
                         break;
+                    case 2026: // Synchronized Output (Batch Rendering)
+                        if (enable) _buffer.BeginSync();
+                        else _buffer.EndSync();
+                        break;
                     case 9001: // ConPTY Passthrough Mode
                         break;
                     default:

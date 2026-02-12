@@ -224,11 +224,10 @@ namespace NovaTerminal.Core
                 Lock.ExitWriteLock();
             }
 
-            // NOTE: Do NOT reset mouse modes here!
             // Mouse modes should only change via DEC private mode sequences,
             // not from screen clearing operations (htop clears screen after enabling mouse)
 
-            OnInvalidate?.Invoke();
+            Invalidate();
         }
 
         public void Reset()
@@ -266,7 +265,7 @@ namespace NovaTerminal.Core
             {
                 Lock.ExitWriteLock();
             }
-            OnInvalidate?.Invoke();
+            Invalidate();
         }
 
         public void UpdateThemeColors(TerminalTheme oldTheme)
@@ -320,11 +319,58 @@ namespace NovaTerminal.Core
             {
                 Lock.ExitWriteLock();
             }
+            Invalidate();
+        }
+
+        // Synchronized Output State (?2026)
+        private bool _isSynchronizedOutput = false;
+        private DateTime _lastSyncStart;
+        private readonly TimeSpan _maxSyncDuration = TimeSpan.FromMilliseconds(200);
+
+        public bool IsSynchronizedOutput => _isSynchronizedOutput;
+
+        public void BeginSync()
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                _isSynchronizedOutput = true;
+                _lastSyncStart = DateTime.UtcNow;
+            }
+            finally { Lock.ExitWriteLock(); }
+        }
+
+        public void EndSync()
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                if (!_isSynchronizedOutput) return;
+                _isSynchronizedOutput = false;
+            }
+            finally { Lock.ExitWriteLock(); }
+
+            // Trigger deferred invalidation immediately
             OnInvalidate?.Invoke();
         }
 
         public void Invalidate()
         {
+            // If synchronized, check for timeout safety
+            if (_isSynchronizedOutput)
+            {
+                if ((DateTime.UtcNow - _lastSyncStart) > _maxSyncDuration)
+                {
+                    // Timeout exceeded, force flush
+                    EndSync();
+                }
+                else
+                {
+                    // Defer invalidation
+                    return;
+                }
+            }
+
             OnInvalidate?.Invoke();
         }
 
@@ -381,7 +427,7 @@ namespace NovaTerminal.Core
             {
                 Lock.ExitWriteLock();
             }
-            OnInvalidate?.Invoke();
+            Invalidate();
         }
 
         private void FlushGrapheme()
