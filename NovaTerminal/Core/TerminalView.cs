@@ -198,6 +198,7 @@ namespace NovaTerminal.Core
         private bool _hasBackgroundImage = false;
         private bool _enableLigatures = false;
         private bool _enableComplexShaping = true;
+        private readonly GlyphCache _glyphCache = new();
 
 
         private IGlyphTypeface? _glyphTypeface;
@@ -893,7 +894,8 @@ namespace NovaTerminal.Core
                 cursorRow,
                 cursorCol,
                 _rowCache,
-                _enableComplexShaping
+                _enableComplexShaping,
+                _glyphCache
             ));
         }
 
