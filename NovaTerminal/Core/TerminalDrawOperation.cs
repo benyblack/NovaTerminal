@@ -42,6 +42,14 @@ namespace NovaTerminal.Core
         private readonly int _cursorCol;
         private readonly RowImageCache? _rowCache;
         private readonly bool _enableComplexShaping;
+        private readonly GlyphCache? _glyphCache;
+
+        // Batching for DrawAtlas
+        private List<SKRect> _alphaRects = new();
+        private List<SKRotationScaleMatrix> _alphaXforms = new();
+        private List<SKColor> _alphaColors = new();
+        private List<SKRect> _colorRects = new();
+        private List<SKRotationScaleMatrix> _colorXforms = new();
 
         public Rect Bounds => _bounds;
 
@@ -71,7 +79,8 @@ namespace NovaTerminal.Core
             int cursorRow = 0,
             int cursorCol = 0,
             RowImageCache? rowCache = null,
-            bool enableComplexShaping = true)
+            bool enableComplexShaping = true,
+            GlyphCache? glyphCache = null)
         {
             _bounds = bounds;
             _buffer = buffer;
@@ -101,12 +110,18 @@ namespace NovaTerminal.Core
             _cursorCol = cursorCol;
             _rowCache = rowCache;
             _enableComplexShaping = enableComplexShaping;
+            _glyphCache = glyphCache;
         }
 
         public void Dispose()
         {
-            _skTypeface?.Dispose();
             _skFont?.Dispose();
+            _skTypeface?.Dispose();
+            _alphaRects.Clear();
+            _alphaXforms.Clear();
+            _alphaColors.Clear();
+            _colorRects.Clear();
+            _colorXforms.Clear();
         }
 
         public bool Equals(ICustomDrawOperation? other) => false;
@@ -230,7 +245,7 @@ namespace NovaTerminal.Core
                 {
                     TerminalLogger.Log($"[RENDERER] Drawing {_buffer.Images.Count} images. absDisplayStart={absDisplayStart}");
                 }
-                using var imagePaint = new SKPaint { Color = new SKColor(255, 255, 255, alpha), FilterQuality = SKFilterQuality.High };
+                using var imagePaint = new SKPaint { Color = new SKColor(255, 255, 255, alpha) };
                 foreach (var img in _buffer.Images)
                 {
                     int visualY = img.CellY - absDisplayStart;
@@ -238,10 +253,10 @@ namespace NovaTerminal.Core
                     // Only render if image is at least partially in viewport
                     if (visualY + img.CellHeight > 0 && visualY < bufferRows)
                     {
-                        float x = (float)(Math.Round((img.CellX * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                        float y = (float)(Math.Round((visualY * _metrics.CellHeight + paddingTop) * _renderScaling) / _renderScaling);
-                        float w = (float)(Math.Round((img.CellWidth * _metrics.CellWidth) * _renderScaling) / _renderScaling);
-                        float h = (float)(Math.Round((img.CellHeight * _metrics.CellHeight) * _renderScaling) / _renderScaling);
+                        float x = (float)(Math.Round((img.CellX * _metrics.CellWidth + paddingLeft) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                        float y = (float)(Math.Round((visualY * _metrics.CellHeight + paddingTop) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                        float w = (float)(Math.Round((img.CellWidth * _metrics.CellWidth) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                        float h = (float)(Math.Round((img.CellHeight * _metrics.CellHeight) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
 
                         var rect = new SKRect(x, y, x + w, y + h);
                         // TerminalLogger.Log($"[RENDERER] Drawing image at CellX={img.CellX}, CellY={img.CellY} -> visualY={visualY}, rect={rect.Left:F1},{rect.Top:F1},{rect.Width:F1}x{rect.Height:F1}, alpha={alpha}, scaling={_renderScaling}");
@@ -262,8 +277,8 @@ namespace NovaTerminal.Core
                 for (int r = 0; r < bufferRows; r++)
                 {
                     int absRow = absDisplayStart + r;
-                    float y = (float)(Math.Round((r * _metrics.CellHeight + paddingTop) * _renderScaling) / _renderScaling);
-                    float baselineY = (float)(Math.Round((r * _metrics.CellHeight + paddingTop + _metrics.Baseline) * _renderScaling) / _renderScaling);
+                    float y = (float)(Math.Round((r * _metrics.CellHeight + paddingTop) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                    float baselineY = (float)(Math.Round((r * _metrics.CellHeight + paddingTop + _metrics.Baseline) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
 
                     // CACHE CHECK:
                     var row = _buffer.GetRowAbsolute(absRow);
@@ -302,15 +317,41 @@ namespace NovaTerminal.Core
                     int visualRow = absCursorRow - displayStart;
                     if (visualRow >= 0 && visualRow < bufferRows)
                     {
-                        float x1 = (float)(Math.Round((_cursorCol * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                        float x2 = (float)(Math.Round(((_cursorCol + 1) * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                        float cy = (float)(Math.Round((visualRow * _metrics.CellHeight + _metrics.CellHeight - 2 + paddingTop) * _renderScaling) / _renderScaling);
+                        float x1 = (float)(Math.Round((_cursorCol * _metrics.CellWidth + paddingLeft) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                        float x2 = (float)(Math.Round(((_cursorCol + 1) * _metrics.CellWidth + paddingLeft) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                        float cy = (float)(Math.Round((visualRow * _metrics.CellHeight + _metrics.CellHeight - 2 + paddingTop) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
                         canvas.DrawRect(x1, cy, x2 - x1, 2, new SKPaint { Color = new SKColor(255, 255, 255, alpha) });
                     }
                 }
                 RendererStatistics.RecordFrame(fullRedraw: true, dirtyCells: dirtyCells);
             }
             finally { _buffer.Lock.ExitReadLock(); }
+        }
+
+        private void FlushBatches(SKCanvas canvas)
+        {
+            if (_glyphCache == null) return;
+            var (alphaAtlas, colorAtlas) = _glyphCache.GetAtlasImages();
+
+            // Flush Alpha Batch
+            if (_alphaRects.Count > 0)
+            {
+                using var paint = new SKPaint { IsAntialias = true };
+                // Use Linear sampling for smoother alpha transition on fractional High-DPI.
+                canvas.DrawAtlas(alphaAtlas, _alphaRects.ToArray(), _alphaXforms.ToArray(), _alphaColors.ToArray(), SKBlendMode.Modulate, new SKSamplingOptions(SKFilterMode.Linear), paint);
+                _alphaRects.Clear();
+                _alphaXforms.Clear();
+                _alphaColors.Clear();
+            }
+
+            // Flush Color Batch (Emojis)
+            if (_colorRects.Count > 0)
+            {
+                using var paint = new SKPaint { IsAntialias = true };
+                canvas.DrawAtlas(colorAtlas, _colorRects.ToArray(), _colorXforms.ToArray(), null, SKBlendMode.SrcOver, new SKSamplingOptions(SKFilterMode.Linear), paint);
+                _colorRects.Clear();
+                _colorXforms.Clear();
+            }
         }
 
         private int DrawRowText(SKCanvas canvas, int r, int absRow, int bufferCols, float baselineY, SKFont font, SKPaint fgPaint, SKColor themeFg, SKColor themeBg, byte alpha, SKTypeface primaryTf)
@@ -323,240 +364,165 @@ namespace NovaTerminal.Core
                 var cell = _buffer.GetCellAbsolute(c, absRow);
                 if (cell.IsWideContinuation || cell.IsHidden) continue;
 
-                bool hasChar = (cell.Text != null) ? cell.Text.Length > 0 : (cell.Character != ' ' && cell.Character != '\0');
-                if (!hasChar) continue;
-
                 var cb = cell.IsDefaultBackground ? themeBg : new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
                 var cf = cell.IsDefaultForeground ? themeFg : new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
                 var fg = cell.IsInverse ? cb : cf;
+                var bg = cell.IsInverse ? cf : cb;
 
-                int runStart = c;
+                // Identify the formatting run (same FG and BG)
+                StringBuilder runBuilder = new StringBuilder();
+                int totalRunWidth = 0;
+                bool runNeedsComplexShaping = false;
                 int k = c;
 
-                if (_enableComplexShaping)
+                while (k < bufferCols)
                 {
-                    // PHASE 2: Run-based shaping
-                    StringBuilder runBuilder = new StringBuilder();
-                    int totalRunWidth = 0;
-                    bool runNeedsComplexShaping = false;
+                    var next = _buffer.GetCellAbsolute(k, absRow);
+                    if (next.IsHidden || next.IsWideContinuation) { k++; continue; }
 
-                    while (k < bufferCols)
+                    var ncb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
+                    var ncf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
+                    var nfg = next.IsInverse ? ncb : ncf;
+                    var nbg = next.IsInverse ? ncf : ncb;
+
+                    if (nfg != fg || nbg != bg) break;
+
+                    string cellText = next.Text ?? next.Character.ToString();
+                    if (_enableComplexShaping)
                     {
-                        var next = _buffer.GetCellAbsolute(k, absRow);
-                        if (next.IsHidden) { k++; continue; }
-                        if (next.IsWideContinuation) { k++; continue; }
-
-                        var ncb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
-                        var ncf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
-                        var nfg = next.IsInverse ? ncb : ncf;
-
-                        if (nfg != fg) break;
-
-                        string cellText = next.Text ?? next.Character.ToString();
-
-                        // We check if this cell adds any "complexity" to the run
                         foreach (var rune in cellText.EnumerateRunes())
                         {
                             int cp = rune.Value;
-                            // Check for Emojis, Arabic, Indic, Hebrew, Surrogates, etc.
-                            if ((cp >= 0x0590 && cp <= 0x0FFF) || // Hebrew, Arabic, Syriac, Thaana, Devanagari, Bengali, etc.
-                                (cp >= 0x1F300 && cp <= 0x1FAFF) ||
-                                (cp >= 0x2600 && cp <= 0x27BF) ||
-                                (cp == 0x200D))
+                            if ((cp >= 0x0590 && cp <= 0x0FFF) || // Complex scripts
+                                (cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF) || (cp == 0x200D))
                             {
                                 runNeedsComplexShaping = true;
                             }
                         }
-
-                        runBuilder.Append(cellText);
-                        totalRunWidth += _buffer.GetGraphemeWidth(cellText);
-                        k++;
                     }
 
-                    string runText = runBuilder.ToString();
-                    float rx = (float)(Math.Round((runStart * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                    fgPaint.Color = fg;
-
-                    if (runNeedsComplexShaping)
-                    {
-                        // Use HarfBuzz for the whole run
-                        SKTypeface? tfToUse = primaryTf;
-
-                        // Find the first character that requires fallback (if any)
-                        int fallbackChar = 0;
-                        foreach (var rune in runText.EnumerateRunes())
-                        {
-                            int cp = rune.Value;
-                            if (cp > 127 && !primaryTf.ContainsGlyph(cp))
-                            {
-                                fallbackChar = cp;
-                                break;
-                            }
-                        }
-
-                        if (fallbackChar != 0)
-                        {
-                            string lookupKey = fallbackChar.ToString();
-                            if (!_fallbackCache.TryGetValue(lookupKey, out tfToUse))
-                            {
-                                SKTypeface? found = null;
-                                // Heuristic: Check if it's an emoji range
-                                if ((fallbackChar >= 0x1F300 && fallbackChar <= 0x1FAFF) ||
-                                    (fallbackChar >= 0x2600 && fallbackChar <= 0x27BF) ||
-                                    (fallbackChar == 0x200D))
-                                {
-                                    found = SKTypeface.FromFamilyName("Segoe UI Emoji");
-                                }
-
-                                if (found == null)
-                                {
-                                    foreach (var tfChain in _fallbackChain)
-                                    {
-                                        if (tfChain.ContainsGlyph(fallbackChar))
-                                        {
-                                            found = tfChain;
-                                            break;
-                                        }
-                                    }
-                                }
-
-                                if (found == null) found = SKFontManager.Default.MatchCharacter(fallbackChar);
-                                _fallbackCache.TryAdd(lookupKey, found);
-                                tfToUse = found;
-                            }
-                        }
-
-                        if (tfToUse == null) tfToUse = primaryTf;
-
-                        bool useLayer = totalRunWidth > 1;
-                        if (useLayer)
-                        {
-                            float clipWidth = (float)(Math.Round((totalRunWidth * _metrics.CellWidth) * _renderScaling + 2.0) / _renderScaling);
-                            var layerRect = new SKRect(rx, 0, rx + clipWidth, (float)Bounds.Height);
-                            canvas.SaveLayer(layerRect, null);
-                        }
-
-                        using var fFont = new SKFont(tfToUse, (float)_fontSize);
-                        fFont.Edging = SKFontEdging.Antialias;
-                        using var shaper = new SKShaper(tfToUse);
-                        canvas.DrawShapedText(shaper, runText, rx, baselineY, fFont, fgPaint);
-
-                        if (useLayer) canvas.Restore();
-                    }
-                    else
-                    {
-                        // Simple run
-                        canvas.DrawText(runText, rx, baselineY, font, fgPaint);
-                    }
-
-                    cellsRendered += totalRunWidth;
-                    c = k - 1;
+                    runBuilder.Append(cellText);
+                    totalRunWidth += _buffer.GetGraphemeWidth(cellText);
+                    k++;
                 }
-                else
+
+                string runText = runBuilder.ToString();
+                // Physical snapping for coordinate base
+                float rx = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                fgPaint.Color = fg;
+
+                // Only draw background if we are not on the main canvas pass (Pass 1 already handles it)
+                // OR if we are recording for the RowCache.
+                bool isRecording = canvas.GetType().Name.Contains("Picture") || canvas.GetType().Name.Contains("Proxy");
+                if (bg != themeBg && bg != SKColors.Transparent)
                 {
-                    // PHASE 1: Legacy (Cluster-by-Cluster) logic with single-cluster HarfBuzz support
-                    // This is used if EnableComplexShaping is turned off.
+                    using var bgP = new SKPaint { Color = bg, Style = SKPaintStyle.Fill };
+                    float rw = (float)(Math.Round((totalRunWidth * _metrics.CellWidth) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                    canvas.DrawRect(rx, 0, rw, (float)_metrics.CellHeight, bgP);
+                }
 
-                    // Initial ligature batching check (simple optimization for pure ASCII)
-                    if (_enableLigatures && !cell.IsWide && string.IsNullOrEmpty(cell.Text))
-                    {
-                        runStart = c;
-                        StringBuilder simpleRun = new StringBuilder();
-                        simpleRun.Append(cell.Character);
-                        k = c + 1;
-                        while (k < bufferCols)
-                        {
-                            var next = _buffer.GetCellAbsolute(k, absRow);
-                            if (next.IsWide || next.IsWideContinuation || !string.IsNullOrEmpty(next.Text) || next.IsHidden) break;
-                            if (next.Character == ' ' || next.Character == '\0') break;
-                            var ncb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
-                            var ncf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
-                            if ((next.IsInverse ? ncb : ncf) != fg) break;
-                            simpleRun.Append(next.Character);
-                            k++;
-                        }
-                        fgPaint.Color = fg;
-                        float rx = (float)(Math.Round((runStart * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                        canvas.DrawText(simpleRun.ToString(), rx, baselineY, font, fgPaint);
-                        cellsRendered += (k - runStart);
-                        c = k - 1;
-                        continue;
-                    }
-
-                    // Individual Handling (Existing Phase 1 logic)
-                    string text = cell.Text ?? cell.Character.ToString();
+                if (runNeedsComplexShaping)
+                {
+                    FlushBatches(canvas);
                     SKTypeface? tfToUse = primaryTf;
-                    bool needsEmojiFallback = false;
-                    int primaryCodepoint = 0;
-                    int w = _buffer.GetGraphemeWidth(text);
-                    foreach (var rune in text.EnumerateRunes())
+                    int fallbackChar = 0;
+                    foreach (var rune in runText.EnumerateRunes())
                     {
                         int cp = rune.Value;
-                        if (primaryCodepoint == 0) primaryCodepoint = cp;
-                        if ((cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF) || (cp == 0x200D))
-                        {
-                            needsEmojiFallback = true;
-                            break;
-                        }
+                        if (cp > 127 && !primaryTf.ContainsGlyph(cp)) { fallbackChar = cp; break; }
                     }
 
-                    if (needsEmojiFallback || (primaryCodepoint != 0 && !primaryTf.ContainsGlyph(primaryCodepoint)))
+                    if (fallbackChar != 0)
                     {
-                        string lookupKey = needsEmojiFallback ? text : primaryCodepoint.ToString();
+                        string lookupKey = fallbackChar.ToString();
                         if (!_fallbackCache.TryGetValue(lookupKey, out tfToUse))
                         {
                             SKTypeface? found = null;
-                            if (needsEmojiFallback) found = SKTypeface.FromFamilyName("Segoe UI Emoji");
+                            if ((fallbackChar >= 0x1F300 && fallbackChar <= 0x1FAFF) || (fallbackChar >= 0x2600 && fallbackChar <= 0x27BF))
+                                found = SKTypeface.FromFamilyName("Segoe UI Emoji");
                             if (found == null)
                             {
                                 foreach (var tfChain in _fallbackChain)
-                                {
-                                    if (tfChain.ContainsGlyph(primaryCodepoint)) { found = tfChain; break; }
-                                }
+                                    if (tfChain.ContainsGlyph(fallbackChar)) { found = tfChain; break; }
                             }
-                            if (found == null) found = SKFontManager.Default.MatchCharacter(primaryCodepoint);
+                            if (found == null) found = SKFontManager.Default.MatchCharacter(fallbackChar);
                             _fallbackCache.TryAdd(lookupKey, found);
                             tfToUse = found;
                         }
                     }
 
-                    if (tfToUse == null) tfToUse = primaryTf;
-                    fgPaint.Color = fg;
-                    float x = (float)(Math.Round((c * _metrics.CellWidth + paddingLeft) * _renderScaling) / _renderScaling);
-                    bool useLayer = w > 1 || needsEmojiFallback;
-
+                    bool useLayer = totalRunWidth > 1;
                     if (useLayer)
                     {
-                        float clipWidth = (float)(Math.Round((w * _metrics.CellWidth) * _renderScaling + 2.0) / _renderScaling);
-                        var layerRect = new SKRect(x, 0, x + clipWidth, (float)Bounds.Height);
-                        canvas.SaveLayer(layerRect, null);
+                        float clipWidth = (float)(Math.Round((totalRunWidth * _metrics.CellWidth) * _renderScaling + 0.5) / _renderScaling);
+                        canvas.SaveLayer(new SKRect(rx, 0, rx + clipWidth, (float)Bounds.Height), null);
                     }
 
-                    if (tfToUse != null && tfToUse != primaryTf)
+                    using var fFont = new SKFont(tfToUse ?? primaryTf, (float)_fontSize);
+                    fFont.Edging = SKFontEdging.Antialias;
+                    using var shaper = new SKShaper(tfToUse ?? primaryTf);
+                    canvas.DrawShapedText(shaper, runText, rx, (float)_metrics.Baseline, fFont, fgPaint);
+
+                    if (useLayer) canvas.Restore();
+                }
+                else
+                {
+                    // SIMPLE RUN - Physics-Perfect Atlas Rendering
+                    if (_glyphCache != null)
                     {
-                        using var fFont = new SKFont(tfToUse, (float)_fontSize);
-                        fFont.Edging = SKFontEdging.Antialias;
-                        if (needsEmojiFallback)
+                        // logical coordinate accumulator
+                        float xIdxLogical = c * (float)_metrics.CellWidth + paddingLeft;
+                        float yBaselineSnap = (float)(Math.Round((float)_metrics.Baseline * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                        float glyphY = (float)(Math.Round((yBaselineSnap + font.Metrics.Ascent) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+
+                        // Compensatory scale: since atlas has physical size, we must scale by 1/scaling
+                        // because the canvas itself is already scaled by 'scaling' during Avalonia rendering.
+                        float invScale = (float)(1.0 / _renderScaling);
+
+                        foreach (var rune in runText.EnumerateRunes())
                         {
-                            using var shaper = new SKShaper(tfToUse);
-                            canvas.DrawShapedText(shaper, text, x, baselineY, fFont, fgPaint);
+                            string grapheme = rune.ToString();
+                            var cached = _glyphCache.GetOrAdd(grapheme, font, (float)_renderScaling);
+                            float xIdxSnap = (float)(Math.Round(xIdxLogical * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+
+                            if (cached != null)
+                            {
+                                var (rect, type) = cached.Value;
+                                // Matrix: Transform = [Scale] * [Translation]
+                                // Note: We use invScale to achieve 1:1 pixel mapping.
+                                var xform = SKRotationScaleMatrix.Create(invScale, 0, xIdxSnap, glyphY, 0, 0);
+
+                                if (type == AtlasType.Alpha8)
+                                {
+                                    _alphaRects.Add(rect);
+                                    _alphaXforms.Add(xform);
+                                    _alphaColors.Add(fg);
+                                }
+                                else
+                                {
+                                    _colorRects.Add(rect);
+                                    _colorXforms.Add(xform);
+                                }
+                            }
+                            else
+                            {
+                                canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, font, fgPaint);
+                            }
+
+                            xIdxLogical += (float)_metrics.CellWidth * (float)_buffer.GetGraphemeWidth(grapheme);
                         }
-                        else canvas.DrawText(text, x, baselineY, fFont, fgPaint);
                     }
                     else
                     {
-                        if (needsEmojiFallback)
-                        {
-                            using var shaper = new SKShaper(tfToUse ?? primaryTf);
-                            canvas.DrawShapedText(shaper, text, x, baselineY, font, fgPaint);
-                        }
-                        else canvas.DrawText(text, x, baselineY, font, fgPaint);
+                        canvas.DrawText(runText, rx, (float)_metrics.Baseline, font, fgPaint);
                     }
-
-                    if (useLayer) canvas.Restore();
-                    cellsRendered += w;
                 }
+
+                cellsRendered += totalRunWidth;
+                c = k - 1;
             }
+
+            FlushBatches(canvas);
             return cellsRendered;
         }
     }
