@@ -232,6 +232,8 @@ pub extern "C" fn pty_spawn(
         }
     }
     cmd_builder.env("TERM", "xterm-256color");
+    cmd_builder.env("LC_ALL", "C");
+    cmd_builder.env("LANG", "C");
 
     let child = match pair.slave.spawn_command(cmd_builder) {
         Ok(c) => c,
