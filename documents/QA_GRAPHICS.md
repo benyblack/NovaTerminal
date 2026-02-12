@@ -57,6 +57,21 @@ This document defines the manual steps required to verify that Nova Terminal's g
 
 ---
 
-## 4. Stability
-*   **GDI Leak Check**: Monitor memory during rapid rendering of hundreds of small images.
-*   **Crash Test**: Resize the window rapidly while an image is being emitted.
+---
+
+## 5. Text Rendering and High-DPI Fidelity
+
+### 5.1 "Physics-Perfect" Sharpness
+*   **Action**: Change OS scaling to fractional values (e.g., 125%, 150%).
+*   **Expected**: Text remains razor-sharp with no blurriness or "halos."
+*   **Verification**: Check that character edges are solid and match the physical pixel grid.
+
+### 5.2 Theme-Neutral Weight
+*   **Action**: Switch between Dark and Light themes.
+*   **Expected**: Text weight should feel consistent (no "thin" or fuzzy text on light backgrounds).
+*   **Verification**: Ensure no color swapping or "Inverse" rendering artifacts.
+
+### 5.3 Complex Shaping and Ligatures
+*   **Action**: Type complex emojis (e.g., 👩🏽‍💻) and ligature sequences (e.g., `=>`, `!=`).
+*   **Expected**: Characters merge correctly into single glyphs via HarfBuzz.
+*   **Verification**: Ensure background colors correctly cover the entire multi-cell region.

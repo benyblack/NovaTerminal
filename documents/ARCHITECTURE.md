@@ -142,6 +142,9 @@ It is intentionally **semantics-free**.
 ### 4.1 Rendering Model
 
 - Rendering is cell-grid based
+- **GPU-Accelerated Glyph Cache**: Standard glyphs and complex clusters are cached in a **Dual-Atlas** system (Alpha8 for monochromatic text, RGBA8888 for emojis).
+- **Batching**: Thousands of glyphs are dispatched in a single hardware-accelerated call via `DrawAtlas`.
+- **"Physics-Perfect" Precision**: Layout is driven by physical resolution mappings to ensure 1:1 pixel clarity on high-DPI displays.
 - Text layout is driven by:
   - fixed cell width
   - fixed cell height

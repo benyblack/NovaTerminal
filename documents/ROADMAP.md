@@ -298,13 +298,14 @@ These constraints are enforced by tests.
 
 ---
 
-## 3.3 Font & Text Excellence
+## 3.3 Font & Text Excellence - [STATUS: STABLE]
 
 ### Deliverables
-- [x] Ligature toggle
-- [x] Fallback font chain
-- [x] Emoji width correctness
-- [x] DPI-safe metrics
+- [x] Ligature support (Phase 2 complex shaping)
+- [x] Fallback font chain (Deterministic HarfBuzz)
+- [x] Emoji width correctness (Unicode 16.0)
+- [x] DPI-safe metrics (Physics-Perfect sharpening)
+- [x] GPU-Accelerated Glyph Cache (Phase 3 Performance)
 
 ---
 
