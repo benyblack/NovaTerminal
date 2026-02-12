@@ -228,5 +228,39 @@ namespace NovaTerminal.Tests.ReplayTests
             }
             GoldenMaster.AssertMatches(snapshot, snapPath);
         }
+
+        [Fact]
+        [Trait("Category", "Replay")]
+        public async Task Replay_Vttest_Cursor_MatchesGoldenMaster()
+        {
+            string recPath = Path.Combine(_fixturesDir, "vttest_cursor.rec");
+            string snapPath = Path.Combine(_fixturesDir, "vttest_cursor.snap");
+
+            Assert.True(File.Exists(recPath), $"Missing fixture: {recPath}");
+
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new NovaTerminal.Core.AnsiParser(buffer);
+            var runner = new ReplayRunner(recPath);
+
+            await runner.RunAsync(async (data) =>
+            {
+                // IMPORTANT: Your ReplayRunner returns byte[].
+                // Your current tests decode as UTF-8 string.
+                // This is OK ONLY if your .rec data is UTF-8 text.
+                // For terminal output, you ideally want parser.ProcessBytes(...) eventually.
+                string text = System.Text.Encoding.UTF8.GetString(data);
+                parser.Process(text);
+                await Task.CompletedTask;
+            });
+
+            var snapshot = BufferSnapshot.Capture(buffer);
+
+            if (!File.Exists(snapPath) || Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+                File.WriteAllText(snapPath, snapshot.ToFormattedString());
+
+            GoldenMaster.AssertMatches(snapshot, snapPath);
+        }
+
+
     }
 }

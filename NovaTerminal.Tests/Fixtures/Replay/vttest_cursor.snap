@@ -1,0 +1,26 @@
+Cursor: (40, 20) Alt: False
+--- Screen Content ---
+000| 
+001| 
+002|          VT100 test program, version 2.7 (20210210)
+003|          Line speed 38400bd
+004|          Choose test type:
+005| 
+006|           0. Exit
+007|           1. Test of cursor movements
+008|           2. Test of screen features
+009|           3. Test of character sets
+010|           4. Test of double-sized characters
+011|           5. Test of keyboard
+012|           6. Test of terminal reports
+013|           7. Test of VT52 mode
+014|           8. Test of VT102 features (Insert/Delete Char/Line)
+015|           9. Test of known bugs
+016|           10. Test of reset and self-test
+017|           11. Test non-VT100 (e.g., VT220, XTERM) terminals
+018|           12. Modify test-parameters
+019| 
+020|           Enter choice number (0 - 12):
+021| 
+022| 
+023| 
