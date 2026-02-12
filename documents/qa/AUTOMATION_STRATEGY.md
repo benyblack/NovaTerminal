@@ -10,8 +10,8 @@ This document outlines how Nova Terminal leverages automated testing to maintain
 | **Buffer & Reflow** | Full | `TerminalBuffer` State Assertions |
 | **Reflow Edge Cases** | Partial | `ReflowScenariosTests` |
 | **Graphics Protocols** | Partial | `GraphicsTests` (Sixel Decoder) |
-| **Rendering Fidelity** | Planned | Golden Master Snapshot Testing |
-| **UI Interaction** | Manual | Avalonia Headless Testing (Targeted) |
+| **Rendering Fidelity** | Full | Golden Master Snapshot Testing (`SkiaSharp` + `Avalonia.Headless`) |
+| **UI Interaction** | Automated | `Avalonia.Headless.XUnit` (`[AvaloniaFact]`) |
 | **Platform Parity** | Automated | Deterministic Replay / ReplayTests |
 
 ## 2. Testing Layers
@@ -27,9 +27,9 @@ This document outlines how Nova Terminal leverages automated testing to maintain
 - **Benefit**: Platform-independent reproduction of complex bugs (e.g., Oh-My-Posh wrapping).
 
 ### 2.3 Golden Master (Gate -1C)
-- **Focus**: Visual correctness.
+- **Focus**: Visual correctness & UI Interaction.
 - **Goal**: Compare frame-by-frame rendering output against known "good" snapshots.
-- **Status**: Future enhancement for the Skia renderer layer.
+- **Status**: **Active**. Uses `SnapshotService` to capture Skia bitmaps and `Avalonia.Headless` to validate control state.
 
 ## 3. Automation Mapping
 
@@ -38,6 +38,8 @@ This document outlines how Nova Terminal leverages automated testing to maintain
 | **Core Correctness** | `AnsiParserTests.cs`, `AlternateScreenTests.cs` |
 | **Buffer & Reflow** | `ReflowScenariosTests.cs`, `ReflowRegressionTests.cs` |
 | **Graphics** | `GraphicsTests.cs` |
+| **Rendering & UI** | `GoldenMasterTests.cs`, `HeadlessUITests.cs` |
+| **Performance** | `PerformanceTests.cs`, `StressTests.cs` |
 | **Platform Parity** | `ReplayTests/` |
 
 ## 4. Manual Testing Requirements

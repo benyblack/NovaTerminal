@@ -9,7 +9,7 @@ namespace NovaTerminal.Tests
 {
     public class HeadlessUITests
     {
-        [Fact] // Placeholder: Transition to [AvaloniaTest] once headless infra is fully configured
+        [AvaloniaFact]
         public void TerminalView_ApplyTheme_UpdatesBackground()
         {
             var view = new TerminalView();
@@ -29,7 +29,7 @@ namespace NovaTerminal.Tests
             Assert.Equal(Colors.DarkSlateBlue, buffer.Theme.Background);
         }
 
-        [Fact]
+        [AvaloniaFact]
         public void TerminalView_MouseClick_FocusesControl()
         {
             var view = new TerminalView();
