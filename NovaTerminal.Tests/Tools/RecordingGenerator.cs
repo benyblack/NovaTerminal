@@ -140,5 +140,44 @@ namespace NovaTerminal.Tests.Tools
             var data = Encoding.UTF8.GetBytes(longLine);
             recorder.RecordChunk(data, data.Length);
         }
+
+        public static void GenerateMidnightCommander(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            using var recorder = new PtyRecorder(path);
+
+            // 1. Enter Alt Screen
+            string enterAlt = "\x1b[?1049h";
+            recorder.RecordChunk(Encoding.UTF8.GetBytes(enterAlt), enterAlt.Length);
+
+            // 2. Draw a box (top line, bottom line, sides)
+            // Assuming 80x24
+            string box = "\x1b[1;1H\x1b[44;37m" + new string('=', 80) +
+                         "\x1b[24;1H" + new string('=', 80);
+            for (int i = 2; i < 24; i++)
+            {
+                box += $"\x1b[{i};1H|\x1b[{i};80H|";
+            }
+            box += "\x1b[12;30H Midnight Commander ";
+            box += "\x1b[0m";
+            recorder.RecordChunk(Encoding.UTF8.GetBytes(box), box.Length);
+        }
+
+        public static void GenerateOhMyPosh(string path)
+        {
+            var dir = Path.GetDirectoryName(path);
+            if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            using var recorder = new PtyRecorder(path);
+
+            // Prompt on left, Time on right (column 70)
+            string prompt = "\x1b[1;1H\x1b[42;30m nova \x1b[44;32m\ue0b0\x1b[30m ~/projects \x1b[0;34m\ue0b0\x1b[0m ";
+            string rightPart = "\x1b[1;70H\x1b[90m10:37:00\x1b[0m";
+            string total = prompt + rightPart + "\x1b[1;20H"; // Cursor back to input area
+
+            recorder.RecordChunk(Encoding.UTF8.GetBytes(total), total.Length);
+        }
     }
 }
