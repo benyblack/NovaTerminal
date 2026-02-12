@@ -48,3 +48,40 @@ The following areas currently require manual validation:
 - **Transparency / Blur**: GPU/OS interaction is difficult to headless-test.
 - **Input Methods (IME)**: Interaction with OS-native input windows.
 - **Title Bar Theming**: Native window chrome color verification.
+
+## 5. Running Tests
+
+### 5.1 Run All Tests
+Execute the full suite from the updated `NovaTerminal.Tests` project:
+```powershell
+dotnet test NovaTerminal.Tests\NovaTerminal.Tests.csproj
+```
+
+### 5.2 Category-Specific Runs
+Use the `--filter` flag to target specific test traits:
+
+**Performance Benchmarks**:
+```powershell
+dotnet test --filter "Category=Performance" --logger "console;verbosity=normal"
+```
+
+**Regression Suite** (MC, Oh-My-Posh):
+```powershell
+dotnet test --filter "Category=Regression"
+```
+
+### 5.3 Headless UI & Golden Master
+Target specific classes or namespaces:
+```powershell
+# Run only Headless UI interaction tests
+dotnet test --filter "FullyQualifiedName~HeadlessUITests"
+
+# Run only Golden Master rendering tests
+dotnet test --filter "FullyQualifiedName~GoldenMasterTests"
+```
+
+### 5.4 Troubleshooting
+If tests fail or hang, increase verbosity to see `DeadlockDetection` or `RendererStatistics` output:
+```powershell
+dotnet test --logger "console;verbosity=detailed"
+```
