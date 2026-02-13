@@ -137,13 +137,23 @@ jobs:
           PARITY_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/parity
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=Replay" --logger "trx;LogFileName=replay_tests.trx"
 
+      - name: Prepare Replay Artifact Bundle
+        if: always()
+        shell: pwsh
+        run: |
+          $bundleDir = "artifacts/parity"
+          New-Item -ItemType Directory -Force -Path $bundleDir | Out-Null
+          "runner_os=${{ runner.os }}; matrix_os=${{ matrix.os }}; run_id=${{ github.run_id }}" |
+            Set-Content -Path (Join-Path $bundleDir "_artifact_meta.txt")
+
       - name: Upload Replay Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: replay-snapshots-${{ runner.os }}
+          name: replay-snapshots-${{ matrix.os }}
           path: |
             artifacts/parity/**/*.snap
+            artifacts/parity/_artifact_meta.txt
             **/*replay_tests.trx
 
   pty_smoke_tests:
@@ -196,19 +206,19 @@ jobs:
       - name: Download snapshots (Windows)
         uses: actions/download-artifact@v4
         with:
-          name: replay-snapshots-Windows
+          name: replay-snapshots-windows-latest
           path: parity/windows
 
       - name: Download snapshots (Linux)
         uses: actions/download-artifact@v4
         with:
-          name: replay-snapshots-Linux
+          name: replay-snapshots-ubuntu-latest
           path: parity/linux
 
       - name: Download snapshots (macOS)
         uses: actions/download-artifact@v4
         with:
-          name: replay-snapshots-macOS
+          name: replay-snapshots-macos-latest
           path: parity/macos
 
       - name: Compare snapshots for parity
