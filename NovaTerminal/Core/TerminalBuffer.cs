@@ -245,6 +245,39 @@ namespace NovaTerminal.Core
             Invalidate();
         }
 
+        public void ScreenAlignmentPattern()
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                // DECALN: Fill screen with 'E'
+                var cell = new TerminalCell('E', Theme.Foreground, Theme.Background, false, false, true, true);
+
+                for (int r = 0; r < Rows; r++)
+                {
+                    // Ensure we have a valid row
+                    if (_viewport[r] == null) _viewport[r] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+
+                    var row = _viewport[r];
+                    for (int c = 0; c < Cols; c++)
+                    {
+                        row.Cells[c] = cell;
+                    }
+                    row.TouchRevision();
+                }
+
+                // Reset cursor to home
+                _cursorCol = 0;
+                _cursorRow = 0;
+                _isPendingWrap = false; // Reset wrap state
+            }
+            finally
+            {
+                Lock.ExitWriteLock();
+            }
+            Invalidate();
+        }
+
         public void Reset()
         {
             // Full Reset (RIS)

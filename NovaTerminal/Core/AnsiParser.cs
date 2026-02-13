@@ -8,7 +8,7 @@ namespace NovaTerminal.Core
     public class AnsiParser
     {
         private TerminalBuffer _buffer;
-        private enum State { Normal, Esc, Csi, Osc, OscEsc, Dcs, DcsEsc, Charset, Apc, ApcEsc }
+        private enum State { Normal, Esc, Csi, Osc, OscEsc, Dcs, DcsEsc, Charset, Apc, ApcEsc, EscHash }
         private State _state = State.Normal;
 
         // Flag to swallow a single newline after an inline image (common in scripts)
@@ -142,6 +142,10 @@ namespace NovaTerminal.Core
                                 // G0/G1 charset selection - wait for the next char but don't print
                                 _state = State.Charset;
                             }
+                            else if (c == '#')
+                            {
+                                _state = State.EscHash;
+                            }
                             else if (c >= 0x20 && c <= 0x7E)
                             {
                                 // Unknown escape sequence followed by printable char?
@@ -157,6 +161,16 @@ namespace NovaTerminal.Core
 
                         case State.Charset:
                             // Consume the charset designation character (e.g. 'B' in ESC ( B)
+                            _state = State.Normal;
+                            break;
+
+                        case State.EscHash:
+                            if (c == '8') // DECALN - Screen Alignment Pattern
+                            {
+                                _buffer.ScreenAlignmentPattern();
+                            }
+                            // 3, 4, 5, 6 are for single/double width/height lines.
+                            // We ignore them for now as we don't support per-line rendering attributes yet.
                             _state = State.Normal;
                             break;
 
@@ -499,16 +513,19 @@ namespace NovaTerminal.Core
                     }
                     else if (!isPrivate)
                     {
-                        // Primary Device Attributes
-                        // Respond with VT220 + Sixel + ANSI Color
-                        // CSI ? 6 2 ; 4 ; 2 2 c
+                        // Primary Device Attributes (CSI c)
+                        // Respond with VT100/VT102 capability to satisfy vttest
+                        // ?1;2c (VT100 with AVO) is safest baseline, but we claim more.
+                        // ?62;4;22c (VT220 + Sixel + ANSI)
+                        // vttest checks these. 
+                        // Let's stick to ?62;4;22c as it worked for XTerm.
                         OnResponse?.Invoke("\x1b[?62;4;22c");
                     }
                     break;
                 case 'n': // DSR - Device Status Report
                     if (arg0 == 5) // Status Query
                     {
-                        OnResponse?.Invoke("\x1b[0n");
+                        OnResponse?.Invoke("\x1b[0n"); // OK
                     }
                     else if (arg0 == 6) // Cursor Position Report (CPR)
                     {
