@@ -167,6 +167,10 @@ namespace NovaTerminal.Core
         // Step 3 optimization: rely on row pictures (or DrawRowText fallback) to paint non-default backgrounds.
         private const bool UseRowPicturesForBackgrounds = true;
 
+        // Step 5: Smooth out rendering spikes
+        private const int MaxPictureBuildsPerFrame = 4;
+        private const float MassInvalidationThreshold = 0.5f;
+
         // Drop-in replacement for TerminalDrawOperation.DrawTerminal(SKCanvas canvas)
         // Fixes:
         // 1) DrainDisposalsAndApplyClearIfRequested() is called OUTSIDE _buffer lock
@@ -175,241 +179,272 @@ namespace NovaTerminal.Core
 
         private void DrawTerminal(SKCanvas canvas)
         {
-            // Render-thread safe boundary: drain deferred disposals & apply clear requests.
-            _rowCache?.DrainDisposalsAndApplyClearIfRequested();
-
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            var frame = new FrameSnapshot();
-
-            int bufferRows = _bufferRows;
-            int bufferCols = _bufferCols;
-            int absDisplayStart = 0;
-            byte alpha = (byte)(255 * _opacity);
-
-            // --------------------
-            // Snapshot Phase (LOCK HELD)
-            // --------------------
-            _buffer.Lock.EnterReadLock();
             try
             {
-                frame.ThemeBg = new SKColor(_buffer.Theme.Background.R, _buffer.Theme.Background.G, _buffer.Theme.Background.B, alpha);
-                frame.ThemeFg = new SKColor(_buffer.Theme.Foreground.R, _buffer.Theme.Foreground.G, _buffer.Theme.Foreground.B, alpha);
-                if (_transparentBackground) frame.ThemeBg = SKColors.Empty;
+                // Render-thread safe boundary: drain deferred disposals & apply clear requests.
+                _rowCache?.DrainDisposalsAndApplyClearIfRequested();
+                _glyphCache?.DrainDisposals();
 
-                absDisplayStart = Math.Max(0, _totalLines - _bufferRows - _scrollOffset);
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                var frame = new FrameSnapshot();
 
-                // IMPORTANT: Always add exactly one RowRenderItem per visual row
-                // so render loop can safely use r for Y positioning.
-                for (int r = 0; r < bufferRows; r++)
+                int bufferRows = _bufferRows;
+                int bufferCols = _bufferCols;
+                int absDisplayStart = 0;
+                byte alpha = (byte)(255 * _opacity);
+                int dirtyRowCount = 0;
+                bool isMassInvalidation = false;
+                var frameSw = System.Diagnostics.Stopwatch.StartNew();
+
+                // --------------------
+                // Snapshot Phase (LOCK HELD)
+                // --------------------
+                _buffer.Lock.EnterReadLock();
+                try
                 {
-                    int absRow = absDisplayStart + r;
+                    frame.ThemeBg = new SKColor(_buffer.Theme.Background.R, _buffer.Theme.Background.G, _buffer.Theme.Background.B, alpha);
+                    frame.ThemeFg = new SKColor(_buffer.Theme.Foreground.R, _buffer.Theme.Foreground.G, _buffer.Theme.Foreground.B, alpha);
+                    if (_transparentBackground) frame.ThemeBg = SKColors.Empty;
 
-                    var item = new RowRenderItem
+                    absDisplayStart = Math.Max(0, _totalLines - _bufferRows - _scrollOffset);
+
+                    // IMPORTANT: Always add exactly one RowRenderItem per visual row
+                    // so render loop can safely use r for Y positioning.
+                    for (int r = 0; r < bufferRows; r++)
                     {
-                        AbsRow = absRow,
-                        CachedPicture = null,
-                        Snapshot = null
-                    };
+                        int absRow = absDisplayStart + r;
 
-                    var row = _buffer.GetRowAbsolute(absRow);
-                    if (row != null)
-                    {
-                        // Cache probe
-                        item.CachedPicture = _rowCache?.Get(absRow, row.Revision);
-
-                        if (item.CachedPicture != null)
+                        var item = new RowRenderItem
                         {
-                            RendererStatistics.RecordRowCacheHit();
+                            AbsRow = absRow,
+                            CachedPicture = null,
+                            Snapshot = null
+                        };
+
+                        var row = _buffer.GetRowAbsolute(absRow);
+                        if (row != null)
+                        {
+                            // Cache probe
+                            item.CachedPicture = _rowCache?.Get(absRow, row.Revision);
+
+                            if (item.CachedPicture != null)
+                            {
+                                RendererStatistics.RecordRowCacheHit();
+                            }
+                            else
+                            {
+                                RendererStatistics.RecordRowCacheMiss();
+                                item.Snapshot = _buffer.GetRowSnapshot(absRow, bufferCols);
+                                RendererStatistics.RecordRowSnapshot();
+                                dirtyRowCount++;
+                            }
+                        }
+                        // else: row missing -> leave item empty; base background will show
+
+                        frame.RowItems.Add(item);
+                    }
+
+                    isMassInvalidation = (bufferRows > 0) && ((float)dirtyRowCount / bufferRows > MassInvalidationThreshold);
+                    frame.Images = _buffer.GetVisibleImagesSnapshot(absDisplayStart, bufferRows);
+                }
+                finally
+                {
+                    _buffer.Lock.ExitReadLock();
+                    sw.Stop();
+                    RendererStatistics.RecordReadLockTime(sw.ElapsedMilliseconds);
+                }
+
+                // --------------------
+                // Render Phase (LOCK RELEASED)
+                // --------------------
+                using var bgPaint = new SKPaint { Style = SKPaintStyle.Fill };
+                using var fgPaint = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
+                using var selectionPaint = new SKPaint { Color = new SKColor(51, 153, 255, 100) };
+                using var matchPaint = new SKPaint { Color = new SKColor(255, 255, 0, 100) };
+                using var activeMatchPaint = new SKPaint { Color = new SKColor(255, 128, 0, 150) };
+
+                // Base background (window)
+                bgPaint.Color = frame.ThemeBg;
+                canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
+
+                float paddingLeft = 4f;
+                float paddingTop = 0f;
+
+                int dirtyCells = 0;
+                int buildsThisFrame = 0;
+                int maxBuilds = isMassInvalidation ? 0 : MaxPictureBuildsPerFrame;
+
+                // Pass 3: Text
+                var tf = _skTypeface?.Typeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
+                using var font = (_skFont?.Font != null)
+                    ? new SKFont(_skFont.Font.Typeface, _skFont.Font.Size)
+                    : new SKFont(tf, (float)_fontSize);
+
+                font.Edging = SKFontEdging.Antialias;
+
+                // Draw rows in visual order. RowItems count == bufferRows by construction.
+                for (int r = 0; r < frame.RowItems.Count; r++)
+                {
+                    var item = frame.RowItems[r];
+
+                    float rowTopY = SnapY(r * _metrics.CellHeight + paddingTop);
+                    float baselineY = SnapY(r * _metrics.CellHeight + paddingTop + _metrics.Baseline);
+
+                    if (item.CachedPicture != null)
+                    {
+                        canvas.DrawPicture(item.CachedPicture, 0, rowTopY);
+                        dirtyCells += bufferCols;
+                        continue;
+                    }
+
+                    if (item.Snapshot.HasValue)
+                    {
+                        var snapshot = item.Snapshot.Value;
+
+                        if (buildsThisFrame < maxBuilds)
+                        {
+                            var recSw = System.Diagnostics.Stopwatch.StartNew();
+                            using var recorder = new SKPictureRecorder();
+                            using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, (float)_metrics.CellHeight));
+
+                            // Row-local coordinates for cached picture recording
+                            DrawRowTextFromSnapshot(
+                                rowCanvas,
+                                snapshot,
+                                rowTopY: 0f,
+                                baselineY: (float)_metrics.Baseline,
+                                font,
+                                fgPaint,
+                                frame.ThemeFg,
+                                frame.ThemeBg,
+                                alpha,
+                                tf,
+                                drawBackgrounds: true);
+
+                            var picture = recorder.EndRecording();
+                            _rowCache?.Add(item.AbsRow, snapshot.Revision, picture);
+                            canvas.DrawPicture(picture, 0, rowTopY);
+
+                            recSw.Stop();
+                            RendererStatistics.RecordRowPictureRecorded();
+                            RendererStatistics.RecordRowPictureRecordTime(recSw.ElapsedMilliseconds);
+                            buildsThisFrame++;
                         }
                         else
                         {
-                            RendererStatistics.RecordRowCacheMiss();
-                            item.Snapshot = _buffer.GetRowSnapshot(absRow, bufferCols);
-                            RendererStatistics.RecordRowSnapshot();
+                            // Budget exhausted: draw direct from snapshot (Correct BUT non-cached fallback)
+                            DrawRowTextFromSnapshot(
+                                canvas,
+                                snapshot,
+                                rowTopY: rowTopY,
+                                baselineY: baselineY,
+                                font,
+                                fgPaint,
+                                frame.ThemeFg,
+                                frame.ThemeBg,
+                                alpha,
+                                tf,
+                                drawBackgrounds: true);
+                        }
+
+                        dirtyCells += bufferCols;
+                    }
+                }
+
+                // Pass 2: Images
+                using (var imagePaint = new SKPaint { Color = new SKColor(255, 255, 255, alpha) })
+                {
+                    foreach (var img in frame.Images)
+                    {
+                        int visualY = img.CellY - absDisplayStart;
+                        if (visualY + img.CellHeight > 0 && visualY < bufferRows)
+                        {
+                            float x = SnapX(img.CellX * _metrics.CellWidth + paddingLeft);
+                            float y = SnapY(visualY * _metrics.CellHeight + paddingTop);
+
+                            float w = (float)(Math.Round((img.CellWidth * _metrics.CellWidth) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                            float h = (float)(Math.Round((img.CellHeight * _metrics.CellHeight) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+
+                            var rect = new SKRect(x, y, x + w, y + h);
+
+                            canvas.Save();
+                            canvas.ClipRect(new SKRect(paddingLeft, 0, (float)Bounds.Width, (float)Bounds.Height));
+                            canvas.DrawImage(img.Image, rect, imagePaint);
+                            canvas.Restore();
                         }
                     }
-                    // else: row missing -> leave item empty; base background will show
-
-                    frame.RowItems.Add(item);
                 }
 
-                frame.Images = _buffer.GetVisibleImagesSnapshot(absDisplayStart, bufferRows);
-            }
-            finally
-            {
-                _buffer.Lock.ExitReadLock();
-                sw.Stop();
-                RendererStatistics.RecordReadLockTime(sw.ElapsedMilliseconds);
-            }
-
-            // --------------------
-            // Render Phase (LOCK RELEASED)
-            // --------------------
-            using var bgPaint = new SKPaint { Style = SKPaintStyle.Fill };
-            using var fgPaint = new SKPaint { Style = SKPaintStyle.Fill, IsAntialias = true };
-            using var selectionPaint = new SKPaint { Color = new SKColor(51, 153, 255, 100) };
-            using var matchPaint = new SKPaint { Color = new SKColor(255, 255, 0, 100) };
-            using var activeMatchPaint = new SKPaint { Color = new SKColor(255, 128, 0, 150) };
-
-            // Base background (window)
-            bgPaint.Color = frame.ThemeBg;
-            canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
-
-            float paddingLeft = 4f;
-            float paddingTop = 0f;
-
-            int dirtyCells = 0;
-
-            // Pass 3: Text
-            var tf = _skTypeface?.Typeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
-            using var font = (_skFont?.Font != null)
-                ? new SKFont(_skFont.Font.Typeface, _skFont.Font.Size)
-                : new SKFont(tf, (float)_fontSize);
-
-            font.Edging = SKFontEdging.Antialias;
-
-            // Draw rows in visual order. RowItems count == bufferRows by construction.
-            for (int r = 0; r < frame.RowItems.Count; r++)
-            {
-                var item = frame.RowItems[r];
-
-                float rowTopY = SnapY(r * _metrics.CellHeight + paddingTop);
-                float baselineY = SnapY(r * _metrics.CellHeight + paddingTop + _metrics.Baseline);
-
-                if (item.CachedPicture != null)
+                // Pass 4: Overlays (Selection / Search)
+                int matchIndex = 0;
+                for (int r = 0; r < bufferRows; r++)
                 {
-                    canvas.DrawPicture(item.CachedPicture, 0, rowTopY);
-                    dirtyCells += bufferCols;
-                    continue;
-                }
+                    float y = SnapY(r * _metrics.CellHeight + paddingTop);
+                    int absRow = absDisplayStart + r;
 
-                if (item.Snapshot.HasValue)
-                {
-                    var snapshot = item.Snapshot.Value;
-
-                    using var recorder = new SKPictureRecorder();
-                    using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, (float)_metrics.CellHeight));
-
-                    // Row-local coordinates for cached picture recording
-                    DrawRowTextFromSnapshot(
-                        rowCanvas,
-                        snapshot,
-                        rowTopY: 0f,
-                        baselineY: (float)_metrics.Baseline,
-                        font,
-                        fgPaint,
-                        frame.ThemeFg,
-                        frame.ThemeBg,
-                        alpha,
-                        tf,
-                        drawBackgrounds: true);
-
-                    var picture = recorder.EndRecording();
-
-                    // Cache and draw directly (no redundant Get)
-                    _rowCache?.Add(item.AbsRow, snapshot.Revision, picture);
-                    canvas.DrawPicture(picture, 0, rowTopY);
-
-                    dirtyCells += bufferCols;
-                }
-                else
-                {
-                    // No snapshot and no cached picture: row remains base background (already painted)
-                }
-            }
-
-            // Pass 2: Images
-            using (var imagePaint = new SKPaint { Color = new SKColor(255, 255, 255, alpha) })
-            {
-                foreach (var img in frame.Images)
-                {
-                    int visualY = img.CellY - absDisplayStart;
-                    if (visualY + img.CellHeight > 0 && visualY < bufferRows)
+                    if (_selection.IsActive)
                     {
-                        float x = SnapX(img.CellX * _metrics.CellWidth + paddingLeft);
-                        float y = SnapY(visualY * _metrics.CellHeight + paddingTop);
-
-                        float w = (float)(Math.Round((img.CellWidth * _metrics.CellWidth) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
-                        float h = (float)(Math.Round((img.CellHeight * _metrics.CellHeight) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
-
-                        var rect = new SKRect(x, y, x + w, y + h);
-
-                        canvas.Save();
-                        canvas.ClipRect(new SKRect(paddingLeft, 0, (float)Bounds.Width, (float)Bounds.Height));
-                        canvas.DrawImage(img.Image, rect, imagePaint);
-                        canvas.Restore();
+                        var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
+                        if (isSelected)
+                        {
+                            float x1 = SnapX(colStart * _metrics.CellWidth + paddingLeft);
+                            float x2 = SnapX((colEnd + 1) * _metrics.CellWidth + paddingLeft);
+                            canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, selectionPaint);
+                        }
                     }
-                }
-            }
 
-            // Pass 4: Overlays (Selection / Search)
-            Dictionary<int, List<(SearchMatch Match, int Index)>>? matchesByRow = null;
-            if (_searchMatches != null && _searchMatches.Count > 0)
-            {
-                matchesByRow = new Dictionary<int, List<(SearchMatch, int)>>();
-                for (int i = 0; i < _searchMatches.Count; i++)
-                {
-                    var m = _searchMatches[i];
-                    if (!matchesByRow.TryGetValue(m.AbsRow, out var list))
+                    // Sub-linear scan for search matches (assumes _searchMatches are sorted by AbsRow)
+                    if (_searchMatches != null && _searchMatches.Count > 0)
                     {
-                        list = new List<(SearchMatch, int)>();
-                        matchesByRow[m.AbsRow] = list;
-                    }
-                    list.Add((m, i));
-                }
-            }
+                        // Skip matches BEFORE current row
+                        while (matchIndex < _searchMatches.Count && _searchMatches[matchIndex].AbsRow < absRow)
+                            matchIndex++;
 
-            for (int r = 0; r < bufferRows; r++)
-            {
-                float y = SnapY(r * _metrics.CellHeight + paddingTop);
-                int absRow = absDisplayStart + r;
-
-                if (_selection.IsActive)
-                {
-                    var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
-                    if (isSelected)
-                    {
-                        float x1 = SnapX(colStart * _metrics.CellWidth + paddingLeft);
-                        float x2 = SnapX((colEnd + 1) * _metrics.CellWidth + paddingLeft);
-                        canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, selectionPaint);
+                        // Render matches ON current row
+                        int tempIdx = matchIndex;
+                        while (tempIdx < _searchMatches.Count && _searchMatches[tempIdx].AbsRow == absRow)
+                        {
+                            var m = _searchMatches[tempIdx];
+                            var p = (tempIdx == _activeSearchIndex) ? activeMatchPaint : matchPaint;
+                            float x1 = SnapX(m.StartCol * _metrics.CellWidth + paddingLeft);
+                            float x2 = SnapX((m.EndCol + 1) * _metrics.CellWidth + paddingLeft);
+                            canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, p);
+                            tempIdx++;
+                        }
                     }
                 }
 
-                if (matchesByRow != null && matchesByRow.TryGetValue(absRow, out var rowMatches))
+                // Cursor (optional policy: hide cursor when scrolled back)
+                if (!_hideCursor && _scrollOffset == 0)
                 {
-                    foreach (var (m, idx) in rowMatches)
+                    int absCursorRow = (_totalLines - bufferRows) + _cursorRow;
+                    int visualRow = absCursorRow - absDisplayStart;
+
+                    if (visualRow >= 0 && visualRow < bufferRows)
                     {
-                        var p = (idx == _activeSearchIndex) ? activeMatchPaint : matchPaint;
-                        float x1 = SnapX(m.StartCol * _metrics.CellWidth + paddingLeft);
-                        float x2 = SnapX((m.EndCol + 1) * _metrics.CellWidth + paddingLeft);
-                        canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, p);
+                        float x1 = SnapX(_cursorCol * _metrics.CellWidth + paddingLeft);
+                        float x2 = SnapX((_cursorCol + 1) * _metrics.CellWidth + paddingLeft);
+                        float cy = SnapY(visualRow * _metrics.CellHeight + paddingTop + _metrics.CellHeight - 2);
+
+                        using var cursorPaint = new SKPaint
+                        {
+                            Color = new SKColor(255, 255, 255, alpha),
+                            Style = SKPaintStyle.Fill
+                        };
+
+                        canvas.DrawRect(x1, cy, x2 - x1, 2, cursorPaint);
                     }
                 }
-            }
 
-            // Cursor (optional policy: hide cursor when scrolled back)
-            if (!_hideCursor && _scrollOffset == 0)
+                frameSw.Stop();
+                RendererStatistics.RecordFrameRenderTime(frameSw.ElapsedMilliseconds);
+                RendererStatistics.RecordFrame(fullRedraw: true, dirtyCells: dirtyCells);
+            }
+            catch (Exception ex)
             {
-                int absCursorRow = (_totalLines - bufferRows) + _cursorRow;
-                int visualRow = absCursorRow - absDisplayStart;
-
-                if (visualRow >= 0 && visualRow < bufferRows)
-                {
-                    float x1 = SnapX(_cursorCol * _metrics.CellWidth + paddingLeft);
-                    float x2 = SnapX((_cursorCol + 1) * _metrics.CellWidth + paddingLeft);
-                    float cy = SnapY(visualRow * _metrics.CellHeight + paddingTop + _metrics.CellHeight - 2);
-
-                    using var cursorPaint = new SKPaint
-                    {
-                        Color = new SKColor(255, 255, 255, alpha),
-                        Style = SKPaintStyle.Fill
-                    };
-
-                    canvas.DrawRect(x1, cy, x2 - x1, 2, cursorPaint);
-                }
+                try { System.IO.File.AppendAllText("error.log", "\n--- Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
+                throw;
             }
-
-            RendererStatistics.RecordFrame(fullRedraw: true, dirtyCells: dirtyCells);
         }
 
         private void FlushBatches(SKCanvas canvas)

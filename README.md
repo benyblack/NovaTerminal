@@ -28,13 +28,16 @@ NovaTerminal is built around one core principle:
 
 ## What Makes NovaTerminal Different
 
-### ✔ Correctness First
+### ✔ High-Performance Skia Engine
+- **Lock-Free Snapshot Pipeline**: Decouples terminal state from the UI thread for jitter-free performance during high-frequency output.
+- **GPU-Accelerated Glyph Atlas**: Pre-caches shaped glyphs into a high-speed GPU texture for pixel-perfect text at high FPS.
+- **Micro-Batching**: Optimizes redraws by grouping similar rendering operations (backgrounds, text, overlays).
+
+### ✔ Correctness & Stability
 - Deterministic VT / ANSI parsing
 - Lossless resize & reflow
 - Strict alternate screen isolation
-- Scrollback integrity
-
-UI features never override terminal semantics.
+- **Resource Hardening**: Defensive buffer management ensures stability even under extreme stress (e.g., rapid resizing).
 
 ---
 

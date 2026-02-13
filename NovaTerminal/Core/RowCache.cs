@@ -26,7 +26,7 @@ namespace NovaTerminal.Core
 
         private bool _clearRequested;
 
-        private const int MaxEntries = 1000;
+        public int MaxEntries { get; set; } = 1000;
 
         private readonly struct Key : IEquatable<Key>
         {

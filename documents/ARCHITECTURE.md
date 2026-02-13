@@ -142,16 +142,12 @@ It is intentionally **semantics-free**.
 ### 4.1 Rendering Model
 
 - Rendering is cell-grid based
-- **GPU-Accelerated Glyph Cache**: Standard glyphs and complex clusters are cached in a **Dual-Atlas** system (Alpha8 for monochromatic text, RGBA8888 for emojis).
+- **GPU-Accelerated Glyph Cache**: Standard glyphs and complex clusters are cached in a **Dual-Atlas** system.
+- **Lock-Free Snapshots**: All drawing is performed on immutable data gathered under a brief read lock, allowing the UI and Render threads to run in parallel without contention.
 - **Batching**: Thousands of glyphs are dispatched in a single hardware-accelerated call via `DrawAtlas`.
-- **"Physics-Perfect" Precision**: Layout is driven by physical resolution mappings to ensure 1:1 pixel clarity on high-DPI displays.
-- Text layout is driven by:
-  - fixed cell width
-  - fixed cell height
-  - baseline offset
-- Glyph measurement occurs once per font/size/DPI change
-
----
+- **"Physics-Perfect" Precision**: Layout is driven by physical resolution mappings to ensure 1:1 pixel clarity.
+- **Work Budgeting**: Frame spikes are mitigated by a "picture build budget" and mass invalidation heuristics.
+- **Stability and Resource Hardening**: Integrated disposal queues and defensive exception handling ensure the renderer remains robust even under extreme stress (e.g., rapid resizing).
 
 ### 4.2 Incremental Rendering (Cell-Diff)
 
@@ -160,7 +156,7 @@ NovaTerminal uses **incremental rendering** to avoid flicker:
 1. Renderer receives a **read-only snapshot**
 2. Snapshot is diffed against previous frame
 3. Dirty cell ranges are identified
-4. Only dirty ranges are redrawn
+4. Only dirty ranges are redrawn (utilizing the baked `SKPicture` cache)
 5. Result is composited via a backing surface
 
 **Invariant**

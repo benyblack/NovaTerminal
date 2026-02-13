@@ -15,6 +15,9 @@ namespace NovaTerminal.Core
         private static long _rowCacheHits;
         private static long _rowCacheMisses;
         private static long _rowSnapshotsTaken;
+        private static long _rowPicturesRecorded;
+        private static long _rowPictureRecordTimeMs;
+        private static long _frameRenderTimeMs;
 
         public static long TotalFrames => Interlocked.Read(ref _totalFrames);
         public static long FullRedraws => Interlocked.Read(ref _fullRedraws);
@@ -26,6 +29,9 @@ namespace NovaTerminal.Core
         public static long RowCacheHits => Interlocked.Read(ref _rowCacheHits);
         public static long RowCacheMisses => Interlocked.Read(ref _rowCacheMisses);
         public static long RowSnapshotsTaken => Interlocked.Read(ref _rowSnapshotsTaken);
+        public static long RowPicturesRecorded => Interlocked.Read(ref _rowPicturesRecorded);
+        public static long RowPictureRecordTimeMs => Interlocked.Read(ref _rowPictureRecordTimeMs);
+        public static long FrameRenderTimeMs => Interlocked.Read(ref _frameRenderTimeMs);
 
         public static void RecordFrame(bool fullRedraw, int dirtyCells)
         {
@@ -57,6 +63,9 @@ namespace NovaTerminal.Core
         public static void RecordRowCacheHit() => Interlocked.Increment(ref _rowCacheHits);
         public static void RecordRowCacheMiss() => Interlocked.Increment(ref _rowCacheMisses);
         public static void RecordRowSnapshot() => Interlocked.Increment(ref _rowSnapshotsTaken);
+        public static void RecordRowPictureRecorded() => Interlocked.Increment(ref _rowPicturesRecorded);
+        public static void RecordRowPictureRecordTime(long ms) => Interlocked.Add(ref _rowPictureRecordTimeMs, ms);
+        public static void RecordFrameRenderTime(long ms) => Interlocked.Add(ref _frameRenderTimeMs, ms);
 
         public static void Reset()
         {
@@ -70,11 +79,14 @@ namespace NovaTerminal.Core
             Interlocked.Exchange(ref _rowCacheHits, 0);
             Interlocked.Exchange(ref _rowCacheMisses, 0);
             Interlocked.Exchange(ref _rowSnapshotsTaken, 0);
+            Interlocked.Exchange(ref _rowPicturesRecorded, 0);
+            Interlocked.Exchange(ref _rowPictureRecordTimeMs, 0);
+            Interlocked.Exchange(ref _frameRenderTimeMs, 0);
         }
 
         public static string GetReport()
         {
-            return $"Frames: {TotalFrames}, Full: {FullRedraws}, DirtyCells: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, BgScans: {BackgroundScans}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}";
+            return $"Frames: {TotalFrames}, Full: {FullRedraws}, Dirty: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}, PicsRec: {RowPicturesRecorded}, RecTime: {RowPictureRecordTimeMs}ms, RenderTime: {FrameRenderTimeMs}ms";
         }
     }
 }

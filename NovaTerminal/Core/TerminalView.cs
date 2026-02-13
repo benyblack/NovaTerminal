@@ -267,62 +267,69 @@ namespace NovaTerminal.Core
 
         public void ApplySettings(TerminalSettings settings)
         {
-            // Check if font properties changed to avoid unnecessary Skia recreation (prevents crash on rapid opacity changes)
-            bool fontChanged = Math.Abs(_fontSize - settings.FontSize) > 0.01 ||
-                               (_typeface.FontFamily.Name != settings.FontFamily);
-
-            _fontSize = settings.FontSize;
-            if (fontChanged)
+            try
             {
-                _typeface = new Typeface(settings.FontFamily);
-            }
-            _enableLigatures = settings.EnableLigatures;
-            _enableComplexShaping = settings.EnableComplexShaping;
-            _windowOpacity = settings.WindowOpacity;
-            _hasBackgroundImage = !string.IsNullOrEmpty(settings.BackgroundImagePath) && System.IO.File.Exists(settings.BackgroundImagePath);
-            EnsureFallbackChain();
+                // Check if font properties changed to avoid unnecessary Skia recreation (prevents crash on rapid opacity changes)
+                bool fontChanged = Math.Abs(_fontSize - settings.FontSize) > 0.01 ||
+                                   (_typeface.FontFamily.Name != settings.FontFamily);
 
-            if (_buffer != null)
-            {
-                _buffer.MaxHistory = settings.MaxHistory;
-
-                // Store old theme for color remapping
-                var oldTheme = _buffer.Theme;
-
-                // Apply new theme
-                _buffer.Theme = settings.ActiveTheme;
-
-                // Clear row cache as colors are now baked into SKPictures
-                _rowCache.RequestClear();
-
-                // Update all existing cells, remapping old theme colors to new
-                _buffer.UpdateThemeColors(oldTheme);
-
-                // Force immediate visual refresh
-                InvalidateVisual();
-            }
-
-            // Only recreate resources if font changed
-            if (fontChanged)
-            {
-                MeasureCharSize();
-
-                // Trigger resize based on new font metrics and current bounds
-                // BUT only if dimensions actually changed (to avoid overwriting theme-updated cells)
-                if (_buffer != null && _metrics.CellWidth > 0 && _metrics.CellHeight > 0)
+                _fontSize = settings.FontSize;
+                if (fontChanged)
                 {
-                    int cols = (int)(Bounds.Width / _metrics.CellWidth);
-                    int rows = (int)(Bounds.Height / _metrics.CellHeight);
+                    _typeface = new Typeface(settings.FontFamily);
+                }
+                _enableLigatures = settings.EnableLigatures;
+                _enableComplexShaping = settings.EnableComplexShaping;
+                _windowOpacity = settings.WindowOpacity;
+                _hasBackgroundImage = !string.IsNullOrEmpty(settings.BackgroundImagePath) && System.IO.File.Exists(settings.BackgroundImagePath);
+                EnsureFallbackChain();
 
-                    if (cols > 0 && rows > 0 && (cols != _buffer.Cols || rows != _buffer.Rows))
+                if (_buffer != null)
+                {
+                    _buffer.MaxHistory = settings.MaxHistory;
+
+                    // Store old theme for color remapping
+                    var oldTheme = _buffer.Theme;
+
+                    // Apply new theme
+                    _buffer.Theme = settings.ActiveTheme;
+
+                    // Clear row cache as colors are now baked into SKPictures
+                    _rowCache.RequestClear();
+
+                    // Update all existing cells, remapping old theme colors to new
+                    _buffer.UpdateThemeColors(oldTheme);
+
+                    // Force immediate visual refresh
+                    InvalidateVisual();
+                }
+
+                // Only recreate resources if font changed
+                if (fontChanged)
+                {
+                    MeasureCharSize();
+
+                    // Trigger resize based on new font metrics and current bounds
+                    // BUT only if dimensions actually changed (to avoid overwriting theme-updated cells)
+                    if (_buffer != null && _metrics.CellWidth > 0 && _metrics.CellHeight > 0)
                     {
-                        _buffer.Resize(cols, rows);
-                        OnResize?.Invoke(cols, rows);
+                        int cols = (int)(Bounds.Width / _metrics.CellWidth);
+                        int rows = (int)(Bounds.Height / _metrics.CellHeight);
+
+                        if (cols > 0 && rows > 0 && (cols != _buffer.Cols || rows != _buffer.Rows))
+                        {
+                            _buffer.Resize(cols, rows);
+                            OnResize?.Invoke(cols, rows);
+                        }
                     }
                 }
-            }
 
-            InvalidateVisual();
+                InvalidateVisual();
+            }
+            catch (Exception ex)
+            {
+                try { System.IO.File.AppendAllText("error.log", "\n--- ApplySettings Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
+            }
         }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -353,6 +360,7 @@ namespace NovaTerminal.Core
 
             _fallbackCache.Clear();
             _rowCache.RequestClear();
+            _glyphCache.Clear();
         }
 
         // Selection state
@@ -717,110 +725,120 @@ namespace NovaTerminal.Core
 
         protected override void OnSizeChanged(SizeChangedEventArgs e)
         {
-            base.OnSizeChanged(e);
-
-            // Force immediate render pass on any size change to prevent white panes
-            InvalidateVisual();
-
-            if (_buffer != null)
+            try
             {
-                if (_metrics.CellWidth <= 0 || _metrics.CellHeight <= 0)
+                base.OnSizeChanged(e);
+
+                // Force immediate render pass on any size change to prevent white panes
+                InvalidateVisual();
+
+                if (_buffer != null)
                 {
-                    MeasureCharSize();
-                }
-
-                if (_metrics.CellWidth <= 0 || _metrics.CellHeight <= 0) return; // Still zero? Bail.
-
-                // Padding must match TerminalDrawOperation (PaddingLeft = 4)
-                // We subtract padding from available width to avoid clipping last column
-                int availableWidth = Math.Max(0, (int)e.NewSize.Width - 4);
-
-                int cols = (int)(availableWidth / _metrics.CellWidth);
-                int rows = (int)(e.NewSize.Height / _metrics.CellHeight);
-
-                // Enforce minimum dimensions to prevent layout breakage on very small windows
-                cols = Math.Max(cols, 1);
-                rows = Math.Max(rows, 1);
-
-                if (cols > 0 && rows > 0)
-                {
-                    // DISCRETE RESIZE: Only trigger actual resize when cell dimensions change
-                    bool dimensionsChanged = (cols != _lastSentCols || rows != _lastSentRows);
-
-                    if (dimensionsChanged)
+                    if (_metrics.CellWidth <= 0 || _metrics.CellHeight <= 0)
                     {
-                        // Update tracking
-                        _lastSentCols = cols;
-                        _lastSentRows = rows;
+                        MeasureCharSize();
                     }
 
-                    if (!_isReady)
+                    if (_metrics.CellWidth <= 0 || _metrics.CellHeight <= 0) return; // Still zero? Bail.
+
+                    // Padding must match TerminalDrawOperation (PaddingLeft = 4)
+                    // We subtract padding from available width to avoid clipping last column
+                    int availableWidth = Math.Max(0, (int)e.NewSize.Width - 4);
+
+                    int cols = (int)(availableWidth / _metrics.CellWidth);
+                    int rows = (int)(e.NewSize.Height / _metrics.CellHeight);
+
+                    // Enforce minimum dimensions to prevent layout breakage on very small windows
+                    cols = Math.Max(cols, 1);
+                    rows = Math.Max(rows, 1);
+
+                    if (cols > 0 && rows > 0)
                     {
-                        _isReady = true;
-                        if (_buffer != null) _buffer.Resize(cols, rows);
-                        Ready?.Invoke(cols, rows);
+                        // DISCRETE RESIZE: Only trigger actual resize when cell dimensions change
+                        bool dimensionsChanged = (cols != _lastSentCols || rows != _lastSentRows);
 
-                        // Also trigger initial PTY resize to sync with layout
-                        OnResize?.Invoke(cols, rows);
-                    }
-
-                    if (dimensionsChanged)
-                    {
-                        // INTERVAL-BASED THROTTLE: Send resize if enough time passed, otherwise schedule
-                        _pendingCols = cols;
-                        _pendingRows = rows;
-
-                        var now = DateTime.Now;
-                        var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
-
-                        if (elapsed >= ResizeThrottleMs)
+                        if (dimensionsChanged)
                         {
-                            // Enough time passed - send immediately
-                            SendThrottledResize();
+                            // Update tracking
+                            _lastSentCols = cols;
+                            _lastSentRows = rows;
                         }
-                        else
+
+                        if (!_isReady)
                         {
-                            // Too soon - schedule for later (ensures we always send the final size)
-                            if (_resizeThrottleTimer == null)
+                            _isReady = true;
+                            if (_buffer != null) _buffer.Resize(cols, rows);
+                            Ready?.Invoke(cols, rows);
+
+                            // Also trigger initial PTY resize to sync with layout
+                            OnResize?.Invoke(cols, rows);
+                        }
+
+                        if (dimensionsChanged)
+                        {
+                            // INTERVAL-BASED THROTTLE: Send resize if enough time passed, otherwise schedule
+                            _pendingCols = cols;
+                            _pendingRows = rows;
+
+                            var now = DateTime.Now;
+                            var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
+
+                            if (elapsed >= ResizeThrottleMs)
                             {
-                                _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
+                                // Enough time passed - send immediately
+                                SendThrottledResize();
+                            }
+                            else
+                            {
+                                // Too soon - schedule for later (ensures we always send the final size)
+                                if (_resizeThrottleTimer == null)
                                 {
-                                    Interval = TimeSpan.FromMilliseconds(ResizeThrottleMs)
-                                };
-                                _resizeThrottleTimer.Tick += OnResizeThrottleTick;
-                            }
+                                    _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
+                                    {
+                                        Interval = TimeSpan.FromMilliseconds(ResizeThrottleMs)
+                                    };
+                                    _resizeThrottleTimer.Tick += OnResizeThrottleTick;
+                                }
 
-                            if (!_resizeThrottleTimer.IsEnabled)
-                            {
-                                _resizeThrottleTimer.Start();
+                                if (!_resizeThrottleTimer.IsEnabled)
+                                {
+                                    _resizeThrottleTimer.Start();
+                                }
                             }
                         }
                     }
-
                 }
-
-                // Don't invalidate here - wait for resize to be sent
             }
-            // If dimensions haven't changed, we still might want to invalidate for visual refresh
-            // but we DON'T send resize to PTY - this is the key optimization
+            catch (Exception ex)
+            {
+                try { System.IO.File.AppendAllText("error.log", "\n--- OnSizeChanged Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
+            }
         }
 
 
         private void SendThrottledResize()
         {
-            if (_pendingCols > 0 && _pendingRows > 0 && _buffer != null)
+            try
             {
-                _lastPtyResizeTime = DateTime.Now;
+                if (_pendingCols > 0 && _pendingRows > 0 && _buffer != null)
+                {
+                    _lastPtyResizeTime = DateTime.Now;
 
-                // CRITICAL ORDER: Resize buffer FIRST (synchronously, under lock)
-                // THEN notify PTY (triggers SIGWINCH, new output uses new size)
-                // This prevents race where PTY sends data for new dimensions while buffer is mid-reflow
-                _buffer.Resize(_pendingCols, _pendingRows);
-                _rowCache.RequestClear();
-                Console.WriteLine($"[TerminalView] Throttled resize sent: {_pendingCols}x{_pendingRows}");
-                OnResize?.Invoke(_pendingCols, _pendingRows);
+                    // CRITICAL ORDER: Resize buffer FIRST (synchronously, under lock)
+                    // THEN notify PTY (triggers SIGWINCH, new output uses new size)
+                    // This prevents race where PTY sends data for new dimensions while buffer is mid-reflow
+                    _buffer.Resize(_pendingCols, _pendingRows);
+                    _rowCache.MaxEntries = Math.Max(1000, _pendingRows * 10);
+                    _rowCache.RequestClear();
+                    Console.WriteLine($"[TerminalView] Throttled resize sent: {_pendingCols}x{_pendingRows}");
+                    OnResize?.Invoke(_pendingCols, _pendingRows);
 
-                InvalidateBuffer();
+                    InvalidateBuffer();
+                }
+            }
+            catch (Exception ex)
+            {
+                try { System.IO.File.AppendAllText("error.log", "\n--- SendThrottledResize Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
             }
         }
 
