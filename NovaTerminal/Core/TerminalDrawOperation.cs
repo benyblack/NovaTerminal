@@ -70,6 +70,8 @@ namespace NovaTerminal.Core
         {
             public SKColor ThemeBg;
             public SKColor ThemeFg;
+            public SKColor CursorColor;
+            public CursorStyle CursorStyle;
             public List<RowRenderItem> RowItems = new();
             public List<RenderImageSnapshot> Images = new();
         }
@@ -204,6 +206,8 @@ namespace NovaTerminal.Core
                 {
                     frame.ThemeBg = new SKColor(_buffer.Theme.Background.R, _buffer.Theme.Background.G, _buffer.Theme.Background.B, alpha);
                     frame.ThemeFg = new SKColor(_buffer.Theme.Foreground.R, _buffer.Theme.Foreground.G, _buffer.Theme.Foreground.B, alpha);
+                    frame.CursorColor = new SKColor(_buffer.Theme.CursorColor.R, _buffer.Theme.CursorColor.G, _buffer.Theme.CursorColor.B, alpha);
+                    frame.CursorStyle = _buffer.Modes.CursorStyle;
                     if (_transparentBackground) frame.ThemeBg = SKColors.Empty;
 
                     absDisplayStart = Math.Max(0, _totalLines - _bufferRows - _scrollOffset);
@@ -424,15 +428,28 @@ namespace NovaTerminal.Core
                     {
                         float x1 = SnapX(_cursorCol * _metrics.CellWidth + paddingLeft);
                         float x2 = SnapX((_cursorCol + 1) * _metrics.CellWidth + paddingLeft);
-                        float cy = SnapY(visualRow * _metrics.CellHeight + paddingTop + _metrics.CellHeight - 2);
+                        float rowTop = SnapY(visualRow * _metrics.CellHeight + paddingTop);
+                        using var cursorPaint = new SKPaint { Color = frame.CursorColor, Style = SKPaintStyle.Fill };
 
-                        using var cursorPaint = new SKPaint
+                        switch (frame.CursorStyle)
                         {
-                            Color = new SKColor(255, 255, 255, alpha),
-                            Style = SKPaintStyle.Fill
-                        };
-
-                        canvas.DrawRect(x1, cy, x2 - x1, 2, cursorPaint);
+                            case CursorStyle.Block:
+                                canvas.DrawRect(x1, rowTop, x2 - x1, (float)_metrics.CellHeight, cursorPaint);
+                                break;
+                            case CursorStyle.Beam:
+                                {
+                                    float beamW = Math.Max(1f, (float)Math.Floor(_metrics.CellWidth * 0.14));
+                                    canvas.DrawRect(x1, rowTop, beamW, (float)_metrics.CellHeight, cursorPaint);
+                                    break;
+                                }
+                            case CursorStyle.Underline:
+                            default:
+                                {
+                                    float uY = SnapY(rowTop + _metrics.CellHeight - 2);
+                                    canvas.DrawRect(x1, uY, x2 - x1, 2, cursorPaint);
+                                    break;
+                                }
+                        }
                     }
                 }
 
@@ -519,6 +536,7 @@ namespace NovaTerminal.Core
                 bool runIsFaint = cell.IsFaint;
                 var fg = cell.IsInverse ? cb : cf;
                 var bg = cell.IsInverse ? cf : cb;
+                fg = EnsureReadableForeground(fg, bg, themeFg);
                 if (runIsFaint)
                 {
                     fg = BlendTowards(fg, bg, 0.5f);
@@ -542,6 +560,7 @@ namespace NovaTerminal.Core
                     var ncf = ResolveCellForeground(next, themeFg, alpha);
                     var nfg = next.IsInverse ? ncb : ncf;
                     var nbg = next.IsInverse ? ncf : ncb;
+                    nfg = EnsureReadableForeground(nfg, nbg, themeFg);
                     if (next.IsFaint)
                     {
                         nfg = BlendTowards(nfg, nbg, 0.5f);
@@ -760,6 +779,21 @@ namespace NovaTerminal.Core
             byte g = (byte)(source.Green + ((target.Green - source.Green) * t));
             byte b = (byte)(source.Blue + ((target.Blue - source.Blue) * t));
             return new SKColor(r, g, b, source.Alpha);
+        }
+
+        private static SKColor EnsureReadableForeground(SKColor fg, SKColor bg, SKColor fallback)
+        {
+            if (fg.Red != bg.Red || fg.Green != bg.Green || fg.Blue != bg.Blue) return fg;
+
+            // If fg collides with bg, swap to theme fallback or its inverse contrast.
+            if (fallback.Red != bg.Red || fallback.Green != bg.Green || fallback.Blue != bg.Blue)
+            {
+                return new SKColor(fallback.Red, fallback.Green, fallback.Blue, fg.Alpha);
+            }
+
+            int luminance = (299 * bg.Red + 587 * bg.Green + 114 * bg.Blue) / 1000;
+            byte v = luminance > 127 ? (byte)0 : (byte)255;
+            return new SKColor(v, v, v, fg.Alpha);
         }
 
         private SKColor ResolveCellForeground(RenderCellSnapshot cell, SKColor themeFg, byte alpha)

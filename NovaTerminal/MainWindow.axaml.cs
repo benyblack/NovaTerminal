@@ -96,6 +96,71 @@ namespace NovaTerminal
             }
         }
 
+        private bool IsShortcut(KeyEventArgs e, string id, string fallback)
+        {
+            string binding = fallback;
+            if (_settings.Keybindings != null &&
+                _settings.Keybindings.TryGetValue(id, out var custom) &&
+                !string.IsNullOrWhiteSpace(custom))
+            {
+                binding = custom;
+            }
+
+            return ShortcutMatches(e, binding);
+        }
+
+        private static bool ShortcutMatches(KeyEventArgs e, string shortcut)
+        {
+            if (string.IsNullOrWhiteSpace(shortcut)) return false;
+
+            bool wantCtrl = false;
+            bool wantShift = false;
+            bool wantAlt = false;
+            Key? wantKey = null;
+
+            foreach (var raw in shortcut.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                string token = raw.Trim();
+                if (token.Equals("Ctrl", StringComparison.OrdinalIgnoreCase) || token.Equals("Control", StringComparison.OrdinalIgnoreCase))
+                {
+                    wantCtrl = true;
+                    continue;
+                }
+                if (token.Equals("Shift", StringComparison.OrdinalIgnoreCase))
+                {
+                    wantShift = true;
+                    continue;
+                }
+                if (token.Equals("Alt", StringComparison.OrdinalIgnoreCase))
+                {
+                    wantAlt = true;
+                    continue;
+                }
+
+                wantKey = token.ToLowerInvariant() switch
+                {
+                    "+" => Key.OemPlus,
+                    "-" => Key.OemMinus,
+                    "plus" => Key.OemPlus,
+                    "minus" => Key.OemMinus,
+                    "tab" => Key.Tab,
+                    "space" => Key.Space,
+                    _ => Enum.TryParse<Key>(token, true, out var parsed) ? parsed : null
+                };
+            }
+
+            if (wantKey == null) return false;
+
+            bool hasCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+            bool hasShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+            bool hasAlt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
+
+            return hasCtrl == wantCtrl &&
+                   hasShift == wantShift &&
+                   hasAlt == wantAlt &&
+                   e.Key == wantKey.Value;
+        }
+
         public MainWindow()
         {
             InitializeComponent();
@@ -254,7 +319,7 @@ namespace NovaTerminal
                 bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
                 bool isShift = (modifiers & KeyModifiers.Shift) != 0;
 
-                if (isCtrl && isShift && e.Key == Key.P)
+                if (IsShortcut(e, "command_palette", "Ctrl+Shift+P"))
                 {
                     ToggleCommandPalette();
                     e.Handled = true;
@@ -272,7 +337,7 @@ namespace NovaTerminal
                     return;
                 }
 
-                if (isCtrl && (e.Key == Key.OemPlus || e.Key == Key.Add))
+                if (IsShortcut(e, "font_increase", "Ctrl+OemPlus") || IsShortcut(e, "font_increase_alt", "Ctrl+Add"))
                 {
                     _settings.FontSize++;
                     ApplySettingsToAllTabs();
@@ -280,7 +345,7 @@ namespace NovaTerminal
                     e.Handled = true;
                     return;
                 }
-                if (isCtrl && (e.Key == Key.OemMinus || e.Key == Key.Subtract))
+                if (IsShortcut(e, "font_decrease", "Ctrl+OemMinus") || IsShortcut(e, "font_decrease_alt", "Ctrl+Subtract"))
                 {
                     _settings.FontSize = Math.Max(6, _settings.FontSize - 1);
                     ApplySettingsToAllTabs();
@@ -288,49 +353,51 @@ namespace NovaTerminal
                     e.Handled = true;
                     return;
                 }
-                if (isCtrl && isShift && e.Key == Key.T)
+                if (IsShortcut(e, "new_tab", "Ctrl+Shift+T"))
                 {
                     AddTab();
                     e.Handled = true;
                     return;
                 }
-                if (isCtrl && isShift && e.Key == Key.W)
+                if (IsShortcut(e, "close_pane", "Ctrl+Shift+W"))
                 {
                     CloseActivePane();
                     e.Handled = true;
                     return;
                 }
-                if ((isCtrl && isShift && e.Key == Key.F) || (isCtrl && e.Key == Key.F))
+                if (IsShortcut(e, "find", "Ctrl+F") || IsShortcut(e, "find_alt", "Ctrl+Shift+F"))
                 {
                     _currentPane?.ToggleSearch();
                     e.Handled = true;
                     return;
                 }
-                if (isCtrl && isShift && e.Key == Key.D)
+                if (IsShortcut(e, "split_vertical", "Ctrl+Shift+D"))
                 {
                     SplitPane(Avalonia.Layout.Orientation.Vertical);
                     e.Handled = true;
                     return;
                 }
-                if (isCtrl && isShift && e.Key == Key.E)
+                if (IsShortcut(e, "split_horizontal", "Ctrl+Shift+E"))
                 {
                     SplitPane(Avalonia.Layout.Orientation.Horizontal);
                     e.Handled = true;
                     return;
                 }
-                if (isCtrl && e.Key == Key.Tab && tabs != null)
+                bool nextTabShortcut = IsShortcut(e, "next_tab", "Ctrl+Tab");
+                bool prevTabShortcut = IsShortcut(e, "prev_tab", "Ctrl+Shift+Tab");
+                if ((nextTabShortcut || prevTabShortcut) && tabs != null)
                 {
                     int count = tabs.Items.Count;
                     if (count > 1)
                     {
                         int current = tabs.SelectedIndex;
-                        current = isShift ? (current - 1 + count) % count : (current + 1) % count;
+                        current = prevTabShortcut ? (current - 1 + count) % count : (current + 1) % count;
                         tabs.SelectedIndex = current;
                     }
                     e.Handled = true;
                     return;
                 }
-                if (isCtrl && e.Key == Key.V)
+                if (IsShortcut(e, "paste", "Ctrl+V"))
                 {
                     _ = PasteFromClipboardAsync();
                     e.Handled = true;
@@ -583,6 +650,8 @@ namespace NovaTerminal
 
             var pane = new TerminalPane(profile);
             pane.RequestSftpTransfer += (srcPane, dir, kind) => _ = InitiateSftpTransfer(srcPane, dir, kind);
+            pane.WorkingDirectoryChanged += (srcPane, cwd) => Dispatcher.UIThread.Post(UpdateTabVisuals);
+            pane.TitleChanged += (srcPane, title) => Dispatcher.UIThread.Post(UpdateTabVisuals);
 
             pane.ApplySettings(_settings);
             var tabItem = new TabItem
@@ -682,7 +751,7 @@ namespace NovaTerminal
 
                     if (ti.Content is TerminalPane pane && pane.Profile != null)
                     {
-                        string profileName = pane.Profile.Name;
+                        string profileName = pane.GetBaseTabTitle();
                         var forwards = pane.Profile.Forwards;
                         int activeCount = forwards.Count(f => f.Status == ForwardingStatus.Active);
                         int startingCount = forwards.Count(f => f.Status == ForwardingStatus.Starting);
@@ -944,6 +1013,8 @@ namespace NovaTerminal
             CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+E");
             CommandRegistry.Register("Find in Terminal", "Edit", () => _currentPane?.ToggleSearch(), "Ctrl+Shift+F");
             CommandRegistry.Register("Paste", "Edit", () => _ = PasteFromClipboardAsync(), "Ctrl+V");
+            CommandRegistry.Register("Font: Increase", "View", () => { _settings.FontSize++; ApplySettingsToAllTabs(); _settings.Save(); }, "Ctrl++");
+            CommandRegistry.Register("Font: Decrease", "View", () => { _settings.FontSize = Math.Max(6, _settings.FontSize - 1); ApplySettingsToAllTabs(); _settings.Save(); }, "Ctrl+-");
             CommandRegistry.Register("Settings", "General", async () =>
             {
                 await OpenSettings(0);
@@ -959,6 +1030,19 @@ namespace NovaTerminal
             // Themes
             CommandRegistry.Register("Theme: Solarized Dark", "Theme", () => { _settings.ThemeName = "Solarized Dark"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
             CommandRegistry.Register("Theme: Default Dark", "Theme", () => { _settings.ThemeName = "Default (Dark)"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
+
+            // Cursor UX
+            CommandRegistry.Register("Cursor: Block", "View", () => { _settings.CursorStyle = "Block"; ApplySettingsToAllTabs(); _settings.Save(); }, "");
+            CommandRegistry.Register("Cursor: Beam", "View", () => { _settings.CursorStyle = "Beam"; ApplySettingsToAllTabs(); _settings.Save(); }, "");
+            CommandRegistry.Register("Cursor: Underline", "View", () => { _settings.CursorStyle = "Underline"; ApplySettingsToAllTabs(); _settings.Save(); }, "");
+            CommandRegistry.Register("Cursor: Toggle Blink", "View", () => { _settings.CursorBlink = !_settings.CursorBlink; ApplySettingsToAllTabs(); _settings.Save(); }, "");
+
+            // Bell UX
+            CommandRegistry.Register("Bell: Toggle Audio", "View", () => { _settings.BellAudioEnabled = !_settings.BellAudioEnabled; ApplySettingsToAllTabs(); _settings.Save(); }, "");
+            CommandRegistry.Register("Bell: Toggle Visual Flash", "View", () => { _settings.BellVisualEnabled = !_settings.BellVisualEnabled; ApplySettingsToAllTabs(); _settings.Save(); }, "");
+
+            // Scrolling UX
+            CommandRegistry.Register("Scroll: Toggle Smooth", "View", () => { _settings.SmoothScrolling = !_settings.SmoothScrolling; ApplySettingsToAllTabs(); _settings.Save(); }, "");
         }
 
         private async Task InitiateSftpTransfer(TerminalPane? explicitPane, TransferDirection direction, TransferKind kind)

@@ -74,5 +74,35 @@ namespace NovaTerminal.Tests
             Assert.Equal(0, color.Green);
             Assert.Equal(255, color.Blue);
         }
+
+        [Fact]
+        public void KittyQuery_ApcMode_WithForcedConPtyFiltering_RespondsErr()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: true);
+            string? response = null;
+            parser.OnResponse = r => response = r;
+
+            // APC Kitty query: ESC _ G a=q,i=31 ESC \
+            parser.Process("\x1b_Ga=q,i=31\x1b\\");
+
+            Assert.NotNull(response);
+            Assert.Contains(";ERR", response, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void KittyQuery_TunneledMode_WithForcedConPtyFiltering_RespondsOk()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: true);
+            string? response = null;
+            parser.OnResponse = r => response = r;
+
+            // OSC 1339 tunneled Kitty query.
+            parser.Process("\x1b]1339;K:Ga=q,i=31\x07");
+
+            Assert.NotNull(response);
+            Assert.Contains(";OK", response, StringComparison.Ordinal);
+        }
     }
 }

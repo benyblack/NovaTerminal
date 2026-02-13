@@ -18,6 +18,8 @@ namespace NovaTerminal.Core
         public bool IsFocusEventReporting { get; set; }   // ?1004 - FocusIn/FocusOut reporting
         public bool IsBracketedPasteMode { get; set; }    // ?2004 - Bracketed Paste Mode
         public bool IsCursorVisible { get; set; } = true; // ?25 - DECTCEM (Text Cursor Enable Mode)
+        public bool IsCursorBlinkEnabled { get; set; } = true;
+        public CursorStyle CursorStyle { get; set; } = CursorStyle.Underline;
         public bool IsInsertMode { get; set; }            //  4 - IRM (Insert Replacement Mode)
 
         public ModeState Clone()
@@ -34,6 +36,8 @@ namespace NovaTerminal.Core
                 IsFocusEventReporting = this.IsFocusEventReporting,
                 IsBracketedPasteMode = this.IsBracketedPasteMode,
                 IsCursorVisible = this.IsCursorVisible,
+                IsCursorBlinkEnabled = this.IsCursorBlinkEnabled,
+                CursorStyle = this.CursorStyle,
                 IsInsertMode = this.IsInsertMode
             };
         }

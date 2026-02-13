@@ -102,8 +102,10 @@ If a change cannot be tested, it does not ship.
 ### Graphics & Protocol Support
 - **Sixel Graphics** (Verified with `libsixel`, `lsix`, `gnuplot`)
 - **iTerm2 Inline Images** (Verified with `imgcat`, `test_iterm2.py`)
-- **Kitty Graphics Protocol** (Verified with `fastfetch`, `iccat`)
+- **Kitty Graphics Protocol** (native on Linux/macOS; tunneled mode on Windows)
 - **Proper ConPTY Synchronization** (Images render inline with prompts)
+
+See `documents/IMAGE_PROTOCOL_SUPPORT.md` for platform-specific protocol behavior and fallback rules.
 
 ### UI
 - Tabs

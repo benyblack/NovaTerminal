@@ -26,12 +26,37 @@ namespace NovaTerminal.Controls
 
         public event Action<TerminalPane, TransferDirection, TransferKind>? RequestSftpTransfer;
         public event Action<bool>? RecordingStateChanged;
+        public event Action<TerminalPane, string>? WorkingDirectoryChanged;
+        public event Action<TerminalPane, string>? TitleChanged;
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
         private DispatcherTimer? _statusTimer;
 
         public bool IsRecording => Session?.IsRecording ?? false;
+        public string? CurrentWorkingDirectory { get; private set; }
+        public string? CurrentOscTitle { get; private set; }
+
+        public string GetBaseTabTitle()
+        {
+            if (!string.IsNullOrWhiteSpace(CurrentOscTitle))
+            {
+                return CurrentOscTitle!;
+            }
+
+            string profileName = Profile?.Name ?? "Terminal";
+            if (!string.IsNullOrWhiteSpace(CurrentWorkingDirectory))
+            {
+                string normalized = CurrentWorkingDirectory!.TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+                string leaf = System.IO.Path.GetFileName(normalized);
+                if (!string.IsNullOrWhiteSpace(leaf))
+                {
+                    return $"{profileName} · {leaf}";
+                }
+            }
+
+            return profileName;
+        }
 
         public void ToggleRecording()
         {
@@ -179,6 +204,27 @@ namespace NovaTerminal.Controls
             Buffer.Resize(cols, rows);
             Parser = new AnsiParser(Buffer);
 
+            Parser.OnBell += () =>
+            {
+                Dispatcher.UIThread.Post(() => TermView.TriggerBell());
+            };
+            Parser.OnWorkingDirectoryChanged += cwd =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    CurrentWorkingDirectory = cwd;
+                    WorkingDirectoryChanged?.Invoke(this, cwd);
+                });
+            };
+            Parser.OnTitleChanged += title =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    CurrentOscTitle = title;
+                    TitleChanged?.Invoke(this, title);
+                });
+            };
+
             // Sync initial metrics
             float cw = TermView.Metrics.CellWidth;
             float ch = TermView.Metrics.CellHeight;
@@ -296,6 +342,8 @@ namespace NovaTerminal.Controls
                 FontSize = Profile?.FontSize ?? settings.FontSize,
                 FontFamily = Profile?.FontFamily ?? settings.FontFamily,
                 ThemeName = Profile?.ThemeName ?? settings.ThemeName,
+                CursorStyle = Profile?.CursorStyle ?? settings.CursorStyle,
+                CursorBlink = Profile?.CursorBlink ?? settings.CursorBlink,
 
                 // Inherit everything else from global
                 MaxHistory = settings.MaxHistory,
@@ -304,6 +352,9 @@ namespace NovaTerminal.Controls
                 BackgroundImagePath = settings.BackgroundImagePath,
                 BackgroundImageOpacity = settings.BackgroundImageOpacity,
                 BackgroundImageStretch = settings.BackgroundImageStretch,
+                BellAudioEnabled = settings.BellAudioEnabled,
+                BellVisualEnabled = settings.BellVisualEnabled,
+                SmoothScrolling = settings.SmoothScrolling,
                 Profiles = settings.Profiles,
                 DefaultProfileId = settings.DefaultProfileId
             };
