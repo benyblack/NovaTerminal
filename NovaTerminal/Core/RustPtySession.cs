@@ -55,9 +55,14 @@ namespace NovaTerminal.Core
 
         public string ShellCommand { get; }
 
+        private int _cols;
+        private int _rows;
+
         public RustPtySession(string shellCommand, int cols = 120, int rows = 30, string? args = null, string? cwd = null)
         {
             ShellCommand = shellCommand;
+            _cols = cols;
+            _rows = rows;
 
             string effectiveShell = shellCommand;
             string combinedArgs = args ?? "";
@@ -133,7 +138,7 @@ namespace NovaTerminal.Core
 
         public void StartRecording(string filePath)
         {
-            _recorder = new NovaTerminal.Core.Replay.PtyRecorder(filePath);
+            _recorder = new NovaTerminal.Core.Replay.PtyRecorder(filePath, _cols, _rows, ShellCommand);
             Console.WriteLine($"[RustPtySession] Recording started to: {filePath}");
         }
 
@@ -220,8 +225,11 @@ namespace NovaTerminal.Core
         public void Resize(int cols, int rows)
         {
             if (_ptyState == IntPtr.Zero || cols <= 0 || rows <= 0) return;
+            _cols = cols;
+            _rows = rows;
             Console.WriteLine($"[RustPtySession] Resizing to {cols}x{rows}");
             Native.pty_resize(_ptyState, (ushort)cols, (ushort)rows);
+            _recorder?.RecordResize(cols, rows);
         }
 
         public void Dispose()

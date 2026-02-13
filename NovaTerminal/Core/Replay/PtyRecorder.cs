@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,15 +10,25 @@ namespace NovaTerminal.Core.Replay
     public class PtyRecorder : IDisposable
     {
         private readonly string _filePath;
-        private readonly BlockingCollection<ReplayChunk> _queue = new BlockingCollection<ReplayChunk>();
+        private readonly BlockingCollection<ReplayEvent> _queue = new BlockingCollection<ReplayEvent>();
         private readonly Task _writeTask;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private readonly DateTime _startTime;
+        private readonly ReplayHeader _header;
 
-        public PtyRecorder(string filePath)
+        public PtyRecorder(string filePath, int cols, int rows, string shell = "")
         {
             _filePath = filePath;
             _startTime = DateTime.UtcNow;
+
+            _header = new ReplayHeader
+            {
+                Type = "novarec",
+                Cols = cols,
+                Rows = rows,
+                Shell = shell
+            };
+
             _writeTask = Task.Run(WriteLoop);
         }
 
@@ -25,27 +36,57 @@ namespace NovaTerminal.Core.Replay
         {
             if (_cts.IsCancellationRequested) return;
 
-            // Copy buffer to avoid modification before write
             byte[] copy = new byte[length];
             Array.Copy(data, copy, length);
 
-            _queue.Add(new ReplayChunk
+            _queue.Add(new ReplayEvent
             {
-                TimeOffsetMs = (long)(DateTime.UtcNow - _startTime).TotalMilliseconds,
+                TimeOffsetMs = GetTimestamp(),
+                Type = "data",
                 Data = Convert.ToBase64String(copy)
             });
         }
+
+        public void RecordResize(int cols, int rows)
+        {
+            if (_cts.IsCancellationRequested) return;
+
+            _queue.Add(new ReplayEvent
+            {
+                TimeOffsetMs = GetTimestamp(),
+                Type = "resize",
+                Cols = cols,
+                Rows = rows
+            });
+        }
+
+        public void RecordMarker(string name)
+        {
+            if (_cts.IsCancellationRequested) return;
+
+            _queue.Add(new ReplayEvent
+            {
+                TimeOffsetMs = GetTimestamp(),
+                Type = "marker",
+                MarkerName = name
+            });
+        }
+
+        private long GetTimestamp() => (long)(DateTime.UtcNow - _startTime).TotalMilliseconds;
 
         private async Task WriteLoop()
         {
             try
             {
                 using var writer = new StreamWriter(_filePath, append: false);
-                foreach (var chunk in _queue.GetConsumingEnumerable(_cts.Token))
+
+                // Write v2 Header
+                string headerJson = JsonSerializer.Serialize(_header, ReplayJsonContext.Default.ReplayHeader);
+                await writer.WriteLineAsync(headerJson);
+
+                foreach (var ev in _queue.GetConsumingEnumerable(_cts.Token))
                 {
-                    // Manual JSON-like serialization to avoid AOT reflection issues
-                    // Format: {"t":TIK,"d":"DATA"}
-                    string json = $"{{\"t\":{chunk.TimeOffsetMs},\"d\":\"{chunk.Data}\"}}";
+                    string json = JsonSerializer.Serialize(ev, ReplayJsonContext.Default.ReplayEvent);
                     await writer.WriteLineAsync(json);
                 }
             }
@@ -59,23 +100,16 @@ namespace NovaTerminal.Core.Replay
         public void Dispose()
         {
             _queue.CompleteAdding();
-            // Wait for queue to drain gracefully
             try
             {
                 if (!_writeTask.Wait(2000))
                 {
-                    _cts.Cancel(); // Force cancel if stuck
+                    _cts.Cancel();
                 }
             }
             catch { }
 
             _cts.Dispose();
         }
-    }
-
-    public class ReplayChunk
-    {
-        public long TimeOffsetMs { get; set; }
-        public string Data { get; set; } = "";
     }
 }

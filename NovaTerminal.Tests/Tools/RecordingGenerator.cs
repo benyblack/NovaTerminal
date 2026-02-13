@@ -13,7 +13,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // simulate "echo 'Hello' + newline"
             // H e l l o \r \n
@@ -30,7 +30,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // 1. Initial State: "Before Vim"
             string initial = "Before Vim\r\n";
@@ -54,7 +54,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // 1. Move to (10, 10) [1-based: 11, 11] and Save Cursor (Main)
             // CSI 11 ; 11 H
@@ -98,7 +98,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // \u1b[38;2;40;44;52m\u1b[48;2;152;195;121m \uf17c \u1b[38;2;152;195;121m\u1b[48;2;97;175;239m\ue0b0\u1b[38;2;40;44;52m \uf07c ~/nova \u1b[38;2;97;175;239m\u1b[49m\ue0b0\u1b[0m 
             // Simplified powerline-like sequence
@@ -112,7 +112,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // ASCII + Emoji + CJK + Symbols
             string text = "Hello \U0001f600 (Smile) | \u4e2d\u6587 (Chinese) | \u2665 (Heart)\r\n";
@@ -130,7 +130,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // Long line with mixed content to test wrapping near emoji/cjk
             string longLine = "This is a very long line that should wrap eventually. " +
@@ -146,7 +146,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // 1. Enter Alt Screen
             string enterAlt = "\x1b[?1049h";
@@ -170,7 +170,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // 1. Draw 100x30 box
             string box = "\x1b[1;1H\x1b[44;37m" + new string('=', 100) +
@@ -189,7 +189,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // 1. Draw base MC interface (Cyan background blue box)
             string baseUi = "\x1b[1;1H\x1b[44;37m" + new string(' ', 80 * 24) + "\x1b[1;1H";
@@ -206,7 +206,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // 1. Base UI
             string baseUi = "\x1b[1;1H\x1b[44;37m" + new string(' ', 80 * 24) + "\x1b[1;1H";
@@ -223,7 +223,7 @@ namespace NovaTerminal.Tests.Tools
             var dir = Path.GetDirectoryName(path);
             if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-            using var recorder = new PtyRecorder(path);
+            using var recorder = new PtyRecorder(path, 80, 24);
 
             // Prompt on left, Time on right (column 70)
             string prompt = "\x1b[1;1H\x1b[42;30m nova \x1b[44;32m\ue0b0\x1b[30m ~/projects \x1b[0;34m\ue0b0\x1b[0m ";

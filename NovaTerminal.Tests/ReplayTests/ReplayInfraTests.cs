@@ -13,7 +13,7 @@ namespace NovaTerminal.Tests.ReplayTests
             try
             {
                 // 1. Record
-                using (var recorder = new PtyRecorder(tempFile))
+                using (var recorder = new PtyRecorder(tempFile, 80, 24))
                 {
                     byte[] data1 = Encoding.UTF8.GetBytes("Hello ");
                     byte[] data2 = Encoding.UTF8.GetBytes("World");

@@ -11,6 +11,7 @@ namespace NovaTerminal.Core
         void Resize(int cols, int rows);
         string ShellCommand { get; }
         void SetSavedPassword(string password);
+        void StartRecording(string filePath);
         event System.Action<string>? OnOutputReceived;
         event System.Action<int>? OnExit;
     }
