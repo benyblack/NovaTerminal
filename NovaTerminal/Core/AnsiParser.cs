@@ -297,6 +297,7 @@ namespace NovaTerminal.Core
             // Parse integers into stack buffer
             // Max 32 args is generous for standard CSI; SGR can have more but we'll cap it for now to avoid complexity or allocations
             Span<int> args = stackalloc int[32];
+            Span<char> separators = stackalloc char[32]; // separator after each parsed arg (';' / ':' / '\0')
             int argCount = 0;
 
             int currentVal = 0;
@@ -315,6 +316,7 @@ namespace NovaTerminal.Core
                     if (argCount < args.Length)
                     {
                         args[argCount++] = hasVal ? currentVal : 0;
+                        separators[argCount - 1] = c;
                     }
                     currentVal = 0;
                     hasVal = false;
@@ -326,11 +328,13 @@ namespace NovaTerminal.Core
                 if (argCount < args.Length)
                 {
                     args[argCount++] = hasVal ? currentVal : 0;
+                    separators[argCount - 1] = '\0';
                 }
             }
 
             // Slice to actual count
             ReadOnlySpan<int> validArgs = args.Slice(0, argCount);
+            ReadOnlySpan<char> validSeparators = separators.Slice(0, argCount);
             int arg0 = argCount > 0 ? validArgs[0] : 0;
 
 
@@ -361,8 +365,10 @@ namespace NovaTerminal.Core
                         int regionTop = (argCount > 0 && validArgs[0] > 0 ? validArgs[0] : 1) - 1;
                         int regionBottom = (argCount > 1 && validArgs[1] > 0 ? validArgs[1] : _buffer.Rows) - 1;
                         _buffer.SetScrollingRegion(regionTop, regionBottom);
-                        // Cursor moves to 1;1 after setting region
-                        _buffer.SetCursorPosition(0, 0);
+                        // Cursor moves to home after setting region.
+                        // In DECOM, home is the top of the scrolling region.
+                        int homeRow = _buffer.Modes.IsOriginMode ? _buffer.ScrollTop : 0;
+                        _buffer.SetCursorPosition(0, homeRow);
                     }
                     break;
                 case '@': // ICH - Insert Character
@@ -392,8 +398,9 @@ namespace NovaTerminal.Core
                 case 'd': // VPA - Vertical Position Absolute
                     {
                         int vpaRow = Math.Max(1, arg0) - 1;
+                        if (_buffer.Modes.IsOriginMode) vpaRow += _buffer.ScrollTop;
                         if (_verticalOffset > 0) vpaRow += _verticalOffset;
-                        _buffer.CursorRow = Math.Clamp(vpaRow, 0, _buffer.Rows - 1);
+                        _buffer.CursorRow = ClampRowForMode(vpaRow);
                         _buffer.Invalidate();
                     }
                     break;
@@ -409,6 +416,11 @@ namespace NovaTerminal.Core
                 case 'f':
                     int row = (argCount > 0 ? validArgs[0] : 1) - 1;
                     int col = (argCount > 1 ? validArgs[1] : 1) - 1;
+
+                    if (_buffer.Modes.IsOriginMode)
+                    {
+                        row += _buffer.ScrollTop;
+                    }
 
                     // ConPTY Fix: Apply vertical offset if active
                     if (_verticalOffset > 0)
@@ -427,6 +439,7 @@ namespace NovaTerminal.Core
                         }
                     }
 
+                    row = ClampRowForMode(row);
                     _buffer.SetCursorPosition(col, row);
                     _buffer.Invalidate();
                     break;
@@ -489,7 +502,7 @@ namespace NovaTerminal.Core
                     _buffer.RestoreCursor();
                     break;
                 case 'm': // SGR (Select Graphic Rendition)
-                    HandleSgr(validArgs);
+                    HandleSgr(validArgs, validSeparators);
                     break;
                 case 'h': // Set Mode
                 case 'l': // Reset Mode
@@ -549,6 +562,15 @@ namespace NovaTerminal.Core
             }
         }
 
+        private int ClampRowForMode(int row)
+        {
+            if (_buffer.Modes.IsOriginMode)
+            {
+                return Math.Clamp(row, _buffer.ScrollTop, _buffer.ScrollBottom);
+            }
+            return Math.Clamp(row, 0, _buffer.Rows - 1);
+        }
+
         /// <summary>
         /// Handles DEC Private Mode sequences (CSI ? Ps h/l)
         /// </summary>
@@ -563,8 +585,16 @@ namespace NovaTerminal.Core
                     case 1: // DECCKM - Cursor Keys Mode
                         _buffer.Modes.IsApplicationCursorKeys = enable;
                         break;
+                    case 6: // DECOM - Origin Mode
+                        _buffer.Modes.IsOriginMode = enable;
+                        // On DECOM change, move cursor to home for that mode.
+                        _buffer.SetCursorPosition(0, enable ? _buffer.ScrollTop : 0);
+                        break;
                     case 7: // DECAWM - Auto Wrap Mode
                         _buffer.Modes.IsAutoWrapMode = enable;
+                        break;
+                    case 1004: // FocusIn/FocusOut event reporting
+                        _buffer.Modes.IsFocusEventReporting = enable;
                         break;
                     case 1000: // X10 mouse reporting
                         _buffer.Modes.MouseModeX10 = enable;
@@ -614,7 +644,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        private void HandleSgr(ReadOnlySpan<int> args)
+        private void HandleSgr(ReadOnlySpan<int> args, ReadOnlySpan<char> separators)
         {
             if (args.Length == 0)
             {
@@ -759,9 +789,20 @@ namespace NovaTerminal.Core
                 {
                     _buffer.IsItalic = true;
                 }
-                else if (code == 4) // Underline
+                else if (code == 4) // Underline / Underline Style (4:0-5)
                 {
-                    _buffer.IsUnderline = true;
+                    // Support colon-form subparameters (e.g. 4:2) without misinterpreting
+                    // the style selector as a standalone SGR code (notably 2=faint).
+                    if (i < args.Length - 1 && i < separators.Length && separators[i] == ':')
+                    {
+                        int underlineStyle = args[i + 1];
+                        _buffer.IsUnderline = underlineStyle != 0;
+                        i++; // consume subparameter
+                    }
+                    else
+                    {
+                        _buffer.IsUnderline = true;
+                    }
                 }
                 else if (code == 5) // Blink
                 {

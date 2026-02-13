@@ -105,6 +105,23 @@ namespace NovaTerminal.Tests
         }
 
         [Fact]
+        public void Sgr_UnderlineColonVariant_DoesNotSetFaint()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // 4:2 means underline style (double) in SGR subparameters.
+            // We currently map styles to underline on/off, but must not treat ":2" as faint.
+            parser.Process("\x1b[4:2mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.True(cell.IsUnderline);
+            Assert.False(cell.IsFaint);
+            Assert.True(buffer.IsUnderline);
+            Assert.False(buffer.IsFaint);
+        }
+
+        [Fact]
         public void Sgr_Reset_ClearsAllAttributes()
         {
             var buffer = new TerminalBuffer(80, 24);

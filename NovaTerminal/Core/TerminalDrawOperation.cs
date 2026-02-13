@@ -513,8 +513,16 @@ namespace NovaTerminal.Core
 
                 var cb = ResolveCellBackground(cell, themeBg, alpha);
                 var cf = ResolveCellForeground(cell, themeFg, alpha);
+                bool runIsItalic = cell.IsItalic;
+                bool runIsUnderline = cell.IsUnderline;
+                bool runIsStrikethrough = cell.IsStrikethrough;
+                bool runIsFaint = cell.IsFaint;
                 var fg = cell.IsInverse ? cb : cf;
                 var bg = cell.IsInverse ? cf : cb;
+                if (runIsFaint)
+                {
+                    fg = BlendTowards(fg, bg, 0.5f);
+                }
 
                 runBuilder.Clear();
                 int totalRunWidth = 0;
@@ -534,8 +542,17 @@ namespace NovaTerminal.Core
                     var ncf = ResolveCellForeground(next, themeFg, alpha);
                     var nfg = next.IsInverse ? ncb : ncf;
                     var nbg = next.IsInverse ? ncf : ncb;
+                    if (next.IsFaint)
+                    {
+                        nfg = BlendTowards(nfg, nbg, 0.5f);
+                    }
 
                     if (nfg != fg || nbg != bg)
+                        break;
+                    if (next.IsItalic != runIsItalic ||
+                        next.IsUnderline != runIsUnderline ||
+                        next.IsStrikethrough != runIsStrikethrough ||
+                        next.IsFaint != runIsFaint)
                         break;
 
                     string cellText = next.Text ?? next.Character.ToString();
@@ -565,13 +582,25 @@ namespace NovaTerminal.Core
                 string runText = runBuilder.ToString();
                 float rx = SnapX(c * _metrics.CellWidth + paddingLeft);
                 fgPaint.Color = fg;
+                float rw = (float)(Math.Round((totalRunWidth * _metrics.CellWidth) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                float strokeWidth = Math.Max(1f, (float)(_metrics.CellHeight * 0.06));
 
                 // Backgrounds (when requested)
                 if (drawBackgrounds && bg != themeBg && bg.Alpha != 0)
                 {
                     using var bgP = new SKPaint { Color = bg, Style = SKPaintStyle.Fill };
-                    float rw = (float)(Math.Round((totalRunWidth * _metrics.CellWidth) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
                     canvas.DrawRect(rx, rowTopY, rw, (float)_metrics.CellHeight, bgP);
+                }
+
+                bool appliedItalicTransform = false;
+                if (runIsItalic)
+                {
+                    FlushBatches(canvas);
+                    canvas.Save();
+                    canvas.Translate(rx, baselineY);
+                    canvas.Skew(-0.22f, 0f);
+                    canvas.Translate(-rx, -baselineY);
+                    appliedItalicTransform = true;
                 }
 
                 if (runNeedsComplexShaping)
@@ -620,8 +649,7 @@ namespace NovaTerminal.Core
                     bool useLayer = totalRunWidth > 1;
                     if (useLayer)
                     {
-                        float clipWidth = (float)(Math.Round((totalRunWidth * _metrics.CellWidth) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
-                        canvas.SaveLayer(new SKRect(rx, rowTopY, rx + clipWidth, rowTopY + (float)_metrics.CellHeight), null);
+                        canvas.SaveLayer(new SKRect(rx, rowTopY, rx + rw, rowTopY + (float)_metrics.CellHeight), null);
                     }
 
                     using var fFont = new SKFont(tfToUse ?? primaryTf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
@@ -633,7 +661,7 @@ namespace NovaTerminal.Core
                 }
                 else
                 {
-                    if (_glyphCache != null)
+                    if (_glyphCache != null && !runIsItalic)
                     {
                         float xIdxLogical = c * (float)_metrics.CellWidth + paddingLeft;
                         float yBaselineSnap = (float)(Math.Round(baselineY * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
@@ -677,6 +705,34 @@ namespace NovaTerminal.Core
                     cellsRendered += totalRunWidth;
                 }
 
+                if (appliedItalicTransform)
+                {
+                    canvas.Restore();
+                }
+
+                if (runIsUnderline || runIsStrikethrough)
+                {
+                    using var decoPaint = new SKPaint
+                    {
+                        Color = fg,
+                        IsAntialias = true,
+                        Style = SKPaintStyle.Stroke,
+                        StrokeWidth = strokeWidth
+                    };
+
+                    if (runIsUnderline)
+                    {
+                        float underlineY = SnapY(rowTopY + _metrics.CellHeight - Math.Max(1.5, _metrics.CellHeight * 0.12));
+                        canvas.DrawLine(rx, underlineY, rx + rw, underlineY, decoPaint);
+                    }
+
+                    if (runIsStrikethrough)
+                    {
+                        float strikeY = SnapY(rowTopY + (_metrics.CellHeight * 0.52));
+                        canvas.DrawLine(rx, strikeY, rx + rw, strikeY, decoPaint);
+                    }
+                }
+
                 c = k - 1;
             }
 
@@ -696,6 +752,15 @@ namespace NovaTerminal.Core
 
         private float SnapY(double logicalY)
             => (float)(Math.Round(logicalY * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+
+        private static SKColor BlendTowards(SKColor source, SKColor target, float t)
+        {
+            t = Math.Clamp(t, 0f, 1f);
+            byte r = (byte)(source.Red + ((target.Red - source.Red) * t));
+            byte g = (byte)(source.Green + ((target.Green - source.Green) * t));
+            byte b = (byte)(source.Blue + ((target.Blue - source.Blue) * t));
+            return new SKColor(r, g, b, source.Alpha);
+        }
 
         private SKColor ResolveCellForeground(RenderCellSnapshot cell, SKColor themeFg, byte alpha)
         {

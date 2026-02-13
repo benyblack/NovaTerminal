@@ -130,5 +130,59 @@ namespace NovaTerminal.Tests
             Assert.Equal('0', GetCellSafe(buffer, 1, 0).Character);
             Assert.Equal('8', GetCellSafe(buffer, 9, 0).Character);
         }
+
+        [Fact]
+        public void OriginMode_CupIsRelativeToScrollRegion()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[5;10r"); // 1-based rows 5..10
+            parser.Process("\x1b[?6h");   // DECOM on
+
+            // In origin mode, 1;1 maps to ScrollTop.
+            parser.Process("\x1b[1;1H");
+            Assert.Equal(4, buffer.CursorRow);
+            Assert.Equal(0, buffer.CursorCol);
+
+            // Large row must clamp to scroll bottom.
+            parser.Process("\x1b[999;1H");
+            Assert.Equal(9, buffer.CursorRow);
+        }
+
+        [Fact]
+        public void OriginMode_ResetReturnsToAbsoluteAddressing()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[5;10r"); // 1-based rows 5..10
+            parser.Process("\x1b[?6h");
+            Assert.True(buffer.Modes.IsOriginMode);
+
+            // DECOM set homes to scroll top.
+            Assert.Equal(4, buffer.CursorRow);
+            Assert.Equal(0, buffer.CursorCol);
+
+            parser.Process("\x1b[?6l");
+            Assert.False(buffer.Modes.IsOriginMode);
+
+            // DECOM reset homes to absolute row 0.
+            Assert.Equal(0, buffer.CursorRow);
+            Assert.Equal(0, buffer.CursorCol);
+        }
+
+        [Fact]
+        public void FocusEventReporting_SetsModeFlag()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            Assert.False(buffer.Modes.IsFocusEventReporting);
+            parser.Process("\x1b[?1004h");
+            Assert.True(buffer.Modes.IsFocusEventReporting);
+            parser.Process("\x1b[?1004l");
+            Assert.False(buffer.Modes.IsFocusEventReporting);
+        }
     }
 }
