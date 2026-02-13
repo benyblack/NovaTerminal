@@ -217,6 +217,15 @@ namespace NovaTerminal.UI.Replay
                     // We don't apply snapshots during playback usually, or maybe we do to self-correct?
                     // For now ignore snapshots in stream during playback to avoid jitter
                     onSnapshotCallback: null,
+                    onTimeUpdate: async (timeMs) =>
+                    {
+                        if (_isUserScrubbing) return;
+                        // Throttle UI updates or just post
+                        await Dispatcher.UIThread.InvokeAsync(() =>
+                        {
+                            if (!_isUserScrubbing) _viewModel.CurrentTimeMs = timeMs;
+                        });
+                    },
                     realtime: true,
                     minTimeMs: minTime,
                     fastForwardToMs: startTimeMs,

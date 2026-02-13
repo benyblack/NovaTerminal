@@ -21,7 +21,9 @@ namespace NovaTerminal.Core.Replay
             Func<int, int, Task>? onResizeCallback = null,
             Func<string, Task>? onMarkerCallback = null,
             Func<string, Task>? onInputCallback = null,
+
             Func<ReplaySnapshot, Task>? onSnapshotCallback = null,
+            Func<long, Task>? onTimeUpdate = null,
             bool realtime = false,
             long minTimeMs = 0,
             long fastForwardToMs = 0,
@@ -81,6 +83,7 @@ namespace NovaTerminal.Core.Replay
                         {
                             lastOffset = await ProcessV1Line(line, onDataCallback, realtime, lastOffset, minTimeMs, fastForwardToMs, playbackSpeed);
                         }
+                        if (onTimeUpdate != null) await onTimeUpdate(lastOffset);
                     }
                 }
                 skipCurrentLine = false;
