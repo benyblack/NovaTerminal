@@ -293,7 +293,7 @@ namespace NovaTerminal.Core
                 _buffer.Theme = settings.ActiveTheme;
 
                 // Clear row cache as colors are now baked into SKPictures
-                _rowCache.Clear();
+                _rowCache.RequestClear();
 
                 // Update all existing cells, remapping old theme colors to new
                 _buffer.UpdateThemeColors(oldTheme);
@@ -352,7 +352,7 @@ namespace NovaTerminal.Core
             _skTypeface = null;
 
             _fallbackCache.Clear();
-            _rowCache.Clear();
+            _rowCache.RequestClear();
         }
 
         // Selection state
@@ -367,12 +367,13 @@ namespace NovaTerminal.Core
         {
             if (_buffer != null)
             {
-                _buffer.OnInvalidate -= InvalidateVisual;
+                _buffer.OnInvalidate -= InvalidateBuffer; // Idempotent remove
                 _buffer.OnScreenSwitched -= OnScreenSwitched;
             }
             _buffer = buffer;
             if (_buffer != null)
             {
+                _buffer.OnInvalidate -= InvalidateBuffer; // Ensure no duplicates
                 _buffer.OnInvalidate += InvalidateBuffer;
                 _buffer.OnScreenSwitched += OnScreenSwitched;
             }
@@ -450,7 +451,7 @@ namespace NovaTerminal.Core
 
         public void MeasureCharSize()
         {
-            _rowCache.Clear();
+            _rowCache.RequestClear();
             double scaling = VisualRoot?.RenderScaling ?? 1.0;
 
             // Try to get SKTypeface first as it's our source of truth
@@ -815,7 +816,7 @@ namespace NovaTerminal.Core
                 // THEN notify PTY (triggers SIGWINCH, new output uses new size)
                 // This prevents race where PTY sends data for new dimensions while buffer is mid-reflow
                 _buffer.Resize(_pendingCols, _pendingRows);
-                _rowCache.Clear();
+                _rowCache.RequestClear();
                 Console.WriteLine($"[TerminalView] Throttled resize sent: {_pendingCols}x{_pendingRows}");
                 OnResize?.Invoke(_pendingCols, _pendingRows);
 
@@ -1143,7 +1144,11 @@ namespace NovaTerminal.Core
 
             try
             {
-                var text = _selection.GetSelectedText(_buffer);
+                string text;
+                _buffer.Lock.EnterReadLock();
+                try { text = _selection.GetSelectedText(_buffer); }
+                finally { _buffer.Lock.ExitReadLock(); }
+
                 if (!string.IsNullOrEmpty(text))
                 {
                     var topLevel = TopLevel.GetTopLevel(this);
@@ -1170,7 +1175,9 @@ namespace NovaTerminal.Core
             if (!_selection.IsActive || _buffer == null)
                 return null;
 
-            return _selection.GetSelectedText(_buffer);
+            _buffer.Lock.EnterReadLock();
+            try { return _selection.GetSelectedText(_buffer); }
+            finally { _buffer.Lock.ExitReadLock(); }
         }
 
         /// <summary>
@@ -1202,12 +1209,17 @@ namespace NovaTerminal.Core
             // ScreenToTerminal handles the conversion, so 'row' passed here IS absolute row.
             // GetCellAbsolute is needed.
 
-            // Find word boundaries (non-whitespace characters)
-            while (startCol > 0 && !IsWhitespace(_buffer.GetCellAbsolute(startCol - 1, row).Character))
-                startCol--;
+            _buffer.Lock.EnterReadLock();
+            try
+            {
+                // Find word boundaries (non-whitespace characters)
+                while (startCol > 0 && !IsWhitespace(_buffer.GetCellAbsolute(startCol - 1, row).Character))
+                    startCol--;
 
-            while (endCol < _buffer.Cols - 1 && !IsWhitespace(_buffer.GetCellAbsolute(endCol + 1, row).Character))
-                endCol++;
+                while (endCol < _buffer.Cols - 1 && !IsWhitespace(_buffer.GetCellAbsolute(endCol + 1, row).Character))
+                    endCol++;
+            }
+            finally { _buffer.Lock.ExitReadLock(); }
 
             _selection.Start = (row, startCol);
             _selection.End = (row, endCol);

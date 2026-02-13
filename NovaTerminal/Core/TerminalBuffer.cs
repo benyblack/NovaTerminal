@@ -305,6 +305,7 @@ namespace NovaTerminal.Core
                     {
                         UpdateCell(ref _viewport[r].Cells[c]);
                     }
+                    _viewport[r].TouchRevision();
                 }
 
                 foreach (var row in _scrollback)
@@ -313,7 +314,11 @@ namespace NovaTerminal.Core
                     {
                         UpdateCell(ref row.Cells[c]);
                     }
+                    row.TouchRevision();
                 }
+
+                foreach (var row in _mainScreen) row.TouchRevision();
+                foreach (var row in _altScreen) row.TouchRevision();
             }
             finally
             {
@@ -1824,6 +1829,7 @@ namespace NovaTerminal.Core
 
         public TerminalRow? GetRowAbsolute(int absRow)
         {
+            AssertLockHeld();
             if (absRow < 0) return null;
             if (absRow < _scrollback.Count) return _scrollback[absRow];
             int viewportRow = absRow - _scrollback.Count;
@@ -1833,6 +1839,7 @@ namespace NovaTerminal.Core
 
         public TerminalCell GetCellAbsolute(int col, int absRow)
         {
+            AssertLockHeld();
             if (absRow < 0) return TerminalCell.Default;
 
             if (absRow < _scrollback.Count)
@@ -2157,6 +2164,7 @@ namespace NovaTerminal.Core
                     {
                         _viewport[i].Cells[c] = TerminalCell.Default;
                     }
+                    _viewport[i].TouchRevision();
                 }
 
                 _cursorRow = 0;
@@ -2215,8 +2223,6 @@ namespace NovaTerminal.Core
             }
             finally { Lock.ExitWriteLock(); }
         }
-
-
         public List<SearchMatch> FindMatches(string query, bool useRegex, bool caseSensitive)
         {
             if (string.IsNullOrEmpty(query)) return new List<SearchMatch>();
@@ -2369,6 +2375,89 @@ namespace NovaTerminal.Core
             if (cp >= 0x20000 && cp <= 0x3FFFF) return 2;
 
             return 1;
+        }
+
+        public RenderRowSnapshot GetRowSnapshot(int absRow, int bufferCols)
+        {
+            AssertLockHeld();
+            // This MUST be called under the buffer read/write lock.
+            var row = GetRowAbsolute(absRow);
+            if (row == null)
+            {
+                return new RenderRowSnapshot
+                {
+                    AbsRow = absRow,
+                    Revision = 0,
+                    Cols = bufferCols,
+                    Cells = System.Array.Empty<RenderCellSnapshot>()
+                };
+            }
+
+            var snapshot = new RenderRowSnapshot
+            {
+                AbsRow = absRow,
+                Revision = row.Revision,
+                Cols = bufferCols,
+                Cells = new RenderCellSnapshot[bufferCols]
+            };
+
+            for (int c = 0; c < bufferCols; c++)
+            {
+                var cell = (c < row.Cells.Length) ? row.Cells[c] : TerminalCell.Default;
+                snapshot.Cells[c] = new RenderCellSnapshot
+                {
+                    Character = cell.Character,
+                    Text = cell.Text,
+                    Foreground = cell.Foreground,
+                    Background = cell.Background,
+                    IsInverse = cell.IsInverse,
+                    IsBold = cell.IsBold,
+                    IsDefaultForeground = cell.IsDefaultForeground,
+                    IsDefaultBackground = cell.IsDefaultBackground,
+                    IsWide = cell.IsWide,
+                    IsWideContinuation = cell.IsWideContinuation,
+                    IsHidden = cell.IsHidden,
+                    FgIndex = cell.FgIndex,
+                    BgIndex = cell.BgIndex
+                };
+            }
+
+            return snapshot;
+        }
+
+        public List<RenderImageSnapshot> GetVisibleImagesSnapshot(int absDisplayStart, int bufferRows)
+        {
+            AssertLockHeld();
+            // This MUST be called under the buffer read/write lock.
+            var list = new List<RenderImageSnapshot>();
+            int absEnd = absDisplayStart + bufferRows;
+
+            foreach (var img in _images)
+            {
+                // Simple visibility check
+                if (img.CellY + img.CellHeight > absDisplayStart && img.CellY < absEnd)
+                {
+                    list.Add(new RenderImageSnapshot
+                    {
+                        CellX = img.CellX,
+                        CellY = img.CellY,
+                        CellWidth = img.CellWidth,
+                        CellHeight = img.CellHeight,
+                        Image = img.Image,
+                        IsSticky = img.IsSticky
+                    });
+                }
+            }
+            return list;
+        }
+
+        [System.Diagnostics.Conditional("DEBUG")]
+        private void AssertLockHeld()
+        {
+            if (!Lock.IsReadLockHeld && !Lock.IsWriteLockHeld)
+            {
+                throw new System.InvalidOperationException("Buffer lock MUST be held for this operation.");
+            }
         }
     }
 }

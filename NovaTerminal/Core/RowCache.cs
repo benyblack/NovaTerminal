@@ -1,57 +1,183 @@
+// RowImageCache.cs (O(1) LRU + deferred disposal; safe with Step 4)
+// - Thread-safe
+// - UI thread: call RequestClear() (Clear() maps to RequestClear() for backward compatibility)
+// - Render thread: call DrainDisposalsAndApplyClearIfRequested() once per frame (e.g., top of DrawTerminal)
+// - O(1) Get/Add via LinkedList + node map
+// - Deferred disposal avoids use-after-dispose when UI thread invalidates cache mid-frame
+
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Threading;
 using SkiaSharp;
 
 namespace NovaTerminal.Core
 {
-    public class RowImageCache : IDisposable
+    public sealed class RowImageCache : IDisposable
     {
-        private readonly Dictionary<(int RowIndex, uint Revision), SKPicture> _cache = new();
-        private readonly List<(int RowIndex, uint Revision)> _lru = new();
-        private const int MaxEntries = 1000; // Pictures are very small, we can keep more
+        private readonly object _sync = new();
 
+        private readonly LinkedList<Key> _lru = new();
+        private readonly Dictionary<Key, Entry> _cache = new();
+
+        private readonly List<SKPicture> _pendingDispose = new();
+
+
+
+        private bool _clearRequested;
+
+        private const int MaxEntries = 1000;
+
+        private readonly struct Key : IEquatable<Key>
+        {
+            public readonly int RowIndex;
+            public readonly uint Revision;
+
+            public Key(int rowIndex, uint revision)
+            {
+                RowIndex = rowIndex;
+                Revision = revision;
+            }
+
+            public bool Equals(Key other) => RowIndex == other.RowIndex && Revision == other.Revision;
+            public override bool Equals(object? obj) => obj is Key other && Equals(other);
+            public override int GetHashCode() => HashCode.Combine(RowIndex, Revision);
+        }
+
+        private sealed class Entry
+        {
+            public SKPicture Picture;
+            public LinkedListNode<Key> Node;
+
+            public Entry(SKPicture picture, LinkedListNode<Key> node)
+            {
+                Picture = picture;
+                Node = node;
+            }
+        }
+
+        public RowImageCache()
+        {
+        }
         public SKPicture? Get(int rowIndex, uint revision)
         {
-            if (_cache.TryGetValue((rowIndex, revision), out var picture))
+            lock (_sync)
             {
-                // Update LRU: move to end
-                _lru.Remove((rowIndex, revision));
-                _lru.Add((rowIndex, revision));
-                return picture;
+                var key = new Key(rowIndex, revision);
+                if (_cache.TryGetValue(key, out var entry))
+                {
+                    // Touch LRU: move to end (MRU)
+                    _lru.Remove(entry.Node);
+                    _lru.AddLast(entry.Node);
+                    return entry.Picture;
+                }
+                return null;
             }
-            return null;
         }
 
         public void Add(int rowIndex, uint revision, SKPicture picture)
         {
-            if (_cache.Count >= MaxEntries)
+            lock (_sync)
             {
-                // Evict oldest
-                var oldest = _lru[0];
-                if (_cache.Remove(oldest, out var oldPicture))
-                {
-                    oldPicture.Dispose();
-                }
-                _lru.RemoveAt(0);
-            }
+                var key = new Key(rowIndex, revision);
 
-            _cache[(rowIndex, revision)] = picture;
-            _lru.Add((rowIndex, revision));
+                // Replace existing
+                if (_cache.TryGetValue(key, out var existing))
+                {
+                    if (!ReferenceEquals(existing.Picture, picture))
+                        _pendingDispose.Add(existing.Picture);
+
+                    existing.Picture = picture;
+
+                    // Touch LRU
+                    _lru.Remove(existing.Node);
+                    _lru.AddLast(existing.Node);
+                    return;
+                }
+
+                // Evict if needed
+                if (_cache.Count >= MaxEntries)
+                {
+                    var lruNode = _lru.First;
+                    if (lruNode != null)
+                    {
+                        var lruKey = lruNode.Value;
+                        _lru.RemoveFirst();
+
+                        if (_cache.Remove(lruKey, out var evicted))
+                        {
+                            _pendingDispose.Add(evicted.Picture);
+                        }
+                    }
+                }
+
+                // Insert new
+                var node = _lru.AddLast(key);
+                _cache[key] = new Entry(picture, node);
+            }
         }
 
-        public void Clear()
+        /// <summary>
+        /// Backward-compatible API. Do NOT dispose synchronously; defer to render-thread drain.
+        /// </summary>
+        public void Clear() => RequestClear();
+
+        /// <summary>
+        /// Safe to call from any thread. Marks cache as invalid; disposal deferred to render thread.
+        /// </summary>
+        public void RequestClear()
         {
-            foreach (var img in _cache.Values)
+            lock (_sync)
             {
-                img.Dispose();
+                _clearRequested = true;
             }
-            _cache.Clear();
-            _lru.Clear();
+        }
+
+        /// <summary>
+        /// MUST be called from render thread at a safe boundary (once per frame before drawing).
+        /// Applies pending clear and disposes any queued pictures.
+        /// </summary>
+        public void DrainDisposalsAndApplyClearIfRequested()
+        {
+            List<SKPicture>? toDispose = null;
+
+            lock (_sync)
+            {
+                if (_clearRequested)
+                {
+                    _clearRequested = false;
+
+                    // Move all cached pictures to pending dispose
+                    foreach (var entry in _cache.Values)
+                        _pendingDispose.Add(entry.Picture);
+
+                    _cache.Clear();
+                    _lru.Clear();
+                }
+
+                if (_pendingDispose.Count > 0)
+                {
+                    toDispose = new List<SKPicture>(_pendingDispose);
+                    _pendingDispose.Clear();
+                }
+            }
+
+            // Dispose outside lock
+            if (toDispose != null)
+            {
+                foreach (var pic in toDispose)
+                {
+                    try { pic.Dispose(); } catch { /* ignore */ }
+                }
+            }
         }
 
         public void Dispose()
         {
-            Clear();
+            // Best-effort: request clear then drain now.
+            // Ideally Dispose is called when rendering is stopped.
+            RequestClear();
+            DrainDisposalsAndApplyClearIfRequested();
         }
     }
 }

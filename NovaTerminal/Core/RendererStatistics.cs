@@ -10,11 +10,22 @@ namespace NovaTerminal.Core
         private static long _parseTimeMs;
         private static long _bytesProcessed;
 
+        private static long _bufferReadLockTimeMs;
+        private static long _backgroundScans;
+        private static long _rowCacheHits;
+        private static long _rowCacheMisses;
+        private static long _rowSnapshotsTaken;
+
         public static long TotalFrames => Interlocked.Read(ref _totalFrames);
         public static long FullRedraws => Interlocked.Read(ref _fullRedraws);
         public static long DirtyCellsRendered => Interlocked.Read(ref _dirtyCellsRendered);
         public static long ParseTimeMs => Interlocked.Read(ref _parseTimeMs);
         public static long BytesProcessed => Interlocked.Read(ref _bytesProcessed);
+        public static long BufferReadLockTimeMs => Interlocked.Read(ref _bufferReadLockTimeMs);
+        public static long BackgroundScans => Interlocked.Read(ref _backgroundScans);
+        public static long RowCacheHits => Interlocked.Read(ref _rowCacheHits);
+        public static long RowCacheMisses => Interlocked.Read(ref _rowCacheMisses);
+        public static long RowSnapshotsTaken => Interlocked.Read(ref _rowSnapshotsTaken);
 
         public static void RecordFrame(bool fullRedraw, int dirtyCells)
         {
@@ -33,6 +44,20 @@ namespace NovaTerminal.Core
             Interlocked.Add(ref _bytesProcessed, count);
         }
 
+        public static void RecordReadLockTime(long ms)
+        {
+            Interlocked.Add(ref _bufferReadLockTimeMs, ms);
+        }
+
+        public static void RecordBackgroundScan()
+        {
+            Interlocked.Increment(ref _backgroundScans);
+        }
+
+        public static void RecordRowCacheHit() => Interlocked.Increment(ref _rowCacheHits);
+        public static void RecordRowCacheMiss() => Interlocked.Increment(ref _rowCacheMisses);
+        public static void RecordRowSnapshot() => Interlocked.Increment(ref _rowSnapshotsTaken);
+
         public static void Reset()
         {
             Interlocked.Exchange(ref _totalFrames, 0);
@@ -40,11 +65,16 @@ namespace NovaTerminal.Core
             Interlocked.Exchange(ref _dirtyCellsRendered, 0);
             Interlocked.Exchange(ref _parseTimeMs, 0);
             Interlocked.Exchange(ref _bytesProcessed, 0);
+            Interlocked.Exchange(ref _bufferReadLockTimeMs, 0);
+            Interlocked.Exchange(ref _backgroundScans, 0);
+            Interlocked.Exchange(ref _rowCacheHits, 0);
+            Interlocked.Exchange(ref _rowCacheMisses, 0);
+            Interlocked.Exchange(ref _rowSnapshotsTaken, 0);
         }
 
         public static string GetReport()
         {
-            return $"Frames: {TotalFrames}, Full: {FullRedraws}, DirtyCells: {DirtyCellsRendered}, ParseMs: {ParseTimeMs}, Bytes: {BytesProcessed}";
+            return $"Frames: {TotalFrames}, Full: {FullRedraws}, DirtyCells: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, BgScans: {BackgroundScans}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}";
         }
     }
 }

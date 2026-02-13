@@ -113,7 +113,6 @@ namespace NovaTerminal
             var settingsBtn = this.FindControl<Button>("SettingsBtn");
             var titleBar = this.FindControl<Grid>("TitleBar");
             var dragBorder = this.FindControl<Border>("DragBorder");
-            var btnNewTab = this.FindControl<Button>("BtnNewTab");
 
             if (dragBorder != null)
             {
