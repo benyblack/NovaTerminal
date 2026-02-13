@@ -12,6 +12,8 @@ namespace NovaTerminal.Core
         string ShellCommand { get; }
         void SetSavedPassword(string password);
         void StartRecording(string filePath);
+        void StopRecording();
+        bool IsRecording { get; }
         void AttachBuffer(TerminalBuffer buffer);
         void TakeSnapshot();
         event System.Action<string>? OnOutputReceived;

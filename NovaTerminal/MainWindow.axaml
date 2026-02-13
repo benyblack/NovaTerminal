@@ -134,6 +134,30 @@
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
+                <Button Name="BtnRecord"
+                        Foreground="#CCCCCC"
+                        Background="Transparent"
+                        BorderThickness="0" Focusable="False" 
+                        Width="32" Height="32"
+                        Padding="4"
+                        CornerRadius="4"
+                        Margin="4,0,0,0"
+                        ToolTip.Tip="Record Session">
+                    <PathIcon Name="IconRecord" Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" Width="14" Height="14"/>
+                </Button>
+
+                <Button Name="BtnOpenRec"
+                        Foreground="White"
+                        Background="Transparent"
+                        BorderThickness="0" Focusable="False" 
+                        Width="32" Height="32"
+                        Padding="4"
+                        CornerRadius="4"
+                        Margin="4,0,0,0"
+                        ToolTip.Tip="Open Recording">
+                    <PathIcon Data="M20,6A2,2 0 0,1 22,8V18A2,2 0 0,1 20,20H4C2.89,20 2,19.1 2,18V6C2,4.89 2.89,4 4,4H10L12,6H20M19,17V15H7V17H19M12,13L15.5,10H8.5L12,13Z" Width="16" Height="16"/>
+                </Button>
+
                 <Button Name="BtnConnections" 
                         Foreground="White"
                         Background="Transparent"
@@ -143,12 +167,6 @@
                         CornerRadius="4"
                         Margin="4,0,0,0"
                         ToolTip.Tip="Connections">
-                    <Button.Flyout>
-                        <MenuFlyout>
-                            <MenuItem Header="Open Recording..." Name="MenuOpenRecording" />
-                        </MenuFlyout>
-                    </Button.Flyout>
-                    <!-- Material Design 'Dns' (Server) Icon -->
                     <PathIcon Data="M19,15H5C3.34,15 2,16.34 2,18V20C2,21.66 3.34,23 5,23H19C20.66,23 22,21.66 22,20V18C22,16.34 20.66,15 19,15M8,20C7.45,20 7,19.55 7,19C7,18.45 7.45,18 8,18H9C9.55,18 10,18.45 10,19C10,19.55 9.55,20 9,20H8M19,9H5C3.34,9 2,10.34 2,12V14C2,15.66 3.34,17 5,17H19C20.66,17 22,15.66 22,14V12C22,10.34 20.66,9 19,9M8,14C7.45,14 7,13.55 7,13C7,12.45 7.45,12 8,12H9C9.55,12 10,12.45 10,13C10,13.55 9.55,14 9,14H8M19,3H5C3.34,3 2,4.34 2,6V8C2,9.66 3.34,11 5,11H19C20.66,11 22,9.66 22,8V6C22,4.34 20.66,3 19,3M8,8C7.45,8 7,7.55 7,7C7,6.45 7.45,6 8,6H9C9.55,6 10,6.45 10,7C10,7.55 9.55,8 9,8H8Z" Width="16" Height="16"/>
                 </Button>
                 <Button Name="SettingsBtn" Content="⚙" 

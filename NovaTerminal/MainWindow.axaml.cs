@@ -171,7 +171,7 @@ namespace NovaTerminal
                 {
                     if (tabs.SelectedItem is TabItem ti && ti.Content is TerminalPane pane)
                     {
-                        _currentPane = pane;
+                        UpdateActivePane(pane);
                         pane.Focus();
                     }
                     UpdateTabVisuals();
@@ -188,8 +188,8 @@ namespace NovaTerminal
                 await OpenSettings(1); // Open Tab 1 (Profiles)
             };
 
-            var menuOpenRec = this.FindControl<MenuItem>("MenuOpenRecording");
-            if (menuOpenRec != null) menuOpenRec.Click += async (s, e) =>
+            var btnOpenRec = this.FindControl<Button>("BtnOpenRec");
+            if (btnOpenRec != null) btnOpenRec.Click += async (s, e) =>
             {
                 var topLevel = TopLevel.GetTopLevel(this);
                 if (topLevel == null) return;
@@ -209,13 +209,19 @@ namespace NovaTerminal
                 }
             };
 
+            var btnRecord = this.FindControl<Button>("BtnRecord");
+            if (btnRecord != null)
+            {
+                btnRecord.Click += (s, e) => _currentPane?.ToggleRecording();
+            }
+
             // Global Focus Tracking
             this.AddHandler(GotFocusEvent, (s, e) =>
             {
                 var pane = (e.Source as Control)?.FindAncestorOfType<TerminalPane>();
                 if (pane != null)
                 {
-                    _currentPane = pane;
+                    UpdateActivePane(pane);
                 }
             }, RoutingStrategies.Bubble | RoutingStrategies.Tunnel);
 
@@ -1292,6 +1298,49 @@ namespace NovaTerminal
                 SessionManager.SaveSession(this, tabs);
             }
             _globalHotkey?.Dispose();
+        }
+
+        private void UpdateActivePane(TerminalPane pane)
+        {
+            if (_currentPane == pane) return;
+
+            // Unsubscribe from old pane
+            if (_currentPane != null)
+            {
+                _currentPane.RecordingStateChanged -= OnRecordingStateChanged;
+            }
+
+            _currentPane = pane;
+
+            // Subscribe to new pane
+            if (_currentPane != null)
+            {
+                _currentPane.RecordingStateChanged += OnRecordingStateChanged;
+            }
+
+            // Initial UI sync
+            OnRecordingStateChanged(_currentPane?.IsRecording ?? false);
+        }
+
+        private void OnRecordingStateChanged(bool isRecording)
+        {
+            var btnRecord = this.FindControl<Button>("BtnRecord");
+            var iconRecord = this.FindControl<PathIcon>("IconRecord");
+
+            if (btnRecord == null || iconRecord == null) return;
+
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (isRecording)
+                {
+                    btnRecord.Foreground = Brushes.Red;
+                    // Pulse animation or just red for now
+                }
+                else
+                {
+                    btnRecord.Foreground = SolidColorBrush.Parse("#CCCCCC");
+                }
+            });
         }
     }
 }

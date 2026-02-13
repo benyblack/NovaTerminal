@@ -25,10 +25,43 @@ namespace NovaTerminal.Controls
         public TerminalProfile? Profile { get; private set; }
 
         public event Action<TerminalPane, TransferDirection, TransferKind>? RequestSftpTransfer;
+        public event Action<bool>? RecordingStateChanged;
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
         private DispatcherTimer? _statusTimer;
+
+        public bool IsRecording => Session?.IsRecording ?? false;
+
+        public void ToggleRecording()
+        {
+            if (Session == null) return;
+
+            if (Session.IsRecording)
+            {
+                Session.StopRecording();
+                Buffer?.WriteContent("\r\n[Nova] Recording stopped.\r\n", false);
+            }
+            else
+            {
+                try
+                {
+                    string recDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recordings");
+                    if (!System.IO.Directory.Exists(recDir)) System.IO.Directory.CreateDirectory(recDir);
+
+                    string filename = $"nova_rec_{DateTime.Now:yyyyMMdd_HHmmss}.rec";
+                    string path = System.IO.Path.Combine(recDir, filename);
+
+                    Session.StartRecording(path);
+                    Buffer?.WriteContent($"\r\n[Nova] Recording started: {filename}\r\n", false);
+                }
+                catch (Exception ex)
+                {
+                    Buffer?.WriteContent($"\r\n[Nova] Failed to start recording: {ex.Message}\r\n", false);
+                }
+            }
+            RecordingStateChanged?.Invoke(IsRecording);
+        }
 
         public void UpdateProfile(TerminalProfile profile)
         {

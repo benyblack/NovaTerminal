@@ -137,10 +137,23 @@ namespace NovaTerminal.Core
         private NovaTerminal.Core.Replay.PtyRecorder? _recorder;
         private TerminalBuffer? _buffer;
 
+        public bool IsRecording => _recorder != null;
+
         public void StartRecording(string filePath)
         {
+            if (_recorder != null) return; // Already recording
             _recorder = new NovaTerminal.Core.Replay.PtyRecorder(filePath, _cols, _rows, ShellCommand);
             Console.WriteLine($"[RustPtySession] Recording started to: {filePath}");
+        }
+
+        public void StopRecording()
+        {
+            if (_recorder != null)
+            {
+                _recorder.Dispose();
+                _recorder = null;
+                Console.WriteLine("[RustPtySession] Recording stopped.");
+            }
         }
 
         public void AttachBuffer(TerminalBuffer buffer)
