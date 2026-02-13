@@ -152,6 +152,7 @@ jobs:
         with:
           name: replay-snapshots-${{ matrix.os }}
           path: |
+            artifacts/parity/*.snap
             artifacts/parity/**/*.snap
             artifacts/parity/_artifact_meta.txt
             **/*replay_tests.trx
@@ -220,6 +221,15 @@ jobs:
         with:
           name: replay-snapshots-macos-latest
           path: parity/macos
+
+      - name: Inspect downloaded parity artifacts
+        run: |
+          echo "Downloaded files:"
+          find parity -type f | sort || true
+          echo "Snapshot counts:"
+          echo "windows=$(find parity/windows -type f -name '*.snap' | wc -l)"
+          echo "linux=$(find parity/linux -type f -name '*.snap' | wc -l)"
+          echo "macos=$(find parity/macos -type f -name '*.snap' | wc -l)"
 
       - name: Compare snapshots for parity
         run: |
