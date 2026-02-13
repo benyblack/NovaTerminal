@@ -218,8 +218,11 @@ namespace NovaTerminal.Core
         public void SendInput(string input)
         {
             if (_ptyState == IntPtr.Zero) return;
-            byte[] bytes = Encoding.UTF8.GetBytes(input);
-            Native.pty_write(_ptyState, bytes, bytes.Length);
+
+            _recorder?.RecordInput(input);
+
+            byte[] data = Encoding.UTF8.GetBytes(input);
+            Native.pty_write(_ptyState, data, data.Length);
         }
 
         public void Resize(int cols, int rows)

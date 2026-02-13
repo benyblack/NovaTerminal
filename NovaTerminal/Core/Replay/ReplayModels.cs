@@ -43,6 +43,9 @@ namespace NovaTerminal.Core.Replay
 
         [JsonPropertyName("n")]
         public string? MarkerName { get; set; }
+
+        [JsonPropertyName("i")]
+        public string? Input { get; set; }
     }
 
     [JsonSourceGenerationOptions(WriteIndented = false)]

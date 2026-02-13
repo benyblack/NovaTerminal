@@ -18,11 +18,11 @@ namespace NovaTerminal.Tests.ReplayTests
                 {
                     byte[] data1 = Encoding.UTF8.GetBytes("Hello");
                     recorder.RecordChunk(data1, data1.Length);
-                    
+
                     recorder.RecordResize(120, 30);
-                    
+
                     recorder.RecordMarker("test_marker");
-                    
+
                     byte[] data2 = Encoding.UTF8.GetBytes("World");
                     recorder.RecordChunk(data2, data2.Length);
                 }
@@ -65,6 +65,53 @@ namespace NovaTerminal.Tests.ReplayTests
         }
 
         [Fact]
+        public async Task ReplayV2_RoundTrip_WithInput_Works()
+        {
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                // 1. Record v2 with Input
+                using (var recorder = new PtyRecorder(tempFile, 80, 24, "pwsh.exe"))
+                {
+                    byte[] data1 = Encoding.UTF8.GetBytes("Prompt> ");
+                    recorder.RecordChunk(data1, data1.Length);
+
+                    recorder.RecordInput("ls\r");
+
+                    byte[] data2 = Encoding.UTF8.GetBytes("\r\nfile1.txt  file2.txt\r\nPrompt> ");
+                    recorder.RecordChunk(data2, data2.Length);
+                }
+
+                // 2. Replay v2
+                var gatheredData = new StringBuilder();
+                var gatheredInput = new StringBuilder();
+
+                var runner = new ReplayRunner(tempFile);
+                await runner.RunAsync(
+                    onDataCallback: async (data) =>
+                    {
+                        gatheredData.Append(Encoding.UTF8.GetString(data));
+                        await Task.CompletedTask;
+                    },
+                    onInputCallback: async (input) =>
+                    {
+                        gatheredInput.Append(input);
+                        await Task.CompletedTask;
+                    }
+                );
+
+                // 3. Assert
+                Assert.Contains("Prompt> ", gatheredData.ToString());
+                Assert.Contains("file1.txt", gatheredData.ToString());
+                Assert.Equal("ls\r", gatheredInput.ToString());
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
         public async Task ReplayRunner_V1Compatibility_Works()
         {
             string tempFile = Path.GetTempFileName();
@@ -91,11 +138,11 @@ namespace NovaTerminal.Tests.ReplayTests
                 if (File.Exists(tempFile)) File.Delete(tempFile);
             }
         }
-        
+
         [Fact]
         public async Task ReplayRunner_StrictHeader_FailsOnMalformData()
         {
-             string tempFile = Path.GetTempFileName();
+            string tempFile = Path.GetTempFileName();
             try
             {
                 // Line 1 is NOT a header, NOT a v1 chunk

@@ -19,50 +19,47 @@ namespace NovaTerminal.Core.Replay
             Func<byte[], Task> onDataCallback,
             Func<int, int, Task>? onResizeCallback = null,
             Func<string, Task>? onMarkerCallback = null,
+            Func<string, Task>? onInputCallback = null,
             bool realtime = false)
         {
             if (!File.Exists(_filePath))
                 throw new FileNotFoundException("Replay file not found", _filePath);
 
             using var reader = new StreamReader(_filePath);
-            string? firstLine = await reader.ReadLineAsync();
-            if (firstLine == null) return;
+            string? line = await reader.ReadLineAsync();
+            if (line == null) return;
 
+            // Detect Version
             bool isV2 = false;
             try
             {
-                var header = JsonSerializer.Deserialize(firstLine, ReplayJsonContext.Default.ReplayHeader);
-                if (header != null && header.Type == "novarec")
+                // Try to parse the VERY FIRST LINE as a v2 header
+                var header = JsonSerializer.Deserialize(line, ReplayJsonContext.Default.ReplayHeader);
+                if (header != null && header.Type == "novarec" && header.Version == 2)
                 {
                     isV2 = true;
-                    // Initial dimensions could be used here to resize the buffer if needed
                     if (onResizeCallback != null)
                     {
                         await onResizeCallback(header.Cols, header.Rows);
                     }
                 }
             }
-            catch
-            {
-                // Fallback to V1
-            }
+            catch { }
 
             long lastOffset = 0;
-            string? line = firstLine;
-
-            // If it was V2, we already processed the first line (header).
-            // If it was V1, we need to process the first line as data.
-            bool skipFirstLine = isV2;
+            // If it's V2, we skip the first line (header).
+            // If it's V1, we process the first line immediately.
+            bool skipCurrentLine = isV2;
 
             while (line != null)
             {
-                if (!skipFirstLine)
+                if (!skipCurrentLine)
                 {
                     if (!string.IsNullOrWhiteSpace(line))
                     {
                         if (isV2)
                         {
-                            lastOffset = await ProcessV2Line(line, onDataCallback, onResizeCallback, onMarkerCallback, realtime, lastOffset);
+                            lastOffset = await ProcessV2Line(line, onDataCallback, onResizeCallback, onMarkerCallback, onInputCallback, realtime, lastOffset);
                         }
                         else
                         {
@@ -70,7 +67,7 @@ namespace NovaTerminal.Core.Replay
                         }
                     }
                 }
-                skipFirstLine = false;
+                skipCurrentLine = false;
                 line = await reader.ReadLineAsync();
             }
         }
@@ -80,6 +77,7 @@ namespace NovaTerminal.Core.Replay
             Func<byte[], Task> onDataCallback,
             Func<int, int, Task>? onResizeCallback,
             Func<string, Task>? onMarkerCallback,
+            Func<string, Task>? onInputCallback,
             bool realtime,
             long lastOffset)
         {
@@ -114,6 +112,12 @@ namespace NovaTerminal.Core.Replay
                         if (!string.IsNullOrEmpty(ev.MarkerName) && onMarkerCallback != null)
                         {
                             await onMarkerCallback(ev.MarkerName);
+                        }
+                        break;
+                    case "input":
+                        if (!string.IsNullOrEmpty(ev.Input) && onInputCallback != null)
+                        {
+                            await onInputCallback(ev.Input);
                         }
                         break;
                 }

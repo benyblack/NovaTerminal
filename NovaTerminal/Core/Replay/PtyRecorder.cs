@@ -60,6 +60,18 @@ namespace NovaTerminal.Core.Replay
             });
         }
 
+        public void RecordInput(string input)
+        {
+            if (_cts.IsCancellationRequested) return;
+
+            _queue.Add(new ReplayEvent
+            {
+                TimeOffsetMs = GetTimestamp(),
+                Type = "input",
+                Input = input
+            });
+        }
+
         public void RecordMarker(string name)
         {
             if (_cts.IsCancellationRequested) return;
