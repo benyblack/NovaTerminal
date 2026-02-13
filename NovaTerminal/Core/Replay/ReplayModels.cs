@@ -46,11 +46,33 @@ namespace NovaTerminal.Core.Replay
 
         [JsonPropertyName("i")]
         public string? Input { get; set; }
+
+        [JsonPropertyName("s")]
+        public ReplaySnapshot? Snapshot { get; set; }
+    }
+
+    public class ReplaySnapshot
+    {
+        [JsonPropertyName("cols")] public int Cols { get; set; }
+        [JsonPropertyName("rows")] public int Rows { get; set; }
+        [JsonPropertyName("cx")] public int CursorCol { get; set; }
+        [JsonPropertyName("cy")] public int CursorRow { get; set; }
+        [JsonPropertyName("alt")] public bool IsAltScreen { get; set; }
+
+        [JsonPropertyName("cells")]
+        public string? CellsBase64 { get; set; }
+
+        [JsonPropertyName("ext")]
+        public System.Collections.Generic.Dictionary<int, string>? ExtendedText { get; set; }
+
+        [JsonPropertyName("wrap")]
+        public bool[]? RowWraps { get; set; }
     }
 
     [JsonSourceGenerationOptions(WriteIndented = false)]
     [JsonSerializable(typeof(ReplayHeader))]
     [JsonSerializable(typeof(ReplayEvent))]
+    [JsonSerializable(typeof(ReplaySnapshot))]
     internal partial class ReplayJsonContext : JsonSerializerContext
     {
     }

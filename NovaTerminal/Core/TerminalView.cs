@@ -526,6 +526,10 @@ namespace NovaTerminal.Core
         public void SetSession(ITerminalSession session)
         {
             _session = session;
+            if (_buffer != null)
+            {
+                _session.AttachBuffer(_buffer);
+            }
         }
 
         public event Action<int, int>? ScrollStateChanged;

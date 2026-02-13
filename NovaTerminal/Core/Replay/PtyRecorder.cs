@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
@@ -69,6 +71,71 @@ namespace NovaTerminal.Core.Replay
                 TimeOffsetMs = GetTimestamp(),
                 Type = "input",
                 Input = input
+            });
+        }
+
+        public void RecordSnapshot(TerminalBuffer buffer)
+        {
+            if (_cts.IsCancellationRequested) return;
+
+            ReplaySnapshot snapshot;
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                var rows = buffer.ViewportRows;
+                int cols = buffer.Cols;
+                int rowCount = buffer.Rows;
+
+                snapshot = new ReplaySnapshot
+                {
+                    Cols = cols,
+                    Rows = rowCount,
+                    CursorCol = buffer.InternalCursorCol,
+                    CursorRow = buffer.InternalCursorRow,
+                    IsAltScreen = buffer.IsAltScreenActive,
+                    ExtendedText = new Dictionary<int, string>(),
+                    RowWraps = new bool[rowCount]
+                };
+
+                // Allocate a single array for all cells in viewport
+                TerminalCell[] allCells = new TerminalCell[cols * rowCount];
+
+                for (int r = 0; r < rowCount; r++)
+                {
+                    var row = rows[r];
+                    snapshot.RowWraps[r] = row.IsWrapped;
+
+                    // Copy cells
+                    Array.Copy(row.Cells, 0, allCells, r * cols, cols);
+
+                    // Capture extended text
+                    for (int c = 0; c < cols; c++)
+                    {
+                        if (row.Cells[c].HasExtendedText)
+                        {
+                            string? text = row.GetExtendedText(c);
+                            if (text != null)
+                            {
+                                snapshot.ExtendedText[r * cols + c] = text;
+                            }
+                        }
+                    }
+                }
+
+                // Convert allCells to Base64 using zero-copy casting
+                var byteSpan = MemoryMarshal.AsBytes(allCells.AsSpan());
+                snapshot.CellsBase64 = Convert.ToBase64String(byteSpan);
+            }
+            finally
+            {
+                buffer.Lock.ExitReadLock();
+            }
+
+            _queue.Add(new ReplayEvent
+            {
+                TimeOffsetMs = GetTimestamp(),
+                Type = "snapshot",
+                Snapshot = snapshot
             });
         }
 

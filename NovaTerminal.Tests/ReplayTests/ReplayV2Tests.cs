@@ -1,6 +1,10 @@
 using NovaTerminal.Core;
 using NovaTerminal.Core.Replay;
 using System.Text;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Xunit;
 
 namespace NovaTerminal.Tests.ReplayTests
@@ -104,6 +108,73 @@ namespace NovaTerminal.Tests.ReplayTests
                 Assert.Contains("Prompt> ", gatheredData.ToString());
                 Assert.Contains("file1.txt", gatheredData.ToString());
                 Assert.Equal("ls\r", gatheredInput.ToString());
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public async Task ReplayV2_Snapshot_RoundTrip_Works()
+        {
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                // 1. Prepare a buffer with state
+                var buffer = new TerminalBuffer(80, 24);
+                buffer.CurrentForeground = new TermColor(255, 0, 0);
+                buffer.CurrentBackground = new TermColor(0, 0, 255);
+                buffer.Write("Colored Text ");
+
+                buffer.CurrentForeground = TermColor.White;
+                buffer.CurrentBackground = TermColor.Black;
+                buffer.Write("🚀 Emoji");
+
+                buffer.CursorRow = 5;
+                buffer.CursorCol = 10;
+
+                // 2. Record Snapshot
+                using (var recorder = new PtyRecorder(tempFile, 80, 24))
+                {
+                    recorder.RecordSnapshot(buffer);
+                }
+
+                // 3. Replay Snapshot
+                ReplaySnapshot? restoredSnapshot = null;
+                var runner = new ReplayRunner(tempFile);
+                await runner.RunAsync(
+                    onDataCallback: (d) => Task.CompletedTask,
+                    onSnapshotCallback: async (s) =>
+                    {
+                        restoredSnapshot = s;
+                        await Task.CompletedTask;
+                    }
+                );
+
+                // 4. Assert
+                Assert.NotNull(restoredSnapshot);
+                Assert.Equal(80, restoredSnapshot!.Cols);
+                Assert.Equal(24, restoredSnapshot!.Rows);
+                Assert.Equal(5, restoredSnapshot!.CursorRow);
+                Assert.Equal(10, restoredSnapshot!.CursorCol);
+
+                // Verify extended text (Emoji)
+                Assert.NotNull(restoredSnapshot.ExtendedText);
+                Assert.Contains("🚀", restoredSnapshot.ExtendedText!.Values);
+
+                // Verify binary cell data integrity
+                Assert.NotNull(restoredSnapshot.CellsBase64);
+                byte[] cellBytes = Convert.FromBase64String(restoredSnapshot.CellsBase64!);
+
+                // Reconstruct cells from bytes
+                var cellSpan = MemoryMarshal.Cast<byte, TerminalCell>(cellBytes.AsSpan());
+                Assert.Equal(80 * 24, cellSpan.Length);
+
+                // Check a cell we know (the first 'C' in 'Colored Text')
+                var firstCell = cellSpan[0];
+                Assert.Equal('C', firstCell.Character);
+                Assert.Equal(new TermColor(255, 0, 0).ToUint(), firstCell.Fg);
             }
             finally
             {

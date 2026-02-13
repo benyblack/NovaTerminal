@@ -20,6 +20,7 @@ namespace NovaTerminal.Core.Replay
             Func<int, int, Task>? onResizeCallback = null,
             Func<string, Task>? onMarkerCallback = null,
             Func<string, Task>? onInputCallback = null,
+            Func<ReplaySnapshot, Task>? onSnapshotCallback = null,
             bool realtime = false)
         {
             if (!File.Exists(_filePath))
@@ -59,7 +60,7 @@ namespace NovaTerminal.Core.Replay
                     {
                         if (isV2)
                         {
-                            lastOffset = await ProcessV2Line(line, onDataCallback, onResizeCallback, onMarkerCallback, onInputCallback, realtime, lastOffset);
+                            lastOffset = await ProcessV2Line(line, onDataCallback, onResizeCallback, onMarkerCallback, onInputCallback, onSnapshotCallback, realtime, lastOffset);
                         }
                         else
                         {
@@ -78,6 +79,7 @@ namespace NovaTerminal.Core.Replay
             Func<int, int, Task>? onResizeCallback,
             Func<string, Task>? onMarkerCallback,
             Func<string, Task>? onInputCallback,
+            Func<ReplaySnapshot, Task>? onSnapshotCallback,
             bool realtime,
             long lastOffset)
         {
@@ -118,6 +120,12 @@ namespace NovaTerminal.Core.Replay
                         if (!string.IsNullOrEmpty(ev.Input) && onInputCallback != null)
                         {
                             await onInputCallback(ev.Input);
+                        }
+                        break;
+                    case "snapshot":
+                        if (ev.Snapshot != null && onSnapshotCallback != null)
+                        {
+                            await onSnapshotCallback(ev.Snapshot);
                         }
                         break;
                 }
