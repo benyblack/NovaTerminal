@@ -52,7 +52,7 @@ namespace NovaTerminal.Core.Replay
             }
             catch { }
 
-            long lastOffset = 0;
+            long lastOffset = -1;
             // If it's V2, we skip the first line (header).
             // If it's V1, we process the first line immediately.
             bool skipCurrentLine = isV2;
@@ -114,6 +114,12 @@ namespace NovaTerminal.Core.Replay
 
                 if (realtime && !isFastForwarding)
                 {
+                    if (lastOffset == -1)
+                    {
+                        // First event in playback: snap to it immediately, no delay
+                        lastOffset = ev.TimeOffsetMs;
+                    }
+
                     long delay = ev.TimeOffsetMs - lastOffset;
                     if (delay > 0)
                     {
@@ -206,6 +212,11 @@ namespace NovaTerminal.Core.Replay
 
                 if (realtime && !isFastForwarding)
                 {
+                    if (lastOffset == -1)
+                    {
+                        lastOffset = timeMs;
+                    }
+
                     long delay = timeMs - lastOffset;
                     if (delay > 0)
                     {
