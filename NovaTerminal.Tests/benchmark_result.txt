@@ -1,0 +1,26 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  NovaTerminal -> D:\projects\nova2\NovaTerminal\bin\Debug\net10.0\NovaTerminal.dll
+  NovaTerminal.Tests -> D:\projects\nova2\NovaTerminal.Tests\bin\Debug\net10.0\NovaTerminal.Tests.dll
+Test run for D:\projects\nova2\NovaTerminal.Tests\bin\Debug\net10.0\NovaTerminal.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+D:\projects\nova2\NovaTerminal.Tests\bin\Debug\net10.0\NovaTerminal.Tests.dll
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.2)
+[xUnit.net 00:00:00.04]   Discovering: NovaTerminal.Tests
+[xUnit.net 00:00:00.08]   Discovered:  NovaTerminal.Tests
+[xUnit.net 00:00:00.09]   Starting:    NovaTerminal.Tests
+[xUnit.net 00:00:00.59]   Finished:    NovaTerminal.Tests
+  Passed NovaTerminal.Tests.Performance.PerformanceTests.LargeThroughput_Benchmark [478 ms]
+  Standard Output Messages:
+ Processed 2.95 MB in 0.4699s
+ Throughput: 6.29 MB/s
+
+
+
+Test Run Successful.
+Total tests: 1
+     Passed: 1
+ Total time: 0.9342 Seconds

@@ -29,6 +29,9 @@ namespace NovaTerminal.Core
         private Dictionary<string, string> _kittyPendingParams = new();
         private SixelDecoder _sixelDecoder = new();
 
+        // M2.1: Lock Batching Buffer
+        private System.Text.StringBuilder _textBuffer = new System.Text.StringBuilder(4096);
+
         public float CellWidth { get; set; } = 10.0f;  // Default fallback
         public float CellHeight { get; set; } = 20.0f; // Default fallback
         public Action<string>? OnResponse { get; set; }
@@ -36,6 +39,15 @@ namespace NovaTerminal.Core
         public AnsiParser(TerminalBuffer buffer)
         {
             _buffer = buffer;
+        }
+
+        private void FlushText()
+        {
+            if (_textBuffer.Length > 0)
+            {
+                _buffer.WriteContent(_textBuffer.ToString());
+                _textBuffer.Clear();
+            }
         }
 
         public void Process(string input)
@@ -53,49 +65,43 @@ namespace NovaTerminal.Core
                         case State.Normal:
                             if (c == '\x1b')
                             {
+                                FlushText();
                                 _state = State.Esc;
                             }
-                            else if (c == '\u009B') // C1 CSI
+                            else if (c >= 0x80 && c <= 0x9F) // C1 Controls
                             {
-                                _state = State.Csi;
-                                _paramLen = 0;
+                                FlushText();
+                                switch (c)
+                                {
+                                    case '\u009B': _state = State.Csi; _paramLen = 0; break;
+                                    case '\u0090': _state = State.Dcs; _dcsStringBuffer.Clear(); break;
+                                    case '\u009D': _state = State.Osc; _oscStringBuffer.Clear(); break;
+                                    case '\u009F': _state = State.Apc; _apcStringBuffer.Clear(); break;
+                                    default: _buffer.WriteChar(c); break;
+                                }
                             }
-                            else if (c == '\u0090') // C1 DCS
+                            else if (c < 0x20 || c == 0x7F) // C0 Controls & DEL
                             {
-                                _state = State.Dcs;
-                                _dcsStringBuffer.Clear();
-                            }
-                            else if (c == '\u009D') // C1 OSC
-                            {
-                                _state = State.Osc;
-                                _oscStringBuffer.Clear();
-                            }
-                            else if (c == '\u009F') // C1 APC
-                            {
-                                _state = State.Apc;
-                                _apcStringBuffer.Clear();
-                            }
-                            else if (c == '\a')
-                            {
-                                /* Ignore BEL */
+                                FlushText();
+                                if (c == '\a') { /* Ignore BEL */ }
+                                else
+                                {
+                                    if (_swallowNextNewline)
+                                    {
+                                        if (c == '\r' || c == '\n')
+                                        {
+                                            if (c == '\n') _swallowNextNewline = false;
+                                            continue;
+                                        }
+                                        else _swallowNextNewline = false;
+                                    }
+                                    _buffer.WriteChar(c);
+                                }
                             }
                             else
                             {
-                                if (_swallowNextNewline)
-                                {
-                                    if (c == '\r' || c == '\n')
-                                    {
-                                        // Swallow it
-                                        if (c == '\n') _swallowNextNewline = false; // Done
-                                        continue;
-                                    }
-                                    else
-                                    {
-                                        // Non-newline char? Stop swallowing.
-                                        _swallowNextNewline = false;
-                                    }
-                                }
-                                _buffer.WriteChar(c);
+                                // Printable Characters
+                                _textBuffer.Append(c);
                             }
                             break;
 
@@ -272,6 +278,7 @@ namespace NovaTerminal.Core
                             break;
                     }
                 }
+                FlushText();
             }
             finally
             {
