@@ -56,6 +56,7 @@ namespace NovaTerminal.Core
             RendererStatistics.RecordBytes(input.Length * sizeof(char)); // Simplified for char count
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            _buffer.EnterBatchWrite();
             try
             {
                 foreach (char c in input)
@@ -282,6 +283,7 @@ namespace NovaTerminal.Core
             }
             finally
             {
+                _buffer.ExitBatchWrite();
                 sw.Stop();
                 RendererStatistics.RecordParseTime(sw.ElapsedMilliseconds);
             }

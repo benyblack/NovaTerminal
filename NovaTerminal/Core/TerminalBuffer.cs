@@ -41,19 +41,19 @@ namespace NovaTerminal.Core
         {
             get
             {
-                Lock.EnterReadLock();
+                bool lockTaken = EnterReadLockIfNeeded();
                 try { return _cursorCol; }
-                finally { Lock.ExitReadLock(); }
+                finally { ExitReadLockIfNeeded(Lock, lockTaken); }
             }
             set
             {
-                Lock.EnterWriteLock();
+                bool lockTaken = EnterWriteLockIfNeeded();
                 try
                 {
                     _cursorCol = value;
                     _isPendingWrap = false;
                 }
-                finally { Lock.ExitWriteLock(); }
+                finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
             }
         }
 
@@ -61,19 +61,19 @@ namespace NovaTerminal.Core
         {
             get
             {
-                Lock.EnterReadLock();
+                bool lockTaken = EnterReadLockIfNeeded();
                 try { return _cursorRow; }
-                finally { Lock.ExitReadLock(); }
+                finally { ExitReadLockIfNeeded(Lock, lockTaken); }
             }
             set
             {
-                Lock.EnterWriteLock();
+                bool lockTaken = EnterWriteLockIfNeeded();
                 try
                 {
                     _cursorRow = value;
                     _isPendingWrap = false;
                 }
-                finally { Lock.ExitWriteLock(); }
+                finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
             }
         } // Row within viewport (0 to Rows-1)
 
@@ -203,6 +203,32 @@ namespace NovaTerminal.Core
 
         // Thread safety
         public readonly System.Threading.ReaderWriterLockSlim Lock = new System.Threading.ReaderWriterLockSlim(System.Threading.LockRecursionPolicy.NoRecursion);
+        private int _batchWriteDepth;
+        private bool _batchInvalidatePending;
+
+        private bool EnterReadLockIfNeeded()
+        {
+            if (Lock.IsWriteLockHeld || Lock.IsReadLockHeld) return false;
+            Lock.EnterReadLock();
+            return true;
+        }
+
+        private static void ExitReadLockIfNeeded(System.Threading.ReaderWriterLockSlim rwLock, bool lockTaken)
+        {
+            if (lockTaken) rwLock.ExitReadLock();
+        }
+
+        private bool EnterWriteLockIfNeeded()
+        {
+            if (Lock.IsWriteLockHeld) return false;
+            Lock.EnterWriteLock();
+            return true;
+        }
+
+        private static void ExitWriteLockIfNeeded(System.Threading.ReaderWriterLockSlim rwLock, bool lockTaken)
+        {
+            if (lockTaken) rwLock.ExitWriteLock();
+        }
 
         public TerminalBuffer(int cols, int rows)
         {
@@ -239,23 +265,51 @@ namespace NovaTerminal.Core
             ScrollBottom = rows - 1;
         }
 
-        public void AddImage(TerminalImage image)
+        public void EnterBatchWrite()
         {
             Lock.EnterWriteLock();
+            _batchWriteDepth++;
+        }
+
+        public void ExitBatchWrite()
+        {
+            if (!Lock.IsWriteLockHeld || _batchWriteDepth <= 0)
+            {
+                throw new InvalidOperationException("ExitBatchWrite called without an active batch write lock.");
+            }
+
+            _batchWriteDepth--;
+            bool shouldFlushInvalidate = _batchWriteDepth == 0 && _batchInvalidatePending;
+            if (_batchWriteDepth == 0)
+            {
+                _batchInvalidatePending = false;
+            }
+
+            Lock.ExitWriteLock();
+
+            if (shouldFlushInvalidate)
+            {
+                Invalidate();
+            }
+        }
+
+        public void AddImage(TerminalImage image)
+        {
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 _images.Add(image);
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             Invalidate();
         }
 
         public void ClearImages()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 foreach (var img in _images)
@@ -266,14 +320,14 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             Invalidate();
         }
 
         public void Clear(bool resetCursor = true)
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 _scrollback.Clear();
@@ -293,7 +347,7 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
 
             // Mouse modes should only change via DEC private mode sequences,
@@ -304,7 +358,7 @@ namespace NovaTerminal.Core
 
         public void ScreenAlignmentPattern()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 // DECALN: Fill screen with 'E'
@@ -330,7 +384,7 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             Invalidate();
         }
@@ -339,7 +393,7 @@ namespace NovaTerminal.Core
         {
             // Full Reset (RIS)
             Clear(true);
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 ScrollTop = 0;
@@ -368,7 +422,7 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             Invalidate();
         }
@@ -441,24 +495,24 @@ namespace NovaTerminal.Core
 
         public void BeginSync()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 _isSynchronizedOutput = true;
                 _lastSyncStart = DateTime.UtcNow;
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
         }
 
         public void EndSync()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (!_isSynchronizedOutput) return;
                 _isSynchronizedOutput = false;
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
 
             // Trigger deferred invalidation immediately
             OnInvalidate?.Invoke();
@@ -466,6 +520,13 @@ namespace NovaTerminal.Core
 
         public void Invalidate()
         {
+            // Defer all invalidation while a parser batch holds the write lock.
+            if (_batchWriteDepth > 0)
+            {
+                _batchInvalidatePending = true;
+                return;
+            }
+
             // If synchronized, check for timeout safety
             if (_isSynchronizedOutput)
             {
@@ -498,46 +559,59 @@ namespace NovaTerminal.Core
 
         public void WriteChar(char c)
         {
-            Lock.EnterWriteLock();
+            bool tookLock = false;
+            if (!Lock.IsWriteLockHeld)
+            {
+                Lock.EnterWriteLock();
+                tookLock = true;
+            }
+
             try
             {
-                // Only treat as control if it's not a grapheme component (ZWJ, Variation Selectors)
-                // Only treat as control if it's not a grapheme component (ZWJ, Variation Selectors)
-                if (char.IsControl(c) && !char.IsSurrogate(c) && c != '\u200D' && !(c >= '\uFE00' && c <= '\uFE0F'))
-                {
-                    _highSurrogateBuffer = null;
-                    HandleControlCode(c);
-                    _isAfterZwj = false;
-                    _lastCharCol = -1;
-                }
-                else
-                {
-                    if (char.IsHighSurrogate(c))
-                    {
-                        _highSurrogateBuffer = c;
-                        return;
-                    }
-
-                    string grapheme;
-                    if (_highSurrogateBuffer.HasValue && char.IsLowSurrogate(c))
-                    {
-                        grapheme = new string(new[] { _highSurrogateBuffer.Value, c });
-                        _highSurrogateBuffer = null;
-                    }
-                    else
-                    {
-                        _highSurrogateBuffer = null;
-                        grapheme = c.ToString();
-                    }
-
-                    WriteGraphemeInternal(grapheme);
-                }
+                WriteCharCore(c);
             }
             finally
             {
-                Lock.ExitWriteLock();
+                if (tookLock)
+                {
+                    Lock.ExitWriteLock();
+                }
             }
             Invalidate();
+        }
+
+        private void WriteCharCore(char c)
+        {
+            // Only treat as control if it's not a grapheme component (ZWJ, Variation Selectors)
+            if (char.IsControl(c) && !char.IsSurrogate(c) && c != '\u200D' && !(c >= '\uFE00' && c <= '\uFE0F'))
+            {
+                _highSurrogateBuffer = null;
+                HandleControlCode(c);
+                _isAfterZwj = false;
+                _lastCharCol = -1;
+            }
+            else
+            {
+                if (char.IsHighSurrogate(c))
+                {
+                    _highSurrogateBuffer = c;
+                    return;
+                }
+
+                string grapheme;
+                if (_highSurrogateBuffer.HasValue && char.IsLowSurrogate(c))
+                {
+                    grapheme = new string(new[] { _highSurrogateBuffer.Value, c });
+                    _highSurrogateBuffer = null;
+                }
+                else
+                {
+                    _highSurrogateBuffer = null;
+                    grapheme = c.ToString();
+                }
+
+                WriteGraphemeInternal(grapheme);
+            }
         }
 
         private void FlushGrapheme()
@@ -580,11 +654,36 @@ namespace NovaTerminal.Core
             {
                 _isPendingWrap = false;
                 int spaces = 4 - (_cursorCol % 4);
-                for (int i = 0; i < spaces; i++) WriteContent(" ", false);
+                for (int i = 0; i < spaces; i++) WriteContentCore(" ");
             }
         }
 
         internal void WriteContent(string text, bool ignored = false)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+
+            bool tookLock = false;
+            if (!Lock.IsWriteLockHeld)
+            {
+                Lock.EnterWriteLock();
+                tookLock = true;
+            }
+
+            try
+            {
+                WriteContentCore(text);
+            }
+            finally
+            {
+                if (tookLock)
+                {
+                    Lock.ExitWriteLock();
+                }
+            }
+            Invalidate();
+        }
+
+        private void WriteContentCore(string text)
         {
             FlushGrapheme(); // Ensure any single char buffered by WriteChar is handled
             var enumerator = StringInfo.GetTextElementEnumerator(text);
@@ -826,12 +925,12 @@ namespace NovaTerminal.Core
         /// </summary>
         public void ScrollUp()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 ScrollUpInternal();
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
             Invalidate(); // Notify outside lock (optional, Invalidate delegates)
         }
 
@@ -918,12 +1017,12 @@ namespace NovaTerminal.Core
         /// </summary>
         public void ScrollDown()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 ScrollDownInternal();
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
             Invalidate();
         }
 
@@ -962,14 +1061,14 @@ namespace NovaTerminal.Core
 
         public void InsertCharacters(int count)
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 InsertCharactersInternal(count);
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             Invalidate();
         }
@@ -1000,12 +1099,12 @@ namespace NovaTerminal.Core
 
         public void DeleteCharacters(int count)
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 DeleteCharactersInternal(count);
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
             Invalidate();
         }
 
@@ -1051,7 +1150,20 @@ namespace NovaTerminal.Core
 
         public void Write(string text)
         {
-            foreach (char c in text) WriteChar(c);
+            if (string.IsNullOrEmpty(text)) return;
+
+            EnterBatchWrite();
+            try
+            {
+                foreach (char c in text)
+                {
+                    WriteCharCore(c);
+                }
+            }
+            finally
+            {
+                ExitBatchWrite();
+            }
         }
 
         public void Resize(int newCols, int newRows)
@@ -2118,7 +2230,7 @@ namespace NovaTerminal.Core
 
         public void EraseLineToEnd()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (_cursorRow < 0 || _cursorRow >= Rows) return;
@@ -2132,14 +2244,14 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             OnInvalidate?.Invoke();
         }
 
         public void EraseLineFromStart()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (_cursorRow < 0 || _cursorRow >= Rows) return;
@@ -2154,32 +2266,32 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             OnInvalidate?.Invoke();
         }
 
         public void EraseLineAll()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (_cursorRow < 0 || _cursorRow >= Rows) return;
                 ClearRowInternal(_cursorRow);
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
             OnInvalidate?.Invoke();
         }
 
         public void EraseLineAll(int rowIndex)
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (rowIndex < 0 || rowIndex >= Rows) return;
                 ClearRowInternal(rowIndex);
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
             OnInvalidate?.Invoke();
         }
 
@@ -2197,7 +2309,7 @@ namespace NovaTerminal.Core
 
         public void EraseCharacters(int count)
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (_cursorRow < 0 || _cursorRow >= Rows) return;
@@ -2215,7 +2327,7 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             OnInvalidate?.Invoke();
         }
@@ -2223,7 +2335,7 @@ namespace NovaTerminal.Core
         public void InsertLines(int count)
         {
             try { System.IO.File.AppendAllText("resize_debug.log", $"[InsertLines] Count:{count} CursorRow:{_cursorRow}\n"); } catch { }
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (_cursorRow < 0 || _cursorRow >= Rows) return;
@@ -2268,7 +2380,7 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             OnInvalidate?.Invoke();
         }
@@ -2276,7 +2388,7 @@ namespace NovaTerminal.Core
         public void DeleteLines(int count)
         {
             try { System.IO.File.AppendAllText("resize_debug.log", $"[DeleteLines] Count:{count} CursorRow:{_cursorRow}\n"); } catch { }
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (_cursorRow < 0 || _cursorRow >= Rows) return;
@@ -2328,14 +2440,14 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
             OnInvalidate?.Invoke();
         }
 
         public void SetCursorPosition(int col, int row)
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 _cursorCol = Math.Clamp(col, 0, Cols - 1);
@@ -2344,7 +2456,7 @@ namespace NovaTerminal.Core
             }
             finally
             {
-                Lock.ExitWriteLock();
+                ExitWriteLockIfNeeded(Lock, lockTaken);
             }
         }
 
@@ -2353,7 +2465,7 @@ namespace NovaTerminal.Core
         /// </summary>
         public void SwitchToAltScreen()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (_isAltScreen) return;
@@ -2397,7 +2509,7 @@ namespace NovaTerminal.Core
                 Invalidate();
                 OnScreenSwitched?.Invoke(true); // Notify that we switched to alt screen
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
         }
 
         /// <summary>
@@ -2405,7 +2517,7 @@ namespace NovaTerminal.Core
         /// </summary>
         public void SwitchToMainScreen()
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (!_isAltScreen) return;
@@ -2425,7 +2537,7 @@ namespace NovaTerminal.Core
                 Invalidate();
                 OnScreenSwitched?.Invoke(false); // Notify that we switched back to main screen
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
         }
 
         /// <summary>
@@ -2433,7 +2545,7 @@ namespace NovaTerminal.Core
         /// </summary>
         public void SetScrollingRegion(int top, int bottom)
         {
-            Lock.EnterWriteLock();
+            bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 ScrollTop = Math.Clamp(top, 0, Rows - 1);
@@ -2446,7 +2558,7 @@ namespace NovaTerminal.Core
                     ScrollBottom = Rows - 1;
                 }
             }
-            finally { Lock.ExitWriteLock(); }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
         }
         public List<SearchMatch> FindMatches(string query, bool useRegex, bool caseSensitive)
         {
