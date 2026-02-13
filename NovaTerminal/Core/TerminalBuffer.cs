@@ -7,6 +7,7 @@ using System.Text;
 using System.Globalization;
 
 using System.Runtime.CompilerServices;
+using NovaTerminal.Core.Replay;
 
 [assembly: InternalsVisibleTo("NovaTerminal.Tests")]
 
@@ -2678,6 +2679,65 @@ namespace NovaTerminal.Core
                 }
             }
             return list;
+        }
+
+        [System.Diagnostics.Conditional("DEBUG")]
+        public void ApplySnapshot(ReplaySnapshot snapshot)
+        {
+            Lock.EnterWriteLock();
+            try
+            {
+                // Core properties
+                _cursorCol = snapshot.CursorCol;
+                _cursorRow = snapshot.CursorRow;
+                _isAltScreen = snapshot.IsAltScreen;
+
+                // Cells
+                if (!string.IsNullOrEmpty(snapshot.CellsBase64))
+                {
+                    byte[] cellBytes = Convert.FromBase64String(snapshot.CellsBase64);
+                    var cellSpan = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, TerminalCell>(cellBytes.AsSpan());
+
+                    int expectedCells = snapshot.Cols * snapshot.Rows;
+                    if (cellSpan.Length >= expectedCells)
+                    {
+                        // Update viewport
+                        for (int r = 0; r < snapshot.Rows; r++)
+                        {
+                            var row = _viewport[r];
+                            Array.Copy(cellSpan.Slice(r * snapshot.Cols, snapshot.Cols).ToArray(), row.Cells, snapshot.Cols);
+
+                            if (snapshot.RowWraps != null && r < snapshot.RowWraps.Length)
+                            {
+                                row.IsWrapped = snapshot.RowWraps[r];
+                            }
+                            row.TouchRevision();
+                            row.ClearExtendedText();
+                        }
+                    }
+                }
+
+                // Extended Text (Emoji)
+                if (snapshot.ExtendedText != null)
+                {
+                    foreach (var kvp in snapshot.ExtendedText)
+                    {
+                        int r = kvp.Key / snapshot.Cols;
+                        int c = kvp.Key % snapshot.Cols;
+                        if (r < _viewport.Length)
+                        {
+                            _viewport[r].SetExtendedText(c, kvp.Value);
+                        }
+                    }
+                }
+
+                _isPendingWrap = false;
+            }
+            finally
+            {
+                Lock.ExitWriteLock();
+            }
+            Invalidate();
         }
 
         [System.Diagnostics.Conditional("DEBUG")]

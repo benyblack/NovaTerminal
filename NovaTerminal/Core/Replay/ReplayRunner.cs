@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace NovaTerminal.Core.Replay
@@ -21,7 +22,11 @@ namespace NovaTerminal.Core.Replay
             Func<string, Task>? onMarkerCallback = null,
             Func<string, Task>? onInputCallback = null,
             Func<ReplaySnapshot, Task>? onSnapshotCallback = null,
-            bool realtime = false)
+            bool realtime = false,
+            long minTimeMs = 0,
+            long fastForwardToMs = 0,
+            double playbackSpeed = 1.0,
+            CancellationToken ct = default)
         {
             if (!File.Exists(_filePath))
                 throw new FileNotFoundException("Replay file not found", _filePath);
@@ -52,7 +57,16 @@ namespace NovaTerminal.Core.Replay
             // If it's V1, we process the first line immediately.
             bool skipCurrentLine = isV2;
 
-            while (line != null)
+            // Use MinTimeMs if > 0, otherwise start from 0
+            if (minTimeMs > 0)
+            {
+                // If we have a minTime, we assume the caller has already set the state 
+                // to what it was at minTimeMs (e.g. via snapshot).
+                // So we should set lastOffset to minTimeMs to avoid huge initial delays.
+                lastOffset = minTimeMs;
+            }
+
+            while (line != null && !ct.IsCancellationRequested)
             {
                 if (!skipCurrentLine)
                 {
@@ -60,11 +74,12 @@ namespace NovaTerminal.Core.Replay
                     {
                         if (isV2)
                         {
-                            lastOffset = await ProcessV2Line(line, onDataCallback, onResizeCallback, onMarkerCallback, onInputCallback, onSnapshotCallback, realtime, lastOffset);
+                            lastOffset = await ProcessV2Line(line, onDataCallback, onResizeCallback, onMarkerCallback, onInputCallback, onSnapshotCallback,
+                                realtime, lastOffset, minTimeMs, fastForwardToMs, playbackSpeed);
                         }
                         else
                         {
-                            lastOffset = await ProcessV1Line(line, onDataCallback, realtime, lastOffset);
+                            lastOffset = await ProcessV1Line(line, onDataCallback, realtime, lastOffset, minTimeMs, fastForwardToMs, playbackSpeed);
                         }
                     }
                 }
@@ -81,17 +96,41 @@ namespace NovaTerminal.Core.Replay
             Func<string, Task>? onInputCallback,
             Func<ReplaySnapshot, Task>? onSnapshotCallback,
             bool realtime,
-            long lastOffset)
+            long lastOffset,
+            long minTimeMs,
+            long fastForwardToMs,
+            double playbackSpeed)
         {
             try
             {
                 var ev = JsonSerializer.Deserialize(line, ReplayJsonContext.Default.ReplayEvent);
                 if (ev == null) return lastOffset;
 
-                if (realtime)
+                // SKIP logic: If event is strictly before minTimeMs, ignore it completely (unless it's a resize? No, caller handles state).
+                if (ev.TimeOffsetMs < minTimeMs) return lastOffset;
+
+                // FAST FORWARD logic: If event is before fastForwardToMs, process immediately (no delay).
+                bool isFastForwarding = ev.TimeOffsetMs < fastForwardToMs;
+
+                if (realtime && !isFastForwarding)
                 {
                     long delay = ev.TimeOffsetMs - lastOffset;
-                    if (delay > 0) await Task.Delay((int)delay);
+                    if (delay > 0)
+                    {
+                        // Apply playback speed
+                        int outputDelay = (int)(delay / playbackSpeed);
+                        if (outputDelay > 0) await Task.Delay(outputDelay);
+                    }
+                    lastOffset = ev.TimeOffsetMs;
+                }
+                else if (isFastForwarding)
+                {
+                    // Update lastOffset but don't sleep
+                    lastOffset = ev.TimeOffsetMs;
+                }
+                else
+                {
+                    // Normal non-realtime (should behave like fast forward technically, but kept logic same as before)
                     lastOffset = ev.TimeOffsetMs;
                 }
 
@@ -138,7 +177,7 @@ namespace NovaTerminal.Core.Replay
             }
         }
 
-        private async Task<long> ProcessV1Line(string line, Func<byte[], Task> onDataCallback, bool realtime, long lastOffset)
+        private async Task<long> ProcessV1Line(string line, Func<byte[], Task> onDataCallback, bool realtime, long lastOffset, long minTimeMs, long fastForwardToMs, double playbackSpeed)
         {
             try
             {
@@ -154,6 +193,8 @@ namespace NovaTerminal.Core.Replay
                 string tStr = line.Substring(tStart, tEnd - tStart);
                 long timeMs = long.Parse(tStr);
 
+                if (timeMs < minTimeMs) return lastOffset;
+
                 // Extract data
                 int dValueStart = line.IndexOf('"', dIndex + 4) + 1; // Find the " after "d":
                 int dValueEnd = line.LastIndexOf('"');
@@ -161,10 +202,20 @@ namespace NovaTerminal.Core.Replay
 
                 string dataBase64 = line.Substring(dValueStart, dValueEnd - dValueStart);
 
-                if (realtime)
+                bool isFastForwarding = timeMs < fastForwardToMs;
+
+                if (realtime && !isFastForwarding)
                 {
                     long delay = timeMs - lastOffset;
-                    if (delay > 0) await Task.Delay((int)delay);
+                    if (delay > 0)
+                    {
+                        int outputDelay = (int)(delay / playbackSpeed);
+                        if (outputDelay > 0) await Task.Delay(outputDelay);
+                    }
+                    lastOffset = timeMs;
+                }
+                else
+                {
                     lastOffset = timeMs;
                 }
 

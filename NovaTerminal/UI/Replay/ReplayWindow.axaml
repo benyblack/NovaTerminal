@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:NovaTerminal.Controls"
+        xmlns:core="clr-namespace:NovaTerminal.Core"
+        xmlns:local="clr-namespace:NovaTerminal.UI.Replay"
+        x:Class="NovaTerminal.UI.Replay.ReplayWindow"
+        x:DataType="local:ReplayViewModel"
+        Title="Nova Replay Viewer"
+        Width="1000" Height="700"
+        Background="#1E1E1E">
+    <Grid RowDefinitions="*, Auto">
+        <!-- Terminal Viewport -->
+        <Border BorderBrush="#333" BorderThickness="0,0,0,1">
+            <core:TerminalView Name="TermView" Focusable="True" />
+        </Border>
+
+        <!-- Playback Controls -->
+        <Border Grid.Row="1" Background="#252526" Padding="15,10">
+            <Grid ColumnDefinitions="Auto, *, Auto, Auto">
+                <!-- Play/Pause -->
+                <Button Name="BtnPlayPause" Content="▶" Width="40" Height="40" 
+                        CornerRadius="20" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                        FontSize="18" Margin="0,0,15,0"/>
+
+                <!-- Timeline -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="5">
+                    <Slider Name="TimelineSlider" Minimum="0" 
+                            Maximum="{Binding DurationMs}" 
+                            Value="{Binding CurrentTimeMs}"
+                            Foreground="#007ACC"/>
+                    <TextBlock Text="{Binding TimeDisplay}" 
+                               HorizontalAlignment="Center" 
+                               FontSize="12" Foreground="#888"/>
+                </StackPanel>
+
+                <!-- Speed -->
+                <ComboBox Grid.Column="2" Name="ComboSpeed" SelectedIndex="1" Margin="15,0" Width="80">
+                    <ComboBoxItem Content="0.5x" Tag="0.5"/>
+                    <ComboBoxItem Content="1.0x" Tag="1.0"/>
+                    <ComboBoxItem Content="2.0x" Tag="2.0"/>
+                    <ComboBoxItem Content="4.0x" Tag="4.0"/>
+                    <ComboBoxItem Content="8.0x" Tag="8.0"/>
+                </ComboBox>
+
+                <!-- Close -->
+                <Button Grid.Column="3" Name="BtnClose" Content="Close" Width="80" Height="32"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

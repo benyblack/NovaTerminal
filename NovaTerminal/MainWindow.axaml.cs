@@ -188,6 +188,27 @@ namespace NovaTerminal
                 await OpenSettings(1); // Open Tab 1 (Profiles)
             };
 
+            var menuOpenRec = this.FindControl<MenuItem>("MenuOpenRecording");
+            if (menuOpenRec != null) menuOpenRec.Click += async (s, e) =>
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel == null) return;
+
+                var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Open Replay File",
+                    AllowMultiple = false,
+                    FileTypeFilter = new[] { new FilePickerFileType("Nova Recordings") { Patterns = new[] { "*.rec", "*.cast" } } }
+                });
+
+                if (files.Count >= 1)
+                {
+                    var path = files[0].Path.LocalPath;
+                    var replayWin = new NovaTerminal.UI.Replay.ReplayWindow(path);
+                    replayWin.Show();
+                }
+            };
+
             // Global Focus Tracking
             this.AddHandler(GotFocusEvent, (s, e) =>
             {
