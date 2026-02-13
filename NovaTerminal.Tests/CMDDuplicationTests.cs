@@ -16,10 +16,10 @@ namespace NovaTerminal.Tests
             _output = output;
         }
 
-        private List<TerminalRow> GetScrollback(TerminalBuffer buffer)
+        private NovaTerminal.Core.CircularBuffer<TerminalRow> GetScrollback(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            return (List<TerminalRow>)field!.GetValue(buffer)!;
+            return (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
         }
 
         private TerminalRow[] GetViewport(TerminalBuffer buffer)
@@ -66,15 +66,15 @@ namespace NovaTerminal.Tests
             // 5. Check for duplication
 
             var buffer = new TerminalBuffer(80, 24);
-            
+
             // Write some history
             buffer.Write("Command output line 1\n");
             buffer.Write("Command output line 2\n");
-            
+
             // Write CMD prompt
             string prompt = "C:\\Users\\Dev> ";
             buffer.Write(prompt);
-            
+
             int cursorRowBefore = buffer.CursorRow;
             int cursorColBefore = buffer.CursorCol;
 
@@ -118,10 +118,10 @@ namespace NovaTerminal.Tests
         public void CMD_HorizontalGrow_WithPromptRedraw_ShouldNotDuplicate()
         {
             var buffer = new TerminalBuffer(60, 24);
-            
+
             buffer.Write("Output 1\n");
             buffer.Write("Output 2\n");
-            
+
             string prompt = "C:\\Users\\Dev> ";
             buffer.Write(prompt);
 

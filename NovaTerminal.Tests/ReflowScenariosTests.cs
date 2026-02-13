@@ -597,7 +597,7 @@ namespace NovaTerminal.Tests
             // Manaully set a background color on index 4
             var row = GetViewportRow(buffer, 0);
             var lastChar = row.Cells[4];
-            row.Cells[4] = new TerminalCell(lastChar.Character, lastChar.Foreground, Avalonia.Media.Color.Parse("#FF0000"), false, false, true, false);
+            row.Cells[4] = new TerminalCell(lastChar.Character, lastChar.Foreground, TermColor.FromRgb(255, 0, 0), false, false, true, false);
 
             _output.WriteLine("Before Horizontal Grow (10x5):");
             DumpBuffer(buffer);

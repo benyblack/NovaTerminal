@@ -18,7 +18,7 @@ namespace NovaTerminal.Tests
 
             var newTheme = new TerminalTheme
             {
-                Background = Colors.DarkSlateBlue
+                Background = TermColor.FromAvaloniaColor(Colors.DarkSlateBlue)
             };
 
             view.ApplySettings(new TerminalSettings
@@ -26,7 +26,7 @@ namespace NovaTerminal.Tests
                 ActiveTheme = newTheme
             });
 
-            Assert.Equal(Colors.DarkSlateBlue, buffer.Theme.Background);
+            Assert.Equal(TermColor.FromAvaloniaColor(Colors.DarkSlateBlue), buffer.Theme.Background);
         }
 
         [AvaloniaFact]

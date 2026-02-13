@@ -269,7 +269,7 @@ namespace NovaTerminal
             {
                 if (Color.TryParse(editThemeFgInput.Text, out var color) && _editingTheme != null)
                 {
-                    _editingTheme.Foreground = color;
+                    _editingTheme.Foreground = TermColor.FromAvaloniaColor(color);
                     UpdateThemePreview(_editingTheme, "Editor");
                 }
             };
@@ -277,7 +277,7 @@ namespace NovaTerminal
             {
                 if (Color.TryParse(editThemeBgInput.Text, out var color) && _editingTheme != null)
                 {
-                    _editingTheme.Background = color;
+                    _editingTheme.Background = TermColor.FromAvaloniaColor(color);
                     UpdateThemePreview(_editingTheme, "Editor");
                 }
             };
@@ -285,7 +285,7 @@ namespace NovaTerminal
             {
                 if (Color.TryParse(editThemeCursorInput.Text, out var color) && _editingTheme != null)
                 {
-                    _editingTheme.CursorColor = color;
+                    _editingTheme.CursorColor = TermColor.FromAvaloniaColor(color);
                     UpdateThemePreview(_editingTheme, "Editor");
                 }
             };
@@ -1200,14 +1200,14 @@ namespace NovaTerminal
             var sampleText = this.FindControl<TextBlock>("SampleTextBlock");
             var previewArea = this.FindControl<Border>("ThemePreviewArea");
 
-            if (sampleBorder != null) sampleBorder.Background = new SolidColorBrush(theme.Background);
-            if (sampleText != null) sampleText.Foreground = new SolidColorBrush(theme.Foreground);
+            if (sampleBorder != null) sampleBorder.Background = new SolidColorBrush(theme.Background.ToAvaloniaColor());
+            if (sampleText != null) sampleText.Foreground = new SolidColorBrush(theme.Foreground.ToAvaloniaColor());
 
             // Also update the container background to match the theme (so it doesn't look like a black box in a light theme)
             // But lets make it slightly different so we can distinguish the "terminal area"
             if (previewArea != null)
             {
-                previewArea.Background = new SolidColorBrush(theme.Background);
+                previewArea.Background = new SolidColorBrush(theme.Background.ToAvaloniaColor());
                 // Ensure the preview label is visible against this background
                 var children = (previewArea.Child as StackPanel)?.Children;
                 if (children != null && children.Count > 0 && children[0] is TextBlock label)
@@ -1223,7 +1223,7 @@ namespace NovaTerminal
                 var swatch = this.FindControl<Border>($"Swatch{i}");
                 if (swatch != null)
                 {
-                    swatch.Background = new SolidColorBrush(theme.GetAnsiColor(i % 8, i >= 8));
+                    swatch.Background = new SolidColorBrush(theme.GetAnsiColor(i % 8, i >= 8).ToAvaloniaColor());
                 }
             }
         }
@@ -1258,7 +1258,7 @@ namespace NovaTerminal
                 var btn = this.FindControl<Button>($"EditSwatch{i}");
                 if (btn != null)
                 {
-                    btn.Background = new SolidColorBrush(_editingTheme.GetAnsiColor(i % 8, i >= 8));
+                    btn.Background = new SolidColorBrush(_editingTheme.GetAnsiColor(i % 8, i >= 8).ToAvaloniaColor());
                 }
             }
         }
@@ -1269,14 +1269,14 @@ namespace NovaTerminal
 
             var current = _editingTheme.GetAnsiColor(index % 8, index >= 8);
             var hexInput = new TextBox { Text = current.ToString(), Width = 100 };
-            var preview = new Border { Width = 30, Height = 30, Background = new SolidColorBrush(current), CornerRadius = new CornerRadius(4), Margin = new Thickness(5, 0, 0, 0) };
+            var preview = new Border { Width = 30, Height = 30, Background = new SolidColorBrush(current.ToAvaloniaColor()), CornerRadius = new CornerRadius(4), Margin = new Thickness(5, 0, 0, 0) };
 
             hexInput.TextChanged += (s, e) =>
             {
                 if (Color.TryParse(hexInput.Text, out var color))
                 {
                     preview.Background = new SolidColorBrush(color);
-                    _editingTheme.SetAnsiColor(index % 8, index >= 8, color);
+                    _editingTheme.SetAnsiColor(index % 8, index >= 8, TermColor.FromAvaloniaColor(color));
                     target.Background = new SolidColorBrush(color);
                     UpdateThemePreview(_editingTheme, "Editor");
                 }
@@ -1298,13 +1298,13 @@ namespace NovaTerminal
             if (theme == null) theme = _settings.ActiveTheme;
 
             var contrastColor = theme.GetContrastForeground();
-            var contrastForeground = new SolidColorBrush(contrastColor);
+            var contrastForeground = new SolidColorBrush(contrastColor.ToAvaloniaColor());
 
-            this.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
+            this.Background = new Avalonia.Media.SolidColorBrush(theme.Background.ToAvaloniaColor());
             this.Foreground = contrastForeground;
 
             // Set the window theme variant so standard controls (ComboBox, ScrollBar, etc.) adapt
-            this.RequestedThemeVariant = contrastColor == Colors.Black ? ThemeVariant.Light : ThemeVariant.Dark;
+            this.RequestedThemeVariant = contrastColor == TermColor.Black ? ThemeVariant.Light : ThemeVariant.Dark;
 
             // Ensure Profile Editor Panel stays readable (it has dark background)
             var profilePanel = this.FindControl<Border>("ThemeEditorPanel");

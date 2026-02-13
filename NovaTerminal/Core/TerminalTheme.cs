@@ -1,4 +1,3 @@
-using Avalonia.Media;
 using System.Collections.Generic;
 
 namespace NovaTerminal.Core
@@ -6,31 +5,31 @@ namespace NovaTerminal.Core
     public class TerminalTheme
     {
         public string Name { get; set; } = "Default";
-        public Color Foreground { get; set; } = Colors.LightGray;
-        public Color Background { get; set; } = Colors.Black;
-        public Color CursorColor { get; set; } = Colors.White;
+        public TermColor Foreground { get; set; } = TermColor.LightGray;
+        public TermColor Background { get; set; } = TermColor.Black;
+        public TermColor CursorColor { get; set; } = TermColor.White;
 
         // ANSI 0-15
-        public Color Black { get; set; } = Color.FromRgb(0, 0, 0);
-        public Color Red { get; set; } = Color.FromRgb(205, 0, 0);
-        public Color Green { get; set; } = Color.FromRgb(0, 205, 0);
-        public Color Yellow { get; set; } = Color.FromRgb(205, 205, 0);
-        public Color Blue { get; set; } = Color.FromRgb(0, 0, 238);
-        public Color Magenta { get; set; } = Color.FromRgb(205, 0, 205);
-        public Color Cyan { get; set; } = Color.FromRgb(0, 205, 205);
-        public Color White { get; set; } = Color.FromRgb(229, 229, 229);
+        public TermColor Black { get; set; } = TermColor.FromRgb(0, 0, 0);
+        public TermColor Red { get; set; } = TermColor.FromRgb(205, 0, 0);
+        public TermColor Green { get; set; } = TermColor.FromRgb(0, 205, 0);
+        public TermColor Yellow { get; set; } = TermColor.FromRgb(205, 205, 0);
+        public TermColor Blue { get; set; } = TermColor.FromRgb(0, 0, 238);
+        public TermColor Magenta { get; set; } = TermColor.FromRgb(205, 0, 205);
+        public TermColor Cyan { get; set; } = TermColor.FromRgb(0, 205, 205);
+        public TermColor White { get; set; } = TermColor.FromRgb(229, 229, 229);
 
-        public Color BrightBlack { get; set; } = Color.FromRgb(127, 127, 127);
-        public Color BrightRed { get; set; } = Color.FromRgb(255, 0, 0);
-        public Color BrightGreen { get; set; } = Color.FromRgb(0, 255, 0);
-        public Color BrightYellow { get; set; } = Color.FromRgb(255, 255, 0);
-        public Color BrightBlue { get; set; } = Color.FromRgb(92, 92, 255);
-        public Color BrightMagenta { get; set; } = Color.FromRgb(255, 0, 255);
-        public Color BrightCyan { get; set; } = Color.FromRgb(0, 255, 255);
-        public Color BrightWhite { get; set; } = Color.FromRgb(255, 255, 255);
+        public TermColor BrightBlack { get; set; } = TermColor.FromRgb(127, 127, 127);
+        public TermColor BrightRed { get; set; } = TermColor.FromRgb(255, 0, 0);
+        public TermColor BrightGreen { get; set; } = TermColor.FromRgb(0, 255, 0);
+        public TermColor BrightYellow { get; set; } = TermColor.FromRgb(255, 255, 0);
+        public TermColor BrightBlue { get; set; } = TermColor.FromRgb(92, 92, 255);
+        public TermColor BrightMagenta { get; set; } = TermColor.FromRgb(255, 0, 255);
+        public TermColor BrightCyan { get; set; } = TermColor.FromRgb(0, 255, 255);
+        public TermColor BrightWhite { get; set; } = TermColor.FromRgb(255, 255, 255);
 
 
-        public Color GetAnsiColor(int index, bool bright)
+        public TermColor GetAnsiColor(int index, bool bright)
         {
             if (bright)
             {
@@ -61,7 +60,7 @@ namespace NovaTerminal.Core
             };
         }
 
-        public void SetAnsiColor(int index, bool bright, Color color)
+        public void SetAnsiColor(int index, bool bright, TermColor color)
         {
             if (bright)
             {
@@ -120,11 +119,11 @@ namespace NovaTerminal.Core
             };
         }
 
-        public Color GetContrastForeground()
+        public TermColor GetContrastForeground()
         {
             // Formula: 0.299*R + 0.587*G + 0.114*B
             double luminance = (0.299 * Background.R + 0.587 * Background.G + 0.114 * Background.B) / 255.0;
-            return luminance > 0.5 ? Colors.Black : Colors.White;
+            return luminance > 0.5 ? TermColor.Black : TermColor.White;
         }
     }
 }

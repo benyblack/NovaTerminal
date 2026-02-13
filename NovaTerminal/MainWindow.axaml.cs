@@ -633,7 +633,7 @@ namespace NovaTerminal
             if (tabs == null) return;
 
             var theme = _settings.ActiveTheme;
-            var borderBrush = new SolidColorBrush(theme.Blue);
+            var borderBrush = new SolidColorBrush(theme.Blue.ToAvaloniaColor());
 
             // Calculate contrasting foreground for tabs
             double luminance = (0.299 * theme.Background.R + 0.587 * theme.Background.G + 0.114 * theme.Background.B) / 255.0;
@@ -795,13 +795,14 @@ namespace NovaTerminal
             var theme = _settings.ActiveTheme;
 
             // Background brush for the main content area
-            var bgBrush = new SolidColorBrush(theme.Background, _settings.WindowOpacity);
+            var bgBrush = new SolidColorBrush(theme.Background.ToAvaloniaColor(), _settings.WindowOpacity);
 
             // Header/TitleBar brush (slightly darker/different to provide contrast)
+            var themeBg = theme.Background.ToAvaloniaColor();
             var headerBg = Color.FromRgb(
-                (byte)Math.Max(0, theme.Background.R - 10),
-                (byte)Math.Max(0, theme.Background.G - 10),
-                (byte)Math.Max(0, theme.Background.B - 10));
+                (byte)Math.Max(0, themeBg.R - 10),
+                (byte)Math.Max(0, themeBg.G - 10),
+                (byte)Math.Max(0, themeBg.B - 10));
 
             // Use slightly higher opacity for the header to keep buttons visible
             var titleBarOpacity = Math.Min(1.0, _settings.WindowOpacity + 0.1);
@@ -828,11 +829,11 @@ namespace NovaTerminal
             }
 
             var contrastColor = theme.GetContrastForeground();
-            var contrastForeground = new SolidColorBrush(contrastColor);
+            var contrastForeground = new SolidColorBrush(contrastColor.ToAvaloniaColor());
 
             // Set the window theme variant to ensure OS caption buttons (Min/Max/Close)
             // adapt to the background brightness (Dark background -> Light buttons, Light background -> Dark buttons).
-            this.RequestedThemeVariant = contrastColor == Colors.Black ? ThemeVariant.Light : ThemeVariant.Dark;
+            this.RequestedThemeVariant = contrastColor == TermColor.Black ? ThemeVariant.Light : ThemeVariant.Dark;
 
             // Apply to Window Foreground (inherited by many controls)
             this.Foreground = contrastForeground;
@@ -868,15 +869,16 @@ namespace NovaTerminal
             var connTitleText = this.FindControl<TextBlock>("ConnectionTitleText");
             var btnCloseConn = this.FindControl<Button>("BtnCloseConnections");
 
-            if (connTitleBar != null) connTitleBar.Background = new SolidColorBrush(theme.Background.R < 127 ?
-                Color.FromRgb((byte)(theme.Background.R + 20), (byte)(theme.Background.G + 20), (byte)(theme.Background.B + 20)) :
-                Color.FromRgb((byte)Math.Max(0, theme.Background.R - 20), (byte)Math.Max(0, theme.Background.G - 20), (byte)Math.Max(0, theme.Background.B - 20)));
+            var themeBgColor = theme.Background.ToAvaloniaColor();
+            if (connTitleBar != null) connTitleBar.Background = new SolidColorBrush(themeBgColor.R < 127 ?
+                Color.FromRgb((byte)(themeBgColor.R + 20), (byte)(themeBgColor.G + 20), (byte)(themeBgColor.B + 20)) :
+                Color.FromRgb((byte)Math.Max(0, themeBgColor.R - 20), (byte)Math.Max(0, themeBgColor.G - 20), (byte)Math.Max(0, themeBgColor.B - 20)));
 
             if (connTitleText != null) connTitleText.Foreground = contrastForeground;
             if (btnCloseConn != null) btnCloseConn.Foreground = contrastForeground;
 
             var connOverlay = this.FindControl<Border>("ConnectionOverlay");
-            if (connOverlay != null) connOverlay.Background = new SolidColorBrush(theme.Background);
+            if (connOverlay != null) connOverlay.Background = new SolidColorBrush(theme.Background.ToAvaloniaColor());
         }
 
         private void SetupCommandPalette()

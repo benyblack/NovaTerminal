@@ -17,7 +17,7 @@ namespace NovaTerminal.Core
             for (int i = 0; i < cols; i++) Cells[i] = TerminalCell.Default;
         }
 
-        public TerminalRow(int cols, Avalonia.Media.Color fg, Avalonia.Media.Color bg)
+        public TerminalRow(int cols, TermColor fg, TermColor bg)
         {
             Cells = new TerminalCell[cols];
             for (int i = 0; i < cols; i++)

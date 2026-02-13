@@ -1,4 +1,4 @@
-using Avalonia.Media;
+
 
 namespace NovaTerminal.Core
 {
@@ -6,8 +6,8 @@ namespace NovaTerminal.Core
     {
         public char Character;
         public string? Text; // For complex graphemes (emojis, etc.)
-        public Color Foreground;
-        public Color Background;
+        public TermColor Foreground;
+        public TermColor Background;
         public bool IsBold;
         public bool IsInverse;
         public bool IsDefaultForeground;
@@ -24,8 +24,8 @@ namespace NovaTerminal.Core
         {
             Character = ' ',
             Text = null,
-            Foreground = Colors.LightGray,
-            Background = Colors.Black,
+            Foreground = TermColor.LightGray,
+            Background = TermColor.Black,
             IsBold = false,
             IsInverse = false,
             IsDefaultForeground = true,
@@ -38,7 +38,7 @@ namespace NovaTerminal.Core
             BgIndex = -1
         };
 
-        public TerminalCell(char c, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1, bool isWide = false)
+        public TerminalCell(char c, TermColor fg, TermColor bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1, bool isWide = false)
         {
             Character = c;
             Text = null;
@@ -56,7 +56,7 @@ namespace NovaTerminal.Core
             BgIndex = bgIdx;
         }
 
-        public TerminalCell(string text, Color fg, Color bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1, bool isWide = false)
+        public TerminalCell(string text, TermColor fg, TermColor bg, bool isInverse = false, bool isBold = false, bool isDefaultFg = false, bool isDefaultBg = false, bool isHidden = false, short fgIdx = -1, short bgIdx = -1, bool isWide = false)
         {
             Character = text.Length > 0 ? text[0] : ' ';
             Text = text;

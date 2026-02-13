@@ -21,10 +21,10 @@ namespace NovaTerminal.Tests
             _output = output;
         }
 
-        private List<TerminalRow> GetScrollback(TerminalBuffer buffer)
+        private NovaTerminal.Core.CircularBuffer<TerminalRow> GetScrollback(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            return (List<TerminalRow>)field!.GetValue(buffer)!;
+            return (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
         }
 
         private TerminalRow[] GetViewport(TerminalBuffer buffer)
@@ -66,20 +66,20 @@ namespace NovaTerminal.Tests
             // This test reflects ACTUAL PowerShell behavior:
             // PowerShell does NOT redraw the prompt after horizontal resize.
             // The terminal buffer must preserve the prompt itself.
-            
+
             var buffer = new TerminalBuffer(80, 24);
-            
+
             // History
             buffer.Write("Get-ChildItem\n");
             buffer.Write("cd Documents\n");
-            
+
             // PowerShell prompt
             string prompt = "PS C:\\Users\\Dev> ";
             buffer.Write(prompt);
-            
+
             int promptRow = buffer.CursorRow;
             int promptCol = buffer.CursorCol;
-            
+
             _output.WriteLine("=== BEFORE RESIZE ===");
             DumpBuffer(buffer);
 
@@ -94,10 +94,10 @@ namespace NovaTerminal.Tests
             // Cursor row should contain the prompt text
             var vp = GetViewport(buffer);
             var cursorRowText = GetRowText(vp[buffer.CursorRow]);
-            
+
             _output.WriteLine($"Cursor row text: '{cursorRowText}'");
             _output.WriteLine($"Expected prompt: '{prompt}'");
-            
+
             // The prompt MUST be preserved
             Assert.Contains("PS C:\\Users\\Dev>", cursorRowText);
             Assert.NotEqual("", cursorRowText.Trim());
@@ -107,7 +107,7 @@ namespace NovaTerminal.Tests
         public void PowerShell_HorizontalGrow_ShouldPreservePrompt_NoShellRedraw()
         {
             var buffer = new TerminalBuffer(60, 24);
-            
+
             buffer.Write("History 1\n");
             string prompt = "PS> ";
             buffer.Write(prompt);
@@ -124,7 +124,7 @@ namespace NovaTerminal.Tests
             // Assert
             var vp = GetViewport(buffer);
             var cursorRowText = GetRowText(vp[buffer.CursorRow]);
-            
+
             Assert.Contains("PS>", cursorRowText);
         }
     }

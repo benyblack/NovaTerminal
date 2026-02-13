@@ -134,16 +134,16 @@ namespace NovaTerminal.Core
 
                 // Arrows
                 case Key.Up:
-                    sequence = _buffer != null && _buffer.IsApplicationCursorKeys ? "\x1bOA" : "\x1b[A";
+                    sequence = _buffer != null && _buffer.Modes.IsApplicationCursorKeys ? "\x1bOA" : "\x1b[A";
                     break;
                 case Key.Down:
-                    sequence = _buffer != null && _buffer.IsApplicationCursorKeys ? "\x1bOB" : "\x1b[B";
+                    sequence = _buffer != null && _buffer.Modes.IsApplicationCursorKeys ? "\x1bOB" : "\x1b[B";
                     break;
                 case Key.Right:
-                    sequence = _buffer != null && _buffer.IsApplicationCursorKeys ? "\x1bOC" : "\x1b[C";
+                    sequence = _buffer != null && _buffer.Modes.IsApplicationCursorKeys ? "\x1bOC" : "\x1b[C";
                     break;
                 case Key.Left:
-                    sequence = _buffer != null && _buffer.IsApplicationCursorKeys ? "\x1bOD" : "\x1b[D";
+                    sequence = _buffer != null && _buffer.Modes.IsApplicationCursorKeys ? "\x1bOD" : "\x1b[D";
                     break;
                 case Key.Home: sequence = "\x1b[H"; break;
                 case Key.End: sequence = "\x1b[F"; break;
@@ -865,7 +865,7 @@ namespace NovaTerminal.Core
             {
                 // Fallback background fill if fonts aren't ready
                 var theme = buffer.Theme;
-                context.FillRectangle(new SolidColorBrush(theme.Background, _windowOpacity), new Rect(0, 0, Bounds.Width, Bounds.Height));
+                context.FillRectangle(new SolidColorBrush(theme.Background.ToAvaloniaColor(), _windowOpacity), new Rect(0, 0, Bounds.Width, Bounds.Height));
                 return;
             }
 
@@ -938,7 +938,7 @@ namespace NovaTerminal.Core
                 int x = col + 1;
                 int y = row + 1;
 
-                if (_buffer.MouseModeSGR)
+                if (_buffer.Modes.MouseModeSGR)
                 {
                     string sequence = $"\x1b[<{button};{x};{y}M";
                     _session?.SendInput(sequence);
@@ -1110,13 +1110,13 @@ namespace NovaTerminal.Core
             else if (point.Properties.IsRightButtonPressed) button = 2;
 
             // Add motion flag if this is a motion event and AnyEvent mode is active
-            if (motion && _buffer.MouseModeAnyEvent)
+            if (motion && _buffer.Modes.MouseModeAnyEvent)
             {
                 button += 32; // Motion indicator
             }
 
             // Only send if we have SGR mode enabled
-            if (_buffer.MouseModeSGR)
+            if (_buffer.Modes.MouseModeSGR)
             {
                 // SGR format: CSI < button ; x ; y M/m
                 char finalChar = pressed ? 'M' : 'm';

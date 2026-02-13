@@ -1,4 +1,4 @@
-using Avalonia.Media;
+
 using System;
 using System.Collections.Generic;
 using SkiaSharp;
@@ -527,22 +527,22 @@ namespace NovaTerminal.Core
                 switch (mode)
                 {
                     case 1: // DECCKM - Cursor Keys Mode
-                        _buffer.IsApplicationCursorKeys = enable;
+                        _buffer.Modes.IsApplicationCursorKeys = enable;
                         break;
                     case 7: // DECAWM - Auto Wrap Mode
-                        _buffer.IsAutoWrapMode = enable;
+                        _buffer.Modes.IsAutoWrapMode = enable;
                         break;
                     case 1000: // X10 mouse reporting
-                        _buffer.MouseModeX10 = enable;
+                        _buffer.Modes.MouseModeX10 = enable;
                         break;
                     case 1002: // Button event tracking
-                        _buffer.MouseModeButtonEvent = enable;
+                        _buffer.Modes.MouseModeButtonEvent = enable;
                         break;
                     case 1003: // Any event tracking
-                        _buffer.MouseModeAnyEvent = enable;
+                        _buffer.Modes.MouseModeAnyEvent = enable;
                         break;
                     case 1006: // SGR extended mouse mode
-                        _buffer.MouseModeSGR = enable;
+                        _buffer.Modes.MouseModeSGR = enable;
                         break;
                     case 47:    // Alternate screen (legacy)
                     case 1047:  // Alternate screen
@@ -714,7 +714,7 @@ namespace NovaTerminal.Core
             _buffer.IsHidden = false;
         }
 
-        private Color? ParseExtendedColor(ReadOnlySpan<int> args, ref int i, out short index)
+        private TermColor? ParseExtendedColor(ReadOnlySpan<int> args, ref int i, out short index)
         {
             index = -1;
             if (i + 1 >= args.Length) return null;
@@ -733,7 +733,7 @@ namespace NovaTerminal.Core
                 byte r = (byte)args[++i];
                 byte g = (byte)args[++i];
                 byte b = (byte)args[++i];
-                return Color.FromRgb(r, g, b);
+                return TermColor.FromRgb(r, g, b);
             }
             return null;
         }
@@ -1242,12 +1242,12 @@ namespace NovaTerminal.Core
             return 0;
         }
 
-        private Color GetBasicColor(int index, bool bright = false)
+        private TermColor GetBasicColor(int index, bool bright = false)
         {
             return _buffer.Theme.GetAnsiColor(index, bright);
         }
 
-        private Color GetXtermColor(int index)
+        private TermColor GetXtermColor(int index)
         {
             // 0-15: Standard colors from theme
             if (index < 16)
@@ -1265,7 +1265,7 @@ namespace NovaTerminal.Core
 
                 // Mapping 0-5 to 0-255: 0->0, 1->95, 2->135, 3->175, 4->215, 5->255
                 byte ToByte(int v) => (byte)(v == 0 ? 0 : (v * 40 + 55));
-                return Color.FromRgb(ToByte(r), ToByte(g), ToByte(b));
+                return TermColor.FromRgb(ToByte(r), ToByte(g), ToByte(b));
             }
 
             // 232-255: Grayscale
@@ -1273,10 +1273,10 @@ namespace NovaTerminal.Core
             {
                 index -= 232;
                 byte v = (byte)(index * 10 + 8);
-                return Color.FromRgb(v, v, v);
+                return TermColor.FromRgb(v, v, v);
             }
 
-            return Colors.White;
+            return TermColor.White;
         }
     }
 }

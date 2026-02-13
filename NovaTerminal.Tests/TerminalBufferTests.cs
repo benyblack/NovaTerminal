@@ -78,10 +78,10 @@ namespace NovaTerminal.Tests
             }
         }
 
-        private List<TerminalRow> GetScrollback(TerminalBuffer buffer)
+        private NovaTerminal.Core.CircularBuffer<TerminalRow> GetScrollback(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
-            return (List<TerminalRow>)field!.GetValue(buffer)!;
+            return (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
         }
 
         private string GetTextFromRow(TerminalRow row)
@@ -132,7 +132,7 @@ namespace NovaTerminal.Tests
             // Simulating Theme padding or layout
             var paddingRow = new TerminalRow(initialCols);
             for (int c = 0; c < initialCols; c++)
-                paddingRow.Cells[c] = new TerminalCell(' ', Colors.White, Colors.Blue); // Blue background
+                paddingRow.Cells[c] = new TerminalCell(' ', TermColor.White, TermColor.Blue); // Blue background
 
             buffer.Write("\n"); // Normal newline
             // Inject Colored Empty Row manually to be sure
@@ -382,7 +382,7 @@ namespace NovaTerminal.Tests
             for (int i = 0; i < text.Length; i++)
             {
                 row.Cells[i].Character = text[i];
-                row.Cells[i].Foreground = Avalonia.Media.Colors.White;
+                row.Cells[i].Foreground = TermColor.White;
             }
         }
 
@@ -493,7 +493,7 @@ namespace NovaTerminal.Tests
 
             // Assert
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
-            var scrollback = (List<TerminalRow>)field!.GetValue(buffer)!;
+            var scrollback = (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
 
             static string GetTextFromRow(TerminalRow row)
             {
@@ -518,9 +518,9 @@ namespace NovaTerminal.Tests
             // Arrange
             var buffer = new TerminalBuffer(80, 24);
             buffer.Clear();
-            buffer.CurrentBackground = Colors.Red;
+            buffer.CurrentBackground = TermColor.Red;
             buffer.Write("History Red\n");
-            buffer.CurrentBackground = Colors.Black;
+            buffer.CurrentBackground = TermColor.Black;
             buffer.Write("Prompt> ");
 
             // Act
@@ -531,12 +531,12 @@ namespace NovaTerminal.Tests
 
             // Access _scrollback via reflection for thorough check
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
-            var sb = (List<TerminalRow>)field!.GetValue(buffer)!;
+            var sb = (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
 
             // Check Scrollback
             foreach (var row in sb)
                 foreach (var cell in row.Cells)
-                    if (cell.Background == Colors.Red) { foundRed = true; break; }
+                    if (cell.Background == TermColor.Red) { foundRed = true; break; }
 
             // Check Viewport
             if (!foundRed)
@@ -548,7 +548,7 @@ namespace NovaTerminal.Tests
                     {
                         for (int c = 0; c < buffer.Cols; c++)
                         {
-                            if (buffer.GetCellAbsolute(c, r + sb.Count).Background == Colors.Red)
+                            if (buffer.GetCellAbsolute(c, r + sb.Count).Background == TermColor.Red)
                             {
                                 foundRed = true;
                                 break;

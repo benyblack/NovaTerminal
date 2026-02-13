@@ -45,18 +45,19 @@ namespace NovaTerminal.Controls
 
         public void ApplyTheme(TerminalTheme theme)
         {
-            this.Background = new Avalonia.Media.SolidColorBrush(theme.Background);
-            this.Foreground = new Avalonia.Media.SolidColorBrush(theme.Foreground);
+            this.Background = new Avalonia.Media.SolidColorBrush(theme.Background.ToAvaloniaColor());
+            this.Foreground = new Avalonia.Media.SolidColorBrush(theme.Foreground.ToAvaloniaColor());
 
             // Card background calculation
-            var cardColor = theme.Background;
-            if (theme.Background.R < 127) // Dark theme assumption
+            var bgColor = theme.Background.ToAvaloniaColor();
+            var cardColor = bgColor;
+            if (bgColor.R < 127) // Dark theme assumption
                 cardColor = Avalonia.Media.Color.FromRgb((byte)Math.Min(255, cardColor.R + 25), (byte)Math.Min(255, cardColor.G + 25), (byte)Math.Min(255, cardColor.B + 25));
             else // Light theme assumption
                 cardColor = Avalonia.Media.Color.FromRgb((byte)Math.Max(0, cardColor.R - 15), (byte)Math.Max(0, cardColor.G - 15), (byte)Math.Max(0, cardColor.B - 15));
 
             CardBackground = new Avalonia.Media.SolidColorBrush(cardColor);
-            SecondaryForeground = new Avalonia.Media.SolidColorBrush(theme.Foreground) { Opacity = 0.7 };
+            SecondaryForeground = new Avalonia.Media.SolidColorBrush(theme.Foreground.ToAvaloniaColor()) { Opacity = 0.7 };
         }
 
         private void OnSyncClick(object? sender, RoutedEventArgs e)

@@ -43,37 +43,42 @@ namespace NovaTerminal.Core.ThemeImporters
                 var theme = new TerminalTheme
                 {
                     Name = node["name"]?.ToString() ?? "Imported WT Theme",
-                    Foreground = ParseColor(node["foreground"]?.ToString(), Colors.LightGray),
-                    Background = ParseColor(node["background"]?.ToString(), Colors.Black),
-                    CursorColor = ParseColor(node["cursorColor"]?.ToString(), Colors.White),
+                    Foreground = ParseColor(node["foreground"]?.ToString(), TermColor.LightGray),
+                    Background = ParseColor(node["background"]?.ToString(), TermColor.Black),
+                    CursorColor = ParseColor(node["cursorColor"]?.ToString(), TermColor.White),
 
-                    Black = ParseColor(node["black"]?.ToString(), Colors.Black),
-                    Red = ParseColor(node["red"]?.ToString(), Colors.Red),
-                    Green = ParseColor(node["green"]?.ToString(), Colors.Green),
-                    Yellow = ParseColor(node["yellow"]?.ToString(), Colors.Yellow),
-                    Blue = ParseColor(node["blue"]?.ToString(), Colors.Blue),
-                    Magenta = ParseColor(node["purple"]?.ToString(), Colors.Magenta),
-                    Cyan = ParseColor(node["cyan"]?.ToString(), Colors.Cyan),
-                    White = ParseColor(node["white"]?.ToString(), Colors.White),
+                    Black = ParseColor(node["black"]?.ToString(), TermColor.Black),
+                    Red = ParseColor(node["red"]?.ToString(), TermColor.Red),
+                    Green = ParseColor(node["green"]?.ToString(), TermColor.Green),
+                    Yellow = ParseColor(node["yellow"]?.ToString(), TermColor.Yellow),
+                    Blue = ParseColor(node["blue"]?.ToString(), TermColor.Blue),
+                    Magenta = ParseColor(node["purple"]?.ToString(), TermColor.Magenta),
+                    Cyan = ParseColor(node["cyan"]?.ToString(), TermColor.Cyan),
+                    White = ParseColor(node["white"]?.ToString(), TermColor.White),
 
-                    BrightBlack = ParseColor(node["brightBlack"]?.ToString(), Colors.Gray),
-                    BrightRed = ParseColor(node["brightRed"]?.ToString(), Colors.Red),
-                    BrightGreen = ParseColor(node["brightGreen"]?.ToString(), Colors.Green),
-                    BrightYellow = ParseColor(node["brightYellow"]?.ToString(), Colors.Yellow),
-                    BrightBlue = ParseColor(node["brightBlue"]?.ToString(), Colors.Blue),
-                    BrightMagenta = ParseColor(node["brightPurple"]?.ToString(), Colors.Magenta),
-                    BrightCyan = ParseColor(node["brightCyan"]?.ToString(), Colors.Cyan),
-                    BrightWhite = ParseColor(node["brightWhite"]?.ToString(), Colors.White)
+                    BrightBlack = ParseColor(node["brightBlack"]?.ToString(), TermColor.DarkGray),
+                    BrightRed = ParseColor(node["brightRed"]?.ToString(), TermColor.Red),
+                    BrightGreen = ParseColor(node["brightGreen"]?.ToString(), TermColor.Green),
+                    BrightYellow = ParseColor(node["brightYellow"]?.ToString(), TermColor.Yellow),
+                    BrightBlue = ParseColor(node["brightBlue"]?.ToString(), TermColor.Blue),
+                    BrightMagenta = ParseColor(node["brightPurple"]?.ToString(), TermColor.Magenta),
+                    BrightCyan = ParseColor(node["brightCyan"]?.ToString(), TermColor.Cyan),
+                    BrightWhite = ParseColor(node["brightWhite"]?.ToString(), TermColor.White)
                 };
                 return theme;
             }
             catch { return null; }
         }
 
-        private Color ParseColor(string? hex, Color fallback)
+        private TermColor ParseColor(string? hex, TermColor fallback)
         {
             if (string.IsNullOrEmpty(hex)) return fallback;
-            try { return Color.Parse(hex); } catch { return fallback; }
+            try
+            {
+                var avaloniaColor = Color.Parse(hex);
+                return TermColor.FromAvaloniaColor(avaloniaColor);
+            }
+            catch { return fallback; }
         }
     }
 }

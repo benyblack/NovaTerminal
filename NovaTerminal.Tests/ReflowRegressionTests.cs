@@ -59,10 +59,10 @@ namespace NovaTerminal.Tests
             return new string(chars).TrimEnd();
         }
 
-        private List<TerminalRow> GetScrollback(TerminalBuffer buffer)
+        private NovaTerminal.Core.CircularBuffer<TerminalRow> GetScrollback(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            return (List<TerminalRow>)field!.GetValue(buffer)!;
+            return (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
         }
 
         private TerminalRow[] GetViewport(TerminalBuffer buffer)

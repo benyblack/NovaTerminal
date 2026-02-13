@@ -47,7 +47,7 @@ namespace NovaTerminal.Core.ThemeImporters
             return themes;
         }
 
-        private Color ParsePlistColor(XElement dict)
+        private TermColor ParsePlistColor(XElement dict)
         {
             float r = 0, g = 0, b = 0;
             var elements = dict.Elements();
@@ -65,10 +65,10 @@ namespace NovaTerminal.Core.ThemeImporters
                 }
             }
 
-            return Color.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255));
+            return TermColor.FromRgb((byte)(r * 255), (byte)(g * 255), (byte)(b * 255));
         }
 
-        private void MapItermKeyToTheme(string key, Color color, TerminalTheme theme)
+        private void MapItermKeyToTheme(string key, TermColor color, TerminalTheme theme)
         {
             switch (key)
             {

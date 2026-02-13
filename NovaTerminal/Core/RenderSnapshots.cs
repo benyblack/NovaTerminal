@@ -8,8 +8,8 @@ namespace NovaTerminal.Core
     {
         public char Character;
         public string? Text;
-        public Color Foreground;
-        public Color Background;
+        public TermColor Foreground;
+        public TermColor Background;
         public bool IsInverse;
         public bool IsBold;
         public bool IsDefaultForeground;

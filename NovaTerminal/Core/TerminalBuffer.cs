@@ -1,4 +1,4 @@
-using Avalonia.Media;
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -14,30 +14,19 @@ namespace NovaTerminal.Core
 {
     public class TerminalBuffer
     {
-        private class SavedCursorState
-        {
-            public int Row;
-            public int Col;
-            public Color Foreground = Colors.LightGray;
-            public Color Background = Colors.Black;
-            public bool IsInverse;
-            public bool IsBold;
-        }
-
-        private readonly SavedCursorState _mainSavedCursor = new();
-        private readonly SavedCursorState _altSavedCursor = new();
+        private readonly SavedCursorStates _savedCursors = new();
         // Active viewport - what ConPTY writes to (fixed size)
         private TerminalRow[] _viewport;
 
         // Alternate screen buffer support (for vim, htop, less, etc.)
         private TerminalRow[] _mainScreen;
         private TerminalRow[] _altScreen;
-        private List<TerminalRow> _mainScreenScrollback = new List<TerminalRow>(); // Preserve main screen scrollback
+        private CircularBuffer<TerminalRow> _mainScreenScrollback; // Preserve main screen scrollback
         private bool _isAltScreen = false;
         public bool IsAltScreenActive => _isAltScreen;
 
         // Scrollback buffer - historical lines that scrolled off the top
-        private List<TerminalRow> _scrollback = new List<TerminalRow>();
+        private CircularBuffer<TerminalRow> _scrollback;
         public int MaxHistory { get; set; } = 10000;
 
         // Graphics support
@@ -105,8 +94,8 @@ namespace NovaTerminal.Core
         private int _lastCharRow = -1;
         private bool _isAfterZwj = false;
 
-        public Color CurrentForeground { get; set; } = Colors.LightGray;
-        public Color CurrentBackground { get; set; } = Colors.Black;
+        public TermColor CurrentForeground { get; set; } = TermColor.LightGray;
+        public TermColor CurrentBackground { get; set; } = TermColor.Black;
         public short CurrentFgIndex { get; set; } = -1;
         public short CurrentBgIndex { get; set; } = -1;
         public bool IsDefaultForeground { get; set; } = true;
@@ -116,15 +105,9 @@ namespace NovaTerminal.Core
         public bool IsBold { get; set; }
         public bool IsHidden { get; set; }
 
-        // Mouse reporting modes (for TUI apps like vim, htop)
-        public bool MouseModeX10 { get; set; }          // ?1000 - X10 mouse reporting
-        public bool MouseModeButtonEvent { get; set; }  // ?1002 - Button event tracking
-        public bool MouseModeAnyEvent { get; set; }     // ?1003 - Any event tracking
-        public bool MouseModeSGR { get; set; }          // ?1006 - SGR extended mode
 
-        // Input modes
-        public bool IsApplicationCursorKeys { get; set; } // ?1 - DECCKM (Application Cursor Keys)
-        public bool IsAutoWrapMode { get; set; } = true;  // ?7 - DECAWM (Auto Wrap Mode)
+        // Terminal mode state
+        public readonly ModeState Modes = new();
 
         // Scrolling region support (for vim splits, tmux)
         public int ScrollTop { get; set; } = 0;
@@ -146,6 +129,10 @@ namespace NovaTerminal.Core
             CurrentBackground = Theme.Background;
             IsDefaultForeground = true;
             IsDefaultBackground = true;
+
+            // Initialize scrollback buffers
+            _scrollback = new CircularBuffer<TerminalRow>(MaxHistory);
+            _mainScreenScrollback = new CircularBuffer<TerminalRow>(MaxHistory);
 
             _viewport = new TerminalRow[rows];
             for (int i = 0; i < rows; i++)
@@ -239,8 +226,8 @@ namespace NovaTerminal.Core
             {
                 ScrollTop = 0;
                 ScrollBottom = Rows - 1;
-                IsAutoWrapMode = true;
-                IsApplicationCursorKeys = false;
+                Modes.IsAutoWrapMode = true;
+                Modes.IsApplicationCursorKeys = false;
 
                 // Reset SGR
                 IsInverse = false;
@@ -253,10 +240,10 @@ namespace NovaTerminal.Core
                 CurrentBgIndex = -1;
 
                 // Reset Mouse Modes
-                MouseModeX10 = false;
-                MouseModeButtonEvent = false;
-                MouseModeAnyEvent = false;
-                MouseModeSGR = false;
+                Modes.MouseModeX10 = false;
+                Modes.MouseModeButtonEvent = false;
+                Modes.MouseModeAnyEvent = false;
+                Modes.MouseModeSGR = false;
 
                 SwitchToMainScreen();
                 // _tabs.Clear(); // tabs not implemented yet
@@ -384,7 +371,7 @@ namespace NovaTerminal.Core
         /// </summary>
         public bool IsMouseReportingActive()
         {
-            return MouseModeX10 || MouseModeButtonEvent || MouseModeAnyEvent;
+            return Modes.MouseModeX10 || Modes.MouseModeButtonEvent || Modes.MouseModeAnyEvent;
         }
 
 
@@ -587,12 +574,12 @@ namespace NovaTerminal.Core
             int width = GetGraphemeWidth(grapheme);
 
             // Handle auto-wrap
-            if (!IsAutoWrapMode && _cursorCol + width > Cols)
+            if (!Modes.IsAutoWrapMode && _cursorCol + width > Cols)
             {
                 _cursorCol = Cols - width; // Clamp to end
             }
 
-            if (IsAutoWrapMode && _cursorCol + width > Cols)
+            if (Modes.IsAutoWrapMode && _cursorCol + width > Cols)
             {
                 if (_cursorRow >= 0 && _cursorRow < Rows) _viewport[_cursorRow].IsWrapped = true;
                 _cursorCol = 0;
@@ -703,13 +690,14 @@ namespace NovaTerminal.Core
             // 1. If full screen and main screen, add to scrollback
             if (isFullScreenScroll && !_isAltScreen)
             {
+                // CircularBuffer automatically evicts oldest when at capacity
+                bool wasAtCapacity = _scrollback.Count >= MaxHistory;
                 _scrollback.Add(_viewport[0]);
-                if (_scrollback.Count > MaxHistory)
-                {
-                    _scrollback.RemoveAt(0);
 
-                    // When physically removing row 0, all following rows shift down in index
-                    // So we must decrement CellY for ALL images.
+                // If we evicted a row, all following rows shifted down in absolute index
+                // So we must decrement CellY for ALL images.
+                if (wasAtCapacity)
+                {
                     for (int i = _images.Count - 1; i >= 0; i--)
                     {
                         var img = _images[i];
@@ -1091,9 +1079,17 @@ namespace NovaTerminal.Core
                 }
 
                 // 2. Remove pulled lines from scrollback
+                // CircularBuffer doesn't support RemoveRange from the end
+                // We need to rebuild the scrollback without the last N lines
                 if (linesToPull > 0)
                 {
-                    _scrollback.RemoveRange(_scrollback.Count - linesToPull, linesToPull);
+                    var tempScrollback = new CircularBuffer<TerminalRow>(MaxHistory);
+                    int keepCount = _scrollback.Count - linesToPull;
+                    for (int i = 0; i < keepCount; i++)
+                    {
+                        tempScrollback.Add(_scrollback[i]);
+                    }
+                    _scrollback = tempScrollback;
                 }
 
                 // 3. Copy OLD Viewport
@@ -1148,11 +1144,11 @@ namespace NovaTerminal.Core
                 int cursorLogicalIdx = -1;
                 int cursorInLogicalOffset = -1;
 
-                int absMainSavedIdx = _scrollback.Count + _mainSavedCursor.Row;
+                int absMainSavedIdx = _scrollback.Count + _savedCursors.Main.Row;
                 int mainSavedLogicalIdx = -1;
                 int mainSavedInLogicalOffset = -1;
 
-                int absAltSavedIdx = _scrollback.Count + _altSavedCursor.Row;
+                int absAltSavedIdx = _scrollback.Count + _savedCursors.Alt.Row;
                 int altSavedLogicalIdx = -1;
                 int altSavedInLogicalOffset = -1;
 
@@ -1173,7 +1169,7 @@ namespace NovaTerminal.Core
                             break;
                         }
                     }
-                    if (!isEmpty || i <= _cursorRow || i == _mainSavedCursor.Row || i == _altSavedCursor.Row) lastActiveVpRow = i;
+                    if (!isEmpty || i <= _cursorRow || i == _savedCursors.Main.Row || i == _savedCursors.Alt.Row) lastActiveVpRow = i;
                 }
 
                 int vpRowsToTake = lastActiveVpRow + 1;
@@ -1219,13 +1215,13 @@ namespace NovaTerminal.Core
                         if (i == absMainSavedIdx)
                         {
                             mainSavedLogicalIdx = logicalLines.Count;
-                            mainSavedInLogicalOffset = currentLogical.Count + _mainSavedCursor.Col;
+                            mainSavedInLogicalOffset = currentLogical.Count + _savedCursors.Main.Col;
                         }
 
                         if (i == absAltSavedIdx)
                         {
                             altSavedLogicalIdx = logicalLines.Count;
-                            altSavedInLogicalOffset = currentLogical.Count + _altSavedCursor.Col;
+                            altSavedInLogicalOffset = currentLogical.Count + _savedCursors.Alt.Col;
                         }
 
                         int validLen = physRow.Cells.Length;
@@ -1658,15 +1654,13 @@ namespace NovaTerminal.Core
                 sbCount = Math.Clamp(sbCount, 0, total);
                 int vpCount = total - sbCount;
 
+                int initialScrollbackCount = _scrollback.Count;
                 for (int i = 0; i < sbCount; i++) _scrollback.Add(allFlowedRows[i]);
 
-                int discardedRows = 0;
-                if (_scrollback.Count > MaxHistory)
-                {
-                    discardedRows = _scrollback.Count - MaxHistory;
-                    _scrollback.RemoveRange(0, discardedRows);
-                    sbCount -= discardedRows;
-                }
+                // CircularBuffer auto-evicts when at capacity
+                // Calculate how many rows were discarded due to auto-eviction
+                int discardedRows = Math.Max(0, (initialScrollbackCount + sbCount) - _scrollback.Count);
+                sbCount -= discardedRows;
 
                 // Fill viewport
                 // If vpCount < newRows (Growth), we will have empty space at the bottom (Top Anchoring).
@@ -1732,15 +1726,15 @@ namespace NovaTerminal.Core
                 // 7b. Restore Saved Cursors
                 if (newMainSavedPhysRow != -1)
                 {
-                    if (newMainSavedPhysRow < sbCount) _mainSavedCursor.Row = 0;
-                    else _mainSavedCursor.Row = newMainSavedPhysRow - sbCount;
-                    _mainSavedCursor.Col = Math.Clamp(newMainSavedPhysCol, 0, newCols);
+                    if (newMainSavedPhysRow < sbCount) _savedCursors.Main.Row = 0;
+                    else _savedCursors.Main.Row = newMainSavedPhysRow - sbCount;
+                    _savedCursors.Main.Col = Math.Clamp(newMainSavedPhysCol, 0, newCols);
                 }
                 if (newAltSavedPhysRow != -1)
                 {
-                    if (newAltSavedPhysRow < sbCount) _altSavedCursor.Row = 0;
-                    else _altSavedCursor.Row = newAltSavedPhysRow - sbCount;
-                    _altSavedCursor.Col = Math.Clamp(newAltSavedPhysCol, 0, newCols);
+                    if (newAltSavedPhysRow < sbCount) _savedCursors.Alt.Row = 0;
+                    else _savedCursors.Alt.Row = newAltSavedPhysRow - sbCount;
+                    _savedCursors.Alt.Col = Math.Clamp(newAltSavedPhysCol, 0, newCols);
                 }
 
                 // 8. Conditional Cursor Row Clearing (REFINED)
@@ -1902,24 +1896,34 @@ namespace NovaTerminal.Core
         // Saved Cursor State (DEC SC / DEC RC)
         public void SaveCursor()
         {
-            var target = _isAltScreen ? _altSavedCursor : _mainSavedCursor;
+            var target = _isAltScreen ? _savedCursors.Alt : _savedCursors.Main;
             target.Row = CursorRow;
             target.Col = CursorCol;
             target.Foreground = CurrentForeground;
             target.Background = CurrentBackground;
+            target.FgIndex = CurrentFgIndex;
+            target.BgIndex = CurrentBgIndex;
+            target.IsDefaultForeground = IsDefaultForeground;
+            target.IsDefaultBackground = IsDefaultBackground;
             target.IsInverse = IsInverse;
             target.IsBold = IsBold;
+            target.IsHidden = IsHidden;
         }
 
         public void RestoreCursor()
         {
-            var source = _isAltScreen ? _altSavedCursor : _mainSavedCursor;
+            var source = _isAltScreen ? _savedCursors.Alt : _savedCursors.Main;
             CursorRow = Math.Clamp(source.Row, 0, Rows - 1);
             CursorCol = Math.Clamp(source.Col, 0, Cols - 1);
             CurrentForeground = source.Foreground;
             CurrentBackground = source.Background;
+            CurrentFgIndex = source.FgIndex;
+            CurrentBgIndex = source.BgIndex;
+            IsDefaultForeground = source.IsDefaultForeground;
+            IsDefaultBackground = source.IsDefaultBackground;
             IsInverse = source.IsInverse;
             IsBold = source.IsBold;
+            IsHidden = source.IsHidden;
         }
 
         public void EraseLineToEnd()

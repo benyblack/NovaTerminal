@@ -16,10 +16,10 @@ namespace NovaTerminal.Tests
             _output = output;
         }
 
-        private List<TerminalRow> GetScrollback(TerminalBuffer buffer)
+        private NovaTerminal.Core.CircularBuffer<TerminalRow> GetScrollback(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            return (List<TerminalRow>)field!.GetValue(buffer)!;
+            return (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
         }
 
         private TerminalRow[] GetViewport(TerminalBuffer buffer)
@@ -51,7 +51,7 @@ namespace NovaTerminal.Tests
 
             var row = GetViewport(buffer)[buffer.CursorRow];
             for (int i = 0; i < right.Length; i++)
-                row.Cells[rightPos + i] = new TerminalCell(right[i], Avalonia.Media.Color.FromUInt32(0xFFFFFFFF), Avalonia.Media.Color.FromUInt32(0xFF000000), false, false, false, false);
+                row.Cells[rightPos + i] = new TerminalCell(right[i], TermColor.White, TermColor.Black, false, false, false, false);
 
             _output.WriteLine("=== INITIAL (50) ===");
             _output.WriteLine(GetRowText(row));
