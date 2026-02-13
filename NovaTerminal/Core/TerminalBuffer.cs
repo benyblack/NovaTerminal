@@ -2361,7 +2361,7 @@ namespace NovaTerminal.Core
 
         public void InsertLines(int count)
         {
-            try { System.IO.File.AppendAllText("resize_debug.log", $"[InsertLines] Count:{count} CursorRow:{_cursorRow}\n"); } catch { }
+            try { System.IO.File.AppendAllText(AppPaths.ResizeDebugLogPath, $"[InsertLines] Count:{count} CursorRow:{_cursorRow}\n"); } catch { }
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
@@ -2414,7 +2414,7 @@ namespace NovaTerminal.Core
 
         public void DeleteLines(int count)
         {
-            try { System.IO.File.AppendAllText("resize_debug.log", $"[DeleteLines] Count:{count} CursorRow:{_cursorRow}\n"); } catch { }
+            try { System.IO.File.AppendAllText(AppPaths.ResizeDebugLogPath, $"[DeleteLines] Count:{count} CursorRow:{_cursorRow}\n"); } catch { }
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {

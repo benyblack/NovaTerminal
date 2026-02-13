@@ -12,7 +12,7 @@ namespace NovaTerminal.Core
 {
     public static class SessionManager
     {
-        private static string SessionPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NovaTerminal", "last_session.json");
+        private static string SessionPath => AppPaths.SessionFilePath;
 
         public static void SaveSession(Window window, TabControl tabs)
         {

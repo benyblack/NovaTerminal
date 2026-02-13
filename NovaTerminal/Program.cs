@@ -23,7 +23,8 @@ class Program
         catch (Exception ex)
         {
             TerminalLogger.Log("Startup error: " + ex.ToString());
-            System.IO.File.WriteAllText("startup_error.txt", ex.ToString());
+            AppPaths.EnsureInitialized();
+            System.IO.File.WriteAllText(AppPaths.StartupErrorFilePath, ex.ToString());
             throw;
         }
     }

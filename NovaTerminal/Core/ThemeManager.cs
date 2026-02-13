@@ -19,7 +19,8 @@ namespace NovaTerminal.Core
 
         public ThemeManager(string? themesDirectory = null)
         {
-            _themesDirectory = themesDirectory ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "themes");
+            AppPaths.EnsureInitialized();
+            _themesDirectory = themesDirectory ?? AppPaths.ThemesDirectory;
             if (!Directory.Exists(_themesDirectory))
             {
                 Directory.CreateDirectory(_themesDirectory);

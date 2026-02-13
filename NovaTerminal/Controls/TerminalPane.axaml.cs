@@ -71,7 +71,7 @@ namespace NovaTerminal.Controls
             {
                 try
                 {
-                    string recDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "recordings");
+                    string recDir = AppPaths.RecordingsDirectory;
                     if (!System.IO.Directory.Exists(recDir)) System.IO.Directory.CreateDirectory(recDir);
 
                     string filename = $"nova_rec_{DateTime.Now:yyyyMMdd_HHmmss}.rec";

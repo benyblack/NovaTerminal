@@ -7,8 +7,7 @@ namespace NovaTerminal.Core
 {
     public class TerminalSettings
     {
-        private const string SettingsFile = "settings.json";
-        private static string SettingsPath => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, SettingsFile);
+        private static string SettingsPath => AppPaths.SettingsFilePath;
 
         public double FontSize { get; set; } = 14;
         public int MaxHistory { get; set; } = 10000;
@@ -92,6 +91,7 @@ namespace NovaTerminal.Core
 
         public static TerminalSettings Load()
         {
+            AppPaths.EnsureInitialized();
             TerminalSettings settings;
             if (File.Exists(SettingsPath))
             {
@@ -170,6 +170,7 @@ namespace NovaTerminal.Core
         {
             try
             {
+                AppPaths.EnsureInitialized();
                 string json = JsonSerializer.Serialize(this, AppJsonContext.Default.TerminalSettings);
                 File.WriteAllText(SettingsPath, json);
             }

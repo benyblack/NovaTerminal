@@ -5,10 +5,12 @@ namespace NovaTerminal.Core
 {
     public static class TerminalLogger
     {
-        private static readonly string LogFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "NovaTerminal", "debug.log");
+        private static readonly string LogFilePath = AppPaths.DebugLogPath;
 
         static TerminalLogger()
         {
+            AppPaths.EnsureInitialized();
+
             // Ensure the directory exists
             var directory = Path.GetDirectoryName(LogFilePath);
             if (!string.IsNullOrEmpty(directory))
