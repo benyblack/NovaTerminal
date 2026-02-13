@@ -9,8 +9,9 @@ namespace NovaTerminal.Core.Replay
         public int CursorRow { get; set; }
         public bool IsAltScreen { get; set; }
         public string[] Lines { get; set; } = System.Array.Empty<string>();
+        public string[]? AttributeLines { get; set; }
 
-        public static BufferSnapshot Capture(TerminalBuffer buffer)
+        public static BufferSnapshot Capture(TerminalBuffer buffer, bool includeAttributes = false)
         {
             var snapshot = new BufferSnapshot
             {
@@ -39,6 +40,29 @@ namespace NovaTerminal.Core.Replay
                 return sb.ToString().TrimEnd();
             }).ToArray();
 
+            if (includeAttributes)
+            {
+                snapshot.AttributeLines = rows.Select(r =>
+                {
+                    var sb = new StringBuilder();
+                    for (int i = 0; i < r.Cells.Length; i++)
+                    {
+                        var cell = r.Cells[i];
+                        if (cell.IsWideContinuation) continue;
+
+                        // Ignore Dirty bit for deterministic snapshot comparison.
+                        ushort flags = (ushort)(cell.Flags & ~(ushort)TerminalCellFlags.Dirty);
+                        sb.Append(flags.ToString("X4"));
+                        sb.Append(':');
+                        sb.Append(cell.FgIndex);
+                        sb.Append('/');
+                        sb.Append(cell.BgIndex);
+                        sb.Append('|');
+                    }
+                    return sb.ToString();
+                }).ToArray();
+            }
+
             return snapshot;
         }
 
@@ -50,6 +74,15 @@ namespace NovaTerminal.Core.Replay
             for (int i = 0; i < Lines.Length; i++)
             {
                 sb.AppendLine($"{i:D3}| {Lines[i]}");
+            }
+
+            if (AttributeLines != null)
+            {
+                sb.AppendLine("--- Cell Attributes ---");
+                for (int i = 0; i < AttributeLines.Length; i++)
+                {
+                    sb.AppendLine($"{i:D3}| {AttributeLines[i]}");
+                }
             }
             return sb.ToString();
         }

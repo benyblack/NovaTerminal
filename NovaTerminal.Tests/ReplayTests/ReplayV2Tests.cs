@@ -108,6 +108,13 @@ namespace NovaTerminal.Tests.ReplayTests
                 Assert.Contains("Prompt> ", gatheredData.ToString());
                 Assert.Contains("file1.txt", gatheredData.ToString());
                 Assert.Equal("ls\r", gatheredInput.ToString());
+
+                // Input event should carry raw bytes in d (base64), with legacy i present.
+                var lines = File.ReadAllLines(tempFile);
+                string? inputLine = lines.FirstOrDefault(l => l.Contains("\"type\":\"input\""));
+                Assert.NotNull(inputLine);
+                Assert.Contains("\"d\":\"", inputLine);
+                Assert.Contains("\"i\":\"ls\\r\"", inputLine);
             }
             finally
             {
@@ -133,6 +140,17 @@ namespace NovaTerminal.Tests.ReplayTests
 
                 buffer.CursorRow = 5;
                 buffer.CursorCol = 10;
+                buffer.SetScrollingRegion(2, 20);
+                buffer.Modes.IsAutoWrapMode = false;
+                buffer.Modes.IsApplicationCursorKeys = true;
+                buffer.Modes.IsOriginMode = true;
+                buffer.Modes.IsBracketedPasteMode = true;
+                buffer.Modes.IsCursorVisible = false;
+                buffer.IsBold = true;
+                buffer.IsItalic = true;
+                buffer.IsUnderline = true;
+                buffer.IsStrikethrough = true;
+                buffer.IsFaint = true;
 
                 // 2. Record Snapshot
                 using (var recorder = new PtyRecorder(tempFile, 80, 24))
@@ -158,6 +176,18 @@ namespace NovaTerminal.Tests.ReplayTests
                 Assert.Equal(24, restoredSnapshot!.Rows);
                 Assert.Equal(5, restoredSnapshot!.CursorRow);
                 Assert.Equal(10, restoredSnapshot!.CursorCol);
+                Assert.Equal(2, restoredSnapshot.ScrollTop);
+                Assert.Equal(20, restoredSnapshot.ScrollBottom);
+                Assert.False(restoredSnapshot.IsAutoWrapMode);
+                Assert.True(restoredSnapshot.IsApplicationCursorKeys);
+                Assert.True(restoredSnapshot.IsOriginMode);
+                Assert.True(restoredSnapshot.IsBracketedPasteMode);
+                Assert.False(restoredSnapshot.IsCursorVisible);
+                Assert.True(restoredSnapshot.IsBold);
+                Assert.True(restoredSnapshot.IsItalic);
+                Assert.True(restoredSnapshot.IsUnderline);
+                Assert.True(restoredSnapshot.IsStrikethrough);
+                Assert.True(restoredSnapshot.IsFaint);
 
                 // Verify extended text (Emoji)
                 Assert.NotNull(restoredSnapshot.ExtendedText);
@@ -241,6 +271,93 @@ namespace NovaTerminal.Tests.ReplayTests
             {
                 if (File.Exists(tempFile)) File.Delete(tempFile);
             }
+        }
+
+        [Fact]
+        public async Task ReplayReaderWriter_Aliases_Work()
+        {
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                using (var writer = new ReplayWriter(tempFile, 80, 24, "pwsh.exe"))
+                {
+                    byte[] data = Encoding.UTF8.GetBytes("Alias");
+                    writer.RecordChunk(data, data.Length);
+                }
+
+                var gathered = new StringBuilder();
+                var reader = new ReplayReader(tempFile);
+                await reader.RunAsync(async (data) =>
+                {
+                    gathered.Append(Encoding.UTF8.GetString(data));
+                    await Task.CompletedTask;
+                });
+
+                Assert.Equal("Alias", gathered.ToString());
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public void ApplySnapshot_RestoresModeAndStyleState()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var snapshot = new ReplaySnapshot
+            {
+                Cols = 80,
+                Rows = 24,
+                CursorCol = 7,
+                CursorRow = 3,
+                IsAltScreen = false,
+                ScrollTop = 1,
+                ScrollBottom = 22,
+                IsAutoWrapMode = false,
+                IsApplicationCursorKeys = true,
+                IsOriginMode = true,
+                IsBracketedPasteMode = true,
+                IsCursorVisible = false,
+                CurrentForeground = TermColor.FromRgb(10, 20, 30).ToUint(),
+                CurrentBackground = TermColor.FromRgb(40, 50, 60).ToUint(),
+                CurrentFgIndex = 2,
+                CurrentBgIndex = 4,
+                IsDefaultForeground = false,
+                IsDefaultBackground = false,
+                IsInverse = true,
+                IsBold = true,
+                IsFaint = true,
+                IsItalic = true,
+                IsUnderline = true,
+                IsBlink = true,
+                IsStrikethrough = true,
+                IsHidden = true
+            };
+
+            buffer.ApplySnapshot(snapshot);
+
+            Assert.Equal(7, buffer.CursorCol);
+            Assert.Equal(3, buffer.CursorRow);
+            Assert.Equal(1, buffer.ScrollTop);
+            Assert.Equal(22, buffer.ScrollBottom);
+            Assert.False(buffer.Modes.IsAutoWrapMode);
+            Assert.True(buffer.Modes.IsApplicationCursorKeys);
+            Assert.True(buffer.Modes.IsOriginMode);
+            Assert.True(buffer.Modes.IsBracketedPasteMode);
+            Assert.False(buffer.Modes.IsCursorVisible);
+            Assert.Equal(snapshot.CurrentForeground, buffer.CurrentForeground.ToUint());
+            Assert.Equal(snapshot.CurrentBackground, buffer.CurrentBackground.ToUint());
+            Assert.Equal(snapshot.CurrentFgIndex, buffer.CurrentFgIndex);
+            Assert.Equal(snapshot.CurrentBgIndex, buffer.CurrentBgIndex);
+            Assert.True(buffer.IsInverse);
+            Assert.True(buffer.IsBold);
+            Assert.True(buffer.IsFaint);
+            Assert.True(buffer.IsItalic);
+            Assert.True(buffer.IsUnderline);
+            Assert.True(buffer.IsBlink);
+            Assert.True(buffer.IsStrikethrough);
+            Assert.True(buffer.IsHidden);
         }
     }
 }

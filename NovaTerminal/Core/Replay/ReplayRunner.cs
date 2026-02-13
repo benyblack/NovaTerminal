@@ -165,9 +165,28 @@ namespace NovaTerminal.Core.Replay
                         }
                         break;
                     case "input":
-                        if (!string.IsNullOrEmpty(ev.Input) && onInputCallback != null)
+                        if (onInputCallback != null)
                         {
-                            await onInputCallback(ev.Input);
+                            if (!string.IsNullOrEmpty(ev.Data))
+                            {
+                                try
+                                {
+                                    string input = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(ev.Data));
+                                    await onInputCallback(input);
+                                }
+                                catch
+                                {
+                                    // Fallback to legacy field if decoding fails
+                                    if (!string.IsNullOrEmpty(ev.Input))
+                                    {
+                                        await onInputCallback(ev.Input);
+                                    }
+                                }
+                            }
+                            else if (!string.IsNullOrEmpty(ev.Input))
+                            {
+                                await onInputCallback(ev.Input);
+                            }
                         }
                         break;
                     case "snapshot":

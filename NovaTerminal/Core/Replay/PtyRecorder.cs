@@ -65,12 +65,14 @@ namespace NovaTerminal.Core.Replay
         public void RecordInput(string input)
         {
             if (_cts.IsCancellationRequested) return;
+            byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(input);
 
             _queue.Add(new ReplayEvent
             {
                 TimeOffsetMs = GetTimestamp(),
                 Type = "input",
-                Input = input
+                Data = Convert.ToBase64String(utf8),
+                Input = input // Legacy fallback for old readers
             });
         }
 
@@ -93,6 +95,29 @@ namespace NovaTerminal.Core.Replay
                     CursorCol = buffer.InternalCursorCol,
                     CursorRow = buffer.InternalCursorRow,
                     IsAltScreen = buffer.IsAltScreenActive,
+                    ScrollTop = buffer.ScrollTop,
+                    ScrollBottom = buffer.ScrollBottom,
+
+                    IsAutoWrapMode = buffer.Modes.IsAutoWrapMode,
+                    IsApplicationCursorKeys = buffer.Modes.IsApplicationCursorKeys,
+                    IsOriginMode = buffer.Modes.IsOriginMode,
+                    IsBracketedPasteMode = buffer.Modes.IsBracketedPasteMode,
+                    IsCursorVisible = buffer.Modes.IsCursorVisible,
+
+                    CurrentForeground = buffer.CurrentForeground.ToUint(),
+                    CurrentBackground = buffer.CurrentBackground.ToUint(),
+                    CurrentFgIndex = buffer.CurrentFgIndex,
+                    CurrentBgIndex = buffer.CurrentBgIndex,
+                    IsDefaultForeground = buffer.IsDefaultForeground,
+                    IsDefaultBackground = buffer.IsDefaultBackground,
+                    IsInverse = buffer.IsInverse,
+                    IsBold = buffer.IsBold,
+                    IsFaint = buffer.IsFaint,
+                    IsItalic = buffer.IsItalic,
+                    IsUnderline = buffer.IsUnderline,
+                    IsBlink = buffer.IsBlink,
+                    IsStrikethrough = buffer.IsStrikethrough,
+                    IsHidden = buffer.IsHidden,
                     ExtendedText = new Dictionary<int, string>(),
                     RowWraps = new bool[rowCount]
                 };

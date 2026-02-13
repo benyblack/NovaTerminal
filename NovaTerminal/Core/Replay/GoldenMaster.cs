@@ -9,12 +9,18 @@ namespace NovaTerminal.Core.Replay
         public static void AssertMatches(BufferSnapshot actual, string expectedSnapPath)
         {
             string actualText = actual.ToFormattedString();
+            bool updateGolden = IsUpdateGoldenEnabled();
 
             if (!File.Exists(expectedSnapPath))
             {
-                // If fixture doesn't exist, fail with helpful message (or auto-generate if configured)
-                // For now, fail.
-                throw new FileNotFoundException($"Golden master snapshot not found: {expectedSnapPath}. Run with GEN_GOLDEN=1 to create it (manual implementation needed).");
+                if (updateGolden)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(expectedSnapPath)!);
+                    File.WriteAllText(expectedSnapPath, actualText);
+                    return;
+                }
+
+                throw new FileNotFoundException($"Golden master snapshot not found: {expectedSnapPath}. Set UPDATE_GOLDEN=1 to create it.");
             }
 
             string expectedText = File.ReadAllText(expectedSnapPath);
@@ -25,8 +31,12 @@ namespace NovaTerminal.Core.Replay
 
             if (actualText != expectedText)
             {
-                // In a real runner, we'd output a diff. 
-                // For now, simple exception.
+                if (updateGolden)
+                {
+                    File.WriteAllText(expectedSnapPath, actualText);
+                    return;
+                }
+
                 throw new Exception($"Snapshot mismatch! Expected content from {expectedSnapPath} does not match actual buffer state.");
             }
         }
@@ -34,6 +44,13 @@ namespace NovaTerminal.Core.Replay
         private static string Normalize(string input)
         {
             return input.Replace("\r\n", "\n").Trim();
+        }
+
+        private static bool IsUpdateGoldenEnabled()
+        {
+            string? val = Environment.GetEnvironmentVariable("UPDATE_GOLDEN");
+            return string.Equals(val, "1", StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(val, "true", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
