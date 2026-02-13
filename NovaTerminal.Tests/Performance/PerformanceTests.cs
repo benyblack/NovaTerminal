@@ -2,11 +2,13 @@ using NovaTerminal.Core;
 using System;
 using System.Diagnostics;
 using System.Text;
+using NovaTerminal.Tests.Infra;
 using Xunit;
 using Xunit.Abstractions;
 
 namespace NovaTerminal.Tests.Performance
 {
+    [Collection("RendererStatistics")]
     public class PerformanceTests
     {
         private readonly ITestOutputHelper _output;

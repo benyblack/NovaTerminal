@@ -14,8 +14,6 @@ namespace NovaTerminal.Core
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _readTask;
         private Task? _processTask;
-        private string? _savedPassword;
-        private bool _passwordSent = false;
 
         // Bounded queue for back-pressure - prevents OOM on high-throughput output
         private readonly BlockingCollection<string> _outputQueue = new BlockingCollection<string>(boundedCapacity: 100);
@@ -128,12 +126,6 @@ namespace NovaTerminal.Core
             }
         }
 
-        public void SetSavedPassword(string password)
-        {
-            _savedPassword = password;
-            _passwordSent = false;
-        }
-
         private NovaTerminal.Core.Replay.ReplayWriter? _recorder;
         private TerminalBuffer? _buffer;
 
@@ -188,21 +180,6 @@ namespace NovaTerminal.Core
                     if (charCount > 0)
                     {
                         string text = new string(charBuffer, 0, charCount);
-
-                        // PASSWORD INJECTION (Mimics sshpass but integrated)
-                        if (!string.IsNullOrEmpty(_savedPassword) && !_passwordSent)
-                        {
-                            // Match common password prompts: "Password:", "password:", "[user]'s password:"
-                            if (text.Contains("password:", StringComparison.OrdinalIgnoreCase))
-                            {
-                                Task.Delay(200).ContinueWith(_ =>
-                                {
-                                    SendInput(_savedPassword + "\r");
-                                    _passwordSent = true;
-                                    Console.WriteLine("[RustPtySession] Automated password injected.");
-                                });
-                            }
-                        }
 
                         // Bounded add with timeout - provides back-pressure to PTY
                         if (!_outputQueue.TryAdd(text, 50, _cts.Token))

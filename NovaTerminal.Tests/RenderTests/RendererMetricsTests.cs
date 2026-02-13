@@ -1,9 +1,11 @@
 using NovaTerminal.Core;
 using System.Threading.Tasks;
 using Xunit;
+using NovaTerminal.Tests.Infra;
 
 namespace NovaTerminal.Tests.RenderTests
 {
+    [Collection("RendererStatistics")]
     public class RendererMetricsTests
     {
         [Fact]

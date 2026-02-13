@@ -272,17 +272,6 @@ namespace NovaTerminal.Controls
 
                 Session = new RustPtySession(effectiveShell, cols, rows, args, startingDir);
 
-                // Fetch password from Vault for SSH
-                if (profile != null && profile.Type == ConnectionType.SSH)
-                {
-                    var vault = new VaultService();
-                    string? pwd = vault.GetSecret($"profile_{profile.Id}_password");
-                    if (!string.IsNullOrEmpty(pwd))
-                    {
-                        Session.SetSavedPassword(pwd);
-                    }
-                }
-
                 TermView.SetSession(Session);
             }
             catch (Exception ex)

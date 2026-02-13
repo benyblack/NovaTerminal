@@ -17,6 +17,7 @@ namespace NovaTerminal.ExternalSuites.Vttest
 
         public Guid Id { get; } = Guid.NewGuid();
         public string ShellCommand { get; }
+        public bool IsRecording => false;
 
         public event Action<string>? OnOutputReceived;
         public event Action<int>? OnExit;
@@ -111,7 +112,10 @@ namespace NovaTerminal.ExternalSuites.Vttest
         }
 
         public void Resize(int cols, int rows) { }
-        public void SetSavedPassword(string password) { }
+        public void StartRecording(string filePath) { }
+        public void StopRecording() { }
+        public void AttachBuffer(TerminalBuffer buffer) { }
+        public void TakeSnapshot() { }
 
         public async ValueTask DisposeAsync()
         {

@@ -10,7 +10,6 @@ namespace NovaTerminal.Core
         void SendInput(string input);
         void Resize(int cols, int rows);
         string ShellCommand { get; }
-        void SetSavedPassword(string password);
         void StartRecording(string filePath);
         void StopRecording();
         bool IsRecording { get; }

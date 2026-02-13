@@ -922,13 +922,7 @@ namespace NovaTerminal
             var pwdInput = this.FindControl<TextBox>("SshPasswordInput");
             if (pwdInput != null)
             {
-                // Try new format first (specific to profile name)
-                string key = $"SSH:{profile.Name}:{profile.SshUser}@{profile.SshHost}";
-                // Fallback 1: Old shared format (User@Host)
-                // Fallback 2: Legacy ID format
-                string? pass = _vault.GetSecret(key)
-                            ?? _vault.GetSecret($"SSH:{profile.SshUser}@{profile.SshHost}")
-                            ?? _vault.GetSecret($"profile_{profile.Id}_password");
+                string? pass = _vault.GetSshPasswordForProfile(profile);
 
                 pwdInput.Text = pass ?? "";
                 profile.Password = pass; // Ensure object is sync'd
@@ -1359,13 +1353,7 @@ namespace NovaTerminal
             {
                 if (p.Type == ConnectionType.SSH && p.Password != null)
                 {
-                    // Include Profile Name to ensure uniqueness (distinct passwords per profile)
-                    // Format: "SSH:ProfileName:User@Host"
-                    string key = $"SSH:{p.Name}:{p.SshUser}@{p.SshHost}";
-                    if (!string.IsNullOrEmpty(p.Password))
-                        _vault.SetSecret(key, p.Password);
-                    else
-                        _vault.RemoveSecret(key);
+                    _vault.SetSshPasswordForProfile(p, p.Password);
                 }
             }
 

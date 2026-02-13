@@ -40,6 +40,80 @@ namespace NovaTerminal.Core
             }
         }
 
+        public static string GetCanonicalSshProfileKey(Guid profileId)
+        {
+            return $"SSH:PROFILE:{profileId:D}";
+        }
+
+        public static IEnumerable<string> GetLegacySshKeys(TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            string name = profile.Name?.Trim() ?? string.Empty;
+            string user = profile.SshUser?.Trim() ?? string.Empty;
+            string host = profile.SshHost?.Trim() ?? string.Empty;
+
+            if (!string.IsNullOrEmpty(user) && !string.IsNullOrEmpty(host))
+            {
+                if (!string.IsNullOrEmpty(name))
+                {
+                    yield return $"SSH:{name}:{user}@{host}";
+                }
+
+                yield return $"SSH:{user}@{host}";
+            }
+
+            yield return $"profile_{profile.Id}_password";
+        }
+
+        public static string? ResolveSshPasswordForProfile(
+            TerminalProfile profile,
+            Func<string, string?> readSecret,
+            Action<string, string> writeSecret)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+            ArgumentNullException.ThrowIfNull(readSecret);
+            ArgumentNullException.ThrowIfNull(writeSecret);
+
+            string canonicalKey = GetCanonicalSshProfileKey(profile.Id);
+            string? canonical = readSecret(canonicalKey);
+            if (!string.IsNullOrEmpty(canonical))
+            {
+                return canonical;
+            }
+
+            foreach (string legacyKey in GetLegacySshKeys(profile))
+            {
+                string? legacy = readSecret(legacyKey);
+                if (!string.IsNullOrEmpty(legacy))
+                {
+                    writeSecret(canonicalKey, legacy);
+                    return legacy;
+                }
+            }
+
+            return null;
+        }
+
+        public string? GetSshPasswordForProfile(TerminalProfile profile)
+        {
+            return ResolveSshPasswordForProfile(profile, GetSecret, SetSecret);
+        }
+
+        public void SetSshPasswordForProfile(TerminalProfile profile, string? password)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+            string canonicalKey = GetCanonicalSshProfileKey(profile.Id);
+
+            if (string.IsNullOrEmpty(password))
+            {
+                RemoveSecret(canonicalKey);
+                return;
+            }
+
+            SetSecret(canonicalKey, password);
+        }
+
         public void SetSecret(string key, string value)
         {
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
