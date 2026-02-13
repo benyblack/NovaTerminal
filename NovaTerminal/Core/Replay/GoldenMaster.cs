@@ -8,8 +8,9 @@ namespace NovaTerminal.Core.Replay
     {
         public static void AssertMatches(BufferSnapshot actual, string expectedSnapPath)
         {
-            string actualText = actual.ToFormattedString();
+            string actualText = Normalize(actual.ToFormattedString());
             bool updateGolden = IsUpdateGoldenEnabled();
+            WriteParityArtifact(expectedSnapPath, actualText);
 
             if (!File.Exists(expectedSnapPath))
             {
@@ -26,7 +27,6 @@ namespace NovaTerminal.Core.Replay
             string expectedText = File.ReadAllText(expectedSnapPath);
 
             // Normalize line endings
-            actualText = Normalize(actualText);
             expectedText = Normalize(expectedText);
 
             if (actualText != expectedText)
@@ -51,6 +51,24 @@ namespace NovaTerminal.Core.Replay
             string? val = Environment.GetEnvironmentVariable("UPDATE_GOLDEN");
             return string.Equals(val, "1", StringComparison.OrdinalIgnoreCase) ||
                    string.Equals(val, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void WriteParityArtifact(string expectedSnapPath, string actualText)
+        {
+            string? parityDir = Environment.GetEnvironmentVariable("PARITY_ARTIFACT_DIR");
+            if (string.IsNullOrWhiteSpace(parityDir)) return;
+
+            try
+            {
+                Directory.CreateDirectory(parityDir);
+                string artifactName = Path.GetFileName(expectedSnapPath);
+                string artifactPath = Path.Combine(parityDir, artifactName);
+                File.WriteAllText(artifactPath, actualText + Environment.NewLine);
+            }
+            catch
+            {
+                // Keep parity artifact writing best-effort.
+            }
         }
     }
 }

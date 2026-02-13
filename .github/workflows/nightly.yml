@@ -33,9 +33,8 @@ jobs:
       - name: Build
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
-      # Assumption: Category=ReplayStress runs larger fixtures and may take longer.
-      - name: Run Stress Replay Tests
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=ReplayStress" --logger "trx;LogFileName=replay_stress.trx"
+      - name: Run Stress and Performance Tests
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "(Category=Stress|Category=Performance|Category=Latency)" --logger "trx;LogFileName=replay_stress.trx"
 
       - name: Upload stress artifacts
         if: always()

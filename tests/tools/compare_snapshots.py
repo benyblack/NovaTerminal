@@ -27,8 +27,8 @@ def compare(dirs):
         all_keys.update(s.keys())
     
     if not all_keys:
-        print("No snapshots found to compare.")
-        return True
+        print("FAIL: No snapshots found to compare.")
+        return False
 
     success = True
     for key in sorted(all_keys):

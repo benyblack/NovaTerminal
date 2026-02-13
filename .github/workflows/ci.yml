@@ -133,15 +133,17 @@ jobs:
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Run Replay Tests
+        env:
+          PARITY_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/parity
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=Replay" --logger "trx;LogFileName=replay_tests.trx"
 
-      - name: Upload Replay Snapshots
+      - name: Upload Replay Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: replay-snapshots-${{ runner.os }}
           path: |
-            NovaTerminal.Tests/Fixtures/Replay/*.snap
+            artifacts/parity/**/*.snap
             **/*replay_tests.trx
 
   pty_smoke_tests:
