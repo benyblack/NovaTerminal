@@ -311,8 +311,8 @@ namespace NovaTerminal.Tests
 
             // 2. FORCE Cursor to next line without writing \n
             // This simulates the "Edge Wrap" or "Phantom Newline" state.
-            buffer.SetPrivateField("_cursorRow", 1);
-            buffer.SetPrivateField("_cursorCol", 0);
+            buffer.CursorRow = 1;
+            buffer.CursorCol = 0;
 
             // Add an empty row at index 1 to represent the visual state
             var viewport = GetViewport(buffer);
@@ -356,8 +356,8 @@ namespace NovaTerminal.Tests
             var r2 = new TerminalRow(80); SetRowText(r2, "Line 2"); viewport[1] = r2;
 
             // Set cursor at line 2 (empty) so we don't truncate lines 0 and 1
-            buffer.SetPrivateField("_cursorRow", 2);
-            buffer.SetPrivateField("_cursorCol", 0);
+            buffer.CursorRow = 2;
+            buffer.CursorCol = 0;
 
             // Resize loop
             for (int i = 0; i < 10; i++)

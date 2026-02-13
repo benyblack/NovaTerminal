@@ -49,7 +49,7 @@ namespace NovaTerminal.Tests
                 Assert.True(attachedCell.IsWide);
 
                 // Cursor should be at 2
-                int actualCursorCol = (int)buffer.GetType().GetPrivateField("_cursorCol").GetValue(buffer)!;
+                int actualCursorCol = buffer.CursorCol;
                 Assert.Equal(2, actualCursorCol);
             }
             finally { buffer.Lock.ExitReadLock(); }
@@ -75,7 +75,7 @@ namespace NovaTerminal.Tests
                 // Width must be 2 for the whole cluster! (Man 2 + ZWJ 0 + Woman 2 + ZWJ 0 + Girl 2 -> unified 2)
                 Assert.Equal(2, buffer.GetGraphemeWidth(text));
                 Assert.True(cell.IsWide);
-                int actualCursorCol = (int)buffer.GetType().GetPrivateField("_cursorCol").GetValue(buffer)!;
+                int actualCursorCol = buffer.CursorCol;
                 Assert.Equal(2, actualCursorCol);
             }
             finally { buffer.Lock.ExitReadLock(); }
@@ -105,7 +105,7 @@ namespace NovaTerminal.Tests
                 string text = buffer.GetGraphemeAbsolute(0, 0);
                 Assert.Equal("\U0001F44D\U0001F3FB", text);
                 Assert.Equal(2, buffer.GetGraphemeWidth(text));
-                int actualCursorCol = (int)buffer.GetType().GetPrivateField("_cursorCol").GetValue(buffer)!;
+                int actualCursorCol = buffer.CursorCol;
                 Assert.Equal(2, actualCursorCol);
             }
             finally { buffer.Lock.ExitReadLock(); }

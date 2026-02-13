@@ -64,8 +64,7 @@ namespace NovaTerminal.Tests
             }
             
             // Move cursor to end of right part
-            typeof(TerminalBuffer).GetField("_cursorCol", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-                .SetValue(buffer, rightStartCol + rightPart.Length + 1);
+            buffer.CursorCol = rightStartCol + rightPart.Length + 1;
             
             _output.WriteLine("=== BEFORE SHRINK (80 cols) ===");
             _output.WriteLine($"Row 0: '{GetRowText(viewport[0])}'");
