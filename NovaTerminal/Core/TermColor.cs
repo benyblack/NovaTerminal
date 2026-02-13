@@ -25,6 +25,9 @@ namespace NovaTerminal.Core
         public static TermColor FromRgb(byte r, byte g, byte b) => new TermColor(r, g, b, 255);
         public static TermColor FromArgb(byte a, byte r, byte g, byte b) => new TermColor(r, g, b, a);
 
+        public uint ToUint() => (uint)((A << 24) | (R << 16) | (G << 8) | B);
+        public static TermColor FromUint(uint val) => new TermColor((byte)((val >> 16) & 0xFF), (byte)((val >> 8) & 0xFF), (byte)(val & 0xFF), (byte)((val >> 24) & 0xFF));
+
         // Avalonia interop (for UI layer only)
         public Avalonia.Media.Color ToAvaloniaColor() => Avalonia.Media.Color.FromArgb(A, R, G, B);
         public static TermColor FromAvaloniaColor(Avalonia.Media.Color color) => new TermColor(color.R, color.G, color.B, color.A);

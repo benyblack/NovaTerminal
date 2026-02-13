@@ -28,11 +28,12 @@ namespace NovaTerminal.Core.Replay
             snapshot.Lines = rows.Select(r =>
             {
                 var sb = new StringBuilder();
-                foreach (var cell in r.Cells)
+                for (int i = 0; i < r.Cells.Length; i++)
                 {
+                    var cell = r.Cells[i];
                     if (cell.IsWideContinuation) continue;
 
-                    string text = cell.Text ?? (cell.Character == '\0' ? " " : cell.Character.ToString());
+                    string text = (cell.HasExtendedText ? r.GetExtendedText(i) : null) ?? (cell.Character == '\0' ? " " : cell.Character.ToString());
                     sb.Append(text);
                 }
                 return sb.ToString().TrimEnd();

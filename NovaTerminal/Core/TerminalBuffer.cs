@@ -101,23 +101,79 @@ namespace NovaTerminal.Core
         private int _lastCharCol = -1;
         private int _lastCharRow = -1;
         private bool _isAfterZwj = false;
+        private uint _packedFg;
+        private uint _packedBg;
+        private ushort _packedFlags;
+        private bool _isStyleDirty = true;
 
-        public TermColor CurrentForeground { get; set; } = TermColor.LightGray;
-        public TermColor CurrentBackground { get; set; } = TermColor.Black;
-        public short CurrentFgIndex { get; set; } = -1;
-        public short CurrentBgIndex { get; set; } = -1;
-        public bool IsDefaultForeground { get; set; } = true;
-        public bool IsDefaultBackground { get; set; } = true;
+        private void SyncPackedState()
+        {
+            if (!_isStyleDirty) return;
+
+            _packedFg = IsDefaultForeground ? Theme.Foreground.ToUint() : (CurrentFgIndex >= 0 ? (uint)CurrentFgIndex : CurrentForeground.ToUint());
+            _packedBg = IsDefaultBackground ? Theme.Background.ToUint() : (CurrentBgIndex >= 0 ? (uint)CurrentBgIndex : CurrentBackground.ToUint());
+
+            ushort f = (ushort)TerminalCellFlags.Dirty;
+            if (IsBold) f |= (ushort)TerminalCellFlags.Bold;
+            if (IsItalic) f |= (ushort)TerminalCellFlags.Italic;
+            if (IsInverse) f |= (ushort)TerminalCellFlags.Inverse;
+            if (IsUnderline) f |= (ushort)TerminalCellFlags.Underline;
+            if (IsStrikethrough) f |= (ushort)TerminalCellFlags.Strikethrough;
+            if (IsBlink) f |= (ushort)TerminalCellFlags.Blink;
+            if (IsFaint) f |= (ushort)TerminalCellFlags.Faint;
+            if (IsHidden) f |= (ushort)TerminalCellFlags.Hidden;
+            if (IsDefaultForeground) f |= (ushort)TerminalCellFlags.DefaultForeground;
+            if (IsDefaultBackground) f |= (ushort)TerminalCellFlags.DefaultBackground;
+            if (CurrentFgIndex >= 0) f |= (ushort)TerminalCellFlags.PaletteForeground;
+            if (CurrentBgIndex >= 0) f |= (ushort)TerminalCellFlags.PaletteBackground;
+
+            _packedFlags = f;
+            _isStyleDirty = false;
+        }
+
+        private TermColor _currentForeground = TermColor.LightGray;
+        public TermColor CurrentForeground { get => _currentForeground; set { _currentForeground = value; _isStyleDirty = true; _isDefaultForeground = false; } }
+
+        private TermColor _currentBackground = TermColor.Black;
+        public TermColor CurrentBackground { get => _currentBackground; set { _currentBackground = value; _isStyleDirty = true; _isDefaultBackground = false; } }
+
+        private short _currentFgIndex = -1;
+        public short CurrentFgIndex { get => _currentFgIndex; set { _currentFgIndex = value; _isStyleDirty = true; if (value >= 0) _isDefaultForeground = false; } }
+
+        private short _currentBgIndex = -1;
+        public short CurrentBgIndex { get => _currentBgIndex; set { _currentBgIndex = value; _isStyleDirty = true; if (value >= 0) _isDefaultBackground = false; } }
+
+        private bool _isDefaultForeground = true;
+        public bool IsDefaultForeground { get => _isDefaultForeground; set { _isDefaultForeground = value; _isStyleDirty = true; } }
+
+        private bool _isDefaultBackground = true;
+        public bool IsDefaultBackground { get => _isDefaultBackground; set { _isDefaultBackground = value; _isStyleDirty = true; } }
+
         public TerminalTheme Theme { get; set; } = new TerminalTheme();
-        public bool IsInverse { get; set; }
-        public bool IsBold { get; set; }
-        public bool IsFaint { get; set; }
-        public bool IsItalic { get; set; }
-        public bool IsUnderline { get; set; }
-        public bool IsBlink { get; set; }
-        public bool IsStrikethrough { get; set; }
 
-        public bool IsHidden { get; set; }
+        private bool _isInverse;
+        public bool IsInverse { get => _isInverse; set { _isInverse = value; _isStyleDirty = true; } }
+
+        private bool _isBold;
+        public bool IsBold { get => _isBold; set { _isBold = value; _isStyleDirty = true; } }
+
+        private bool _isFaint;
+        public bool IsFaint { get => _isFaint; set { _isFaint = value; _isStyleDirty = true; } }
+
+        private bool _isItalic;
+        public bool IsItalic { get => _isItalic; set { _isItalic = value; _isStyleDirty = true; } }
+
+        private bool _isUnderline;
+        public bool IsUnderline { get => _isUnderline; set { _isUnderline = value; _isStyleDirty = true; } }
+
+        private bool _isBlink;
+        public bool IsBlink { get => _isBlink; set { _isBlink = value; _isStyleDirty = true; } }
+
+        private bool _isStrikethrough;
+        public bool IsStrikethrough { get => _isStrikethrough; set { _isStrikethrough = value; _isStyleDirty = true; } }
+
+        private bool _isHidden;
+        public bool IsHidden { get => _isHidden; set { _isHidden = value; _isStyleDirty = true; } }
 
         // Pending Wrap State (M1.3)
         private bool _isPendingWrap;
@@ -563,7 +619,7 @@ namespace NovaTerminal.Core
                         var target = _viewport[_cursorRow].Cells[searchCol];
 
                         if (target.IsWideContinuation) { searchCol--; continue; }
-                        if (!string.IsNullOrEmpty(target.Text) || (target.Character != ' ' && target.Character != '\0'))
+                        if (target.HasExtendedText || (target.Character != ' ' && target.Character != '\0'))
                         {
                             attachCol = searchCol;
                             break;
@@ -581,7 +637,7 @@ namespace NovaTerminal.Core
                     {
                         attachCol = _cursorCol - 2;
                     }
-                    else if (!string.IsNullOrEmpty(prev.Text) || (prev.Character != ' ' && prev.Character != '\0'))
+                    else if (prev.HasExtendedText || (prev.Character != ' ' && prev.Character != '\0'))
                     {
                         attachCol = _cursorCol - 1;
                     }
@@ -589,31 +645,33 @@ namespace NovaTerminal.Core
 
                 if (attachCol >= 0)
                 {
-                    // MODIFICATION: Must assign back to array for struct update or use ref correctly
-                    ref var cell = ref _viewport[_cursorRow].Cells[attachCol];
+                    var row = _viewport[_cursorRow];
+                    ref var cell = ref row.Cells[attachCol];
                     if (!cell.IsWideContinuation)
                     {
-                        string existing = cell.Text ?? cell.Character.ToString();
-                        cell.Text = existing + grapheme;
+                        string existing = row.GetExtendedText(attachCol) ?? cell.Character.ToString();
+                        string merged = existing + grapheme;
+                        row.SetExtendedText(attachCol, merged);
+                        cell.HasExtendedText = true;
                         cell.IsDirty = true; // Force redraw
-                        _viewport[_cursorRow].TouchRevision();
+                        row.TouchRevision();
 
                         // Re-evaluate width of the merged cluster
-                        int newWidth = GetGraphemeWidth(cell.Text);
+                        int newWidth = GetGraphemeWidth(merged);
 
                         // ALWAYS enforce wide flag and continuation for width >= 2
-                        // This fixes the case where we attach to an already-wide char but the neighbor
-                        // might have been corrupted or cleared.
                         if (newWidth >= 2)
                         {
                             cell.IsWide = true;
                             if (attachCol + 1 < Cols)
                             {
                                 // Ensure next cell is a continuation
-                                ref var nextCell = ref _viewport[_cursorRow].Cells[attachCol + 1];
+                                ref var nextCell = ref row.Cells[attachCol + 1];
                                 if (!nextCell.IsWideContinuation)
                                 {
-                                    nextCell = new TerminalCell(' ', cell.Foreground, cell.Background, cell.IsInverse, cell.IsBold, cell.IsDefaultForeground, cell.IsDefaultBackground, cell.IsHidden, cell.FgIndex, cell.BgIndex, false, cell.IsFaint, cell.IsItalic, cell.IsUnderline, cell.IsBlink, cell.IsStrikethrough) { IsWideContinuation = true };
+                                    SyncPackedState();
+                                    nextCell = new TerminalCell(' ', _packedFg, _packedBg, (ushort)(_packedFlags | (ushort)TerminalCellFlags.WideContinuation));
+                                    row.SetExtendedText(attachCol + 1, null); // Ensure no old text remains
                                 }
 
                                 // If the cursor was waiting at the next cell, and we just expanded into it, push the cursor forward.
@@ -668,24 +726,38 @@ namespace NovaTerminal.Core
             {
                 if (Modes.IsInsertMode) InsertCharactersInternal(width);
 
-                // Clear continuations
+                var row = _viewport[_cursorRow];
+
+                SyncPackedState();
+
+                // Clear continuations and old extended text
                 for (int i = 0; i < width && _cursorCol + i < Cols; i++)
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol + i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, false, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
+                    row.Cells[_cursorCol + i] = new TerminalCell(' ', _packedFg, _packedBg, _packedFlags);
+                    row.SetExtendedText(_cursorCol + i, null);
+                }
+
+                ushort flags = _packedFlags;
+                if (width >= 2) flags |= (ushort)TerminalCellFlags.Wide;
+                if (grapheme.Length > 1 || (grapheme.Length == 1 && char.IsSurrogate(grapheme[0]))) flags |= (ushort)TerminalCellFlags.HasExtendedText;
+
+                row.Cells[_cursorCol] = new TerminalCell(grapheme[0], _packedFg, _packedBg, flags);
+                if ((flags & (ushort)TerminalCellFlags.HasExtendedText) != 0)
+                {
+                    row.SetExtendedText(_cursorCol, grapheme);
                 }
 
                 if (width >= 2 && _cursorCol + 1 < Cols)
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, true, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
                     int maxCont = Math.Min(width, Cols - _cursorCol);
-                    for (int i = 1; i < maxCont; i++) _viewport[_cursorRow].Cells[_cursorCol + i].IsWideContinuation = true;
-                }
-                else
-                {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, false, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
+                    for (int i = 1; i < maxCont; i++)
+                    {
+                        row.Cells[_cursorCol + i] = new TerminalCell(' ', _packedFg, _packedBg, (ushort)(_packedFlags | (ushort)TerminalCellFlags.WideContinuation));
+                        row.SetExtendedText(_cursorCol + i, null);
+                    }
                 }
 
-                _viewport[_cursorRow].TouchRevision();
+                row.TouchRevision();
                 _lastCharCol = _cursorCol;
                 _lastCharRow = _cursorRow;
                 _cursorCol += width;
@@ -1268,7 +1340,7 @@ namespace NovaTerminal.Core
                 var allPhysicalRows = System.Buffers.ArrayPool<TerminalRow>.Shared.Rent(totalPhysRows);
 
                 // 3. Metadata-Aware Logical Reconstruction
-                var logicalLines = new List<(List<TerminalCell> Cells, bool IsWrapped, int StartPhysIdx)>(totalPhysRows);
+                var logicalLines = new List<(List<(TerminalCell Cell, string? ExtendedText)> Cells, bool IsWrapped, int StartPhysIdx)>(totalPhysRows);
 
                 try
                 {
@@ -1280,7 +1352,7 @@ namespace NovaTerminal.Core
                         else allPhysicalRows[_scrollback.Count + i] = new TerminalRow(oldCols, Theme.Foreground, Theme.Background);
                     }
 
-                    List<TerminalCell>? currentLogical = null;
+                    List<(TerminalCell Cell, string? ExtendedText)>? currentLogical = null;
                     int currentStartPhys = -1;
 
                     // Iterate using totalPhysRows count
@@ -1290,7 +1362,7 @@ namespace NovaTerminal.Core
 
                         if (currentLogical == null)
                         {
-                            currentLogical = new List<TerminalCell>();
+                            currentLogical = new List<(TerminalCell Cell, string? ExtendedText)>();
                             currentStartPhys = i;
                         }
 
@@ -1390,7 +1462,7 @@ namespace NovaTerminal.Core
                             for (int scan = 0; scan < physRow.Cells.Length; scan++)
                             {
                                 var cell = physRow.Cells[scan];
-                                if ((cell.Character != ' ' && cell.Character != '\0') || !cell.IsDefaultBackground)
+                                if ((cell.Character != ' ' && cell.Character != '\0') || !cell.IsDefaultBackground || cell.HasExtendedText)
                                 {
                                     lastContentIdx = scan;
                                 }
@@ -1499,14 +1571,14 @@ namespace NovaTerminal.Core
                                 // Extract Left+Middle
                                 for (int k = 0; k < gapStart; k++)
                                 {
-                                    currentLogical.Add(physRow.Cells[k]);
+                                    currentLogical.Add((physRow.Cells[k], physRow.GetExtendedText(k)));
                                 }
 
                                 // Extract Right Part
-                                var rightCells = new List<TerminalCell>();
+                                var rightCells = new List<(TerminalCell Cell, string? ExtendedText)>();
                                 for (int k = rightStart; k <= rightEnd; k++)
                                 {
-                                    rightCells.Add(physRow.Cells[k]);
+                                    rightCells.Add((physRow.Cells[k], physRow.GetExtendedText(k)));
                                 }
 
                                 // Calculate new position
@@ -1521,7 +1593,7 @@ namespace NovaTerminal.Core
                                     var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                                     for (int s = currentPos; s < newRightPos; s++)
                                     {
-                                        currentLogical.Add(spaceFill);
+                                        currentLogical.Add((spaceFill, null));
                                     }
                                     // Add right content
                                     currentLogical.AddRange(rightCells);
@@ -1530,8 +1602,8 @@ namespace NovaTerminal.Core
                                 {
                                     // Truncate/Squish
                                     var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
-                                    currentLogical.Add(spaceFill);
-                                    currentLogical.Add(spaceFill);
+                                    currentLogical.Add((spaceFill, null));
+                                    currentLogical.Add((spaceFill, null));
 
                                     int available = newCols - currentLogical.Count;
                                     if (available > 0)
@@ -1550,7 +1622,8 @@ namespace NovaTerminal.Core
                         // Normal processing if not sparse row or repositioning failed
                         if (!isSparseRowRepositioned)
                         {
-                            for (int k = 0; k < validLen; k++) currentLogical.Add(physRow.Cells[k]);
+                            for (int k = 0; k < validLen; k++)
+                                currentLogical.Add((physRow.Cells[k], physRow.GetExtendedText(k)));
                         }
 
                         if (!physRow.IsWrapped || ignoreWrap)
@@ -1654,7 +1727,7 @@ namespace NovaTerminal.Core
                             int take = Math.Min(remaining, newCols);
 
                             // Prevent splitting a wide character across lines
-                            if (take < remaining && take > 0 && lineCells[processed + take - 1].IsWide)
+                            if (take < remaining && take > 0 && lineCells[processed + take - 1].Cell.IsWide)
                             {
                                 take--; // This row will end with a space, wide char moves to next row
                             }
@@ -1697,7 +1770,12 @@ namespace NovaTerminal.Core
                             }
 
                             var row = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
-                            for (int c = 0; c < take; c++) row.Cells[c] = lineCells[processed + c];
+                            for (int c = 0; c < take; c++)
+                            {
+                                var entry = lineCells[processed + c];
+                                row.Cells[c] = entry.Cell;
+                                row.SetExtendedText(c, entry.ExtendedText);
+                            }
 
                             // Style-Aware Padding
                             if (take < newCols)
@@ -1966,6 +2044,26 @@ namespace NovaTerminal.Core
             }
         }
 
+        public string GetGraphemeAbsolute(int col, int absRow)
+        {
+            AssertLockHeld();
+            if (absRow < 0) return " ";
+            var row = GetRowAbsolute(absRow);
+            if (row == null || col < 0 || col >= Cols) return " ";
+            var cell = row.Cells[col];
+            return (cell.HasExtendedText ? row.GetExtendedText(col) : null) ?? cell.Character.ToString();
+        }
+
+        public string GetGrapheme(int col, int viewRow)
+        {
+            AssertLockHeld();
+            if (viewRow < 0 || viewRow >= Rows) return " ";
+            var row = _viewport[viewRow];
+            if (col < 0 || col >= Cols) return " ";
+            var cell = row.Cells[col];
+            return (cell.HasExtendedText ? row.GetExtendedText(col) : null) ?? cell.Character.ToString();
+        }
+
         public int GetVisualCursorRow(int scrollOffset = 0)
         {
             // Cursor is at _scrollback.Count + CursorRow
@@ -2027,6 +2125,7 @@ namespace NovaTerminal.Core
                 for (int i = _cursorCol; i < Cols; i++)
                 {
                     row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+                    row.SetExtendedText(i, null);
                 }
                 row.TouchRevision();
             }
@@ -2046,7 +2145,9 @@ namespace NovaTerminal.Core
                 var row = _viewport[_cursorRow];
                 for (int i = 0; i <= _cursorCol; i++)
                 {
+                    if (i >= Cols) break;
                     row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+                    row.SetExtendedText(i, null);
                 }
                 row.TouchRevision();
             }
@@ -2089,6 +2190,7 @@ namespace NovaTerminal.Core
             {
                 row.Cells[i] = empty;
             }
+            row.ClearExtendedText();
             row.TouchRevision();
         }
 
@@ -2106,6 +2208,7 @@ namespace NovaTerminal.Core
                     if (col >= Cols) break;
 
                     row.Cells[col] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
+                    row.SetExtendedText(col, null);
                 }
                 row.TouchRevision();
             }
@@ -2383,7 +2486,7 @@ namespace NovaTerminal.Core
                         var cell = row.Cells[c];
                         if (cell.IsWideContinuation) continue;
 
-                        string text = cell.Text ?? cell.Character.ToString();
+                        string text = (cell.HasExtendedText ? row.GetExtendedText(c) : null) ?? cell.Character.ToString();
                         int startIdx = sb.Length;
                         sb.Append(text);
                         for (int k = 0; k < text.Length; k++) colMapping.Add(c);
@@ -2528,7 +2631,7 @@ namespace NovaTerminal.Core
                 snapshot.Cells[c] = new RenderCellSnapshot
                 {
                     Character = cell.Character,
-                    Text = cell.Text,
+                    Text = cell.HasExtendedText ? row.GetExtendedText(c) : null,
                     Foreground = cell.Foreground,
                     Background = cell.Background,
                     IsInverse = cell.IsInverse,

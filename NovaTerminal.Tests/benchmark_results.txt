@@ -1,0 +1,27 @@
+Test run for D:\projects\nova2\NovaTerminal.Tests\bin\Debug\net10.0\NovaTerminal.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+D:\projects\nova2\NovaTerminal.Tests\bin\Debug\net10.0\NovaTerminal.Tests.dll
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.4+50e68bbb8b (64-bit .NET 10.0.2)
+[xUnit.net 00:00:00.04]   Discovering: NovaTerminal.Tests
+[xUnit.net 00:00:00.08]   Discovered:  NovaTerminal.Tests
+[xUnit.net 00:00:00.10]   Starting:    NovaTerminal.Tests
+  Passed NovaTerminal.Tests.Performance.PerformanceTests.LargeThroughput_Benchmark [462 ms]
+  Standard Output Messages:
+ Processed 2.95 MB in 0.4516s
+ Throughput: 6.54 MB/s
+
+
+[xUnit.net 00:00:01.56]   Finished:    NovaTerminal.Tests
+  Passed NovaTerminal.Tests.Performance.PerformanceTests.ReflowStress_Benchmark [977 ms]
+  Standard Output Messages:
+ Average Reflow Time (1000 lines): 9.48ms
+
+
+
+Test Run Successful.
+Total tests: 2
+     Passed: 2
+ Total time: 1.8441 Seconds

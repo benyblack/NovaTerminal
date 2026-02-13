@@ -11,6 +11,32 @@ namespace NovaTerminal.Core
         public uint Revision { get; set; } = 0;
         public void TouchRevision() => Revision++;
 
+        // M2.2: Side-table for extended graphemes (strings)
+        private Dictionary<int, string>? _extendedText;
+
+        public string? GetExtendedText(int col)
+        {
+            if (_extendedText == null) return null;
+            return _extendedText.TryGetValue(col, out var text) ? text : null;
+        }
+
+        public void SetExtendedText(int col, string? text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                _extendedText?.Remove(col);
+                if (_extendedText?.Count == 0) _extendedText = null;
+                return;
+            }
+            _extendedText ??= new Dictionary<int, string>();
+            _extendedText[col] = text;
+        }
+
+        public void ClearExtendedText()
+        {
+            _extendedText = null;
+        }
+
         public TerminalRow(int cols)
         {
             Cells = new TerminalCell[cols];

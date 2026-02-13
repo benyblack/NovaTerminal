@@ -21,7 +21,7 @@ namespace NovaTerminal.Tests
             try
             {
                 var cell0 = buffer.GetCell(0, 0);
-                Assert.Equal("\U0001F44D", cell0.Text ?? cell0.Character.ToString());
+                Assert.Equal("\U0001F44D", buffer.GetGrapheme(0, 0));
             }
             finally { buffer.Lock.ExitReadLock(); }
         }
@@ -47,7 +47,7 @@ namespace NovaTerminal.Tests
                 var attachedCell = buffer.GetCell(0, 0);
                 string expectedCombined = "\U0001F44D\U0001F3FD";
 
-                Assert.Equal(expectedCombined, attachedCell.Text);
+                Assert.Equal(expectedCombined, buffer.GetGrapheme(0, 0));
 
                 // Cell 1 should be continuation
                 var cell1 = buffer.GetCell(1, 0);
@@ -56,7 +56,7 @@ namespace NovaTerminal.Tests
                 // Cell 2 should be empty
                 var cell2 = buffer.GetCell(2, 0);
                 Assert.Equal(' ', cell2.Character);
-                Assert.Null(cell2.Text);
+                Assert.Equal(" ", buffer.GetGrapheme(2, 0));
             }
             finally { buffer.Lock.ExitReadLock(); }
         }

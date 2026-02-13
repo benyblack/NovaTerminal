@@ -510,7 +510,6 @@ namespace NovaTerminal.Core
                         }
                     }
                     break;
-                    break;
                 case 'c': // DA - Device Attributes
                     if (parameters.Length > 0 && parameters[0] == '>')
                     {

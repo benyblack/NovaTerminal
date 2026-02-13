@@ -25,9 +25,10 @@ namespace NovaTerminal.Tests
             try
             {
                 var cell1 = buffer.GetCellAbsolute(0, 0);
-                Assert.Equal("\U0001F44D", cell1.Text);
+                string text = buffer.GetGraphemeAbsolute(0, 0);
+                Assert.Equal("\U0001F44D", text);
                 Assert.True(cell1.IsWide);
-                Assert.Equal(2, buffer.GetGraphemeWidth(cell1.Text!));
+                Assert.Equal(2, buffer.GetGraphemeWidth(text));
             }
             finally { buffer.Lock.ExitReadLock(); }
 
@@ -39,7 +40,7 @@ namespace NovaTerminal.Tests
             try
             {
                 var attachedCell = buffer.GetCellAbsolute(0, 0);
-                string? finalContent = attachedCell.Text;
+                string? finalContent = buffer.GetGraphemeAbsolute(0, 0);
 
                 Assert.Equal("\U0001F44D\U0001F3FB", finalContent);
 
@@ -68,10 +69,11 @@ namespace NovaTerminal.Tests
             try
             {
                 var cell = buffer.GetCellAbsolute(0, 0);
-                Assert.Equal(family, cell.Text);
+                string text = buffer.GetGraphemeAbsolute(0, 0);
+                Assert.Equal(family, text);
 
                 // Width must be 2 for the whole cluster! (Man 2 + ZWJ 0 + Woman 2 + ZWJ 0 + Girl 2 -> unified 2)
-                Assert.Equal(2, buffer.GetGraphemeWidth(cell.Text!));
+                Assert.Equal(2, buffer.GetGraphemeWidth(text));
                 Assert.True(cell.IsWide);
                 int actualCursorCol = (int)buffer.GetType().GetPrivateField("_cursorCol").GetValue(buffer)!;
                 Assert.Equal(2, actualCursorCol);
@@ -100,8 +102,9 @@ namespace NovaTerminal.Tests
             try
             {
                 var attachedCell = buffer.GetCellAbsolute(0, 0);
-                Assert.Equal("\U0001F44D\U0001F3FB", attachedCell.Text);
-                Assert.Equal(2, buffer.GetGraphemeWidth(attachedCell.Text!));
+                string text = buffer.GetGraphemeAbsolute(0, 0);
+                Assert.Equal("\U0001F44D\U0001F3FB", text);
+                Assert.Equal(2, buffer.GetGraphemeWidth(text));
                 int actualCursorCol = (int)buffer.GetType().GetPrivateField("_cursorCol").GetValue(buffer)!;
                 Assert.Equal(2, actualCursorCol);
             }

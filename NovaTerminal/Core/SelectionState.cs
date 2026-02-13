@@ -94,7 +94,7 @@ namespace NovaTerminal.Core
                 {
                     var cell = buffer.GetCellAbsolute(col, row);
                     if (cell.IsWideContinuation) continue;
-                    sb.Append(cell.Text ?? cell.Character.ToString());
+                    sb.Append(buffer.GetGraphemeAbsolute(col, row));
                 }
 
                 // Add line break if not the last row

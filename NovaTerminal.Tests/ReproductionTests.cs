@@ -24,7 +24,7 @@ namespace NovaTerminal.Tests
                 var cell0 = buffer.GetCell(0, 0);
                 var cell1 = buffer.GetCell(1, 0); // Should be wide continuation or empty depending on impl
 
-                Assert.Equal(baseEmoji, cell0.Text ?? cell0.Character.ToString());
+                Assert.Equal(baseEmoji, buffer.GetGrapheme(0, 0));
                 // Assert.True(cell0.IsWide, "Base emoji should be wide"); // Actually it might be 1 or 2 depending on font fallback, currently simulated as 2 in GetRuneWidth
             }
             finally { buffer.Lock.ExitReadLock(); }
@@ -41,7 +41,7 @@ namespace NovaTerminal.Tests
                 string expectedCombined = baseEmoji + modifier;
 
                 // This is the check that fails in the live app
-                Assert.Equal(expectedCombined, attachedCell.Text);
+                Assert.Equal(expectedCombined, buffer.GetGrapheme(0, 0));
 
                 // Verify no ghost character at index 1 or 2
                 // If attachment works, the cursor should be at 2 (since width is 2).
@@ -52,7 +52,7 @@ namespace NovaTerminal.Tests
                 // Cell 2 should be empty
                 var cell2 = buffer.GetCell(2, 0);
                 Assert.Equal(' ', cell2.Character);
-                Assert.Null(cell2.Text);
+                Assert.Equal(" ", buffer.GetGrapheme(2, 0));
             }
             finally { buffer.Lock.ExitReadLock(); }
         }
