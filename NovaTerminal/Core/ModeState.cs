@@ -14,6 +14,9 @@ namespace NovaTerminal.Core
         // Cursor and display modes
         public bool IsApplicationCursorKeys { get; set; } // ?1 - DECCKM (Application Cursor Keys)
         public bool IsAutoWrapMode { get; set; } = true;  // ?7 - DECAWM (Auto Wrap Mode)
+        public bool IsBracketedPasteMode { get; set; }    // ?2004 - Bracketed Paste Mode
+        public bool IsCursorVisible { get; set; } = true; // ?25 - DECTCEM (Text Cursor Enable Mode)
+        public bool IsInsertMode { get; set; }            //  4 - IRM (Insert Replacement Mode)
 
         public ModeState Clone()
         {
@@ -24,7 +27,10 @@ namespace NovaTerminal.Core
                 MouseModeAnyEvent = this.MouseModeAnyEvent,
                 MouseModeSGR = this.MouseModeSGR,
                 IsApplicationCursorKeys = this.IsApplicationCursorKeys,
-                IsAutoWrapMode = this.IsAutoWrapMode
+                IsAutoWrapMode = this.IsAutoWrapMode,
+                IsBracketedPasteMode = this.IsBracketedPasteMode,
+                IsCursorVisible = this.IsCursorVisible,
+                IsInsertMode = this.IsInsertMode
             };
         }
     }

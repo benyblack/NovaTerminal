@@ -1,0 +1,36 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  NovaTerminal -> D:\projects\nova2\NovaTerminal\bin\Debug\net10.0\NovaTerminal.dll
+  NovaTerminal.Tests -> D:\projects\nova2\NovaTerminal.Tests\bin\Debug\net10.0\NovaTerminal.Tests.dll
+Test run for D:\projects\nova2\NovaTerminal.Tests\bin\Debug\net10.0\NovaTerminal.Tests.dll (.NETCoreApp,Version=v10.0)
+VSTest version 18.0.1 (x64)
+
+Starting test execution, please wait...
+A total of 1 test files matched the specified pattern.
+[xUnit.net 00:00:00.87]     NovaTerminal.Tests.Performance.PerformanceTests.LargeThroughput_Benchmark [FAIL]
+  Failed NovaTerminal.Tests.Performance.PerformanceTests.LargeThroughput_Benchmark [749 ms]
+  Error Message:
+   Performance regression! Throughput 2.96 MB/s is below threshold (3 MB/s)
+  Stack Trace:
+     at NovaTerminal.Tests.Performance.PerformanceTests.LargeThroughput_Benchmark() in D:\projects\nova2\NovaTerminal.Tests\Performance\PerformanceTests.cs:line 51
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  Standard Output Messages:
+ Processed 2.15 MB in 0.7274s
+ Throughput: 2.96 MB/s
+
+
+[xUnit.net 00:00:02.56]     NovaTerminal.Tests.Performance.PerformanceTests.ReflowStress_Benchmark [FAIL]
+  Failed NovaTerminal.Tests.Performance.PerformanceTests.ReflowStress_Benchmark [1 s]
+  Error Message:
+   Reflow too slow! 16.61ms > 15ms threshold.
+  Stack Trace:
+     at NovaTerminal.Tests.Performance.PerformanceTests.ReflowStress_Benchmark() in D:\projects\nova2\NovaTerminal.Tests\Performance\PerformanceTests.cs:line 76
+   at System.Reflection.MethodBaseInvoker.InterpretedInvoke_Method(Object obj, IntPtr* args)
+   at System.Reflection.MethodBaseInvoker.InvokeWithNoArgs(Object obj, BindingFlags invokeAttr)
+  Standard Output Messages:
+ Average Reflow Time (1000 lines): 16.61ms
+
+
+
+Failed!  - Failed:     2, Passed:   119, Skipped:     0, Total:   121, Duration: 4 s - NovaTerminal.Tests.dll (net10.0)

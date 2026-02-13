@@ -783,7 +783,16 @@ namespace NovaTerminal
                 if (topLevel?.Clipboard != null)
                 {
                     var text = await topLevel.Clipboard.GetTextAsync();
-                    if (!string.IsNullOrEmpty(text)) _currentPane?.Session?.SendInput(text);
+                    if (!string.IsNullOrEmpty(text) && _currentPane?.Session != null)
+                    {
+                        // Handle Bracketed Paste Mode
+                        if (_currentPane.Buffer != null && _currentPane.Buffer.Modes.IsBracketedPasteMode)
+                        {
+                            text = $"\x1b[200~{text}\x1b[201~";
+                        }
+
+                        _currentPane.Session.SendInput(text);
+                    }
                 }
 #pragma warning restore CS0618
             }

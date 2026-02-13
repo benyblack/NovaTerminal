@@ -472,12 +472,23 @@ namespace NovaTerminal.Core
                     break;
                 case 'h': // Set Mode
                 case 'l': // Reset Mode
-                          // Check if this is a DEC Private Mode (CSI ? Ps h/l)
+                    bool enableMode = (finalByte == 'h');
                     if (isPrivate)
                     {
-                        bool enable = (finalByte == 'h');
-                        HandleDECPrivateMode(validArgs, enable);
+                        HandleDECPrivateMode(validArgs, enableMode);
                     }
+                    else
+                    {
+                        // Handle Standard Modes (ANSI)
+                        foreach (int m in validArgs)
+                        {
+                            if (m == 4) // IRM - Insert Replacement Mode
+                            {
+                                _buffer.Modes.IsInsertMode = enableMode;
+                            }
+                        }
+                    }
+                    break;
                     break;
                 case 'c': // DA - Device Attributes
                     if (parameters.Length > 0 && parameters[0] == '>')
@@ -544,6 +555,9 @@ namespace NovaTerminal.Core
                     case 1006: // SGR extended mouse mode
                         _buffer.Modes.MouseModeSGR = enable;
                         break;
+                    case 25:    // DECTCEM - Text Cursor Enable Mode
+                        _buffer.Modes.IsCursorVisible = enable;
+                        break;
                     case 47:    // Alternate screen (legacy)
                     case 1047:  // Alternate screen
                         if (enable) _buffer.SwitchToAltScreen();
@@ -560,6 +574,9 @@ namespace NovaTerminal.Core
                             _buffer.SwitchToMainScreen();
                             _buffer.RestoreCursor();
                         }
+                        break;
+                    case 2004:  // Bracketed Paste Mode
+                        _buffer.Modes.IsBracketedPasteMode = enable;
                         break;
                     case 2026: // Synchronized Output (Batch Rendering)
                         if (enable) _buffer.BeginSync();

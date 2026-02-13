@@ -1,0 +1,134 @@
+using Xunit;
+using NovaTerminal.Core;
+
+namespace NovaTerminal.Tests
+{
+    public class DecModeTests
+    {
+        private TerminalCell GetCellSafe(TerminalBuffer buffer, int col, int row)
+        {
+            buffer.Lock.EnterReadLock();
+            try { return buffer.GetCell(col, row); }
+            finally { buffer.Lock.ExitReadLock(); }
+        }
+
+        [Fact]
+        public void BracketedPaste_SetsModeFlag()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            Assert.False(buffer.Modes.IsBracketedPasteMode);
+
+            // Enable ?2004
+            parser.Process("\x1b[?2004h");
+            Assert.True(buffer.Modes.IsBracketedPasteMode);
+
+            // Disable ?2004
+            parser.Process("\x1b[?2004l");
+            Assert.False(buffer.Modes.IsBracketedPasteMode);
+        }
+
+        [Fact]
+        public void CursorVisibility_SetsModeFlag()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // Default is true (usually)
+            Assert.True(buffer.IsCursorVisible);
+
+            // Hide ?25l
+            parser.Process("\x1b[?25l");
+            Assert.False(buffer.IsCursorVisible);
+            Assert.False(buffer.Modes.IsCursorVisible);
+
+            // Show ?25h
+            parser.Process("\x1b[?25h");
+            Assert.True(buffer.IsCursorVisible);
+            Assert.True(buffer.Modes.IsCursorVisible);
+        }
+
+        [Fact]
+        public void InsertMode_SetsModeFlag()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            Assert.False(buffer.Modes.IsInsertMode);
+
+            // Enable IRM (4h)
+            parser.Process("\x1b[4h");
+            Assert.True(buffer.Modes.IsInsertMode);
+
+            // Disable IRM (4l)
+            parser.Process("\x1b[4l");
+            Assert.False(buffer.Modes.IsInsertMode);
+        }
+
+        [Fact]
+        public void InsertMode_InsertsCharacters()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // Write initial text "ABC"
+            parser.Process("ABC");
+            Assert.Equal('A', GetCellSafe(buffer, 0, 0).Character);
+            Assert.Equal('B', GetCellSafe(buffer, 1, 0).Character);
+            Assert.Equal('C', GetCellSafe(buffer, 2, 0).Character);
+
+            // Move cursor back to 'B' (index 1)
+            buffer.SetCursorPosition(1, 0);
+
+            // Enable Insert Mode
+            parser.Process("\x1b[4h");
+
+            // Write 'X'
+            parser.Process("X");
+
+            // Expect "AXBC"
+            Assert.Equal('A', GetCellSafe(buffer, 0, 0).Character);
+            Assert.Equal('X', GetCellSafe(buffer, 1, 0).Character);
+            Assert.Equal('B', GetCellSafe(buffer, 2, 0).Character);
+            Assert.Equal('C', GetCellSafe(buffer, 3, 0).Character);
+
+            // Disable Insert Mode
+            parser.Process("\x1b[4l");
+
+            // Write 'Y' (Overwrite)
+            parser.Process("Y");
+
+            // Expect "AXYC" (B overwritten by Y)
+            Assert.Equal('A', GetCellSafe(buffer, 0, 0).Character);
+            Assert.Equal('X', GetCellSafe(buffer, 1, 0).Character);
+            Assert.Equal('Y', GetCellSafe(buffer, 2, 0).Character);
+            Assert.Equal('C', GetCellSafe(buffer, 3, 0).Character);
+        }
+
+        [Fact]
+        public void InsertMode_PushesOffScreen()
+        {
+            // Test that characters pushed off the right edge are lost (standard terminal behavior)
+            var buffer = new TerminalBuffer(10, 1); // Small buffer
+            var parser = new AnsiParser(buffer);
+
+            // "0123456789"
+            parser.Process("0123456789");
+
+            // Move to 0
+            buffer.SetCursorPosition(0, 0);
+
+            // Enable Insert
+            parser.Process("\x1b[4h");
+
+            // Insert 'X'
+            parser.Process("X");
+
+            // "X012345678" -> '9' should be pushed off
+            Assert.Equal('X', GetCellSafe(buffer, 0, 0).Character);
+            Assert.Equal('0', GetCellSafe(buffer, 1, 0).Character);
+            Assert.Equal('8', GetCellSafe(buffer, 9, 0).Character);
+        }
+    }
+}

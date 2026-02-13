@@ -47,7 +47,11 @@ namespace NovaTerminal.Core
             set
             {
                 Lock.EnterWriteLock();
-                try { _cursorCol = value; }
+                try
+                {
+                    _cursorCol = value;
+                    _isPendingWrap = false;
+                }
                 finally { Lock.ExitWriteLock(); }
             }
         }
@@ -63,7 +67,11 @@ namespace NovaTerminal.Core
             set
             {
                 Lock.EnterWriteLock();
-                try { _cursorRow = value; }
+                try
+                {
+                    _cursorRow = value;
+                    _isPendingWrap = false;
+                }
                 finally { Lock.ExitWriteLock(); }
             }
         } // Row within viewport (0 to Rows-1)
@@ -108,11 +116,26 @@ namespace NovaTerminal.Core
         public bool IsUnderline { get; set; }
         public bool IsBlink { get; set; }
         public bool IsStrikethrough { get; set; }
+
         public bool IsHidden { get; set; }
+
+        // Pending Wrap State (M1.3)
+        private bool _isPendingWrap;
+        public bool IsPendingWrap
+        {
+            get => _isPendingWrap;
+            set => _isPendingWrap = value;
+        }
 
 
         // Terminal mode state
         public readonly ModeState Modes = new();
+
+        public bool IsCursorVisible
+        {
+            get => Modes.IsCursorVisible;
+            set => Modes.IsCursorVisible = value;
+        }
 
         // Scrolling region support (for vim splits, tmux)
         public int ScrollTop { get; set; } = 0;
@@ -441,6 +464,7 @@ namespace NovaTerminal.Core
                 _cursorCol = 0;
                 _prevCursorCol = _cursorCol;
                 _prevCursorRow = _cursorRow;
+                _isPendingWrap = false;
             }
             else if (c == '\n')
             {
@@ -448,15 +472,23 @@ namespace NovaTerminal.Core
                 _cursorCol = 0;
                 _cursorRow++;
                 if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
+                _isPendingWrap = false;
             }
             else if (c == '\b')
             {
-                if (_cursorCol > 0) _cursorCol--;
+                if (_cursorCol > 0)
+                {
+                    // If we were in pending wrap state at the right margin,
+                    // backspace moves us back one cell from that margin.
+                    _cursorCol--;
+                }
                 // Handle backing over a wide char? (Should jump 2? standard terminals vary)
                 // For now, simple backspace.
+                _isPendingWrap = false;
             }
             else if (c == '\t')
             {
+                _isPendingWrap = false;
                 int spaces = 4 - (_cursorCol % 4);
                 for (int i = 0; i < spaces; i++) WriteContent(" ", false);
             }
@@ -566,36 +598,44 @@ namespace NovaTerminal.Core
                     Invalidate();
                     return; // CRITICAL: Stop here, don't write again to current cursor
                 }
-
-                else
-                {
-                }
-            }
-            else if (isCombining || _isAfterZwj)
-            {
-            }
+            } // End of attachment attempt logic
 
             // NORMAL WRITE LOGIC:
             int width = GetGraphemeWidth(grapheme);
 
-            // Handle auto-wrap
-            if (!Modes.IsAutoWrapMode && _cursorCol + width > Cols)
-            {
-                _cursorCol = Cols - width; // Clamp to end
-            }
-
-            if (Modes.IsAutoWrapMode && _cursorCol + width > Cols)
+            // Handle Pending Wrap State (M1.3)
+            if (_isPendingWrap && !isCombining && !_isAfterZwj)
             {
                 if (_cursorRow >= 0 && _cursorRow < Rows) _viewport[_cursorRow].IsWrapped = true;
                 _cursorCol = 0;
                 _cursorRow++;
                 if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
+                _isPendingWrap = false;
+            }
+
+            // Handle auto-wrap
+            if (Modes.IsAutoWrapMode)
+            {
+                if (_cursorCol + width > Cols)
+                {
+                    if (_cursorRow >= 0 && _cursorRow < Rows) _viewport[_cursorRow].IsWrapped = true;
+                    _cursorCol = 0;
+                    _cursorRow++;
+                    if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
+                    _isPendingWrap = false;
+                }
+            }
+            else
+            {
+                if (_cursorCol + width > Cols) _cursorCol = Cols - width; // Clamp to end
             }
 
             // Write to buffer
             if (_cursorRow >= 0 && _cursorRow < Rows && _cursorCol >= 0 && _cursorCol < Cols)
             {
-                // Clear any existing continuations in the space we're about to occupy
+                if (Modes.IsInsertMode) InsertCharactersInternal(width);
+
+                // Clear continuations
                 for (int i = 0; i < width && _cursorCol + i < Cols; i++)
                 {
                     _viewport[_cursorRow].Cells[_cursorCol + i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, false, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
@@ -604,27 +644,29 @@ namespace NovaTerminal.Core
                 if (width >= 2 && _cursorCol + 1 < Cols)
                 {
                     _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, true, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
-
                     int maxCont = Math.Min(width, Cols - _cursorCol);
-                    for (int i = 1; i < maxCont; i++)
-                    {
-                        _viewport[_cursorRow].Cells[_cursorCol + i].IsWideContinuation = true;
-                    }
-
-                    _viewport[_cursorRow].TouchRevision();
-                    _lastCharCol = _cursorCol;
-                    _lastCharRow = _cursorRow;
-                    _cursorCol += width;
+                    for (int i = 1; i < maxCont; i++) _viewport[_cursorRow].Cells[_cursorCol + i].IsWideContinuation = true;
                 }
                 else
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, width == 2, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
-
-                    _viewport[_cursorRow].TouchRevision();
-                    _lastCharCol = _cursorCol;
-                    _lastCharRow = _cursorRow;
-                    _cursorCol += width;
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, false, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
                 }
+
+                _viewport[_cursorRow].TouchRevision();
+                _lastCharCol = _cursorCol;
+                _lastCharRow = _cursorRow;
+                _cursorCol += width;
+            }
+
+            // Update Pending Wrap State
+            if (Modes.IsAutoWrapMode && _cursorCol >= Cols)
+            {
+                _isPendingWrap = true;
+                _cursorCol = Cols - 1;
+            }
+            if (!Modes.IsAutoWrapMode && _cursorCol >= Cols)
+            {
+                _cursorCol = Cols - 1;
             }
 
             if (_cursorCol > _maxColThisRow) _maxColThisRow = _cursorCol;
@@ -817,28 +859,37 @@ namespace NovaTerminal.Core
             Lock.EnterWriteLock();
             try
             {
-                if (_cursorRow < 0 || _cursorRow >= Rows) return;
-
-                int endCol = Math.Min(_cursorCol + count, Cols);
-                var row = _viewport[_cursorRow];
-
-                // Shift characters to right
-                // Start from end, move char at (c - count) to c
-                for (int c = Cols - 1; c >= endCol; c--)
-                {
-                    row.Cells[c] = row.Cells[c - count];
-                }
-
-                // Fill gap with default empty cells
-                var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground, false, CurrentFgIndex, CurrentBgIndex, false, false, false, false, false, false);
-                for (int c = _cursorCol; c < endCol; c++)
-                {
-                    row.Cells[c] = empty;
-                }
-                row.TouchRevision();
+                InsertCharactersInternal(count);
             }
-            finally { Lock.ExitWriteLock(); }
-            Invalidate(); // Use Invalidate() which handles the event call
+            finally
+            {
+                Lock.ExitWriteLock();
+            }
+            Invalidate();
+        }
+
+        private void InsertCharactersInternal(int count)
+        {
+            // Lock must be held by caller
+            if (_cursorRow < 0 || _cursorRow >= Rows) return;
+
+            int endCol = Math.Min(_cursorCol + count, Cols);
+            var row = _viewport[_cursorRow];
+
+            // Shift characters to right
+            // Start from end, move char at (c - count) to c
+            for (int c = Cols - 1; c >= endCol; c--)
+            {
+                row.Cells[c] = row.Cells[c - count];
+            }
+
+            // Fill gap with default empty cells
+            var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground, false, CurrentFgIndex, CurrentBgIndex, false, false, false, false, false, false);
+            for (int c = _cursorCol; c < endCol; c++)
+            {
+                row.Cells[c] = empty;
+            }
+            row.TouchRevision();
         }
 
         public void DeleteCharacters(int count)
@@ -1913,6 +1964,7 @@ namespace NovaTerminal.Core
             target.IsInverse = IsInverse;
             target.IsBold = IsBold;
             target.IsHidden = IsHidden;
+            target.IsPendingWrap = _isPendingWrap;
         }
 
         public void RestoreCursor()
@@ -1929,6 +1981,7 @@ namespace NovaTerminal.Core
             IsInverse = source.IsInverse;
             IsBold = source.IsBold;
             IsHidden = source.IsHidden;
+            _isPendingWrap = source.IsPendingWrap;
         }
 
         public void EraseLineToEnd()
@@ -2150,6 +2203,7 @@ namespace NovaTerminal.Core
             {
                 _cursorCol = Math.Clamp(col, 0, Cols - 1);
                 _cursorRow = Math.Clamp(row, 0, Rows - 1);
+                _isPendingWrap = false;
             }
             finally
             {

@@ -20,6 +20,7 @@ namespace NovaTerminal.Core
         public bool IsInverse { get; set; }
         public bool IsBold { get; set; }
         public bool IsHidden { get; set; }
+        public bool IsPendingWrap { get; set; }
 
         public CursorState Clone()
         {
@@ -35,7 +36,8 @@ namespace NovaTerminal.Core
                 IsDefaultBackground = this.IsDefaultBackground,
                 IsInverse = this.IsInverse,
                 IsBold = this.IsBold,
-                IsHidden = this.IsHidden
+                IsHidden = this.IsHidden,
+                IsPendingWrap = this.IsPendingWrap
             };
         }
     }
