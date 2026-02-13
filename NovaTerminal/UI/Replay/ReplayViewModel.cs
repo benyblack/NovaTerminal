@@ -72,8 +72,6 @@ namespace NovaTerminal.UI.Replay
                 _header = System.Text.Json.JsonSerializer.Deserialize(line, ReplayJsonContext.Default.ReplayHeader);
 
                 long lastTime = 0;
-                long pos = 0; // We might want file positions for faster seeking later
-
                 while ((line = await reader.ReadLineAsync()) != null)
                 {
                     if (string.IsNullOrWhiteSpace(line)) continue;

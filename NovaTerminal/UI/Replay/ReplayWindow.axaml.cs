@@ -5,6 +5,7 @@ using Avalonia.Threading;
 using NovaTerminal.Core;
 using NovaTerminal.Core.Replay;
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
@@ -17,6 +18,7 @@ namespace NovaTerminal.UI.Replay
         private ReplayViewModel? _viewModel;
         private CancellationTokenSource? _playbackCts;
         private TerminalBuffer? _buffer;
+        private AnsiParser? _parser;
         private string? _filePath;
         private bool _isUserScrubbing = false;
 
@@ -35,6 +37,7 @@ namespace NovaTerminal.UI.Replay
             DataContext = _viewModel;
 
             _buffer = new TerminalBuffer(80, 24); // Init with default
+            _parser = new AnsiParser(_buffer);
             var termView = this.FindControl<TerminalView>("TermView");
             if (termView != null)
             {
@@ -61,7 +64,7 @@ namespace NovaTerminal.UI.Replay
                 slider.PointerReleased += (s, e) =>
                 {
                     _isUserScrubbing = false;
-                    PerformSeek((long)slider.Value);
+                    _ = PerformSeek((long)slider.Value);
                 };
 
                 // Also handle value changes (e.g. clicking on track)
@@ -73,6 +76,13 @@ namespace NovaTerminal.UI.Replay
                         _viewModel!.CurrentTimeMs = (long)(slider.Value);
                     }
                 };
+            }
+
+            var comboSpeed = this.FindControl<ComboBox>("ComboSpeed");
+            if (comboSpeed != null)
+            {
+                comboSpeed.SelectionChanged += (s, e) => ApplySelectedPlaybackSpeed(comboSpeed);
+                ApplySelectedPlaybackSpeed(comboSpeed);
             }
         }
 
@@ -124,32 +134,22 @@ namespace NovaTerminal.UI.Replay
             _viewModel.CurrentTimeMs = targetTimeMs;
 
             // 2. Find nearest snapshot
-            var snapshot = _viewModel.GetNearestSnapshot(targetTimeMs);
-            long startProcessingTime = 0;
+            var snapEntry = _viewModel.GetNearestSnapshotEntry(targetTimeMs);
 
-            if (snapshot != null)
+            if (snapEntry != null)
             {
                 // Apply snapshot synchronously on UI thread if possible, or Dispatcher
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    _buffer.ApplySnapshot(snapshot);
+                    _buffer.ApplySnapshot(snapEntry.Snapshot);
                     // Also resize buffer if snapshot has dims
-                    _buffer.Resize(snapshot.Cols, snapshot.Rows);
+                    _buffer.Resize(snapEntry.Snapshot.Cols, snapEntry.Snapshot.Rows);
                 });
-
-                // Snapshots don't store their own time in the struct (it was in the event),
-                // but GetNearestSnapshot could return it or we assume it's close.
-                // ReplayViewModel needs to be updated to return the time too.
-                // For now, let's assume we re-process from 0 if no snapshot, 
-                // OR we need to know the snapshot time.
-                // Hack: We'll assume snapshot time is stored or we re-scan briefly.
-                // BETTER: Update ReplayViewModel to return the timestamp.
             }
             else
             {
                 // No snapshot? clear buffer?
                 await Dispatcher.UIThread.InvokeAsync(() => _buffer.Clear());
-                startProcessingTime = 0;
             }
 
             // 3. One-shot fast-forward to target frame to update screen
@@ -158,15 +158,14 @@ namespace NovaTerminal.UI.Replay
             {
                 var runner = new ReplayRunner(_filePath);
 
-                // We need the snapshot's time to set minTimeMs.
-                // Let's assume ReplayViewModel.GetNearestSnapshotTuple returns (snap, time).
-                var snapEntry = _viewModel.GetNearestSnapshotEntry(targetTimeMs);
                 long minTime = snapEntry?.TimeMs ?? 0;
+                using var seekCts = new CancellationTokenSource(2000);
 
                 await runner.RunAsync(
                     onDataCallback: async (data) =>
                     {
-                        await Dispatcher.UIThread.InvokeAsync(() => _buffer.WriteContent(System.Text.Encoding.UTF8.GetString(data)));
+                        var text = System.Text.Encoding.UTF8.GetString(data);
+                        await Dispatcher.UIThread.InvokeAsync(() => _parser?.Process(text));
                     },
                     onResizeCallback: async (w, h) =>
                     {
@@ -175,7 +174,7 @@ namespace NovaTerminal.UI.Replay
                     realtime: false, // Fast forward everything
                     minTimeMs: minTime,
                     fastForwardToMs: targetTimeMs,
-                    ct: new CancellationTokenSource(2000).Token // Timeout safety
+                    ct: seekCts.Token // Timeout safety
                 );
             }
             catch { }
@@ -208,7 +207,7 @@ namespace NovaTerminal.UI.Replay
                     onDataCallback: async (data) =>
                     {
                         var text = System.Text.Encoding.UTF8.GetString(data);
-                        await Dispatcher.UIThread.InvokeAsync(() => _buffer.WriteContent(text));
+                        await Dispatcher.UIThread.InvokeAsync(() => _parser?.Process(text));
                     },
                     onResizeCallback: async (w, h) =>
                     {
@@ -241,6 +240,18 @@ namespace NovaTerminal.UI.Replay
             finally
             {
                 Dispatcher.UIThread.Post(StopPlayback);
+            }
+        }
+
+        private void ApplySelectedPlaybackSpeed(ComboBox comboSpeed)
+        {
+            if (_viewModel == null) return;
+            if (comboSpeed.SelectedItem is not ComboBoxItem item) return;
+            if (item.Tag is not string tag) return;
+
+            if (double.TryParse(tag, NumberStyles.Float, CultureInfo.InvariantCulture, out var speed) && speed > 0)
+            {
+                _viewModel.PlaybackSpeed = speed;
             }
         }
     }
