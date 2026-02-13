@@ -94,7 +94,7 @@ jobs:
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Test (unit)
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category!=Replay&Category!=RenderMetrics" --logger "trx;LogFileName=unit_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke" --logger "trx;LogFileName=unit_tests.trx"
 
       - name: Upload test results
         if: always()
@@ -143,6 +143,45 @@ jobs:
           path: |
             NovaTerminal.Tests/Fixtures/Replay/*.snap
             **/*replay_tests.trx
+
+  pty_smoke_tests:
+    name: PTY Smoke Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [build_and_unit_tests, build_native]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download Native Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.os }}
+          path: NovaTerminal/native
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+
+      - name: Run PTY smoke tests
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=PtySmoke" --logger "trx;LogFileName=pty_smoke_tests.trx"
+
+      - name: Upload PTY smoke test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pty-smoke-${{ runner.os }}
+          path: "**/*pty_smoke_tests.trx"
 
   parity_compare:
     name: Cross-Platform Parity Compare
@@ -214,3 +253,45 @@ jobs:
           path: |
             artifacts/metrics/**
             **/*render_metrics.trx
+
+  aot_publish:
+    name: AOT Publish (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: [build_native]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-latest
+            rid: osx-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download Native Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.os }}
+          path: NovaTerminal/native
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Publish AOT
+        run: dotnet publish NovaTerminal/NovaTerminal.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
+
+      - name: Upload AOT bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aot-${{ matrix.rid }}
+          path: artifacts/publish/${{ matrix.rid }}

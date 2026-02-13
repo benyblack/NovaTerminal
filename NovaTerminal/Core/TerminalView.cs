@@ -5,9 +5,11 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Threading;
+using Avalonia.Platform.Storage;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
@@ -45,6 +47,14 @@ namespace NovaTerminal.Core
 
             _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, OnRenderTimerTick);
             _renderTimer.Start();
+
+            _cursorBlinkTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(530), DispatcherPriority.Render, OnCursorBlinkTick);
+            _cursorBlinkTimer.Start();
+            _scrollAnimationTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, OnScrollAnimationTick);
+
+            DragDrop.SetAllowDrop(this, true);
+            AddHandler(DragDrop.DragOverEvent, OnDragOver);
+            AddHandler(DragDrop.DropEvent, OnDrop);
         }
 
         protected override void OnTextInput(TextInputEventArgs e)
@@ -181,6 +191,16 @@ namespace NovaTerminal.Core
         // Coalescing
         private bool _isDirty;
         private DispatcherTimer _renderTimer;
+        private readonly DispatcherTimer _cursorBlinkTimer;
+        private readonly DispatcherTimer _scrollAnimationTimer;
+        private bool _cursorBlinkPhase = true;
+        private bool _cursorBlinkEnabled = true;
+        private bool _bellAudioEnabled = true;
+        private bool _bellVisualEnabled = true;
+        private bool _isBellFlashActive;
+        private bool _enableSmoothScrolling = true;
+        private int _targetScrollOffset;
+        private CursorStyle _preferredCursorStyle = CursorStyle.Underline;
 
         private void OnRenderTimerTick(object? sender, EventArgs e)
         {
@@ -188,6 +208,122 @@ namespace NovaTerminal.Core
             {
                 _isDirty = false;
                 InvalidateVisual();
+            }
+        }
+
+        private void OnCursorBlinkTick(object? sender, EventArgs e)
+        {
+            if (!_cursorBlinkEnabled)
+            {
+                if (!_cursorBlinkPhase)
+                {
+                    _cursorBlinkPhase = true;
+                    _isDirty = true;
+                }
+                return;
+            }
+
+            _cursorBlinkPhase = !_cursorBlinkPhase;
+            _isDirty = true;
+        }
+
+        private void OnScrollAnimationTick(object? sender, EventArgs e)
+        {
+            if (_scrollOffset == _targetScrollOffset)
+            {
+                _scrollAnimationTimer.Stop();
+                return;
+            }
+
+            int delta = _targetScrollOffset - _scrollOffset;
+            int step = Math.Sign(delta) * Math.Max(1, Math.Abs(delta) / 3);
+            ScrollOffset = _scrollOffset + step;
+        }
+
+        private void OnDragOver(object? sender, DragEventArgs e)
+        {
+            if (e.Data.GetFiles() != null || e.Data.Contains(DataFormats.Text))
+            {
+                e.DragEffects = DragDropEffects.Copy;
+                e.Handled = true;
+            }
+        }
+
+        private void OnDrop(object? sender, DragEventArgs e)
+        {
+            if (_session == null) return;
+
+            var files = e.Data.GetFiles();
+            if (files != null)
+            {
+                var parts = new List<string>();
+                foreach (var item in files)
+                {
+                    string? localPath = (item is IStorageItem storage && storage.Path.IsFile)
+                        ? storage.Path.LocalPath
+                        : null;
+
+                    if (!string.IsNullOrWhiteSpace(localPath))
+                    {
+                        parts.Add(QuotePathForShell(localPath));
+                    }
+                }
+
+                if (parts.Count > 0)
+                {
+                    _session.SendInput(string.Join(" ", parts) + " ");
+                    e.Handled = true;
+                    return;
+                }
+            }
+
+            if (e.Data.GetText() is string text && !string.IsNullOrWhiteSpace(text))
+            {
+                _session.SendInput(text);
+                e.Handled = true;
+            }
+        }
+
+        private static string QuotePathForShell(string path)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                return "\"" + path.Replace("\"", "\\\"") + "\"";
+            }
+
+            return "'" + path.Replace("'", "'\"'\"'") + "'";
+        }
+
+        public void TriggerBell()
+        {
+            if (_bellAudioEnabled)
+            {
+                try
+                {
+                    if (OperatingSystem.IsWindows())
+                    {
+                        Console.Beep(880, 35);
+                    }
+                    else
+                    {
+                        Console.Beep();
+                    }
+                }
+                catch
+                {
+                    // Audio bell is best-effort.
+                }
+            }
+
+            if (_bellVisualEnabled)
+            {
+                _isBellFlashActive = true;
+                _isDirty = true;
+                DispatcherTimer.RunOnce(() =>
+                {
+                    _isBellFlashActive = false;
+                    _isDirty = true;
+                }, TimeSpan.FromMilliseconds(90));
             }
         }
         // A robust list attempting to find ANY font with Powerline/Nerd symbols.
@@ -283,11 +419,19 @@ namespace NovaTerminal.Core
                 _enableComplexShaping = settings.EnableComplexShaping;
                 _windowOpacity = settings.WindowOpacity;
                 _hasBackgroundImage = !string.IsNullOrEmpty(settings.BackgroundImagePath) && System.IO.File.Exists(settings.BackgroundImagePath);
+                _cursorBlinkEnabled = settings.CursorBlink;
+                _preferredCursorStyle = ParseCursorStyle(settings.CursorStyle);
+                _bellAudioEnabled = settings.BellAudioEnabled;
+                _bellVisualEnabled = settings.BellVisualEnabled;
+                _enableSmoothScrolling = settings.SmoothScrolling;
+                if (!_cursorBlinkEnabled) _cursorBlinkPhase = true;
                 EnsureFallbackChain();
 
                 if (_buffer != null)
                 {
                     _buffer.MaxHistory = settings.MaxHistory;
+                    _buffer.Modes.CursorStyle = _preferredCursorStyle;
+                    _buffer.Modes.IsCursorBlinkEnabled = settings.CursorBlink;
 
                     // Store old theme for color remapping
                     var oldTheme = _buffer.Theme;
@@ -331,6 +475,25 @@ namespace NovaTerminal.Core
             {
                 try { System.IO.File.AppendAllText("error.log", "\n--- ApplySettings Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
             }
+        }
+
+        private static CursorStyle ParseCursorStyle(string? style)
+        {
+            if (string.IsNullOrWhiteSpace(style)) return CursorStyle.Underline;
+
+            if (Enum.TryParse<CursorStyle>(style, true, out var parsed))
+            {
+                return parsed;
+            }
+
+            return style.Trim().ToLowerInvariant() switch
+            {
+                "bar" => CursorStyle.Beam,
+                "beam" => CursorStyle.Beam,
+                "block" => CursorStyle.Block,
+                "underline" => CursorStyle.Underline,
+                _ => CursorStyle.Underline
+            };
         }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -564,6 +727,7 @@ namespace NovaTerminal.Core
                 if (_scrollOffset != newValue)
                 {
                     _scrollOffset = newValue;
+                    _targetScrollOffset = newValue;
                     ScrollStateChanged?.Invoke(_scrollOffset, maxScroll);
                     InvalidateBuffer();
                 }
@@ -889,11 +1053,12 @@ namespace NovaTerminal.Core
                 return;
             }
 
-            // Hide cursor if we are not focused
+            // Hide cursor if we are not focused or if blink mode currently hides it.
             bool hideCursor = !IsKeyboardFocusWithin;
 
             // Snapshot state under lock to prevent race conditions during resize
             int snapshotRows, snapshotCols, totalLines, cursorRow, cursorCol;
+            bool cursorVisibleMode, cursorBlinkMode;
             buffer.Lock.EnterReadLock();
             try
             {
@@ -902,8 +1067,13 @@ namespace NovaTerminal.Core
                 totalLines = buffer.InternalTotalLines;
                 cursorRow = buffer.InternalCursorRow;
                 cursorCol = buffer.InternalCursorCol;
+                cursorVisibleMode = buffer.Modes.IsCursorVisible;
+                cursorBlinkMode = buffer.Modes.IsCursorBlinkEnabled;
             }
             finally { buffer.Lock.ExitReadLock(); }
+
+            if (!cursorVisibleMode) hideCursor = true;
+            if (cursorBlinkMode && !_cursorBlinkPhase) hideCursor = true;
 
             // Create and dispatch custom draw op
             var scaling = VisualRoot?.RenderScaling ?? 1.0;
@@ -936,6 +1106,13 @@ namespace NovaTerminal.Core
                 _enableComplexShaping,
                 _glyphCache
             ));
+
+            if (_isBellFlashActive)
+            {
+                context.FillRectangle(
+                    new SolidColorBrush(Color.FromArgb(38, 255, 255, 255)),
+                    new Rect(0, 0, Bounds.Width, Bounds.Height));
+            }
         }
 
         // Mouse event handlers
@@ -980,8 +1157,19 @@ namespace NovaTerminal.Core
             // Scroll up (positive) -> Increase Offset
             // Scroll down (negative) -> Decrease Offset
             int delta = (int)(e.Delta.Y * 3); // 3 lines per notch
-
-            ScrollOffset += delta;
+            if (_enableSmoothScrolling)
+            {
+                int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
+                _targetScrollOffset = Math.Clamp(_targetScrollOffset + delta, 0, maxScroll);
+                if (!_scrollAnimationTimer.IsEnabled)
+                {
+                    _scrollAnimationTimer.Start();
+                }
+            }
+            else
+            {
+                ScrollOffset += delta;
+            }
         }
 
         protected override void OnPointerPressed(PointerPressedEventArgs e)
@@ -1003,6 +1191,30 @@ namespace NovaTerminal.Core
 
                 // Normal mode: Handle selection
                 var (row, col) = ScreenToTerminal(point.Position);
+
+                bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+                if (isCtrl && _buffer != null)
+                {
+                    string? hyperlink = _buffer.GetHyperlinkAbsolute(col, row);
+                    if (!string.IsNullOrWhiteSpace(hyperlink) &&
+                        Uri.TryCreate(hyperlink, UriKind.Absolute, out var linkUri))
+                    {
+                        try
+                        {
+                            Process.Start(new ProcessStartInfo
+                            {
+                                FileName = linkUri.ToString(),
+                                UseShellExecute = true
+                            });
+                            e.Handled = true;
+                            return;
+                        }
+                        catch
+                        {
+                            // Ignore failed launch attempts.
+                        }
+                    }
+                }
 
                 // Check for double/triple-click
                 if (e.ClickCount == 2)

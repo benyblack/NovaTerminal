@@ -18,6 +18,12 @@ namespace NovaTerminal.Core
         public string BlurEffect { get; set; } = "Acrylic";
         public bool EnableLigatures { get; set; } = false;
         public bool EnableComplexShaping { get; set; } = true;
+        public string CursorStyle { get; set; } = "Underline";
+        public bool CursorBlink { get; set; } = true;
+        public bool BellAudioEnabled { get; set; } = true;
+        public bool BellVisualEnabled { get; set; } = true;
+        public bool SmoothScrolling { get; set; } = true;
+        public System.Collections.Generic.Dictionary<string, string> Keybindings { get; set; } = new();
 
         // Background Image Settings
         public string BackgroundImagePath { get; set; } = "";

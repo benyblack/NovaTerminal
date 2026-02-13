@@ -143,7 +143,8 @@ namespace NovaTerminal
                             AllowMultiple = false,
                             FileTypeFilter = new[]
                             {
-                                new Avalonia.Platform.Storage.FilePickerFileType("Theme Files") { Patterns = new[] { "*.json", "*.itermcolors" } }
+                                new Avalonia.Platform.Storage.FilePickerFileType("Theme Files") { Patterns = new[] { "*.json", "*.itermcolors" } },
+                                new Avalonia.Platform.Storage.FilePickerFileType("Alacritty Theme") { Patterns = new[] { "*.toml" } }
                             }
                         });
 

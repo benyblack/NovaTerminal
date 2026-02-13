@@ -28,6 +28,7 @@ namespace NovaTerminal.Core
         private System.Text.StringBuilder _kittyPayloadBuffer = new System.Text.StringBuilder();
         private Dictionary<string, string> _kittyPendingParams = new();
         private SixelDecoder _sixelDecoder = new();
+        private readonly bool _isConPtyFilteringLikely;
 
         // M2.1: Lock Batching Buffer
         private System.Text.StringBuilder _textBuffer = new System.Text.StringBuilder(4096);
@@ -35,10 +36,34 @@ namespace NovaTerminal.Core
         public float CellWidth { get; set; } = 10.0f;  // Default fallback
         public float CellHeight { get; set; } = 20.0f; // Default fallback
         public Action<string>? OnResponse { get; set; }
+        public Action? OnBell { get; set; }
+        public Action<string>? OnWorkingDirectoryChanged { get; set; }
+        public Action<string>? OnTitleChanged { get; set; }
 
-        public AnsiParser(TerminalBuffer buffer)
+        public AnsiParser(TerminalBuffer buffer, bool? forceConPtyFiltering = null)
         {
             _buffer = buffer;
+            _isConPtyFilteringLikely = forceConPtyFiltering ?? DetectConPtyFiltering();
+        }
+
+        public bool IsConPtyFilteringLikely => _isConPtyFilteringLikely;
+
+        private static bool DetectConPtyFiltering()
+        {
+            if (!OperatingSystem.IsWindows()) return false;
+
+            // Today our Windows backend uses ConPTY, which strips several image control strings.
+            // Keep env checks explicit so future backend changes can loosen this behavior.
+            string? wt = Environment.GetEnvironmentVariable("WT_SESSION");
+            string? termProgram = Environment.GetEnvironmentVariable("TERM_PROGRAM");
+            if (!string.IsNullOrEmpty(wt)) return true;
+            if (!string.IsNullOrEmpty(termProgram) &&
+                termProgram.IndexOf("Windows", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+
+            return true;
         }
 
         private void FlushText()
@@ -84,7 +109,10 @@ namespace NovaTerminal.Core
                             else if (c < 0x20 || c == 0x7F) // C0 Controls & DEL
                             {
                                 FlushText();
-                                if (c == '\a') { /* Ignore BEL */ }
+                                if (c == '\a')
+                                {
+                                    OnBell?.Invoke();
+                                }
                                 else
                                 {
                                     if (_swallowNextNewline)
@@ -558,8 +586,49 @@ namespace NovaTerminal.Core
                     {
                     }
                     break;
+                case 'q':
+                    // DECSCUSR - Set Cursor Style (CSI Ps SP q)
+                    if (parameters.IndexOf(' ') >= 0 || parameters.Length == 0)
+                    {
+                        ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
+                    }
+                    break;
                 default:
                     TerminalLogger.Log($"[ANSI_PARSER] Unhandled CSI: {finalByte} (private={isPrivate}), params={new string(parameters)}");
+                    break;
+            }
+        }
+
+        private void ApplyCursorStyle(int value)
+        {
+            // DECSCUSR:
+            // 0/1 blinking block, 2 steady block, 3 blinking underline, 4 steady underline, 5 blinking bar, 6 steady bar
+            switch (value)
+            {
+                case 0:
+                case 1:
+                    _buffer.Modes.CursorStyle = CursorStyle.Block;
+                    _buffer.Modes.IsCursorBlinkEnabled = true;
+                    break;
+                case 2:
+                    _buffer.Modes.CursorStyle = CursorStyle.Block;
+                    _buffer.Modes.IsCursorBlinkEnabled = false;
+                    break;
+                case 3:
+                    _buffer.Modes.CursorStyle = CursorStyle.Underline;
+                    _buffer.Modes.IsCursorBlinkEnabled = true;
+                    break;
+                case 4:
+                    _buffer.Modes.CursorStyle = CursorStyle.Underline;
+                    _buffer.Modes.IsCursorBlinkEnabled = false;
+                    break;
+                case 5:
+                    _buffer.Modes.CursorStyle = CursorStyle.Beam;
+                    _buffer.Modes.IsCursorBlinkEnabled = true;
+                    break;
+                case 6:
+                    _buffer.Modes.CursorStyle = CursorStyle.Beam;
+                    _buffer.Modes.IsCursorBlinkEnabled = false;
                     break;
             }
         }
@@ -940,27 +1009,80 @@ namespace NovaTerminal.Core
         private void HandleOsc(string osc)
         {
             if (string.IsNullOrEmpty(osc)) return;
-            if (osc.StartsWith("1337;File="))
+            if (osc.StartsWith("1337;File=", StringComparison.Ordinal))
             {
                 HandleITerm2Image(osc);
+                return;
             }
-            else if (osc.StartsWith("1339;"))
+
+            if (osc.StartsWith("1339;", StringComparison.Ordinal))
             {
                 string content = osc.Substring(5);
-                if (content.StartsWith("Kitty:") || content.StartsWith("K:"))
+                if (content.StartsWith("Kitty:", StringComparison.Ordinal) || content.StartsWith("K:", StringComparison.Ordinal))
                 {
-                    int skip = content.StartsWith("Kitty:") ? 6 : 2;
+                    int skip = content.StartsWith("Kitty:", StringComparison.Ordinal) ? 6 : 2;
                     content = content.Substring(skip);
-                    HandleKittyGraphics(content);
+                    HandleKittyGraphics(content, isTunneled: true);
                 }
                 else
                 {
                     HandleSixel(content);
                 }
+                return;
             }
-            else
+
+            int split = osc.IndexOf(';');
+            if (split <= 0) return;
+
+            string code = osc.Substring(0, split);
+            string data = osc.Substring(split + 1);
+
+            // OSC 0/2: Window title
+            if (code == "0" || code == "2")
             {
+                if (!string.IsNullOrWhiteSpace(data))
+                {
+                    OnTitleChanged?.Invoke(data.Trim());
+                }
+                return;
             }
+
+            // OSC 7: current working directory URI
+            if (code == "7")
+            {
+                if (TryExtractPathFromOsc7(data, out var cwd))
+                {
+                    OnWorkingDirectoryChanged?.Invoke(cwd);
+                }
+                return;
+            }
+
+            // OSC 8: hyperlinks (open/close)
+            // Format: OSC 8 ; params ; URI ST/BEL
+            if (code == "8")
+            {
+                int secondSep = data.IndexOf(';');
+                if (secondSep >= 0)
+                {
+                    string uri = data.Substring(secondSep + 1);
+                    _buffer.CurrentHyperlink = string.IsNullOrWhiteSpace(uri) ? null : uri;
+                }
+            }
+        }
+
+        private static bool TryExtractPathFromOsc7(string data, out string path)
+        {
+            path = string.Empty;
+            if (string.IsNullOrWhiteSpace(data)) return false;
+
+            if (Uri.TryCreate(data, UriKind.Absolute, out var uri) && uri.IsFile)
+            {
+                path = Uri.UnescapeDataString(uri.LocalPath);
+                return !string.IsNullOrWhiteSpace(path);
+            }
+
+            path = data.Trim();
+            return !string.IsNullOrWhiteSpace(path);
         }
 
         private void HandleApc(string content)
@@ -969,11 +1091,11 @@ namespace NovaTerminal.Core
             // Kitty protocol uses 'G' as command identifier in APC
             if (content.StartsWith("G"))
             {
-                HandleKittyGraphics(content.Substring(1));
+                HandleKittyGraphics(content.Substring(1), isTunneled: false);
             }
         }
 
-        private void HandleKittyGraphics(string content)
+        private void HandleKittyGraphics(string content, bool isTunneled)
         {
             TerminalLogger.Log($"[ANSI_PARSER] HandleKittyGraphics: {content.Substring(0, Math.Min(content.Length, 40))}...");
 
@@ -1025,10 +1147,18 @@ namespace NovaTerminal.Core
                 if (action == "q")
                 {
                     TerminalLogger.Log($"[ANSI_PARSER] Kitty: Handling query (a=q)");
-                    // Respond that we support Kitty graphics (Standard 'OK' response)
-                    // Format: \e_Gi=XX;OK\e\ where XX is the id from the request
+                    // If we are likely under ConPTY and this is non-tunneled Kitty APC, advertise
+                    // unsupported so clients can choose Sixel or other fallback.
                     string id = _kittyPendingParams.TryGetValue("i", out var idVal) ? idVal : "31";
-                    OnResponse?.Invoke($"\x1b_Gi={id};OK\x1b\\");
+                    string status = (_isConPtyFilteringLikely && !isTunneled) ? "ERR" : "OK";
+                    OnResponse?.Invoke($"\x1b_Gi={id};{status}\x1b\\");
+                    ClearKittyState();
+                    return;
+                }
+
+                if (_isConPtyFilteringLikely && !isTunneled)
+                {
+                    TerminalLogger.Log("[ANSI_PARSER] Kitty non-tunneled image skipped due to likely ConPTY filtering.");
                     ClearKittyState();
                     return;
                 }

@@ -176,6 +176,13 @@ namespace NovaTerminal.Core
         private bool _isHidden;
         public bool IsHidden { get => _isHidden; set { _isHidden = value; _isStyleDirty = true; } }
 
+        private string? _currentHyperlink;
+        public string? CurrentHyperlink
+        {
+            get => _currentHyperlink;
+            set => _currentHyperlink = value;
+        }
+
         // Pending Wrap State (M1.3)
         private bool _isPendingWrap;
         public bool IsPendingWrap
@@ -772,6 +779,7 @@ namespace NovaTerminal.Core
                                     SyncPackedState();
                                     nextCell = new TerminalCell(' ', _packedFg, _packedBg, (ushort)(_packedFlags | (ushort)TerminalCellFlags.WideContinuation));
                                     row.SetExtendedText(attachCol + 1, null); // Ensure no old text remains
+                                    row.SetHyperlink(attachCol + 1, row.GetHyperlink(attachCol));
                                 }
 
                                 // If the cursor was waiting at the next cell, and we just expanded into it, push the cursor forward.
@@ -835,6 +843,7 @@ namespace NovaTerminal.Core
                 {
                     row.Cells[_cursorCol + i] = new TerminalCell(' ', _packedFg, _packedBg, _packedFlags);
                     row.SetExtendedText(_cursorCol + i, null);
+                    row.SetHyperlink(_cursorCol + i, null);
                 }
 
                 ushort flags = _packedFlags;
@@ -846,6 +855,7 @@ namespace NovaTerminal.Core
                 {
                     row.SetExtendedText(_cursorCol, grapheme);
                 }
+                row.SetHyperlink(_cursorCol, _currentHyperlink);
 
                 if (width >= 2 && _cursorCol + 1 < Cols)
                 {
@@ -854,6 +864,7 @@ namespace NovaTerminal.Core
                     {
                         row.Cells[_cursorCol + i] = new TerminalCell(' ', _packedFg, _packedBg, (ushort)(_packedFlags | (ushort)TerminalCellFlags.WideContinuation));
                         row.SetExtendedText(_cursorCol + i, null);
+                        row.SetHyperlink(_cursorCol + i, _currentHyperlink);
                     }
                 }
 
@@ -2167,6 +2178,18 @@ namespace NovaTerminal.Core
             return (cell.HasExtendedText ? row.GetExtendedText(col) : null) ?? cell.Character.ToString();
         }
 
+        public string? GetHyperlinkAbsolute(int col, int absRow)
+        {
+            bool lockTaken = EnterReadLockIfNeeded();
+            try
+            {
+                if (absRow < 0 || col < 0 || col >= Cols) return null;
+                var row = GetRowAbsolute(absRow);
+                return row?.GetHyperlink(col);
+            }
+            finally { ExitReadLockIfNeeded(Lock, lockTaken); }
+        }
+
         public string GetGrapheme(int col, int viewRow)
         {
             AssertLockHeld();
@@ -2239,6 +2262,7 @@ namespace NovaTerminal.Core
                 {
                     row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                     row.SetExtendedText(i, null);
+                    row.SetHyperlink(i, null);
                 }
                 row.TouchRevision();
             }
@@ -2261,6 +2285,7 @@ namespace NovaTerminal.Core
                     if (i >= Cols) break;
                     row.Cells[i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                     row.SetExtendedText(i, null);
+                    row.SetHyperlink(i, null);
                 }
                 row.TouchRevision();
             }
@@ -2304,6 +2329,7 @@ namespace NovaTerminal.Core
                 row.Cells[i] = empty;
             }
             row.ClearExtendedText();
+            row.ClearHyperlinks();
             row.TouchRevision();
         }
 
@@ -2322,6 +2348,7 @@ namespace NovaTerminal.Core
 
                     row.Cells[col] = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground);
                     row.SetExtendedText(col, null);
+                    row.SetHyperlink(col, null);
                 }
                 row.TouchRevision();
             }
@@ -2855,6 +2882,7 @@ namespace NovaTerminal.Core
                             }
                             row.TouchRevision();
                             row.ClearExtendedText();
+                            row.ClearHyperlinks();
                         }
                     }
                 }

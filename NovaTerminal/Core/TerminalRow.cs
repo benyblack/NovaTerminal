@@ -13,6 +13,7 @@ namespace NovaTerminal.Core
 
         // M2.2: Side-table for extended graphemes (strings)
         private Dictionary<int, string>? _extendedText;
+        private Dictionary<int, string>? _hyperlinks;
 
         public string? GetExtendedText(int col)
         {
@@ -35,6 +36,30 @@ namespace NovaTerminal.Core
         public void ClearExtendedText()
         {
             _extendedText = null;
+        }
+
+        public string? GetHyperlink(int col)
+        {
+            if (_hyperlinks == null) return null;
+            return _hyperlinks.TryGetValue(col, out var link) ? link : null;
+        }
+
+        public void SetHyperlink(int col, string? link)
+        {
+            if (string.IsNullOrWhiteSpace(link))
+            {
+                _hyperlinks?.Remove(col);
+                if (_hyperlinks?.Count == 0) _hyperlinks = null;
+                return;
+            }
+
+            _hyperlinks ??= new Dictionary<int, string>();
+            _hyperlinks[col] = link;
+        }
+
+        public void ClearHyperlinks()
+        {
+            _hyperlinks = null;
         }
 
         public TerminalRow(int cols)

@@ -13,7 +13,8 @@ namespace NovaTerminal.Core
         private readonly List<ThemeImporters.IThemeImporter> _importers = new()
         {
             new ThemeImporters.WindowsTerminalImporter(),
-            new ThemeImporters.ITerm2Importer()
+            new ThemeImporters.ITerm2Importer(),
+            new ThemeImporters.AlacrittyImporter()
         };
 
         public ThemeManager(string? themesDirectory = null)
