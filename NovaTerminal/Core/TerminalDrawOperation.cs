@@ -511,8 +511,8 @@ namespace NovaTerminal.Core
                 var cell = snapshot.Cells[c];
                 if (cell.IsWideContinuation || cell.IsHidden) continue;
 
-                var cb = cell.IsDefaultBackground ? themeBg : new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
-                var cf = cell.IsDefaultForeground ? themeFg : new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
+                var cb = ResolveCellBackground(cell, themeBg, alpha);
+                var cf = ResolveCellForeground(cell, themeFg, alpha);
                 var fg = cell.IsInverse ? cb : cf;
                 var bg = cell.IsInverse ? cf : cb;
 
@@ -530,8 +530,8 @@ namespace NovaTerminal.Core
                         continue;
                     }
 
-                    var ncb = next.IsDefaultBackground ? themeBg : new SKColor(next.Background.R, next.Background.G, next.Background.B, alpha);
-                    var ncf = next.IsDefaultForeground ? themeFg : new SKColor(next.Foreground.R, next.Foreground.G, next.Foreground.B, alpha);
+                    var ncb = ResolveCellBackground(next, themeBg, alpha);
+                    var ncf = ResolveCellForeground(next, themeFg, alpha);
                     var nfg = next.IsInverse ? ncb : ncf;
                     var nbg = next.IsInverse ? ncf : ncb;
 
@@ -696,5 +696,58 @@ namespace NovaTerminal.Core
 
         private float SnapY(double logicalY)
             => (float)(Math.Round(logicalY * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+
+        private SKColor ResolveCellForeground(RenderCellSnapshot cell, SKColor themeFg, byte alpha)
+        {
+            if (cell.IsDefaultForeground) return themeFg;
+            if (cell.FgIndex >= 0)
+            {
+                var c = ResolvePaletteIndex(cell.FgIndex);
+                return new SKColor(c.R, c.G, c.B, alpha);
+            }
+            return new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
+        }
+
+        private SKColor ResolveCellBackground(RenderCellSnapshot cell, SKColor themeBg, byte alpha)
+        {
+            if (cell.IsDefaultBackground) return themeBg;
+            if (cell.BgIndex >= 0)
+            {
+                var c = ResolvePaletteIndex(cell.BgIndex);
+                return new SKColor(c.R, c.G, c.B, alpha);
+            }
+            return new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
+        }
+
+        private TermColor ResolvePaletteIndex(int index)
+        {
+            // 0-15 come from the active theme palette.
+            if (index < 16)
+            {
+                return _buffer.Theme.GetAnsiColor(index % 8, index >= 8);
+            }
+
+            // 16-231: xterm 6x6x6 cube.
+            if (index < 232)
+            {
+                index -= 16;
+                int r = index / 36;
+                int g = (index / 6) % 6;
+                int b = index % 6;
+
+                static byte ToByte(int v) => (byte)(v == 0 ? 0 : (v * 40 + 55));
+                return TermColor.FromRgb(ToByte(r), ToByte(g), ToByte(b));
+            }
+
+            // 232-255: xterm grayscale ramp.
+            if (index < 256)
+            {
+                index -= 232;
+                byte v = (byte)(index * 10 + 8);
+                return TermColor.FromRgb(v, v, v);
+            }
+
+            return TermColor.White;
+        }
     }
 }
