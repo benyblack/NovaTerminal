@@ -2793,16 +2793,43 @@ namespace NovaTerminal.Core
             return list;
         }
 
-        [System.Diagnostics.Conditional("DEBUG")]
         public void ApplySnapshot(ReplaySnapshot snapshot)
         {
             Lock.EnterWriteLock();
             try
             {
                 // Core properties
-                _cursorCol = snapshot.CursorCol;
-                _cursorRow = snapshot.CursorRow;
+                _cursorCol = Math.Clamp(snapshot.CursorCol, 0, Math.Max(0, Cols - 1));
+                _cursorRow = Math.Clamp(snapshot.CursorRow, 0, Math.Max(0, Rows - 1));
                 _isAltScreen = snapshot.IsAltScreen;
+                ScrollTop = Math.Clamp(snapshot.ScrollTop, 0, Math.Max(0, Rows - 1));
+                ScrollBottom = Math.Clamp(snapshot.ScrollBottom, 0, Math.Max(0, Rows - 1));
+                if (ScrollTop > ScrollBottom)
+                {
+                    ScrollTop = 0;
+                    ScrollBottom = Math.Max(0, Rows - 1);
+                }
+
+                Modes.IsAutoWrapMode = snapshot.IsAutoWrapMode;
+                Modes.IsApplicationCursorKeys = snapshot.IsApplicationCursorKeys;
+                Modes.IsOriginMode = snapshot.IsOriginMode;
+                Modes.IsBracketedPasteMode = snapshot.IsBracketedPasteMode;
+                Modes.IsCursorVisible = snapshot.IsCursorVisible;
+
+                CurrentForeground = TermColor.FromUint(snapshot.CurrentForeground);
+                CurrentBackground = TermColor.FromUint(snapshot.CurrentBackground);
+                CurrentFgIndex = snapshot.CurrentFgIndex;
+                CurrentBgIndex = snapshot.CurrentBgIndex;
+                IsDefaultForeground = snapshot.IsDefaultForeground;
+                IsDefaultBackground = snapshot.IsDefaultBackground;
+                IsInverse = snapshot.IsInverse;
+                IsBold = snapshot.IsBold;
+                IsFaint = snapshot.IsFaint;
+                IsItalic = snapshot.IsItalic;
+                IsUnderline = snapshot.IsUnderline;
+                IsBlink = snapshot.IsBlink;
+                IsStrikethrough = snapshot.IsStrikethrough;
+                IsHidden = snapshot.IsHidden;
 
                 // Cells
                 if (!string.IsNullOrEmpty(snapshot.CellsBase64))
@@ -2813,11 +2840,14 @@ namespace NovaTerminal.Core
                     int expectedCells = snapshot.Cols * snapshot.Rows;
                     if (cellSpan.Length >= expectedCells)
                     {
+                        int rowsToCopy = Math.Min(snapshot.Rows, _viewport.Length);
+                        int colsToCopy = Math.Min(snapshot.Cols, Cols);
+
                         // Update viewport
-                        for (int r = 0; r < snapshot.Rows; r++)
+                        for (int r = 0; r < rowsToCopy; r++)
                         {
                             var row = _viewport[r];
-                            Array.Copy(cellSpan.Slice(r * snapshot.Cols, snapshot.Cols).ToArray(), row.Cells, snapshot.Cols);
+                            Array.Copy(cellSpan.Slice(r * snapshot.Cols, colsToCopy).ToArray(), row.Cells, colsToCopy);
 
                             if (snapshot.RowWraps != null && r < snapshot.RowWraps.Length)
                             {
@@ -2836,7 +2866,7 @@ namespace NovaTerminal.Core
                     {
                         int r = kvp.Key / snapshot.Cols;
                         int c = kvp.Key % snapshot.Cols;
-                        if (r < _viewport.Length)
+                        if (r < _viewport.Length && c < Cols)
                         {
                             _viewport[r].SetExtendedText(c, kvp.Value);
                         }

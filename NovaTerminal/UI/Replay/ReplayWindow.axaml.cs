@@ -141,9 +141,8 @@ namespace NovaTerminal.UI.Replay
                 // Apply snapshot synchronously on UI thread if possible, or Dispatcher
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    _buffer.ApplySnapshot(snapEntry.Snapshot);
-                    // Also resize buffer if snapshot has dims
                     _buffer.Resize(snapEntry.Snapshot.Cols, snapEntry.Snapshot.Rows);
+                    _buffer.ApplySnapshot(snapEntry.Snapshot);
                 });
             }
             else
@@ -156,7 +155,7 @@ namespace NovaTerminal.UI.Replay
             // We run a short replay task
             try
             {
-                var runner = new ReplayRunner(_filePath);
+                var runner = new ReplayReader(_filePath);
 
                 long minTime = snapEntry?.TimeMs ?? 0;
                 using var seekCts = new CancellationTokenSource(2000);
@@ -186,7 +185,7 @@ namespace NovaTerminal.UI.Replay
 
             try
             {
-                var runner = new ReplayRunner(_filePath);
+                var runner = new ReplayReader(_filePath);
                 long startTimeMs = _viewModel.CurrentTimeMs;
 
                 // Determine starting state (Snapshot)
@@ -195,7 +194,11 @@ namespace NovaTerminal.UI.Replay
 
                 if (snapEntry != null)
                 {
-                    await Dispatcher.UIThread.InvokeAsync(() => _buffer.ApplySnapshot(snapEntry.Snapshot));
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        _buffer.Resize(snapEntry.Snapshot.Cols, snapEntry.Snapshot.Rows);
+                        _buffer.ApplySnapshot(snapEntry.Snapshot);
+                    });
                 }
                 else
                 {
