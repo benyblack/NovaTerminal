@@ -5,6 +5,22 @@
 
 ---
 
+## Progress Snapshot *(updated 2026-02-13)*
+
+| Milestone | Status | Evidence | Notes |
+|---|---|---|---|
+| **M0** Foundation | **Partially complete** | `feature/m0-foundation` (older branch), current `main` codebase | `TermColor` and `CircularBuffer` work are present; full `TerminalBuffer` decomposition remains open |
+| **M1** VT Completeness | **Merged** | `235d00d` (`Merge feature/m1-vt-completeness`) | DEC mode and SGR completeness delivered in merged branch |
+| **M2** Perf & Stability | **Merged (core scope)** | `04221f4` (`Merge feature/m2-performance-stability`) | Batch write/parser + memory model updates landed; remaining perf-gate/fuzz hardening is still trackable separately |
+| **M3** Replay Product | **Merged (core scope)** | `1eb70b5` (`Merge feature/m3-replay-product`) | Replay v2 format, reader/writer aliases, richer snapshots, and replay stability landed |
+| **M4** Cross-Platform Polish | **Merged** | `417ebb7` (`Merge feature/m4-cross-platform-polish`) | CI matrix/AOT/PTY smoke, ConPTY image fallback docs+logic, and UX polish set landed |
+| **M4.5** Production Hardening | **Merged** | `1fabee7`, `5ed9993`, `e50013f`, `25344d9` | Removed password injection, canonicalized vault keys, moved writable paths to LocalAppData, switched parity to runtime artifacts, corrected nightly stress filters, synced execution docs |
+| **M5** Ship | **Not started** | n/a | Beta program, launch docs/site, and release motion still pending |
+
+**Latest verification (2026-02-13):** `dotnet test NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release` passed (`159/159`), plus replay and stress/perf/latency filtered runs passed; `tests/NovaTerminal.ExternalSuites` builds in Release.
+
+---
+
 ## Roadmap Overview
 
 ```mermaid
@@ -40,15 +56,22 @@ gantt
     Image Protocol Fix        :m4b, after m4a, 2w
     UX Polish                 :m4c, after m4b, 3w
 
+    section M4.5 Hardening
+    Auth + Vault Hardening    :m45a, 2026-02-13, 1d
+    User-Scoped Paths         :m45b, after m45a, 1d
+    CI/Nightly Hardening      :m45c, after m45b, 1d
+
     section M5 Ship
-    Beta Program              :m5a, after m4c, 4w
-    Documentation             :m5b, after m4c, 2w
+    Beta Program              :m5a, after m45c, 4w
+    Documentation             :m5b, after m45c, 2w
     Launch                    :m5c, after m5a, 1w
 ```
 
 ---
 
 ## M0 — Structural Foundation *(3 weeks)*
+
+**Status (2026-02-13):** Partial. Core decoupling/ring-buffer elements are in place, but full decomposition target is still open.
 
 **Purpose**: Eliminate the four catastrophic tech debt risks identified in the review. Every subsequent milestone depends on this being clean.
 
@@ -120,6 +143,8 @@ gantt
 ---
 
 ## M1 — VT Completeness *(5 weeks)*
+
+**Status (2026-02-13):** Merged to `main` (`235d00d`).
 
 **Purpose**: Reach the VT compliance level required for correct rendering of modern TUI applications (bat, delta, neovim, tmux, htop, midnight commander).
 
@@ -194,6 +219,8 @@ gantt
 
 ## M2 — Performance & Stability *(5 weeks)*
 
+**Status (2026-02-13):** Merged core milestone work to `main` (`04221f4`), with additional perf-hardening items still available for follow-up.
+
 **Purpose**: Achieve performance parity with WezTerm/Windows Terminal on throughput benchmarks. Eliminate GC-induced frame drops.
 
 ### M2.1 — Lock Batch Optimization *(1 week)*
@@ -253,6 +280,8 @@ gantt
 ---
 
 ## M3 — Replay as Product Feature *(5 weeks)*
+
+**Status (2026-02-13):** Merged core replay product work to `main` (`1eb70b5`).
 
 **Purpose**: Transform the replay infrastructure from a testing tool into a user-facing product differentiator. This is the strongest monetization lever.
 
@@ -334,6 +363,8 @@ gantt
 
 ## M4 — Cross-Platform Polish *(7 weeks)*
 
+**Status (2026-02-13):** Merged to `main` (`417ebb7`).
+
 ### M4.1 — Cross-Platform CI *(2 weeks)*
 
 **Tasks**:
@@ -394,7 +425,28 @@ gantt
 
 ---
 
+## M4.5 — Production Hardening *(completed follow-up sweep)*
+
+**Status (2026-02-13):** Merged to `main` via `1fabee7`, `5ed9993`, `e50013f`, `25344d9`.
+
+**Purpose**: Close security, data-path, and CI correctness gaps discovered after core M4 landing.
+
+### Delivered
+
+- Removed terminal-output-triggered password auto-injection; SSH password auth is now manual interactive only.
+- Canonicalized SSH vault keying to `SSH:PROFILE:{profileId}` with legacy key fallback and migration.
+- Moved runtime writable files to user-scoped LocalAppData paths with one-time non-destructive migration.
+- Switched parity comparison to runtime-generated replay artifacts; parity compare fails when artifacts are missing.
+- Fixed nightly stress lane to run real `Stress`, `Performance`, and `Latency` categories (instead of empty `ReplayStress` filter).
+- Synced execution documentation in `documents/PRODUCTION_EXECUTION_PLAN.md`.
+
+**Exit criteria**: met.
+
+---
+
 ## M5 — Ship *(5 weeks)*
+
+**Status (2026-02-13):** Pending.
 
 ### M5.1 — Beta Program *(4 weeks)*
 
@@ -434,8 +486,9 @@ gantt
 | **M2** Performance | 5 weeks | Competitive throughput, no GC drops | Medium-High (memory overhaul) |
 | **M3** Replay Product | 5 weeks | Session recording as user feature | Low |
 | **M4** Polish | 7 weeks | Cross-platform, image protocols, UX | Medium |
+| **M4.5** Hardening | 1 week | Security, runtime-path, and CI/nightly correctness gates closed | Low-Medium |
 | **M5** Ship | 5 weeks | Public release with beta feedback | Low |
-| **Total** | **~30 weeks** | | |
+| **Total** | **~31 weeks** | | |
 
 ---
 
@@ -448,18 +501,19 @@ graph LR
     M1 --> M3["M3: Replay Product<br>5 weeks"]
     M2 --> M4["M4: Polish<br>7 weeks"]
     M3 --> M4
-    M4 --> M5["M5: Ship<br>5 weeks"]
+    M4 --> M45["M4.5: Hardening<br>1 week"]
+    M45 --> M5["M5: Ship<br>5 weeks"]
 
     style M0 fill:#ff6b6b,color:#fff
     style M2 fill:#ffa94d,color:#fff
     style M3 fill:#51cf66,color:#fff
 ```
 
-**M0 is the one non-negotiable prerequisite.** M1 and M2 can run in parallel after M0. M3 depends on M1 (needs correct VT for meaningful replay). M4 depends on both M2 and M3. M5 depends on M4.
+**M0 is the one non-negotiable prerequisite.** M1 and M2 can run in parallel after M0. M3 depends on M1 (needs correct VT for meaningful replay). M4 depends on both M2 and M3. M4.5 hardening should complete before M5.
 
-**Fastest path to beta**: M0 → M1+M2 (parallel) → M3 → M5 (skip M4 polish). This gives a *functional* beta in ~18 weeks but with rough edges.
+**Fastest path to beta**: M0 → M1+M2 (parallel) → M3 → M4.5 → M5 (skip most M4 polish). This gives a *functional* beta in ~19 weeks but with rough edges.
 
-**Recommended path**: Full sequence. 30 weeks to a polished launch.
+**Recommended path**: Full sequence. 31 weeks to a polished launch.
 
 ---
 
@@ -509,11 +563,13 @@ These capabilities must exist *before* choosing a revenue model:
 |---|---|---|
 | Replay recording + sharing | SaaS collaboration tool | M3 |
 | Session audit logging | Enterprise compliance | M3 |
-| Credential vault integration | Enterprise security | Exists (VaultService) |
+| Credential vault integration (canonicalized + migrated) | Enterprise security | M4.5 |
+| No output-triggered credential injection | Security baseline | M4.5 |
 | Plugin/extension API | Marketplace revenue | Post-launch |
 | Telemetry (opt-in) | Usage data for pricing | M5 |
 | Cross-platform parity | Broad market | M4 |
+| Runtime-generated parity artifacts in CI | Regression trustworthiness | M4.5 |
 | Auto-update mechanism | Subscription model | Post-launch |
 
 > [!TIP]
-> The fastest path to *validating* monetization is: ship M0-M3, give the replay feature to 10 DevOps teams, measure adoption. If they use it daily → enterprise SaaS. If they ignore it → pivot to open-core with premium themes/plugins.
+> The fastest path to *validating* monetization is: ship M0-M3 plus M4.5 hardening, give the replay feature to 10 DevOps teams, measure adoption. If they use it daily → enterprise SaaS. If they ignore it → pivot to open-core with premium themes/plugins.

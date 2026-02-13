@@ -105,9 +105,14 @@ After generating a `.rec`:
 
 2.  Run replay tests.
 
-3.  The replay runner will produce or verify the corresponding `.snap`.
+3.  Replay assertions compare against checked-in golden `.snap` files
+    in `NovaTerminal.Tests/Fixtures/Replay/`.
 
-Golden `.snap` files must be reviewed before committing.
+4.  For CI parity runs, set `PARITY_ARTIFACT_DIR` so each replay test
+    also emits a runtime-generated `.snap` artifact.
+
+Golden `.snap` files must be reviewed before committing when they are
+intentionally updated.
 
 ------------------------------------------------------------------------
 
@@ -124,8 +129,23 @@ env:
 Even though the PTY layer sets these internally, setting them at the
 workflow level improves traceability.
 
-Nightly job suggestion: - Generate `.rec` - Run replay - Compare
-`.snap` - Fail on diff
+For replay parity jobs, also set:
+
+``` yaml
+env:
+  PARITY_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/parity
+```
+
+Recommended flow:
+
+1.  Run replay tests with `PARITY_ARTIFACT_DIR` set.
+2.  Upload `artifacts/parity/**/*.snap` from each OS job.
+3.  Compare downloaded artifact sets using
+    `tests/tools/compare_snapshots.py`.
+4.  Fail on missing artifacts or snapshot diffs.
+
+Nightly stress lanes should target real categories (`Stress`,
+`Performance`, `Latency`) instead of `ReplayStress`.
 
 ------------------------------------------------------------------------
 

@@ -38,6 +38,8 @@ NovaTerminal is built around one core principle:
 - Lossless resize & reflow
 - Strict alternate screen isolation
 - **Resource Hardening**: Defensive buffer management ensures stability even under extreme stress (e.g., rapid resizing).
+- **Auth Hardening**: No terminal-output-triggered password injection; SSH password auth is manual interactive entry only.
+- **Secret Migration Safety**: SSH secrets use canonical keying with backward-compatible legacy lookup migration.
 
 ---
 
@@ -61,8 +63,9 @@ Platform-specific differences are limited to:
 NovaTerminal treats automated testing as a first-class feature:
 
 - deterministic replay of real terminal sessions
-- cross-platform parity checks
+- cross-platform parity checks from **runtime-generated artifacts** (not checked-in fixture snapshots)
 - renderer performance & flicker guards
+- nightly stress/performance/latency regression lanes
 
 If a change cannot be tested, it does not ship.
 
@@ -119,7 +122,18 @@ See `documents/IMAGE_PROTOCOL_SUPPORT.md` for platform-specific protocol behavio
 ### Remote
 - SSH profiles
 - Cross-platform PTY abstraction
-- Secure credential handling (in progress)
+- Secure credential handling via platform vault backends with canonical SSH key schema migration
+
+### Runtime Storage Model
+NovaTerminal stores writable runtime data in user-scoped app data paths:
+
+- settings
+- themes
+- logs
+- session restore state
+- recordings
+
+This avoids requiring write access to the install directory and supports one-time migration from legacy locations.
 
 ---
 
@@ -127,12 +141,15 @@ See `documents/IMAGE_PROTOCOL_SUPPORT.md` for platform-specific protocol behavio
 
 NovaTerminal is under **active development**.
 
-Current focus:
-- hardening terminal correctness
-- eliminating flicker and resize instability
-- expanding automated replay coverage
+Recently completed:
+- M1 VT completeness
+- M2 core performance/stability
+- M3 replay product core
+- M4 cross-platform polish
+- M4.5 production hardening (auth, vault keys, LocalAppData runtime paths, CI parity/nightly corrections)
 
-Advanced features are intentionally secondary until correctness goals are met.
+Current focus:
+- M5 ship readiness (beta workflow, release motion, launch docs/site)
 
 ---
 
