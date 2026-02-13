@@ -1,0 +1,164 @@
+using Xunit;
+using NovaTerminal.Core;
+using Avalonia.Media;
+
+namespace NovaTerminal.Tests
+{
+    public class SgrAttributeTests
+    {
+        private TerminalCell GetCellSafe(TerminalBuffer buffer, int col, int row)
+        {
+            buffer.Lock.EnterReadLock();
+            try { return buffer.GetCell(col, row); }
+            finally { buffer.Lock.ExitReadLock(); }
+        }
+
+        [Fact]
+        public void Sgr_Italic_SetsAttribute()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // Enable Italic
+            parser.Process("\x1b[3m");
+            Assert.True(buffer.IsItalic);
+
+            // Write char
+            parser.Process("A");
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.True(cell.IsItalic);
+
+            // Disable Italic
+            parser.Process("\x1b[23m");
+            Assert.False(buffer.IsItalic);
+
+            // Write another char
+            parser.Process("B");
+            var cell2 = GetCellSafe(buffer, 1, 0);
+            Assert.False(cell2.IsItalic);
+        }
+
+        [Fact]
+        public void Sgr_Underline_SetsAttribute()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[4m");
+            Assert.True(buffer.IsUnderline);
+
+            parser.Process("A");
+            Assert.True(GetCellSafe(buffer, 0, 0).IsUnderline);
+
+            parser.Process("\x1b[24m");
+            Assert.False(buffer.IsUnderline);
+        }
+
+        [Fact]
+        public void Sgr_Blink_SetsAttribute()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[5m");
+            Assert.True(buffer.IsBlink);
+
+            parser.Process("A");
+            Assert.True(GetCellSafe(buffer, 0, 0).IsBlink);
+
+            parser.Process("\x1b[25m");
+            Assert.False(buffer.IsBlink);
+        }
+
+        [Fact]
+        public void Sgr_Faint_SetsAttribute()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[2m");
+            Assert.True(buffer.IsFaint);
+
+            parser.Process("A");
+            Assert.True(GetCellSafe(buffer, 0, 0).IsFaint);
+
+            // Faint is cleared by Normal Intensity (22)
+            parser.Process("\x1b[22m");
+            Assert.False(buffer.IsFaint);
+            Assert.False(buffer.IsBold); // Should also ensure bold is false
+        }
+
+        [Fact]
+        public void Sgr_Strikethrough_SetsAttribute()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[9m");
+            Assert.True(buffer.IsStrikethrough);
+
+            parser.Process("A");
+            Assert.True(GetCellSafe(buffer, 0, 0).IsStrikethrough);
+
+            parser.Process("\x1b[29m");
+            Assert.False(buffer.IsStrikethrough);
+        }
+
+        [Fact]
+        public void Sgr_Reset_ClearsAllAttributes()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // Set all
+            parser.Process("\x1b[1;2;3;4;5;7;8;9m"); // Bold, Faint, Italic, Underline, Blink, Inverse, Hidden, Strikethrough
+
+            Assert.True(buffer.IsBold);
+            Assert.True(buffer.IsFaint);
+            Assert.True(buffer.IsItalic);
+            Assert.True(buffer.IsUnderline);
+            Assert.True(buffer.IsBlink);
+            Assert.True(buffer.IsInverse);
+            Assert.True(buffer.IsHidden);
+            Assert.True(buffer.IsStrikethrough);
+
+            // Reset (0)
+            parser.Process("\x1b[0m");
+
+            Assert.False(buffer.IsBold);
+            Assert.False(buffer.IsFaint);
+            Assert.False(buffer.IsItalic);
+            Assert.False(buffer.IsUnderline);
+            Assert.False(buffer.IsBlink);
+            Assert.False(buffer.IsInverse);
+            Assert.False(buffer.IsHidden);
+            Assert.False(buffer.IsStrikethrough);
+        }
+
+        [Fact]
+        public void Snapshot_PropagatesSgrAttributes()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[3;4mTest"); // Italic + Underline
+
+            RenderRowSnapshot snapshot = default;
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                snapshot = buffer.GetRowSnapshot(0, 80);
+            }
+            finally
+            {
+                buffer.Lock.ExitReadLock();
+            }
+            var cellSnapshot = snapshot.Cells[0]; // 'T'
+
+            Assert.Equal('T', cellSnapshot.Character);
+            Assert.True(cellSnapshot.IsItalic);
+            Assert.True(cellSnapshot.IsUnderline);
+            Assert.False(cellSnapshot.IsBold);
+        }
+    }
+}

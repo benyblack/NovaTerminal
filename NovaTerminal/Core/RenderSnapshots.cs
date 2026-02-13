@@ -17,6 +17,11 @@ namespace NovaTerminal.Core
         public bool IsWide;
         public bool IsWideContinuation;
         public bool IsHidden;
+        public bool IsFaint;
+        public bool IsItalic;
+        public bool IsUnderline;
+        public bool IsBlink;
+        public bool IsStrikethrough;
         public short FgIndex;
         public short BgIndex;
     }

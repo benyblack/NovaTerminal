@@ -1,0 +1,10 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  NovaTerminal -> D:\projects\nova2\NovaTerminal\bin\Debug\net10.0\NovaTerminal.dll
+  NovaTerminal.Tests -> D:\projects\nova2\NovaTerminal.Tests\bin\Debug\net10.0\NovaTerminal.Tests.dll
+
+Build succeeded.
+    0 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:00.82

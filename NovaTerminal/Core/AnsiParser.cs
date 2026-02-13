@@ -584,6 +584,11 @@ namespace NovaTerminal.Core
                 _buffer.CurrentFgIndex = -1; // Default
                 _buffer.CurrentBgIndex = -1; // Default
                 _buffer.IsBold = false;
+                _buffer.IsFaint = false;
+                _buffer.IsItalic = false;
+                _buffer.IsUnderline = false;
+                _buffer.IsBlink = false;
+                _buffer.IsStrikethrough = false;
                 _buffer.IsInverse = false;
                 return;
             }
@@ -600,6 +605,11 @@ namespace NovaTerminal.Core
                     _buffer.CurrentFgIndex = -1;
                     _buffer.CurrentBgIndex = -1;
                     _buffer.IsBold = false;
+                    _buffer.IsFaint = false;
+                    _buffer.IsItalic = false;
+                    _buffer.IsUnderline = false;
+                    _buffer.IsBlink = false;
+                    _buffer.IsStrikethrough = false;
                     _buffer.IsInverse = false;
                 }
                 else if (code >= 30 && code <= 37)
@@ -680,9 +690,10 @@ namespace NovaTerminal.Core
                 {
                     _buffer.IsBold = true;
                 }
-                else if (code == 22) // Normal Intensity (Not Bold)
+                else if (code == 22) // Normal Intensity (Not Bold, Not Faint)
                 {
                     _buffer.IsBold = false;
+                    _buffer.IsFaint = false;
                 }
                 else if (code == 7) // Inverse
                 {
@@ -700,6 +711,42 @@ namespace NovaTerminal.Core
                 {
                     _buffer.IsHidden = false;
                 }
+                else if (code == 2) // Faint
+                {
+                    _buffer.IsFaint = true;
+                }
+                else if (code == 3) // Italic
+                {
+                    _buffer.IsItalic = true;
+                }
+                else if (code == 4) // Underline
+                {
+                    _buffer.IsUnderline = true;
+                }
+                else if (code == 5) // Blink
+                {
+                    _buffer.IsBlink = true;
+                }
+                else if (code == 9) // Strikethrough
+                {
+                    _buffer.IsStrikethrough = true;
+                }
+                else if (code == 23) // No Italic
+                {
+                    _buffer.IsItalic = false;
+                }
+                else if (code == 24) // No Underline
+                {
+                    _buffer.IsUnderline = false;
+                }
+                else if (code == 25) // No Blink
+                {
+                    _buffer.IsBlink = false;
+                }
+                else if (code == 29) // No Strikethrough
+                {
+                    _buffer.IsStrikethrough = false;
+                }
             }
         }
 
@@ -711,6 +758,11 @@ namespace NovaTerminal.Core
             _buffer.CurrentBgIndex = -1;
             _buffer.IsInverse = false;
             _buffer.IsBold = false;
+            _buffer.IsFaint = false;
+            _buffer.IsItalic = false;
+            _buffer.IsUnderline = false;
+            _buffer.IsBlink = false;
+            _buffer.IsStrikethrough = false;
             _buffer.IsHidden = false;
         }
 

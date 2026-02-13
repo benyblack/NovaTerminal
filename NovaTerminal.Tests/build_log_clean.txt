@@ -1,0 +1,19 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  NovaTerminal -> D:\projects\nova2\NovaTerminal\bin\Debug\net10.0\NovaTerminal.dll
+D:\projects\nova2\NovaTerminal.Tests\GraphicsTests.cs(21,31): warning CS8600: Converting null literal or possible null value to non-nullable type. [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\ReflowRegressionTests.cs(31,38): warning CS8603: Possible null reference return. [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\GraphicsTests.cs(68,31): warning CS8600: Converting null literal or possible null value to non-nullable type. [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\ReflowRegressionTests.cs(52,20): warning CS8603: Possible null reference return. [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+  NovaTerminal.Tests -> D:\projects\nova2\NovaTerminal.Tests\bin\Debug\net10.0\NovaTerminal.Tests.dll
+
+Build succeeded.
+
+D:\projects\nova2\NovaTerminal.Tests\GraphicsTests.cs(21,31): warning CS8600: Converting null literal or possible null value to non-nullable type. [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\ReflowRegressionTests.cs(31,38): warning CS8603: Possible null reference return. [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\GraphicsTests.cs(68,31): warning CS8600: Converting null literal or possible null value to non-nullable type. [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\NovaTerminal.Tests\ReflowRegressionTests.cs(52,20): warning CS8603: Possible null reference return. [D:\projects\nova2\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+    4 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:04.39

@@ -59,15 +59,15 @@ namespace NovaTerminal.Tests
         private int GetScrollbackCount(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var list = (System.Collections.IList)field!.GetValue(buffer)!;
+            var list = (IReadOnlyList<TerminalRow>)field!.GetValue(buffer)!;
             return list.Count;
         }
 
         private TerminalRow GetScrollbackRow(TerminalBuffer buffer, int idx)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var list = (System.Collections.IList)field!.GetValue(buffer)!;
-            return (TerminalRow)list[idx]!;
+            var list = (IReadOnlyList<TerminalRow>)field!.GetValue(buffer)!;
+            return list[idx]!;
         }
 
         private TerminalRow GetViewportRow(TerminalBuffer buffer, int idx)

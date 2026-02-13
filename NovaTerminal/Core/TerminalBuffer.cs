@@ -103,6 +103,11 @@ namespace NovaTerminal.Core
         public TerminalTheme Theme { get; set; } = new TerminalTheme();
         public bool IsInverse { get; set; }
         public bool IsBold { get; set; }
+        public bool IsFaint { get; set; }
+        public bool IsItalic { get; set; }
+        public bool IsUnderline { get; set; }
+        public bool IsBlink { get; set; }
+        public bool IsStrikethrough { get; set; }
         public bool IsHidden { get; set; }
 
 
@@ -543,7 +548,7 @@ namespace NovaTerminal.Core
                                 ref var nextCell = ref _viewport[_cursorRow].Cells[attachCol + 1];
                                 if (!nextCell.IsWideContinuation)
                                 {
-                                    nextCell = new TerminalCell(' ', cell.Foreground, cell.Background, cell.IsInverse, cell.IsBold, cell.IsDefaultForeground, cell.IsDefaultBackground, cell.IsHidden, cell.FgIndex, cell.BgIndex) { IsWideContinuation = true };
+                                    nextCell = new TerminalCell(' ', cell.Foreground, cell.Background, cell.IsInverse, cell.IsBold, cell.IsDefaultForeground, cell.IsDefaultBackground, cell.IsHidden, cell.FgIndex, cell.BgIndex, false, cell.IsFaint, cell.IsItalic, cell.IsUnderline, cell.IsBlink, cell.IsStrikethrough) { IsWideContinuation = true };
                                 }
 
                                 // If the cursor was waiting at the next cell, and we just expanded into it, push the cursor forward.
@@ -593,12 +598,12 @@ namespace NovaTerminal.Core
                 // Clear any existing continuations in the space we're about to occupy
                 for (int i = 0; i < width && _cursorCol + i < Cols; i++)
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol + i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex);
+                    _viewport[_cursorRow].Cells[_cursorCol + i] = new TerminalCell(' ', CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, false, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
                 }
 
                 if (width >= 2 && _cursorCol + 1 < Cols)
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, true);
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, true, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
 
                     int maxCont = Math.Min(width, Cols - _cursorCol);
                     for (int i = 1; i < maxCont; i++)
@@ -613,7 +618,7 @@ namespace NovaTerminal.Core
                 }
                 else
                 {
-                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, width == 2);
+                    _viewport[_cursorRow].Cells[_cursorCol] = new TerminalCell(grapheme, CurrentForeground, CurrentBackground, IsInverse, IsBold, IsDefaultForeground, IsDefaultBackground, IsHidden, CurrentFgIndex, CurrentBgIndex, width == 2, IsFaint, IsItalic, IsUnderline, IsBlink, IsStrikethrough);
 
                     _viewport[_cursorRow].TouchRevision();
                     _lastCharCol = _cursorCol;
@@ -825,7 +830,7 @@ namespace NovaTerminal.Core
                 }
 
                 // Fill gap with default empty cells
-                var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground, false, CurrentFgIndex, CurrentBgIndex);
+                var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground, false, CurrentFgIndex, CurrentBgIndex, false, false, false, false, false, false);
                 for (int c = _cursorCol; c < endCol; c++)
                 {
                     row.Cells[c] = empty;
@@ -2446,6 +2451,11 @@ namespace NovaTerminal.Core
                     IsWide = cell.IsWide,
                     IsWideContinuation = cell.IsWideContinuation,
                     IsHidden = cell.IsHidden,
+                    IsFaint = cell.IsFaint,
+                    IsItalic = cell.IsItalic,
+                    IsUnderline = cell.IsUnderline,
+                    IsBlink = cell.IsBlink,
+                    IsStrikethrough = cell.IsStrikethrough,
                     FgIndex = cell.FgIndex,
                     BgIndex = cell.BgIndex
                 };
