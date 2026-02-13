@@ -171,5 +171,27 @@ namespace NovaTerminal.Tests
             buffer.WriteChar('B');
             Assert.Equal('B', GetCellSafe(buffer, 0, 1).Character);
         }
+
+        [Fact]
+        public void CursorForwardEscape_ShouldClearPendingWrap_WithoutWrapping()
+        {
+            var buffer = CreateBuffer(10, 5);
+            var parser = new AnsiParser(buffer);
+
+            buffer.SetCursorPosition(9, 0);
+            buffer.WriteChar('A');
+            Assert.True(buffer.IsPendingWrap);
+
+            // CUF should clear pending wrap (via explicit cursor movement).
+            parser.Process("\x1b[C");
+            Assert.False(buffer.IsPendingWrap);
+            Assert.Equal(9, buffer.CursorCol);
+            Assert.Equal(0, buffer.CursorRow);
+
+            // Next printable should overwrite at current position, not wrap.
+            buffer.WriteChar('B');
+            Assert.Equal('B', GetCellSafe(buffer, 9, 0).Character);
+            Assert.Equal(' ', GetCellSafe(buffer, 0, 1).Character);
+        }
     }
 }

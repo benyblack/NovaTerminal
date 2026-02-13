@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Threading;
@@ -346,6 +347,21 @@ namespace NovaTerminal.Core
         protected override void OnGotFocus(GotFocusEventArgs e)
         {
             base.OnGotFocus(e);
+            if (_session != null && _buffer != null && _buffer.Modes.IsFocusEventReporting)
+            {
+                _session.SendInput("\x1b[I");
+            }
+            _isDirty = true;
+            InvalidateVisual();
+        }
+
+        protected override void OnLostFocus(RoutedEventArgs e)
+        {
+            base.OnLostFocus(e);
+            if (_session != null && _buffer != null && _buffer.Modes.IsFocusEventReporting)
+            {
+                _session.SendInput("\x1b[O");
+            }
             _isDirty = true;
             InvalidateVisual();
         }
