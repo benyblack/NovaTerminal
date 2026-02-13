@@ -1160,7 +1160,8 @@ namespace NovaTerminal.Core
 
                 // Calculate how many viewport rows have content
                 int lastActiveVpRow = -1;
-                for (int i = 0; i < oldRows; i++)
+                int actualVpLen = _viewport.Length;
+                for (int i = 0; i < Math.Min(oldRows, actualVpLen); i++)
                 {
                     var row = _viewport[i];
                     bool isEmpty = true;
@@ -1188,7 +1189,11 @@ namespace NovaTerminal.Core
                 {
                     // Fill rented array
                     for (int i = 0; i < _scrollback.Count; i++) allPhysicalRows[i] = _scrollback[i];
-                    for (int i = 0; i < vpRowsToTake; i++) allPhysicalRows[_scrollback.Count + i] = _viewport[i];
+                    for (int i = 0; i < vpRowsToTake; i++)
+                    {
+                        if (i < actualVpLen) allPhysicalRows[_scrollback.Count + i] = _viewport[i];
+                        else allPhysicalRows[_scrollback.Count + i] = new TerminalRow(oldCols, Theme.Foreground, Theme.Background);
+                    }
 
                     List<TerminalCell>? currentLogical = null;
                     int currentStartPhys = -1;
