@@ -541,18 +541,23 @@ namespace NovaTerminal.Tests
             // Check Viewport
             if (!foundRed)
             {
-                for (int r = 0; r < buffer.Rows; r++)
+                buffer.Lock.EnterReadLock();
+                try
                 {
-                    for (int c = 0; c < buffer.Cols; c++)
+                    for (int r = 0; r < buffer.Rows; r++)
                     {
-                        if (buffer.GetCellAbsolute(c, r + sb.Count).Background == Colors.Red)
+                        for (int c = 0; c < buffer.Cols; c++)
                         {
-                            foundRed = true;
-                            break;
+                            if (buffer.GetCellAbsolute(c, r + sb.Count).Background == Colors.Red)
+                            {
+                                foundRed = true;
+                                break;
+                            }
                         }
+                        if (foundRed) break;
                     }
-                    if (foundRed) break;
                 }
+                finally { buffer.Lock.ExitReadLock(); }
             }
 
             Assert.True(foundRed, "Red background (history or visible) should be preserved.");

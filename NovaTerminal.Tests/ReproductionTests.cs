@@ -18,33 +18,43 @@ namespace NovaTerminal.Tests
             buffer.WriteContent(baseEmoji);
 
             // Verify Base State
-            var cell0 = buffer.GetCell(0, 0);
-            var cell1 = buffer.GetCell(1, 0); // Should be wide continuation or empty depending on impl
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                var cell0 = buffer.GetCell(0, 0);
+                var cell1 = buffer.GetCell(1, 0); // Should be wide continuation or empty depending on impl
 
-            Assert.Equal(baseEmoji, cell0.Text ?? cell0.Character.ToString());
-            // Assert.True(cell0.IsWide, "Base emoji should be wide"); // Actually it might be 1 or 2 depending on font fallback, currently simulated as 2 in GetRuneWidth
+                Assert.Equal(baseEmoji, cell0.Text ?? cell0.Character.ToString());
+                // Assert.True(cell0.IsWide, "Base emoji should be wide"); // Actually it might be 1 or 2 depending on font fallback, currently simulated as 2 in GetRuneWidth
+            }
+            finally { buffer.Lock.ExitReadLock(); }
 
             // 2. Write Modifier (Medium Skin Tone)
             string modifier = "\U0001F3FD"; // 🏽
             buffer.WriteContent(modifier);
 
             // Verify Attachment
-            var attachedCell = buffer.GetCell(0, 0);
-            string expectedCombined = baseEmoji + modifier;
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                var attachedCell = buffer.GetCell(0, 0);
+                string expectedCombined = baseEmoji + modifier;
 
-            // This is the check that fails in the live app
-            Assert.Equal(expectedCombined, attachedCell.Text);
+                // This is the check that fails in the live app
+                Assert.Equal(expectedCombined, attachedCell.Text);
 
-            // Verify no ghost character at index 1 or 2
-            // If attachment works, the cursor should be at 2 (since width is 2).
-            // But cell[1] should be a continuation of cell[0].
-            var continuation = buffer.GetCell(1, 0);
-            Assert.True(continuation.IsWideContinuation, "Cell 1 should be a continuation");
+                // Verify no ghost character at index 1 or 2
+                // If attachment works, the cursor should be at 2 (since width is 2).
+                // But cell[1] should be a continuation of cell[0].
+                var continuation = buffer.GetCell(1, 0);
+                Assert.True(continuation.IsWideContinuation, "Cell 1 should be a continuation");
 
-            // Cell 2 should be empty
-            var cell2 = buffer.GetCell(2, 0);
-            Assert.Equal(' ', cell2.Character);
-            Assert.Null(cell2.Text);
+                // Cell 2 should be empty
+                var cell2 = buffer.GetCell(2, 0);
+                Assert.Equal(' ', cell2.Character);
+                Assert.Null(cell2.Text);
+            }
+            finally { buffer.Lock.ExitReadLock(); }
         }
     }
 }
