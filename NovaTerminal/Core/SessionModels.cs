@@ -12,6 +12,9 @@ namespace NovaTerminal.Core
     {
         public string? TabId { get; set; }
         public string Title { get; set; } = "Terminal";
+        public string? UserTitle { get; set; }
+        public bool IsPinned { get; set; }
+        public bool IsProtected { get; set; }
         public PaneNode? Root { get; set; } // The root of the layout tree
         public string? ActivePaneId { get; set; }
         public string? ZoomedPaneId { get; set; }

@@ -37,6 +37,9 @@ namespace NovaTerminal.Core
                         {
                             TabId = (window as MainWindow)?.GetPersistentTabId(tabItem).ToString(),
                             Title = (tabItem.Header as TextBlock)?.Text ?? "Terminal",
+                            UserTitle = (window as MainWindow)?.GetTabUserTitle(tabItem),
+                            IsPinned = (window as MainWindow)?.IsTabPinned(tabItem) ?? false,
+                            IsProtected = (window as MainWindow)?.IsTabProtected(tabItem) ?? false,
                             Root = BuildPaneTree(rootControl)
                         };
 
