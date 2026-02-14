@@ -328,9 +328,8 @@ namespace NovaTerminal
                 selectedIndex = 0;
             }
 
-            int targetIndex = reverse
-                ? (selectedIndex - 1 + _tabMru.Count) % _tabMru.Count
-                : (selectedIndex + 1) % _tabMru.Count;
+            int targetIndex = GetNextMruIndex(selectedIndex, _tabMru.Count, reverse);
+            if (targetIndex < 0) return false;
 
             var target = _tabMru[targetIndex];
             if (tabs.SelectedItem == target) return false;
@@ -338,6 +337,18 @@ namespace NovaTerminal
             _suppressMruTouchOnSelection = true;
             tabs.SelectedItem = target;
             return true;
+        }
+
+        internal static int GetNextMruIndex(int selectedIndex, int mruCount, bool reverse)
+        {
+            if (mruCount < 2 || selectedIndex < 0 || selectedIndex >= mruCount)
+            {
+                return -1;
+            }
+
+            return reverse
+                ? (selectedIndex - 1 + mruCount) % mruCount
+                : (selectedIndex + 1) % mruCount;
         }
 
         private string GetTabHeaderText(TabItem tab)
@@ -422,13 +433,23 @@ namespace NovaTerminal
                 return;
             }
 
+            int hiddenCount = CountHiddenTabs(viewportWidth, tabs.Items.Cast<TabItem>().Select(t => t.Bounds.Width));
+
+            badge.IsVisible = hiddenCount > 0;
+            badge.Text = hiddenCount > 0 ? $"+{hiddenCount}" : string.Empty;
+            ToolTip.SetTip(button, hiddenCount > 0 ? $"Tab List ({hiddenCount} hidden)" : "Tab List");
+            button.Foreground = hiddenCount > 0 ? new SolidColorBrush(Color.FromRgb(255, 210, 90)) : Brushes.White;
+        }
+
+        internal static int CountHiddenTabs(double viewportWidth, IEnumerable<double> tabWidths, double fallbackTabWidth = 120)
+        {
+            if (viewportWidth <= 0) return 0;
+
             double usedWidth = 0;
             int hiddenCount = 0;
-            foreach (var tab in tabs.Items.Cast<TabItem>())
+            foreach (double width in tabWidths)
             {
-                double tabWidth = tab.Bounds.Width;
-                if (tabWidth <= 0) tabWidth = 120;
-
+                double tabWidth = width > 0 ? width : fallbackTabWidth;
                 if (usedWidth + tabWidth <= viewportWidth + 0.5)
                 {
                     usedWidth += tabWidth;
@@ -439,10 +460,7 @@ namespace NovaTerminal
                 }
             }
 
-            badge.IsVisible = hiddenCount > 0;
-            badge.Text = hiddenCount > 0 ? $"+{hiddenCount}" : string.Empty;
-            ToolTip.SetTip(button, hiddenCount > 0 ? $"Tab List ({hiddenCount} hidden)" : "Tab List");
-            button.Foreground = hiddenCount > 0 ? new SolidColorBrush(Color.FromRgb(255, 210, 90)) : Brushes.White;
+            return hiddenCount;
         }
 
         private void EnsureSelectedTabHeaderVisible()
@@ -546,14 +564,14 @@ namespace NovaTerminal
             UpdateTabOverflowIndicator();
         }
 
-        private static string TruncateTabLabel(string value, int maxLength = 40)
+        internal static string TruncateTabLabel(string value, int maxLength = 40)
         {
             if (string.IsNullOrEmpty(value) || value.Length <= maxLength) return value;
             if (maxLength < 5) return value.Substring(0, maxLength);
             return value.Substring(0, maxLength - 1) + "…";
         }
 
-        private static string TruncateTabLabelWithSuffix(string value, int maxLength, string suffix)
+        internal static string TruncateTabLabelWithSuffix(string value, int maxLength, string suffix)
         {
             if (string.IsNullOrEmpty(suffix))
             {
