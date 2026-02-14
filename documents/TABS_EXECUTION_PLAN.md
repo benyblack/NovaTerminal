@@ -1,13 +1,21 @@
 # NovaTerminal Tabs Execution Plan
 
 Date: 2026-02-14  
-Status: In Execution (M1/M2 implemented; nightly stability gate pending)
+Status: In Execution (M1/M2 complete; M3 foundation implemented; nightly stability gate pending)
 
 ## Execution Status Snapshot (2026-02-14)
 
 Completed in code + tests:
 - M1 core behavior implemented: stable `TabId`, close policy flow, `Ctrl+W`/`Ctrl+Shift+W`, MRU switching, overflow tab list, selected-tab auto-scroll.
 - M2 UX behavior implemented: title precedence/truncation uniqueness hints, activity/bell/exit indicators, context menu actions, pin/protect, automation labels.
+- M3 foundation implemented:
+  - tamper-evident workspace bundle export/import (SHA-256 hash verified)
+  - bundle open/apply flow (without forced persistence)
+  - current-session bundle export
+  - shareable workspace templates (save/list/apply)
+  - per-profile tab template rules with auto-apply
+  - managed policy hooks (import/export allow flags, max tabs, SSO placeholder gates)
+  - audit trail for workspace/bundle/template operations
 - Instrumentation implemented:
   - `MainWindow` tab switch/visual/automation timings
   - `TerminalView` active timer tracking and hidden invalidation pressure
@@ -22,6 +30,9 @@ Completed in code + tests:
   - tab performance budget smoke tests
   - title resolution persistence tests
   - 5,000-iteration lifecycle stress loop test
+  - workspace bundle integrity/policy tests
+  - workspace policy manager tests
+  - tab template rule tests
 
 Remaining before declaring Free tab work complete:
 - Run and pass 7 consecutive nightly stress runs.
