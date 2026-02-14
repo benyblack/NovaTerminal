@@ -599,9 +599,34 @@ namespace NovaTerminal
         {
             var state = GetOrCreateTabState(tab);
             var pane = ResolvePaneForTab(tab);
-            return state.UserTitle ??
-                   pane?.GetBaseTabTitle() ??
-                   "Terminal";
+            return ResolveTabPrimaryTitle(state.UserTitle, pane?.GetBaseTabTitle(), null);
+        }
+
+        internal static string ResolveTabPrimaryTitle(string? userTitle, string? paneBaseTitle, string? fallbackHeader)
+        {
+            if (!string.IsNullOrWhiteSpace(userTitle))
+            {
+                return userTitle;
+            }
+
+            if (!string.IsNullOrWhiteSpace(paneBaseTitle))
+            {
+                return paneBaseTitle;
+            }
+
+            if (!string.IsNullOrWhiteSpace(fallbackHeader))
+            {
+                return fallbackHeader;
+            }
+
+            return "Terminal";
+        }
+
+        internal string GetTabPersistedTitle(TabItem tab)
+        {
+            var state = GetOrCreateTabState(tab);
+            var pane = ResolvePaneForTab(tab);
+            return ResolveTabPrimaryTitle(state.UserTitle, pane?.GetBaseTabTitle(), GetTabHeaderText(tab));
         }
 
         private string BuildFullTabLabel(TabItem tab)
