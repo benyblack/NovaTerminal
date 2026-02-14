@@ -26,6 +26,7 @@ namespace NovaTerminal.Core
         public static string ResizeDebugLogPath => Path.Combine(LogsDirectory, "resize_debug.log");
         public static string SessionsDirectory => Path.Combine(RootDirectory, "sessions");
         public static string SessionFilePath => Path.Combine(SessionsDirectory, "last_session.json");
+        public static string WorkspacesDirectory => Path.Combine(RootDirectory, "workspaces");
         public static string RecordingsDirectory => Path.Combine(RootDirectory, "recordings");
 
         public static void EnsureInitialized()
@@ -42,6 +43,7 @@ namespace NovaTerminal.Core
                     Directory.CreateDirectory(ThemesDirectory);
                     Directory.CreateDirectory(LogsDirectory);
                     Directory.CreateDirectory(SessionsDirectory);
+                    Directory.CreateDirectory(WorkspacesDirectory);
                     Directory.CreateDirectory(RecordingsDirectory);
 
                     string legacyBaseDir = AppDomain.CurrentDomain.BaseDirectory;
