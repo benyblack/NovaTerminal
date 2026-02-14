@@ -512,6 +512,10 @@ namespace NovaTerminal
                 renameItem.Click += async (_, __) => await RenameSelectedTabAsync();
                 flyout.Items.Add(renameItem);
 
+                var copyTitleItem = new MenuItem { Header = "Copy Tab Title" };
+                copyTitleItem.Click += async (_, __) => await CopySelectedTabTitleAsync();
+                flyout.Items.Add(copyTitleItem);
+
                 var closeCurrentItem = new MenuItem { Header = "Close Current Tab" };
                 closeCurrentItem.Click += async (_, __) => await CloseSelectedTabAsync();
                 flyout.Items.Add(closeCurrentItem);
@@ -547,6 +551,123 @@ namespace NovaTerminal
             if (string.IsNullOrEmpty(value) || value.Length <= maxLength) return value;
             if (maxLength < 5) return value.Substring(0, maxLength);
             return value.Substring(0, maxLength - 1) + "…";
+        }
+
+        private static string TruncateTabLabelWithSuffix(string value, int maxLength, string suffix)
+        {
+            if (string.IsNullOrEmpty(suffix))
+            {
+                return TruncateTabLabel(value, maxLength);
+            }
+
+            if (maxLength <= suffix.Length)
+            {
+                return suffix.Substring(0, maxLength);
+            }
+
+            int available = maxLength - suffix.Length;
+            string prefix = value;
+            if (prefix.Length > available)
+            {
+                prefix = available < 5
+                    ? prefix.Substring(0, available)
+                    : prefix.Substring(0, available - 1) + "…";
+            }
+
+            return prefix + suffix;
+        }
+
+        private string GetTabPrimaryTitle(TabItem tab)
+        {
+            var state = GetOrCreateTabState(tab);
+            var pane = ResolvePaneForTab(tab);
+            return state.UserTitle ??
+                   pane?.GetBaseTabTitle() ??
+                   "Terminal";
+        }
+
+        private string BuildFullTabLabel(TabItem tab)
+        {
+            var state = GetOrCreateTabState(tab);
+            var pane = ResolvePaneForTab(tab);
+            string label = GetTabPrimaryTitle(tab);
+
+            if (pane?.Profile != null)
+            {
+                var forwards = pane.Profile.Forwards;
+                int activeCount = forwards.Count(f => f.Status == ForwardingStatus.Active);
+                int startingCount = forwards.Count(f => f.Status == ForwardingStatus.Starting);
+                bool hasFailed = forwards.Any(f => f.Status == ForwardingStatus.Failed);
+
+                if (activeCount > 0 || startingCount > 0)
+                {
+                    string badge = activeCount.ToString();
+                    if (startingCount > 0) badge += $" ({startingCount})";
+                    label = $"{label} 🔁 {badge}";
+                }
+                else if (hasFailed)
+                {
+                    label = $"{label} ⚠️";
+                }
+            }
+
+            if (state.LastExitCode.HasValue)
+            {
+                string statusGlyph = state.LastExitCode.Value == 0 ? " ✓" : $" ✖{state.LastExitCode.Value}";
+                label += statusGlyph;
+            }
+
+            if (state.HasBell)
+            {
+                label += " 🔔";
+            }
+            else if (state.HasActivity)
+            {
+                label += " •";
+            }
+
+            if (state.IsPinned)
+            {
+                label = "📌 " + label;
+            }
+            if (state.IsProtected)
+            {
+                label = "🔒 " + label;
+            }
+
+            return label;
+        }
+
+        private Dictionary<TabItem, string> BuildTabDisplayLabels(IReadOnlyList<TabItem> tabs, int maxLength)
+        {
+            var fullLabels = tabs.ToDictionary(t => t, BuildFullTabLabel);
+            var truncated = tabs.ToDictionary(t => t, t => TruncateTabLabel(fullLabels[t], maxLength));
+
+            var collisions = tabs
+                .GroupBy(t => truncated[t], StringComparer.Ordinal)
+                .Where(g => g.Count() > 1);
+
+            foreach (var group in collisions)
+            {
+                foreach (var tab in group)
+                {
+                    string hint = "~" + GetTabId(tab).ToString("N").Substring(0, 4);
+                    truncated[tab] = TruncateTabLabelWithSuffix(fullLabels[tab], maxLength, hint);
+                }
+            }
+
+            return truncated;
+        }
+
+        private async Task CopySelectedTabTitleAsync()
+        {
+            if (!TryGetSelectedTab(out var tab)) return;
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.Clipboard == null) return;
+
+            string title = GetTabPrimaryTitle(tab);
+            await topLevel.Clipboard.SetTextAsync(title);
         }
 
         private async Task<string?> ShowTextPromptAsync(string title, string prompt, string defaultValue)
@@ -2371,6 +2492,7 @@ namespace NovaTerminal
 
         internal void UpdateTabVisuals(TabItem? specificTab = null)
         {
+            _ = specificTab;
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
 
@@ -2381,76 +2503,17 @@ namespace NovaTerminal
             double luminance = (0.299 * theme.Background.R + 0.587 * theme.Background.G + 0.114 * theme.Background.B) / 255.0;
             var contrastForeground = luminance > 0.5 ? Brushes.Black : Brushes.White;
 
-            IEnumerable<TabItem> tabItems = specificTab != null
-                ? new[] { specificTab }
-                : tabs.Items.Cast<TabItem>();
+            var tabItems = tabs.Items.Cast<TabItem>().ToList();
+            var labels = BuildTabDisplayLabels(tabItems, 44);
 
             foreach (TabItem ti in tabItems)
             {
                 ti.BorderBrush = ti.IsSelected ? borderBrush : Brushes.Transparent;
-                var state = GetOrCreateTabState(ti);
 
                 if (ti.Header is TextBlock tb)
                 {
                     tb.Foreground = contrastForeground;
-
-                    var pane = ResolvePaneForTab(ti);
-                    string profileName = state.UserTitle ??
-                                         pane?.GetBaseTabTitle() ??
-                                         "Terminal";
-
-                    if (pane?.Profile != null)
-                    {
-                        var forwards = pane.Profile.Forwards;
-                        int activeCount = forwards.Count(f => f.Status == ForwardingStatus.Active);
-                        int startingCount = forwards.Count(f => f.Status == ForwardingStatus.Starting);
-                        bool hasFailed = forwards.Any(f => f.Status == ForwardingStatus.Failed);
-
-                        if (activeCount > 0 || startingCount > 0)
-                        {
-                            string badge = activeCount.ToString();
-                            if (startingCount > 0) badge += $" ({startingCount})";
-                            tb.Text = $"{profileName} 🔁 {badge}";
-                        }
-                        else if (hasFailed)
-                        {
-                            tb.Text = $"{profileName} ⚠️";
-                        }
-                        else
-                        {
-                            tb.Text = profileName;
-                        }
-                    }
-                    else
-                    {
-                        tb.Text = profileName;
-                    }
-
-                    if (state.LastExitCode.HasValue)
-                    {
-                        string statusGlyph = state.LastExitCode.Value == 0 ? " ✓" : $" ✖{state.LastExitCode.Value}";
-                        tb.Text += statusGlyph;
-                    }
-
-                    if (state.HasBell)
-                    {
-                        tb.Text += " 🔔";
-                    }
-                    else if (state.HasActivity)
-                    {
-                        tb.Text += " •";
-                    }
-
-                    if (state.IsPinned)
-                    {
-                        tb.Text = "📌 " + tb.Text;
-                    }
-                    if (state.IsProtected)
-                    {
-                        tb.Text = "🔒 " + tb.Text;
-                    }
-
-                    tb.Text = TruncateTabLabel(tb.Text, 44);
+                    tb.Text = labels[ti];
                 }
             }
 
@@ -2739,6 +2802,7 @@ namespace NovaTerminal
             CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), "Ctrl+Shift+Tab");
             CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), "Ctrl+Shift+O");
             CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");
+            CommandRegistry.Register("Tab: Copy Current Title", "General", () => _ = CopySelectedTabTitleAsync(), "");
             CommandRegistry.Register("Tab: Close Others", "General", () => _ = CloseOtherTabsAsync(), "");
             CommandRegistry.Register("Tab: Toggle Pin", "General", () => TogglePinSelectedTab(), "");
             CommandRegistry.Register("Tab: Toggle Protect", "General", () => ToggleProtectSelectedTab(), "");
