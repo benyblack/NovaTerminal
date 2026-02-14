@@ -14,10 +14,14 @@ namespace NovaTerminal.ExternalSuites.Vttest
         private IntPtr _ptyState;
         private readonly CancellationTokenSource _cts = new();
         private Task? _readTask;
+        private int _isExited;
+        private int? _exitCode;
 
         public Guid Id { get; } = Guid.NewGuid();
         public string ShellCommand { get; }
         public bool IsRecording => false;
+        public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && _ptyState != IntPtr.Zero;
+        public int? ExitCode => _exitCode;
 
         public event Action<string>? OnOutputReceived;
         public event Action<int>? OnExit;
@@ -91,6 +95,8 @@ namespace NovaTerminal.ExternalSuites.Vttest
             finally
             {
                 ArrayPool<byte>.Shared.Return(buffer);
+                _exitCode = exitCode;
+                Volatile.Write(ref _isExited, 1);
                 OnExit?.Invoke(exitCode);
             }
         }

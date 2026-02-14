@@ -14,6 +14,9 @@ namespace NovaTerminal.Core
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         private Task? _readTask;
         private Task? _processTask;
+        private int _exitNotified;
+        private int _isExited;
+        private int? _exitCode;
 
         // Bounded queue for back-pressure - prevents OOM on high-throughput output
         private readonly BlockingCollection<string> _outputQueue = new BlockingCollection<string>(boundedCapacity: 100);
@@ -23,6 +26,8 @@ namespace NovaTerminal.Core
 
         public event Action<string>? OnOutputReceived;
         public event Action<int>? OnExit;
+        public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && _ptyState != IntPtr.Zero;
+        public int? ExitCode => _exitCode;
 
         // DllImport definitions
         private static class Native
@@ -180,11 +185,19 @@ namespace NovaTerminal.Core
                     if (charCount > 0)
                     {
                         string text = new string(charBuffer, 0, charCount);
-
-                        // Bounded add with timeout - provides back-pressure to PTY
-                        if (!_outputQueue.TryAdd(text, 50, _cts.Token))
+                        try
                         {
-                            // Quietly drop or handle back-pressure without logging every time
+                            // Block when the queue is full so we apply back-pressure instead of dropping output.
+                            _outputQueue.Add(text, _cts.Token);
+                            RendererStatistics.RecordPtyQueueDepth(_outputQueue.Count);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            break;
                         }
                     }
                 }
@@ -216,7 +229,7 @@ namespace NovaTerminal.Core
             {
                 // Normal shutdown
             }
-            OnExit?.Invoke(0);
+            TryNotifyExit(0);
         }
 
         public void SendInput(string input)
@@ -248,7 +261,17 @@ namespace NovaTerminal.Core
                 _recorder?.Dispose();
                 Native.pty_close(_ptyState);
                 _ptyState = IntPtr.Zero;
+                TryNotifyExit(0);
             }
+        }
+
+        private void TryNotifyExit(int code)
+        {
+            if (Interlocked.Exchange(ref _exitNotified, 1) != 0) return;
+
+            _exitCode = code;
+            Volatile.Write(ref _isExited, 1);
+            OnExit?.Invoke(code);
         }
     }
 }

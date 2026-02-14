@@ -22,6 +22,7 @@ namespace NovaTerminal.Core
         public bool BellAudioEnabled { get; set; } = true;
         public bool BellVisualEnabled { get; set; } = true;
         public bool SmoothScrolling { get; set; } = true;
+        public string PaneClosePolicy { get; set; } = "Confirm";
         public System.Collections.Generic.Dictionary<string, string> Keybindings { get; set; } = new();
 
         // Background Image Settings

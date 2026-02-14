@@ -7,6 +7,10 @@ It applies to:
 - contributors
 - automated agents (Antigravity / Codex)
 
+Related execution plans:
+- `documents/PRODUCTION_EXECUTION_PLAN.md`
+- `documents/MULTI_PANE_EXECUTION_PLAN.md`
+
 ---
 
 ## Core Principle (Non-Negotiable)

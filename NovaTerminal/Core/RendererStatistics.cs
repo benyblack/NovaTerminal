@@ -18,6 +18,10 @@ namespace NovaTerminal.Core
         private static long _rowPicturesRecorded;
         private static long _rowPictureRecordTimeMs;
         private static long _frameRenderTimeMs;
+        private static long _ptyQueueDrops;
+        private static long _ptyQueueMaxDepth;
+        private static long _resizeDispatchLatencyMs;
+        private static long _resizeDispatchSamples;
 
         public static long TotalFrames => Interlocked.Read(ref _totalFrames);
         public static long FullRedraws => Interlocked.Read(ref _fullRedraws);
@@ -32,6 +36,10 @@ namespace NovaTerminal.Core
         public static long RowPicturesRecorded => Interlocked.Read(ref _rowPicturesRecorded);
         public static long RowPictureRecordTimeMs => Interlocked.Read(ref _rowPictureRecordTimeMs);
         public static long FrameRenderTimeMs => Interlocked.Read(ref _frameRenderTimeMs);
+        public static long PtyQueueDrops => Interlocked.Read(ref _ptyQueueDrops);
+        public static long PtyQueueMaxDepth => Interlocked.Read(ref _ptyQueueMaxDepth);
+        public static long ResizeDispatchLatencyMs => Interlocked.Read(ref _resizeDispatchLatencyMs);
+        public static long ResizeDispatchSamples => Interlocked.Read(ref _resizeDispatchSamples);
 
         public static void RecordFrame(bool fullRedraw, int dirtyCells)
         {
@@ -66,6 +74,24 @@ namespace NovaTerminal.Core
         public static void RecordRowPictureRecorded() => Interlocked.Increment(ref _rowPicturesRecorded);
         public static void RecordRowPictureRecordTime(long ms) => Interlocked.Add(ref _rowPictureRecordTimeMs, ms);
         public static void RecordFrameRenderTime(long ms) => Interlocked.Add(ref _frameRenderTimeMs, ms);
+        public static void RecordPtyQueueDrop() => Interlocked.Increment(ref _ptyQueueDrops);
+        public static void RecordResizeDispatchLatency(long ms)
+        {
+            Interlocked.Add(ref _resizeDispatchLatencyMs, ms);
+            Interlocked.Increment(ref _resizeDispatchSamples);
+        }
+
+        public static void RecordPtyQueueDepth(int depth)
+        {
+            long d = depth;
+            long current = Interlocked.Read(ref _ptyQueueMaxDepth);
+            while (d > current)
+            {
+                long previous = Interlocked.CompareExchange(ref _ptyQueueMaxDepth, d, current);
+                if (previous == current) break;
+                current = previous;
+            }
+        }
 
         public static void Reset()
         {
@@ -82,11 +108,17 @@ namespace NovaTerminal.Core
             Interlocked.Exchange(ref _rowPicturesRecorded, 0);
             Interlocked.Exchange(ref _rowPictureRecordTimeMs, 0);
             Interlocked.Exchange(ref _frameRenderTimeMs, 0);
+            Interlocked.Exchange(ref _ptyQueueDrops, 0);
+            Interlocked.Exchange(ref _ptyQueueMaxDepth, 0);
+            Interlocked.Exchange(ref _resizeDispatchLatencyMs, 0);
+            Interlocked.Exchange(ref _resizeDispatchSamples, 0);
         }
 
         public static string GetReport()
         {
-            return $"Frames: {TotalFrames}, Full: {FullRedraws}, Dirty: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}, PicsRec: {RowPicturesRecorded}, RecTime: {RowPictureRecordTimeMs}ms, RenderTime: {FrameRenderTimeMs}ms";
+            long resizeSamples = ResizeDispatchSamples;
+            long avgResizeDispatch = resizeSamples > 0 ? ResizeDispatchLatencyMs / resizeSamples : 0;
+            return $"Frames: {TotalFrames}, Full: {FullRedraws}, Dirty: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}, PicsRec: {RowPicturesRecorded}, RecTime: {RowPictureRecordTimeMs}ms, RenderTime: {FrameRenderTimeMs}ms, PtyDrops: {PtyQueueDrops}, PtyMaxQ: {PtyQueueMaxDepth}, ResizeDispatchAvg: {avgResizeDispatch}ms";
         }
     }
 }
