@@ -727,7 +727,7 @@ namespace NovaTerminal
         {
             if (!TryGetSelectedTab(out var tab)) return;
             var state = GetOrCreateTabState(tab);
-            string current = state.UserTitle ?? GetTabHeaderText(tab);
+            string current = state.UserTitle ?? GetTabPrimaryTitle(tab);
             var updated = await ShowTextPromptAsync("Rename Tab", "Tab title", current);
             if (updated == null) return;
 
