@@ -21,6 +21,8 @@ namespace NovaTerminal.Controls
         SplitVertical,
         SplitHorizontal,
         Equalize,
+        ToggleZoom,
+        ToggleBroadcast,
         Close
     }
 
@@ -32,6 +34,7 @@ namespace NovaTerminal.Controls
         public string ShellCommand { get; private set; } = string.Empty;
         public string ShellArgs { get; private set; } = string.Empty;
         public TerminalProfile? Profile { get; private set; }
+        public Guid PaneId { get; set; } = Guid.NewGuid();
 
         public event Action<TerminalPane, TransferDirection, TransferKind>? RequestSftpTransfer;
         public event Action<bool>? RecordingStateChanged;
@@ -213,6 +216,8 @@ namespace NovaTerminal.Controls
                         if (sub.Name == "MenuPaneSplitVertical") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.SplitVertical);
                         if (sub.Name == "MenuPaneSplitHorizontal") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.SplitHorizontal);
                         if (sub.Name == "MenuPaneEqualize") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.Equalize);
+                        if (sub.Name == "MenuPaneToggleZoom") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.ToggleZoom);
+                        if (sub.Name == "MenuPaneToggleBroadcast") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.ToggleBroadcast);
                         if (sub.Name == "MenuPaneClose") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.Close);
                     }
                 }

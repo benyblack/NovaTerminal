@@ -12,6 +12,9 @@ namespace NovaTerminal.Core
     {
         public string Title { get; set; } = "Terminal";
         public PaneNode? Root { get; set; } // The root of the layout tree
+        public string? ActivePaneId { get; set; }
+        public string? ZoomedPaneId { get; set; }
+        public bool BroadcastInputEnabled { get; set; }
     }
 
     public enum NodeType
@@ -31,6 +34,7 @@ namespace NovaTerminal.Core
 
         // For Leafs
         public string? ProfileId { get; set; }
+        public string? PaneId { get; set; }
 
         // Fallbacks for ad-hoc panes (no profile)
         public string? Command { get; set; }

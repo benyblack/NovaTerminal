@@ -27,11 +27,27 @@ namespace NovaTerminal.Core
                 {
                     if (item is TabItem tabItem)
                     {
+                        Control? rootControl = tabItem.Content as Control;
+                        if (window is MainWindow mw)
+                        {
+                            rootControl = mw.GetLayoutRootForTab(tabItem);
+                        }
+
                         var tabSession = new TabSession
                         {
                             Title = (tabItem.Header as TextBlock)?.Text ?? "Terminal",
-                            Root = BuildPaneTree(tabItem.Content as Control)
+                            Root = BuildPaneTree(rootControl)
                         };
+
+                        if (window is MainWindow mainWindow)
+                        {
+                            var activePaneId = mainWindow.GetActivePaneIdForTab(tabItem);
+                            var zoomedPaneId = mainWindow.GetZoomedPaneIdForTab(tabItem);
+                            tabSession.ActivePaneId = activePaneId?.ToString();
+                            tabSession.ZoomedPaneId = zoomedPaneId?.ToString();
+                            tabSession.BroadcastInputEnabled = mainWindow.IsBroadcastEnabledForTab(tabItem);
+                        }
+
                         session.Tabs.Add(tabSession);
                     }
                 }
@@ -58,6 +74,7 @@ namespace NovaTerminal.Core
                 {
                     Type = NodeType.Leaf,
                     ProfileId = pane.Profile?.Id.ToString(),
+                    PaneId = pane.PaneId.ToString(),
                     Command = pane.ShellCommand,
                     Arguments = pane.ShellArgs
                 };
@@ -145,7 +162,8 @@ namespace NovaTerminal.Core
                         var tabItem = new TabItem
                         {
                             Header = new TextBlock { Text = tabSession.Title, Foreground = Avalonia.Media.Brushes.White, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 4) },
-                            Content = content
+                            Content = content,
+                            Tag = tabSession
                         };
                         tabs.Items.Add(tabItem);
                     }
@@ -185,6 +203,12 @@ namespace NovaTerminal.Core
                     // Fallback to command args if profile missing
                     pane = new TerminalPane(node.Command ?? "cmd.exe", node.Arguments ?? "");
                 }
+
+                if (!string.IsNullOrWhiteSpace(node.PaneId) && Guid.TryParse(node.PaneId, out var paneId))
+                {
+                    pane.PaneId = paneId;
+                }
+
                 pane.ApplySettings(settings);
                 return pane;
             }
