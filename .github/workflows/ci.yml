@@ -10,6 +10,8 @@ on:
     paths-ignore:
       - "documents/**"
       - "**/*.md"
+  schedule:
+    - cron: "30 3 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -298,6 +300,84 @@ jobs:
           path: |
             artifacts/metrics/**
             **/*render_metrics.trx
+
+  tab_perf_smoke:
+    name: Tab Perf Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    needs: [build_and_unit_tests, build_native]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download Native Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-ubuntu-latest
+          path: NovaTerminal/native
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+
+      - name: Run tab perf smoke
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=Performance|Category=Latency" --logger "trx;LogFileName=tab_perf_smoke.trx"
+
+      - name: Upload tab perf smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tab-perf-smoke
+          retention-days: 5
+          path: "**/*tab_perf_smoke.trx"
+
+  nightly_tab_stress:
+    name: Nightly Tab Stress
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'schedule'
+    needs: [build_and_unit_tests, build_native]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download Native Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-ubuntu-latest
+          path: NovaTerminal/native
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+
+      - name: Run stress lanes
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=Stress|Category=Performance|Category=Latency|Category=RenderMetrics" --logger "trx;LogFileName=nightly_tab_stress.trx"
+
+      - name: Upload nightly stress artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-tab-stress
+          retention-days: 7
+          path: |
+            **/*nightly_tab_stress.trx
+            artifacts/metrics/**
 
   aot_publish:
     name: AOT Publish (${{ matrix.os }})

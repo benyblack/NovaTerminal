@@ -1250,6 +1250,7 @@ namespace NovaTerminal
             {
                 tabs.SelectionChanged += (s, e) =>
                 {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
                     bool updatedSpecific = false;
                     foreach (var removed in e.RemovedItems.OfType<TabItem>())
                     {
@@ -1286,6 +1287,8 @@ namespace NovaTerminal
                     PopulateTabListMenu();
                     UpdateTabHeaderViewport();
                     Dispatcher.UIThread.Post(EnsureSelectedTabHeaderVisible, DispatcherPriority.Background);
+                    sw.Stop();
+                    RendererStatistics.RecordTabSwitchTime(sw.ElapsedMilliseconds);
                 };
             }
 
@@ -2005,8 +2008,14 @@ namespace NovaTerminal
 
         private void UpdateTabAutomationLabels()
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var tabs = this.FindControl<TabControl>("Tabs");
-            if (tabs == null) return;
+            if (tabs == null)
+            {
+                sw.Stop();
+                RendererStatistics.RecordTabAutomationUpdateTime(sw.ElapsedMilliseconds);
+                return;
+            }
 
             int count = tabs.Items.Count;
             for (int i = 0; i < count; i++)
@@ -2018,6 +2027,8 @@ namespace NovaTerminal
                 string label = $"Tab {i + 1} of {count}: {GetTabHeaderText(tab)}{(active ? " active" : "")}{attention}";
                 AutomationProperties.SetName(tab, label);
             }
+            sw.Stop();
+            RendererStatistics.RecordTabAutomationUpdateTime(sw.ElapsedMilliseconds);
         }
 
         private enum MoveDirection { Left, Right, Up, Down }
@@ -2262,12 +2273,12 @@ namespace NovaTerminal
 
         private async Task<bool> ShouldClosePaneAsync(TerminalPane pane)
         {
-            if (!pane.IsProcessRunning) return true;
-            // Treat an untouched local shell as safe to close without warning.
-            // This avoids false warnings when closing a newly opened, idle tab.
-            if (!pane.HasUserInteraction &&
-                pane.Profile?.Type != ConnectionType.SSH &&
-                string.IsNullOrWhiteSpace(pane.ShellArgs))
+            if (ShouldAutoAcceptRunningPaneClose(
+                pane.IsProcessRunning,
+                pane.HasUserInteraction,
+                pane.Profile?.Type,
+                pane.ShellArgs,
+                _settings.PaneClosePolicy))
             {
                 return true;
             }
@@ -2291,6 +2302,27 @@ namespace NovaTerminal
                 default:
                     return await ShowRunningProcessCloseConfirmationAsync("Closing this pane will terminate the running process.");
             }
+        }
+
+        internal static bool ShouldAutoAcceptRunningPaneClose(
+            bool isProcessRunning,
+            bool hasUserInteraction,
+            ConnectionType? profileType,
+            string? shellArgs,
+            string? paneClosePolicy)
+        {
+            if (!isProcessRunning) return true;
+
+            // Treat an untouched local shell as safe to close without warning.
+            // This avoids false warnings when closing a newly opened, idle tab.
+            if (!hasUserInteraction &&
+                profileType != ConnectionType.SSH &&
+                string.IsNullOrWhiteSpace(shellArgs))
+            {
+                return true;
+            }
+
+            return string.Equals(paneClosePolicy?.Trim(), "force", StringComparison.OrdinalIgnoreCase);
         }
 
         private async Task<bool> ShowRunningProcessCloseConfirmationAsync(string message)
@@ -2492,9 +2524,15 @@ namespace NovaTerminal
 
         internal void UpdateTabVisuals(TabItem? specificTab = null)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             _ = specificTab;
             var tabs = this.FindControl<TabControl>("Tabs");
-            if (tabs == null) return;
+            if (tabs == null)
+            {
+                sw.Stop();
+                RendererStatistics.RecordTabVisualUpdateTime(sw.ElapsedMilliseconds);
+                return;
+            }
 
             var theme = _settings.ActiveTheme;
             var borderBrush = new SolidColorBrush(theme.Blue.ToAvaloniaColor());
@@ -2520,6 +2558,8 @@ namespace NovaTerminal
             UpdateTabAutomationLabels();
             PopulateTabListMenu();
             UpdateTabHeaderViewport();
+            sw.Stop();
+            RendererStatistics.RecordTabVisualUpdateTime(sw.ElapsedMilliseconds);
         }
 
         private void SplitPane(Avalonia.Layout.Orientation orientation)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -16,11 +17,14 @@ namespace NovaTerminal.Core
 
         public static void SaveSession(Window window, TabControl tabs)
         {
+            var sw = Stopwatch.StartNew();
+            int payloadBytes = 0;
             try
             {
                 var session = CaptureSession(window, tabs);
 
                 var json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
+                payloadBytes = System.Text.Encoding.UTF8.GetByteCount(json);
                 Directory.CreateDirectory(Path.GetDirectoryName(SessionPath)!);
                 File.WriteAllText(SessionPath, json);
             }
@@ -28,6 +32,11 @@ namespace NovaTerminal.Core
             {
                 // Silent failure or log to debug console
                 System.Diagnostics.Debug.WriteLine($"[SessionManager] Failed to save session: {ex}");
+            }
+            finally
+            {
+                sw.Stop();
+                RendererStatistics.RecordSessionSave(sw.ElapsedMilliseconds, payloadBytes);
             }
         }
 
@@ -153,52 +162,75 @@ namespace NovaTerminal.Core
 
         public static void RestoreSession(Window window, TabControl tabs, TerminalSettings settings)
         {
+            var sw = Stopwatch.StartNew();
+            int payloadBytes = 0;
             try
             {
                 if (!File.Exists(SessionPath)) return;
 
                 var json = File.ReadAllText(SessionPath);
+                payloadBytes = System.Text.Encoding.UTF8.GetByteCount(json);
                 var session = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
 
                 if (session == null || session.Tabs.Count == 0) return;
-                RestoreSession(window, tabs, settings, session);
+                RestoreSessionCore(window, tabs, settings, session);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to restore session: {ex}");
+            }
+            finally
+            {
+                sw.Stop();
+                RendererStatistics.RecordSessionRestore(sw.ElapsedMilliseconds, payloadBytes);
             }
         }
 
         public static void RestoreSession(Window window, TabControl tabs, TerminalSettings settings, NovaSession session)
         {
+            var sw = Stopwatch.StartNew();
+            int payloadBytes = 0;
             try
             {
-                if (session == null || session.Tabs.Count == 0) return;
-
-                tabs.Items.Clear();
-                foreach (var tabSession in session.Tabs)
-                {
-                    var content = RestorePaneTree(tabSession.Root, settings);
-                    if (content != null)
-                    {
-                        var tabItem = new TabItem
-                        {
-                            Header = new TextBlock { Text = tabSession.Title, Foreground = Avalonia.Media.Brushes.White, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 4) },
-                            Content = content,
-                            Tag = tabSession
-                        };
-                        tabs.Items.Add(tabItem);
-                    }
-                }
-
-                if (session.ActiveTabIndex >= 0 && session.ActiveTabIndex < tabs.Items.Count)
-                {
-                    tabs.SelectedIndex = session.ActiveTabIndex;
-                }
+                payloadBytes = System.Text.Encoding.UTF8.GetByteCount(
+                    JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession));
+                RestoreSessionCore(window, tabs, settings, session);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to restore session: {ex}");
+            }
+            finally
+            {
+                sw.Stop();
+                RendererStatistics.RecordSessionRestore(sw.ElapsedMilliseconds, payloadBytes);
+            }
+        }
+
+        private static void RestoreSessionCore(Window window, TabControl tabs, TerminalSettings settings, NovaSession session)
+        {
+            _ = window;
+            if (session == null || session.Tabs.Count == 0) return;
+
+            tabs.Items.Clear();
+            foreach (var tabSession in session.Tabs)
+            {
+                var content = RestorePaneTree(tabSession.Root, settings);
+                if (content != null)
+                {
+                    var tabItem = new TabItem
+                    {
+                        Header = new TextBlock { Text = tabSession.Title, Foreground = Avalonia.Media.Brushes.White, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 4) },
+                        Content = content,
+                        Tag = tabSession
+                    };
+                    tabs.Items.Add(tabItem);
+                }
+            }
+
+            if (session.ActiveTabIndex >= 0 && session.ActiveTabIndex < tabs.Items.Count)
+            {
+                tabs.SelectedIndex = session.ActiveTabIndex;
             }
         }
 
