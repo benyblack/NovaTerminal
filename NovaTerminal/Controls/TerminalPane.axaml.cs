@@ -48,12 +48,14 @@ namespace NovaTerminal.Controls
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
         private DispatcherTimer? _statusTimer;
+        private bool _hasUserInteraction;
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
         public string? CurrentOscTitle { get; private set; }
         public int? LastExitCode { get; private set; }
         public bool IsProcessRunning => Session?.IsProcessRunning ?? false;
+        public bool HasUserInteraction => _hasUserInteraction;
 
         public string GetBaseTabTitle()
         {
@@ -152,6 +154,26 @@ namespace NovaTerminal.Controls
 
         private void SetupCommon()
         {
+            TermView.TextInput += (_, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Text))
+                {
+                    _hasUserInteraction = true;
+                }
+            };
+            TermView.KeyDown += (_, e) =>
+            {
+                if (e.Key != Key.LeftShift &&
+                    e.Key != Key.RightShift &&
+                    e.Key != Key.LeftCtrl &&
+                    e.Key != Key.RightCtrl &&
+                    e.Key != Key.LeftAlt &&
+                    e.Key != Key.RightAlt)
+                {
+                    _hasUserInteraction = true;
+                }
+            };
+
             // Wire up ScrollBar
             TermScrollBar.ValueChanged += ScrollBar_ValueChanged;
 

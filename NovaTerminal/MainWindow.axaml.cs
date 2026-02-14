@@ -358,6 +358,81 @@ namespace NovaTerminal
             return $"{index}. {icon}{label}";
         }
 
+        private ItemsPresenter? FindTabItemsPresenter()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return null;
+
+            return tabs.GetVisualDescendants()
+                .OfType<ItemsPresenter>()
+                .FirstOrDefault(p => p.Name == "PART_ItemsPresenter");
+        }
+
+        private void UpdateTabHeaderViewport()
+        {
+            var presenter = FindTabItemsPresenter();
+            var titleBar = this.FindControl<Grid>("TitleBar");
+            if (presenter == null) return;
+
+            double reservedRight = 440;
+            if (titleBar != null)
+            {
+                double titleBarWidth = titleBar.Bounds.Width;
+                if (titleBarWidth > 0)
+                {
+                    reservedRight = Math.Max(
+                        reservedRight,
+                        Math.Ceiling(titleBarWidth + titleBar.Margin.Right + 16));
+                }
+            }
+
+            presenter.Margin = new Thickness(0, 0, reservedRight, 0);
+            presenter.Height = 36;
+            presenter.ClipToBounds = true;
+
+            UpdateTabOverflowIndicator();
+        }
+
+        private void UpdateTabOverflowIndicator()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            var badge = this.FindControl<TextBlock>("TabOverflowBadge");
+            var button = this.FindControl<Button>("BtnTabList");
+            var presenter = FindTabItemsPresenter();
+            if (tabs == null || badge == null || button == null || presenter == null) return;
+
+            double viewportWidth = presenter.Bounds.Width;
+            if (viewportWidth <= 0)
+            {
+                badge.IsVisible = false;
+                ToolTip.SetTip(button, "Tab List");
+                button.Foreground = Brushes.White;
+                return;
+            }
+
+            double usedWidth = 0;
+            int hiddenCount = 0;
+            foreach (var tab in tabs.Items.Cast<TabItem>())
+            {
+                double tabWidth = tab.Bounds.Width;
+                if (tabWidth <= 0) tabWidth = 120;
+
+                if (usedWidth + tabWidth <= viewportWidth + 0.5)
+                {
+                    usedWidth += tabWidth;
+                }
+                else
+                {
+                    hiddenCount++;
+                }
+            }
+
+            badge.IsVisible = hiddenCount > 0;
+            badge.Text = hiddenCount > 0 ? $"+{hiddenCount}" : string.Empty;
+            ToolTip.SetTip(button, hiddenCount > 0 ? $"Tab List ({hiddenCount} hidden)" : "Tab List");
+            button.Foreground = hiddenCount > 0 ? new SolidColorBrush(Color.FromRgb(255, 210, 90)) : Brushes.White;
+        }
+
         private void PopulateTabListMenu(bool showFlyout = false)
         {
             var button = this.FindControl<Button>("BtnTabList");
@@ -414,6 +489,8 @@ namespace NovaTerminal
             {
                 flyout.ShowAt(button);
             }
+
+            UpdateTabOverflowIndicator();
         }
 
         private static string TruncateTabLabel(string value, int maxLength = 40)
@@ -927,10 +1004,12 @@ namespace NovaTerminal
                 Dispatcher.UIThread.Post(() =>
                 {
                     UpdateTabVisuals();
+                    UpdateTabHeaderViewport();
                     FocusCurrentTerminal(defer: true);
                 }, DispatcherPriority.Input);
             };
             this.Activated += (s, e) => FocusCurrentTerminal(defer: true);
+            this.SizeChanged += (_, __) => Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
 
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
@@ -960,6 +1039,7 @@ namespace NovaTerminal
                     if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
                         BeginMoveDrag(e);
                 };
+                titleBar.SizeChanged += (_, __) => Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
             }
 
 
@@ -1033,6 +1113,7 @@ namespace NovaTerminal
                     UpdateTabAutomationLabels();
                     UpdateBroadcastIndicator();
                     PopulateTabListMenu();
+                    UpdateTabHeaderViewport();
                 };
             }
 
@@ -1969,6 +2050,14 @@ namespace NovaTerminal
         private async Task<bool> ShouldClosePaneAsync(TerminalPane pane)
         {
             if (!pane.IsProcessRunning) return true;
+            // Treat an untouched local shell as safe to close without warning.
+            // This avoids false warnings when closing a newly opened, idle tab.
+            if (!pane.HasUserInteraction &&
+                pane.Profile?.Type != ConnectionType.SSH &&
+                string.IsNullOrWhiteSpace(pane.ShellArgs))
+            {
+                return true;
+            }
 
             string policy = (_settings.PaneClosePolicy ?? "Confirm").Trim().ToLowerInvariant();
             switch (policy)
@@ -2275,6 +2364,7 @@ namespace NovaTerminal
 
             UpdateTabAutomationLabels();
             PopulateTabListMenu();
+            UpdateTabHeaderViewport();
         }
 
         private void SplitPane(Avalonia.Layout.Orientation orientation)
