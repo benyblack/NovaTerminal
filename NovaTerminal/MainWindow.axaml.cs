@@ -17,6 +17,7 @@ using Avalonia;
 using Avalonia.Media;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
+using Avalonia.Automation;
 using SkiaSharp;
 
 using NovaTerminal.Controls;
@@ -253,6 +254,7 @@ namespace NovaTerminal
                         }
                     }
                     UpdateTabVisuals();
+                    UpdatePaneAutomationLabels();
                 };
             }
 
@@ -309,6 +311,10 @@ namespace NovaTerminal
             if (tabs != null)
             {
                 SessionManager.RestoreSession(this, tabs, _settings);
+                foreach (var item in tabs.Items.Cast<TabItem>())
+                {
+                    if (item.Content is Control c) WireControlTree(c);
+                }
 
                 // If restore failed or was empty, load default tab
                 if (tabs.Items.Count == 0)
@@ -334,6 +340,7 @@ namespace NovaTerminal
                         FocusPaneTerminal(selectedPane, defer: true);
                     }
                 }
+                UpdatePaneAutomationLabels();
             }
             else
             {
@@ -414,6 +421,12 @@ namespace NovaTerminal
                 {
                     // "Split Horizontal" means a horizontal divider (stacked panes).
                     SplitPane(Avalonia.Layout.Orientation.Vertical);
+                    e.Handled = true;
+                    return;
+                }
+                if (IsShortcut(e, "equalize_panes", "Ctrl+Shift+G"))
+                {
+                    EqualizeCurrentSplit();
                     e.Handled = true;
                     return;
                 }
@@ -547,6 +560,246 @@ namespace NovaTerminal
             }
         }
 
+        private void WireControlTree(Control control)
+        {
+            if (control is TerminalPane pane)
+            {
+                WirePane(pane);
+                return;
+            }
+
+            if (control is Grid grid)
+            {
+                foreach (var child in grid.Children)
+                {
+                    if (child is GridSplitter splitter)
+                    {
+                        WireSplitter(splitter, grid);
+                    }
+                    else if (child is Control cc)
+                    {
+                        WireControlTree(cc);
+                    }
+                }
+
+                return;
+            }
+
+            if (control is Panel panel)
+            {
+                foreach (var child in panel.Children)
+                {
+                    if (child is Control cc) WireControlTree(cc);
+                }
+
+                return;
+            }
+
+            if (control is ContentControl contentControl && contentControl.Content is Control content)
+            {
+                WireControlTree(content);
+            }
+        }
+
+        private void WirePane(TerminalPane pane)
+        {
+            pane.RequestSftpTransfer -= OnPaneRequestSftpTransfer;
+            pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
+            pane.TitleChanged -= OnPaneTitleChanged;
+            pane.PaneActionRequested -= OnPaneActionRequested;
+
+            pane.RequestSftpTransfer += OnPaneRequestSftpTransfer;
+            pane.WorkingDirectoryChanged += OnPaneWorkingDirectoryChanged;
+            pane.TitleChanged += OnPaneTitleChanged;
+            pane.PaneActionRequested += OnPaneActionRequested;
+        }
+
+        private void UnwirePane(TerminalPane pane)
+        {
+            pane.RequestSftpTransfer -= OnPaneRequestSftpTransfer;
+            pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
+            pane.TitleChanged -= OnPaneTitleChanged;
+            pane.PaneActionRequested -= OnPaneActionRequested;
+        }
+
+        private void OnPaneRequestSftpTransfer(TerminalPane srcPane, TransferDirection direction, TransferKind kind)
+        {
+            _ = InitiateSftpTransfer(srcPane, direction, kind);
+        }
+
+        private void OnPaneWorkingDirectoryChanged(TerminalPane srcPane, string cwd)
+        {
+            _ = srcPane;
+            _ = cwd;
+            Dispatcher.UIThread.Post(UpdateTabVisuals);
+        }
+
+        private void OnPaneTitleChanged(TerminalPane srcPane, string title)
+        {
+            _ = srcPane;
+            _ = title;
+            Dispatcher.UIThread.Post(UpdateTabVisuals);
+        }
+
+        private void OnPaneActionRequested(TerminalPane pane, PaneAction action)
+        {
+            UpdateActivePane(pane);
+            FocusPaneTerminal(pane, defer: true);
+
+            switch (action)
+            {
+                case PaneAction.SplitVertical:
+                    SplitPane(Avalonia.Layout.Orientation.Horizontal);
+                    break;
+                case PaneAction.SplitHorizontal:
+                    SplitPane(Avalonia.Layout.Orientation.Vertical);
+                    break;
+                case PaneAction.Equalize:
+                    EqualizeCurrentSplit();
+                    break;
+                case PaneAction.Close:
+                    CloseActivePane();
+                    break;
+            }
+        }
+
+        private static bool IsSplitGrid(Grid grid)
+        {
+            int paneChildren = grid.Children.OfType<Control>().Count(c => c is not GridSplitter);
+            return paneChildren >= 2;
+        }
+
+        private Grid? FindNearestSplitGrid(Control start)
+        {
+            Control? current = start;
+            while (current != null)
+            {
+                if (current.Parent is Grid grid && IsSplitGrid(grid))
+                {
+                    return grid;
+                }
+
+                current = current.Parent as Control;
+            }
+
+            return null;
+        }
+
+        private static bool IsSplitterColumn(Grid grid, int column)
+        {
+            return grid.Children.OfType<GridSplitter>().Any(s => Grid.GetColumn(s) == column);
+        }
+
+        private static bool IsSplitterRow(Grid grid, int row)
+        {
+            return grid.Children.OfType<GridSplitter>().Any(s => Grid.GetRow(s) == row);
+        }
+
+        private void EqualizeCurrentSplit()
+        {
+            if (_currentPane == null) return;
+
+            var splitGrid = FindNearestSplitGrid(_currentPane);
+            if (splitGrid == null) return;
+
+            EqualizeSplitGrid(splitGrid);
+            InvalidateMeasure();
+            InvalidateArrange();
+        }
+
+        private void EqualizeSplitGrid(Grid splitGrid)
+        {
+            if (!IsSplitGrid(splitGrid)) return;
+
+            bool byColumns = splitGrid.ColumnDefinitions.Count > 1;
+            if (byColumns)
+            {
+                for (int i = 0; i < splitGrid.ColumnDefinitions.Count; i++)
+                {
+                    if (IsSplitterColumn(splitGrid, i)) continue;
+                    splitGrid.ColumnDefinitions[i].Width = new GridLength(1, GridUnitType.Star);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < splitGrid.RowDefinitions.Count; i++)
+                {
+                    if (IsSplitterRow(splitGrid, i)) continue;
+                    splitGrid.RowDefinitions[i].Height = new GridLength(1, GridUnitType.Star);
+                }
+            }
+        }
+
+        private void WireSplitter(GridSplitter splitter, Grid ownerGrid)
+        {
+            splitter.Tag = ownerGrid;
+            splitter.DoubleTapped -= OnSplitterDoubleTapped;
+            splitter.DoubleTapped += OnSplitterDoubleTapped;
+        }
+
+        private void OnSplitterDoubleTapped(object? sender, RoutedEventArgs e)
+        {
+            if (sender is GridSplitter splitter && splitter.Tag is Grid ownerGrid)
+            {
+                EqualizeSplitGrid(ownerGrid);
+                InvalidateMeasure();
+                InvalidateArrange();
+                e.Handled = true;
+            }
+        }
+
+        private IEnumerable<TerminalPane> EnumeratePanes(Control? control)
+        {
+            if (control == null) yield break;
+
+            if (control is TerminalPane pane)
+            {
+                yield return pane;
+                yield break;
+            }
+
+            if (control is Panel panel)
+            {
+                foreach (var child in panel.Children)
+                {
+                    if (child is not Control cc) continue;
+                    foreach (var nested in EnumeratePanes(cc)) yield return nested;
+                }
+
+                yield break;
+            }
+
+            if (control is ContentControl contentControl && contentControl.Content is Control content)
+            {
+                foreach (var nested in EnumeratePanes(content)) yield return nested;
+            }
+        }
+
+        private void UpdatePaneAutomationLabels()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            int tabCount = tabs.Items.Count;
+            for (int tabIndex = 0; tabIndex < tabCount; tabIndex++)
+            {
+                if (tabs.Items[tabIndex] is not TabItem tabItem) continue;
+                var panes = EnumeratePanes(tabItem.Content as Control).ToList();
+                if (panes.Count == 0) continue;
+
+                var activeForTab = ResolvePaneForTab(tabItem);
+                for (int paneIndex = 0; paneIndex < panes.Count; paneIndex++)
+                {
+                    var pane = panes[paneIndex];
+                    bool isActive = pane == activeForTab || pane == _currentPane;
+                    string activeText = isActive ? " active" : string.Empty;
+                    string label = $"Tab {tabIndex + 1} pane {paneIndex + 1} of {panes.Count}{activeText}";
+                    AutomationProperties.SetName(pane, label);
+                    AutomationProperties.SetName(pane.ActiveControl, label);
+                }
+            }
+        }
+
         private enum MoveDirection { Left, Right, Up, Down }
         private bool NavigatePane(MoveDirection dir) => NavigatePaneRecursive(_currentPane, dir);
         private bool NavigatePaneRecursive(Control? start, MoveDirection dir)
@@ -618,6 +871,8 @@ namespace NovaTerminal
                 tabs.Items.Remove(ti);
                 if (tabs.Items.Count == 0) Close();
             }
+
+            UpdatePaneAutomationLabels();
         }
 
         private void CloseActivePane()
@@ -687,6 +942,7 @@ namespace NovaTerminal
 
                         // 6. Focus Sibling
                         FocusFirstPane(sibling);
+                        UpdatePaneAutomationLabels();
                         return;
                     }
                 }
@@ -799,7 +1055,11 @@ namespace NovaTerminal
 
         private void DisposeControlTree(Control control)
         {
-            if (control is TerminalPane pane) Task.Run(() => { try { pane.Dispose(); } catch { } });
+            if (control is TerminalPane pane)
+            {
+                UnwirePane(pane);
+                Task.Run(() => { try { pane.Dispose(); } catch { } });
+            }
             else if (control is Panel panel) { foreach (var child in panel.Children) if (child is Control c) DisposeControlTree(c); }
             else if (control is ContentPresenter cp && cp.Content is Control childContent) DisposeControlTree(childContent);
         }
@@ -840,9 +1100,7 @@ namespace NovaTerminal
             }
 
             var pane = new TerminalPane(profile);
-            pane.RequestSftpTransfer += (srcPane, dir, kind) => _ = InitiateSftpTransfer(srcPane, dir, kind);
-            pane.WorkingDirectoryChanged += (srcPane, cwd) => Dispatcher.UIThread.Post(UpdateTabVisuals);
-            pane.TitleChanged += (srcPane, title) => Dispatcher.UIThread.Post(UpdateTabVisuals);
+            WirePane(pane);
 
             pane.ApplySettings(_settings);
             var tabItem = new TabItem
@@ -867,6 +1125,7 @@ namespace NovaTerminal
             // Fallback: Post anyway
             Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Input);
             Dispatcher.UIThread.Post(() => pane.ActiveControl.Focus());
+            UpdatePaneAutomationLabels();
         }
 
         private void PopulateNewTabMenu()
@@ -992,6 +1251,7 @@ namespace NovaTerminal
             }
 
             newPane.ApplySettings(_settings);
+            WirePane(newPane);
             newPane.MinWidth = Math.Max(newPane.MinWidth, minPaneWidth);
             newPane.MinHeight = Math.Max(newPane.MinHeight, minPaneHeight);
             originalPane.MinWidth = Math.Max(originalPane.MinWidth, minPaneWidth);
@@ -1014,6 +1274,7 @@ namespace NovaTerminal
                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch,
                     Focusable = false
                 };
+                WireSplitter(splitter, grid);
                 Grid.SetColumn(splitter, 1);
                 grid.Children.Add(splitter);
 
@@ -1034,6 +1295,7 @@ namespace NovaTerminal
                     HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
                     Focusable = false
                 };
+                WireSplitter(splitter, grid);
                 Grid.SetRow(splitter, 1);
                 grid.Children.Add(splitter);
 
@@ -1065,6 +1327,7 @@ namespace NovaTerminal
             }
             _currentPane = newPane;
             Dispatcher.UIThread.Post(() => { newPane.ActiveControl.Focus(); this.InvalidateMeasure(); this.InvalidateArrange(); }, DispatcherPriority.Loaded);
+            UpdatePaneAutomationLabels();
         }
 
         private async Task PasteFromClipboardAsync()
@@ -1211,6 +1474,11 @@ namespace NovaTerminal
             CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+D");
             // Horizontal split => horizontal divider => stacked panes.
             CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Vertical), "Ctrl+Shift+E");
+            CommandRegistry.Register("Equalize Panes", "View", () => EqualizeCurrentSplit(), "Ctrl+Shift+G");
+            CommandRegistry.Register("Focus Pane Left", "View", () => NavigatePane(MoveDirection.Left), "Alt+Left");
+            CommandRegistry.Register("Focus Pane Right", "View", () => NavigatePane(MoveDirection.Right), "Alt+Right");
+            CommandRegistry.Register("Focus Pane Up", "View", () => NavigatePane(MoveDirection.Up), "Alt+Up");
+            CommandRegistry.Register("Focus Pane Down", "View", () => NavigatePane(MoveDirection.Down), "Alt+Down");
             CommandRegistry.Register("Find in Terminal", "Edit", () => _currentPane?.ToggleSearch(), "Ctrl+Shift+F");
             CommandRegistry.Register("Paste", "Edit", () => _ = PasteFromClipboardAsync(), "Ctrl+V");
             CommandRegistry.Register("Font: Increase", "View", () => { _settings.FontSize++; ApplySettingsToAllTabs(); _settings.Save(); }, "Ctrl++");
@@ -1608,6 +1876,7 @@ namespace NovaTerminal
 
             // Initial UI sync
             OnRecordingStateChanged(_currentPane?.IsRecording ?? false);
+            UpdatePaneAutomationLabels();
         }
 
         private TerminalPane? FindFirstPane(Control? control)

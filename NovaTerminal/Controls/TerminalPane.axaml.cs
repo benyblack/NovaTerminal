@@ -12,9 +12,18 @@ using System.Threading.Tasks;
 using System.Net.NetworkInformation;
 using System.Linq;
 using Avalonia.Controls.Shapes;
+using Avalonia.Automation;
 
 namespace NovaTerminal.Controls
 {
+    public enum PaneAction
+    {
+        SplitVertical,
+        SplitHorizontal,
+        Equalize,
+        Close
+    }
+
     public partial class TerminalPane : UserControl, IDisposable
     {
         public ITerminalSession? Session { get; private set; }
@@ -28,6 +37,7 @@ namespace NovaTerminal.Controls
         public event Action<bool>? RecordingStateChanged;
         public event Action<TerminalPane, string>? WorkingDirectoryChanged;
         public event Action<TerminalPane, string>? TitleChanged;
+        public event Action<TerminalPane, PaneAction>? PaneActionRequested;
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
@@ -176,6 +186,8 @@ namespace NovaTerminal.Controls
             // Load Settings
             ApplySettings(TerminalSettings.Load());
             UpdateMinimumSizeConstraints();
+            AutomationProperties.SetName(TermView, "Terminal Pane");
+            AutomationProperties.SetName(this, "Terminal Pane");
 
             // SFTP Context Menu
             var contextMenu = RootGrid.ContextMenu;
@@ -190,6 +202,18 @@ namespace NovaTerminal.Controls
                         if (sub.Name == "MenuUploadFolder") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Upload, TransferKind.Folder);
                         if (sub.Name == "MenuDownloadFile") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Download, TransferKind.File);
                         if (sub.Name == "MenuDownloadFolder") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Download, TransferKind.Folder);
+                    }
+                }
+
+                var paneMenu = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(m => (string?)m.Header == "Pane");
+                if (paneMenu != null)
+                {
+                    foreach (var sub in paneMenu.Items.OfType<MenuItem>())
+                    {
+                        if (sub.Name == "MenuPaneSplitVertical") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.SplitVertical);
+                        if (sub.Name == "MenuPaneSplitHorizontal") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.SplitHorizontal);
+                        if (sub.Name == "MenuPaneEqualize") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.Equalize);
+                        if (sub.Name == "MenuPaneClose") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.Close);
                     }
                 }
             }
@@ -511,6 +535,7 @@ namespace NovaTerminal.Controls
 
             // Keep rendering crisp; dimming is now handled by overlay.
             TermView.Opacity = 1.0;
+            AutomationProperties.SetName(TermView, focused ? "Terminal Pane Active" : "Terminal Pane");
 
             // Re-render to ensure cursor state updates
             TermView.InvalidateVisual();
@@ -530,6 +555,14 @@ namespace NovaTerminal.Controls
             // UX spec: minimum 20 cols x 5 rows.
             MinWidth = Math.Ceiling((cellWidth * 20) + 4);
             MinHeight = Math.Ceiling(cellHeight * 5);
+
+            if (_settings != null && InactiveOverlay != null)
+            {
+                var bg = _settings.ActiveTheme.Background;
+                double luminance = (0.299 * bg.R + 0.587 * bg.G + 0.114 * bg.B) / 255.0;
+                byte alpha = (byte)(luminance > 0.5 ? 96 : 72);
+                InactiveOverlay.Background = new SolidColorBrush(Color.FromArgb(alpha, 0, 0, 0));
+            }
         }
 
         protected override void OnKeyDown(KeyEventArgs e)

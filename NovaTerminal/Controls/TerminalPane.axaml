@@ -23,6 +23,13 @@
             <!-- Context Menu for SFTP Actions -->
             <Grid.ContextMenu>
                 <ContextMenu Name="PaneContextMenu">
+                    <MenuItem Header="Pane">
+                        <MenuItem Header="Split Vertical" Name="MenuPaneSplitVertical" />
+                        <MenuItem Header="Split Horizontal" Name="MenuPaneSplitHorizontal" />
+                        <MenuItem Header="Equalize Siblings" Name="MenuPaneEqualize" />
+                        <Separator />
+                        <MenuItem Header="Close Pane" Name="MenuPaneClose" />
+                    </MenuItem>
                     <MenuItem Header="SFTP">
                         <MenuItem Header="Upload File..." Name="MenuUploadFile" />
                         <MenuItem Header="Upload Folder..." Name="MenuUploadFolder" />
