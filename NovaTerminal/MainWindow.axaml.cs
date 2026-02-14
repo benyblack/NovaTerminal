@@ -28,9 +28,20 @@ namespace NovaTerminal
     {
         private TerminalPane? _currentPane;
         private readonly Dictionary<TabItem, TerminalPane> _activePaneByTab = new();
+        private readonly Dictionary<TabItem, PaneZoomState> _paneZoomStateByTab = new();
+        private readonly Dictionary<TabItem, Guid> _zoomedPaneIdByTab = new();
+        private readonly HashSet<TabItem> _broadcastEnabledTabs = new();
+        private readonly Dictionary<TabItem, Guid> _tabIds = new();
+        private readonly Dictionary<TabItem, PaneLayoutModel> _layoutModelByTab = new();
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
         private bool _closePaneInProgress;
+
+        private sealed class PaneZoomState
+        {
+            public required Control OriginalRoot { get; init; }
+            public required Control Placeholder { get; init; }
+        }
 
         protected override void OnOpened(EventArgs e)
         {
@@ -166,6 +177,334 @@ namespace NovaTerminal
                    e.Key == wantKey.Value;
         }
 
+        private bool TryGetSelectedTab(out TabItem tabItem)
+        {
+            tabItem = null!;
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs?.SelectedItem is not TabItem selected) return false;
+            tabItem = selected;
+            return true;
+        }
+
+        private Guid GetTabId(TabItem tab)
+        {
+            if (_tabIds.TryGetValue(tab, out var id))
+            {
+                return id;
+            }
+
+            id = Guid.NewGuid();
+            _tabIds[tab] = id;
+            return id;
+        }
+
+        internal Guid? GetActivePaneIdForTab(TabItem tabItem)
+        {
+            return ResolvePaneForTab(tabItem)?.PaneId;
+        }
+
+        internal Guid? GetZoomedPaneIdForTab(TabItem tabItem)
+        {
+            if (_zoomedPaneIdByTab.TryGetValue(tabItem, out var paneId))
+            {
+                return paneId;
+            }
+
+            return null;
+        }
+
+        internal bool IsBroadcastEnabledForTab(TabItem tabItem)
+        {
+            return _broadcastEnabledTabs.Contains(tabItem);
+        }
+
+        internal Control? GetLayoutRootForTab(TabItem tabItem)
+        {
+            if (_paneZoomStateByTab.TryGetValue(tabItem, out var zoomState))
+            {
+                return zoomState.OriginalRoot;
+            }
+
+            return tabItem.Content as Control;
+        }
+
+        private void PublishPaneEvent(TabItem tabItem, TerminalPane? pane, PaneAuditEventKind kind, string details = "")
+        {
+            PaneEventStream.Publish(new PaneAuditEvent
+            {
+                TimestampUtc = DateTime.UtcNow,
+                Kind = kind,
+                TabId = GetTabId(tabItem),
+                PaneId = pane?.PaneId,
+                Details = details
+            });
+        }
+
+        private void RefreshLayoutModelForTab(TabItem tabItem)
+        {
+            var root = GetLayoutRootForTab(tabItem);
+            if (root == null)
+            {
+                _layoutModelByTab.Remove(tabItem);
+                return;
+            }
+
+            _layoutModelByTab[tabItem] = PaneLayoutModel.FromControl(
+                root,
+                GetActivePaneIdForTab(tabItem),
+                GetZoomedPaneIdForTab(tabItem),
+                IsBroadcastEnabledForTab(tabItem));
+        }
+
+        private void RefreshAllLayoutModels()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            foreach (var item in tabs.Items.Cast<TabItem>())
+            {
+                RefreshLayoutModelForTab(item);
+            }
+        }
+
+        private TerminalPane? FindPaneById(Control? control, Guid paneId)
+        {
+            return EnumeratePanes(control).FirstOrDefault(p => p.PaneId == paneId);
+        }
+
+        private static void CopyGridPlacement(Control from, Control to)
+        {
+            Grid.SetRow(to, Grid.GetRow(from));
+            Grid.SetColumn(to, Grid.GetColumn(from));
+            Grid.SetRowSpan(to, Grid.GetRowSpan(from));
+            Grid.SetColumnSpan(to, Grid.GetColumnSpan(from));
+        }
+
+        private bool EnterPaneZoom(TabItem tabItem, TerminalPane pane, bool publishEvent)
+        {
+            if (_paneZoomStateByTab.ContainsKey(tabItem)) return false;
+            if (tabItem.Content is not Control root) return false;
+            if (ReferenceEquals(root, pane)) return false;
+
+            var placeholder = new Border { IsVisible = false };
+            CopyGridPlacement(pane, placeholder);
+
+            if (pane.Parent is Panel panel)
+            {
+                int index = panel.Children.IndexOf(pane);
+                if (index < 0) return false;
+                panel.Children.RemoveAt(index);
+                panel.Children.Insert(index, placeholder);
+            }
+            else if (pane.Parent is ContentPresenter presenter)
+            {
+                presenter.Content = placeholder;
+            }
+            else if (pane.Parent is ContentControl contentControl)
+            {
+                contentControl.Content = placeholder;
+            }
+            else
+            {
+                return false;
+            }
+
+            _paneZoomStateByTab[tabItem] = new PaneZoomState
+            {
+                OriginalRoot = root,
+                Placeholder = placeholder
+            };
+            _zoomedPaneIdByTab[tabItem] = pane.PaneId;
+
+            tabItem.Content = pane;
+            UpdateActivePane(pane);
+            FocusPaneTerminal(pane, defer: true);
+            UpdatePaneAutomationLabels();
+            RefreshLayoutModelForTab(tabItem);
+
+            if (publishEvent)
+            {
+                PublishPaneEvent(tabItem, pane, PaneAuditEventKind.ZoomToggled, "on");
+            }
+
+            return true;
+        }
+
+        private bool ExitPaneZoom(TabItem tabItem, bool publishEvent)
+        {
+            if (!_paneZoomStateByTab.TryGetValue(tabItem, out var state)) return false;
+            if (tabItem.Content is not TerminalPane zoomedPane) return false;
+
+            tabItem.Content = state.OriginalRoot;
+
+            var placeholder = state.Placeholder;
+            if (placeholder.Parent is Panel panel)
+            {
+                int index = panel.Children.IndexOf(placeholder);
+                if (index >= 0)
+                {
+                    panel.Children.RemoveAt(index);
+                    CopyGridPlacement(placeholder, zoomedPane);
+                    panel.Children.Insert(index, zoomedPane);
+                }
+            }
+            else if (placeholder.Parent is ContentPresenter presenter)
+            {
+                presenter.Content = zoomedPane;
+            }
+            else if (placeholder.Parent is ContentControl contentControl)
+            {
+                contentControl.Content = zoomedPane;
+            }
+            else
+            {
+                return false;
+            }
+
+            _paneZoomStateByTab.Remove(tabItem);
+            _zoomedPaneIdByTab.Remove(tabItem);
+            UpdateActivePane(zoomedPane);
+            FocusPaneTerminal(zoomedPane, defer: true);
+            UpdatePaneAutomationLabels();
+            RefreshLayoutModelForTab(tabItem);
+
+            if (publishEvent)
+            {
+                PublishPaneEvent(tabItem, zoomedPane, PaneAuditEventKind.ZoomToggled, "off");
+            }
+
+            return true;
+        }
+
+        private void TogglePaneZoomForCurrentTab()
+        {
+            if (!TryGetSelectedTab(out var tabItem)) return;
+
+            if (_paneZoomStateByTab.ContainsKey(tabItem))
+            {
+                ExitPaneZoom(tabItem, publishEvent: true);
+                return;
+            }
+
+            var pane = ResolvePaneForTab(tabItem);
+            if (pane != null)
+            {
+                EnterPaneZoom(tabItem, pane, publishEvent: true);
+            }
+        }
+
+        private bool TryMapBroadcastKey(KeyEventArgs e, TerminalBuffer? buffer, out string? sequence)
+        {
+            sequence = null;
+            bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+            bool isAlt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
+            bool isShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+
+            if (isAlt) return false;
+
+            switch (e.Key)
+            {
+                case Key.Enter: sequence = "\r"; return true;
+                case Key.Back: sequence = "\x7f"; return true;
+                case Key.Tab: sequence = "\t"; return true;
+                case Key.Escape: sequence = "\x1b"; return true;
+                case Key.Up: sequence = buffer != null && buffer.Modes.IsApplicationCursorKeys ? "\x1bOA" : "\x1b[A"; return true;
+                case Key.Down: sequence = buffer != null && buffer.Modes.IsApplicationCursorKeys ? "\x1bOB" : "\x1b[B"; return true;
+                case Key.Right: sequence = buffer != null && buffer.Modes.IsApplicationCursorKeys ? "\x1bOC" : "\x1b[C"; return true;
+                case Key.Left: sequence = buffer != null && buffer.Modes.IsApplicationCursorKeys ? "\x1bOD" : "\x1b[D"; return true;
+                case Key.Home: sequence = "\x1b[H"; return true;
+                case Key.End: sequence = "\x1b[F"; return true;
+                case Key.Delete: sequence = "\x1b[3~"; return true;
+                case Key.Insert: sequence = "\x1b[2~"; return true;
+                case Key.PageUp: sequence = "\x1b[5~"; return true;
+                case Key.PageDown: sequence = "\x1b[6~"; return true;
+                case Key.F1: sequence = "\x1bOP"; return true;
+                case Key.F2: sequence = "\x1bOQ"; return true;
+                case Key.F3: sequence = "\x1bOR"; return true;
+                case Key.F4: sequence = "\x1bOS"; return true;
+                case Key.F5: sequence = "\x1b[15~"; return true;
+                case Key.F6: sequence = "\x1b[17~"; return true;
+                case Key.F7: sequence = "\x1b[18~"; return true;
+                case Key.F8: sequence = "\x1b[19~"; return true;
+                case Key.F9: sequence = "\x1b[20~"; return true;
+                case Key.F10: sequence = "\x1b[21~"; return true;
+                case Key.F11: sequence = "\x1b[23~"; return true;
+                case Key.F12: sequence = "\x1b[24~"; return true;
+            }
+
+            if (isCtrl && !isShift && e.Key >= Key.A && e.Key <= Key.Z)
+            {
+                char ctrlChar = (char)(e.Key - Key.A + 1);
+                sequence = ctrlChar.ToString();
+                return true;
+            }
+
+            return false;
+        }
+
+        private void BroadcastKeyToSiblingPanes(KeyEventArgs e)
+        {
+            if (IsFocusOverlayVisible()) return;
+            if (!TryGetSelectedTab(out var tabItem)) return;
+            if (!_broadcastEnabledTabs.Contains(tabItem)) return;
+            if (_currentPane == null) return;
+            if (!TryMapBroadcastKey(e, _currentPane.Buffer, out var sequence) || string.IsNullOrEmpty(sequence)) return;
+
+            foreach (var pane in EnumeratePanes(tabItem.Content as Control))
+            {
+                if (pane == _currentPane) continue;
+                pane.Session?.SendInput(sequence);
+            }
+        }
+
+        private void BroadcastTextToSiblingPanes(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            if (IsFocusOverlayVisible()) return;
+            if (!TryGetSelectedTab(out var tabItem)) return;
+            if (!_broadcastEnabledTabs.Contains(tabItem)) return;
+            if (_currentPane == null) return;
+
+            foreach (var pane in EnumeratePanes(tabItem.Content as Control))
+            {
+                if (pane == _currentPane) continue;
+                pane.Session?.SendInput(text);
+            }
+        }
+
+        private void ToggleBroadcastForCurrentTab()
+        {
+            if (!TryGetSelectedTab(out var tabItem)) return;
+
+            bool enabled;
+            if (_broadcastEnabledTabs.Contains(tabItem))
+            {
+                _broadcastEnabledTabs.Remove(tabItem);
+                enabled = false;
+            }
+            else
+            {
+                _broadcastEnabledTabs.Add(tabItem);
+                enabled = true;
+            }
+
+            UpdateBroadcastIndicator();
+            RefreshLayoutModelForTab(tabItem);
+            PublishPaneEvent(tabItem, ResolvePaneForTab(tabItem), PaneAuditEventKind.BroadcastToggled, enabled ? "on" : "off");
+        }
+
+        private void UpdateBroadcastIndicator()
+        {
+            if (TryGetSelectedTab(out var tabItem) && _broadcastEnabledTabs.Contains(tabItem))
+            {
+                Title = "NovaTerminal [Broadcast: Tab]";
+            }
+            else
+            {
+                Title = "NovaTerminal";
+            }
+        }
+
         public MainWindow()
         {
             InitializeComponent();
@@ -246,6 +585,7 @@ namespace NovaTerminal
                 {
                     if (tabs.SelectedItem is TabItem ti)
                     {
+                        GetTabId(ti);
                         var pane = ResolvePaneForTab(ti);
                         if (pane != null)
                         {
@@ -255,6 +595,7 @@ namespace NovaTerminal
                     }
                     UpdateTabVisuals();
                     UpdatePaneAutomationLabels();
+                    UpdateBroadcastIndicator();
                 };
             }
 
@@ -313,6 +654,7 @@ namespace NovaTerminal
                 SessionManager.RestoreSession(this, tabs, _settings);
                 foreach (var item in tabs.Items.Cast<TabItem>())
                 {
+                    GetTabId(item);
                     if (item.Content is Control c) WireControlTree(c);
                 }
 
@@ -328,8 +670,38 @@ namespace NovaTerminal
                     {
                         if (item.Content is Control c)
                         {
-                            var first = FindFirstPane(c);
-                            if (first != null) _activePaneByTab[item] = first;
+                            TerminalPane? active = null;
+                            if (item.Tag is TabSession saved &&
+                                !string.IsNullOrWhiteSpace(saved.ActivePaneId) &&
+                                Guid.TryParse(saved.ActivePaneId, out var activeId))
+                            {
+                                active = FindPaneById(c, activeId);
+                            }
+
+                            active ??= FindFirstPane(c);
+                            if (active != null) _activePaneByTab[item] = active;
+
+                            if (item.Tag is TabSession savedSession && savedSession.BroadcastInputEnabled)
+                            {
+                                _broadcastEnabledTabs.Add(item);
+                            }
+                        }
+                    }
+
+                    foreach (var item in tabs.Items.Cast<TabItem>())
+                    {
+                        if (item.Tag is not TabSession saved ||
+                            string.IsNullOrWhiteSpace(saved.ZoomedPaneId) ||
+                            !Guid.TryParse(saved.ZoomedPaneId, out var zoomedPaneId) ||
+                            item.Content is not Control c)
+                        {
+                            continue;
+                        }
+
+                        var zoomPane = FindPaneById(c, zoomedPaneId);
+                        if (zoomPane != null)
+                        {
+                            EnterPaneZoom(item, zoomPane, publishEvent: false);
                         }
                     }
 
@@ -341,6 +713,8 @@ namespace NovaTerminal
                     }
                 }
                 UpdatePaneAutomationLabels();
+                UpdateBroadcastIndicator();
+                RefreshAllLayoutModels();
             }
             else
             {
@@ -430,6 +804,18 @@ namespace NovaTerminal
                     e.Handled = true;
                     return;
                 }
+                if (IsShortcut(e, "toggle_pane_zoom", "Ctrl+Shift+Z"))
+                {
+                    TogglePaneZoomForCurrentTab();
+                    e.Handled = true;
+                    return;
+                }
+                if (IsShortcut(e, "toggle_broadcast_input", "Ctrl+Shift+B"))
+                {
+                    ToggleBroadcastForCurrentTab();
+                    e.Handled = true;
+                    return;
+                }
                 bool nextTabShortcut = IsShortcut(e, "next_tab", "Ctrl+Tab");
                 bool prevTabShortcut = IsShortcut(e, "prev_tab", "Ctrl+Shift+Tab");
                 if ((nextTabShortcut || prevTabShortcut) && tabs != null)
@@ -465,6 +851,16 @@ namespace NovaTerminal
                         e.Handled = true;
                         return;
                     }
+                }
+
+                BroadcastKeyToSiblingPanes(e);
+            }, RoutingStrategies.Tunnel);
+
+            this.AddHandler(TextInputEvent, (s, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Text))
+                {
+                    BroadcastTextToSiblingPanes(e.Text);
                 }
             }, RoutingStrategies.Tunnel);
 
@@ -657,6 +1053,12 @@ namespace NovaTerminal
                 case PaneAction.Equalize:
                     EqualizeCurrentSplit();
                     break;
+                case PaneAction.ToggleZoom:
+                    TogglePaneZoomForCurrentTab();
+                    break;
+                case PaneAction.ToggleBroadcast:
+                    ToggleBroadcastForCurrentTab();
+                    break;
                 case PaneAction.Close:
                     CloseActivePane();
                     break;
@@ -705,6 +1107,11 @@ namespace NovaTerminal
             EqualizeSplitGrid(splitGrid);
             InvalidateMeasure();
             InvalidateArrange();
+            if (TryGetSelectedTab(out var selected))
+            {
+                RefreshLayoutModelForTab(selected);
+                PublishPaneEvent(selected, _currentPane, PaneAuditEventKind.Equalized);
+            }
         }
 
         private void EqualizeSplitGrid(Grid splitGrid)
@@ -744,6 +1151,11 @@ namespace NovaTerminal
                 EqualizeSplitGrid(ownerGrid);
                 InvalidateMeasure();
                 InvalidateArrange();
+                if (TryGetSelectedTab(out var tabItem))
+                {
+                    RefreshLayoutModelForTab(tabItem);
+                    PublishPaneEvent(tabItem, _currentPane, PaneAuditEventKind.Equalized, "splitter-double-tap");
+                }
                 e.Handled = true;
             }
         }
@@ -856,6 +1268,11 @@ namespace NovaTerminal
 
         private void CloseTab(TabItem ti)
         {
+            if (_paneZoomStateByTab.ContainsKey(ti))
+            {
+                ExitPaneZoom(ti, publishEvent: false);
+            }
+
             if (_activePaneByTab.TryGetValue(ti, out var mapped) && _currentPane == mapped)
             {
                 _currentPane.RecordingStateChanged -= OnRecordingStateChanged;
@@ -863,6 +1280,11 @@ namespace NovaTerminal
                 OnRecordingStateChanged(false);
             }
             _activePaneByTab.Remove(ti);
+            _paneZoomStateByTab.Remove(ti);
+            _zoomedPaneIdByTab.Remove(ti);
+            _broadcastEnabledTabs.Remove(ti);
+            _tabIds.Remove(ti);
+            _layoutModelByTab.Remove(ti);
 
             if (ti.Content is Control content) DisposeControlTree(content);
             var tabs = this.FindControl<TabControl>("Tabs");
@@ -873,6 +1295,8 @@ namespace NovaTerminal
             }
 
             UpdatePaneAutomationLabels();
+            UpdateBroadcastIndicator();
+            RefreshAllLayoutModels();
         }
 
         private void CloseActivePane()
@@ -889,6 +1313,12 @@ namespace NovaTerminal
             {
                 var paneToClose = _currentPane;
                 if (paneToClose == null) return;
+                if (TryGetSelectedTab(out var selectedTab) && _paneZoomStateByTab.ContainsKey(selectedTab))
+                {
+                    ExitPaneZoom(selectedTab, publishEvent: true);
+                    paneToClose = _currentPane;
+                    if (paneToClose == null) return;
+                }
                 if (!await ShouldClosePaneAsync(paneToClose))
                 {
                     FocusPaneTerminal(paneToClose, defer: true);
@@ -943,13 +1373,22 @@ namespace NovaTerminal
                         // 6. Focus Sibling
                         FocusFirstPane(sibling);
                         UpdatePaneAutomationLabels();
+                        if (TryGetSelectedTab(out selectedTab))
+                        {
+                            RefreshLayoutModelForTab(selectedTab);
+                            PublishPaneEvent(selectedTab, paneToClose, PaneAuditEventKind.Close);
+                        }
                         return;
                     }
                 }
 
                 // Fallback: If not in a split, close the tab
                 var tabs = this.FindControl<TabControl>("Tabs");
-                if (tabs?.SelectedItem is TabItem ti) CloseTab(ti);
+                if (tabs?.SelectedItem is TabItem ti)
+                {
+                    PublishPaneEvent(ti, paneToClose, PaneAuditEventKind.Close);
+                    CloseTab(ti);
+                }
             }
             finally
             {
@@ -1110,6 +1549,7 @@ namespace NovaTerminal
             };
             tabs.Items.Add(tabItem);
             tabs.SelectedItem = tabItem;
+            GetTabId(tabItem);
             _currentPane = pane;
             _activePaneByTab[tabItem] = pane;
 
@@ -1126,6 +1566,8 @@ namespace NovaTerminal
             Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Input);
             Dispatcher.UIThread.Post(() => pane.ActiveControl.Focus());
             UpdatePaneAutomationLabels();
+            UpdateBroadcastIndicator();
+            RefreshLayoutModelForTab(tabItem);
         }
 
         private void PopulateNewTabMenu()
@@ -1230,6 +1672,11 @@ namespace NovaTerminal
         private void SplitPane(Avalonia.Layout.Orientation orientation)
         {
             if (_currentPane == null) return;
+            if (TryGetSelectedTab(out var selectedTab) && _paneZoomStateByTab.ContainsKey(selectedTab))
+            {
+                ExitPaneZoom(selectedTab, publishEvent: true);
+            }
+
             var originalPane = _currentPane;
             var parent = originalPane.Parent as Panel;
             var (minPaneWidth, minPaneHeight) = originalPane.GetMinimumPaneSize();
@@ -1328,6 +1775,12 @@ namespace NovaTerminal
             _currentPane = newPane;
             Dispatcher.UIThread.Post(() => { newPane.ActiveControl.Focus(); this.InvalidateMeasure(); this.InvalidateArrange(); }, DispatcherPriority.Loaded);
             UpdatePaneAutomationLabels();
+            if (TryGetSelectedTab(out selectedTab))
+            {
+                RefreshLayoutModelForTab(selectedTab);
+                PublishPaneEvent(selectedTab, newPane, PaneAuditEventKind.Split,
+                    orientation == Avalonia.Layout.Orientation.Horizontal ? "vertical-divider" : "horizontal-divider");
+            }
         }
 
         private async Task PasteFromClipboardAsync()
@@ -1475,6 +1928,8 @@ namespace NovaTerminal
             // Horizontal split => horizontal divider => stacked panes.
             CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Vertical), "Ctrl+Shift+E");
             CommandRegistry.Register("Equalize Panes", "View", () => EqualizeCurrentSplit(), "Ctrl+Shift+G");
+            CommandRegistry.Register("Pane: Toggle Zoom", "View", () => TogglePaneZoomForCurrentTab(), "Ctrl+Shift+Z");
+            CommandRegistry.Register("Pane: Toggle Broadcast Input (Tab)", "View", () => ToggleBroadcastForCurrentTab(), "Ctrl+Shift+B");
             CommandRegistry.Register("Focus Pane Left", "View", () => NavigatePane(MoveDirection.Left), "Alt+Left");
             CommandRegistry.Register("Focus Pane Right", "View", () => NavigatePane(MoveDirection.Right), "Alt+Right");
             CommandRegistry.Register("Focus Pane Up", "View", () => NavigatePane(MoveDirection.Up), "Alt+Up");
@@ -1877,6 +2332,11 @@ namespace NovaTerminal
             // Initial UI sync
             OnRecordingStateChanged(_currentPane?.IsRecording ?? false);
             UpdatePaneAutomationLabels();
+            if (ownerTab != null)
+            {
+                RefreshLayoutModelForTab(ownerTab);
+                PublishPaneEvent(ownerTab, pane, PaneAuditEventKind.FocusChanged);
+            }
         }
 
         private TerminalPane? FindFirstPane(Control? control)

@@ -27,6 +27,8 @@
                         <MenuItem Header="Split Vertical" Name="MenuPaneSplitVertical" />
                         <MenuItem Header="Split Horizontal" Name="MenuPaneSplitHorizontal" />
                         <MenuItem Header="Equalize Siblings" Name="MenuPaneEqualize" />
+                        <MenuItem Header="Toggle Zoom" Name="MenuPaneToggleZoom" />
+                        <MenuItem Header="Toggle Broadcast Input (Tab)" Name="MenuPaneToggleBroadcast" />
                         <Separator />
                         <MenuItem Header="Close Pane" Name="MenuPaneClose" />
                     </MenuItem>
