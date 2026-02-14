@@ -33,9 +33,11 @@ namespace NovaTerminal
         private readonly HashSet<TabItem> _broadcastEnabledTabs = new();
         private readonly Dictionary<TabItem, Guid> _tabIds = new();
         private readonly Dictionary<TabItem, PaneLayoutModel> _layoutModelByTab = new();
+        private readonly List<TabItem> _tabMru = new();
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
         private bool _closePaneInProgress;
+        private bool _closeTabInProgress;
 
         private sealed class PaneZoomState
         {
@@ -193,9 +195,102 @@ namespace NovaTerminal
                 return id;
             }
 
-            id = Guid.NewGuid();
+            if (tab.Tag is TabSession session &&
+                !string.IsNullOrWhiteSpace(session.TabId) &&
+                Guid.TryParse(session.TabId, out var restoredId))
+            {
+                id = restoredId;
+            }
+            else
+            {
+                id = Guid.NewGuid();
+            }
+
             _tabIds[tab] = id;
             return id;
+        }
+
+        internal Guid GetPersistentTabId(TabItem tab)
+        {
+            return GetTabId(tab);
+        }
+
+        private void TouchTabMru(TabItem tab)
+        {
+            _tabMru.Remove(tab);
+            _tabMru.Insert(0, tab);
+        }
+
+        private void CleanupTabMru(TabControl tabs)
+        {
+            var liveTabs = tabs.Items.Cast<TabItem>().ToHashSet();
+            _tabMru.RemoveAll(t => !liveTabs.Contains(t));
+            foreach (var tab in tabs.Items.Cast<TabItem>())
+            {
+                if (!_tabMru.Contains(tab))
+                {
+                    _tabMru.Add(tab);
+                }
+            }
+        }
+
+        private bool SwitchTabByMru(bool reverse)
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return false;
+
+            CleanupTabMru(tabs);
+            if (tabs.SelectedItem is TabItem selected)
+            {
+                TouchTabMru(selected);
+            }
+
+            if (_tabMru.Count < 2) return false;
+
+            var target = reverse ? _tabMru[^1] : _tabMru[1];
+            if (tabs.SelectedItem == target) return false;
+
+            tabs.SelectedItem = target;
+            return true;
+        }
+
+        private string GetTabHeaderText(TabItem tab)
+        {
+            if (tab.Header is TextBlock tb)
+            {
+                return string.IsNullOrWhiteSpace(tb.Text) ? "Terminal" : tb.Text;
+            }
+
+            return "Terminal";
+        }
+
+        private void PopulateTabListMenu(bool showFlyout = false)
+        {
+            var button = this.FindControl<Button>("BtnTabList");
+            var flyout = button?.Flyout as MenuFlyout;
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (flyout == null || tabs == null) return;
+
+            flyout.Items.Clear();
+            int index = 1;
+            foreach (var tab in tabs.Items.Cast<TabItem>())
+            {
+                string label = GetTabHeaderText(tab);
+                var item = new MenuItem
+                {
+                    Header = $"{index}. {label}",
+                    IsChecked = tabs.SelectedItem == tab,
+                    ToggleType = MenuItemToggleType.Radio
+                };
+                item.Click += (_, __) => tabs.SelectedItem = tab;
+                flyout.Items.Add(item);
+                index++;
+            }
+
+            if (showFlyout && button != null)
+            {
+                flyout.ShowAt(button);
+            }
         }
 
         internal Guid? GetActivePaneIdForTab(TabItem tabItem)
@@ -524,9 +619,15 @@ namespace NovaTerminal
 
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
+            var btnTabList = this.FindControl<Button>("BtnTabList");
             var settingsBtn = this.FindControl<Button>("SettingsBtn");
             var titleBar = this.FindControl<Grid>("TitleBar");
             var dragBorder = this.FindControl<Border>("DragBorder");
+
+            if (btnTabList != null)
+            {
+                btnTabList.Click += (s, e) => PopulateTabListMenu();
+            }
 
             if (dragBorder != null)
             {
@@ -583,19 +684,30 @@ namespace NovaTerminal
             {
                 tabs.SelectionChanged += (s, e) =>
                 {
+                    bool updatedSpecific = false;
+                    foreach (var removed in e.RemovedItems.OfType<TabItem>())
+                    {
+                        UpdateTabVisuals(removed);
+                        updatedSpecific = true;
+                    }
+
                     if (tabs.SelectedItem is TabItem ti)
                     {
                         GetTabId(ti);
+                        TouchTabMru(ti);
                         var pane = ResolvePaneForTab(ti);
                         if (pane != null)
                         {
                             UpdateActivePane(pane);
                             FocusPaneTerminal(pane, defer: true);
                         }
+                        UpdateTabVisuals(ti);
+                        updatedSpecific = true;
                     }
-                    UpdateTabVisuals();
+                    if (!updatedSpecific) UpdateTabVisuals();
                     UpdatePaneAutomationLabels();
                     UpdateBroadcastIndicator();
+                    PopulateTabListMenu();
                 };
             }
 
@@ -715,6 +827,8 @@ namespace NovaTerminal
                 UpdatePaneAutomationLabels();
                 UpdateBroadcastIndicator();
                 RefreshAllLayoutModels();
+                CleanupTabMru(tabs);
+                PopulateTabListMenu();
             }
             else
             {
@@ -772,6 +886,12 @@ namespace NovaTerminal
                     e.Handled = true;
                     return;
                 }
+                if (IsShortcut(e, "close_tab", "Ctrl+W"))
+                {
+                    _ = CloseSelectedTabAsync();
+                    e.Handled = true;
+                    return;
+                }
                 if (IsShortcut(e, "close_pane", "Ctrl+Shift+W"))
                 {
                     CloseActivePane();
@@ -818,17 +938,14 @@ namespace NovaTerminal
                 }
                 bool nextTabShortcut = IsShortcut(e, "next_tab", "Ctrl+Tab");
                 bool prevTabShortcut = IsShortcut(e, "prev_tab", "Ctrl+Shift+Tab");
-                if ((nextTabShortcut || prevTabShortcut) && tabs != null)
+                if (nextTabShortcut || prevTabShortcut)
                 {
-                    int count = tabs.Items.Count;
-                    if (count > 1)
+                    bool switched = SwitchTabByMru(reverse: prevTabShortcut);
+                    if (switched)
                     {
-                        int current = tabs.SelectedIndex;
-                        current = prevTabShortcut ? (current - 1 + count) % count : (current + 1) % count;
-                        tabs.SelectedIndex = current;
+                        e.Handled = true;
+                        return;
                     }
-                    e.Handled = true;
-                    return;
                 }
                 if (IsShortcut(e, "paste", "Ctrl+V"))
                 {
@@ -1027,14 +1144,14 @@ namespace NovaTerminal
         {
             _ = srcPane;
             _ = cwd;
-            Dispatcher.UIThread.Post(UpdateTabVisuals);
+            Dispatcher.UIThread.Post(() => UpdateTabVisuals());
         }
 
         private void OnPaneTitleChanged(TerminalPane srcPane, string title)
         {
             _ = srcPane;
             _ = title;
-            Dispatcher.UIThread.Post(UpdateTabVisuals);
+            Dispatcher.UIThread.Post(() => UpdateTabVisuals());
         }
 
         private void OnPaneActionRequested(TerminalPane pane, PaneAction action)
@@ -1266,6 +1383,53 @@ namespace NovaTerminal
 
         public static VaultService? Vault { get; private set; }
 
+        private void CloseActiveTab()
+        {
+            _ = CloseSelectedTabAsync();
+        }
+
+        private async Task CloseSelectedTabAsync()
+        {
+            if (!TryGetSelectedTab(out var selectedTab)) return;
+            await CloseTabAsync(selectedTab);
+        }
+
+        private async Task<bool> CloseTabAsync(TabItem tab, bool skipProcessChecks = false)
+        {
+            if (_closeTabInProgress) return false;
+            _closeTabInProgress = true;
+
+            try
+            {
+                if (_paneZoomStateByTab.ContainsKey(tab))
+                {
+                    ExitPaneZoom(tab, publishEvent: true);
+                }
+
+                var layoutRoot = GetLayoutRootForTab(tab);
+                if (!skipProcessChecks && layoutRoot != null)
+                {
+                    foreach (var pane in EnumeratePanes(layoutRoot))
+                    {
+                        if (!await ShouldClosePaneAsync(pane))
+                        {
+                            UpdateActivePane(pane);
+                            FocusPaneTerminal(pane, defer: true);
+                            return false;
+                        }
+                    }
+                }
+
+                PublishPaneEvent(tab, ResolvePaneForTab(tab), PaneAuditEventKind.Close, "tab");
+                CloseTab(tab);
+                return true;
+            }
+            finally
+            {
+                _closeTabInProgress = false;
+            }
+        }
+
         private void CloseTab(TabItem ti)
         {
             if (_paneZoomStateByTab.ContainsKey(ti))
@@ -1285,6 +1449,7 @@ namespace NovaTerminal
             _broadcastEnabledTabs.Remove(ti);
             _tabIds.Remove(ti);
             _layoutModelByTab.Remove(ti);
+            _tabMru.Remove(ti);
 
             if (ti.Content is Control content) DisposeControlTree(content);
             var tabs = this.FindControl<TabControl>("Tabs");
@@ -1294,6 +1459,7 @@ namespace NovaTerminal
                 if (tabs.Items.Count == 0) Close();
             }
 
+            UpdateTabVisuals();
             UpdatePaneAutomationLabels();
             UpdateBroadcastIndicator();
             RefreshAllLayoutModels();
@@ -1386,8 +1552,7 @@ namespace NovaTerminal
                 var tabs = this.FindControl<TabControl>("Tabs");
                 if (tabs?.SelectedItem is TabItem ti)
                 {
-                    PublishPaneEvent(ti, paneToClose, PaneAuditEventKind.Close);
-                    CloseTab(ti);
+                    await CloseTabAsync(ti, skipProcessChecks: true);
                 }
             }
             finally
@@ -1550,6 +1715,7 @@ namespace NovaTerminal
             tabs.Items.Add(tabItem);
             tabs.SelectedItem = tabItem;
             GetTabId(tabItem);
+            TouchTabMru(tabItem);
             _currentPane = pane;
             _activePaneByTab[tabItem] = pane;
 
@@ -1616,7 +1782,7 @@ namespace NovaTerminal
                 flyout.Items.Add(footer);
         }
 
-        internal void UpdateTabVisuals()
+        internal void UpdateTabVisuals(TabItem? specificTab = null)
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
@@ -1628,15 +1794,13 @@ namespace NovaTerminal
             double luminance = (0.299 * theme.Background.R + 0.587 * theme.Background.G + 0.114 * theme.Background.B) / 255.0;
             var contrastForeground = luminance > 0.5 ? Brushes.Black : Brushes.White;
 
-            foreach (TabItem ti in tabs.Items.Cast<TabItem>())
+            IEnumerable<TabItem> tabItems = specificTab != null
+                ? new[] { specificTab }
+                : tabs.Items.Cast<TabItem>();
+
+            foreach (TabItem ti in tabItems)
             {
-                var border = ti.GetVisualDescendants().OfType<Border>().FirstOrDefault(b => b.Name == "PART_Border");
-                if (border != null)
-                {
-                    // Let Style handle Background (e.g. #33FFFFFF on select)
-                    // border.Background = Brushes.Transparent; 
-                    border.BorderBrush = ti.IsSelected ? borderBrush : Brushes.Transparent;
-                }
+                ti.BorderBrush = ti.IsSelected ? borderBrush : Brushes.Transparent;
 
                 if (ti.Header is TextBlock tb)
                 {
@@ -1667,6 +1831,8 @@ namespace NovaTerminal
                     }
                 }
             }
+
+            PopulateTabListMenu();
         }
 
         private void SplitPane(Avalonia.Layout.Orientation orientation)
@@ -1921,7 +2087,11 @@ namespace NovaTerminal
                 }
             }
 
+            CommandRegistry.Register("Close Tab", "General", () => CloseActiveTab(), "Ctrl+W");
             CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), "Ctrl+Shift+W");
+            CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), "Ctrl+Tab");
+            CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), "Ctrl+Shift+Tab");
+            CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), "Ctrl+Shift+O");
             // Keep command naming aligned with common terminal UX:
             // Vertical split => vertical divider => side-by-side panes.
             CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+D");

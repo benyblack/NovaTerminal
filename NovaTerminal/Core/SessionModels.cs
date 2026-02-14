@@ -10,6 +10,7 @@ namespace NovaTerminal.Core
 
     public class TabSession
     {
+        public string? TabId { get; set; }
         public string Title { get; set; } = "Terminal";
         public PaneNode? Root { get; set; } // The root of the layout tree
         public string? ActivePaneId { get; set; }

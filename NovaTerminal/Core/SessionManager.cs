@@ -35,6 +35,7 @@ namespace NovaTerminal.Core
 
                         var tabSession = new TabSession
                         {
+                            TabId = (window as MainWindow)?.GetPersistentTabId(tabItem).ToString(),
                             Title = (tabItem.Header as TextBlock)?.Text ?? "Terminal",
                             Root = BuildPaneTree(rootControl)
                         };
