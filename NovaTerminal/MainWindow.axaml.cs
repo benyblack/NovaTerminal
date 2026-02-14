@@ -956,6 +956,45 @@ namespace NovaTerminal
             }
         }
 
+        private async Task ExportCurrentSessionBundleInteractiveAsync()
+        {
+            if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleExport)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Export bundle blocked by policy.");
+                return;
+            }
+
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            string suggested = $"session-{DateTime.Now:yyyyMMdd-HHmm}";
+            string? label = await ShowTextPromptAsync("Export Session Bundle", "Bundle name", suggested);
+            if (string.IsNullOrWhiteSpace(label)) return;
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            string suggestedFileName = $"{label.Trim()}.novaws.json";
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Export Session Bundle",
+                SuggestedFileName = suggestedFileName,
+                FileTypeChoices = new[]
+                {
+                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                }
+            });
+
+            if (file == null) return;
+
+            var snapshot = SessionManager.CaptureSession(this, tabs);
+            bool ok = WorkspaceManager.ExportWorkspaceBundle(label.Trim(), snapshot, file.Path.LocalPath, Environment.UserName);
+            if (!ok)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Export current session bundle failed.");
+            }
+        }
+
         private async Task ImportWorkspaceBundleInteractiveAsync()
         {
             if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleImport)
@@ -996,6 +1035,40 @@ namespace NovaTerminal
             }
 
             System.Diagnostics.Debug.WriteLine($"[Workspace] Import bundle failed: {error}");
+        }
+
+        private async Task OpenWorkspaceBundleInteractiveAsync()
+        {
+            if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleImport)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Open bundle blocked by policy.");
+                return;
+            }
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Open Workspace Bundle",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                }
+            });
+
+            if (files.Count == 0) return;
+
+            string bundlePath = files[0].Path.LocalPath;
+            bool ok = WorkspaceManager.LoadWorkspaceBundleSession(bundlePath, out var _workspaceName, out var snapshot, out var error);
+            if (ok && snapshot != null)
+            {
+                ApplySessionSnapshot(snapshot);
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[Workspace] Open bundle failed: {error}");
         }
 
         private void LoadWorkspaceByName(string name)
@@ -2993,10 +3066,12 @@ namespace NovaTerminal
             if (workspacePolicy.AllowWorkspaceBundleExport)
             {
                 CommandRegistry.Register("Workspace: Export Bundle...", "Workspace", () => _ = ExportWorkspaceBundleInteractiveAsync(), "");
+                CommandRegistry.Register("Workspace: Export Current Session Bundle...", "Workspace", () => _ = ExportCurrentSessionBundleInteractiveAsync(), "");
             }
             if (workspacePolicy.AllowWorkspaceBundleImport)
             {
                 CommandRegistry.Register("Workspace: Import Bundle...", "Workspace", () => _ = ImportWorkspaceBundleInteractiveAsync(), "");
+                CommandRegistry.Register("Workspace: Open Bundle...", "Workspace", () => _ = OpenWorkspaceBundleInteractiveAsync(), "");
             }
             foreach (var workspaceName in WorkspaceManager.ListWorkspaceNames())
             {

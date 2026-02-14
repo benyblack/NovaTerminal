@@ -209,6 +209,35 @@ public sealed class WorkspaceManagerTests
     }
 
     [Fact]
+    public void LoadWorkspaceBundleSession_RoundTripsWithoutPersistingWorkspace()
+    {
+        using var policyScope = PolicyFileScope.WithDefault();
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundleName = $"handoff_{Guid.NewGuid():N}";
+
+        try
+        {
+            bool exported = WorkspaceManager.ExportWorkspaceBundle(bundleName, BuildSession(tabCount: 2), bundlePath, "test-user");
+            Assert.True(exported);
+
+            bool loaded = WorkspaceManager.LoadWorkspaceBundleSession(bundlePath, out var workspaceName, out var session, out var error);
+            Assert.True(loaded);
+            Assert.True(string.IsNullOrWhiteSpace(error));
+            Assert.Equal(SanitizeName(bundleName), workspaceName);
+            Assert.NotNull(session);
+            Assert.Equal(2, session!.Tabs.Count);
+
+            // Open/apply flow should not persist to workspaces automatically.
+            Assert.Null(WorkspaceManager.LoadWorkspace(bundleName));
+        }
+        finally
+        {
+            DeleteWorkspaceFile(bundleName);
+            DeleteBundleFile(bundlePath);
+        }
+    }
+
+    [Fact]
     public void ExportBundle_BlockedByPolicy_IsRejected()
     {
         using var policyScope = PolicyFileScope.WithPolicy(new WorkspacePolicyHooks
@@ -271,6 +300,36 @@ public sealed class WorkspaceManagerTests
         {
             DeleteWorkspaceFile(importName);
             DeleteBundleFile(bundlePath);
+        }
+    }
+
+    [Fact]
+    public void LoadWorkspaceBundleSession_BlockedByPolicy()
+    {
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundleName = $"handoff_{Guid.NewGuid():N}";
+
+        using var exportPolicy = PolicyFileScope.WithDefault();
+        Assert.True(WorkspaceManager.ExportWorkspaceBundle(bundleName, BuildSession(tabCount: 2), bundlePath, "test-user"));
+
+        using var importPolicy = PolicyFileScope.WithPolicy(new WorkspacePolicyHooks
+        {
+            AllowWorkspaceBundleExport = true,
+            AllowWorkspaceBundleImport = false,
+            MaxTabsPerWorkspace = 0
+        });
+
+        try
+        {
+            bool loaded = WorkspaceManager.LoadWorkspaceBundleSession(bundlePath, out var _, out var session, out var error);
+            Assert.False(loaded);
+            Assert.Null(session);
+            Assert.Contains("blocked-by-policy", error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteBundleFile(bundlePath);
+            DeleteWorkspaceFile(bundleName);
         }
     }
 

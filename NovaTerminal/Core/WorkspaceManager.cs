@@ -176,6 +176,57 @@ namespace NovaTerminal.Core
             return true;
         }
 
+        public static bool LoadWorkspaceBundleSession(string bundlePath, out string? workspaceName, out NovaSession? session, out string? error)
+        {
+            workspaceName = null;
+            session = null;
+
+            var policy = WorkspacePolicyManager.Current;
+            if (!policy.AllowWorkspaceBundleImport)
+            {
+                error = "blocked-by-policy";
+                AppendWorkspaceAudit("workspace-bundle-open", "unknown", success: false, error);
+                return false;
+            }
+
+            if (!TryReadBundle(bundlePath, out var bundle, out error))
+            {
+                AppendWorkspaceAudit("workspace-bundle-open", "unknown", success: false, error ?? "bundle-invalid");
+                return false;
+            }
+
+            workspaceName = bundle!.WorkspaceName;
+
+            try
+            {
+                session = JsonSerializer.Deserialize(bundle.PayloadJson, SessionSerializationContext.Default.NovaSession);
+            }
+            catch (Exception ex)
+            {
+                error = $"bundle-payload-invalid: {ex.Message}";
+                AppendWorkspaceAudit("workspace-bundle-open", workspaceName, success: false, error);
+                return false;
+            }
+
+            if (session == null)
+            {
+                error = "bundle-payload-empty";
+                AppendWorkspaceAudit("workspace-bundle-open", workspaceName, success: false, error);
+                return false;
+            }
+
+            if (policy.MaxTabsPerWorkspace > 0 && session.Tabs.Count > policy.MaxTabsPerWorkspace)
+            {
+                error = $"policy-max-tabs-exceeded:{policy.MaxTabsPerWorkspace}";
+                AppendWorkspaceAudit("workspace-bundle-open", workspaceName, success: false, error);
+                return false;
+            }
+
+            error = null;
+            AppendWorkspaceAudit("workspace-bundle-open", workspaceName, success: true, $"source={bundlePath};hash={bundle.PayloadHashSha256}");
+            return true;
+        }
+
         public static bool ImportWorkspaceBundle(string bundlePath, string? workspaceName, out string? error)
         {
             var policy = WorkspacePolicyManager.Current;
