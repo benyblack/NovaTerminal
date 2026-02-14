@@ -11,7 +11,7 @@ namespace NovaTerminal.Core
     [JsonSerializable(typeof(List<TerminalProfile>))]
     [JsonSerializable(typeof(List<ForwardingRule>))]
     [JsonSerializable(typeof(Dictionary<string, string>))]
-    [JsonSourceGenerationOptions(WriteIndented = true, Converters = new[] { typeof(JsonColorConverter) })]
+    [JsonSourceGenerationOptions(WriteIndented = true, Converters = new[] { typeof(JsonColorConverter), typeof(TermColorJsonConverter) })]
     public partial class AppJsonContext : JsonSerializerContext
     {
     }

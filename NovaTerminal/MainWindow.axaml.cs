@@ -485,8 +485,20 @@ namespace NovaTerminal
                 }
                 pane.ApplySettings(settings);
             }
-            else if (control is Panel panel) foreach (var child in panel.Children) if (child is Control c) ApplySettingsRecursive(c, settings);
-                    else if (control is ContentControl cc) ApplySettingsRecursive(cc.Content as Control, settings);
+            else if (control is Panel panel)
+            {
+                foreach (var child in panel.Children)
+                {
+                    if (child is Control c)
+                    {
+                        ApplySettingsRecursive(c, settings);
+                    }
+                }
+            }
+            else if (control is ContentControl cc)
+            {
+                ApplySettingsRecursive(cc.Content as Control, settings);
+            }
         }
 
         private void ApplySettingsToAllTabs()
@@ -1298,12 +1310,13 @@ namespace NovaTerminal
             sw.OnFontSizeChanged += (size) => { _settings.FontSize = size; ApplySettingsToAllTabs(); };
             sw.OnThemeChanged += (theme) =>
         {
-            // Force reload themes to pick up any changes from settings window
+            _settings.ThemeName = theme;
+            // Force reload themes to pick up any changes from settings window.
             _settings.ThemeManager.ReloadThemes();
             _settings.RefreshActiveTheme();
-            _settings.ThemeName = theme;
             ApplyThemeToUI();
             ApplySettingsToAllTabs();
+            UpdateTabVisuals();
         };
 
             bool saved = await sw.ShowDialog<bool>(this);

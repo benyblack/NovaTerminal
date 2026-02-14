@@ -147,24 +147,39 @@ namespace NovaTerminal.Core
 
                 void UpdateCell(ref TerminalCell cell)
                 {
+                    // Preserve palette/default flags across theme switches.
+                    // Using Foreground/Background setters here would clear those flags.
+                    short fgIdx = cell.FgIndex;
+                    short bgIdx = cell.BgIndex;
+
                     // Indices take precedence
-                    if (cell.FgIndex >= 0 && cell.FgIndex <= 15)
+                    if (fgIdx >= 0 && fgIdx <= 15)
                     {
-                        cell.Foreground = Theme.GetAnsiColor(cell.FgIndex, cell.FgIndex >= 8); // Simple mapping
+                        cell.IsPaletteForeground = true;
+                        cell.IsDefaultForeground = false;
+                        cell.Fg = (uint)fgIdx;
                     }
                     else if (cell.IsDefaultForeground)
                     {
-                        cell.Foreground = Theme.Foreground;
+                        cell.IsPaletteForeground = false;
+                        cell.IsDefaultForeground = true;
+                        cell.Fg = Theme.Foreground.ToUint();
                     }
 
-                    if (cell.BgIndex >= 0 && cell.BgIndex <= 15)
+                    if (bgIdx >= 0 && bgIdx <= 15)
                     {
-                        cell.Background = Theme.GetAnsiColor(cell.BgIndex, cell.BgIndex >= 8);
+                        cell.IsPaletteBackground = true;
+                        cell.IsDefaultBackground = false;
+                        cell.Bg = (uint)bgIdx;
                     }
                     else if (cell.IsDefaultBackground)
                     {
-                        cell.Background = Theme.Background;
+                        cell.IsPaletteBackground = false;
+                        cell.IsDefaultBackground = true;
+                        cell.Bg = Theme.Background.ToUint();
                     }
+
+                    cell.IsDirty = true;
                 }
 
                 for (int r = 0; r < Rows; r++)
