@@ -24,6 +24,7 @@ namespace NovaTerminal.Core
         public bool SmoothScrolling { get; set; } = true;
         public string PaneClosePolicy { get; set; } = "Confirm";
         public System.Collections.Generic.Dictionary<string, string> Keybindings { get; set; } = new();
+        public System.Collections.Generic.List<TabTemplateRule> TabTemplateRules { get; set; } = new();
 
         // Background Image Settings
         public string BackgroundImagePath { get; set; } = "";
@@ -134,6 +135,11 @@ namespace NovaTerminal.Core
                         }
                     }
                 }
+            }
+
+            if (settings.TabTemplateRules == null)
+            {
+                settings.TabTemplateRules = new System.Collections.Generic.List<TabTemplateRule>();
             }
 
             // Ensure we have a valid default profile

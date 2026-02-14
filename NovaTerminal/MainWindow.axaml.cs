@@ -1085,6 +1085,139 @@ namespace NovaTerminal
             ApplySessionSnapshot(snapshot);
         }
 
+        internal static TabTemplateRule? FindTabTemplateRule(IEnumerable<TabTemplateRule>? rules, Guid profileId)
+        {
+            if (rules == null) return null;
+            return rules.FirstOrDefault(r =>
+                r != null &&
+                r.Enabled &&
+                r.ProfileId == profileId &&
+                !string.IsNullOrWhiteSpace(r.TemplateName));
+        }
+
+        internal static bool UpsertTabTemplateRule(List<TabTemplateRule> rules, Guid profileId, string templateName)
+        {
+            if (rules == null) throw new ArgumentNullException(nameof(rules));
+            if (string.IsNullOrWhiteSpace(templateName)) return false;
+
+            var existing = rules.FirstOrDefault(r => r.ProfileId == profileId);
+            if (existing == null)
+            {
+                rules.Add(new TabTemplateRule
+                {
+                    ProfileId = profileId,
+                    TemplateName = templateName.Trim(),
+                    Enabled = true
+                });
+                return true;
+            }
+
+            existing.TemplateName = templateName.Trim();
+            existing.Enabled = true;
+            return true;
+        }
+
+        internal static bool RemoveTabTemplateRule(List<TabTemplateRule> rules, Guid profileId)
+        {
+            if (rules == null) throw new ArgumentNullException(nameof(rules));
+            int before = rules.Count;
+            rules.RemoveAll(r => r.ProfileId == profileId);
+            return rules.Count != before;
+        }
+
+        private async Task SetTemplateRuleForCurrentPaneProfileAsync()
+        {
+            var profile = _currentPane?.Profile;
+            if (profile == null) return;
+
+            var templateNames = WorkspaceManager.ListWorkspaceTemplateNames();
+            if (templateNames.Count == 0) return;
+
+            string suggested = FindTabTemplateRule(_settings.TabTemplateRules, profile.Id)?.TemplateName ?? templateNames[0];
+            string? name = await ShowTextPromptAsync(
+                "Set Tab Template Rule",
+                $"Template for profile '{profile.Name}'",
+                suggested);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            string trimmed = name.Trim();
+            if (WorkspaceManager.LoadWorkspaceTemplate(trimmed) == null)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Workspace] Template rule not set: missing template '{trimmed}'.");
+                return;
+            }
+
+            if (UpsertTabTemplateRule(_settings.TabTemplateRules, profile.Id, trimmed))
+            {
+                _settings.Save();
+                SetupCommandPalette();
+            }
+        }
+
+        private void ClearTemplateRuleForCurrentPaneProfile()
+        {
+            var profile = _currentPane?.Profile;
+            if (profile == null) return;
+
+            if (RemoveTabTemplateRule(_settings.TabTemplateRules, profile.Id))
+            {
+                _settings.Save();
+                SetupCommandPalette();
+            }
+        }
+
+        private bool TryApplyTemplateRuleForProfile(TerminalProfile profile)
+        {
+            var rule = FindTabTemplateRule(_settings.TabTemplateRules, profile.Id);
+            if (rule == null) return false;
+
+            var template = WorkspaceManager.LoadWorkspaceTemplate(rule.TemplateName);
+            if (template == null || template.Tabs.Count == 0) return false;
+
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return false;
+
+            var current = SessionManager.CaptureSession(this, tabs);
+            var templateTab = CloneTabSession(template.Tabs[0]);
+            current.Tabs.Add(templateTab);
+            current.ActiveTabIndex = current.Tabs.Count - 1;
+            ApplySessionSnapshot(current);
+            return true;
+        }
+
+        private static TabSession CloneTabSession(TabSession source)
+        {
+            return new TabSession
+            {
+                TabId = source.TabId,
+                Title = source.Title,
+                UserTitle = source.UserTitle,
+                IsPinned = source.IsPinned,
+                IsProtected = source.IsProtected,
+                ActivePaneId = source.ActivePaneId,
+                ZoomedPaneId = source.ZoomedPaneId,
+                BroadcastInputEnabled = source.BroadcastInputEnabled,
+                Root = ClonePaneNode(source.Root)
+            };
+        }
+
+        private static PaneNode? ClonePaneNode(PaneNode? source)
+        {
+            if (source == null) return null;
+
+            return new PaneNode
+            {
+                Type = source.Type,
+                SplitOrientation = source.SplitOrientation,
+                ProfileId = source.ProfileId,
+                PaneId = source.PaneId,
+                Command = source.Command,
+                Arguments = source.Arguments,
+                Sizes = source.Sizes.ToList(),
+                Children = source.Children.Select(ClonePaneNode).Where(c => c != null).Select(c => c!).ToList()
+            };
+        }
+
         internal Guid? GetActivePaneIdForTab(TabItem tabItem)
         {
             return ResolvePaneForTab(tabItem)?.PaneId;
@@ -2672,6 +2805,11 @@ namespace NovaTerminal
                 profile.Arguments = profile.GenerateSshArguments(_settings.Profiles);
             }
 
+            if (TryApplyTemplateRuleForProfile(profile))
+            {
+                return;
+            }
+
             var pane = new TerminalPane(profile);
             WirePane(pane);
 
@@ -3062,6 +3200,8 @@ namespace NovaTerminal
             CommandRegistry.Register("Workspace: Load...", "Workspace", () => _ = LoadWorkspaceInteractiveAsync(), "");
             CommandRegistry.Register("Workspace Template: Save Current", "Workspace", () => _ = SaveWorkspaceTemplateInteractiveAsync(), "");
             CommandRegistry.Register("Workspace Template: Apply...", "Workspace", () => _ = LoadWorkspaceTemplateInteractiveAsync(), "");
+            CommandRegistry.Register("Tab Rule: Set Template for Current Profile...", "Workspace", () => _ = SetTemplateRuleForCurrentPaneProfileAsync(), "");
+            CommandRegistry.Register("Tab Rule: Clear Template for Current Profile", "Workspace", () => ClearTemplateRuleForCurrentPaneProfile(), "");
             var workspacePolicy = WorkspacePolicyManager.Current;
             if (workspacePolicy.AllowWorkspaceBundleExport)
             {

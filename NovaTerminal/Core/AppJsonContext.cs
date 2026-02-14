@@ -9,6 +9,7 @@ namespace NovaTerminal.Core
     [JsonSerializable(typeof(TerminalTheme))]
     [JsonSerializable(typeof(ForwardingRule))]
     [JsonSerializable(typeof(List<TerminalProfile>))]
+    [JsonSerializable(typeof(List<TabTemplateRule>))]
     [JsonSerializable(typeof(List<ForwardingRule>))]
     [JsonSerializable(typeof(Dictionary<string, string>))]
     [JsonSerializable(typeof(WorkspacePolicyHooks))]
