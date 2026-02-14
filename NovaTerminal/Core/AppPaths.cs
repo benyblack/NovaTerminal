@@ -27,6 +27,7 @@ namespace NovaTerminal.Core
         public static string SessionsDirectory => Path.Combine(RootDirectory, "sessions");
         public static string SessionFilePath => Path.Combine(SessionsDirectory, "last_session.json");
         public static string WorkspacesDirectory => Path.Combine(RootDirectory, "workspaces");
+        public static string WorkspaceAuditLogPath => Path.Combine(LogsDirectory, "workspace_audit.log");
         public static string RecordingsDirectory => Path.Combine(RootDirectory, "recordings");
 
         public static void EnsureInitialized()

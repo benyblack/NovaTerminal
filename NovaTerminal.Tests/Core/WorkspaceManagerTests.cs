@@ -80,6 +80,83 @@ public sealed class WorkspaceManagerTests
         }
     }
 
+    [Fact]
+    public void ExportImportBundle_RoundTrips_AndWritesAudit()
+    {
+        string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
+        string importName = $"tabs_ws_import_{Guid.NewGuid():N}";
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        long auditOffset = GetAuditLength();
+
+        try
+        {
+            Assert.True(WorkspaceManager.SaveWorkspace(sourceName, BuildSession()));
+
+            bool exported = WorkspaceManager.ExportWorkspaceBundle(sourceName, bundlePath, "test-user");
+            Assert.True(exported);
+            Assert.True(File.Exists(bundlePath));
+
+            bool imported = WorkspaceManager.ImportWorkspaceBundle(bundlePath, importName, out var error);
+            Assert.True(imported);
+            Assert.True(string.IsNullOrWhiteSpace(error));
+
+            var restored = WorkspaceManager.LoadWorkspace(importName);
+            Assert.NotNull(restored);
+            Assert.Single(restored!.Tabs);
+            Assert.Equal("Work", restored.Tabs[0].UserTitle);
+
+            string auditDelta = ReadAuditDelta(auditOffset);
+            Assert.Contains("|workspace-export|ok|", auditDelta);
+            Assert.Contains("|workspace-import|ok|", auditDelta);
+            Assert.Contains(SanitizeName(sourceName), auditDelta);
+            Assert.Contains(SanitizeName(importName), auditDelta);
+        }
+        finally
+        {
+            DeleteWorkspaceFile(sourceName);
+            DeleteWorkspaceFile(importName);
+            DeleteBundleFile(bundlePath);
+        }
+    }
+
+    [Fact]
+    public void ImportBundle_TamperedPayload_IsRejected()
+    {
+        string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
+        string importName = $"tabs_ws_import_{Guid.NewGuid():N}";
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+
+        try
+        {
+            Assert.True(WorkspaceManager.SaveWorkspace(sourceName, BuildSession()));
+            Assert.True(WorkspaceManager.ExportWorkspaceBundle(sourceName, bundlePath, "test-user"));
+
+            string json = File.ReadAllText(bundlePath);
+            var bundle = System.Text.Json.JsonSerializer.Deserialize(
+                json,
+                SessionSerializationContext.Default.WorkspaceBundlePackage);
+            Assert.NotNull(bundle);
+
+            // Tamper with payload without updating hash.
+            bundle!.PayloadJson += " ";
+            string tampered = System.Text.Json.JsonSerializer.Serialize(
+                bundle,
+                SessionSerializationContext.Default.WorkspaceBundlePackage);
+            File.WriteAllText(bundlePath, tampered);
+
+            bool imported = WorkspaceManager.ImportWorkspaceBundle(bundlePath, importName, out var error);
+            Assert.False(imported);
+            Assert.Contains("hash", error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            Assert.Null(WorkspaceManager.LoadWorkspace(importName));
+        }
+        finally
+        {
+            DeleteWorkspaceFile(sourceName);
+            DeleteWorkspaceFile(importName);
+            DeleteBundleFile(bundlePath);
+        }
+    }
+
     private static NovaSession BuildSession()
     {
         return new NovaSession
@@ -122,5 +199,35 @@ public sealed class WorkspaceManagerTests
         {
             File.Delete(path);
         }
+    }
+
+    private static void DeleteBundleFile(string path)
+    {
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static long GetAuditLength()
+    {
+        return File.Exists(AppPaths.WorkspaceAuditLogPath)
+            ? new FileInfo(AppPaths.WorkspaceAuditLogPath).Length
+            : 0;
+    }
+
+    private static string ReadAuditDelta(long offset)
+    {
+        if (!File.Exists(AppPaths.WorkspaceAuditLogPath))
+        {
+            return string.Empty;
+        }
+
+        using var fs = new FileStream(AppPaths.WorkspaceAuditLogPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        if (offset > fs.Length) return string.Empty;
+
+        fs.Seek(offset, SeekOrigin.Begin);
+        using var reader = new StreamReader(fs);
+        return reader.ReadToEnd();
     }
 }

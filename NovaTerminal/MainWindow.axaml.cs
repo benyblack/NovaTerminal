@@ -891,6 +891,74 @@ namespace NovaTerminal
             LoadWorkspaceByName(name.Trim());
         }
 
+        private async Task ExportWorkspaceBundleInteractiveAsync()
+        {
+            var names = WorkspaceManager.ListWorkspaceNames();
+            if (names.Count == 0) return;
+
+            string defaultName = names[0];
+            string? name = await ShowTextPromptAsync("Export Workspace Bundle", "Workspace name", defaultName);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            string suggestedFileName = $"{name.Trim()}.novaws.json";
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Export Workspace Bundle",
+                SuggestedFileName = suggestedFileName,
+                FileTypeChoices = new[]
+                {
+                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                }
+            });
+
+            if (file == null) return;
+
+            bool ok = WorkspaceManager.ExportWorkspaceBundle(name.Trim(), file.Path.LocalPath, Environment.UserName);
+            if (!ok)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Export bundle failed.");
+            }
+        }
+
+        private async Task ImportWorkspaceBundleInteractiveAsync()
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Import Workspace Bundle",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                }
+            });
+
+            if (files.Count == 0) return;
+
+            string bundlePath = files[0].Path.LocalPath;
+            string suggestedName = Path.GetFileNameWithoutExtension(bundlePath);
+            if (suggestedName.EndsWith(".novaws", StringComparison.OrdinalIgnoreCase))
+            {
+                suggestedName = Path.GetFileNameWithoutExtension(suggestedName);
+            }
+
+            string? name = await ShowTextPromptAsync("Import Workspace Bundle", "Workspace name", suggestedName);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            if (WorkspaceManager.ImportWorkspaceBundle(bundlePath, name.Trim(), out var error))
+            {
+                SetupCommandPalette();
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[Workspace] Import bundle failed: {error}");
+        }
+
         private void LoadWorkspaceByName(string name)
         {
             var snapshot = WorkspaceManager.LoadWorkspace(name);
@@ -2873,6 +2941,8 @@ namespace NovaTerminal
 
             CommandRegistry.Register("Workspace: Save Current", "Workspace", () => _ = SaveWorkspaceInteractiveAsync(), "");
             CommandRegistry.Register("Workspace: Load...", "Workspace", () => _ = LoadWorkspaceInteractiveAsync(), "");
+            CommandRegistry.Register("Workspace: Export Bundle...", "Workspace", () => _ = ExportWorkspaceBundleInteractiveAsync(), "");
+            CommandRegistry.Register("Workspace: Import Bundle...", "Workspace", () => _ = ImportWorkspaceBundleInteractiveAsync(), "");
             foreach (var workspaceName in WorkspaceManager.ListWorkspaceNames())
             {
                 string capturedName = workspaceName;
