@@ -368,11 +368,21 @@ namespace NovaTerminal
                 .FirstOrDefault(p => p.Name == "PART_ItemsPresenter");
         }
 
+        private ScrollViewer? FindTabHeaderScrollViewer()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return null;
+
+            return tabs.GetVisualDescendants()
+                .OfType<ScrollViewer>()
+                .FirstOrDefault(s => s.Name == "PART_TabHeaderScrollViewer");
+        }
+
         private void UpdateTabHeaderViewport()
         {
-            var presenter = FindTabItemsPresenter();
+            var scrollViewer = FindTabHeaderScrollViewer();
             var titleBar = this.FindControl<Grid>("TitleBar");
-            if (presenter == null) return;
+            if (scrollViewer == null) return;
 
             double reservedRight = 440;
             if (titleBar != null)
@@ -386,9 +396,9 @@ namespace NovaTerminal
                 }
             }
 
-            presenter.Margin = new Thickness(0, 0, reservedRight, 0);
-            presenter.Height = 36;
-            presenter.ClipToBounds = true;
+            scrollViewer.Margin = new Thickness(0, 0, reservedRight, 0);
+            scrollViewer.Height = 36;
+            scrollViewer.ClipToBounds = true;
 
             UpdateTabOverflowIndicator();
         }
@@ -398,10 +408,10 @@ namespace NovaTerminal
             var tabs = this.FindControl<TabControl>("Tabs");
             var badge = this.FindControl<TextBlock>("TabOverflowBadge");
             var button = this.FindControl<Button>("BtnTabList");
-            var presenter = FindTabItemsPresenter();
-            if (tabs == null || badge == null || button == null || presenter == null) return;
+            var scrollViewer = FindTabHeaderScrollViewer();
+            if (tabs == null || badge == null || button == null || scrollViewer == null) return;
 
-            double viewportWidth = presenter.Bounds.Width;
+            double viewportWidth = scrollViewer.Bounds.Width;
             if (viewportWidth <= 0)
             {
                 badge.IsVisible = false;
@@ -431,6 +441,38 @@ namespace NovaTerminal
             badge.Text = hiddenCount > 0 ? $"+{hiddenCount}" : string.Empty;
             ToolTip.SetTip(button, hiddenCount > 0 ? $"Tab List ({hiddenCount} hidden)" : "Tab List");
             button.Foreground = hiddenCount > 0 ? new SolidColorBrush(Color.FromRgb(255, 210, 90)) : Brushes.White;
+        }
+
+        private void EnsureSelectedTabHeaderVisible()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            var scrollViewer = FindTabHeaderScrollViewer();
+            if (tabs?.SelectedItem is not TabItem selected || scrollViewer == null) return;
+
+            var tabOrigin = selected.TranslatePoint(new Point(0, 0), scrollViewer);
+            if (tabOrigin == null) return;
+
+            double viewportWidth = scrollViewer.Bounds.Width;
+            if (viewportWidth <= 0) return;
+
+            double tabLeft = tabOrigin.Value.X;
+            double tabRight = tabLeft + selected.Bounds.Width;
+            double offsetX = scrollViewer.Offset.X;
+            double nextOffset = offsetX;
+
+            if (tabLeft < 0)
+            {
+                nextOffset = Math.Max(0, offsetX + tabLeft - 12);
+            }
+            else if (tabRight > viewportWidth)
+            {
+                nextOffset = Math.Max(0, offsetX + (tabRight - viewportWidth) + 12);
+            }
+
+            if (Math.Abs(nextOffset - offsetX) > 0.5)
+            {
+                scrollViewer.Offset = new Vector(nextOffset, scrollViewer.Offset.Y);
+            }
         }
 
         private void PopulateTabListMenu(bool showFlyout = false)
@@ -1005,6 +1047,7 @@ namespace NovaTerminal
                 {
                     UpdateTabVisuals();
                     UpdateTabHeaderViewport();
+                    EnsureSelectedTabHeaderVisible();
                     FocusCurrentTerminal(defer: true);
                 }, DispatcherPriority.Input);
             };
@@ -1114,6 +1157,7 @@ namespace NovaTerminal
                     UpdateBroadcastIndicator();
                     PopulateTabListMenu();
                     UpdateTabHeaderViewport();
+                    Dispatcher.UIThread.Post(EnsureSelectedTabHeaderVisible, DispatcherPriority.Background);
                 };
             }
 
@@ -1297,6 +1341,12 @@ namespace NovaTerminal
                         e.Handled = true;
                         return;
                     }
+                }
+                if (IsShortcut(e, "open_tab_list", "Ctrl+Shift+O"))
+                {
+                    PopulateTabListMenu(showFlyout: true);
+                    e.Handled = true;
+                    return;
                 }
                 if (IsShortcut(e, "paste", "Ctrl+V"))
                 {

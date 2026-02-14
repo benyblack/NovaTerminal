@@ -93,12 +93,16 @@
                     <Setter Property="Template">
                         <ControlTemplate>
                             <DockPanel>
-                                <ItemsPresenter Name="PART_ItemsPresenter"
+                                <ScrollViewer Name="PART_TabHeaderScrollViewer"
                                               DockPanel.Dock="Top"
                                               Margin="0,0,440,0"
                                               Height="36"
-                                              ClipToBounds="True"
-                                              ItemsPanel="{TemplateBinding ItemsPanel}" />
+                                              HorizontalScrollBarVisibility="Hidden"
+                                              VerticalScrollBarVisibility="Disabled">
+                                    <ItemsPresenter Name="PART_ItemsPresenter"
+                                                  ClipToBounds="True"
+                                                  ItemsPanel="{TemplateBinding ItemsPanel}" />
+                                </ScrollViewer>
                                 <ContentPresenter Name="PART_SelectedContentHost"
                                                 Margin="0"
                                                 Background="Transparent"
