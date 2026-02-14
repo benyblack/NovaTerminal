@@ -36,6 +36,7 @@ namespace NovaTerminal
         private readonly List<TabItem> _tabMru = new();
         private readonly Dictionary<TabItem, TabRuntimeState> _tabStateByTab = new();
         private readonly HashSet<TabItem> _pendingVisualRefreshTabs = new();
+        private bool _suppressMruTouchOnSelection;
         private bool _tabVisualRefreshScheduled;
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
@@ -314,16 +315,25 @@ namespace NovaTerminal
             if (tabs == null) return false;
 
             CleanupTabMru(tabs);
-            if (tabs.SelectedItem is TabItem selected)
-            {
-                TouchTabMru(selected);
-            }
+            if (tabs.SelectedItem is not TabItem selected) return false;
 
             if (_tabMru.Count < 2) return false;
 
-            var target = reverse ? _tabMru[^1] : _tabMru[1];
+            int selectedIndex = _tabMru.IndexOf(selected);
+            if (selectedIndex < 0)
+            {
+                TouchTabMru(selected);
+                selectedIndex = 0;
+            }
+
+            int targetIndex = reverse
+                ? (selectedIndex - 1 + _tabMru.Count) % _tabMru.Count
+                : (selectedIndex + 1) % _tabMru.Count;
+
+            var target = _tabMru[targetIndex];
             if (tabs.SelectedItem == target) return false;
 
+            _suppressMruTouchOnSelection = true;
             tabs.SelectedItem = target;
             return true;
         }
@@ -999,7 +1009,14 @@ namespace NovaTerminal
                     if (tabs.SelectedItem is TabItem ti)
                     {
                         GetTabId(ti);
-                        TouchTabMru(ti);
+                        if (_suppressMruTouchOnSelection)
+                        {
+                            _suppressMruTouchOnSelection = false;
+                        }
+                        else
+                        {
+                            TouchTabMru(ti);
+                        }
                         GetOrCreateTabState(ti);
                         ClearTabAttention(ti);
                         var pane = ResolvePaneForTab(ti);

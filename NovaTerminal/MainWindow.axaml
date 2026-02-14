@@ -83,6 +83,11 @@
                     BorderThickness="0"
                     ZIndex="60"
                     RenderOptions.BitmapInterpolationMode="HighQuality">
+            <TabControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </TabControl.ItemsPanel>
             <TabControl.Styles>
                 <Style Selector="TabControl">
                     <Setter Property="Template">
@@ -90,6 +95,9 @@
                             <DockPanel>
                                 <ItemsPresenter Name="PART_ItemsPresenter"
                                               DockPanel.Dock="Top"
+                                              Margin="0,0,360,0"
+                                              Height="36"
+                                              ClipToBounds="True"
                                               ItemsPanel="{TemplateBinding ItemsPanel}" />
                                 <ContentPresenter Name="PART_SelectedContentHost"
                                                 Margin="0"
