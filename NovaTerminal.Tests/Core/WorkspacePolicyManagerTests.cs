@@ -24,13 +24,19 @@ public sealed class WorkspacePolicyManagerTests
         {
             AllowWorkspaceBundleExport = false,
             AllowWorkspaceBundleImport = true,
-            MaxTabsPerWorkspace = 3
+            MaxTabsPerWorkspace = 3,
+            RequireSsoForWorkspaceBundles = true,
+            SsoAuthorityUrl = "https://sso.example.local",
+            SsoClientId = "nova-client"
         });
 
         var policy = WorkspacePolicyManager.Current;
         Assert.False(policy.AllowWorkspaceBundleExport);
         Assert.True(policy.AllowWorkspaceBundleImport);
         Assert.Equal(3, policy.MaxTabsPerWorkspace);
+        Assert.True(policy.RequireSsoForWorkspaceBundles);
+        Assert.Equal("https://sso.example.local", policy.SsoAuthorityUrl);
+        Assert.Equal("nova-client", policy.SsoClientId);
     }
 
     private sealed class PolicyFileScope : IDisposable

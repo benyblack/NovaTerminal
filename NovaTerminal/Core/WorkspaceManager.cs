@@ -97,6 +97,11 @@ namespace NovaTerminal.Core
                 AppendWorkspaceAudit("workspace-export", workspaceName, success: false, "blocked-by-policy");
                 return false;
             }
+            if (!IsSsoPolicySatisfied(policy, out string? ssoError))
+            {
+                AppendWorkspaceAudit("workspace-export", workspaceName, success: false, ssoError ?? "sso-policy-unsatisfied");
+                return false;
+            }
 
             string safeName = SanitizeName(workspaceName);
             if (string.IsNullOrWhiteSpace(safeName) || string.IsNullOrWhiteSpace(outputPath))
@@ -121,6 +126,11 @@ namespace NovaTerminal.Core
             if (!policy.AllowWorkspaceBundleExport)
             {
                 AppendWorkspaceAudit("workspace-export", workspaceName, success: false, "blocked-by-policy");
+                return false;
+            }
+            if (!IsSsoPolicySatisfied(policy, out string? ssoError))
+            {
+                AppendWorkspaceAudit("workspace-export", workspaceName, success: false, ssoError ?? "sso-policy-unsatisfied");
                 return false;
             }
 
@@ -188,6 +198,12 @@ namespace NovaTerminal.Core
                 AppendWorkspaceAudit("workspace-bundle-open", "unknown", success: false, error);
                 return false;
             }
+            if (!IsSsoPolicySatisfied(policy, out string? ssoError))
+            {
+                error = ssoError ?? "sso-policy-unsatisfied";
+                AppendWorkspaceAudit("workspace-bundle-open", "unknown", success: false, error);
+                return false;
+            }
 
             if (!TryReadBundle(bundlePath, out var bundle, out error))
             {
@@ -233,6 +249,12 @@ namespace NovaTerminal.Core
             if (!policy.AllowWorkspaceBundleImport)
             {
                 error = "blocked-by-policy";
+                AppendWorkspaceAudit("workspace-import", workspaceName ?? "unknown", success: false, error);
+                return false;
+            }
+            if (!IsSsoPolicySatisfied(policy, out string? ssoError))
+            {
+                error = ssoError ?? "sso-policy-unsatisfied";
                 AppendWorkspaceAudit("workspace-import", workspaceName ?? "unknown", success: false, error);
                 return false;
             }
@@ -390,6 +412,27 @@ namespace NovaTerminal.Core
             byte[] bytes = Encoding.UTF8.GetBytes(value);
             byte[] hash = SHA256.HashData(bytes);
             return Convert.ToHexString(hash);
+        }
+
+        private static bool IsSsoPolicySatisfied(WorkspacePolicyHooks policy, out string? error)
+        {
+            error = null;
+            if (!policy.RequireSsoForWorkspaceBundles)
+            {
+                return true;
+            }
+
+            bool configured = !string.IsNullOrWhiteSpace(policy.SsoAuthorityUrl) &&
+                              !string.IsNullOrWhiteSpace(policy.SsoClientId);
+            if (!configured)
+            {
+                error = "sso-required-placeholder-unconfigured";
+                return false;
+            }
+
+            // Placeholder hook for future SSO token validation integration.
+            error = "sso-required-placeholder-not-implemented";
+            return false;
         }
 
         private static void AppendWorkspaceAudit(string action, string? workspaceName, bool success, string details)

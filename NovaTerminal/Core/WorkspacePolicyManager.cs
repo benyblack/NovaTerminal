@@ -9,6 +9,9 @@ namespace NovaTerminal.Core
         public bool AllowWorkspaceBundleExport { get; set; } = true;
         public bool AllowWorkspaceBundleImport { get; set; } = true;
         public int MaxTabsPerWorkspace { get; set; } = 0; // 0 = unlimited
+        public bool RequireSsoForWorkspaceBundles { get; set; } = false;
+        public string? SsoAuthorityUrl { get; set; }
+        public string? SsoClientId { get; set; }
     }
 
     public static class WorkspacePolicyManager

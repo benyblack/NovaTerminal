@@ -333,6 +333,40 @@ public sealed class WorkspaceManagerTests
         }
     }
 
+    [Fact]
+    public void WorkspaceBundleOps_RequireSsoPolicy_BlocksWhenPlaceholderUnconfigured()
+    {
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+        string bundleName = $"handoff_{Guid.NewGuid():N}";
+
+        using var ssoPolicy = PolicyFileScope.WithPolicy(new WorkspacePolicyHooks
+        {
+            AllowWorkspaceBundleExport = true,
+            AllowWorkspaceBundleImport = true,
+            MaxTabsPerWorkspace = 0,
+            RequireSsoForWorkspaceBundles = true,
+            SsoAuthorityUrl = "",
+            SsoClientId = ""
+        });
+
+        try
+        {
+            bool exported = WorkspaceManager.ExportWorkspaceBundle(bundleName, BuildSession(tabCount: 1), bundlePath, "test-user");
+            Assert.False(exported);
+            Assert.False(File.Exists(bundlePath));
+
+            bool opened = WorkspaceManager.LoadWorkspaceBundleSession(bundlePath, out _, out var session, out var error);
+            Assert.False(opened);
+            Assert.Null(session);
+            Assert.Contains("sso-required", error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            DeleteBundleFile(bundlePath);
+            DeleteWorkspaceFile(bundleName);
+        }
+    }
+
     private static NovaSession BuildSession(int tabCount = 1)
     {
         var session = new NovaSession
