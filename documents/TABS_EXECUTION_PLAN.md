@@ -1,7 +1,32 @@
 # NovaTerminal Tabs Execution Plan
 
 Date: 2026-02-14  
-Status: Planned
+Status: In Execution (M1/M2 implemented; nightly stability gate pending)
+
+## Execution Status Snapshot (2026-02-14)
+
+Completed in code + tests:
+- M1 core behavior implemented: stable `TabId`, close policy flow, `Ctrl+W`/`Ctrl+Shift+W`, MRU switching, overflow tab list, selected-tab auto-scroll.
+- M2 UX behavior implemented: title precedence/truncation uniqueness hints, activity/bell/exit indicators, context menu actions, pin/protect, automation labels.
+- Instrumentation implemented:
+  - `MainWindow` tab switch/visual/automation timings
+  - `TerminalView` active timer tracking and hidden invalidation pressure
+  - `SessionManager` save/restore timing and payload bytes
+- CI gating implemented:
+  - PR: tab perf smoke lane
+  - Nightly: stress/perf/latency/render-metrics lane
+  - metrics artifact emission for perf lanes
+- New acceptance tests added:
+  - core tab behavior tests (MRU, overflow math, truncation/suffix behavior)
+  - close policy matrix tests
+  - tab performance budget smoke tests
+  - title resolution persistence tests
+  - 5,000-iteration lifecycle stress loop test
+
+Remaining before declaring Free tab work complete:
+- Run and pass 7 consecutive nightly stress runs.
+- Confirm no open P0/P1 tab correctness bugs after nightly window.
+- Keep replay/VT parity green while nightly stress runs are accumulated.
 
 ## Objective
 

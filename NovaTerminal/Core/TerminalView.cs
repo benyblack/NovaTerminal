@@ -192,6 +192,8 @@ namespace NovaTerminal.Core
         private readonly DispatcherTimer _cursorBlinkTimer;
         private readonly DispatcherTimer _scrollAnimationTimer;
         private bool _uiTimersRunning;
+        private bool _isAttachedToVisualTree;
+        private volatile bool _isUiRenderable;
         private bool _cursorBlinkPhase = true;
         private bool _cursorBlinkEnabled = true;
         private bool _bellAudioEnabled = true;
@@ -205,6 +207,12 @@ namespace NovaTerminal.Core
         {
             if (_isDirty)
             {
+                if (!_isUiRenderable)
+                {
+                    RendererStatistics.RecordHiddenInvalidationRequest();
+                    return;
+                }
+
                 _isDirty = false;
                 InvalidateVisual();
             }
@@ -498,20 +506,34 @@ namespace NovaTerminal.Core
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnAttachedToVisualTree(e);
-
-            StartUiTimers();
+            _isAttachedToVisualTree = true;
+            RefreshUiTimerState();
 
             // Ensure char metrics are available immediately upon attachment
             MeasureCharSize();
 
             _isDirty = true;
-            InvalidateVisual();
+            if (_isUiRenderable)
+            {
+                InvalidateVisual();
+            }
         }
 
         protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
         {
             base.OnDetachedFromVisualTree(e);
+            _isAttachedToVisualTree = false;
+            _isUiRenderable = false;
             StopUiTimers();
+        }
+
+        protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+        {
+            base.OnPropertyChanged(change);
+            if (change.Property == IsVisibleProperty || change.Property == BoundsProperty)
+            {
+                RefreshUiTimerState();
+            }
         }
 
         protected override void OnGotFocus(GotFocusEventArgs e)
@@ -819,6 +841,10 @@ namespace NovaTerminal.Core
         public void InvalidateBuffer()
         {
             _isDirty = true;
+            if (!_isUiRenderable)
+            {
+                RendererStatistics.RecordHiddenInvalidationRequest();
+            }
             // We rely on _renderTimer (16ms) to check _isDirty and call InvalidateVisual.
             // This acts as a swap-chain throttle, preventing the PTY from flooding the UI thread 
             // with millions of InvalidateVisual calls during cat/heavy output.
@@ -1095,6 +1121,7 @@ namespace NovaTerminal.Core
             _renderTimer.Start();
             _cursorBlinkTimer.Start();
             _uiTimersRunning = true;
+            RendererStatistics.RecordTerminalViewTimersStarted();
         }
 
         private void StopUiTimers()
@@ -1107,6 +1134,34 @@ namespace NovaTerminal.Core
             _autoScrollTimer?.Stop();
             _resizeThrottleTimer?.Stop();
             _uiTimersRunning = false;
+            RendererStatistics.RecordTerminalViewTimersStopped();
+        }
+
+        private bool ShouldRunUiTimers()
+        {
+            return _isAttachedToVisualTree &&
+                   IsVisible &&
+                   IsEffectivelyVisible &&
+                   Bounds.Width > 0 &&
+                   Bounds.Height > 0;
+        }
+
+        private void RefreshUiTimerState()
+        {
+            bool shouldRun = ShouldRunUiTimers();
+            _isUiRenderable = shouldRun;
+
+            if (shouldRun)
+            {
+                StartUiTimers();
+                if (_isDirty)
+                {
+                    InvalidateVisual();
+                }
+                return;
+            }
+
+            StopUiTimers();
         }
 
         public override void Render(DrawingContext context)

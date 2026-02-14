@@ -1,6 +1,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using SkiaSharp;
 
 namespace NovaTerminal.Core
@@ -39,6 +40,8 @@ namespace NovaTerminal.Core
         public Action? OnBell { get; set; }
         public Action<string>? OnWorkingDirectoryChanged { get; set; }
         public Action<string>? OnTitleChanged { get; set; }
+        public Action? OnCommandStarted { get; set; }
+        public Action<int?>? OnCommandFinished { get; set; }
 
         public AnsiParser(TerminalBuffer buffer, bool? forceConPtyFiltering = null)
         {
@@ -1054,6 +1057,35 @@ namespace NovaTerminal.Core
                 {
                     OnWorkingDirectoryChanged?.Invoke(cwd);
                 }
+                return;
+            }
+
+            // OSC 133: shell integration markers.
+            // Common terminals/shell integrations emit:
+            //   OSC 133;B   -> command started
+            //   OSC 133;D;N -> command finished with exit code N
+            if (code == "133")
+            {
+                if (string.IsNullOrWhiteSpace(data)) return;
+
+                string[] parts = data.Split(';', StringSplitOptions.None);
+                string marker = parts[0];
+                if (string.Equals(marker, "B", StringComparison.Ordinal))
+                {
+                    OnCommandStarted?.Invoke();
+                }
+                else if (string.Equals(marker, "D", StringComparison.Ordinal))
+                {
+                    int? exitCode = null;
+                    if (parts.Length > 1 &&
+                        int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+                    {
+                        exitCode = parsed;
+                    }
+
+                    OnCommandFinished?.Invoke(exitCode);
+                }
+
                 return;
             }
 

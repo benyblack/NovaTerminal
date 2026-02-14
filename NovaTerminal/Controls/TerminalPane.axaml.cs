@@ -43,17 +43,21 @@ namespace NovaTerminal.Controls
         public event Action<TerminalPane, PaneAction>? PaneActionRequested;
         public event Action<TerminalPane>? OutputReceived;
         public event Action<TerminalPane>? BellReceived;
+        public event Action<TerminalPane>? CommandStarted;
+        public event Action<TerminalPane, int?>? CommandFinished;
         public event Action<TerminalPane, int>? ProcessExited;
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
         private DispatcherTimer? _statusTimer;
+        private bool _hasUserInteraction;
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
         public string? CurrentOscTitle { get; private set; }
         public int? LastExitCode { get; private set; }
         public bool IsProcessRunning => Session?.IsProcessRunning ?? false;
+        public bool HasUserInteraction => _hasUserInteraction;
 
         public string GetBaseTabTitle()
         {
@@ -152,6 +156,26 @@ namespace NovaTerminal.Controls
 
         private void SetupCommon()
         {
+            TermView.TextInput += (_, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Text))
+                {
+                    _hasUserInteraction = true;
+                }
+            };
+            TermView.KeyDown += (_, e) =>
+            {
+                if (e.Key != Key.LeftShift &&
+                    e.Key != Key.RightShift &&
+                    e.Key != Key.LeftCtrl &&
+                    e.Key != Key.RightCtrl &&
+                    e.Key != Key.LeftAlt &&
+                    e.Key != Key.RightAlt)
+                {
+                    _hasUserInteraction = true;
+                }
+            };
+
             // Wire up ScrollBar
             TermScrollBar.ValueChanged += ScrollBar_ValueChanged;
 
@@ -262,6 +286,26 @@ namespace NovaTerminal.Controls
                 {
                     CurrentOscTitle = title;
                     TitleChanged?.Invoke(this, title);
+                });
+            };
+            Parser.OnCommandStarted += () =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    LastExitCode = null;
+                    CommandStarted?.Invoke(this);
+                });
+            };
+            Parser.OnCommandFinished += exitCode =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (exitCode.HasValue)
+                    {
+                        LastExitCode = exitCode.Value;
+                    }
+
+                    CommandFinished?.Invoke(this, exitCode);
                 });
             };
 

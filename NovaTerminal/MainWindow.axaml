@@ -83,14 +83,26 @@
                     BorderThickness="0"
                     ZIndex="60"
                     RenderOptions.BitmapInterpolationMode="HighQuality">
+            <TabControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+            </TabControl.ItemsPanel>
             <TabControl.Styles>
                 <Style Selector="TabControl">
                     <Setter Property="Template">
                         <ControlTemplate>
                             <DockPanel>
-                                <ItemsPresenter Name="PART_ItemsPresenter"
+                                <ScrollViewer Name="PART_TabHeaderScrollViewer"
                                               DockPanel.Dock="Top"
-                                              ItemsPanel="{TemplateBinding ItemsPanel}" />
+                                              Margin="0,0,440,0"
+                                              Height="36"
+                                              HorizontalScrollBarVisibility="Hidden"
+                                              VerticalScrollBarVisibility="Disabled">
+                                    <ItemsPresenter Name="PART_ItemsPresenter"
+                                                  ClipToBounds="True"
+                                                  ItemsPanel="{TemplateBinding ItemsPanel}" />
+                                </ScrollViewer>
                                 <ContentPresenter Name="PART_SelectedContentHost"
                                                 Margin="0"
                                                 Background="Transparent"
@@ -148,6 +160,12 @@
                         <MenuFlyout />
                     </Button.Flyout>
                 </Button>
+                <TextBlock Name="TabOverflowBadge"
+                           IsVisible="False"
+                           Foreground="#FFD25A"
+                           FontSize="11"
+                           VerticalAlignment="Center"
+                           Margin="2,0,0,0"/>
                 <Button Name="BtnRecord"
                         Foreground="#CCCCCC"
                         Background="Transparent"
