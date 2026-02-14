@@ -51,6 +51,13 @@ namespace NovaTerminal.Core
 
         public static bool ExportWorkspaceBundle(string workspaceName, string outputPath, string? exportedBy = null)
         {
+            var policy = WorkspacePolicyManager.Current;
+            if (!policy.AllowWorkspaceBundleExport)
+            {
+                AppendWorkspaceAudit("workspace-export", workspaceName, success: false, "blocked-by-policy");
+                return false;
+            }
+
             string safeName = SanitizeName(workspaceName);
             if (string.IsNullOrWhiteSpace(safeName) || string.IsNullOrWhiteSpace(outputPath))
             {
@@ -70,6 +77,13 @@ namespace NovaTerminal.Core
 
         public static bool ExportWorkspaceBundle(string workspaceName, NovaSession session, string outputPath, string? exportedBy = null)
         {
+            var policy = WorkspacePolicyManager.Current;
+            if (!policy.AllowWorkspaceBundleExport)
+            {
+                AppendWorkspaceAudit("workspace-export", workspaceName, success: false, "blocked-by-policy");
+                return false;
+            }
+
             string safeName = SanitizeName(workspaceName);
             if (session == null || string.IsNullOrWhiteSpace(safeName) || string.IsNullOrWhiteSpace(outputPath))
             {
@@ -124,6 +138,14 @@ namespace NovaTerminal.Core
 
         public static bool ImportWorkspaceBundle(string bundlePath, string? workspaceName, out string? error)
         {
+            var policy = WorkspacePolicyManager.Current;
+            if (!policy.AllowWorkspaceBundleImport)
+            {
+                error = "blocked-by-policy";
+                AppendWorkspaceAudit("workspace-import", workspaceName ?? "unknown", success: false, error);
+                return false;
+            }
+
             error = null;
             if (!TryReadBundle(bundlePath, out var bundle, out error))
             {
@@ -146,6 +168,13 @@ namespace NovaTerminal.Core
             if (session == null)
             {
                 error = "bundle-payload-empty";
+                AppendWorkspaceAudit("workspace-import", workspaceName ?? bundle!.WorkspaceName, success: false, error);
+                return false;
+            }
+
+            if (policy.MaxTabsPerWorkspace > 0 && session.Tabs.Count > policy.MaxTabsPerWorkspace)
+            {
+                error = $"policy-max-tabs-exceeded:{policy.MaxTabsPerWorkspace}";
                 AppendWorkspaceAudit("workspace-import", workspaceName ?? bundle!.WorkspaceName, success: false, error);
                 return false;
             }

@@ -1,12 +1,15 @@
+using NovaTerminal.Tests.Infra;
 using NovaTerminal.Core;
 
 namespace NovaTerminal.Tests.Core;
 
+[Collection("WorkspacePolicy")]
 public sealed class WorkspaceManagerTests
 {
     [Fact]
     public void SaveAndLoadWorkspace_RoundTripsSessionPayload()
     {
+        using var policyScope = PolicyFileScope.WithDefault();
         string workspaceName = $"tabs_ws_{Guid.NewGuid():N}";
         try
         {
@@ -25,8 +28,8 @@ public sealed class WorkspaceManagerTests
             Assert.Equal("Work", tab.UserTitle);
             Assert.True(tab.IsPinned);
             Assert.True(tab.IsProtected);
-            Assert.Equal("pane-a", tab.ActivePaneId);
-            Assert.Equal("pane-a", tab.ZoomedPaneId);
+            Assert.Equal("pane-0", tab.ActivePaneId);
+            Assert.Equal("pane-0", tab.ZoomedPaneId);
             Assert.True(tab.BroadcastInputEnabled);
             Assert.NotNull(tab.Root);
             Assert.Equal(NodeType.Leaf, tab.Root!.Type);
@@ -42,6 +45,7 @@ public sealed class WorkspaceManagerTests
     [Fact]
     public void ListWorkspaceNames_ReturnsSavedWorkspace()
     {
+        using var policyScope = PolicyFileScope.WithDefault();
         string workspaceName = $"tabs_ws_{Guid.NewGuid():N}";
         try
         {
@@ -60,6 +64,7 @@ public sealed class WorkspaceManagerTests
     [Fact]
     public void SaveWorkspace_SanitizesInvalidFileNameChars()
     {
+        using var policyScope = PolicyFileScope.WithDefault();
         string invalidName = $"tabs:ws*{Guid.NewGuid():N}";
         string sanitizedName = SanitizeName(invalidName);
         try
@@ -83,6 +88,7 @@ public sealed class WorkspaceManagerTests
     [Fact]
     public void ExportImportBundle_RoundTrips_AndWritesAudit()
     {
+        using var policyScope = PolicyFileScope.WithDefault();
         string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
         string importName = $"tabs_ws_import_{Guid.NewGuid():N}";
         string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
@@ -122,6 +128,7 @@ public sealed class WorkspaceManagerTests
     [Fact]
     public void ImportBundle_TamperedPayload_IsRejected()
     {
+        using var policyScope = PolicyFileScope.WithDefault();
         string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
         string importName = $"tabs_ws_import_{Guid.NewGuid():N}";
         string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
@@ -157,33 +164,104 @@ public sealed class WorkspaceManagerTests
         }
     }
 
-    private static NovaSession BuildSession()
+    [Fact]
+    public void ExportBundle_BlockedByPolicy_IsRejected()
     {
-        return new NovaSession
+        using var policyScope = PolicyFileScope.WithPolicy(new WorkspacePolicyHooks
+        {
+            AllowWorkspaceBundleExport = false,
+            AllowWorkspaceBundleImport = true,
+            MaxTabsPerWorkspace = 0
+        });
+
+        string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+
+        try
+        {
+            Assert.True(WorkspaceManager.SaveWorkspace(sourceName, BuildSession()));
+            bool exported = WorkspaceManager.ExportWorkspaceBundle(sourceName, bundlePath, "test-user");
+            Assert.False(exported);
+            Assert.False(File.Exists(bundlePath));
+        }
+        finally
+        {
+            DeleteWorkspaceFile(sourceName);
+            DeleteBundleFile(bundlePath);
+        }
+    }
+
+    [Fact]
+    public void ImportBundle_RespectsPolicyMaxTabs()
+    {
+        string sourceName = $"tabs_ws_{Guid.NewGuid():N}";
+        string importName = $"tabs_ws_import_{Guid.NewGuid():N}";
+        string bundlePath = Path.Combine(Path.GetTempPath(), $"nova_ws_{Guid.NewGuid():N}.novaws.json");
+
+        using var exportPolicy = PolicyFileScope.WithDefault();
+        try
+        {
+            Assert.True(WorkspaceManager.SaveWorkspace(sourceName, BuildSession(tabCount: 3)));
+            Assert.True(WorkspaceManager.ExportWorkspaceBundle(sourceName, bundlePath, "test-user"));
+        }
+        finally
+        {
+            DeleteWorkspaceFile(sourceName);
+        }
+
+        using var importPolicy = PolicyFileScope.WithPolicy(new WorkspacePolicyHooks
+        {
+            AllowWorkspaceBundleExport = true,
+            AllowWorkspaceBundleImport = true,
+            MaxTabsPerWorkspace = 1
+        });
+
+        try
+        {
+            bool imported = WorkspaceManager.ImportWorkspaceBundle(bundlePath, importName, out var error);
+            Assert.False(imported);
+            Assert.Contains("max-tabs", error ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+            Assert.Null(WorkspaceManager.LoadWorkspace(importName));
+        }
+        finally
+        {
+            DeleteWorkspaceFile(importName);
+            DeleteBundleFile(bundlePath);
+        }
+    }
+
+    private static NovaSession BuildSession(int tabCount = 1)
+    {
+        var session = new NovaSession
         {
             ActiveTabIndex = 0,
-            Tabs =
-            {
+        };
+
+        for (int i = 0; i < tabCount; i++)
+        {
+            string paneId = $"pane-{i}";
+            session.Tabs.Add(
                 new TabSession
                 {
                     TabId = Guid.NewGuid().ToString("D"),
-                    Title = "Terminal 1",
-                    UserTitle = "Work",
-                    IsPinned = true,
-                    IsProtected = true,
-                    ActivePaneId = "pane-a",
-                    ZoomedPaneId = "pane-a",
+                    Title = $"Terminal {i + 1}",
+                    UserTitle = i == 0 ? "Work" : $"Work {i + 1}",
+                    IsPinned = i == 0,
+                    IsProtected = i == 0,
+                    ActivePaneId = paneId,
+                    ZoomedPaneId = paneId,
                     BroadcastInputEnabled = true,
                     Root = new PaneNode
                     {
                         Type = NodeType.Leaf,
-                        PaneId = "pane-a",
+                        PaneId = paneId,
                         Command = "bash",
                         Arguments = "-l"
                     }
-                }
-            }
-        };
+                });
+        }
+
+        return session;
     }
 
     private static string SanitizeName(string name)
@@ -229,5 +307,56 @@ public sealed class WorkspaceManagerTests
         fs.Seek(offset, SeekOrigin.Begin);
         using var reader = new StreamReader(fs);
         return reader.ReadToEnd();
+    }
+
+    private sealed class PolicyFileScope : IDisposable
+    {
+        private readonly bool _hadExistingFile;
+        private readonly string? _originalJson;
+
+        private PolicyFileScope(bool hadExistingFile, string? originalJson)
+        {
+            _hadExistingFile = hadExistingFile;
+            _originalJson = originalJson;
+        }
+
+        public static PolicyFileScope WithDefault()
+        {
+            return WithPolicy(new WorkspacePolicyHooks());
+        }
+
+        public static PolicyFileScope WithPolicy(WorkspacePolicyHooks policy)
+        {
+            string path = AppPaths.WorkspacePolicyFilePath;
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            bool hadExisting = File.Exists(path);
+            string? originalJson = hadExisting ? File.ReadAllText(path) : null;
+
+            string json = System.Text.Json.JsonSerializer.Serialize(policy, AppJsonContext.Default.WorkspacePolicyHooks);
+            File.WriteAllText(path, json);
+            WorkspacePolicyManager.ResetCacheForTests();
+
+            return new PolicyFileScope(hadExisting, originalJson);
+        }
+
+        public void Dispose()
+        {
+            string path = AppPaths.WorkspacePolicyFilePath;
+            if (_hadExistingFile)
+            {
+                File.WriteAllText(path, _originalJson ?? "{}");
+            }
+            else if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            WorkspacePolicyManager.ResetCacheForTests();
+        }
     }
 }

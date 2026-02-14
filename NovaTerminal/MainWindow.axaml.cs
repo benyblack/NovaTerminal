@@ -893,6 +893,12 @@ namespace NovaTerminal
 
         private async Task ExportWorkspaceBundleInteractiveAsync()
         {
+            if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleExport)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Export bundle blocked by policy.");
+                return;
+            }
+
             var names = WorkspaceManager.ListWorkspaceNames();
             if (names.Count == 0) return;
 
@@ -925,6 +931,12 @@ namespace NovaTerminal
 
         private async Task ImportWorkspaceBundleInteractiveAsync()
         {
+            if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleImport)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Import bundle blocked by policy.");
+                return;
+            }
+
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.StorageProvider == null) return;
 
@@ -2941,8 +2953,15 @@ namespace NovaTerminal
 
             CommandRegistry.Register("Workspace: Save Current", "Workspace", () => _ = SaveWorkspaceInteractiveAsync(), "");
             CommandRegistry.Register("Workspace: Load...", "Workspace", () => _ = LoadWorkspaceInteractiveAsync(), "");
-            CommandRegistry.Register("Workspace: Export Bundle...", "Workspace", () => _ = ExportWorkspaceBundleInteractiveAsync(), "");
-            CommandRegistry.Register("Workspace: Import Bundle...", "Workspace", () => _ = ImportWorkspaceBundleInteractiveAsync(), "");
+            var workspacePolicy = WorkspacePolicyManager.Current;
+            if (workspacePolicy.AllowWorkspaceBundleExport)
+            {
+                CommandRegistry.Register("Workspace: Export Bundle...", "Workspace", () => _ = ExportWorkspaceBundleInteractiveAsync(), "");
+            }
+            if (workspacePolicy.AllowWorkspaceBundleImport)
+            {
+                CommandRegistry.Register("Workspace: Import Bundle...", "Workspace", () => _ = ImportWorkspaceBundleInteractiveAsync(), "");
+            }
             foreach (var workspaceName in WorkspaceManager.ListWorkspaceNames())
             {
                 string capturedName = workspaceName;
