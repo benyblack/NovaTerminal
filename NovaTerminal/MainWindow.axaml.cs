@@ -490,9 +490,14 @@ namespace NovaTerminal
                 {
                     Header = GetTabMenuLabel(tab, index),
                     IsChecked = tabs.SelectedItem == tab,
-                    ToggleType = MenuItemToggleType.Radio
+                    ToggleType = MenuItemToggleType.Radio,
+                    StaysOpenOnClick = false
                 };
-                item.Click += (_, __) => tabs.SelectedItem = tab;
+                item.Click += (_, __) =>
+                {
+                    tabs.SelectedItem = tab;
+                    flyout.Hide();
+                };
                 flyout.Items.Add(item);
                 index++;
             }
