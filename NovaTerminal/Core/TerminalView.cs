@@ -828,10 +828,44 @@ namespace NovaTerminal.Core
         // Throttle resize: limit how often we send resize to PTY (interval-based, not debounce)
         private DateTime _lastPtyResizeTime = DateTime.MinValue;
         private DispatcherTimer? _resizeThrottleTimer;
-        private const int ResizeThrottleMs = 100; // Minimum ms between PTY resizes
+        private const int ResizeThrottleMinMs = 16;
+        private const int ResizeThrottleMaxMs = 80;
+        private const int ResizeBurstResetMs = 280;
+        private int _activeResizeThrottleMs = ResizeThrottleMinMs;
+        private int _resizeBurstCount = 0;
+        private DateTime _lastResizeObservedAt = DateTime.MinValue;
         private int _pendingCols = 0;
         private int _pendingRows = 0;
         private DateTime _pendingResizeStartedAt = DateTime.MinValue;
+
+        private void UpdateAdaptiveResizeThrottle(DateTime now)
+        {
+            if (_lastResizeObservedAt == DateTime.MinValue ||
+                (now - _lastResizeObservedAt).TotalMilliseconds > ResizeBurstResetMs)
+            {
+                _resizeBurstCount = 0;
+            }
+
+            _resizeBurstCount++;
+            _lastResizeObservedAt = now;
+
+            if (_resizeBurstCount <= 2)
+            {
+                _activeResizeThrottleMs = ResizeThrottleMinMs;
+            }
+            else if (_resizeBurstCount <= 6)
+            {
+                _activeResizeThrottleMs = 24;
+            }
+            else if (_resizeBurstCount <= 14)
+            {
+                _activeResizeThrottleMs = 40;
+            }
+            else
+            {
+                _activeResizeThrottleMs = ResizeThrottleMaxMs;
+            }
+        }
 
         private void StartAutoScroll(int direction)
         {
@@ -964,15 +998,16 @@ namespace NovaTerminal.Core
                             // INTERVAL-BASED THROTTLE: Send resize if enough time passed, otherwise schedule
                             _pendingCols = cols;
                             _pendingRows = rows;
+                            var now = DateTime.UtcNow;
+                            UpdateAdaptiveResizeThrottle(now);
                             if (_pendingResizeStartedAt == DateTime.MinValue)
                             {
-                                _pendingResizeStartedAt = DateTime.UtcNow;
+                                _pendingResizeStartedAt = now;
                             }
 
-                            var now = DateTime.Now;
                             var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
 
-                            if (elapsed >= ResizeThrottleMs)
+                            if (elapsed >= _activeResizeThrottleMs)
                             {
                                 // Enough time passed - send immediately
                                 SendThrottledResize();
@@ -984,9 +1019,13 @@ namespace NovaTerminal.Core
                                 {
                                     _resizeThrottleTimer = new DispatcherTimer(DispatcherPriority.Normal)
                                     {
-                                        Interval = TimeSpan.FromMilliseconds(ResizeThrottleMs)
+                                        Interval = TimeSpan.FromMilliseconds(_activeResizeThrottleMs)
                                     };
                                     _resizeThrottleTimer.Tick += OnResizeThrottleTick;
+                                }
+                                else
+                                {
+                                    _resizeThrottleTimer.Interval = TimeSpan.FromMilliseconds(_activeResizeThrottleMs);
                                 }
 
                                 if (!_resizeThrottleTimer.IsEnabled)
@@ -1011,7 +1050,7 @@ namespace NovaTerminal.Core
             {
                 if (_pendingCols > 0 && _pendingRows > 0 && _buffer != null)
                 {
-                    _lastPtyResizeTime = DateTime.Now;
+                    _lastPtyResizeTime = DateTime.UtcNow;
 
                     // CRITICAL ORDER: Resize buffer FIRST (synchronously, under lock)
                     // THEN notify PTY (triggers SIGWINCH, new output uses new size)
@@ -1019,7 +1058,6 @@ namespace NovaTerminal.Core
                     _buffer.Resize(_pendingCols, _pendingRows);
                     _rowCache.MaxEntries = Math.Max(1000, _pendingRows * 10);
                     _rowCache.RequestClear();
-                    Console.WriteLine($"[TerminalView] Throttled resize sent: {_pendingCols}x{_pendingRows}");
                     OnResize?.Invoke(_pendingCols, _pendingRows);
                     if (_pendingResizeStartedAt != DateTime.MinValue)
                     {
