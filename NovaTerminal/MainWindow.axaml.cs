@@ -891,11 +891,331 @@ namespace NovaTerminal
             LoadWorkspaceByName(name.Trim());
         }
 
+        private async Task SaveWorkspaceTemplateInteractiveAsync()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            string suggested = $"template-{DateTime.Now:yyyyMMdd-HHmm}";
+            var name = await ShowTextPromptAsync("Save Workspace Template", "Template name", suggested);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var snapshot = SessionManager.CaptureSession(this, tabs);
+            if (WorkspaceManager.SaveWorkspaceTemplate(name.Trim(), snapshot))
+            {
+                SetupCommandPalette();
+            }
+        }
+
+        private async Task LoadWorkspaceTemplateInteractiveAsync()
+        {
+            var names = WorkspaceManager.ListWorkspaceTemplateNames();
+            if (names.Count == 0) return;
+
+            var first = names[0];
+            var name = await ShowTextPromptAsync("Apply Workspace Template", "Template name", first);
+            if (string.IsNullOrWhiteSpace(name)) return;
+            ApplyWorkspaceTemplateByName(name.Trim());
+        }
+
+        private async Task ExportWorkspaceBundleInteractiveAsync()
+        {
+            if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleExport)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Export bundle blocked by policy.");
+                return;
+            }
+
+            var names = WorkspaceManager.ListWorkspaceNames();
+            if (names.Count == 0) return;
+
+            string defaultName = names[0];
+            string? name = await ShowTextPromptAsync("Export Workspace Bundle", "Workspace name", defaultName);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            string suggestedFileName = $"{name.Trim()}.novaws.json";
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Export Workspace Bundle",
+                SuggestedFileName = suggestedFileName,
+                FileTypeChoices = new[]
+                {
+                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                }
+            });
+
+            if (file == null) return;
+
+            bool ok = WorkspaceManager.ExportWorkspaceBundle(name.Trim(), file.Path.LocalPath, Environment.UserName);
+            if (!ok)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Export bundle failed.");
+            }
+        }
+
+        private async Task ExportCurrentSessionBundleInteractiveAsync()
+        {
+            if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleExport)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Export bundle blocked by policy.");
+                return;
+            }
+
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            string suggested = $"session-{DateTime.Now:yyyyMMdd-HHmm}";
+            string? label = await ShowTextPromptAsync("Export Session Bundle", "Bundle name", suggested);
+            if (string.IsNullOrWhiteSpace(label)) return;
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            string suggestedFileName = $"{label.Trim()}.novaws.json";
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Export Session Bundle",
+                SuggestedFileName = suggestedFileName,
+                FileTypeChoices = new[]
+                {
+                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                }
+            });
+
+            if (file == null) return;
+
+            var snapshot = SessionManager.CaptureSession(this, tabs);
+            bool ok = WorkspaceManager.ExportWorkspaceBundle(label.Trim(), snapshot, file.Path.LocalPath, Environment.UserName);
+            if (!ok)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Export current session bundle failed.");
+            }
+        }
+
+        private async Task ImportWorkspaceBundleInteractiveAsync()
+        {
+            if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleImport)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Import bundle blocked by policy.");
+                return;
+            }
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Import Workspace Bundle",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                }
+            });
+
+            if (files.Count == 0) return;
+
+            string bundlePath = files[0].Path.LocalPath;
+            string suggestedName = Path.GetFileNameWithoutExtension(bundlePath);
+            if (suggestedName.EndsWith(".novaws", StringComparison.OrdinalIgnoreCase))
+            {
+                suggestedName = Path.GetFileNameWithoutExtension(suggestedName);
+            }
+
+            string? name = await ShowTextPromptAsync("Import Workspace Bundle", "Workspace name", suggestedName);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            if (WorkspaceManager.ImportWorkspaceBundle(bundlePath, name.Trim(), out var error))
+            {
+                SetupCommandPalette();
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[Workspace] Import bundle failed: {error}");
+        }
+
+        private async Task OpenWorkspaceBundleInteractiveAsync()
+        {
+            if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleImport)
+            {
+                System.Diagnostics.Debug.WriteLine("[Workspace] Open bundle blocked by policy.");
+                return;
+            }
+
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Open Workspace Bundle",
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Nova Workspace Bundle") { Patterns = new[] { "*.novaws.json", "*.json" } }
+                }
+            });
+
+            if (files.Count == 0) return;
+
+            string bundlePath = files[0].Path.LocalPath;
+            bool ok = WorkspaceManager.LoadWorkspaceBundleSession(bundlePath, out var _workspaceName, out var snapshot, out var error);
+            if (ok && snapshot != null)
+            {
+                ApplySessionSnapshot(snapshot);
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[Workspace] Open bundle failed: {error}");
+        }
+
         private void LoadWorkspaceByName(string name)
         {
             var snapshot = WorkspaceManager.LoadWorkspace(name);
             if (snapshot == null) return;
             ApplySessionSnapshot(snapshot);
+        }
+
+        private void ApplyWorkspaceTemplateByName(string name)
+        {
+            var snapshot = WorkspaceManager.LoadWorkspaceTemplate(name);
+            if (snapshot == null) return;
+            ApplySessionSnapshot(snapshot);
+        }
+
+        internal static TabTemplateRule? FindTabTemplateRule(IEnumerable<TabTemplateRule>? rules, Guid profileId)
+        {
+            if (rules == null) return null;
+            return rules.FirstOrDefault(r =>
+                r != null &&
+                r.Enabled &&
+                r.ProfileId == profileId &&
+                !string.IsNullOrWhiteSpace(r.TemplateName));
+        }
+
+        internal static bool UpsertTabTemplateRule(List<TabTemplateRule> rules, Guid profileId, string templateName)
+        {
+            if (rules == null) throw new ArgumentNullException(nameof(rules));
+            if (string.IsNullOrWhiteSpace(templateName)) return false;
+
+            var existing = rules.FirstOrDefault(r => r.ProfileId == profileId);
+            if (existing == null)
+            {
+                rules.Add(new TabTemplateRule
+                {
+                    ProfileId = profileId,
+                    TemplateName = templateName.Trim(),
+                    Enabled = true
+                });
+                return true;
+            }
+
+            existing.TemplateName = templateName.Trim();
+            existing.Enabled = true;
+            return true;
+        }
+
+        internal static bool RemoveTabTemplateRule(List<TabTemplateRule> rules, Guid profileId)
+        {
+            if (rules == null) throw new ArgumentNullException(nameof(rules));
+            int before = rules.Count;
+            rules.RemoveAll(r => r.ProfileId == profileId);
+            return rules.Count != before;
+        }
+
+        private async Task SetTemplateRuleForCurrentPaneProfileAsync()
+        {
+            var profile = _currentPane?.Profile;
+            if (profile == null) return;
+
+            var templateNames = WorkspaceManager.ListWorkspaceTemplateNames();
+            if (templateNames.Count == 0) return;
+
+            string suggested = FindTabTemplateRule(_settings.TabTemplateRules, profile.Id)?.TemplateName ?? templateNames[0];
+            string? name = await ShowTextPromptAsync(
+                "Set Tab Template Rule",
+                $"Template for profile '{profile.Name}'",
+                suggested);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            string trimmed = name.Trim();
+            if (WorkspaceManager.LoadWorkspaceTemplate(trimmed) == null)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Workspace] Template rule not set: missing template '{trimmed}'.");
+                return;
+            }
+
+            if (UpsertTabTemplateRule(_settings.TabTemplateRules, profile.Id, trimmed))
+            {
+                _settings.Save();
+                SetupCommandPalette();
+            }
+        }
+
+        private void ClearTemplateRuleForCurrentPaneProfile()
+        {
+            var profile = _currentPane?.Profile;
+            if (profile == null) return;
+
+            if (RemoveTabTemplateRule(_settings.TabTemplateRules, profile.Id))
+            {
+                _settings.Save();
+                SetupCommandPalette();
+            }
+        }
+
+        private bool TryApplyTemplateRuleForProfile(TerminalProfile profile)
+        {
+            var rule = FindTabTemplateRule(_settings.TabTemplateRules, profile.Id);
+            if (rule == null) return false;
+
+            var template = WorkspaceManager.LoadWorkspaceTemplate(rule.TemplateName);
+            if (template == null || template.Tabs.Count == 0) return false;
+
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return false;
+
+            var current = SessionManager.CaptureSession(this, tabs);
+            var templateTab = CloneTabSession(template.Tabs[0]);
+            current.Tabs.Add(templateTab);
+            current.ActiveTabIndex = current.Tabs.Count - 1;
+            ApplySessionSnapshot(current);
+            return true;
+        }
+
+        private static TabSession CloneTabSession(TabSession source)
+        {
+            return new TabSession
+            {
+                TabId = source.TabId,
+                Title = source.Title,
+                UserTitle = source.UserTitle,
+                IsPinned = source.IsPinned,
+                IsProtected = source.IsProtected,
+                ActivePaneId = source.ActivePaneId,
+                ZoomedPaneId = source.ZoomedPaneId,
+                BroadcastInputEnabled = source.BroadcastInputEnabled,
+                Root = ClonePaneNode(source.Root)
+            };
+        }
+
+        private static PaneNode? ClonePaneNode(PaneNode? source)
+        {
+            if (source == null) return null;
+
+            return new PaneNode
+            {
+                Type = source.Type,
+                SplitOrientation = source.SplitOrientation,
+                ProfileId = source.ProfileId,
+                PaneId = source.PaneId,
+                Command = source.Command,
+                Arguments = source.Arguments,
+                Sizes = source.Sizes.ToList(),
+                Children = source.Children.Select(ClonePaneNode).Where(c => c != null).Select(c => c!).ToList()
+            };
         }
 
         internal Guid? GetActivePaneIdForTab(TabItem tabItem)
@@ -2485,6 +2805,11 @@ namespace NovaTerminal
                 profile.Arguments = profile.GenerateSshArguments(_settings.Profiles);
             }
 
+            if (TryApplyTemplateRuleForProfile(profile))
+            {
+                return;
+            }
+
             var pane = new TerminalPane(profile);
             WirePane(pane);
 
@@ -2873,10 +3198,30 @@ namespace NovaTerminal
 
             CommandRegistry.Register("Workspace: Save Current", "Workspace", () => _ = SaveWorkspaceInteractiveAsync(), "");
             CommandRegistry.Register("Workspace: Load...", "Workspace", () => _ = LoadWorkspaceInteractiveAsync(), "");
+            CommandRegistry.Register("Workspace Template: Save Current", "Workspace", () => _ = SaveWorkspaceTemplateInteractiveAsync(), "");
+            CommandRegistry.Register("Workspace Template: Apply...", "Workspace", () => _ = LoadWorkspaceTemplateInteractiveAsync(), "");
+            CommandRegistry.Register("Tab Rule: Set Template for Current Profile...", "Workspace", () => _ = SetTemplateRuleForCurrentPaneProfileAsync(), "");
+            CommandRegistry.Register("Tab Rule: Clear Template for Current Profile", "Workspace", () => ClearTemplateRuleForCurrentPaneProfile(), "");
+            var workspacePolicy = WorkspacePolicyManager.Current;
+            if (workspacePolicy.AllowWorkspaceBundleExport)
+            {
+                CommandRegistry.Register("Workspace: Export Bundle...", "Workspace", () => _ = ExportWorkspaceBundleInteractiveAsync(), "");
+                CommandRegistry.Register("Workspace: Export Current Session Bundle...", "Workspace", () => _ = ExportCurrentSessionBundleInteractiveAsync(), "");
+            }
+            if (workspacePolicy.AllowWorkspaceBundleImport)
+            {
+                CommandRegistry.Register("Workspace: Import Bundle...", "Workspace", () => _ = ImportWorkspaceBundleInteractiveAsync(), "");
+                CommandRegistry.Register("Workspace: Open Bundle...", "Workspace", () => _ = OpenWorkspaceBundleInteractiveAsync(), "");
+            }
             foreach (var workspaceName in WorkspaceManager.ListWorkspaceNames())
             {
                 string capturedName = workspaceName;
                 CommandRegistry.Register($"Workspace: Load {capturedName}", "Workspace", () => LoadWorkspaceByName(capturedName), "");
+            }
+            foreach (var templateName in WorkspaceManager.ListWorkspaceTemplateNames())
+            {
+                string capturedTemplate = templateName;
+                CommandRegistry.Register($"Workspace Template: Apply {capturedTemplate}", "Workspace", () => ApplyWorkspaceTemplateByName(capturedTemplate), "");
             }
 
             CommandRegistry.Register("Close Tab", "General", () => CloseActiveTab(), "Ctrl+W");

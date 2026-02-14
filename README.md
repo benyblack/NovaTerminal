@@ -119,6 +119,8 @@ See `documents/IMAGE_PROTOCOL_SUPPORT.md` for platform-specific protocol behavio
 - Themes and fonts
 - Live settings (no restart)
 
+See `documents/TABS_USER_MANUAL.md` for tabs behavior, shortcuts, workspace flows, and troubleshooting.
+
 ### Remote
 - SSH profiles
 - Cross-platform PTY abstraction
