@@ -134,6 +134,20 @@
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
+                <Button Name="BtnTabList"
+                        Foreground="White"
+                        Background="Transparent"
+                        BorderThickness="0" Focusable="False"
+                        Width="32" Height="32"
+                        Padding="4"
+                        CornerRadius="4"
+                        Margin="4,0,0,0"
+                        ToolTip.Tip="Tab List">
+                    <PathIcon Data="M4,6H20V8H4V6M4,11H20V13H4V11M4,16H20V18H4V16Z" Width="16" Height="16"/>
+                    <Button.Flyout>
+                        <MenuFlyout />
+                    </Button.Flyout>
+                </Button>
                 <Button Name="BtnRecord"
                         Foreground="#CCCCCC"
                         Background="Transparent"

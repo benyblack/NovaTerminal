@@ -46,10 +46,8 @@ namespace NovaTerminal.Core
             PointerPressed += (s, e) => Focus();
 
             _renderTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, OnRenderTimerTick);
-            _renderTimer.Start();
 
             _cursorBlinkTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(530), DispatcherPriority.Render, OnCursorBlinkTick);
-            _cursorBlinkTimer.Start();
             _scrollAnimationTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, OnScrollAnimationTick);
 
             DragDrop.SetAllowDrop(this, true);
@@ -193,6 +191,7 @@ namespace NovaTerminal.Core
         private DispatcherTimer _renderTimer;
         private readonly DispatcherTimer _cursorBlinkTimer;
         private readonly DispatcherTimer _scrollAnimationTimer;
+        private bool _uiTimersRunning;
         private bool _cursorBlinkPhase = true;
         private bool _cursorBlinkEnabled = true;
         private bool _bellAudioEnabled = true;
@@ -500,11 +499,19 @@ namespace NovaTerminal.Core
         {
             base.OnAttachedToVisualTree(e);
 
+            StartUiTimers();
+
             // Ensure char metrics are available immediately upon attachment
             MeasureCharSize();
 
             _isDirty = true;
             InvalidateVisual();
+        }
+
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            base.OnDetachedFromVisualTree(e);
+            StopUiTimers();
         }
 
         protected override void OnGotFocus(GotFocusEventArgs e)
@@ -1080,6 +1087,26 @@ namespace NovaTerminal.Core
             // Timer fired - send any pending resize
             _resizeThrottleTimer?.Stop();
             SendThrottledResize();
+        }
+
+        private void StartUiTimers()
+        {
+            if (_uiTimersRunning) return;
+            _renderTimer.Start();
+            _cursorBlinkTimer.Start();
+            _uiTimersRunning = true;
+        }
+
+        private void StopUiTimers()
+        {
+            if (!_uiTimersRunning) return;
+
+            _renderTimer.Stop();
+            _cursorBlinkTimer.Stop();
+            _scrollAnimationTimer.Stop();
+            _autoScrollTimer?.Stop();
+            _resizeThrottleTimer?.Stop();
+            _uiTimersRunning = false;
         }
 
         public override void Render(DrawingContext context)
