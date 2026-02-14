@@ -10,6 +10,7 @@ It applies to:
 Related execution plans:
 - `documents/PRODUCTION_EXECUTION_PLAN.md`
 - `documents/MULTI_PANE_EXECUTION_PLAN.md`
+- `documents/TABS_EXECUTION_PLAN.md`
 
 ---
 
