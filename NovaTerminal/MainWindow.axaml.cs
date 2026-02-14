@@ -26,6 +26,7 @@ namespace NovaTerminal
     public partial class MainWindow : Window
     {
         private TerminalPane? _currentPane;
+        private readonly Dictionary<TabItem, TerminalPane> _activePaneByTab = new();
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
 
@@ -241,10 +242,14 @@ namespace NovaTerminal
             {
                 tabs.SelectionChanged += (s, e) =>
                 {
-                    if (tabs.SelectedItem is TabItem ti && ti.Content is TerminalPane pane)
+                    if (tabs.SelectedItem is TabItem ti)
                     {
-                        UpdateActivePane(pane);
-                        FocusPaneTerminal(pane, defer: true);
+                        var pane = ResolvePaneForTab(ti);
+                        if (pane != null)
+                        {
+                            UpdateActivePane(pane);
+                            FocusPaneTerminal(pane, defer: true);
+                        }
                     }
                     UpdateTabVisuals();
                 };
@@ -309,10 +314,24 @@ namespace NovaTerminal
                 {
                     AddTab(defaultProfile);
                 }
-                else if (tabs.SelectedItem is TabItem selected && selected.Content is TerminalPane selectedPane)
+                else if (tabs.SelectedItem is TabItem selected)
                 {
-                    UpdateActivePane(selectedPane);
-                    FocusPaneTerminal(selectedPane, defer: true);
+                    // Seed per-tab active pane mapping from restored layout.
+                    foreach (var item in tabs.Items.Cast<TabItem>())
+                    {
+                        if (item.Content is Control c)
+                        {
+                            var first = FindFirstPane(c);
+                            if (first != null) _activePaneByTab[item] = first;
+                        }
+                    }
+
+                    var selectedPane = ResolvePaneForTab(selected);
+                    if (selectedPane != null)
+                    {
+                        UpdateActivePane(selectedPane);
+                        FocusPaneTerminal(selectedPane, defer: true);
+                    }
                 }
             }
             else
@@ -553,14 +572,26 @@ namespace NovaTerminal
 
         private void FocusFirstPane(Control control)
         {
-            if (control is TerminalPane pane) pane.ActiveControl.Focus();
-            else if (control is Panel panel && panel.Children.Count > 0 && panel.Children[0] is Control child) FocusFirstPane(child);
+            var pane = FindFirstPane(control);
+            if (pane != null)
+            {
+                UpdateActivePane(pane);
+                FocusPaneTerminal(pane, defer: true);
+            }
         }
 
         public static VaultService? Vault { get; private set; }
 
         private void CloseTab(TabItem ti)
         {
+            if (_activePaneByTab.TryGetValue(ti, out var mapped) && _currentPane == mapped)
+            {
+                _currentPane.RecordingStateChanged -= OnRecordingStateChanged;
+                _currentPane = null;
+                OnRecordingStateChanged(false);
+            }
+            _activePaneByTab.Remove(ti);
+
             if (ti.Content is Control content) DisposeControlTree(content);
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs != null)
@@ -686,6 +717,7 @@ namespace NovaTerminal
             tabs.Items.Add(tabItem);
             tabs.SelectedItem = tabItem;
             _currentPane = pane;
+            _activePaneByTab[tabItem] = pane;
 
             // Defer visual update until layout is complete (ensures template is applied)
             EventHandler? layoutHandler = null;
@@ -1411,6 +1443,9 @@ namespace NovaTerminal
 
         private void UpdateActivePane(TerminalPane pane)
         {
+            var ownerTab = pane.FindAncestorOfType<TabItem>();
+            if (ownerTab != null) _activePaneByTab[ownerTab] = pane;
+
             if (_currentPane == pane) return;
 
             // Unsubscribe from old pane
@@ -1429,6 +1464,54 @@ namespace NovaTerminal
 
             // Initial UI sync
             OnRecordingStateChanged(_currentPane?.IsRecording ?? false);
+        }
+
+        private TerminalPane? FindFirstPane(Control? control)
+        {
+            if (control == null) return null;
+            if (control is TerminalPane pane) return pane;
+
+            if (control is Panel panel)
+            {
+                foreach (var child in panel.Children)
+                {
+                    if (child is Control cc)
+                    {
+                        var found = FindFirstPane(cc);
+                        if (found != null) return found;
+                    }
+                }
+            }
+            else if (control is ContentControl contentControl)
+            {
+                return FindFirstPane(contentControl.Content as Control);
+            }
+
+            return null;
+        }
+
+        private TerminalPane? ResolvePaneForTab(TabItem tabItem)
+        {
+            if (_activePaneByTab.TryGetValue(tabItem, out var pane))
+            {
+                // Ignore stale mappings when pane was removed/disposed.
+                if (pane.FindAncestorOfType<TabItem>() == tabItem)
+                {
+                    return pane;
+                }
+            }
+
+            if (tabItem.Content is Control content)
+            {
+                var first = FindFirstPane(content);
+                if (first != null)
+                {
+                    _activePaneByTab[tabItem] = first;
+                    return first;
+                }
+            }
+
+            return null;
         }
 
         private bool IsFocusOverlayVisible()

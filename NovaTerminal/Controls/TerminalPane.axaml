@@ -35,6 +35,11 @@
 
             <!-- Terminal View Layer -->
             <core:TerminalView x:Name="TermView" />
+            <Border Name="InactiveOverlay"
+                    Background="#66000000"
+                    IsVisible="False"
+                    IsHitTestVisible="False"
+                    ZIndex="20" />
 
             <!-- ScrollBar Overlay -->
             <ScrollBar x:Name="TermScrollBar"
@@ -90,7 +95,7 @@
             </Border>
             
             <!-- Focus Indicator Border -->
-            <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" />
+            <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" ZIndex="300" />
         </Grid>
     </Border>
 </UserControl>

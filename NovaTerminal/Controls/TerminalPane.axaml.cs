@@ -490,14 +490,17 @@ namespace NovaTerminal.Controls
 
         private void UpdateFocusVisuals(bool focused)
         {
+            if (InactiveOverlay != null)
+            {
+                InactiveOverlay.IsVisible = !focused;
+            }
+
             if (FocusBorder != null)
             {
-                // Disable the old border visual
                 FocusBorder.IsVisible = false;
             }
 
-            // Option 1: Inactive Dimming - DISABLED per user feedback
-            // TermView.Opacity = focused ? 1.0 : 0.5;
+            // Keep rendering crisp; dimming is now handled by overlay.
             TermView.Opacity = 1.0;
 
             // Re-render to ensure cursor state updates
