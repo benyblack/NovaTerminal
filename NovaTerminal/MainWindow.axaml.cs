@@ -44,6 +44,8 @@ namespace NovaTerminal
                 }
                 catch { /* Ignore P/Invoke errors on non-Windows */ }
             }
+
+            FocusCurrentTerminal(defer: true);
         }
 
         private void ToggleConnections()
@@ -82,7 +84,7 @@ namespace NovaTerminal
                     // Visible but Blur -> Focus
                     this.Activate();
                     this.Focus();
-                    _currentPane?.ActiveControl.Focus();
+                    FocusCurrentTerminal(defer: true);
                 }
             }
             else
@@ -92,7 +94,7 @@ namespace NovaTerminal
                 this.WindowState = WindowState.Normal;
                 this.Activate();
                 this.Focus();
-                _currentPane?.ActiveControl.Focus();
+                FocusCurrentTerminal(defer: true);
             }
         }
 
@@ -170,8 +172,13 @@ namespace NovaTerminal
             this.Loaded += (s, e) =>
             {
                 // Give layout one more tick to settle
-                Dispatcher.UIThread.Post(() => UpdateTabVisuals(), DispatcherPriority.Input);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    UpdateTabVisuals();
+                    FocusCurrentTerminal(defer: true);
+                }, DispatcherPriority.Input);
             };
+            this.Activated += (s, e) => FocusCurrentTerminal(defer: true);
 
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
@@ -237,7 +244,7 @@ namespace NovaTerminal
                     if (tabs.SelectedItem is TabItem ti && ti.Content is TerminalPane pane)
                     {
                         UpdateActivePane(pane);
-                        pane.Focus();
+                        FocusPaneTerminal(pane, defer: true);
                     }
                     UpdateTabVisuals();
                 };
@@ -301,6 +308,11 @@ namespace NovaTerminal
                 if (tabs.Items.Count == 0)
                 {
                     AddTab(defaultProfile);
+                }
+                else if (tabs.SelectedItem is TabItem selected && selected.Content is TerminalPane selectedPane)
+                {
+                    UpdateActivePane(selectedPane);
+                    FocusPaneTerminal(selectedPane, defer: true);
                 }
             }
             else
@@ -1417,6 +1429,43 @@ namespace NovaTerminal
 
             // Initial UI sync
             OnRecordingStateChanged(_currentPane?.IsRecording ?? false);
+        }
+
+        private bool IsFocusOverlayVisible()
+        {
+            var paletteOverlay = this.FindControl<Grid>("CommandPaletteOverlay");
+            if (paletteOverlay?.IsVisible == true) return true;
+
+            var connectionOverlay = this.FindControl<Border>("ConnectionOverlay");
+            if (connectionOverlay?.IsVisible == true) return true;
+
+            var transferOverlay = this.FindControl<Border>("TransferOverlay");
+            if (transferOverlay?.IsVisible == true) return true;
+
+            return false;
+        }
+
+        private void FocusPaneTerminal(TerminalPane pane, bool defer)
+        {
+            if (IsFocusOverlayVisible()) return;
+
+            void FocusNow() => pane.ActiveControl.Focus();
+
+            if (defer)
+            {
+                Dispatcher.UIThread.Post(FocusNow, DispatcherPriority.Input);
+                Dispatcher.UIThread.Post(FocusNow, DispatcherPriority.Loaded);
+            }
+            else
+            {
+                FocusNow();
+            }
+        }
+
+        private void FocusCurrentTerminal(bool defer)
+        {
+            if (_currentPane == null) return;
+            FocusPaneTerminal(_currentPane, defer);
         }
 
         private void OnRecordingStateChanged(bool isRecording)
