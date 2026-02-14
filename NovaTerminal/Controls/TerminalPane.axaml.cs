@@ -41,6 +41,9 @@ namespace NovaTerminal.Controls
         public event Action<TerminalPane, string>? WorkingDirectoryChanged;
         public event Action<TerminalPane, string>? TitleChanged;
         public event Action<TerminalPane, PaneAction>? PaneActionRequested;
+        public event Action<TerminalPane>? OutputReceived;
+        public event Action<TerminalPane>? BellReceived;
+        public event Action<TerminalPane, int>? ProcessExited;
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
@@ -239,7 +242,11 @@ namespace NovaTerminal.Controls
 
             Parser.OnBell += () =>
             {
-                Dispatcher.UIThread.Post(() => TermView.TriggerBell());
+                Dispatcher.UIThread.Post(() =>
+                {
+                    TermView.TriggerBell();
+                    BellReceived?.Invoke(this);
+                });
             };
             Parser.OnWorkingDirectoryChanged += cwd =>
             {
@@ -308,7 +315,11 @@ namespace NovaTerminal.Controls
                 TermView.SetSession(Session);
                 Session.OnExit += code =>
                 {
-                    Dispatcher.UIThread.Post(() => LastExitCode = code);
+                    Dispatcher.UIThread.Post(() =>
+                    {
+                        LastExitCode = code;
+                        ProcessExited?.Invoke(this, code);
+                    });
                 };
             }
             catch (Exception ex)
@@ -324,7 +335,11 @@ namespace NovaTerminal.Controls
             Session.OnOutputReceived += text =>
             {
                 Parser.Process(text);
-                Dispatcher.UIThread.Post(UpdateScrollUI);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    UpdateScrollUI();
+                    OutputReceived?.Invoke(this);
+                });
             };
 
             // Wire up Parser responses (e.g. DA1)

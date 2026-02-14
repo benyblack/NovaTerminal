@@ -34,6 +34,9 @@ namespace NovaTerminal
         private readonly Dictionary<TabItem, Guid> _tabIds = new();
         private readonly Dictionary<TabItem, PaneLayoutModel> _layoutModelByTab = new();
         private readonly List<TabItem> _tabMru = new();
+        private readonly Dictionary<TabItem, TabRuntimeState> _tabStateByTab = new();
+        private readonly HashSet<TabItem> _pendingVisualRefreshTabs = new();
+        private bool _tabVisualRefreshScheduled;
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
         private bool _closePaneInProgress;
@@ -43,6 +46,16 @@ namespace NovaTerminal
         {
             public required Control OriginalRoot { get; init; }
             public required Control Placeholder { get; init; }
+        }
+
+        private sealed class TabRuntimeState
+        {
+            public string? UserTitle { get; set; }
+            public bool IsPinned { get; set; }
+            public bool IsProtected { get; set; }
+            public bool HasActivity { get; set; }
+            public bool HasBell { get; set; }
+            public int? LastExitCode { get; set; }
         }
 
         protected override void OnOpened(EventArgs e)
@@ -215,6 +228,67 @@ namespace NovaTerminal
             return GetTabId(tab);
         }
 
+        private TabRuntimeState GetOrCreateTabState(TabItem tab)
+        {
+            if (_tabStateByTab.TryGetValue(tab, out var state))
+            {
+                return state;
+            }
+
+            state = new TabRuntimeState();
+            if (tab.Tag is TabSession saved)
+            {
+                state.UserTitle = saved.UserTitle;
+                state.IsPinned = saved.IsPinned;
+                state.IsProtected = saved.IsProtected;
+            }
+
+            _tabStateByTab[tab] = state;
+            return state;
+        }
+
+        internal string? GetTabUserTitle(TabItem tab)
+        {
+            return GetOrCreateTabState(tab).UserTitle;
+        }
+
+        internal bool IsTabPinned(TabItem tab)
+        {
+            return GetOrCreateTabState(tab).IsPinned;
+        }
+
+        internal bool IsTabProtected(TabItem tab)
+        {
+            return GetOrCreateTabState(tab).IsProtected;
+        }
+
+        private void ClearTabAttention(TabItem tab)
+        {
+            var state = GetOrCreateTabState(tab);
+            state.HasActivity = false;
+            state.HasBell = false;
+        }
+
+        private void QueueTabVisualRefresh(TabItem tab)
+        {
+            _pendingVisualRefreshTabs.Add(tab);
+            if (_tabVisualRefreshScheduled) return;
+
+            _tabVisualRefreshScheduled = true;
+            Dispatcher.UIThread.Post(() =>
+            {
+                _tabVisualRefreshScheduled = false;
+                var toRefresh = _pendingVisualRefreshTabs.ToList();
+                _pendingVisualRefreshTabs.Clear();
+
+                if (toRefresh.Count == 0) return;
+                foreach (var item in toRefresh)
+                {
+                    UpdateTabVisuals(item);
+                }
+            }, DispatcherPriority.Background);
+        }
+
         private void TouchTabMru(TabItem tab)
         {
             _tabMru.Remove(tab);
@@ -264,6 +338,16 @@ namespace NovaTerminal
             return "Terminal";
         }
 
+        private string GetTabMenuLabel(TabItem tab, int index)
+        {
+            var state = GetOrCreateTabState(tab);
+            string icon = state.IsPinned ? "📌 " : string.Empty;
+            if (state.HasBell) icon += "🔔 ";
+            else if (state.HasActivity) icon += "• ";
+            string label = GetTabHeaderText(tab);
+            return $"{index}. {icon}{label}";
+        }
+
         private void PopulateTabListMenu(bool showFlyout = false)
         {
             var button = this.FindControl<Button>("BtnTabList");
@@ -275,10 +359,9 @@ namespace NovaTerminal
             int index = 1;
             foreach (var tab in tabs.Items.Cast<TabItem>())
             {
-                string label = GetTabHeaderText(tab);
                 var item = new MenuItem
                 {
-                    Header = $"{index}. {label}",
+                    Header = GetTabMenuLabel(tab, index),
                     IsChecked = tabs.SelectedItem == tab,
                     ToggleType = MenuItemToggleType.Radio
                 };
@@ -287,10 +370,144 @@ namespace NovaTerminal
                 index++;
             }
 
+            if (tabs.Items.Count > 0)
+            {
+                flyout.Items.Add(new Separator());
+
+                var renameItem = new MenuItem { Header = "Rename Current Tab..." };
+                renameItem.Click += async (_, __) => await RenameSelectedTabAsync();
+                flyout.Items.Add(renameItem);
+
+                var closeCurrentItem = new MenuItem { Header = "Close Current Tab" };
+                closeCurrentItem.Click += async (_, __) => await CloseSelectedTabAsync();
+                flyout.Items.Add(closeCurrentItem);
+
+                var closeOthersItem = new MenuItem { Header = "Close Other Tabs" };
+                closeOthersItem.Click += async (_, __) => await CloseOtherTabsAsync();
+                flyout.Items.Add(closeOthersItem);
+
+                if (tabs.SelectedItem is TabItem selectedTab)
+                {
+                    var selectedState = GetOrCreateTabState(selectedTab);
+
+                    var pinItem = new MenuItem { Header = selectedState.IsPinned ? "Unpin Tab" : "Pin Tab" };
+                    pinItem.Click += (_, __) => TogglePinSelectedTab();
+                    flyout.Items.Add(pinItem);
+
+                    var protectItem = new MenuItem { Header = selectedState.IsProtected ? "Unprotect Tab" : "Protect Tab" };
+                    protectItem.Click += (_, __) => ToggleProtectSelectedTab();
+                    flyout.Items.Add(protectItem);
+                }
+            }
+
             if (showFlyout && button != null)
             {
                 flyout.ShowAt(button);
             }
+        }
+
+        private static string TruncateTabLabel(string value, int maxLength = 40)
+        {
+            if (string.IsNullOrEmpty(value) || value.Length <= maxLength) return value;
+            if (maxLength < 5) return value.Substring(0, maxLength);
+            return value.Substring(0, maxLength - 1) + "…";
+        }
+
+        private async Task<string?> ShowTextPromptAsync(string title, string prompt, string defaultValue)
+        {
+            string? result = null;
+            var dialog = new Window
+            {
+                Title = title,
+                Width = 520,
+                Height = 190,
+                CanResize = false,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+
+            var input = new TextBox
+            {
+                Text = defaultValue,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+
+            var cancelButton = new Button { Content = "Cancel", Width = 92 };
+            cancelButton.Click += (_, __) => dialog.Close();
+
+            var applyButton = new Button { Content = "Apply", Width = 92 };
+            applyButton.Click += (_, __) =>
+            {
+                result = input.Text;
+                dialog.Close();
+            };
+
+            dialog.Content = new Border
+            {
+                Padding = new Thickness(16),
+                Child = new StackPanel
+                {
+                    Spacing = 10,
+                    Children =
+                    {
+                        new TextBlock { Text = prompt },
+                        input,
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Spacing = 8,
+                            Children = { cancelButton, applyButton }
+                        }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
+            return result;
+        }
+
+        private async Task RenameSelectedTabAsync()
+        {
+            if (!TryGetSelectedTab(out var tab)) return;
+            var state = GetOrCreateTabState(tab);
+            string current = state.UserTitle ?? GetTabHeaderText(tab);
+            var updated = await ShowTextPromptAsync("Rename Tab", "Tab title", current);
+            if (updated == null) return;
+
+            state.UserTitle = string.IsNullOrWhiteSpace(updated) ? null : updated.Trim();
+            UpdateTabVisuals(tab);
+            PopulateTabListMenu();
+        }
+
+        private async Task CloseOtherTabsAsync()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs?.SelectedItem is not TabItem selected) return;
+
+            var others = tabs.Items.Cast<TabItem>().Where(t => t != selected).ToList();
+            foreach (var tab in others)
+            {
+                if (GetOrCreateTabState(tab).IsPinned) continue;
+                await CloseTabAsync(tab);
+            }
+        }
+
+        private void TogglePinSelectedTab()
+        {
+            if (!TryGetSelectedTab(out var tab)) return;
+            var state = GetOrCreateTabState(tab);
+            state.IsPinned = !state.IsPinned;
+            UpdateTabVisuals(tab);
+            PopulateTabListMenu();
+        }
+
+        private void ToggleProtectSelectedTab()
+        {
+            if (!TryGetSelectedTab(out var tab)) return;
+            var state = GetOrCreateTabState(tab);
+            state.IsProtected = !state.IsProtected;
+            UpdateTabVisuals(tab);
+            PopulateTabListMenu();
         }
 
         internal Guid? GetActivePaneIdForTab(TabItem tabItem)
@@ -695,6 +912,8 @@ namespace NovaTerminal
                     {
                         GetTabId(ti);
                         TouchTabMru(ti);
+                        GetOrCreateTabState(ti);
+                        ClearTabAttention(ti);
                         var pane = ResolvePaneForTab(ti);
                         if (pane != null)
                         {
@@ -706,6 +925,7 @@ namespace NovaTerminal
                     }
                     if (!updatedSpecific) UpdateTabVisuals();
                     UpdatePaneAutomationLabels();
+                    UpdateTabAutomationLabels();
                     UpdateBroadcastIndicator();
                     PopulateTabListMenu();
                 };
@@ -767,6 +987,7 @@ namespace NovaTerminal
                 foreach (var item in tabs.Items.Cast<TabItem>())
                 {
                     GetTabId(item);
+                    GetOrCreateTabState(item);
                     if (item.Content is Control c) WireControlTree(c);
                 }
 
@@ -1120,11 +1341,17 @@ namespace NovaTerminal
             pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
             pane.TitleChanged -= OnPaneTitleChanged;
             pane.PaneActionRequested -= OnPaneActionRequested;
+            pane.OutputReceived -= OnPaneOutputReceived;
+            pane.BellReceived -= OnPaneBellReceived;
+            pane.ProcessExited -= OnPaneProcessExited;
 
             pane.RequestSftpTransfer += OnPaneRequestSftpTransfer;
             pane.WorkingDirectoryChanged += OnPaneWorkingDirectoryChanged;
             pane.TitleChanged += OnPaneTitleChanged;
             pane.PaneActionRequested += OnPaneActionRequested;
+            pane.OutputReceived += OnPaneOutputReceived;
+            pane.BellReceived += OnPaneBellReceived;
+            pane.ProcessExited += OnPaneProcessExited;
         }
 
         private void UnwirePane(TerminalPane pane)
@@ -1133,6 +1360,9 @@ namespace NovaTerminal
             pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
             pane.TitleChanged -= OnPaneTitleChanged;
             pane.PaneActionRequested -= OnPaneActionRequested;
+            pane.OutputReceived -= OnPaneOutputReceived;
+            pane.BellReceived -= OnPaneBellReceived;
+            pane.ProcessExited -= OnPaneProcessExited;
         }
 
         private void OnPaneRequestSftpTransfer(TerminalPane srcPane, TransferDirection direction, TransferKind kind)
@@ -1152,6 +1382,42 @@ namespace NovaTerminal
             _ = srcPane;
             _ = title;
             Dispatcher.UIThread.Post(() => UpdateTabVisuals());
+        }
+
+        private void OnPaneOutputReceived(TerminalPane pane)
+        {
+            var tab = pane.FindAncestorOfType<TabItem>();
+            if (tab == null) return;
+
+            if (!TryGetSelectedTab(out var selectedTab) || selectedTab != tab)
+            {
+                var state = GetOrCreateTabState(tab);
+                state.HasActivity = true;
+                QueueTabVisualRefresh(tab);
+            }
+        }
+
+        private void OnPaneBellReceived(TerminalPane pane)
+        {
+            var tab = pane.FindAncestorOfType<TabItem>();
+            if (tab == null) return;
+
+            if (!TryGetSelectedTab(out var selectedTab) || selectedTab != tab)
+            {
+                var state = GetOrCreateTabState(tab);
+                state.HasBell = true;
+                QueueTabVisualRefresh(tab);
+            }
+        }
+
+        private void OnPaneProcessExited(TerminalPane pane, int exitCode)
+        {
+            var tab = pane.FindAncestorOfType<TabItem>();
+            if (tab == null) return;
+
+            var state = GetOrCreateTabState(tab);
+            state.LastExitCode = exitCode;
+            QueueTabVisualRefresh(tab);
         }
 
         private void OnPaneActionRequested(TerminalPane pane, PaneAction action)
@@ -1329,6 +1595,23 @@ namespace NovaTerminal
             }
         }
 
+        private void UpdateTabAutomationLabels()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            int count = tabs.Items.Count;
+            for (int i = 0; i < count; i++)
+            {
+                if (tabs.Items[i] is not TabItem tab) continue;
+                var state = GetOrCreateTabState(tab);
+                bool active = tabs.SelectedItem == tab;
+                string attention = state.HasBell ? " bell" : state.HasActivity ? " activity" : string.Empty;
+                string label = $"Tab {i + 1} of {count}: {GetTabHeaderText(tab)}{(active ? " active" : "")}{attention}";
+                AutomationProperties.SetName(tab, label);
+            }
+        }
+
         private enum MoveDirection { Left, Right, Up, Down }
         private bool NavigatePane(MoveDirection dir) => NavigatePaneRecursive(_currentPane, dir);
         private bool NavigatePaneRecursive(Control? start, MoveDirection dir)
@@ -1401,6 +1684,12 @@ namespace NovaTerminal
 
             try
             {
+                var tabState = GetOrCreateTabState(tab);
+                if (tabState.IsProtected)
+                {
+                    return false;
+                }
+
                 if (_paneZoomStateByTab.ContainsKey(tab))
                 {
                     ExitPaneZoom(tab, publishEvent: true);
@@ -1450,6 +1739,8 @@ namespace NovaTerminal
             _tabIds.Remove(ti);
             _layoutModelByTab.Remove(ti);
             _tabMru.Remove(ti);
+            _tabStateByTab.Remove(ti);
+            _pendingVisualRefreshTabs.Remove(ti);
 
             if (ti.Content is Control content) DisposeControlTree(content);
             var tabs = this.FindControl<TabControl>("Tabs");
@@ -1715,6 +2006,7 @@ namespace NovaTerminal
             tabs.Items.Add(tabItem);
             tabs.SelectedItem = tabItem;
             GetTabId(tabItem);
+            GetOrCreateTabState(tabItem);
             TouchTabMru(tabItem);
             _currentPane = pane;
             _activePaneByTab[tabItem] = pane;
@@ -1801,14 +2093,19 @@ namespace NovaTerminal
             foreach (TabItem ti in tabItems)
             {
                 ti.BorderBrush = ti.IsSelected ? borderBrush : Brushes.Transparent;
+                var state = GetOrCreateTabState(ti);
 
                 if (ti.Header is TextBlock tb)
                 {
                     tb.Foreground = contrastForeground;
 
-                    if (ti.Content is TerminalPane pane && pane.Profile != null)
+                    var pane = ResolvePaneForTab(ti);
+                    string profileName = state.UserTitle ??
+                                         pane?.GetBaseTabTitle() ??
+                                         "Terminal";
+
+                    if (pane?.Profile != null)
                     {
-                        string profileName = pane.GetBaseTabTitle();
                         var forwards = pane.Profile.Forwards;
                         int activeCount = forwards.Count(f => f.Status == ForwardingStatus.Active);
                         int startingCount = forwards.Count(f => f.Status == ForwardingStatus.Starting);
@@ -1829,9 +2126,40 @@ namespace NovaTerminal
                             tb.Text = profileName;
                         }
                     }
+                    else
+                    {
+                        tb.Text = profileName;
+                    }
+
+                    if (state.LastExitCode.HasValue && (pane == null || !pane.IsProcessRunning))
+                    {
+                        string statusGlyph = state.LastExitCode.Value == 0 ? " ✓" : $" ✖{state.LastExitCode.Value}";
+                        tb.Text += statusGlyph;
+                    }
+
+                    if (state.HasBell)
+                    {
+                        tb.Text += " 🔔";
+                    }
+                    else if (state.HasActivity)
+                    {
+                        tb.Text += " •";
+                    }
+
+                    if (state.IsPinned)
+                    {
+                        tb.Text = "📌 " + tb.Text;
+                    }
+                    if (state.IsProtected)
+                    {
+                        tb.Text = "🔒 " + tb.Text;
+                    }
+
+                    tb.Text = TruncateTabLabel(tb.Text, 44);
                 }
             }
 
+            UpdateTabAutomationLabels();
             PopulateTabListMenu();
         }
 
@@ -2092,6 +2420,10 @@ namespace NovaTerminal
             CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), "Ctrl+Tab");
             CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), "Ctrl+Shift+Tab");
             CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), "Ctrl+Shift+O");
+            CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");
+            CommandRegistry.Register("Tab: Close Others", "General", () => _ = CloseOtherTabsAsync(), "");
+            CommandRegistry.Register("Tab: Toggle Pin", "General", () => TogglePinSelectedTab(), "");
+            CommandRegistry.Register("Tab: Toggle Protect", "General", () => ToggleProtectSelectedTab(), "");
             // Keep command naming aligned with common terminal UX:
             // Vertical split => vertical divider => side-by-side panes.
             CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+D");
