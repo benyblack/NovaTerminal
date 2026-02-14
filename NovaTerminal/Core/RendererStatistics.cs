@@ -34,6 +34,9 @@ namespace NovaTerminal.Core
         private static long _sessionRestoreTimeMs;
         private static long _sessionRestoreSamples;
         private static long _sessionRestoreBytes;
+        private static long _terminalViewActiveTimerCount;
+        private static long _terminalViewPeakTimerCount;
+        private static long _hiddenInvalidationRequests;
 
         public static long TotalFrames => Interlocked.Read(ref _totalFrames);
         public static long FullRedraws => Interlocked.Read(ref _fullRedraws);
@@ -64,6 +67,9 @@ namespace NovaTerminal.Core
         public static long SessionRestoreTimeMs => Interlocked.Read(ref _sessionRestoreTimeMs);
         public static long SessionRestoreSamples => Interlocked.Read(ref _sessionRestoreSamples);
         public static long SessionRestoreBytes => Interlocked.Read(ref _sessionRestoreBytes);
+        public static long TerminalViewActiveTimerCount => Interlocked.Read(ref _terminalViewActiveTimerCount);
+        public static long TerminalViewPeakTimerCount => Interlocked.Read(ref _terminalViewPeakTimerCount);
+        public static long HiddenInvalidationRequests => Interlocked.Read(ref _hiddenInvalidationRequests);
 
         public static void RecordFrame(bool fullRedraw, int dirtyCells)
         {
@@ -149,6 +155,44 @@ namespace NovaTerminal.Core
             Interlocked.Add(ref _sessionRestoreBytes, bytes);
         }
 
+        public static void RecordTerminalViewTimersStarted()
+        {
+            long active = Interlocked.Increment(ref _terminalViewActiveTimerCount);
+            long peak = Interlocked.Read(ref _terminalViewPeakTimerCount);
+            while (active > peak)
+            {
+                long previous = Interlocked.CompareExchange(ref _terminalViewPeakTimerCount, active, peak);
+                if (previous == peak) break;
+                peak = previous;
+            }
+        }
+
+        public static void RecordTerminalViewTimersStopped()
+        {
+            while (true)
+            {
+                long current = Interlocked.Read(ref _terminalViewActiveTimerCount);
+                if (current <= 0)
+                {
+                    if (current < 0)
+                    {
+                        Interlocked.Exchange(ref _terminalViewActiveTimerCount, 0);
+                    }
+                    return;
+                }
+
+                if (Interlocked.CompareExchange(ref _terminalViewActiveTimerCount, current - 1, current) == current)
+                {
+                    return;
+                }
+            }
+        }
+
+        public static void RecordHiddenInvalidationRequest()
+        {
+            Interlocked.Increment(ref _hiddenInvalidationRequests);
+        }
+
         public static void Reset()
         {
             Interlocked.Exchange(ref _totalFrames, 0);
@@ -180,6 +224,9 @@ namespace NovaTerminal.Core
             Interlocked.Exchange(ref _sessionRestoreTimeMs, 0);
             Interlocked.Exchange(ref _sessionRestoreSamples, 0);
             Interlocked.Exchange(ref _sessionRestoreBytes, 0);
+            Interlocked.Exchange(ref _terminalViewActiveTimerCount, 0);
+            Interlocked.Exchange(ref _terminalViewPeakTimerCount, 0);
+            Interlocked.Exchange(ref _hiddenInvalidationRequests, 0);
         }
 
         public static string GetReport()
@@ -191,7 +238,7 @@ namespace NovaTerminal.Core
             long tabAutomationAvg = TabAutomationUpdateSamples > 0 ? TabAutomationUpdateTimeMs / TabAutomationUpdateSamples : 0;
             long sessionSaveAvg = SessionSaveSamples > 0 ? SessionSaveTimeMs / SessionSaveSamples : 0;
             long sessionRestoreAvg = SessionRestoreSamples > 0 ? SessionRestoreTimeMs / SessionRestoreSamples : 0;
-            return $"Frames: {TotalFrames}, Full: {FullRedraws}, Dirty: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}, PicsRec: {RowPicturesRecorded}, RecTime: {RowPictureRecordTimeMs}ms, RenderTime: {FrameRenderTimeMs}ms, PtyDrops: {PtyQueueDrops}, PtyMaxQ: {PtyQueueMaxDepth}, ResizeDispatchAvg: {avgResizeDispatch}ms, TabSwitchAvg: {tabSwitchAvg}ms, TabVisualAvg: {tabVisualAvg}ms, TabAutomationAvg: {tabAutomationAvg}ms, SessionSaveAvg: {sessionSaveAvg}ms/{SessionSaveBytes}B, SessionRestoreAvg: {sessionRestoreAvg}ms/{SessionRestoreBytes}B";
+            return $"Frames: {TotalFrames}, Full: {FullRedraws}, Dirty: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}, PicsRec: {RowPicturesRecorded}, RecTime: {RowPictureRecordTimeMs}ms, RenderTime: {FrameRenderTimeMs}ms, PtyDrops: {PtyQueueDrops}, PtyMaxQ: {PtyQueueMaxDepth}, ResizeDispatchAvg: {avgResizeDispatch}ms, TabSwitchAvg: {tabSwitchAvg}ms, TabVisualAvg: {tabVisualAvg}ms, TabAutomationAvg: {tabAutomationAvg}ms, SessionSaveAvg: {sessionSaveAvg}ms/{SessionSaveBytes}B, SessionRestoreAvg: {sessionRestoreAvg}ms/{SessionRestoreBytes}B, TvTimers: {TerminalViewActiveTimerCount}/{TerminalViewPeakTimerCount}, HiddenInvReq: {HiddenInvalidationRequests}";
         }
     }
 }

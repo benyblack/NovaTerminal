@@ -54,6 +54,23 @@ namespace NovaTerminal.Tests.RenderTests
             Assert.Equal(2200, RendererStatistics.SessionRestoreBytes);
         }
 
+        [Fact]
+        [Trait("Category", "RenderMetrics")]
+        public void TerminalViewVisibilityMetrics_AreRecorded()
+        {
+            RendererStatistics.Reset();
+
+            RendererStatistics.RecordTerminalViewTimersStarted();
+            RendererStatistics.RecordTerminalViewTimersStarted();
+            RendererStatistics.RecordTerminalViewTimersStopped();
+            RendererStatistics.RecordHiddenInvalidationRequest();
+            RendererStatistics.RecordHiddenInvalidationRequest();
+
+            Assert.Equal(1, RendererStatistics.TerminalViewActiveTimerCount);
+            Assert.Equal(2, RendererStatistics.TerminalViewPeakTimerCount);
+            Assert.Equal(2, RendererStatistics.HiddenInvalidationRequests);
+        }
+
         // Note: We cannot easily unit test the actual TerminalView rendering loop here 
         // because it requires a valid Dispatcher and Rendering Context which are hard to mock in headless xUnit.
         // However, we verify the collector logic works. 
