@@ -18,43 +18,7 @@ namespace NovaTerminal.Core
         {
             try
             {
-                var session = new NovaSession
-                {
-                    ActiveTabIndex = tabs.SelectedIndex
-                };
-
-                foreach (var item in tabs.Items)
-                {
-                    if (item is TabItem tabItem)
-                    {
-                        Control? rootControl = tabItem.Content as Control;
-                        if (window is MainWindow mw)
-                        {
-                            rootControl = mw.GetLayoutRootForTab(tabItem);
-                        }
-
-                        var tabSession = new TabSession
-                        {
-                            TabId = (window as MainWindow)?.GetPersistentTabId(tabItem).ToString(),
-                            Title = (tabItem.Header as TextBlock)?.Text ?? "Terminal",
-                            UserTitle = (window as MainWindow)?.GetTabUserTitle(tabItem),
-                            IsPinned = (window as MainWindow)?.IsTabPinned(tabItem) ?? false,
-                            IsProtected = (window as MainWindow)?.IsTabProtected(tabItem) ?? false,
-                            Root = BuildPaneTree(rootControl)
-                        };
-
-                        if (window is MainWindow mainWindow)
-                        {
-                            var activePaneId = mainWindow.GetActivePaneIdForTab(tabItem);
-                            var zoomedPaneId = mainWindow.GetZoomedPaneIdForTab(tabItem);
-                            tabSession.ActivePaneId = activePaneId?.ToString();
-                            tabSession.ZoomedPaneId = zoomedPaneId?.ToString();
-                            tabSession.BroadcastInputEnabled = mainWindow.IsBroadcastEnabledForTab(tabItem);
-                        }
-
-                        session.Tabs.Add(tabSession);
-                    }
-                }
+                var session = CaptureSession(window, tabs);
 
                 var json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
                 Directory.CreateDirectory(Path.GetDirectoryName(SessionPath)!);
@@ -65,6 +29,48 @@ namespace NovaTerminal.Core
                 // Silent failure or log to debug console
                 System.Diagnostics.Debug.WriteLine($"[SessionManager] Failed to save session: {ex}");
             }
+        }
+
+        public static NovaSession CaptureSession(Window window, TabControl tabs)
+        {
+            var session = new NovaSession
+            {
+                ActiveTabIndex = tabs.SelectedIndex
+            };
+
+            foreach (var item in tabs.Items)
+            {
+                if (item is not TabItem tabItem) continue;
+
+                Control? rootControl = tabItem.Content as Control;
+                if (window is MainWindow mw)
+                {
+                    rootControl = mw.GetLayoutRootForTab(tabItem);
+                }
+
+                var tabSession = new TabSession
+                {
+                    TabId = (window as MainWindow)?.GetPersistentTabId(tabItem).ToString(),
+                    Title = (tabItem.Header as TextBlock)?.Text ?? "Terminal",
+                    UserTitle = (window as MainWindow)?.GetTabUserTitle(tabItem),
+                    IsPinned = (window as MainWindow)?.IsTabPinned(tabItem) ?? false,
+                    IsProtected = (window as MainWindow)?.IsTabProtected(tabItem) ?? false,
+                    Root = BuildPaneTree(rootControl)
+                };
+
+                if (window is MainWindow mainWindow)
+                {
+                    var activePaneId = mainWindow.GetActivePaneIdForTab(tabItem);
+                    var zoomedPaneId = mainWindow.GetZoomedPaneIdForTab(tabItem);
+                    tabSession.ActivePaneId = activePaneId?.ToString();
+                    tabSession.ZoomedPaneId = zoomedPaneId?.ToString();
+                    tabSession.BroadcastInputEnabled = mainWindow.IsBroadcastEnabledForTab(tabItem);
+                }
+
+                session.Tabs.Add(tabSession);
+            }
+
+            return session;
         }
 
         private static PaneNode? BuildPaneTree(Control? control)
@@ -155,9 +161,21 @@ namespace NovaTerminal.Core
                 var session = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
 
                 if (session == null || session.Tabs.Count == 0) return;
+                RestoreSession(window, tabs, settings, session);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to restore session: {ex}");
+            }
+        }
+
+        public static void RestoreSession(Window window, TabControl tabs, TerminalSettings settings, NovaSession session)
+        {
+            try
+            {
+                if (session == null || session.Tabs.Count == 0) return;
 
                 tabs.Items.Clear();
-
                 foreach (var tabSession in session.Tabs)
                 {
                     var content = RestorePaneTree(tabSession.Root, settings);

@@ -479,6 +479,21 @@ namespace NovaTerminal
             PopulateTabListMenu();
         }
 
+        private string GetTabSwitchCommandLabel(TabItem tab)
+        {
+            var pane = ResolvePaneForTab(tab);
+            string title = GetTabHeaderText(tab);
+            string process = pane?.ShellCommand ?? "shell";
+            string cwd = pane?.CurrentWorkingDirectory ?? "";
+
+            if (!string.IsNullOrWhiteSpace(cwd))
+            {
+                return $"Switch Tab: {title} [{Path.GetFileName(cwd)} | {Path.GetFileName(process)}]";
+            }
+
+            return $"Switch Tab: {title} [{Path.GetFileName(process)}]";
+        }
+
         private async Task CloseOtherTabsAsync()
         {
             var tabs = this.FindControl<TabControl>("Tabs");
@@ -508,6 +523,79 @@ namespace NovaTerminal
             state.IsProtected = !state.IsProtected;
             UpdateTabVisuals(tab);
             PopulateTabListMenu();
+        }
+
+        private void ResetTabCollections()
+        {
+            _activePaneByTab.Clear();
+            _paneZoomStateByTab.Clear();
+            _zoomedPaneIdByTab.Clear();
+            _broadcastEnabledTabs.Clear();
+            _tabIds.Clear();
+            _layoutModelByTab.Clear();
+            _tabMru.Clear();
+            _tabStateByTab.Clear();
+            _pendingVisualRefreshTabs.Clear();
+        }
+
+        private void DisposeAllTabs(TabControl tabs)
+        {
+            foreach (var item in tabs.Items.Cast<TabItem>().ToList())
+            {
+                if (item.Content is Control content)
+                {
+                    DisposeControlTree(content);
+                }
+            }
+        }
+
+        private void ApplySessionSnapshot(NovaSession session)
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            DisposeAllTabs(tabs);
+            ResetTabCollections();
+            SessionManager.RestoreSession(this, tabs, _settings, session);
+            if (tabs.Items.Count > 0)
+            {
+                InitializeRestoredTabs(tabs);
+            }
+            SetupCommandPalette();
+        }
+
+        private async Task SaveWorkspaceInteractiveAsync()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            string suggested = $"workspace-{DateTime.Now:yyyyMMdd-HHmm}";
+            var name = await ShowTextPromptAsync("Save Workspace", "Workspace name", suggested);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var snapshot = SessionManager.CaptureSession(this, tabs);
+            if (WorkspaceManager.SaveWorkspace(name.Trim(), snapshot))
+            {
+                SetupCommandPalette();
+            }
+        }
+
+        private async Task LoadWorkspaceInteractiveAsync()
+        {
+            var names = WorkspaceManager.ListWorkspaceNames();
+            if (names.Count == 0) return;
+
+            var first = names[0];
+            var name = await ShowTextPromptAsync("Load Workspace", "Workspace name", first);
+            if (string.IsNullOrWhiteSpace(name)) return;
+            LoadWorkspaceByName(name.Trim());
+        }
+
+        private void LoadWorkspaceByName(string name)
+        {
+            var snapshot = WorkspaceManager.LoadWorkspace(name);
+            if (snapshot == null) return;
+            ApplySessionSnapshot(snapshot);
         }
 
         internal Guid? GetActivePaneIdForTab(TabItem tabItem)
@@ -984,72 +1072,16 @@ namespace NovaTerminal
             if (tabs != null)
             {
                 SessionManager.RestoreSession(this, tabs, _settings);
-                foreach (var item in tabs.Items.Cast<TabItem>())
-                {
-                    GetTabId(item);
-                    GetOrCreateTabState(item);
-                    if (item.Content is Control c) WireControlTree(c);
-                }
 
                 // If restore failed or was empty, load default tab
                 if (tabs.Items.Count == 0)
                 {
                     AddTab(defaultProfile);
                 }
-                else if (tabs.SelectedItem is TabItem selected)
+                else
                 {
-                    // Seed per-tab active pane mapping from restored layout.
-                    foreach (var item in tabs.Items.Cast<TabItem>())
-                    {
-                        if (item.Content is Control c)
-                        {
-                            TerminalPane? active = null;
-                            if (item.Tag is TabSession saved &&
-                                !string.IsNullOrWhiteSpace(saved.ActivePaneId) &&
-                                Guid.TryParse(saved.ActivePaneId, out var activeId))
-                            {
-                                active = FindPaneById(c, activeId);
-                            }
-
-                            active ??= FindFirstPane(c);
-                            if (active != null) _activePaneByTab[item] = active;
-
-                            if (item.Tag is TabSession savedSession && savedSession.BroadcastInputEnabled)
-                            {
-                                _broadcastEnabledTabs.Add(item);
-                            }
-                        }
-                    }
-
-                    foreach (var item in tabs.Items.Cast<TabItem>())
-                    {
-                        if (item.Tag is not TabSession saved ||
-                            string.IsNullOrWhiteSpace(saved.ZoomedPaneId) ||
-                            !Guid.TryParse(saved.ZoomedPaneId, out var zoomedPaneId) ||
-                            item.Content is not Control c)
-                        {
-                            continue;
-                        }
-
-                        var zoomPane = FindPaneById(c, zoomedPaneId);
-                        if (zoomPane != null)
-                        {
-                            EnterPaneZoom(item, zoomPane, publishEvent: false);
-                        }
-                    }
-
-                    var selectedPane = ResolvePaneForTab(selected);
-                    if (selectedPane != null)
-                    {
-                        UpdateActivePane(selectedPane);
-                        FocusPaneTerminal(selectedPane, defer: true);
-                    }
+                    InitializeRestoredTabs(tabs);
                 }
-                UpdatePaneAutomationLabels();
-                UpdateBroadcastIndicator();
-                RefreshAllLayoutModels();
-                CleanupTabMru(tabs);
-                PopulateTabListMenu();
             }
             else
             {
@@ -1203,6 +1235,71 @@ namespace NovaTerminal
             }, RoutingStrategies.Tunnel);
 
             try { Vault = new VaultService(); } catch { }
+        }
+
+        private void InitializeRestoredTabs(TabControl tabs)
+        {
+            foreach (var item in tabs.Items.Cast<TabItem>())
+            {
+                GetTabId(item);
+                GetOrCreateTabState(item);
+                if (item.Content is Control c) WireControlTree(c);
+            }
+
+            foreach (var item in tabs.Items.Cast<TabItem>())
+            {
+                if (item.Content is not Control c) continue;
+
+                TerminalPane? active = null;
+                if (item.Tag is TabSession saved &&
+                    !string.IsNullOrWhiteSpace(saved.ActivePaneId) &&
+                    Guid.TryParse(saved.ActivePaneId, out var activeId))
+                {
+                    active = FindPaneById(c, activeId);
+                }
+
+                active ??= FindFirstPane(c);
+                if (active != null) _activePaneByTab[item] = active;
+
+                if (item.Tag is TabSession savedSession && savedSession.BroadcastInputEnabled)
+                {
+                    _broadcastEnabledTabs.Add(item);
+                }
+            }
+
+            foreach (var item in tabs.Items.Cast<TabItem>())
+            {
+                if (item.Tag is not TabSession saved ||
+                    string.IsNullOrWhiteSpace(saved.ZoomedPaneId) ||
+                    !Guid.TryParse(saved.ZoomedPaneId, out var zoomedPaneId) ||
+                    item.Content is not Control c)
+                {
+                    continue;
+                }
+
+                var zoomPane = FindPaneById(c, zoomedPaneId);
+                if (zoomPane != null)
+                {
+                    EnterPaneZoom(item, zoomPane, publishEvent: false);
+                }
+            }
+
+            if (tabs.SelectedItem is TabItem selected)
+            {
+                var selectedPane = ResolvePaneForTab(selected);
+                if (selectedPane != null)
+                {
+                    UpdateActivePane(selectedPane);
+                    FocusPaneTerminal(selectedPane, defer: true);
+                }
+            }
+
+            UpdateTabVisuals();
+            UpdatePaneAutomationLabels();
+            UpdateBroadcastIndicator();
+            RefreshAllLayoutModels();
+            CleanupTabMru(tabs);
+            PopulateTabListMenu();
         }
 
         private void HandleSshSync()
@@ -2415,6 +2512,28 @@ namespace NovaTerminal
                 }
             }
 
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs != null)
+            {
+                foreach (var tab in tabs.Items.Cast<TabItem>())
+                {
+                    var capturedTab = tab;
+                    string label = GetTabSwitchCommandLabel(capturedTab);
+                    CommandRegistry.Register(label, "Tabs", () =>
+                    {
+                        tabs.SelectedItem = capturedTab;
+                    }, "");
+                }
+            }
+
+            CommandRegistry.Register("Workspace: Save Current", "Workspace", () => _ = SaveWorkspaceInteractiveAsync(), "");
+            CommandRegistry.Register("Workspace: Load...", "Workspace", () => _ = LoadWorkspaceInteractiveAsync(), "");
+            foreach (var workspaceName in WorkspaceManager.ListWorkspaceNames())
+            {
+                string capturedName = workspaceName;
+                CommandRegistry.Register($"Workspace: Load {capturedName}", "Workspace", () => LoadWorkspaceByName(capturedName), "");
+            }
+
             CommandRegistry.Register("Close Tab", "General", () => CloseActiveTab(), "Ctrl+W");
             CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), "Ctrl+Shift+W");
             CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), "Ctrl+Tab");
@@ -2676,6 +2795,7 @@ namespace NovaTerminal
                 // Opening
                 if (box != null && list != null)
                 {
+                    SetupCommandPalette();
                     box.Text = "";
                     list.ItemsSource = CommandRegistry.GetCommands().OrderBy(c => c.Category).ThenBy(c => c.Title).ToList();
                     list.SelectedIndex = 0;
