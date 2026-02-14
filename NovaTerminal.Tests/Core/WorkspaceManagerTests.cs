@@ -86,6 +86,50 @@ public sealed class WorkspaceManagerTests
     }
 
     [Fact]
+    public void SaveAndLoadWorkspaceTemplate_RoundTripsSessionPayload()
+    {
+        using var policyScope = PolicyFileScope.WithDefault();
+        string templateName = $"tabs_tpl_{Guid.NewGuid():N}";
+
+        try
+        {
+            var source = BuildSession(tabCount: 2);
+            bool saved = WorkspaceManager.SaveWorkspaceTemplate(templateName, source);
+            Assert.True(saved);
+
+            var restored = WorkspaceManager.LoadWorkspaceTemplate(templateName);
+            Assert.NotNull(restored);
+            Assert.Equal(source.Tabs.Count, restored!.Tabs.Count);
+            Assert.Equal("Work", restored.Tabs[0].UserTitle);
+            Assert.Equal("Work 2", restored.Tabs[1].UserTitle);
+        }
+        finally
+        {
+            DeleteWorkspaceTemplateFile(templateName);
+        }
+    }
+
+    [Fact]
+    public void ListWorkspaceTemplateNames_ReturnsSavedTemplate()
+    {
+        using var policyScope = PolicyFileScope.WithDefault();
+        string templateName = $"tabs_tpl_{Guid.NewGuid():N}";
+
+        try
+        {
+            bool saved = WorkspaceManager.SaveWorkspaceTemplate(templateName, BuildSession());
+            Assert.True(saved);
+
+            var names = WorkspaceManager.ListWorkspaceTemplateNames();
+            Assert.Contains(templateName, names);
+        }
+        finally
+        {
+            DeleteWorkspaceTemplateFile(templateName);
+        }
+    }
+
+    [Fact]
     public void ExportImportBundle_RoundTrips_AndWritesAudit()
     {
         using var policyScope = PolicyFileScope.WithDefault();
@@ -273,6 +317,15 @@ public sealed class WorkspaceManagerTests
     private static void DeleteWorkspaceFile(string name)
     {
         string path = Path.Combine(AppPaths.WorkspacesDirectory, $"{SanitizeName(name)}.json");
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static void DeleteWorkspaceTemplateFile(string name)
+    {
+        string path = Path.Combine(AppPaths.WorkspaceTemplatesDirectory, $"{SanitizeName(name)}.json");
         if (File.Exists(path))
         {
             File.Delete(path);

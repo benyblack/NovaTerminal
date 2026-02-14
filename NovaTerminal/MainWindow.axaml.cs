@@ -891,6 +891,33 @@ namespace NovaTerminal
             LoadWorkspaceByName(name.Trim());
         }
 
+        private async Task SaveWorkspaceTemplateInteractiveAsync()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null) return;
+
+            string suggested = $"template-{DateTime.Now:yyyyMMdd-HHmm}";
+            var name = await ShowTextPromptAsync("Save Workspace Template", "Template name", suggested);
+            if (string.IsNullOrWhiteSpace(name)) return;
+
+            var snapshot = SessionManager.CaptureSession(this, tabs);
+            if (WorkspaceManager.SaveWorkspaceTemplate(name.Trim(), snapshot))
+            {
+                SetupCommandPalette();
+            }
+        }
+
+        private async Task LoadWorkspaceTemplateInteractiveAsync()
+        {
+            var names = WorkspaceManager.ListWorkspaceTemplateNames();
+            if (names.Count == 0) return;
+
+            var first = names[0];
+            var name = await ShowTextPromptAsync("Apply Workspace Template", "Template name", first);
+            if (string.IsNullOrWhiteSpace(name)) return;
+            ApplyWorkspaceTemplateByName(name.Trim());
+        }
+
         private async Task ExportWorkspaceBundleInteractiveAsync()
         {
             if (!WorkspacePolicyManager.Current.AllowWorkspaceBundleExport)
@@ -974,6 +1001,13 @@ namespace NovaTerminal
         private void LoadWorkspaceByName(string name)
         {
             var snapshot = WorkspaceManager.LoadWorkspace(name);
+            if (snapshot == null) return;
+            ApplySessionSnapshot(snapshot);
+        }
+
+        private void ApplyWorkspaceTemplateByName(string name)
+        {
+            var snapshot = WorkspaceManager.LoadWorkspaceTemplate(name);
             if (snapshot == null) return;
             ApplySessionSnapshot(snapshot);
         }
@@ -2953,6 +2987,8 @@ namespace NovaTerminal
 
             CommandRegistry.Register("Workspace: Save Current", "Workspace", () => _ = SaveWorkspaceInteractiveAsync(), "");
             CommandRegistry.Register("Workspace: Load...", "Workspace", () => _ = LoadWorkspaceInteractiveAsync(), "");
+            CommandRegistry.Register("Workspace Template: Save Current", "Workspace", () => _ = SaveWorkspaceTemplateInteractiveAsync(), "");
+            CommandRegistry.Register("Workspace Template: Apply...", "Workspace", () => _ = LoadWorkspaceTemplateInteractiveAsync(), "");
             var workspacePolicy = WorkspacePolicyManager.Current;
             if (workspacePolicy.AllowWorkspaceBundleExport)
             {
@@ -2966,6 +3002,11 @@ namespace NovaTerminal
             {
                 string capturedName = workspaceName;
                 CommandRegistry.Register($"Workspace: Load {capturedName}", "Workspace", () => LoadWorkspaceByName(capturedName), "");
+            }
+            foreach (var templateName in WorkspaceManager.ListWorkspaceTemplateNames())
+            {
+                string capturedTemplate = templateName;
+                CommandRegistry.Register($"Workspace Template: Apply {capturedTemplate}", "Workspace", () => ApplyWorkspaceTemplateByName(capturedTemplate), "");
             }
 
             CommandRegistry.Register("Close Tab", "General", () => CloseActiveTab(), "Ctrl+W");

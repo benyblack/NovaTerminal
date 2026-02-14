@@ -11,6 +11,7 @@ namespace NovaTerminal.Core
     public static class WorkspaceManager
     {
         private static string WorkspacesDir => AppPaths.WorkspacesDirectory;
+        private static string WorkspaceTemplatesDir => AppPaths.WorkspaceTemplatesDirectory;
 
         public static IReadOnlyList<string> ListWorkspaceNames()
         {
@@ -46,6 +47,45 @@ namespace NovaTerminal.Core
             catch
             {
                 return false;
+            }
+        }
+
+        public static bool SaveWorkspaceTemplate(string name, NovaSession session)
+        {
+            try
+            {
+                string safeName = SanitizeName(name);
+                if (string.IsNullOrWhiteSpace(safeName)) return false;
+
+                Directory.CreateDirectory(WorkspaceTemplatesDir);
+                string path = Path.Combine(WorkspaceTemplatesDir, safeName + ".json");
+                string json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
+                File.WriteAllText(path, json);
+                AppendWorkspaceAudit("workspace-template-save", safeName, success: true, $"path={path}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AppendWorkspaceAudit("workspace-template-save", name, success: false, ex.Message);
+                return false;
+            }
+        }
+
+        public static IReadOnlyList<string> ListWorkspaceTemplateNames()
+        {
+            try
+            {
+                if (!Directory.Exists(WorkspaceTemplatesDir)) return Array.Empty<string>();
+                return Directory.GetFiles(WorkspaceTemplatesDir, "*.json")
+                    .Select(Path.GetFileNameWithoutExtension)
+                    .Where(name => !string.IsNullOrWhiteSpace(name))
+                    .Select(name => name!)
+                    .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+            catch
+            {
+                return Array.Empty<string>();
             }
         }
 
@@ -207,6 +247,25 @@ namespace NovaTerminal.Core
                 if (string.IsNullOrWhiteSpace(safeName)) return null;
 
                 string path = Path.Combine(WorkspacesDir, safeName + ".json");
+                if (!File.Exists(path)) return null;
+
+                string json = File.ReadAllText(path);
+                return JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public static NovaSession? LoadWorkspaceTemplate(string name)
+        {
+            try
+            {
+                string safeName = SanitizeName(name);
+                if (string.IsNullOrWhiteSpace(safeName)) return null;
+
+                string path = Path.Combine(WorkspaceTemplatesDir, safeName + ".json");
                 if (!File.Exists(path)) return null;
 
                 string json = File.ReadAllText(path);
