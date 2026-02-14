@@ -289,6 +289,9 @@ jobs:
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Run Render Metrics Tests
+        env:
+          WRITE_METRICS_ARTIFACTS: "1"
+          METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=RenderMetrics" --logger "trx;LogFileName=render_metrics.trx"
 
       - name: Upload render metrics
@@ -329,6 +332,9 @@ jobs:
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Run tab perf smoke
+        env:
+          WRITE_METRICS_ARTIFACTS: "1"
+          METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=Performance|Category=Latency" --logger "trx;LogFileName=tab_perf_smoke.trx"
 
       - name: Upload tab perf smoke artifacts
@@ -337,7 +343,9 @@ jobs:
         with:
           name: tab-perf-smoke
           retention-days: 5
-          path: "**/*tab_perf_smoke.trx"
+          path: |
+            **/*tab_perf_smoke.trx
+            artifacts/metrics/**
 
   nightly_tab_stress:
     name: Nightly Tab Stress
@@ -367,6 +375,9 @@ jobs:
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Run stress lanes
+        env:
+          WRITE_METRICS_ARTIFACTS: "1"
+          METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=Stress|Category=Performance|Category=Latency|Category=RenderMetrics" --logger "trx;LogFileName=nightly_tab_stress.trx"
 
       - name: Upload nightly stress artifacts

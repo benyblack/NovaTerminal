@@ -52,6 +52,8 @@ namespace NovaTerminal.Tests.RenderTests
             Assert.Equal(4, RendererStatistics.SessionRestoreTimeMs);
             Assert.Equal(1, RendererStatistics.SessionRestoreSamples);
             Assert.Equal(2200, RendererStatistics.SessionRestoreBytes);
+
+            MetricsArtifactWriter.WriteRendererStatisticsSnapshot("render_metrics");
         }
 
         [Fact]
@@ -69,6 +71,8 @@ namespace NovaTerminal.Tests.RenderTests
             Assert.Equal(1, RendererStatistics.TerminalViewActiveTimerCount);
             Assert.Equal(2, RendererStatistics.TerminalViewPeakTimerCount);
             Assert.Equal(2, RendererStatistics.HiddenInvalidationRequests);
+
+            MetricsArtifactWriter.WriteRendererStatisticsSnapshot("terminal_view_visibility_metrics");
         }
 
         // Note: We cannot easily unit test the actual TerminalView rendering loop here 
