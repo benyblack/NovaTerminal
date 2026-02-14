@@ -36,6 +36,8 @@ namespace NovaTerminal.Controls
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
         public string? CurrentOscTitle { get; private set; }
+        public int? LastExitCode { get; private set; }
+        public bool IsProcessRunning => Session?.IsProcessRunning ?? false;
 
         public string GetBaseTabTitle()
         {
@@ -169,9 +171,11 @@ namespace NovaTerminal.Controls
             // Wire up focus syncing
             TermView.GotFocus += (s, e) => UpdateFocusVisuals(true);
             TermView.LostFocus += (s, e) => UpdateFocusVisuals(false);
+            TermView.MetricsChanged += (cw, ch) => UpdateMinimumSizeConstraints();
 
             // Load Settings
             ApplySettings(TerminalSettings.Load());
+            UpdateMinimumSizeConstraints();
 
             // SFTP Context Menu
             var contextMenu = RootGrid.ContextMenu;
@@ -273,6 +277,10 @@ namespace NovaTerminal.Controls
                 Session = new RustPtySession(effectiveShell, cols, rows, args, startingDir);
 
                 TermView.SetSession(Session);
+                Session.OnExit += code =>
+                {
+                    Dispatcher.UIThread.Post(() => LastExitCode = code);
+                };
             }
             catch (Exception ex)
             {
@@ -349,6 +357,7 @@ namespace NovaTerminal.Controls
             };
 
             TermView.ApplySettings(effectiveSettings);
+            UpdateMinimumSizeConstraints();
 
             // Sync metrics to parser after settings change (font size, etc.)
             if (Parser != null)
@@ -505,6 +514,22 @@ namespace NovaTerminal.Controls
 
             // Re-render to ensure cursor state updates
             TermView.InvalidateVisual();
+        }
+
+        public (double MinWidth, double MinHeight) GetMinimumPaneSize()
+        {
+            UpdateMinimumSizeConstraints();
+            return (MinWidth, MinHeight);
+        }
+
+        private void UpdateMinimumSizeConstraints()
+        {
+            float cellWidth = TermView.Metrics.CellWidth > 0 ? TermView.Metrics.CellWidth : 8f;
+            float cellHeight = TermView.Metrics.CellHeight > 0 ? TermView.Metrics.CellHeight : 18f;
+
+            // UX spec: minimum 20 cols x 5 rows.
+            MinWidth = Math.Ceiling((cellWidth * 20) + 4);
+            MinHeight = Math.Ceiling(cellHeight * 5);
         }
 
         protected override void OnKeyDown(KeyEventArgs e)

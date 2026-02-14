@@ -831,6 +831,7 @@ namespace NovaTerminal.Core
         private const int ResizeThrottleMs = 100; // Minimum ms between PTY resizes
         private int _pendingCols = 0;
         private int _pendingRows = 0;
+        private DateTime _pendingResizeStartedAt = DateTime.MinValue;
 
         private void StartAutoScroll(int direction)
         {
@@ -963,6 +964,10 @@ namespace NovaTerminal.Core
                             // INTERVAL-BASED THROTTLE: Send resize if enough time passed, otherwise schedule
                             _pendingCols = cols;
                             _pendingRows = rows;
+                            if (_pendingResizeStartedAt == DateTime.MinValue)
+                            {
+                                _pendingResizeStartedAt = DateTime.UtcNow;
+                            }
 
                             var now = DateTime.Now;
                             var elapsed = (now - _lastPtyResizeTime).TotalMilliseconds;
@@ -1016,6 +1021,12 @@ namespace NovaTerminal.Core
                     _rowCache.RequestClear();
                     Console.WriteLine($"[TerminalView] Throttled resize sent: {_pendingCols}x{_pendingRows}");
                     OnResize?.Invoke(_pendingCols, _pendingRows);
+                    if (_pendingResizeStartedAt != DateTime.MinValue)
+                    {
+                        long latencyMs = (long)Math.Max(0, (DateTime.UtcNow - _pendingResizeStartedAt).TotalMilliseconds);
+                        RendererStatistics.RecordResizeDispatchLatency(latencyMs);
+                        _pendingResizeStartedAt = DateTime.MinValue;
+                    }
 
                     InvalidateBuffer();
                 }

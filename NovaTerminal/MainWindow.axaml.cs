@@ -29,6 +29,7 @@ namespace NovaTerminal
         private readonly Dictionary<TabItem, TerminalPane> _activePaneByTab = new();
         private TerminalSettings _settings;
         private GlobalHotkey? _globalHotkey;
+        private bool _closePaneInProgress;
 
         protected override void OnOpened(EventArgs e)
         {
@@ -404,13 +405,15 @@ namespace NovaTerminal
                 }
                 if (IsShortcut(e, "split_vertical", "Ctrl+Shift+D"))
                 {
-                    SplitPane(Avalonia.Layout.Orientation.Vertical);
+                    // "Split Vertical" means a vertical divider (side-by-side panes).
+                    SplitPane(Avalonia.Layout.Orientation.Horizontal);
                     e.Handled = true;
                     return;
                 }
                 if (IsShortcut(e, "split_horizontal", "Ctrl+Shift+E"))
                 {
-                    SplitPane(Avalonia.Layout.Orientation.Horizontal);
+                    // "Split Horizontal" means a horizontal divider (stacked panes).
+                    SplitPane(Avalonia.Layout.Orientation.Vertical);
                     e.Handled = true;
                     return;
                 }
@@ -551,19 +554,35 @@ namespace NovaTerminal
             if (start == null || start.Parent is not Grid parentGrid) return false;
             int r = Grid.GetRow(start);
             int c = Grid.GetColumn(start);
-            int targetR = r, targetC = c;
+
+            int rowStep = 0;
+            int colStep = 0;
             switch (dir)
             {
-                case MoveDirection.Left: targetC--; break;
-                case MoveDirection.Right: targetC++; break;
-                case MoveDirection.Up: targetR--; break;
-                case MoveDirection.Down: targetR++; break;
+                case MoveDirection.Left: colStep = -1; break;
+                case MoveDirection.Right: colStep = 1; break;
+                case MoveDirection.Up: rowStep = -1; break;
+                case MoveDirection.Down: rowStep = 1; break;
             }
-            var sibling = parentGrid.Children.FirstOrDefault(x => Grid.GetRow(x as Control) == targetR && Grid.GetColumn(x as Control) == targetC) as Control;
-            if (sibling != null)
+
+            int probeR = r + rowStep;
+            int probeC = c + colStep;
+            while (probeR >= 0 && probeC >= 0)
             {
+                Control? sibling = parentGrid.Children
+                    .OfType<Control>()
+                    .FirstOrDefault(x => Grid.GetRow(x) == probeR && Grid.GetColumn(x) == probeC);
+                if (sibling == null) break;
+                if (sibling is GridSplitter)
+                {
+                    probeR += rowStep;
+                    probeC += colStep;
+                    continue;
+                }
+
+                var before = _currentPane;
                 FocusFirstPane(sibling);
-                return true;
+                return _currentPane != null && _currentPane != before;
             }
             if (parentGrid.Parent is Control grandParent && (grandParent is Grid || grandParent is ContentPresenter || grandParent is TabItem))
                 return NavigatePaneRecursive(parentGrid, dir);
@@ -603,62 +622,179 @@ namespace NovaTerminal
 
         private void CloseActivePane()
         {
-            if (_currentPane == null) return;
+            _ = CloseActivePaneAsync();
+        }
 
-            // Check if we are in a split (Parent is Grid with multiple children/splitter)
-            if (_currentPane.Parent is Grid parentGrid && parentGrid.Children.Count >= 2)
+        private async Task CloseActivePaneAsync()
+        {
+            if (_closePaneInProgress || _currentPane == null) return;
+            _closePaneInProgress = true;
+
+            try
             {
-                // We are in a split!
-                // 1. Identify Sibling (The non-splitter control that isn't us)
-                var sibling = parentGrid.Children.OfType<Control>()
-                                    .FirstOrDefault(c => c != _currentPane && !(c is GridSplitter));
-
-                if (sibling != null)
+                var paneToClose = _currentPane;
+                if (paneToClose == null) return;
+                if (!await ShouldClosePaneAsync(paneToClose))
                 {
-                    // 2. Identify Grandparent
-                    var grandParent = parentGrid.Parent;
-
-                    // 3. Detach visuals
-                    parentGrid.Children.Clear();
-
-                    // 4. Promote Sibling to Grandparent
-                    if (grandParent is ContentPresenter cp) cp.Content = sibling;
-                    else if (grandParent is TabItem tab) tab.Content = sibling;
-                    else if (grandParent is Grid gpGrid)
-                    {
-                        Grid.SetRow(sibling, Grid.GetRow(parentGrid));
-                        Grid.SetColumn(sibling, Grid.GetColumn(parentGrid));
-                        Grid.SetRowSpan(sibling, Grid.GetRowSpan(parentGrid));
-                        Grid.SetColumnSpan(sibling, Grid.GetColumnSpan(parentGrid));
-
-                        int index = gpGrid.Children.IndexOf(parentGrid);
-                        if (index >= 0)
-                        {
-                            gpGrid.Children.RemoveAt(index);
-                            gpGrid.Children.Insert(index, sibling);
-                        }
-                        else gpGrid.Children.Add(sibling);
-                    }
-                    else if (grandParent is Panel p)
-                    {
-                        int index = p.Children.IndexOf(parentGrid);
-                        p.Children.Remove(parentGrid);
-                        if (index >= 0) p.Children.Insert(index, sibling);
-                        else p.Children.Add(sibling);
-                    }
-
-                    // 5. Dispose the closed pane
-                    DisposeControlTree(_currentPane);
-
-                    // 6. Focus Sibling
-                    FocusFirstPane(sibling);
+                    FocusPaneTerminal(paneToClose, defer: true);
                     return;
                 }
-            }
 
-            // Fallback: If not in a split, close the tab
-            var tabs = this.FindControl<TabControl>("Tabs");
-            if (tabs?.SelectedItem is TabItem ti) CloseTab(ti);
+                // Check if we are in a split (Parent is Grid with multiple children/splitter)
+                if (paneToClose.Parent is Grid parentGrid && parentGrid.Children.Count >= 2)
+                {
+                    // We are in a split!
+                    // 1. Identify Sibling (The non-splitter control that isn't us)
+                    var sibling = parentGrid.Children.OfType<Control>()
+                                        .FirstOrDefault(c => c != paneToClose && !(c is GridSplitter));
+
+                    if (sibling != null)
+                    {
+                        // 2. Identify Grandparent
+                        var grandParent = parentGrid.Parent;
+
+                        // 3. Detach visuals
+                        parentGrid.Children.Clear();
+
+                        // 4. Promote Sibling to Grandparent
+                        if (grandParent is ContentPresenter cp) cp.Content = sibling;
+                        else if (grandParent is TabItem tab) tab.Content = sibling;
+                        else if (grandParent is Grid gpGrid)
+                        {
+                            Grid.SetRow(sibling, Grid.GetRow(parentGrid));
+                            Grid.SetColumn(sibling, Grid.GetColumn(parentGrid));
+                            Grid.SetRowSpan(sibling, Grid.GetRowSpan(parentGrid));
+                            Grid.SetColumnSpan(sibling, Grid.GetColumnSpan(parentGrid));
+
+                            int index = gpGrid.Children.IndexOf(parentGrid);
+                            if (index >= 0)
+                            {
+                                gpGrid.Children.RemoveAt(index);
+                                gpGrid.Children.Insert(index, sibling);
+                            }
+                            else gpGrid.Children.Add(sibling);
+                        }
+                        else if (grandParent is Panel p)
+                        {
+                            int index = p.Children.IndexOf(parentGrid);
+                            p.Children.Remove(parentGrid);
+                            if (index >= 0) p.Children.Insert(index, sibling);
+                            else p.Children.Add(sibling);
+                        }
+
+                        // 5. Dispose the closed pane
+                        DisposeControlTree(paneToClose);
+
+                        // 6. Focus Sibling
+                        FocusFirstPane(sibling);
+                        return;
+                    }
+                }
+
+                // Fallback: If not in a split, close the tab
+                var tabs = this.FindControl<TabControl>("Tabs");
+                if (tabs?.SelectedItem is TabItem ti) CloseTab(ti);
+            }
+            finally
+            {
+                _closePaneInProgress = false;
+            }
+        }
+
+        private async Task<bool> ShouldClosePaneAsync(TerminalPane pane)
+        {
+            if (!pane.IsProcessRunning) return true;
+
+            string policy = (_settings.PaneClosePolicy ?? "Confirm").Trim().ToLowerInvariant();
+            switch (policy)
+            {
+                case "force":
+                    return true;
+                case "graceful":
+                    try
+                    {
+                        pane.Session?.SendInput("\x03");
+                        pane.Session?.SendInput("exit\r");
+                    }
+                    catch { }
+
+                    await Task.Delay(150);
+                    if (!pane.IsProcessRunning) return true;
+                    return await ShowRunningProcessCloseConfirmationAsync("Process is still running in this pane.");
+                default:
+                    return await ShowRunningProcessCloseConfirmationAsync("Closing this pane will terminate the running process.");
+            }
+        }
+
+        private async Task<bool> ShowRunningProcessCloseConfirmationAsync(string message)
+        {
+            bool confirmed = false;
+
+            var dialog = new Window
+            {
+                Title = "Close Running Pane",
+                Width = 460,
+                Height = 190,
+                CanResize = false,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+
+            var messageBlock = new TextBlock
+            {
+                Text = message,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 14)
+            };
+
+            var cancelButton = new Button
+            {
+                Content = "Cancel",
+                Width = 92
+            };
+            cancelButton.Click += (_, __) =>
+            {
+                confirmed = false;
+                dialog.Close();
+            };
+
+            var closeButton = new Button
+            {
+                Content = "Close Pane",
+                Width = 110
+            };
+            closeButton.Click += (_, __) =>
+            {
+                confirmed = true;
+                dialog.Close();
+            };
+
+            dialog.Content = new Border
+            {
+                Padding = new Thickness(16),
+                Child = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = "A process is still running.",
+                            FontWeight = FontWeight.SemiBold
+                        },
+                        messageBlock,
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Spacing = 8,
+                            Children = { cancelButton, closeButton }
+                        }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
+            return confirmed;
         }
 
         private void DisposeControlTree(Control control)
@@ -837,6 +973,7 @@ namespace NovaTerminal
             if (_currentPane == null) return;
             var originalPane = _currentPane;
             var parent = originalPane.Parent as Panel;
+            var (minPaneWidth, minPaneHeight) = originalPane.GetMinimumPaneSize();
 
             // CAPTURE coordinates before we reset them for the new nested grid!
             int oldRow = Grid.GetRow(originalPane);
@@ -855,15 +992,19 @@ namespace NovaTerminal
             }
 
             newPane.ApplySettings(_settings);
+            newPane.MinWidth = Math.Max(newPane.MinWidth, minPaneWidth);
+            newPane.MinHeight = Math.Max(newPane.MinHeight, minPaneHeight);
+            originalPane.MinWidth = Math.Max(originalPane.MinWidth, minPaneWidth);
+            originalPane.MinHeight = Math.Max(originalPane.MinHeight, minPaneHeight);
             var grid = new Grid { Background = Brushes.Transparent, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Stretch };
 
             var dividerBrush = new SolidColorBrush(Color.FromRgb(35, 35, 35)); // Even more subtle
 
             if (orientation == Avalonia.Layout.Orientation.Horizontal)
             {
-                grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
+                grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star) { MinWidth = minPaneWidth });
                 grid.ColumnDefinitions.Add(new ColumnDefinition(3, GridUnitType.Pixel)); // 3px hit area
-                grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
+                grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star) { MinWidth = minPaneWidth });
 
                 var splitter = new GridSplitter
                 {
@@ -881,9 +1022,9 @@ namespace NovaTerminal
             }
             else
             {
-                grid.RowDefinitions.Add(new RowDefinition(1, GridUnitType.Star));
+                grid.RowDefinitions.Add(new RowDefinition(1, GridUnitType.Star) { MinHeight = minPaneHeight });
                 grid.RowDefinitions.Add(new RowDefinition(3, GridUnitType.Pixel)); // 3px hit area
-                grid.RowDefinitions.Add(new RowDefinition(1, GridUnitType.Star));
+                grid.RowDefinitions.Add(new RowDefinition(1, GridUnitType.Star) { MinHeight = minPaneHeight });
 
                 var splitter = new GridSplitter
                 {
@@ -1065,8 +1206,11 @@ namespace NovaTerminal
             }
 
             CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), "Ctrl+Shift+W");
-            CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Vertical), "Ctrl+Shift+D");
-            CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+E");
+            // Keep command naming aligned with common terminal UX:
+            // Vertical split => vertical divider => side-by-side panes.
+            CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+D");
+            // Horizontal split => horizontal divider => stacked panes.
+            CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Vertical), "Ctrl+Shift+E");
             CommandRegistry.Register("Find in Terminal", "Edit", () => _currentPane?.ToggleSearch(), "Ctrl+Shift+F");
             CommandRegistry.Register("Paste", "Edit", () => _ = PasteFromClipboardAsync(), "Ctrl+V");
             CommandRegistry.Register("Font: Increase", "View", () => { _settings.FontSize++; ApplySettingsToAllTabs(); _settings.Save(); }, "Ctrl++");
