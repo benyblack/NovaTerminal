@@ -42,6 +42,7 @@ namespace NovaTerminal
         private GlobalHotkey? _globalHotkey;
         private bool _closePaneInProgress;
         private bool _closeTabInProgress;
+        private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
 
         private sealed class PaneZoomState
         {
@@ -56,6 +57,7 @@ namespace NovaTerminal
             public bool IsProtected { get; set; }
             public bool HasActivity { get; set; }
             public bool HasBell { get; set; }
+            public DateTime LastBellUtc { get; set; }
             public int? LastExitCode { get; set; }
         }
 
@@ -1593,6 +1595,8 @@ namespace NovaTerminal
             pane.PaneActionRequested -= OnPaneActionRequested;
             pane.OutputReceived -= OnPaneOutputReceived;
             pane.BellReceived -= OnPaneBellReceived;
+            pane.CommandStarted -= OnPaneCommandStarted;
+            pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
 
             pane.RequestSftpTransfer += OnPaneRequestSftpTransfer;
@@ -1601,6 +1605,8 @@ namespace NovaTerminal
             pane.PaneActionRequested += OnPaneActionRequested;
             pane.OutputReceived += OnPaneOutputReceived;
             pane.BellReceived += OnPaneBellReceived;
+            pane.CommandStarted += OnPaneCommandStarted;
+            pane.CommandFinished += OnPaneCommandFinished;
             pane.ProcessExited += OnPaneProcessExited;
         }
 
@@ -1612,6 +1618,8 @@ namespace NovaTerminal
             pane.PaneActionRequested -= OnPaneActionRequested;
             pane.OutputReceived -= OnPaneOutputReceived;
             pane.BellReceived -= OnPaneBellReceived;
+            pane.CommandStarted -= OnPaneCommandStarted;
+            pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
         }
 
@@ -1655,9 +1663,38 @@ namespace NovaTerminal
             if (!TryGetSelectedTab(out var selectedTab) || selectedTab != tab)
             {
                 var state = GetOrCreateTabState(tab);
+                var now = DateTime.UtcNow;
+                if ((now - state.LastBellUtc) < BellDebounceWindow)
+                {
+                    return;
+                }
+
+                state.LastBellUtc = now;
                 state.HasBell = true;
                 QueueTabVisualRefresh(tab);
             }
+        }
+
+        private void OnPaneCommandStarted(TerminalPane pane)
+        {
+            var tab = pane.FindAncestorOfType<TabItem>();
+            if (tab == null) return;
+
+            var state = GetOrCreateTabState(tab);
+            state.LastExitCode = null;
+            QueueTabVisualRefresh(tab);
+        }
+
+        private void OnPaneCommandFinished(TerminalPane pane, int? exitCode)
+        {
+            if (!exitCode.HasValue) return;
+
+            var tab = pane.FindAncestorOfType<TabItem>();
+            if (tab == null) return;
+
+            var state = GetOrCreateTabState(tab);
+            state.LastExitCode = exitCode.Value;
+            QueueTabVisualRefresh(tab);
         }
 
         private void OnPaneProcessExited(TerminalPane pane, int exitCode)
@@ -2389,7 +2426,7 @@ namespace NovaTerminal
                         tb.Text = profileName;
                     }
 
-                    if (state.LastExitCode.HasValue && (pane == null || !pane.IsProcessRunning))
+                    if (state.LastExitCode.HasValue)
                     {
                         string statusGlyph = state.LastExitCode.Value == 0 ? " ✓" : $" ✖{state.LastExitCode.Value}";
                         tb.Text += statusGlyph;

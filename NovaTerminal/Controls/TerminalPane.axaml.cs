@@ -43,6 +43,8 @@ namespace NovaTerminal.Controls
         public event Action<TerminalPane, PaneAction>? PaneActionRequested;
         public event Action<TerminalPane>? OutputReceived;
         public event Action<TerminalPane>? BellReceived;
+        public event Action<TerminalPane>? CommandStarted;
+        public event Action<TerminalPane, int?>? CommandFinished;
         public event Action<TerminalPane, int>? ProcessExited;
 
         private TerminalSettings? _settings;
@@ -284,6 +286,26 @@ namespace NovaTerminal.Controls
                 {
                     CurrentOscTitle = title;
                     TitleChanged?.Invoke(this, title);
+                });
+            };
+            Parser.OnCommandStarted += () =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    LastExitCode = null;
+                    CommandStarted?.Invoke(this);
+                });
+            };
+            Parser.OnCommandFinished += exitCode =>
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (exitCode.HasValue)
+                    {
+                        LastExitCode = exitCode.Value;
+                    }
+
+                    CommandFinished?.Invoke(this, exitCode);
                 });
             };
 
