@@ -2,8 +2,18 @@ name: Nightly Stress
 
 on:
   schedule:
-    - cron: "0 2 * * *" # 02:00 UTC daily
+    - cron: "0 2 * * 1-5" # 02:00 UTC weekdays
   workflow_dispatch:
+    inputs:
+      full_matrix:
+        description: "Run Windows/macOS stress jobs in addition to Linux"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: nightly-stress-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   DOTNET_NOLOGO: true
@@ -11,13 +21,48 @@ env:
   CONFIGURATION: Release
 
 jobs:
-  stress_replay_suite:
+  stress_replay_linux:
+    name: Stress Replay Suite (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+
+      - name: Run Stress and Performance Tests
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "(Category=Stress|Category=Performance|Category=Latency)" --logger "trx;LogFileName=replay_stress.trx"
+
+      - name: Upload stress artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-stress-ubuntu-latest
+          retention-days: 5
+          if-no-files-found: warn
+          path: |
+            artifacts/**
+            **/*replay_stress.trx
+
+  stress_replay_extra:
     name: Stress Replay Suite (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' && inputs.full_matrix
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +86,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: nightly-stress-${{ matrix.os }}
+          retention-days: 5
+          if-no-files-found: warn
           path: |
             artifacts/**
             **/*replay_stress.trx
