@@ -71,23 +71,28 @@ If a change cannot be tested, it does not ship.
 
 ---
 
-## Architecture Overview
+## Architecture & Directory Structure
 
-```
-┌───────────────────────────────┐
-│ UI Shell (Avalonia)           │
-├───────────────────────────────┤
-│ Renderer (Skia, GPU)          │
-│ - Cell-grid based             │
-│ - Incremental redraw          │
-├───────────────────────────────┤
-│ Terminal Core (Cross-Platform)│
-│ - VT / ANSI parser            │
-│ - Screen & scrollback         │
-│ - Reflow & wrapping           │
-├───────────────────────────────┤
-│ PTY Backend (Rust)            │
-└───────────────────────────────┘
+NovaTerminal is organized into focused class libraries under the `src/` directory to enforce a strict dependency Directed Acyclic Graph (DAG):
+
+- **`src/NovaTerminal.App`**: The main Avalonia/UI layer. Orchestrates windows, themes, and settings.
+- **`src/NovaTerminal.VT`**: The core Virtual Terminal engine. Frame-agnostic, parser-logic, and buffer state.
+- **`src/NovaTerminal.Rendering`**: SkiaSharp-based rendering logic. Framework-agnostic text shaping and GPU glyph caching.
+- **`src/NovaTerminal.Pty`**: Native OS integration and PTY session management.
+- **`src/NovaTerminal.Replay`**: Deterministic session recording and playback logic.
+
+### Validation
+- **`tests/NovaTerminal.Tests`**: Primary unit and integration test suite (Headless UI).
+- **`tests/NovaTerminal.Benchmarks`**: Performance and throughput benchmarks.
+
+```mermaid
+graph TD
+    App[NovaTerminal.App] --> Rendering[NovaTerminal.Rendering]
+    App --> VT[NovaTerminal.VT]
+    App --> Pty[NovaTerminal.Pty]
+    App --> Replay[NovaTerminal.Replay]
+    Rendering --> VT
+    Replay --> VT
 ```
 
 ---

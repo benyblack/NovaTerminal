@@ -37,14 +37,17 @@ Any change that weakens determinism, parity, or replayability is rejected.
 
 ## Architecture Boundaries
 
-Terminal Core → Renderer → UI
-↑
-Replay
+The solution enforces a strict Directed Acyclic Graph (DAG) to prevent circular dependencies and ensure the VT core remains pure:
 
+**NovaTerminal.App** (UI)  
+  ↘ **NovaTerminal.Rendering** (Skia)  
+  ↘ **NovaTerminal.Replay** (Recording)  
+  ↘ **NovaTerminal.Pty** (OS Integration)  
+  ↘ **NovaTerminal.VT** (Core State)
 
-- VT parsing and buffer state live **only** in the core
-- Rendering is incremental and cell-based
-- UI orchestrates; it does not interpret terminal semantics
+- **NovaTerminal.VT** contains **no** Avalonia or SkiaSharp references.
+- **NovaTerminal.Rendering** contains **no** Avalonia references.
+- **NovaTerminal.Pty** is strictly for stream management and binary interop.
 
 ---
 
