@@ -11,6 +11,7 @@ namespace NovaTerminal.Core
         void Resize(int cols, int rows);
         string ShellCommand { get; }
         bool IsProcessRunning { get; }
+        bool HasActiveChildProcesses { get; }
         int? ExitCode { get; }
         void StartRecording(string filePath);
         void StopRecording();

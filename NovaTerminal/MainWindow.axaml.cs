@@ -26,7 +26,20 @@ namespace NovaTerminal
 {
     public partial class MainWindow : Window
     {
-        private TerminalPane? _currentPane;
+        private TerminalPane? _currentPaneValue;
+        private TerminalPane? _currentPane
+        {
+            get => _currentPaneValue;
+            set
+            {
+                if (_currentPaneValue != value)
+                {
+                    if (_currentPaneValue != null) _currentPaneValue.IsActivePane = false;
+                    _currentPaneValue = value;
+                    if (_currentPaneValue != null) _currentPaneValue.IsActivePane = true;
+                }
+            }
+        }
         private readonly Dictionary<TabItem, TerminalPane> _activePaneByTab = new();
         private readonly Dictionary<TabItem, PaneZoomState> _paneZoomStateByTab = new();
         private readonly Dictionary<TabItem, Guid> _zoomedPaneIdByTab = new();
@@ -98,6 +111,17 @@ namespace NovaTerminal
                 else
                 {
                     _currentPane?.ActiveControl.Focus();
+                }
+            }
+        }
+
+        private void TopLevel_PointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (e.GetCurrentPoint(this).Properties.IsLeftButtonPressed)
+            {
+                if (e.GetPosition(this).Y <= 36)
+                {
+                    BeginMoveDrag(e);
                 }
             }
         }
@@ -2638,8 +2662,10 @@ namespace NovaTerminal
         {
             if (ShouldAutoAcceptRunningPaneClose(
                 pane.IsProcessRunning,
+                pane.HasActiveChildProcesses,
                 pane.HasUserInteraction,
                 pane.Profile?.Type,
+                pane.Profile?.Command,
                 pane.ShellArgs,
                 _settings.PaneClosePolicy))
             {
@@ -2669,23 +2695,55 @@ namespace NovaTerminal
 
         internal static bool ShouldAutoAcceptRunningPaneClose(
             bool isProcessRunning,
+            bool hasActiveChildProcesses,
             bool hasUserInteraction,
             ConnectionType? profileType,
+            string? shellCommand,
             string? shellArgs,
             string? paneClosePolicy)
         {
             if (!isProcessRunning) return true;
 
-            // Treat an untouched local shell as safe to close without warning.
-            // This avoids false warnings when closing a newly opened, idle tab.
-            if (!hasUserInteraction &&
-                profileType != ConnectionType.SSH &&
-                string.IsNullOrWhiteSpace(shellArgs))
-            {
+            if (string.Equals(paneClosePolicy?.Trim(), "force", StringComparison.OrdinalIgnoreCase))
                 return true;
+
+            bool isWsl = shellCommand?.Contains("wsl", StringComparison.OrdinalIgnoreCase) == true;
+            bool isSsh = profileType == ConnectionType.SSH;
+
+            bool isSafeArgs = string.IsNullOrWhiteSpace(shellArgs);
+            if (!isSafeArgs && isWsl)
+            {
+                // wsl profiles often have "-d Ubuntu" or similar as default args.
+                // We treat these as safe to close without prompting.
+                isSafeArgs = true;
             }
 
-            return string.Equals(paneClosePolicy?.Trim(), "force", StringComparison.OrdinalIgnoreCase);
+            if (isSsh)
+            {
+                // SSH connections are always considered precious and should warn on close
+                // unless forced or process is dead.
+                return false;
+            }
+            else if (isWsl)
+            {
+                // WSL is an opaque shell. We cannot see its Linux child processes.
+                if (!hasUserInteraction && isSafeArgs)
+                {
+                    return true;
+                }
+            }
+            else
+            {
+                // For native/transparent shells, we can trust explicit tracking.
+                // If there are no active child processes, it's safe to close silently,
+                // even if the user has been interacting with it.
+                if (!hasActiveChildProcesses && isSafeArgs)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private async Task<bool> ShowRunningProcessCloseConfirmationAsync(string message)

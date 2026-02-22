@@ -57,7 +57,22 @@ namespace NovaTerminal.Controls
         public string? CurrentOscTitle { get; private set; }
         public int? LastExitCode { get; private set; }
         public bool IsProcessRunning => Session?.IsProcessRunning ?? false;
+        public bool HasActiveChildProcesses => Session?.HasActiveChildProcesses ?? false;
         public bool HasUserInteraction => _hasUserInteraction;
+
+        private bool _isActivePane = false;
+        public bool IsActivePane
+        {
+            get => _isActivePane;
+            set
+            {
+                if (_isActivePane != value)
+                {
+                    _isActivePane = value;
+                    UpdateFocusVisuals(IsKeyboardFocusWithin);
+                }
+            }
+        }
 
         public string GetBaseTabTitle()
         {
@@ -589,7 +604,8 @@ namespace NovaTerminal.Controls
         {
             if (InactiveOverlay != null)
             {
-                InactiveOverlay.IsVisible = !focused;
+                bool dimEnabled = true;
+                InactiveOverlay.IsVisible = dimEnabled && !IsActivePane;
             }
 
             if (FocusBorder != null)

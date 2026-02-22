@@ -58,6 +58,109 @@ namespace NovaTerminal.Core
 
         public string ShellCommand { get; }
 
+        public bool HasActiveChildProcesses
+        {
+            get
+            {
+                if (_ptyState == IntPtr.Zero) return false;
+                int pid = Native.pty_get_pid(_ptyState);
+                if (pid <= 0) return false;
+                return HasChildProcesses(pid, ShellCommand);
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PROCESSENTRY32
+        {
+            public uint dwSize;
+            public uint cntUsage;
+            public uint th32ProcessID;
+            public IntPtr th32DefaultHeapID;
+            public uint th32ModuleID;
+            public uint cntThreads;
+            public uint th32ParentProcessID;
+            public int pcPriClassBase;
+            public uint dwFlags;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)]
+            public string szExeFile;
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr CreateToolhelp32Snapshot(uint dwFlags, uint th32ProcessID);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool Process32First(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool Process32Next(IntPtr hSnapshot, ref PROCESSENTRY32 lppe);
+
+        [DllImport("kernel32.dll")]
+        private static extern bool CloseHandle(IntPtr hHandle);
+
+        private static bool HasChildProcesses(int parentPid, string shellCommand)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                bool isWslShell = !string.IsNullOrEmpty(shellCommand) && shellCommand.Contains("wsl", StringComparison.OrdinalIgnoreCase);
+
+                IntPtr snapshot = CreateToolhelp32Snapshot(0x00000002, 0); // TH32CS_SNAPPROCESS
+                if (snapshot == IntPtr.Zero || snapshot == new IntPtr(-1)) return false;
+
+                try
+                {
+                    PROCESSENTRY32 pe32 = new PROCESSENTRY32();
+                    pe32.dwSize = (uint)Marshal.SizeOf(typeof(PROCESSENTRY32));
+
+                    if (Process32First(snapshot, ref pe32))
+                    {
+                        do
+                        {
+                            if (pe32.th32ParentProcessID == (uint)parentPid)
+                            {
+                                if (!pe32.szExeFile.Contains("conhost", StringComparison.OrdinalIgnoreCase) &&
+                                    !pe32.szExeFile.Contains("OpenConsole", StringComparison.OrdinalIgnoreCase) &&
+                                    !pe32.szExeFile.Contains("wslhost", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    if (isWslShell && pe32.szExeFile.Contains("wsl", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        continue;
+                                    }
+                                    return true;
+                                }
+                            }
+                        } while (Process32Next(snapshot, ref pe32));
+                    }
+                }
+                finally
+                {
+                    CloseHandle(snapshot);
+                }
+                return false;
+            }
+            else
+            {
+                try
+                {
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "pgrep",
+                        Arguments = $"-P {parentPid}",
+                        RedirectStandardOutput = true,
+                        UseShellExecute = false
+                    };
+                    using var proc = System.Diagnostics.Process.Start(psi);
+                    if (proc != null)
+                    {
+                        proc.WaitForExit(100);
+                        string output = proc.StandardOutput.ReadToEnd();
+                        return !string.IsNullOrWhiteSpace(output);
+                    }
+                }
+                catch { }
+                return false;
+            }
+        }
+
         private int _cols;
         private int _rows;
 
