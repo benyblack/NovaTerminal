@@ -43,29 +43,29 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: NovaTerminal/native
+          workspaces: src/NovaTerminal.App/native
 
       - name: Build Rust (Windows)
         if: matrix.os == 'windows-latest'
         run: |
-          cd NovaTerminal/native
+          cd src/NovaTerminal.App/native
           cargo build --release
           # Binary stays in target/release/rusty_pty.dll
 
       - name: Build Rust (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          cd NovaTerminal/native
+          cd src/NovaTerminal.App/native
           cargo build --release
           # Move to the special target_linux dir expected by csproj if needed
-          # Actually, we can just move it to NovaTerminal/native/target_linux/release/
+          # Actually, we can just move it to src/NovaTerminal.App/native/target_linux/release/
           mkdir -p ../native/target_linux/release
           cp target/release/librusty_pty.so ../native/target_linux/release/
 
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest'
         run: |
-          cd NovaTerminal/native
+          cd src/NovaTerminal.App/native
           cargo build --release
           # Binary stays in target/release/librusty_pty.dylib
 
@@ -73,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: native-${{ matrix.os }}
-          path: NovaTerminal/native/target*/**/release/*pty.*
+          path: src/NovaTerminal.App/native/target*/**/release/*pty.*
 
   build_and_unit_tests:
     name: Build + Unit Tests (${{ matrix.os }})
@@ -98,7 +98,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-${{ matrix.os }}
-          path: NovaTerminal/native
+          path: src/NovaTerminal.App/native
 
       - name: Restore
         run: dotnet restore
@@ -140,7 +140,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-${{ matrix.os }}
-          path: NovaTerminal/native
+          path: src/NovaTerminal.App/native
 
       - name: Restore
         run: dotnet restore
@@ -197,7 +197,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-${{ matrix.os }}
-          path: NovaTerminal/native
+          path: src/NovaTerminal.App/native
 
       - name: Restore
         run: dotnet restore
@@ -280,7 +280,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-${{ matrix.os }}
-          path: NovaTerminal/native
+          path: src/NovaTerminal.App/native
 
       - name: Restore
         run: dotnet restore
@@ -323,7 +323,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-ubuntu-latest
-          path: NovaTerminal/native
+          path: src/NovaTerminal.App/native
 
       - name: Restore
         run: dotnet restore
@@ -366,7 +366,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-ubuntu-latest
-          path: NovaTerminal/native
+          path: src/NovaTerminal.App/native
 
       - name: Restore
         run: dotnet restore
@@ -419,13 +419,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-${{ matrix.os }}
-          path: NovaTerminal/native
+          path: src/NovaTerminal.App/native
 
       - name: Restore
         run: dotnet restore
 
       - name: Publish AOT
-        run: dotnet publish NovaTerminal/NovaTerminal.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
+        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
 
       - name: Upload AOT bundle
         if: always()
