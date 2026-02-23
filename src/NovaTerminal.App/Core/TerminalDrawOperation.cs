@@ -482,14 +482,14 @@ namespace NovaTerminal.Core
 
             if (_alphaRects.Count > 0)
             {
-                using var paint = new SKPaint { IsAntialias = true };
+                using var paint = new SKPaint { IsAntialias = false };
                 canvas.DrawAtlas(
                     alphaAtlas,
                     _alphaRects.ToArray(),
                     _alphaXforms.ToArray(),
                     _alphaColors.ToArray(),
                     SKBlendMode.Modulate,
-                    new SKSamplingOptions(SKFilterMode.Linear),
+                    new SKSamplingOptions(SKFilterMode.Nearest),
                     paint);
 
                 _alphaRects.Clear();
@@ -499,7 +499,7 @@ namespace NovaTerminal.Core
 
             if (_colorRects.Count > 0)
             {
-                using var paint = new SKPaint { IsAntialias = true };
+                using var paint = new SKPaint { IsAntialias = false };
                 canvas.DrawAtlas(
                     colorAtlas,
                     _colorRects.ToArray(),
@@ -584,7 +584,7 @@ namespace NovaTerminal.Core
                         next.IsFaint != runIsFaint)
                         break;
 
-                    string cellText = next.Text ?? next.Character.ToString();
+                    string cellText = NormalizeTextElementForRender(next.Text ?? next.Character.ToString());
 
                     if (_enableComplexShaping)
                     {
@@ -603,15 +603,16 @@ namespace NovaTerminal.Core
                     }
 
                     runBuilder.Append(cellText);
-                    int w = _buffer.GetGraphemeWidth(cellText); // GetGraphemeWidth is thread-safe
+                    int w = GetSafeGraphemeWidth(cellText); // GetGraphemeWidth is thread-safe
                     totalRunWidth += w;
                     k++;
                 }
 
                 string runText = runBuilder.ToString();
                 float rx = SnapX(c * _metrics.CellWidth + paddingLeft);
+                float rx2 = SnapX((c + totalRunWidth) * _metrics.CellWidth + paddingLeft);
                 fgPaint.Color = fg;
-                float rw = (float)(Math.Round((totalRunWidth * _metrics.CellWidth) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                float rw = rx2 - rx;
                 float strokeWidth = Math.Max(1f, (float)(_metrics.CellHeight * 0.06));
 
                 // Backgrounds (when requested)
@@ -635,45 +636,10 @@ namespace NovaTerminal.Core
                 if (runNeedsComplexShaping)
                 {
                     FlushBatches(canvas);
-                    SKTypeface? tfToUse = primaryTf;
-                    int fallbackChar = 0;
-                    foreach (var rune in runText.EnumerateRunes())
-                    {
-                        int cp = rune.Value;
-                        if (cp > 127 && !primaryTf.ContainsGlyph(cp))
-                        {
-                            fallbackChar = cp;
-                            break;
-                        }
-                    }
-
-                    if (fallbackChar != 0)
-                    {
-                        string lookupKey = fallbackChar.ToString();
-                        if (!_fallbackCache.TryGetValue(lookupKey, out tfToUse))
-                        {
-                            SKTypeface? found = null;
-                            if ((fallbackChar >= 0x1F300 && fallbackChar <= 0x1FAFF) ||
-                                (fallbackChar >= 0x2600 && fallbackChar <= 0x27BF))
-                            {
-                                found = SKTypeface.FromFamilyName("Segoe UI Emoji");
-                            }
-                            if (found == null)
-                            {
-                                foreach (var tfChain in _fallbackChain)
-                                {
-                                    if (tfChain.ContainsGlyph(fallbackChar))
-                                    {
-                                        found = tfChain;
-                                        break;
-                                    }
-                                }
-                            }
-                            found ??= SKFontManager.Default.MatchCharacter(fallbackChar);
-                            _fallbackCache.TryAdd(lookupKey, found);
-                            tfToUse = found;
-                        }
-                    }
+                    int fallbackChar = FindFirstMissingGlyphCodePoint(runText, primaryTf);
+                    SKTypeface tfToUse = fallbackChar != 0
+                        ? ResolveTypefaceForCodePoint(fallbackChar, primaryTf)
+                        : primaryTf;
 
                     bool useLayer = totalRunWidth > 1;
                     if (useLayer)
@@ -692,16 +658,120 @@ namespace NovaTerminal.Core
                 {
                     if (_glyphCache != null && !runIsItalic)
                     {
-                        float xIdxLogical = c * (float)_metrics.CellWidth + paddingLeft;
-                        float yBaselineSnap = (float)(Math.Round(baselineY * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
-                        float glyphY = (float)(Math.Round((yBaselineSnap + font.Metrics.Ascent) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                        int cellX = c;
+                        float yBaselineSnap = SnapY(baselineY);
+                        float glyphY = SnapY(yBaselineSnap + font.Metrics.Ascent);
                         float invScale = (float)(1.0 / _renderScaling);
+                        using var blockPaint = new SKPaint
+                        {
+                            Color = fg,
+                            Style = SKPaintStyle.Fill,
+                            IsAntialias = false
+                        };
 
                         foreach (var rune in runText.EnumerateRunes())
                         {
                             string grapheme = rune.ToString();
-                            var cached = _glyphCache.GetOrAdd(grapheme, font, (float)_renderScaling);
-                            float xIdxSnap = (float)(Math.Round(xIdxLogical * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                            int graphemeWidth = GetSafeGraphemeWidth(grapheme);
+                            double cellWidth = _metrics.CellWidth;
+                            double xIdxLogical = (cellX * cellWidth) + paddingLeft;
+                            float xIdxSnap = SnapX(xIdxLogical);
+
+                            int fallbackChar = FindFirstMissingGlyphCodePoint(grapheme, primaryTf);
+                            SKFont glyphFont = font;
+                            SKFont? fallbackFont = null;
+                            if (fallbackChar != 0)
+                            {
+                                var glyphTf = ResolveTypefaceForCodePoint(fallbackChar, primaryTf);
+                                if (glyphTf != primaryTf)
+                                {
+                                    fallbackFont = new SKFont(glyphTf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
+                                    glyphFont = fallbackFont;
+                                }
+                            }
+
+                            float cellX1 = xIdxSnap;
+                            float cellX2 = SnapX(((cellX + graphemeWidth) * cellWidth) + paddingLeft);
+                            float cellW = cellX2 - cellX1;
+                            float cellH = (float)_metrics.CellHeight;
+
+                            // Render primary block elements on the cell grid to avoid font side-bearing seams.
+                            if (TryGetBlockFillRect(grapheme, out int xStartEighths, out int xEndEighths, out int yStartEighths, out int yEndEighths))
+                            {
+                                FlushBatches(canvas);
+
+                                float fillX1 = xStartEighths == 0 ? cellX1 : SnapX(cellX1 + (cellW * (xStartEighths / 8f)));
+                                float fillX2 = xEndEighths == 8 ? cellX2 : SnapX(cellX1 + (cellW * (xEndEighths / 8f)));
+                                float rowBottom = rowTopY + cellH;
+                                float fillY1 = yStartEighths == 0 ? rowTopY : SnapY(rowTopY + (cellH * (yStartEighths / 8f)));
+                                float fillY2 = yEndEighths == 8 ? rowBottom : SnapY(rowTopY + (cellH * (yEndEighths / 8f)));
+                                if (fillX2 > fillX1 && fillY2 > fillY1)
+                                {
+                                    canvas.DrawRect(fillX1, fillY1, fillX2 - fillX1, fillY2 - fillY1, blockPaint);
+                                }
+
+                                fallbackFont?.Dispose();
+                                cellX += graphemeWidth;
+                                continue;
+                            }
+
+                            if (TryGetShadeFillAlpha(grapheme, out float shadeAlpha))
+                            {
+                                FlushBatches(canvas);
+                                byte shadeA = (byte)Math.Clamp((int)Math.Round(fg.Alpha * shadeAlpha), 0, 255);
+                                using var shadePaint = new SKPaint
+                                {
+                                    Color = new SKColor(fg.Red, fg.Green, fg.Blue, shadeA),
+                                    Style = SKPaintStyle.Fill,
+                                    IsAntialias = false
+                                };
+                                if (cellW > 0 && cellH > 0)
+                                {
+                                    canvas.DrawRect(cellX1, rowTopY, cellW, cellH, shadePaint);
+                                }
+
+                                fallbackFont?.Dispose();
+                                cellX += graphemeWidth;
+                                continue;
+                            }
+
+                            if (TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
+                            {
+                                FlushBatches(canvas);
+                                DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopY, cellW, cellH, blockPaint);
+                                fallbackFont?.Dispose();
+                                cellX += graphemeWidth;
+                                continue;
+                            }
+
+                            if (TryGetBraillePattern(grapheme, out byte brailleMask))
+                            {
+                                FlushBatches(canvas);
+                                DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopY, cellW, cellH, blockPaint);
+                                fallbackFont?.Dispose();
+                                cellX += graphemeWidth;
+                                continue;
+                            }
+
+                            if (ShouldForceDirectTextForGraphGlyph(grapheme))
+                            {
+                                FlushBatches(canvas);
+                                canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, glyphFont, fgPaint);
+                                fallbackFont?.Dispose();
+                                cellX += graphemeWidth;
+                                continue;
+                            }
+
+                            if (ShouldBypassGlyphAtlasForGrapheme(grapheme))
+                            {
+                                FlushBatches(canvas);
+                                canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, glyphFont, fgPaint);
+                                fallbackFont?.Dispose();
+                                cellX += graphemeWidth;
+                                continue;
+                            }
+
+                            var cached = _glyphCache.GetOrAdd(grapheme, glyphFont, (float)_renderScaling);
 
                             if (cached != null)
                             {
@@ -722,9 +792,10 @@ namespace NovaTerminal.Core
                             else
                             {
                                 FlushBatches(canvas);
-                                canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, font, fgPaint);
+                                canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, glyphFont, fgPaint);
                             }
-                            xIdxLogical += (float)_metrics.CellWidth * _buffer.GetGraphemeWidth(grapheme);
+                            fallbackFont?.Dispose();
+                            cellX += graphemeWidth;
                         }
                     }
                     else
@@ -776,11 +847,376 @@ namespace NovaTerminal.Core
             return 0;
         }
 
-        private float SnapX(double logicalX)
-            => (float)(Math.Round(logicalX * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+        private float Snap(double logical)
+            => (float)(Math.Round(logical * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
 
-        private float SnapY(double logicalY)
-            => (float)(Math.Round(logicalY * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+        private float SnapX(double logicalX) => Snap(logicalX);
+
+        private float SnapY(double logicalY) => Snap(logicalY);
+
+        private static int FindFirstMissingGlyphCodePoint(string text, SKTypeface primaryTf)
+        {
+            foreach (var rune in text.EnumerateRunes())
+            {
+                int cp = rune.Value;
+                if (cp > 127 && !primaryTf.ContainsGlyph(cp))
+                {
+                    return cp;
+                }
+            }
+
+            return 0;
+        }
+
+        private int GetSafeGraphemeWidth(string textElement)
+        {
+            if (string.IsNullOrEmpty(textElement)) return 0;
+            try
+            {
+                return Math.Max(1, _buffer.GetGraphemeWidth(textElement));
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                return 1;
+            }
+        }
+
+        private static string NormalizeTextElementForRender(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return " ";
+            }
+
+            bool hasInvalidSurrogate = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char ch = text[i];
+                if (char.IsHighSurrogate(ch))
+                {
+                    if (i + 1 >= text.Length || !char.IsLowSurrogate(text[i + 1]))
+                    {
+                        hasInvalidSurrogate = true;
+                        break;
+                    }
+                    i++;
+                    continue;
+                }
+
+                if (char.IsLowSurrogate(ch))
+                {
+                    hasInvalidSurrogate = true;
+                    break;
+                }
+            }
+
+            if (!hasInvalidSurrogate)
+            {
+                return text;
+            }
+
+            var sb = new StringBuilder(text.Length);
+            for (int i = 0; i < text.Length; i++)
+            {
+                char ch = text[i];
+                if (char.IsHighSurrogate(ch))
+                {
+                    if (i + 1 < text.Length && char.IsLowSurrogate(text[i + 1]))
+                    {
+                        sb.Append(ch);
+                        sb.Append(text[i + 1]);
+                        i++;
+                    }
+                    else
+                    {
+                        sb.Append('\uFFFD');
+                    }
+                    continue;
+                }
+
+                if (char.IsLowSurrogate(ch))
+                {
+                    sb.Append('\uFFFD');
+                }
+                else
+                {
+                    sb.Append(ch);
+                }
+            }
+
+            return sb.ToString();
+        }
+
+        private SKTypeface ResolveTypefaceForCodePoint(int codePoint, SKTypeface primaryTf)
+        {
+            if (codePoint <= 127 || primaryTf.ContainsGlyph(codePoint))
+            {
+                return primaryTf;
+            }
+
+            string lookupKey = codePoint.ToString();
+            if (!_fallbackCache.TryGetValue(lookupKey, out var tfToUse))
+            {
+                SKTypeface? found = null;
+                if ((codePoint >= 0x1F300 && codePoint <= 0x1FAFF) ||
+                    (codePoint >= 0x2600 && codePoint <= 0x27BF))
+                {
+                    found = SKTypeface.FromFamilyName("Segoe UI Emoji");
+                }
+                if (found == null)
+                {
+                    foreach (var tfChain in _fallbackChain)
+                    {
+                        if (tfChain.ContainsGlyph(codePoint))
+                        {
+                            found = tfChain;
+                            break;
+                        }
+                    }
+                }
+                found ??= SKFontManager.Default.MatchCharacter(codePoint);
+                _fallbackCache.TryAdd(lookupKey, found);
+                tfToUse = found;
+            }
+
+            return tfToUse ?? primaryTf;
+        }
+
+        private static bool TryGetBlockFillRect(
+            string grapheme,
+            out int xStartEighths,
+            out int xEndEighths,
+            out int yStartEighths,
+            out int yEndEighths)
+        {
+            xStartEighths = 0;
+            xEndEighths = 0;
+            yStartEighths = 0;
+            yEndEighths = 0;
+
+            var enumerator = grapheme.EnumerateRunes().GetEnumerator();
+            if (!enumerator.MoveNext()) return false;
+            int cp = enumerator.Current.Value;
+            if (enumerator.MoveNext()) return false; // Multi-rune grapheme: not a simple block element.
+
+            // Full block.
+            if (cp == 0x2588)
+            {
+                xStartEighths = 0; xEndEighths = 8;
+                yStartEighths = 0; yEndEighths = 8;
+                return true;
+            }
+
+            // Black square (U+25A0) is used by btop meter bars.
+            // Keep full width to avoid seams, but use a centered 4/8 height
+            // so visual weight is closer to common terminal glyph rendering.
+            if (cp == 0x25A0)
+            {
+                xStartEighths = 0; xEndEighths = 8;
+                yStartEighths = 2; yEndEighths = 6;
+                return true;
+            }
+
+            // Left-filled block elements (U+2589..U+258F).
+            if (cp >= 0x2589 && cp <= 0x258F)
+            {
+                xStartEighths = 0;
+                xEndEighths = 8 - (cp - 0x2588);
+                yStartEighths = 0;
+                yEndEighths = 8;
+                return true;
+            }
+
+            // Right half block (U+2590).
+            if (cp == 0x2590)
+            {
+                xStartEighths = 4; xEndEighths = 8;
+                yStartEighths = 0; yEndEighths = 8;
+                return true;
+            }
+
+            // Upper half block (U+2580).
+            if (cp == 0x2580)
+            {
+                xStartEighths = 0; xEndEighths = 8;
+                yStartEighths = 0; yEndEighths = 4;
+                return true;
+            }
+
+            // Lower n/8 block elements (U+2581..U+2587).
+            if (cp >= 0x2581 && cp <= 0x2587)
+            {
+                int n = cp - 0x2580; // 1..7
+                xStartEighths = 0; xEndEighths = 8;
+                yStartEighths = 8 - n; yEndEighths = 8;
+                return true;
+            }
+
+            // Upper one eighth block (U+2594).
+            if (cp == 0x2594)
+            {
+                xStartEighths = 0; xEndEighths = 8;
+                yStartEighths = 0; yEndEighths = 1;
+                return true;
+            }
+
+            // Right one eighth block (U+2595).
+            if (cp == 0x2595)
+            {
+                xStartEighths = 7; xEndEighths = 8;
+                yStartEighths = 0; yEndEighths = 8;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsSingleRuneInRange(string grapheme, int minCodePointInclusive, int maxCodePointInclusive)
+        {
+            if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
+            return cp >= minCodePointInclusive && cp <= maxCodePointInclusive;
+        }
+
+        private static bool ShouldBypassGlyphAtlasForGrapheme(string grapheme)
+        {
+            if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
+
+            if (cp >= 0x2500 && cp <= 0x257F) return true; // Box drawing
+            if (cp >= 0x25A0 && cp <= 0x25FF) return true; // Geometric block symbols
+
+            return false;
+        }
+
+        private static bool ShouldForceDirectTextForGraphGlyph(string grapheme)
+        {
+            if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
+
+            if (cp >= 0x2500 && cp <= 0x257F) return true; // Box drawing
+            if (cp >= 0x25A0 && cp <= 0x25FF) return true; // Geometric symbols used by TUIs
+
+            return false;
+        }
+
+        private static bool TryGetShadeFillAlpha(string grapheme, out float alphaMultiplier)
+        {
+            alphaMultiplier = 0f;
+            if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
+
+            alphaMultiplier = cp switch
+            {
+                0x2591 => 0.28f, // light shade
+                0x2592 => 0.50f, // medium shade
+                0x2593 => 0.72f, // dark shade
+                _ => 0f
+            };
+
+            return alphaMultiplier > 0f;
+        }
+
+        private static bool TryGetBraillePattern(string grapheme, out byte mask)
+        {
+            mask = 0;
+            if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
+            if (cp < 0x2800 || cp > 0x28FF) return false;
+            mask = (byte)(cp - 0x2800);
+            return true;
+        }
+
+        private static bool TryGetQuadrantFillMask(string grapheme, out byte mask)
+        {
+            mask = 0;
+            if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
+
+            // Bit layout: 1=UL, 2=UR, 4=LL, 8=LR.
+            mask = cp switch
+            {
+                0x2596 => 0b0100, // lower left
+                0x2597 => 0b1000, // lower right
+                0x2598 => 0b0001, // upper left
+                0x2599 => 0b1101, // upper left + lower left + lower right
+                0x259A => 0b1001, // upper left + lower right
+                0x259B => 0b0111, // upper left + upper right + lower left
+                0x259C => 0b1011, // upper left + upper right + lower right
+                0x259D => 0b0010, // upper right
+                0x259E => 0b0110, // upper right + lower left
+                0x259F => 0b1110, // upper right + lower left + lower right
+                _ => 0
+            };
+
+            return mask != 0;
+        }
+
+        private void DrawQuadrantSubcells(SKCanvas canvas, byte mask, float x, float y, float w, float h, SKPaint paint)
+        {
+            if (mask == 0 || w <= 0 || h <= 0) return;
+
+            float xMid = SnapX(x + (w * 0.5f));
+            float yMid = SnapY(y + (h * 0.5f));
+            float x2 = x + w;
+            float y2 = y + h;
+
+            if ((mask & 0b0001) != 0 && xMid > x && yMid > y) canvas.DrawRect(x, y, xMid - x, yMid - y, paint);       // UL
+            if ((mask & 0b0010) != 0 && x2 > xMid && yMid > y) canvas.DrawRect(xMid, y, x2 - xMid, yMid - y, paint);   // UR
+            if ((mask & 0b0100) != 0 && xMid > x && y2 > yMid) canvas.DrawRect(x, yMid, xMid - x, y2 - yMid, paint);   // LL
+            if ((mask & 0b1000) != 0 && x2 > xMid && y2 > yMid) canvas.DrawRect(xMid, yMid, x2 - xMid, y2 - yMid, paint); // LR
+        }
+
+        private void DrawBrailleSubcells(SKCanvas canvas, byte mask, float x, float y, float w, float h, SKPaint paint)
+        {
+            if (mask == 0 || w <= 0 || h <= 0) return;
+
+            float subW = w * 0.5f;
+            float subH = h * 0.25f;
+            float dotW = subW * 0.56f;
+            float dotH = subH * 0.56f;
+
+            // Braille bit mapping: 1/2/3/7 on left column, 4/5/6/8 on right column.
+            DrawBrailleDotInSubcell(canvas, mask, bit: 0, col: 0, row: 0, x, y, subW, subH, dotW, dotH, paint);
+            DrawBrailleDotInSubcell(canvas, mask, bit: 1, col: 0, row: 1, x, y, subW, subH, dotW, dotH, paint);
+            DrawBrailleDotInSubcell(canvas, mask, bit: 2, col: 0, row: 2, x, y, subW, subH, dotW, dotH, paint);
+            DrawBrailleDotInSubcell(canvas, mask, bit: 3, col: 1, row: 0, x, y, subW, subH, dotW, dotH, paint);
+            DrawBrailleDotInSubcell(canvas, mask, bit: 4, col: 1, row: 1, x, y, subW, subH, dotW, dotH, paint);
+            DrawBrailleDotInSubcell(canvas, mask, bit: 5, col: 1, row: 2, x, y, subW, subH, dotW, dotH, paint);
+            DrawBrailleDotInSubcell(canvas, mask, bit: 6, col: 0, row: 3, x, y, subW, subH, dotW, dotH, paint);
+            DrawBrailleDotInSubcell(canvas, mask, bit: 7, col: 1, row: 3, x, y, subW, subH, dotW, dotH, paint);
+        }
+
+        private void DrawBrailleDotInSubcell(
+            SKCanvas canvas,
+            byte mask,
+            int bit,
+            int col,
+            int row,
+            float x,
+            float y,
+            float subW,
+            float subH,
+            float dotW,
+            float dotH,
+            SKPaint paint)
+        {
+            if ((mask & (1 << bit)) == 0) return;
+
+            float cx = x + ((col + 0.5f) * subW);
+            float cy = y + ((row + 0.5f) * subH);
+            float x1 = SnapX(cx - (dotW * 0.5f));
+            float x2 = SnapX(cx + (dotW * 0.5f));
+            float y1 = SnapY(cy - (dotH * 0.5f));
+            float y2 = SnapY(cy + (dotH * 0.5f));
+            if (x2 > x1 && y2 > y1)
+            {
+                canvas.DrawRect(x1, y1, x2 - x1, y2 - y1, paint);
+            }
+        }
+
+        private static bool TryGetSingleRuneCodePoint(string grapheme, out int codePoint)
+        {
+            codePoint = 0;
+            var enumerator = grapheme.EnumerateRunes().GetEnumerator();
+            if (!enumerator.MoveNext()) return false;
+            codePoint = enumerator.Current.Value;
+            return !enumerator.MoveNext();
+        }
 
         private static SKColor BlendTowards(SKColor source, SKColor target, float t)
         {
