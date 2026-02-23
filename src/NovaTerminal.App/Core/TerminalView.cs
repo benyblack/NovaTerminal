@@ -602,6 +602,10 @@ namespace NovaTerminal.Core
 
         private void OnScreenSwitched(bool isAltScreen)
         {
+            // CRITICAL: Clear the row picture cache on every screen switch.
+            // AltScreen rows are reused objects whose revision counters can cycle back to
+            // previously-cached values, causing stale blank SKPictures to be served.
+            _rowCache.RequestClear();
 
             // When switching back from alt screen to main screen, mark that transition
             // to ensure the next content update resets scroll position

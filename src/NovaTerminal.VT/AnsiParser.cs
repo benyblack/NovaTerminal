@@ -83,6 +83,9 @@ namespace NovaTerminal.Core
             if (string.IsNullOrEmpty(input)) return;
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
+
+
+
             _buffer.EnterBatchWrite();
             try
             {
@@ -430,7 +433,8 @@ namespace NovaTerminal.Core
                     {
                         int vpaRow = Math.Max(1, arg0) - 1;
                         if (_buffer.Modes.IsOriginMode) vpaRow += _buffer.ScrollTop;
-                        if (_verticalOffset > 0) vpaRow += _verticalOffset;
+                        // NOTE: _verticalOffset intentionally NOT applied here — it's a ConPTY
+                        // image-rendering artifact that must not affect general cursor positioning.
                         _buffer.CursorRow = ClampRowForMode(vpaRow);
                         _buffer.Invalidate();
                     }
@@ -453,22 +457,8 @@ namespace NovaTerminal.Core
                         row += _buffer.ScrollTop;
                     }
 
-                    // ConPTY Fix: Apply vertical offset if active
-                    if (_verticalOffset > 0)
-                    {
-                        // Only apply if the requested row is "above" where we think we are?
-                        // Actually, ConPTY is absolute. If it says row 0, it means top of screen.
-                        // But we want top of screen + offset.
-                        row += _verticalOffset;
-
-                        // Clamp to prevent overflow (though SetCursorPosition handles bounds)
-                        if (row >= _buffer.Rows)
-                        {
-                            // If we push off screen, we might need to scroll?
-                            // For now, let SetCursorPosition clamp or we rely on buffer scrolling logic if we were writing text.
-                            // But CUP just moves cursor.
-                        }
-                    }
+                    // NOTE: _verticalOffset intentionally NOT applied here — it is a ConPTY
+                    // image-rendering artifact that must not displace general TUI cursor positions.
 
                     row = ClampRowForMode(row);
                     _buffer.SetCursorPosition(col, row);
@@ -550,6 +540,10 @@ namespace NovaTerminal.Core
                             if (m == 4) // IRM - Insert Replacement Mode
                             {
                                 _buffer.Modes.IsInsertMode = enableMode;
+                            }
+                            else if (m == 20) // LNM - Line Feed New Line Mode
+                            {
+                                _buffer.Modes.IsLineFeedNewLineMode = enableMode;
                             }
                         }
                     }

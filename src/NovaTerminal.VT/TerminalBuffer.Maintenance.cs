@@ -41,9 +41,14 @@ namespace NovaTerminal.Core
             {
                 _scrollback.Clear();
                 _images.Clear();
+
+                // CRITICAL: Erase cells IN-PLACE rather than replacing row objects.
+                // TUI apps like Yazi rely on partial redraws — they only redraw rows that changed.
+                // If we replace all row objects (new IDs), Yazi's next frame skips unchanged rows,
+                // leaving blank row objects on screen instead of re-drawn content.
                 for (int i = 0; i < Rows; i++)
                 {
-                    _viewport[i] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+                    ClearRowInternal(i);
                 }
 
                 if (resetCursor)

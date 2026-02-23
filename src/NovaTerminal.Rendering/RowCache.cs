@@ -30,18 +30,18 @@ namespace NovaTerminal.Core
 
         private readonly struct Key : IEquatable<Key>
         {
-            public readonly int RowIndex;
+            public readonly long RowId;
             public readonly uint Revision;
 
-            public Key(int rowIndex, uint revision)
+            public Key(long rowId, uint revision)
             {
-                RowIndex = rowIndex;
+                RowId = rowId;
                 Revision = revision;
             }
 
-            public bool Equals(Key other) => RowIndex == other.RowIndex && Revision == other.Revision;
+            public bool Equals(Key other) => RowId == other.RowId && Revision == other.Revision;
             public override bool Equals(object? obj) => obj is Key other && Equals(other);
-            public override int GetHashCode() => HashCode.Combine(RowIndex, Revision);
+            public override int GetHashCode() => HashCode.Combine(RowId, Revision);
         }
 
         private sealed class Entry
@@ -59,11 +59,11 @@ namespace NovaTerminal.Core
         public RowImageCache()
         {
         }
-        public SKPicture? Get(int rowIndex, uint revision)
+        public SKPicture? Get(long rowId, uint revision)
         {
             lock (_sync)
             {
-                var key = new Key(rowIndex, revision);
+                var key = new Key(rowId, revision);
                 if (_cache.TryGetValue(key, out var entry))
                 {
                     // Touch LRU: move to end (MRU)
@@ -75,11 +75,11 @@ namespace NovaTerminal.Core
             }
         }
 
-        public void Add(int rowIndex, uint revision, SKPicture picture)
+        public void Add(long rowId, uint revision, SKPicture picture)
         {
             lock (_sync)
             {
-                var key = new Key(rowIndex, revision);
+                var key = new Key(rowId, revision);
 
                 // Replace existing
                 if (_cache.TryGetValue(key, out var existing))

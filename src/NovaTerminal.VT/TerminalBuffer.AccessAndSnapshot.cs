@@ -26,6 +26,13 @@ namespace NovaTerminal.Core
         {
             AssertLockHeld();
             if (absRow < 0) return null;
+
+            if (_isAltScreen)
+            {
+                if (absRow >= Rows) return null;
+                return _viewport[absRow];
+            }
+
             if (absRow < _scrollback.Count) return _scrollback[absRow];
             int viewportRow = absRow - _scrollback.Count;
             if (viewportRow < 0 || viewportRow >= Rows) return null;
@@ -35,12 +42,17 @@ namespace NovaTerminal.Core
         public TerminalCell GetCellAbsolute(int col, int absRow)
         {
             AssertLockHeld();
-            if (absRow < 0) return TerminalCell.Default;
+            if (absRow < 0 || col < 0 || col >= Cols) return TerminalCell.Default;
+
+            if (_isAltScreen)
+            {
+                if (absRow >= Rows) return TerminalCell.Default;
+                return _viewport[absRow].Cells[col];
+            }
 
             if (absRow < _scrollback.Count)
             {
                 // Reading from scrollback
-                if (col < 0 || col >= Cols) return TerminalCell.Default;
                 return _scrollback[absRow].Cells[col];
             }
             else
@@ -48,7 +60,6 @@ namespace NovaTerminal.Core
                 // Reading from viewport
                 int viewportRow = absRow - _scrollback.Count;
                 if (viewportRow < 0 || viewportRow >= Rows) return TerminalCell.Default;
-                if (col < 0 || col >= Cols) return TerminalCell.Default;
                 return _viewport[viewportRow].Cells[col];
             }
         }
@@ -560,7 +571,7 @@ namespace NovaTerminal.Core
             // Common case: single char
             if (textElement.Length == 1)
             {
-                return GetRuneWidth(new Rune(textElement[0]));
+                return Rune.TryCreate(textElement[0], out var r) ? GetRuneWidth(r) : 1;
             }
 
             int totalBaseWidth = 0;
@@ -647,7 +658,8 @@ namespace NovaTerminal.Core
                 AbsRow = absRow,
                 Revision = row.Revision,
                 Cols = bufferCols,
-                Cells = new RenderCellSnapshot[bufferCols]
+                Cells = new RenderCellSnapshot[bufferCols],
+                RowId = row.Id
             };
 
             for (int c = 0; c < bufferCols; c++)

@@ -169,9 +169,10 @@ namespace NovaTerminal.Core
         // Step 3 optimization: rely on row pictures (or DrawRowText fallback) to paint non-default backgrounds.
         private const bool UseRowPicturesForBackgrounds = true;
 
-        // Step 5: Smooth out rendering spikes
-        private const int MaxPictureBuildsPerFrame = 4;
-        private const float MassInvalidationThreshold = 0.5f;
+        // Step 5: Always build SKPictures for dirty rows — skipping caching causes stale
+        // cache hits on subsequent frames (mass invalidation "ghost" bug).
+        private const int MaxPictureBuildsPerFrame = int.MaxValue;
+        private const float MassInvalidationThreshold = 0.5f; // kept for stats only
 
         // Drop-in replacement for TerminalDrawOperation.DrawTerminal(SKCanvas canvas)
         // Fixes:
@@ -205,10 +206,10 @@ namespace NovaTerminal.Core
                 try
                 {
                     frame.ThemeBg = new SKColor(_buffer.Theme.Background.R, _buffer.Theme.Background.G, _buffer.Theme.Background.B, alpha);
-                    frame.ThemeFg = new SKColor(_buffer.Theme.Foreground.R, _buffer.Theme.Foreground.G, _buffer.Theme.Foreground.B, alpha);
-                    frame.CursorColor = new SKColor(_buffer.Theme.CursorColor.R, _buffer.Theme.CursorColor.G, _buffer.Theme.CursorColor.B, alpha);
+                    frame.ThemeFg = new SKColor(_buffer.Theme.Foreground.R, _buffer.Theme.Foreground.G, _buffer.Theme.Foreground.B, 255);
+                    frame.CursorColor = new SKColor(_buffer.Theme.CursorColor.R, _buffer.Theme.CursorColor.G, _buffer.Theme.CursorColor.B, 255);
                     frame.CursorStyle = _buffer.Modes.CursorStyle;
-                    if (_transparentBackground) frame.ThemeBg = SKColors.Empty;
+                    // Intentionally leave ThemeBg with its window opacity to paint the base layer
 
                     absDisplayStart = Math.Max(0, _totalLines - _bufferRows - _scrollOffset);
 
@@ -228,8 +229,8 @@ namespace NovaTerminal.Core
                         var row = _buffer.GetRowAbsolute(absRow);
                         if (row != null)
                         {
-                            // Cache probe
-                            item.CachedPicture = _rowCache?.Get(absRow, row.Revision);
+                            // Cache probe using unique RowId
+                            item.CachedPicture = _rowCache?.Get(row.Id, row.Revision);
 
                             if (item.CachedPicture != null)
                             {
@@ -250,6 +251,8 @@ namespace NovaTerminal.Core
 
                     isMassInvalidation = (bufferRows > 0) && ((float)dirtyRowCount / bufferRows > MassInvalidationThreshold);
                     frame.Images = _buffer.GetVisibleImagesSnapshot(absDisplayStart, bufferRows);
+
+
                 }
                 finally
                 {
@@ -267,8 +270,12 @@ namespace NovaTerminal.Core
                 using var matchPaint = new SKPaint { Color = new SKColor(255, 255, 0, 100) };
                 using var activeMatchPaint = new SKPaint { Color = new SKColor(255, 128, 0, 150) };
 
-                // Base background (window)
+                // 1. Force Avalonia composition to completely wipe the reused SwapChain frame (destroys old ghost pixels)
+                canvas.Clear(SKColors.Empty);
+
+                // 2. Paint the terminal's theme background layer (with alpha) over the pristine canvas
                 bgPaint.Color = frame.ThemeBg;
+                bgPaint.BlendMode = SKBlendMode.SrcOver; 
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
 
                 float paddingLeft = 4f;
@@ -276,7 +283,7 @@ namespace NovaTerminal.Core
 
                 int dirtyCells = 0;
                 int buildsThisFrame = 0;
-                int maxBuilds = isMassInvalidation ? 0 : MaxPictureBuildsPerFrame;
+                int maxBuilds = MaxPictureBuildsPerFrame; // always unlimited
 
                 // Pass 3: Text
                 var tf = _skTypeface?.Typeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
@@ -326,7 +333,7 @@ namespace NovaTerminal.Core
                                 drawBackgrounds: true);
 
                             var picture = recorder.EndRecording();
-                            _rowCache?.Add(item.AbsRow, snapshot.Revision, picture);
+                            _rowCache?.Add(snapshot.RowId, snapshot.Revision, picture);
                             canvas.DrawPicture(picture, 0, rowTopY);
 
                             recSw.Stop();
@@ -805,9 +812,9 @@ namespace NovaTerminal.Core
             if (cell.FgIndex >= 0)
             {
                 var c = ResolvePaletteIndex(cell.FgIndex);
-                return new SKColor(c.R, c.G, c.B, alpha);
+                return new SKColor(c.R, c.G, c.B, 255);
             }
-            return new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, alpha);
+            return new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, 255);
         }
 
         private SKColor ResolveCellBackground(RenderCellSnapshot cell, SKColor themeBg, byte alpha)
@@ -816,9 +823,9 @@ namespace NovaTerminal.Core
             if (cell.BgIndex >= 0)
             {
                 var c = ResolvePaletteIndex(cell.BgIndex);
-                return new SKColor(c.R, c.G, c.B, alpha);
+                return new SKColor(c.R, c.G, c.B, 255);
             }
-            return new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, alpha);
+            return new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, 255);
         }
 
         private TermColor ResolvePaletteIndex(int index)

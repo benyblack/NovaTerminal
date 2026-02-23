@@ -80,10 +80,17 @@ namespace NovaTerminal.Core
                 _prevCursorRow = _cursorRow;
                 _isPendingWrap = false;
             }
-            else if (c == '\n')
+            else if (c == '\n' || c == '\u000B' || c == '\u000C') // LF, VT, FF
             {
                 if (_cursorRow >= 0 && _cursorRow < Rows) _viewport[_cursorRow].IsWrapped = false;
-                _cursorCol = 0;
+                
+                // VT100: LF moves to the same horizontal position on the next line.
+                // Reset to column 0 ONLY if New Line Mode (LNM) is enabled.
+                if (Modes.IsLineFeedNewLineMode)
+                {
+                    _cursorCol = 0;
+                }
+                
                 _cursorRow++;
                 if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
                 _isPendingWrap = false;
@@ -147,7 +154,18 @@ namespace NovaTerminal.Core
         {
             if (string.IsNullOrEmpty(grapheme)) return;
 
-            Rune firstRune = grapheme.EnumerateRunes().First();
+            // Guard against lone surrogates from broken UTF-8 (e.g. Yazi on WSL via ConPTY).
+            // EnumerateRunes().First() internally calls new Rune(char) which throws on surrogates.
+            Rune firstRune;
+            if (grapheme.Length == 1)
+            {
+                if (!Rune.TryCreate(grapheme[0], out firstRune))
+                    firstRune = new Rune('?'); // Replace invalid with ? placeholder
+            }
+            else
+            {
+                firstRune = grapheme.EnumerateRunes().FirstOrDefault(new Rune('?'));
+            }
             bool isCombining = IsCombining(firstRune);
 
 

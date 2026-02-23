@@ -28,6 +28,7 @@ namespace NovaTerminal.Core
         public uint Revision;
         public int Cols;
         public RenderCellSnapshot[] Cells;
+        public long RowId;
     }
 
     public struct RenderImageSnapshot

@@ -21,6 +21,7 @@ namespace NovaTerminal.Core
         public bool IsCursorBlinkEnabled { get; set; } = true;
         public CursorStyle CursorStyle { get; set; } = CursorStyle.Underline;
         public bool IsInsertMode { get; set; }            //  4 - IRM (Insert Replacement Mode)
+        public bool IsLineFeedNewLineMode { get; set; }   // 20 - LNM (Line Feed New Line Mode)
 
         public ModeState Clone()
         {
@@ -38,7 +39,8 @@ namespace NovaTerminal.Core
                 IsCursorVisible = this.IsCursorVisible,
                 IsCursorBlinkEnabled = this.IsCursorBlinkEnabled,
                 CursorStyle = this.CursorStyle,
-                IsInsertMode = this.IsInsertMode
+                IsInsertMode = this.IsInsertMode,
+                IsLineFeedNewLineMode = this.IsLineFeedNewLineMode
             };
         }
     }

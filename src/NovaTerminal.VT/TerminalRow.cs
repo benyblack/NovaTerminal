@@ -4,6 +4,9 @@ namespace NovaTerminal.Core
 {
     public class TerminalRow
     {
+        private static long _nextId = 0;
+        public readonly long Id;
+
         public TerminalCell[] Cells;
         // If true, this line ends because it wrapped automatically.
         // If false, it ends because of an explicit newline (or end of buffer).
@@ -64,12 +67,14 @@ namespace NovaTerminal.Core
 
         public TerminalRow(int cols)
         {
+            Id = System.Threading.Interlocked.Increment(ref _nextId);
             Cells = new TerminalCell[cols];
             for (int i = 0; i < cols; i++) Cells[i] = TerminalCell.Default;
         }
 
         public TerminalRow(int cols, TermColor fg, TermColor bg)
         {
+            Id = System.Threading.Interlocked.Increment(ref _nextId);
             Cells = new TerminalCell[cols];
             for (int i = 0; i < cols; i++)
             {
