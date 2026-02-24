@@ -36,12 +36,12 @@ namespace NovaTerminal.Core.Replay
 
         public void RecordChunk(byte[] data, int length)
         {
-            if (_cts.IsCancellationRequested) return;
+            if (_cts.IsCancellationRequested || _queue.IsAddingCompleted) return;
 
             byte[] copy = new byte[length];
             Array.Copy(data, copy, length);
 
-            _queue.Add(new ReplayEvent
+            TryEnqueue(new ReplayEvent
             {
                 TimeOffsetMs = GetTimestamp(),
                 Type = "data",
@@ -51,9 +51,9 @@ namespace NovaTerminal.Core.Replay
 
         public void RecordResize(int cols, int rows)
         {
-            if (_cts.IsCancellationRequested) return;
+            if (_cts.IsCancellationRequested || _queue.IsAddingCompleted) return;
 
-            _queue.Add(new ReplayEvent
+            TryEnqueue(new ReplayEvent
             {
                 TimeOffsetMs = GetTimestamp(),
                 Type = "resize",
@@ -64,10 +64,10 @@ namespace NovaTerminal.Core.Replay
 
         public void RecordInput(string input)
         {
-            if (_cts.IsCancellationRequested) return;
+            if (_cts.IsCancellationRequested || _queue.IsAddingCompleted) return;
             byte[] utf8 = System.Text.Encoding.UTF8.GetBytes(input);
 
-            _queue.Add(new ReplayEvent
+            TryEnqueue(new ReplayEvent
             {
                 TimeOffsetMs = GetTimestamp(),
                 Type = "input",
@@ -78,7 +78,7 @@ namespace NovaTerminal.Core.Replay
 
         public void RecordSnapshot(TerminalBuffer buffer)
         {
-            if (_cts.IsCancellationRequested) return;
+            if (_cts.IsCancellationRequested || _queue.IsAddingCompleted) return;
 
             ReplaySnapshot snapshot;
             buffer.Lock.EnterReadLock();
@@ -156,7 +156,7 @@ namespace NovaTerminal.Core.Replay
                 buffer.Lock.ExitReadLock();
             }
 
-            _queue.Add(new ReplayEvent
+            TryEnqueue(new ReplayEvent
             {
                 TimeOffsetMs = GetTimestamp(),
                 Type = "snapshot",
@@ -166,9 +166,9 @@ namespace NovaTerminal.Core.Replay
 
         public void RecordMarker(string name)
         {
-            if (_cts.IsCancellationRequested) return;
+            if (_cts.IsCancellationRequested || _queue.IsAddingCompleted) return;
 
-            _queue.Add(new ReplayEvent
+            TryEnqueue(new ReplayEvent
             {
                 TimeOffsetMs = GetTimestamp(),
                 Type = "marker",
@@ -177,6 +177,29 @@ namespace NovaTerminal.Core.Replay
         }
 
         private long GetTimestamp() => (long)(DateTime.UtcNow - _startTime).TotalMilliseconds;
+
+        private void TryEnqueue(ReplayEvent ev)
+        {
+            try
+            {
+                _queue.Add(ev);
+            }
+            catch (InvalidOperationException)
+            {
+                // Queue completed during shutdown; best-effort recording only.
+            }
+        }
+
+        private static int ReadEnvInt(string name, int defaultValue)
+        {
+            string? raw = Environment.GetEnvironmentVariable(name);
+            if (!int.TryParse(raw, out int parsed) || parsed <= 0)
+            {
+                return defaultValue;
+            }
+
+            return parsed;
+        }
 
         private async Task WriteLoop()
         {
@@ -203,12 +226,18 @@ namespace NovaTerminal.Core.Replay
 
         public void Dispose()
         {
-            _queue.CompleteAdding();
+            if (!_queue.IsAddingCompleted)
+            {
+                _queue.CompleteAdding();
+            }
+
+            int flushMs = ReadEnvInt("NOVATERM_RECORDER_FLUSH_MS", 10000);
             try
             {
-                if (!_writeTask.Wait(2000))
+                if (!_writeTask.Wait(flushMs))
                 {
                     _cts.Cancel();
+                    _writeTask.Wait(1000);
                 }
             }
             catch { }

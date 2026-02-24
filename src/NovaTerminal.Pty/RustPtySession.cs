@@ -242,18 +242,53 @@ namespace NovaTerminal.Core
         public void StartRecording(string filePath)
         {
             if (_recorder != null) return; // Already recording
-            _recorder = new NovaTerminal.Core.Replay.ReplayWriter(filePath, _cols, _rows, ShellCommand);
+            var recorder = new NovaTerminal.Core.Replay.ReplayWriter(filePath, _cols, _rows, ShellCommand);
+            try
+            {
+                recorder.RecordMarker("START");
+                if (_buffer != null)
+                {
+                    recorder.RecordSnapshot(_buffer);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RustPtySession] Recording start marker/snapshot failed: {ex.Message}");
+            }
+
+            _recorder = recorder;
             Console.WriteLine($"[RustPtySession] Recording started to: {filePath}");
         }
 
         public void StopRecording()
         {
-            if (_recorder != null)
+            var recorder = _recorder;
+            if (recorder == null) return;
+
+            _recorder = null;
+            try
             {
-                _recorder.Dispose();
-                _recorder = null;
-                Console.WriteLine("[RustPtySession] Recording stopped.");
+                recorder.RecordMarker("END");
+                if (_buffer != null)
+                {
+                    recorder.RecordSnapshot(_buffer);
+                }
             }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RustPtySession] Recording stop marker/snapshot failed: {ex.Message}");
+            }
+
+            try
+            {
+                recorder.Dispose();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RustPtySession] Recorder dispose failed: {ex.Message}");
+            }
+
+            Console.WriteLine("[RustPtySession] Recording stopped.");
         }
 
         public void AttachBuffer(TerminalBuffer buffer)
@@ -315,7 +350,10 @@ namespace NovaTerminal.Core
                     Thread.Sleep(50);
                 }
             }
-            _outputQueue.CompleteAdding();
+            if (!_outputQueue.IsAddingCompleted)
+            {
+                _outputQueue.CompleteAdding();
+            }
         }
 
         private void ProcessLoop()
@@ -356,11 +394,25 @@ namespace NovaTerminal.Core
 
         public void Dispose()
         {
+            if (_recorder != null)
+            {
+                try
+                {
+                    StopRecording();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[RustPtySession] StopRecording during dispose failed: {ex.Message}");
+                }
+            }
+
             if (_ptyState != IntPtr.Zero)
             {
                 _cts.Cancel();
-                _outputQueue.CompleteAdding();
-                _recorder?.Dispose();
+                if (!_outputQueue.IsAddingCompleted)
+                {
+                    _outputQueue.CompleteAdding();
+                }
                 Native.pty_close(_ptyState);
                 _ptyState = IntPtr.Zero;
                 TryNotifyExit(0);

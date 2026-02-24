@@ -370,6 +370,7 @@ namespace NovaTerminal.Controls
                 ShellArgs = args;
 
                 Session = new RustPtySession(effectiveShell, cols, rows, args, startingDir);
+                Session.AttachBuffer(Buffer);
 
                 TermView.SetSession(Session);
                 Session.OnExit += code =>
