@@ -338,8 +338,8 @@ namespace NovaTerminal.Core
                 }, TimeSpan.FromMilliseconds(90));
             }
         }
-        // A robust list attempting to find ANY font with Powerline/Nerd symbols.
-        private const string FontFamilyList = "MesloLGM Nerd Font, MesloLGS NF, Cascadia Code, Cascadia Mono, Fira Code, JetBrains Mono, Consolas, Segoe UI, Segoe Fluent Icons, Segoe UI Symbol, Monospace";
+        // Keep primary font deterministic and monospace-first for box-drawing stability.
+        private const string FontFamilyList = "Cascadia Mono, JetBrains Mono, DejaVu Sans Mono, Consolas, MesloLGS NF, MesloLGM Nerd Font, Fira Code, Monospace";
         private Typeface _typeface = new Typeface(FontFamilyList, FontStyle.Normal, FontWeight.Normal);
         private double _fontSize = 14;
         private CellMetrics _metrics;
@@ -354,12 +354,15 @@ namespace NovaTerminal.Core
         private IGlyphTypeface? _glyphTypeface;
         private SharedSKTypeface? _skTypeface;
         private SharedSKFont? _skFont;
+        private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
+        private static readonly int[] BoxDrawingProbeCodePoints = { 0x2502, 0x2500, 0x250C, 0x2510, 0x2514, 0x2518, 0x253C };
+        private static readonly string[] PreferredMonospaceFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
 
         private static readonly string[] FallbackChainNames = {
             "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", // Emojis
             "Segoe UI Symbol", "Symbola",                              // Symbols
-            "Cascadia Code", "Cascadia Mono", "Fira Code",             // Powerline/Ligature sources
-            "JetBrains Mono", "MesloLGS NF", "Consolas",              // Monospace Fallbacks
+            "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", // Monospace-first
+            "Cascadia Code", "Fira Code", "MesloLGS NF",                        // Alternate symbol sources
             "Courier New", "Monospace"                                 // Last Resort
         };
 
@@ -675,6 +678,62 @@ namespace NovaTerminal.Core
             }
         }
 
+        private static bool IsEnvFlagEnabled(string name)
+        {
+            string? raw = Environment.GetEnvironmentVariable(name);
+            return raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool SupportsBoxDrawing(SKTypeface typeface)
+        {
+            foreach (int cp in BoxDrawingProbeCodePoints)
+            {
+                if (!typeface.ContainsGlyph(cp)) return false;
+            }
+            return true;
+        }
+
+        private static SKTypeface? TryCreateTypeface(string family)
+        {
+            var tf = SKTypeface.FromFamilyName(family);
+            if (tf == null) return null;
+            if (string.IsNullOrWhiteSpace(tf.FamilyName))
+            {
+                tf.Dispose();
+                return null;
+            }
+            return tf;
+        }
+
+        private static SKTypeface ResolveMonospacePrimaryTypeface(string configuredFamily, out bool usedFallback)
+        {
+            usedFallback = false;
+
+            var configured = TryCreateTypeface(configuredFamily);
+            if (configured != null)
+            {
+                return configured;
+            }
+
+            configured?.Dispose();
+            foreach (string family in PreferredMonospaceFonts)
+            {
+                var candidate = TryCreateTypeface(family);
+                if (candidate == null) continue;
+                if (!SupportsBoxDrawing(candidate))
+                {
+                    candidate.Dispose();
+                    continue;
+                }
+
+                usedFallback = true;
+                return candidate;
+            }
+
+            usedFallback = true;
+            return SKTypeface.FromFamilyName("Consolas") ?? SKTypeface.FromFamilyName("Monospace") ?? SKTypeface.Default;
+        }
+
         public void MeasureCharSize()
         {
             _rowCache.RequestClear();
@@ -686,7 +745,18 @@ namespace NovaTerminal.Core
 
             try
             {
-                _skTypeface = new SharedSKTypeface(SkiaSharp.SKTypeface.FromFamilyName(_typeface.FontFamily.Name));
+                string configuredFamily = _typeface.FontFamily.Name;
+                SKTypeface primaryTypeface = ResolveMonospacePrimaryTypeface(configuredFamily, out bool usedFallback);
+                if (usedFallback && !string.Equals(primaryTypeface.FamilyName, configuredFamily, StringComparison.OrdinalIgnoreCase))
+                {
+                    TerminalLogger.Log($"[Render][Warn] configured font '{configuredFamily}' unavailable; using '{primaryTypeface.FamilyName}'.");
+                    if (GlyphDiagnosticsEnabled)
+                    {
+                        TerminalLogger.Log($"[GlyphDiag] configured='{configuredFamily}' fallbackPrimary='{primaryTypeface.FamilyName}'");
+                    }
+                }
+
+                _skTypeface = new SharedSKTypeface(primaryTypeface);
                 if (_skTypeface?.Typeface != null)
                 {
                     _skFont = new SharedSKFont(new SKFont(_skTypeface.Typeface, (float)_fontSize));

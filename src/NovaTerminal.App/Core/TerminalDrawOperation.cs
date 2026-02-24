@@ -7,6 +7,9 @@
 // - Reuses StringBuilder per row to reduce GC churn
 // - Keeps Z-order: Text -> Images -> Overlays -> Cursor
 // - Keeps lock timing instrumentation as-is (Step 4 will shrink lock scope)
+// - Root cause addressed: fractional cell metrics + fallback font advances caused deterministic
+//   box-drawing drift. We now render on a snapped device-pixel cell grid and log fallback/advance
+//   diagnostics behind env flags.
 
 using Avalonia;
 using Avalonia.Media;
@@ -51,6 +54,15 @@ namespace NovaTerminal.Core
         private readonly RowImageCache? _rowCache;
         private readonly bool _enableComplexShaping;
         private readonly GlyphCache? _glyphCache;
+        private readonly int _cellWidthDevicePx;
+        private readonly int _cellHeightDevicePx;
+
+        private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
+        private static readonly bool GridDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GRID");
+        private static readonly bool ForceKnownGoodBoxFont = IsEnvFlagEnabled("NOVATERM_FORCE_BOX_FONT");
+        private static readonly bool UseBoxDrawingPrimitives = IsEnvFlagEnabled("NOVATERM_BOX_PRIMITIVES");
+        private static readonly ConcurrentDictionary<string, byte> GlyphDiagOnce = new();
+        private static readonly string[] KnownGoodBoxFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
 
         // Batching for DrawAtlas
         private readonly List<SKRect> _alphaRects = new();
@@ -136,6 +148,8 @@ namespace NovaTerminal.Core
             _rowCache = rowCache;
             _enableComplexShaping = enableComplexShaping;
             _glyphCache = glyphCache;
+            _cellWidthDevicePx = Math.Max(1, ToDevicePx(_metrics.CellWidth));
+            _cellHeightDevicePx = Math.Max(1, ToDevicePx(_metrics.CellHeight));
         }
 
         public void Dispose()
@@ -280,6 +294,8 @@ namespace NovaTerminal.Core
 
                 float paddingLeft = 4f;
                 float paddingTop = 0f;
+                float[] colEdges = BuildCellEdgeGrid(bufferCols, paddingLeft, _cellWidthDevicePx);
+                float[] rowEdges = BuildCellEdgeGrid(bufferRows, paddingTop, _cellHeightDevicePx);
 
                 int dirtyCells = 0;
                 int buildsThisFrame = 0;
@@ -287,6 +303,7 @@ namespace NovaTerminal.Core
 
                 // Pass 3: Text
                 var tf = _skTypeface?.Typeface ?? SKTypeface.FromFamilyName(_typeface.FontFamily.Name);
+                LogPrimaryFontDiagnostics(tf);
                 using var font = (_skFont?.Font != null)
                     ? new SKFont(_skFont.Font.Typeface, _skFont.Font.Size)
                     : new SKFont(tf, (float)_fontSize);
@@ -298,8 +315,8 @@ namespace NovaTerminal.Core
                 {
                     var item = frame.RowItems[r];
 
-                    float rowTopY = SnapY(r * _metrics.CellHeight + paddingTop);
-                    float baselineY = SnapY(r * _metrics.CellHeight + paddingTop + _metrics.Baseline);
+                    float rowTopY = GetRowEdge(rowEdges, r, paddingTop);
+                    float baselineY = SnapY(rowTopY + _metrics.Baseline);
 
                     if (item.CachedPicture != null)
                     {
@@ -323,7 +340,8 @@ namespace NovaTerminal.Core
                                 rowCanvas,
                                 snapshot,
                                 rowTopY: 0f,
-                                baselineY: (float)_metrics.Baseline,
+                                baselineY: SnapY(_metrics.Baseline),
+                                colEdges: colEdges,
                                 font,
                                 fgPaint,
                                 frame.ThemeFg,
@@ -349,6 +367,7 @@ namespace NovaTerminal.Core
                                 snapshot,
                                 rowTopY: rowTopY,
                                 baselineY: baselineY,
+                                colEdges: colEdges,
                                 font,
                                 fgPaint,
                                 frame.ThemeFg,
@@ -370,11 +389,12 @@ namespace NovaTerminal.Core
                         int visualY = img.CellY - absDisplayStart;
                         if (visualY + img.CellHeight > 0 && visualY < bufferRows)
                         {
-                            float x = SnapX(img.CellX * _metrics.CellWidth + paddingLeft);
-                            float y = SnapY(visualY * _metrics.CellHeight + paddingTop);
-
-                            float w = (float)(Math.Round((img.CellWidth * _metrics.CellWidth) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
-                            float h = (float)(Math.Round((img.CellHeight * _metrics.CellHeight) * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
+                            float x = GetColEdge(colEdges, img.CellX, paddingLeft);
+                            float x2 = GetColEdge(colEdges, img.CellX + img.CellWidth, paddingLeft);
+                            float y = GetRowEdge(rowEdges, visualY, paddingTop);
+                            float y2 = GetRowEdge(rowEdges, visualY + img.CellHeight, paddingTop);
+                            float w = x2 - x;
+                            float h = y2 - y;
 
                             var rect = new SKRect(x, y, x + w, y + h);
 
@@ -393,7 +413,9 @@ namespace NovaTerminal.Core
                 int matchIndex = 0;
                 for (int r = 0; r < bufferRows; r++)
                 {
-                    float y = SnapY(r * _metrics.CellHeight + paddingTop);
+                    float y = GetRowEdge(rowEdges, r, paddingTop);
+                    float rowBottom = GetRowEdge(rowEdges, r + 1, paddingTop);
+                    float rowHeight = rowBottom - y;
                     int absRow = absDisplayStart + r;
 
                     if (_selection.IsActive)
@@ -401,9 +423,9 @@ namespace NovaTerminal.Core
                         var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
                         if (isSelected)
                         {
-                            float x1 = SnapX(colStart * _metrics.CellWidth + paddingLeft);
-                            float x2 = SnapX((colEnd + 1) * _metrics.CellWidth + paddingLeft);
-                            canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, selectionPaint);
+                            float x1 = GetColEdge(colEdges, colStart, paddingLeft);
+                            float x2 = GetColEdge(colEdges, colEnd + 1, paddingLeft);
+                            canvas.DrawRect(x1, y, x2 - x1, rowHeight, selectionPaint);
                         }
                     }
 
@@ -420,9 +442,9 @@ namespace NovaTerminal.Core
                         {
                             var m = _searchMatches[tempIdx];
                             var p = (tempIdx == _activeSearchIndex) ? activeMatchPaint : matchPaint;
-                            float x1 = SnapX(m.StartCol * _metrics.CellWidth + paddingLeft);
-                            float x2 = SnapX((m.EndCol + 1) * _metrics.CellWidth + paddingLeft);
-                            canvas.DrawRect(x1, y, x2 - x1, (float)_metrics.CellHeight, p);
+                            float x1 = GetColEdge(colEdges, m.StartCol, paddingLeft);
+                            float x2 = GetColEdge(colEdges, m.EndCol + 1, paddingLeft);
+                            canvas.DrawRect(x1, y, x2 - x1, rowHeight, p);
                             tempIdx++;
                         }
                     }
@@ -436,31 +458,38 @@ namespace NovaTerminal.Core
 
                     if (visualRow >= 0 && visualRow < bufferRows)
                     {
-                        float x1 = SnapX(_cursorCol * _metrics.CellWidth + paddingLeft);
-                        float x2 = SnapX((_cursorCol + 1) * _metrics.CellWidth + paddingLeft);
-                        float rowTop = SnapY(visualRow * _metrics.CellHeight + paddingTop);
+                        float x1 = GetColEdge(colEdges, _cursorCol, paddingLeft);
+                        float x2 = GetColEdge(colEdges, _cursorCol + 1, paddingLeft);
+                        float rowTop = GetRowEdge(rowEdges, visualRow, paddingTop);
+                        float rowBottom = GetRowEdge(rowEdges, visualRow + 1, paddingTop);
+                        float rowHeight = rowBottom - rowTop;
                         using var cursorPaint = new SKPaint { Color = frame.CursorColor, Style = SKPaintStyle.Fill };
 
                         switch (frame.CursorStyle)
                         {
                             case CursorStyle.Block:
-                                canvas.DrawRect(x1, rowTop, x2 - x1, (float)_metrics.CellHeight, cursorPaint);
+                                canvas.DrawRect(x1, rowTop, x2 - x1, rowHeight, cursorPaint);
                                 break;
                             case CursorStyle.Beam:
                                 {
                                     float beamW = Math.Max(1f, (float)Math.Floor(_metrics.CellWidth * 0.14));
-                                    canvas.DrawRect(x1, rowTop, beamW, (float)_metrics.CellHeight, cursorPaint);
+                                    canvas.DrawRect(x1, rowTop, beamW, rowHeight, cursorPaint);
                                     break;
                                 }
                             case CursorStyle.Underline:
                             default:
                                 {
-                                    float uY = SnapY(rowTop + _metrics.CellHeight - 2);
+                                    float uY = SnapY(rowTop + rowHeight - 2);
                                     canvas.DrawRect(x1, uY, x2 - x1, 2, cursorPaint);
                                     break;
                                 }
                         }
                     }
+                }
+
+                if (GridDiagnosticsEnabled)
+                {
+                    DrawDebugCellGrid(canvas, colEdges, rowEdges);
                 }
 
                 frameSw.Stop();
@@ -519,6 +548,7 @@ namespace NovaTerminal.Core
             RenderRowSnapshot snapshot,
             float rowTopY,
             float baselineY,
+            float[] colEdges,
             SKFont font,
             SKPaint fgPaint,
             SKColor themeFg,
@@ -529,6 +559,7 @@ namespace NovaTerminal.Core
         {
             const float paddingLeft = 4f;
             int cellsRendered = 0;
+            float snappedCellHeight = FromDevicePx(_cellHeightDevicePx);
 
             // Reuse per-row StringBuilder to avoid per-run allocations/GC churn.
             var runBuilder = new StringBuilder(capacity: Math.Max(16, snapshot.Cols));
@@ -555,6 +586,8 @@ namespace NovaTerminal.Core
                 runBuilder.Clear();
                 int totalRunWidth = 0;
                 bool runNeedsComplexShaping = false;
+                bool runHasBoxDrawing = false;
+                bool runHasComplexShapingGlyph = false;
                 int k = c;
 
                 while (k < snapshot.Cols)
@@ -585,22 +618,23 @@ namespace NovaTerminal.Core
                         break;
 
                     string cellText = NormalizeTextElementForRender(next.Text ?? next.Character.ToString());
+                    bool cellHasBoxDrawing = ContainsBoxDrawing(cellText);
+                    bool cellNeedsComplexShaping = _enableComplexShaping && ContainsRunesRequiringComplexShaping(cellText);
 
-                    if (_enableComplexShaping)
+                    if (k > c)
                     {
-                        foreach (var rune in cellText.EnumerateRunes())
+                        // Keep box-drawing runs isolated from icon/complex-shaping runs so
+                        // snapped box primitives are not bypassed by mixed run shaping.
+                        if ((runHasBoxDrawing && cellNeedsComplexShaping) ||
+                            (runHasComplexShapingGlyph && cellHasBoxDrawing))
                         {
-                            int cp = rune.Value;
-                            if ((cp >= 0x0590 && cp <= 0x0FFF) || // Complex scripts
-                                (cp >= 0x1F300 && cp <= 0x1FAFF) || // Emoji
-                                (cp >= 0x2600 && cp <= 0x27BF) ||   // Dingbats/symbols
-                                (cp == 0x200D))                      // ZWJ
-                            {
-                                runNeedsComplexShaping = true;
-                                break;
-                            }
+                            break;
                         }
                     }
+
+                    runHasBoxDrawing |= cellHasBoxDrawing;
+                    runHasComplexShapingGlyph |= cellNeedsComplexShaping;
+                    runNeedsComplexShaping = runHasComplexShapingGlyph && !runHasBoxDrawing;
 
                     runBuilder.Append(cellText);
                     int w = GetSafeGraphemeWidth(cellText); // GetGraphemeWidth is thread-safe
@@ -609,8 +643,8 @@ namespace NovaTerminal.Core
                 }
 
                 string runText = runBuilder.ToString();
-                float rx = SnapX(c * _metrics.CellWidth + paddingLeft);
-                float rx2 = SnapX((c + totalRunWidth) * _metrics.CellWidth + paddingLeft);
+                float rx = GetColEdge(colEdges, c, paddingLeft);
+                float rx2 = GetColEdge(colEdges, c + totalRunWidth, paddingLeft);
                 fgPaint.Color = fg;
                 float rw = rx2 - rx;
                 float strokeWidth = Math.Max(1f, (float)(_metrics.CellHeight * 0.06));
@@ -619,7 +653,7 @@ namespace NovaTerminal.Core
                 if (drawBackgrounds && bg != themeBg && bg.Alpha != 0)
                 {
                     using var bgP = new SKPaint { Color = bg, Style = SKPaintStyle.Fill };
-                    canvas.DrawRect(rx, rowTopY, rw, (float)_metrics.CellHeight, bgP);
+                    canvas.DrawRect(rx, rowTopY, rw, snappedCellHeight, bgP);
                 }
 
                 bool appliedItalicTransform = false;
@@ -649,6 +683,7 @@ namespace NovaTerminal.Core
 
                     using var fFont = new SKFont(tfToUse ?? primaryTf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
                     using var shaper = new SKShaper(tfToUse ?? primaryTf);
+                    LogBoxRunDiagnostics(runText, totalRunWidth, fFont, fFont.MeasureText(runText));
                     canvas.DrawShapedText(shaper, runText, rx, baselineY, fFont, fgPaint);
 
                     if (useLayer) canvas.Restore();
@@ -673,9 +708,7 @@ namespace NovaTerminal.Core
                         {
                             string grapheme = rune.ToString();
                             int graphemeWidth = GetSafeGraphemeWidth(grapheme);
-                            double cellWidth = _metrics.CellWidth;
-                            double xIdxLogical = (cellX * cellWidth) + paddingLeft;
-                            float xIdxSnap = SnapX(xIdxLogical);
+                            float xIdxSnap = GetColEdge(colEdges, cellX, paddingLeft);
 
                             int fallbackChar = FindFirstMissingGlyphCodePoint(grapheme, primaryTf);
                             SKFont glyphFont = font;
@@ -690,10 +723,20 @@ namespace NovaTerminal.Core
                                 }
                             }
 
+                            if (GlyphDiagnosticsEnabled && IsSingleRuneInRange(grapheme, 0x2500, 0x257F))
+                            {
+                                float measuredGlyphWidth = glyphFont.MeasureText(grapheme);
+                                float expectedGlyphWidth = graphemeWidth * _metrics.CellWidth;
+                                string glyphFamily = glyphFont.Typeface?.FamilyName ?? "unknown";
+                                string diagKey = $"boxglyph:{glyphFamily}:{grapheme}";
+                                string diagMsg = $"[GlyphDiag] box-glyph='{grapheme}' font='{glyphFamily}' measuredDip={measuredGlyphWidth:F4} expectedDip={expectedGlyphWidth:F4} delta={measuredGlyphWidth - expectedGlyphWidth:F4}";
+                                LogDiagOnce(diagKey, diagMsg);
+                            }
+
                             float cellX1 = xIdxSnap;
-                            float cellX2 = SnapX(((cellX + graphemeWidth) * cellWidth) + paddingLeft);
+                            float cellX2 = GetColEdge(colEdges, cellX + graphemeWidth, paddingLeft);
                             float cellW = cellX2 - cellX1;
-                            float cellH = (float)_metrics.CellHeight;
+                            float cellH = snappedCellHeight;
 
                             // Render primary block elements on the cell grid to avoid font side-bearing seams.
                             if (TryGetBlockFillRect(grapheme, out int xStartEighths, out int xEndEighths, out int yStartEighths, out int yEndEighths))
@@ -753,10 +796,33 @@ namespace NovaTerminal.Core
                                 continue;
                             }
 
+                            if (UseBoxDrawingPrimitives &&
+                                TryGetSingleRuneCodePoint(grapheme, out int cpBox) &&
+                                cpBox >= 0x2500 && cpBox <= 0x257F)
+                            {
+                                FlushBatches(canvas);
+                                if (TryDrawBoxDrawingGlyph(canvas, grapheme, cellX1, rowTopY, cellW, cellH, fg))
+                                {
+                                    fallbackFont?.Dispose();
+                                    cellX += graphemeWidth;
+                                    continue;
+                                }
+                            }
+
                             if (ShouldForceDirectTextForGraphGlyph(grapheme))
                             {
                                 FlushBatches(canvas);
-                                canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, glyphFont, fgPaint);
+                                DrawDirectGrapheme(
+                                    canvas,
+                                    grapheme,
+                                    xIdxSnap,
+                                    yBaselineSnap,
+                                    glyphFont,
+                                    fgPaint,
+                                    cellX1,
+                                    rowTopY,
+                                    cellW,
+                                    cellH);
                                 fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
@@ -765,7 +831,17 @@ namespace NovaTerminal.Core
                             if (ShouldBypassGlyphAtlasForGrapheme(grapheme))
                             {
                                 FlushBatches(canvas);
-                                canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, glyphFont, fgPaint);
+                                DrawDirectGrapheme(
+                                    canvas,
+                                    grapheme,
+                                    xIdxSnap,
+                                    yBaselineSnap,
+                                    glyphFont,
+                                    fgPaint,
+                                    cellX1,
+                                    rowTopY,
+                                    cellW,
+                                    cellH);
                                 fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
@@ -797,6 +873,7 @@ namespace NovaTerminal.Core
                             fallbackFont?.Dispose();
                             cellX += graphemeWidth;
                         }
+                        LogBoxRunDiagnostics(runText, totalRunWidth, font, font.MeasureText(runText));
                     }
                     else
                     {
@@ -825,19 +902,20 @@ namespace NovaTerminal.Core
                     {
                         float underlineX1 = rx;
                         float underlineX2 = rx + rw;
-                        if (TryGetUnderlineBounds(runText, c, paddingLeft, out float trimmedX1, out float trimmedX2))
+                        if (TryGetUnderlineBounds(runText, c, colEdges, paddingLeft, out float trimmedX1, out float trimmedX2))
                         {
                             underlineX1 = trimmedX1;
                             underlineX2 = trimmedX2;
                         }
 
                         float underlineY = SnapY(rowTopY + _metrics.CellHeight - Math.Max(1.5, _metrics.CellHeight * 0.12));
+                        underlineY = Math.Min(underlineY, rowTopY + snappedCellHeight);
                         canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, decoPaint);
                     }
 
                     if (runIsStrikethrough)
                     {
-                        float strikeY = SnapY(rowTopY + (_metrics.CellHeight * 0.52));
+                        float strikeY = SnapY(rowTopY + (snappedCellHeight * 0.52));
                         canvas.DrawLine(rx, strikeY, rx + rw, strikeY, decoPaint);
                     }
                 }
@@ -856,12 +934,155 @@ namespace NovaTerminal.Core
             return 0;
         }
 
+        private static bool IsEnvFlagEnabled(string name)
+        {
+            string? raw = Environment.GetEnvironmentVariable(name);
+            return raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private int ToDevicePx(double logical)
+            => (int)Math.Round(logical * _renderScaling, MidpointRounding.AwayFromZero);
+
+        private float FromDevicePx(int px)
+            => (float)(px / _renderScaling);
+
         private float Snap(double logical)
             => (float)(Math.Round(logical * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
 
         private float SnapX(double logicalX) => Snap(logicalX);
 
         private float SnapY(double logicalY) => Snap(logicalY);
+
+        private float[] BuildCellEdgeGrid(int cellCount, float logicalStart, int deviceCellSize)
+        {
+            int count = Math.Max(0, cellCount);
+            var edges = new float[count + 1];
+            int startPx = ToDevicePx(logicalStart);
+            for (int i = 0; i <= count; i++)
+            {
+                edges[i] = FromDevicePx(startPx + (i * deviceCellSize));
+            }
+            return edges;
+        }
+
+        private float GetColEdge(float[] colEdges, int colIndex, float paddingLeft)
+        {
+            if ((uint)colIndex < (uint)colEdges.Length) return colEdges[colIndex];
+            return SnapX((colIndex * _metrics.CellWidth) + paddingLeft);
+        }
+
+        private float GetRowEdge(float[] rowEdges, int rowIndex, float paddingTop)
+        {
+            if ((uint)rowIndex < (uint)rowEdges.Length) return rowEdges[rowIndex];
+            return SnapY((rowIndex * _metrics.CellHeight) + paddingTop);
+        }
+
+        private void DrawDebugCellGrid(SKCanvas canvas, float[] colEdges, float[] rowEdges)
+        {
+            using var gridPaint = new SKPaint
+            {
+                Color = new SKColor(0, 200, 255, 72),
+                Style = SKPaintStyle.Stroke,
+                IsAntialias = false,
+                StrokeWidth = Math.Max(1f, FromDevicePx(1))
+            };
+
+            float y1 = rowEdges.Length > 0 ? rowEdges[0] : 0f;
+            float y2 = rowEdges.Length > 0 ? rowEdges[rowEdges.Length - 1] : (float)Bounds.Height;
+            foreach (float x in colEdges)
+            {
+                canvas.DrawLine(x, y1, x, y2, gridPaint);
+            }
+        }
+
+        private void LogDiagOnce(string key, string message)
+        {
+            if (!GlyphDiagnosticsEnabled) return;
+            if (GlyphDiagOnce.TryAdd(key, 0))
+            {
+                TerminalLogger.Log(message);
+            }
+        }
+
+        private void LogPrimaryFontDiagnostics(SKTypeface primaryTf)
+        {
+            if (!GlyphDiagnosticsEnabled) return;
+            string key = $"fontcfg:{_typeface.FontFamily.Name}:{primaryTf.FamilyName}:{_fontSize}:{_renderScaling}";
+            string message = $"[GlyphDiag] configured='{_typeface.FontFamily.Name}' primary='{primaryTf.FamilyName}' size={_fontSize:F2} scaling={_renderScaling:F3} cellDip={_metrics.CellWidth:F4}x{_metrics.CellHeight:F4} cellPx={_cellWidthDevicePx}x{_cellHeightDevicePx}";
+            LogDiagOnce(key, message);
+        }
+
+        private static bool ContainsBoxDrawing(string text)
+        {
+            foreach (var rune in text.EnumerateRunes())
+            {
+                int cp = rune.Value;
+                if (cp >= 0x2500 && cp <= 0x257F) return true;
+            }
+            return false;
+        }
+
+        private static bool ContainsRunesRequiringComplexShaping(string text)
+        {
+            foreach (var rune in text.EnumerateRunes())
+            {
+                int cp = rune.Value;
+                if ((cp >= 0x0590 && cp <= 0x0FFF) || // Complex scripts
+                    (cp >= 0x1F300 && cp <= 0x1FAFF) || // Emoji
+                    (cp >= 0x2600 && cp <= 0x27BF) ||   // Dingbats/symbols
+                    (cp == 0x200D))                      // ZWJ
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void DrawDirectGrapheme(
+            SKCanvas canvas,
+            string grapheme,
+            float x,
+            float baselineY,
+            SKFont glyphFont,
+            SKPaint paint,
+            float cellX,
+            float cellY,
+            float cellW,
+            float cellH)
+        {
+            if (!IsSingleRuneInRange(grapheme, 0x2500, 0x257F) || cellW <= 0 || cellH <= 0)
+            {
+                canvas.DrawText(grapheme, x, baselineY, glyphFont, paint);
+                return;
+            }
+
+            // Clip box-drawing glyphs to their exact cell to avoid tiny vertical overlap
+            // artifacts when stacked row-by-row with font rendering.
+            canvas.Save();
+            canvas.ClipRect(SKRect.Create(cellX, cellY, cellW, cellH));
+
+            using var crispFont = new SKFont(glyphFont.Typeface ?? SKTypeface.Default, glyphFont.Size)
+            {
+                Edging = SKFontEdging.Alias,
+                Hinting = SKFontHinting.Full
+            };
+            canvas.DrawText(grapheme, x, baselineY, crispFont, paint);
+            canvas.Restore();
+        }
+
+        private static bool IsBoxDrawingCodePoint(int cp)
+            => cp >= 0x2500 && cp <= 0x257F;
+
+        private void LogBoxRunDiagnostics(string runText, int runCells, SKFont runFont, float measuredWidth)
+        {
+            if (!GlyphDiagnosticsEnabled || !ContainsBoxDrawing(runText)) return;
+
+            float expectedWidth = runCells * _metrics.CellWidth;
+            string sample = runText.Length <= 24 ? runText : runText.Substring(0, 24);
+            string key = $"boxrun:{runFont.Typeface?.FamilyName}:{sample}:{runCells}";
+            string msg = $"[GlyphDiag] box-run font='{runFont.Typeface?.FamilyName}' cells={runCells} measuredDip={measuredWidth:F4} expectedDip={expectedWidth:F4} delta={measuredWidth - expectedWidth:F4} sample='{sample}'";
+            LogDiagOnce(key, msg);
+        }
 
         private static int FindFirstMissingGlyphCodePoint(string text, SKTypeface primaryTf)
         {
@@ -958,7 +1179,42 @@ namespace NovaTerminal.Core
 
         private SKTypeface ResolveTypefaceForCodePoint(int codePoint, SKTypeface primaryTf)
         {
-            if (codePoint <= 127 || primaryTf.ContainsGlyph(codePoint))
+            if (codePoint <= 127)
+            {
+                return primaryTf;
+            }
+
+            if (IsBoxDrawingCodePoint(codePoint))
+            {
+                if (!ForceKnownGoodBoxFont && primaryTf.ContainsGlyph(codePoint))
+                {
+                    return primaryTf;
+                }
+
+                string boxLookupKey = $"box:{codePoint}";
+                if (_fallbackCache.TryGetValue(boxLookupKey, out var cachedBoxTypeface))
+                {
+                    return cachedBoxTypeface ?? primaryTf;
+                }
+
+                var knownGood = ResolveKnownGoodBoxTypeface(codePoint);
+                if (knownGood != null)
+                {
+                    if (knownGood != primaryTf)
+                    {
+                        LogDiagOnce(
+                            $"box-font-mismatch:{primaryTf.FamilyName}:{knownGood.FamilyName}",
+                            $"[GlyphDiag][Warn] box-drawing fallback primary='{primaryTf.FamilyName}' resolved='{knownGood.FamilyName}' codePoint=U+{codePoint:X4}");
+                    }
+                    _fallbackCache.TryAdd(boxLookupKey, knownGood);
+                    return knownGood;
+                }
+
+                _fallbackCache.TryAdd(boxLookupKey, primaryTf);
+                return primaryTf;
+            }
+
+            if (primaryTf.ContainsGlyph(codePoint))
             {
                 return primaryTf;
             }
@@ -989,6 +1245,19 @@ namespace NovaTerminal.Core
             }
 
             return tfToUse ?? primaryTf;
+        }
+
+        private SKTypeface? ResolveKnownGoodBoxTypeface(int codePoint)
+        {
+            foreach (string family in KnownGoodBoxFonts)
+            {
+                using var candidate = SKTypeface.FromFamilyName(family);
+                if (candidate != null && candidate.ContainsGlyph(codePoint))
+                {
+                    return SKTypeface.FromFamilyName(family);
+                }
+            }
+            return null;
         }
 
         private static bool TryGetBlockFillRect(
@@ -1170,6 +1439,227 @@ namespace NovaTerminal.Core
             if ((mask & 0b1000) != 0 && x2 > xMid && y2 > yMid) canvas.DrawRect(xMid, yMid, x2 - xMid, y2 - yMid, paint); // LR
         }
 
+        private bool TryDrawBoxDrawingGlyph(SKCanvas canvas, string grapheme, float x, float y, float w, float h, SKColor color)
+        {
+            if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
+            if (cp < 0x2500 || cp > 0x257F) return false;
+
+            const int SegUp = 1 << 0;
+            const int SegDown = 1 << 1;
+            const int SegLeft = 1 << 2;
+            const int SegRight = 1 << 3;
+
+            int seg = 0;
+            bool isDouble = false;
+            bool isRoundedArc = false;
+
+            switch (cp)
+            {
+                // Light single-line set used by TUIs
+                case 0x2500: seg = SegLeft | SegRight; break; // ─
+                case 0x2502: seg = SegUp | SegDown; break; // │
+                case 0x250C: seg = SegRight | SegDown; break; // ┌
+                case 0x2510: seg = SegLeft | SegDown; break; // ┐
+                case 0x2514: seg = SegRight | SegUp; break; // └
+                case 0x2518: seg = SegLeft | SegUp; break; // ┘
+                case 0x251C: seg = SegUp | SegDown | SegRight; break; // ├
+                case 0x2524: seg = SegUp | SegDown | SegLeft; break; // ┤
+                case 0x252C: seg = SegLeft | SegRight | SegDown; break; // ┬
+                case 0x2534: seg = SegLeft | SegRight | SegUp; break; // ┴
+                case 0x253C: seg = SegUp | SegDown | SegLeft | SegRight; break; // ┼
+
+                // Heavy variants rendered as thicker strokes
+                case 0x2501: seg = SegLeft | SegRight; break; // ━
+                case 0x2503: seg = SegUp | SegDown; break; // ┃
+                case 0x250F: seg = SegRight | SegDown; break; // ┏
+                case 0x2513: seg = SegLeft | SegDown; break; // ┓
+                case 0x2517: seg = SegRight | SegUp; break; // ┗
+                case 0x251B: seg = SegLeft | SegUp; break; // ┛
+                case 0x2523: seg = SegUp | SegDown | SegRight; break; // ┣
+                case 0x252B: seg = SegUp | SegDown | SegLeft; break; // ┫
+                case 0x2533: seg = SegLeft | SegRight | SegDown; break; // ┳
+                case 0x253B: seg = SegLeft | SegRight | SegUp; break; // ┻
+                case 0x254B: seg = SegUp | SegDown | SegLeft | SegRight; break; // ╋
+
+                // Double-line common set
+                case 0x2550: seg = SegLeft | SegRight; isDouble = true; break; // ═
+                case 0x2551: seg = SegUp | SegDown; isDouble = true; break; // ║
+                case 0x2554: seg = SegRight | SegDown; isDouble = true; break; // ╔
+                case 0x2557: seg = SegLeft | SegDown; isDouble = true; break; // ╗
+                case 0x255A: seg = SegRight | SegUp; isDouble = true; break; // ╚
+                case 0x255D: seg = SegLeft | SegUp; isDouble = true; break; // ╝
+                case 0x2560: seg = SegUp | SegDown | SegRight; isDouble = true; break; // ╠
+                case 0x2563: seg = SegUp | SegDown | SegLeft; isDouble = true; break; // ╣
+                case 0x2566: seg = SegLeft | SegRight | SegDown; isDouble = true; break; // ╦
+                case 0x2569: seg = SegLeft | SegRight | SegUp; isDouble = true; break; // ╩
+                case 0x256C: seg = SegUp | SegDown | SegLeft | SegRight; isDouble = true; break; // ╬
+
+                // Light rounded corners used by TUIs (superfile/lazygit/etc)
+                case 0x256D: seg = SegRight | SegDown; isRoundedArc = true; break; // ╭
+                case 0x256E: seg = SegLeft | SegDown; isRoundedArc = true; break; // ╮
+                case 0x256F: seg = SegLeft | SegUp; isRoundedArc = true; break; // ╯
+                case 0x2570: seg = SegRight | SegUp; isRoundedArc = true; break; // ╰
+
+                default:
+                    return false;
+            }
+
+            int x1px = ToDevicePx(x);
+            int y1px = ToDevicePx(y);
+            int x2px = ToDevicePx(x + w);
+            int y2px = ToDevicePx(y + h);
+            if (x2px <= x1px || y2px <= y1px) return false;
+
+            int xMidPx = (x1px + x2px) / 2;
+            int yMidPx = (y1px + y2px) / 2;
+
+            int baseThick = Math.Max(1, Math.Min(_cellWidthDevicePx, _cellHeightDevicePx) / 10);
+            // Heavy/light both get grid-aligned fill; heavy naturally appears bolder via 2px where possible.
+            int thickPx = (cp == 0x2501 || cp == 0x2503 || cp == 0x250F || cp == 0x2513 || cp == 0x2517 || cp == 0x251B || cp == 0x2523 || cp == 0x252B || cp == 0x2533 || cp == 0x253B || cp == 0x254B)
+                ? Math.Max(1, baseThick + 1)
+                : baseThick;
+            int gapPx = Math.Max(1, thickPx + 1);
+
+            using var p = new SKPaint
+            {
+                Color = color,
+                Style = SKPaintStyle.Fill,
+                IsAntialias = false
+            };
+
+            static void DrawRectPx(SKCanvas c, SKPaint paint, int px1, int py1, int px2, int py2, Func<int, float> fromPx)
+            {
+                if (px2 <= px1 || py2 <= py1) return;
+                c.DrawRect(fromPx(px1), fromPx(py1), fromPx(px2 - px1), fromPx(py2 - py1), paint);
+            }
+
+            void DrawHorizontal(int startPx, int endPx, int centerYPx, int strokePx)
+            {
+                int top = centerYPx - (strokePx / 2);
+                int bottom = top + strokePx;
+                DrawRectPx(canvas, p, startPx, top, endPx, bottom, FromDevicePx);
+            }
+
+            void DrawVertical(int startPx, int endPx, int centerXPx, int strokePx)
+            {
+                int left = centerXPx - (strokePx / 2);
+                int right = left + strokePx;
+                DrawRectPx(canvas, p, left, startPx, right, endPx, FromDevicePx);
+            }
+
+            void DrawRoundedCornerStroke(int cornerSeg, int strokePx)
+            {
+                int halfW = Math.Max(1, (x2px - x1px) / 2);
+                int halfH = Math.Max(1, (y2px - y1px) / 2);
+                int insetPx = Math.Max(0, strokePx / 2);
+                int leftPx = x1px + insetPx;
+                int rightPx = x2px - insetPx;
+                int topPx = y1px + insetPx;
+                int bottomPx = y2px - insetPx;
+                if (rightPx <= leftPx || bottomPx <= topPx) return;
+
+                int radiusPx = Math.Max(1, Math.Min(halfW, halfH) - Math.Max(1, strokePx / 2));
+                float strokeDip = FromDevicePx(Math.Max(1, strokePx));
+
+                using var roundedPaint = new SKPaint
+                {
+                    Color = color,
+                    Style = SKPaintStyle.Stroke,
+                    IsAntialias = false,
+                    StrokeWidth = strokeDip,
+                    StrokeCap = SKStrokeCap.Butt,
+                    StrokeJoin = SKStrokeJoin.Round
+                };
+
+                using var path = new SKPath();
+                switch (cornerSeg)
+                {
+                    case SegRight | SegDown: // ╭
+                        path.MoveTo(FromDevicePx(rightPx), FromDevicePx(yMidPx));
+                        path.LineTo(FromDevicePx(xMidPx + radiusPx), FromDevicePx(yMidPx));
+                        path.QuadTo(
+                            FromDevicePx(xMidPx + radiusPx), FromDevicePx(yMidPx + radiusPx),
+                            FromDevicePx(xMidPx), FromDevicePx(yMidPx + radiusPx));
+                        path.LineTo(FromDevicePx(xMidPx), FromDevicePx(bottomPx));
+                        break;
+                    case SegLeft | SegDown: // ╮
+                        path.MoveTo(FromDevicePx(leftPx), FromDevicePx(yMidPx));
+                        path.LineTo(FromDevicePx(xMidPx - radiusPx), FromDevicePx(yMidPx));
+                        path.QuadTo(
+                            FromDevicePx(xMidPx - radiusPx), FromDevicePx(yMidPx + radiusPx),
+                            FromDevicePx(xMidPx), FromDevicePx(yMidPx + radiusPx));
+                        path.LineTo(FromDevicePx(xMidPx), FromDevicePx(bottomPx));
+                        break;
+                    case SegLeft | SegUp: // ╯
+                        path.MoveTo(FromDevicePx(leftPx), FromDevicePx(yMidPx));
+                        path.LineTo(FromDevicePx(xMidPx - radiusPx), FromDevicePx(yMidPx));
+                        path.QuadTo(
+                            FromDevicePx(xMidPx - radiusPx), FromDevicePx(yMidPx - radiusPx),
+                            FromDevicePx(xMidPx), FromDevicePx(yMidPx - radiusPx));
+                        path.LineTo(FromDevicePx(xMidPx), FromDevicePx(topPx));
+                        break;
+                    case SegRight | SegUp: // ╰
+                        path.MoveTo(FromDevicePx(rightPx), FromDevicePx(yMidPx));
+                        path.LineTo(FromDevicePx(xMidPx + radiusPx), FromDevicePx(yMidPx));
+                        path.QuadTo(
+                            FromDevicePx(xMidPx + radiusPx), FromDevicePx(yMidPx - radiusPx),
+                            FromDevicePx(xMidPx), FromDevicePx(yMidPx - radiusPx));
+                        path.LineTo(FromDevicePx(xMidPx), FromDevicePx(topPx));
+                        break;
+                    default:
+                        return;
+                }
+
+                canvas.Save();
+                canvas.ClipRect(SKRect.Create(FromDevicePx(x1px), FromDevicePx(y1px), FromDevicePx(x2px - x1px), FromDevicePx(y2px - y1px)));
+                canvas.DrawPath(path, roundedPaint);
+                canvas.Restore();
+            }
+
+            if (isRoundedArc)
+            {
+                DrawRoundedCornerStroke(seg, thickPx);
+                return true;
+            }
+
+            if (isDouble)
+            {
+                if ((seg & SegLeft) != 0 || (seg & SegRight) != 0)
+                {
+                    int yA = yMidPx - gapPx;
+                    int yB = yMidPx + gapPx;
+                    if ((seg & SegLeft) != 0) { DrawHorizontal(x1px, xMidPx, yA, thickPx); DrawHorizontal(x1px, xMidPx, yB, thickPx); }
+                    if ((seg & SegRight) != 0) { DrawHorizontal(xMidPx, x2px, yA, thickPx); DrawHorizontal(xMidPx, x2px, yB, thickPx); }
+                }
+
+                if ((seg & SegUp) != 0 || (seg & SegDown) != 0)
+                {
+                    int xA = xMidPx - gapPx;
+                    int xB = xMidPx + gapPx;
+                    if ((seg & SegUp) != 0) { DrawVertical(y1px, yMidPx, xA, thickPx); DrawVertical(y1px, yMidPx, xB, thickPx); }
+                    if ((seg & SegDown) != 0) { DrawVertical(yMidPx, y2px, xA, thickPx); DrawVertical(yMidPx, y2px, xB, thickPx); }
+                }
+            }
+            else
+            {
+                if ((seg & SegLeft) != 0) DrawHorizontal(x1px, xMidPx, yMidPx, thickPx);
+                if ((seg & SegRight) != 0) DrawHorizontal(xMidPx, x2px, yMidPx, thickPx);
+                if ((seg & SegUp) != 0) DrawVertical(y1px, yMidPx, xMidPx, thickPx);
+                if ((seg & SegDown) != 0) DrawVertical(yMidPx, y2px, xMidPx, thickPx);
+
+                bool hasH = (seg & (SegLeft | SegRight)) != 0;
+                bool hasV = (seg & (SegUp | SegDown)) != 0;
+                if (hasH && hasV)
+                {
+                    int cx1 = xMidPx - (thickPx / 2);
+                    int cy1 = yMidPx - (thickPx / 2);
+                    DrawRectPx(canvas, p, cx1, cy1, cx1 + thickPx, cy1 + thickPx, FromDevicePx);
+                }
+            }
+
+            return true;
+        }
+
         private void DrawBrailleSubcells(SKCanvas canvas, byte mask, float x, float y, float w, float h, SKPaint paint)
         {
             if (mask == 0 || w <= 0 || h <= 0) return;
@@ -1237,7 +1727,7 @@ namespace NovaTerminal.Core
             return false;
         }
 
-        private bool TryGetUnderlineBounds(string runText, int runStartCol, float paddingLeft, out float x1, out float x2)
+        private bool TryGetUnderlineBounds(string runText, int runStartCol, float[] colEdges, float paddingLeft, out float x1, out float x2)
         {
             x1 = 0f;
             x2 = 0f;
@@ -1266,8 +1756,8 @@ namespace NovaTerminal.Core
                 return false;
             }
 
-            x1 = SnapX((runStartCol + startCellOffset) * _metrics.CellWidth + paddingLeft);
-            x2 = SnapX((runStartCol + endCellOffsetExclusive) * _metrics.CellWidth + paddingLeft);
+            x1 = GetColEdge(colEdges, runStartCol + startCellOffset, paddingLeft);
+            x2 = GetColEdge(colEdges, runStartCol + endCellOffsetExclusive, paddingLeft);
             return x2 > x1;
         }
 

@@ -578,14 +578,22 @@ namespace NovaTerminal.Core
             bool hasEmoji = false;
             bool hasZwj = false;
             bool hasModifier = false;
+            bool hasEmojiPresentation = false;
+            bool hasAmbiguousSymbolBase = false;
 
             foreach (var rune in textElement.EnumerateRunes())
             {
                 int val = rune.Value;
                 // ZWJ (U+200D) or Variations/Modifiers
                 if (val == 0x200D) { hasZwj = true; continue; }
+                if (val == 0xFE0F) { hasEmojiPresentation = true; continue; } // VS16 emoji presentation
                 if (val >= 0x1F3FB && val <= 0x1F3FF) { hasModifier = true; continue; }
                 if (IsCombining(rune)) continue;
+
+                if (val >= 0x2600 && val <= 0x27BF)
+                {
+                    hasAmbiguousSymbolBase = true;
+                }
 
                 int w = GetRuneWidth(rune);
                 if (totalBaseWidth == 0) totalBaseWidth = w;
@@ -599,6 +607,13 @@ namespace NovaTerminal.Core
             if (hasZwj || hasModifier)
             {
                 return hasEmoji ? 2 : Math.Max(1, totalBaseWidth);
+            }
+
+            // Ambiguous symbols (U+2600..U+27BF) should be 1 cell by default.
+            // Treat them as wide only when explicitly requested via emoji presentation (VS16).
+            if (hasEmojiPresentation && hasAmbiguousSymbolBase)
+            {
+                return Math.Max(2, totalBaseWidth);
             }
 
             if (totalBaseWidth == 0) return 0;
@@ -619,9 +634,8 @@ namespace NovaTerminal.Core
             // Hangul Jamo (Leading)
             if (cp >= 0x1100 && cp <= 0x115F) return 2;
 
-            // Symbols / Dingbats / Emoticons (Most are 2 cells)
+            // Symbols / Dingbats / Emoticons
             if (cp >= 0x2329 && cp <= 0x232A) return 2;
-            if (cp >= 0x2600 && cp <= 0x27BF) return 2;
 
             // CJK / Hangul / Fullwidth
             if (cp >= 0x2E80 && cp <= 0xA4CF && cp != 0x303F) return 2;

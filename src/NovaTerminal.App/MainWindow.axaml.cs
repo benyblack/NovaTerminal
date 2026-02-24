@@ -3336,6 +3336,37 @@ namespace NovaTerminal
 
             // Scrolling UX
             CommandRegistry.Register("Scroll: Toggle Smooth", "View", () => { _settings.SmoothScrolling = !_settings.SmoothScrolling; ApplySettingsToAllTabs(); _settings.Save(); }, "");
+            CommandRegistry.Register("Debug: Box Drawing Test Screen", "Debug", () => ShowBoxDrawingTestScreen(), "");
+        }
+
+        private void ShowBoxDrawingTestScreen()
+        {
+            var pane = _currentPane;
+            var buffer = pane?.Buffer;
+            if (buffer == null) return;
+
+            int cols = Math.Max(20, buffer.Cols);
+            int inner = Math.Max(2, cols - 2);
+            string horizontal = new string('─', inner);
+            string middle = "│" + new string('.', inner) + "│";
+
+            var ruler = new System.Text.StringBuilder(cols);
+            for (int i = 1; i <= cols; i++)
+            {
+                ruler.Append((char)('0' + (i % 10)));
+            }
+
+            var screen = new System.Text.StringBuilder();
+            screen.AppendLine("[Nova] Box Drawing Repro");
+            screen.AppendLine(ruler.ToString());
+            screen.AppendLine("┌" + horizontal + "┐");
+            screen.AppendLine(middle);
+            screen.AppendLine("└" + horizontal + "┘");
+            screen.AppendLine("┼┼┼┼┼  │││││  ─────");
+
+            buffer.Clear(resetCursor: true);
+            buffer.SetCursorPosition(0, 0);
+            buffer.WriteContent(screen.ToString(), false);
         }
 
         private async Task InitiateSftpTransfer(TerminalPane? explicitPane, TransferDirection direction, TransferKind kind)
