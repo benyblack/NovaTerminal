@@ -192,6 +192,21 @@ namespace NovaTerminal.Tests
         }
 
         [Fact]
+        public void Csi_FourDollarM_IsNotTreatedAsSgr()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[4$mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(cell.IsBold);
+            Assert.False(buffer.IsUnderline);
+            Assert.False(buffer.IsBold);
+        }
+
+        [Fact]
         public void Csi_SpaceBeforeM_IsNotTreatedAsSgr()
         {
             var buffer = new TerminalBuffer(80, 24);
@@ -215,6 +230,42 @@ namespace NovaTerminal.Tests
             var cell = GetCellSafe(buffer, 0, 0);
             Assert.False(cell.IsUnderline);
             Assert.False(buffer.IsUnderline);
+        }
+
+        [Fact]
+        public void Csi_LongLeaderPrefixedM_IsNotTreatedAsSgr()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[>0;1;2;3;4;5mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsBold);
+            Assert.False(cell.IsUnderline);
+            Assert.False(buffer.IsBold);
+            Assert.False(buffer.IsUnderline);
+        }
+
+        [Fact]
+        public void Osc_LongPayload_DoesNotCrashOrMutateStyle()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[0m");
+            string payload = new string('x', 2048);
+            parser.Process($"\x1b]999;{payload}\x07");
+            parser.Process("A");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.Equal('A', cell.Character);
+            Assert.False(buffer.IsBold);
+            Assert.False(buffer.IsUnderline);
+            Assert.False(buffer.IsItalic);
+            Assert.False(buffer.IsInverse);
+            Assert.False(buffer.IsStrikethrough);
+            Assert.False(buffer.IsFaint);
         }
 
         [Fact]
