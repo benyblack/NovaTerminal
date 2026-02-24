@@ -325,21 +325,36 @@ namespace NovaTerminal.Core
 
         private void HandleCsi(char finalByte, ReadOnlySpan<char> parameters)
         {
-
-            // CSI parameter leaders are 0x3C-0x3F: '<', '=', '>', '?'
-            // We only treat '?' as DEC private mode. Others must not be fed into SGR.
-            char parameterLeader = '\0';
-            if (parameters.Length > 0)
+            // CSI format: CSI [leader] [params] [intermediates] final
+            // leader: '<' '=' '>' '?'
+            // params: digits + ';' + ':'
+            // intermediates: 0x20..0x2F
+            char leader = '\0';
+            ReadOnlySpan<char> csiBody = parameters;
+            if (csiBody.Length > 0)
             {
-                char p0 = parameters[0];
-                if (p0 >= '<' && p0 <= '?')
+                char p0 = csiBody[0];
+                if (p0 == '<' || p0 == '=' || p0 == '>' || p0 == '?')
                 {
-                    parameterLeader = p0;
+                    leader = p0;
+                    csiBody = csiBody.Slice(1);
                 }
             }
 
-            bool isPrivate = parameterLeader == '?';
-            int startIdx = parameterLeader != '\0' ? 1 : 0;
+            int firstIntermediate = -1;
+            for (int i = 0; i < csiBody.Length; i++)
+            {
+                char c = csiBody[i];
+                if (c >= '\x20' && c <= '\x2F')
+                {
+                    firstIntermediate = i;
+                    break;
+                }
+            }
+
+            ReadOnlySpan<char> paramPart = firstIntermediate >= 0 ? csiBody.Slice(0, firstIntermediate) : csiBody;
+            ReadOnlySpan<char> intermediates = firstIntermediate >= 0 ? csiBody.Slice(firstIntermediate) : ReadOnlySpan<char>.Empty;
+            bool isPrivate = leader == '?';
 
             int[]? rentedArgs = null;
             char[]? rentedSeparators = null;
@@ -349,9 +364,9 @@ namespace NovaTerminal.Core
             // Reserve enough room for all parameters in this CSI so trailing reset
             // codes (for example 24 = no underline) are never dropped.
             int estimatedArgs = 1;
-            for (int i = startIdx; i < parameters.Length; i++)
+            for (int i = 0; i < paramPart.Length; i++)
             {
-                char c = parameters[i];
+                char c = paramPart[i];
                 if (c == ';' || c == ':') estimatedArgs++;
             }
             estimatedArgs = Math.Clamp(estimatedArgs, 1, _paramBuffer.Length + 1);
@@ -365,9 +380,9 @@ namespace NovaTerminal.Core
             int currentVal = 0;
             bool hasVal = false;
 
-            for (int i = startIdx; i < parameters.Length; i++)
+            for (int i = 0; i < paramPart.Length; i++)
             {
-                char c = parameters[i];
+                char c = paramPart[i];
                 if (c >= '0' && c <= '9')
                 {
                     currentVal = (currentVal * 10) + (c - '0');
@@ -383,9 +398,22 @@ namespace NovaTerminal.Core
                     currentVal = 0;
                     hasVal = false;
                 }
+                else
+                {
+                    // Ignore unexpected chars in params; treat them as hard separators.
+                    if (hasVal && argCount < args.Length)
+                    {
+                        args[argCount++] = currentVal;
+                        separators[argCount - 1] = '\0';
+                    }
+                    currentVal = 0;
+                    hasVal = false;
+                }
             }
             // Add final arg
-            if (hasVal || (parameters.Length > startIdx && (parameters[parameters.Length - 1] == ';' || parameters[parameters.Length - 1] == ':')))
+            bool paramEndsWithSeparator = paramPart.Length > 0 &&
+                                          (paramPart[paramPart.Length - 1] == ';' || paramPart[paramPart.Length - 1] == ':');
+            if (hasVal || paramEndsWithSeparator)
             {
                 if (argCount < args.Length)
                 {
@@ -555,7 +583,7 @@ namespace NovaTerminal.Core
                 case 'm': // SGR (Select Graphic Rendition)
                     // Ignore non-standard leader-prefixed "...m" control sequences, e.g.
                     // CSI > Pp ; Pv m (xterm key-modifier options). They are NOT SGR.
-                    if (parameterLeader == '\0')
+                    if (leader == '\0' && intermediates.Length == 0)
                     {
                         HandleSgr(validArgs, validSeparators);
                     }
@@ -584,7 +612,7 @@ namespace NovaTerminal.Core
                     }
                     break;
                 case 'c': // DA - Device Attributes
-                    if (parameters.Length > 0 && parameters[0] == '>')
+                    if (leader == '>')
                     {
                         // Secondary Device Attributes
                         // CSI > 1 ; 1 0 ; 0 c (standard for VT220-ish)
@@ -618,7 +646,7 @@ namespace NovaTerminal.Core
                     break;
                 case 'q':
                     // DECSCUSR - Set Cursor Style (CSI Ps SP q)
-                    if (parameters.IndexOf(' ') >= 0 || parameters.Length == 0)
+                    if (leader == '\0' && intermediates.Length > 0)
                     {
                         ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
                     }

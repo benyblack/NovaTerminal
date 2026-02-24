@@ -175,6 +175,70 @@ namespace NovaTerminal.Tests
         }
 
         [Fact]
+        public void Csi_WithIntermediate_M_IsNotTreatedAsSgr()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // CSI 1 $ m contains an intermediate byte ('$').
+            // It must not be routed to SGR.
+            parser.Process("\x1b[1$mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsBold);
+            Assert.False(cell.IsUnderline);
+            Assert.False(buffer.IsBold);
+            Assert.False(buffer.IsUnderline);
+        }
+
+        [Fact]
+        public void Csi_SpaceBeforeM_IsNotTreatedAsSgr()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[4 mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(buffer.IsUnderline);
+        }
+
+        [Fact]
+        public void Csi_PrivateLeaderM_IsNotTreatedAsSgr()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[?4mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(buffer.IsUnderline);
+        }
+
+        [Fact]
+        public void UnknownCsiPattern_DoesNotMutateSgrState()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[1;4m");
+            Assert.True(buffer.IsBold);
+            Assert.True(buffer.IsUnderline);
+
+            // Unknown CSI pattern with intermediate and non-style final.
+            parser.Process("\x1b[12$z");
+
+            parser.Process("A");
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.True(cell.IsBold);
+            Assert.True(cell.IsUnderline);
+            Assert.True(buffer.IsBold);
+            Assert.True(buffer.IsUnderline);
+        }
+
+        [Fact]
         public void Sgr_LongParameterList_DoesNotDropTrailingResetCodes()
         {
             var buffer = new TerminalBuffer(80, 24);
