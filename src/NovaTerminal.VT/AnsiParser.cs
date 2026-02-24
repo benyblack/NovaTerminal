@@ -1,5 +1,6 @@
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -17,6 +18,7 @@ namespace NovaTerminal.Core
         // Zero-alloc buffers
         private char[] _paramBuffer = new char[256];
         private int _paramLen = 0;
+        private const int MaxCsiParamChars = 65536;
 
         // ConPTY Sync Fix: Track vertical offset caused by inline images that ConPTY doesn't see.
         // This effectively "scrolls" the PTY's logical cursor to match our visual cursor.
@@ -297,8 +299,8 @@ namespace NovaTerminal.Core
                         case State.Csi:
                             if (c >= 0x20 && c <= 0x3F)
                             {
-                                // Collect params (limited to buffer size)
-                                if (_paramLen < _paramBuffer.Length)
+                                // Collect params (grow up to a hard safety cap).
+                                if (_paramLen < MaxCsiParamChars && EnsureCsiParamCapacity(_paramLen + 1))
                                 {
                                     _paramBuffer[_paramLen++] = c;
                                 }
@@ -324,16 +326,42 @@ namespace NovaTerminal.Core
         private void HandleCsi(char finalByte, ReadOnlySpan<char> parameters)
         {
 
-            // Check for private mode prefix (?)
-            bool isPrivate = parameters.Length > 0 && parameters[0] == '?';
-            int startIdx = isPrivate ? 1 : 0;
+            // CSI parameter leaders are 0x3C-0x3F: '<', '=', '>', '?'
+            // We only treat '?' as DEC private mode. Others must not be fed into SGR.
+            char parameterLeader = '\0';
+            if (parameters.Length > 0)
+            {
+                char p0 = parameters[0];
+                if (p0 >= '<' && p0 <= '?')
+                {
+                    parameterLeader = p0;
+                }
+            }
 
-            // Parse integers into stack buffer
-            // Max 32 args is generous for standard CSI; SGR can have more but we'll cap it for now to avoid complexity or allocations
-            Span<int> args = stackalloc int[32];
-            Span<char> separators = stackalloc char[32]; // separator after each parsed arg (';' / ':' / '\0')
+            bool isPrivate = parameterLeader == '?';
+            int startIdx = parameterLeader != '\0' ? 1 : 0;
+
+            int[]? rentedArgs = null;
+            char[]? rentedSeparators = null;
+            Span<int> args;
+            Span<char> separators;
+
+            // Reserve enough room for all parameters in this CSI so trailing reset
+            // codes (for example 24 = no underline) are never dropped.
+            int estimatedArgs = 1;
+            for (int i = startIdx; i < parameters.Length; i++)
+            {
+                char c = parameters[i];
+                if (c == ';' || c == ':') estimatedArgs++;
+            }
+            estimatedArgs = Math.Clamp(estimatedArgs, 1, _paramBuffer.Length + 1);
+
+            rentedArgs = ArrayPool<int>.Shared.Rent(estimatedArgs);
+            rentedSeparators = ArrayPool<char>.Shared.Rent(estimatedArgs);
+            args = rentedArgs.AsSpan(0, estimatedArgs);
+            separators = rentedSeparators.AsSpan(0, estimatedArgs);
+
             int argCount = 0;
-
             int currentVal = 0;
             bool hasVal = false;
 
@@ -372,8 +400,10 @@ namespace NovaTerminal.Core
             int arg0 = argCount > 0 ? validArgs[0] : 0;
 
 
-            switch (finalByte)
+            try
             {
+                switch (finalByte)
+                {
                 case 'A': // Cursor Up
                     {
                         int dist = Math.Max(1, arg0);
@@ -523,7 +553,12 @@ namespace NovaTerminal.Core
                     _buffer.RestoreCursor();
                     break;
                 case 'm': // SGR (Select Graphic Rendition)
-                    HandleSgr(validArgs, validSeparators);
+                    // Ignore non-standard leader-prefixed "...m" control sequences, e.g.
+                    // CSI > Pp ; Pv m (xterm key-modifier options). They are NOT SGR.
+                    if (parameterLeader == '\0')
+                    {
+                        HandleSgr(validArgs, validSeparators);
+                    }
                     break;
                 case 'h': // Set Mode
                 case 'l': // Reset Mode
@@ -588,10 +623,34 @@ namespace NovaTerminal.Core
                         ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
                     }
                     break;
-                default:
-                    TerminalLogger.Log($"[ANSI_PARSER] Unhandled CSI: {finalByte} (private={isPrivate}), params={new string(parameters)}");
-                    break;
+                    default:
+                        TerminalLogger.Log($"[ANSI_PARSER] Unhandled CSI: {finalByte} (private={isPrivate}), params={new string(parameters)}");
+                        break;
+                }
             }
+            finally
+            {
+                if (rentedArgs != null) ArrayPool<int>.Shared.Return(rentedArgs);
+                if (rentedSeparators != null) ArrayPool<char>.Shared.Return(rentedSeparators);
+            }
+        }
+
+        private bool EnsureCsiParamCapacity(int required)
+        {
+            if (required <= _paramBuffer.Length) return true;
+            if (_paramBuffer.Length >= MaxCsiParamChars) return false;
+
+            int next = _paramBuffer.Length;
+            while (next < required && next < MaxCsiParamChars)
+            {
+                next *= 2;
+            }
+
+            next = Math.Min(next, MaxCsiParamChars);
+            if (next < required) return false;
+
+            Array.Resize(ref _paramBuffer, next);
+            return true;
         }
 
         private void ApplyCursorStyle(int value)
@@ -763,7 +822,7 @@ namespace NovaTerminal.Core
                 else if (code == 38)
                 {
                     short idx = -1;
-                    var color = ParseExtendedColor(args, ref i, out idx);
+                    var color = ParseExtendedColor(args, separators, ref i, out idx);
                     if (color.HasValue)
                     {
                         // Snapping for Campbell Blue/Black
@@ -801,7 +860,7 @@ namespace NovaTerminal.Core
                 else if (code == 48)
                 {
                     short idx = -1;
-                    var color = ParseExtendedColor(args, ref i, out idx);
+                    var color = ParseExtendedColor(args, separators, ref i, out idx);
                     if (color.HasValue)
                     {
                         // Snapping for Campbell Blue/Black
@@ -815,6 +874,17 @@ namespace NovaTerminal.Core
                         _buffer.CurrentBgIndex = idx;
                         _buffer.IsDefaultBackground = false;
                     }
+                }
+                else if (code == 58)
+                {
+                    // Underline color. We currently don't render underline color separately,
+                    // but we MUST consume its parameters so subvalues don't leak as SGR codes.
+                    short _;
+                    ParseExtendedColor(args, separators, ref i, out _);
+                }
+                else if (code == 59)
+                {
+                    // Default underline color. No-op for now.
                 }
                 else if (code == 49)
                 {
@@ -913,7 +983,7 @@ namespace NovaTerminal.Core
             _buffer.IsHidden = false;
         }
 
-        private TermColor? ParseExtendedColor(ReadOnlySpan<int> args, ref int i, out short index)
+        private TermColor? ParseExtendedColor(ReadOnlySpan<int> args, ReadOnlySpan<char> separators, ref int i, out short index)
         {
             index = -1;
             if (i + 1 >= args.Length) return null;
@@ -928,6 +998,15 @@ namespace NovaTerminal.Core
             }
             else if (mode == 2) // TrueColor (Next 3 args are R, G, B)
             {
+                // Colon form may carry an optional colorspace-id parameter:
+                // 38:2:<cs>:R:G:B and common omitted form 38:2::R:G:B.
+                // If present, consume it so RGB doesn't shift/leak.
+                bool modeWasColonDelimited = i < separators.Length && separators[i] == ':';
+                if (modeWasColonDelimited && i + 4 < args.Length)
+                {
+                    i++; // skip colorspace-id (or omitted 0 placeholder from "::")
+                }
+
                 if (i + 3 >= args.Length) return null;
                 byte r = (byte)args[++i];
                 byte g = (byte)args[++i];

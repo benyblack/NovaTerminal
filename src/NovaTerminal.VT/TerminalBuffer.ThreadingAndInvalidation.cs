@@ -87,6 +87,27 @@ namespace NovaTerminal.Core
             OnInvalidate?.Invoke();
         }
 
+        public void FlushSynchronizedOutputTimeout()
+        {
+            bool shouldInvalidate = false;
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                if (_isSynchronizedOutput &&
+                    (DateTime.UtcNow - _lastSyncStart) > _maxSyncDuration)
+                {
+                    _isSynchronizedOutput = false;
+                    shouldInvalidate = true;
+                }
+            }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
+
+            if (shouldInvalidate)
+            {
+                OnInvalidate?.Invoke();
+            }
+        }
+
         public void Invalidate()
         {
             // Defer all invalidation while a parser batch holds the write lock.

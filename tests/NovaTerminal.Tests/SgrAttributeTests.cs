@@ -1,6 +1,7 @@
 using Xunit;
 using NovaTerminal.Core;
 using Avalonia.Media;
+using System.Linq;
 
 namespace NovaTerminal.Tests
 {
@@ -119,6 +120,104 @@ namespace NovaTerminal.Tests
             Assert.False(cell.IsFaint);
             Assert.True(buffer.IsUnderline);
             Assert.False(buffer.IsFaint);
+        }
+
+        [Fact]
+        public void Sgr_ForegroundTrueColorColonForm_DoesNotLeakTrailingComponents()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // Without correct colon parsing, trailing RGB components can be interpreted
+            // as standalone SGR codes (e.g. 4 => underline).
+            parser.Process("\x1b[38:2::1:2:4mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(cell.IsBlink);
+            Assert.False(buffer.IsUnderline);
+            Assert.False(buffer.IsBlink);
+        }
+
+        [Fact]
+        public void Sgr_UnderlineColorColonForm_DoesNotMutateTextAttributes()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // 58 sets underline color. Even if unsupported visually, params must be consumed.
+            parser.Process("\x1b[58:2::4:5:6mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(cell.IsBlink);
+            Assert.False(cell.IsFaint);
+            Assert.False(buffer.IsUnderline);
+            Assert.False(buffer.IsBlink);
+            Assert.False(buffer.IsFaint);
+        }
+
+        [Fact]
+        public void Csi_GreaterThan_M_IsNotTreatedAsSgr()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // XTerm-style key modifier control sequence (CSI > Pp ; Pv m).
+            // This is not SGR and must not toggle text attributes.
+            parser.Process("\x1b[>4;1mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(cell.IsBold);
+            Assert.False(buffer.IsUnderline);
+            Assert.False(buffer.IsBold);
+        }
+
+        [Fact]
+        public void Sgr_LongParameterList_DoesNotDropTrailingResetCodes()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // If CSI param parsing truncates long lists, trailing 24 can be dropped,
+            // leaving underline stuck on following text.
+            string filler = string.Join(';', Enumerable.Repeat("31", 40));
+            parser.Process($"\x1b[4;{filler};24mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(buffer.IsUnderline);
+        }
+
+        [Fact]
+        public void Sgr_VeryLongParameterList_OverBufferLimit_DoesNotDropTrailingResetCodes()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // Exercise CSI parameter input longer than legacy fixed parser buffer (256 chars).
+            string filler = string.Join(';', Enumerable.Repeat("31", 180));
+            parser.Process($"\x1b[4;{filler};24mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(buffer.IsUnderline);
+        }
+
+        [Fact]
+        public void Sgr_ExtremeLongParameterList_DoesNotDropTrailingResetCodes()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            // Covers CSI payloads longer than conservative parser caps.
+            string filler = string.Join(';', Enumerable.Repeat("31", 2500));
+            parser.Process($"\x1b[4;{filler};24mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(buffer.IsUnderline);
         }
 
         [Fact]

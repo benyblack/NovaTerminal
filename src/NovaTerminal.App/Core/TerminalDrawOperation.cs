@@ -810,7 +810,8 @@ namespace NovaTerminal.Core
                     canvas.Restore();
                 }
 
-                if (runIsUnderline || runIsStrikethrough)
+                bool underlineHasVisibleText = runIsUnderline && ContainsNonWhitespace(runText);
+                if (underlineHasVisibleText || runIsStrikethrough)
                 {
                     using var decoPaint = new SKPaint
                     {
@@ -820,10 +821,18 @@ namespace NovaTerminal.Core
                         StrokeWidth = strokeWidth
                     };
 
-                    if (runIsUnderline)
+                    if (underlineHasVisibleText)
                     {
+                        float underlineX1 = rx;
+                        float underlineX2 = rx + rw;
+                        if (TryGetUnderlineBounds(runText, c, paddingLeft, out float trimmedX1, out float trimmedX2))
+                        {
+                            underlineX1 = trimmedX1;
+                            underlineX2 = trimmedX2;
+                        }
+
                         float underlineY = SnapY(rowTopY + _metrics.CellHeight - Math.Max(1.5, _metrics.CellHeight * 0.12));
-                        canvas.DrawLine(rx, underlineY, rx + rw, underlineY, decoPaint);
+                        canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, decoPaint);
                     }
 
                     if (runIsStrikethrough)
@@ -1216,6 +1225,50 @@ namespace NovaTerminal.Core
             if (!enumerator.MoveNext()) return false;
             codePoint = enumerator.Current.Value;
             return !enumerator.MoveNext();
+        }
+
+        private static bool ContainsNonWhitespace(string text)
+        {
+            foreach (char ch in text)
+            {
+                if (!char.IsWhiteSpace(ch)) return true;
+            }
+
+            return false;
+        }
+
+        private bool TryGetUnderlineBounds(string runText, int runStartCol, float paddingLeft, out float x1, out float x2)
+        {
+            x1 = 0f;
+            x2 = 0f;
+
+            int cellOffset = 0;
+            int startCellOffset = -1;
+            int endCellOffsetExclusive = -1;
+
+            foreach (var rune in runText.EnumerateRunes())
+            {
+                string grapheme = rune.ToString();
+                int w = GetSafeGraphemeWidth(grapheme);
+                if (w <= 0) continue;
+
+                if (ContainsNonWhitespace(grapheme))
+                {
+                    if (startCellOffset < 0) startCellOffset = cellOffset;
+                    endCellOffsetExclusive = cellOffset + w;
+                }
+
+                cellOffset += w;
+            }
+
+            if (startCellOffset < 0 || endCellOffsetExclusive <= startCellOffset)
+            {
+                return false;
+            }
+
+            x1 = SnapX((runStartCol + startCellOffset) * _metrics.CellWidth + paddingLeft);
+            x2 = SnapX((runStartCol + endCellOffsetExclusive) * _metrics.CellWidth + paddingLeft);
+            return x2 > x1;
         }
 
         private static SKColor BlendTowards(SKColor source, SKColor target, float t)

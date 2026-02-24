@@ -59,6 +59,24 @@ namespace NovaTerminal.Tests.Core
         }
 
         [Fact]
+        public async Task SyncRendering_ShouldFlushTimeoutWithoutSubsequentInvalidate()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            bool invalidated = false;
+            buffer.OnInvalidate += () => invalidated = true;
+
+            buffer.BeginSync();
+            buffer.Invalidate();
+            Assert.False(invalidated);
+
+            await Task.Delay(250);
+            buffer.FlushSynchronizedOutputTimeout();
+
+            Assert.True(invalidated, "Timeout flush should invalidate even without subsequent writes");
+            Assert.False(buffer.IsSynchronizedOutput, "Timeout flush should exit sync mode");
+        }
+
+        [Fact]
         public void Parser_ShouldHandle_2026_Sequence()
         {
             var buffer = new TerminalBuffer(80, 24);

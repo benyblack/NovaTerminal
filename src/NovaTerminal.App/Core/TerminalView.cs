@@ -205,6 +205,11 @@ namespace NovaTerminal.Core
 
         private void OnRenderTimerTick(object? sender, EventArgs e)
         {
+            if (!_isDirty && _buffer?.IsSynchronizedOutput == true)
+            {
+                _buffer.FlushSynchronizedOutputTimeout();
+            }
+
             if (_isDirty)
             {
                 if (!_isUiRenderable)
@@ -343,6 +348,7 @@ namespace NovaTerminal.Core
         private bool _enableLigatures = false;
         private bool _enableComplexShaping = true;
         private readonly GlyphCache _glyphCache = new();
+        private double _lastRenderScalingForRowCache = -1.0;
 
 
         private IGlyphTypeface? _glyphTypeface;
@@ -985,6 +991,11 @@ namespace NovaTerminal.Core
             {
                 base.OnSizeChanged(e);
 
+                // Row pictures encode snapped positions for a specific geometry.
+                // Clear immediately on size changes so startup/layout transitions
+                // cannot reuse stale pictures until the throttled resize path runs.
+                _rowCache.RequestClear();
+
                 // Force immediate render pass on any size change to prevent white panes
                 InvalidateVisual();
 
@@ -1212,6 +1223,12 @@ namespace NovaTerminal.Core
 
             // Create and dispatch custom draw op
             var scaling = VisualRoot?.RenderScaling ?? 1.0;
+            if (Math.Abs(scaling - _lastRenderScalingForRowCache) > 0.0001)
+            {
+                _lastRenderScalingForRowCache = scaling;
+                _rowCache.RequestClear();
+            }
+
             context.Custom(new TerminalDrawOperation(
                 Bounds,
                 buffer,
