@@ -207,6 +207,36 @@ namespace NovaTerminal.Tests
         }
 
         [Fact]
+        public void Csi_FourSemicolonOneDollarM_IsNotTreatedAsSgr()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[4;1$mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(cell.IsBold);
+            Assert.False(buffer.IsUnderline);
+            Assert.False(buffer.IsBold);
+        }
+
+        [Fact]
+        public void Csi_FourSpaceDollarM_IsNotTreatedAsSgr()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[4 $mA");
+
+            var cell = GetCellSafe(buffer, 0, 0);
+            Assert.False(cell.IsUnderline);
+            Assert.False(cell.IsBold);
+            Assert.False(buffer.IsUnderline);
+            Assert.False(buffer.IsBold);
+        }
+
+        [Fact]
         public void Csi_SpaceBeforeM_IsNotTreatedAsSgr()
         {
             var buffer = new TerminalBuffer(80, 24);

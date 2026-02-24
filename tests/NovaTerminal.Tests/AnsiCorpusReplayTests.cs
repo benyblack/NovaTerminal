@@ -107,6 +107,13 @@ namespace NovaTerminal.Tests
         }
 
         [Fact]
+        public void CorpusAssets_ArePresentInOutputDirectory()
+        {
+            string path = Path.Combine(AppContext.BaseDirectory, "corpus", "synthetic_opencode_startup.rec");
+            Assert.True(File.Exists(path), $"Missing copied corpus asset at '{path}'.");
+        }
+
+        [Fact]
         public void LeaderPrefixedSgr_IsIgnored()
         {
             var buffer = new TerminalBuffer(80, 24);
