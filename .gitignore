@@ -496,4 +496,6 @@ test_repro*.txt
 .idea/
 .vs/
 
+# temporary output
 _temp_out/
+.act-artifacts/

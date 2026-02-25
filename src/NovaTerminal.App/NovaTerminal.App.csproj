@@ -45,7 +45,16 @@
 
   <Target Name="BuildRustNative"
     BeforeTargets="PrepareForBuild"
-    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+    Condition="'$(DesignTimeBuild)' != 'true'
+      and '$(IsCrossTargetingBuild)' != 'true'
+      and '$(SKIP_RUST_NATIVE_BUILD)' != '1'
+      and (
+        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and !Exists('$(NativeProjectDir)target\release\rusty_pty.dll'))
+        or
+        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and !Exists('$(NativeProjectDir)target_linux\release\librusty_pty.so'))
+        or
+        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and !Exists('$(NativeProjectDir)target\release\librusty_pty.dylib'))
+      )">
 
     <Message Importance="high"
       Text="[RustNative] Building Rust native library in: $(NativeProjectDir)" />

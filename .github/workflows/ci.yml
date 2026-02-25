@@ -27,12 +27,11 @@ jobs:
   build_native:
     name: Build Native (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    if: github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["windows-latest","ubuntu-latest","macos-latest"]') }}
     
     steps:
       - uses: actions/checkout@v4
@@ -78,13 +77,12 @@ jobs:
   build_and_unit_tests:
     name: Build + Unit Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    if: github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'
     timeout-minutes: 25
     needs: [build_native]
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["windows-latest","ubuntu-latest","macos-latest"]') }}
 
     steps:
       - uses: actions/checkout@v4
