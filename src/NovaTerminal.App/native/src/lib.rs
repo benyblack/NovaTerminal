@@ -92,9 +92,14 @@ mod win32 {
             let cwd_utf16: Option<Vec<u16>> =
                 cwd.map(|s| s.encode_utf16().chain(Some(0)).collect());
 
-            // Prepare environment block with TERM=xterm-256color
+            // Prepare environment block.
+            // TERM keeps xterm compatibility while COLORTERM=truecolor allows apps
+            // (e.g. chafa/superfile) to select full RGB output instead of dithered
+            // 16/256-color fallback blocks.
             let mut env_map: std::collections::HashMap<String, String> = std::env::vars().collect();
             env_map.insert("TERM".to_string(), "xterm-256color".to_string());
+            env_map.insert("COLORTERM".to_string(), "truecolor".to_string());
+            env_map.insert("TERM_PROGRAM".to_string(), "NovaTerminal".to_string());
 
             let mut env_block: Vec<u16> = Vec::new();
             for (key, value) in env_map {
@@ -232,6 +237,8 @@ pub extern "C" fn pty_spawn(
         }
     }
     cmd_builder.env("TERM", "xterm-256color");
+    cmd_builder.env("COLORTERM", "truecolor");
+    cmd_builder.env("TERM_PROGRAM", "NovaTerminal");
     cmd_builder.env("LC_ALL", "C");
     cmd_builder.env("LANG", "C");
 

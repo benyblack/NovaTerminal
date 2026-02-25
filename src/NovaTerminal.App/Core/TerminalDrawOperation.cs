@@ -61,6 +61,7 @@ namespace NovaTerminal.Core
         private static readonly bool GridDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GRID");
         private static readonly bool ForceKnownGoodBoxFont = IsEnvFlagEnabled("NOVATERM_FORCE_BOX_FONT");
         private static readonly bool UseBoxDrawingPrimitives = IsEnvFlagEnabled("NOVATERM_BOX_PRIMITIVES");
+        private static readonly bool UseBlockElementPrimitives = IsEnvFlagEnabled("NOVATERM_BLOCK_PRIMITIVES");
         private static readonly ConcurrentDictionary<string, byte> GlyphDiagOnce = new();
         private static readonly string[] KnownGoodBoxFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
 
@@ -383,6 +384,7 @@ namespace NovaTerminal.Core
 
                 // Pass 2: Images
                 using (var imagePaint = new SKPaint { Color = new SKColor(255, 255, 255, alpha) })
+                using (var imageBgPaint = new SKPaint { Color = frame.ThemeBg, Style = SKPaintStyle.Fill, IsAntialias = false })
                 {
                     foreach (var img in frame.Images)
                     {
@@ -400,6 +402,9 @@ namespace NovaTerminal.Core
 
                             canvas.Save();
                             canvas.ClipRect(new SKRect(paddingLeft, 0, (float)Bounds.Width, (float)Bounds.Height));
+                            // Clear image target region first so transparent/semi-transparent
+                            // image pixels do not reveal previously drawn text layers.
+                            canvas.DrawRect(rect, imageBgPaint);
                             if (img.ImageHandle is SKBitmap bmp)
                             {
                                 canvas.DrawBitmap(bmp, rect, imagePaint);
@@ -577,7 +582,6 @@ namespace NovaTerminal.Core
                 bool runIsFaint = cell.IsFaint;
                 var fg = cell.IsInverse ? cb : cf;
                 var bg = cell.IsInverse ? cf : cb;
-                fg = EnsureReadableForeground(fg, bg, themeFg);
                 if (runIsFaint)
                 {
                     fg = BlendTowards(fg, bg, 0.5f);
@@ -603,7 +607,6 @@ namespace NovaTerminal.Core
                     var ncf = ResolveCellForeground(next, themeFg, alpha);
                     var nfg = next.IsInverse ? ncb : ncf;
                     var nbg = next.IsInverse ? ncf : ncb;
-                    nfg = EnsureReadableForeground(nfg, nbg, themeFg);
                     if (next.IsFaint)
                     {
                         nfg = BlendTowards(nfg, nbg, 0.5f);
@@ -738,8 +741,11 @@ namespace NovaTerminal.Core
                             float cellW = cellX2 - cellX1;
                             float cellH = snappedCellHeight;
 
-                            // Render primary block elements on the cell grid to avoid font side-bearing seams.
-                            if (TryGetBlockFillRect(grapheme, out int xStartEighths, out int xEndEighths, out int yStartEighths, out int yEndEighths))
+                            // Render block/braille primitives only when explicitly enabled.
+                            // Default path keeps font-authored glyph rasterization, which is required
+                            // for image-as-text previews (e.g. superfile/chafa) to avoid artifacting.
+                            if (UseBlockElementPrimitives &&
+                                TryGetBlockFillRect(grapheme, out int xStartEighths, out int xEndEighths, out int yStartEighths, out int yEndEighths))
                             {
                                 FlushBatches(canvas);
 
@@ -758,7 +764,7 @@ namespace NovaTerminal.Core
                                 continue;
                             }
 
-                            if (TryGetShadeFillAlpha(grapheme, out float shadeAlpha))
+                            if (UseBlockElementPrimitives && TryGetShadeFillAlpha(grapheme, out float shadeAlpha))
                             {
                                 FlushBatches(canvas);
                                 byte shadeA = (byte)Math.Clamp((int)Math.Round(fg.Alpha * shadeAlpha), 0, 255);
@@ -778,7 +784,7 @@ namespace NovaTerminal.Core
                                 continue;
                             }
 
-                            if (TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
+                            if (UseBlockElementPrimitives && TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
                             {
                                 FlushBatches(canvas);
                                 DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopY, cellW, cellH, blockPaint);
@@ -787,7 +793,7 @@ namespace NovaTerminal.Core
                                 continue;
                             }
 
-                            if (TryGetBraillePattern(grapheme, out byte brailleMask))
+                            if (UseBlockElementPrimitives && TryGetBraillePattern(grapheme, out byte brailleMask))
                             {
                                 FlushBatches(canvas);
                                 DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopY, cellW, cellH, blockPaint);
@@ -1360,6 +1366,8 @@ namespace NovaTerminal.Core
             if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
 
             if (cp >= 0x2500 && cp <= 0x257F) return true; // Box drawing
+            if (cp >= 0x2580 && cp <= 0x259F) return true; // Block elements + shades + quadrants
+            if (cp >= 0x2800 && cp <= 0x28FF) return true; // Braille patterns
             if (cp >= 0x25A0 && cp <= 0x25FF) return true; // Geometric block symbols
 
             return false;
@@ -1370,6 +1378,8 @@ namespace NovaTerminal.Core
             if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
 
             if (cp >= 0x2500 && cp <= 0x257F) return true; // Box drawing
+            if (cp >= 0x2580 && cp <= 0x259F) return true; // Block elements + shades + quadrants
+            if (cp >= 0x2800 && cp <= 0x28FF) return true; // Braille patterns
             if (cp >= 0x25A0 && cp <= 0x25FF) return true; // Geometric symbols used by TUIs
 
             return false;
