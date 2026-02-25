@@ -27,7 +27,7 @@ namespace NovaTerminal.Tests.Performance
             // 10MB of data to flood
             int totalBytes = 10 * 1024 * 1024;
             byte[] chunk = Encoding.UTF8.GetBytes(new string('X', 8192) + "\r\n");
-            
+
             long initialMemory = GC.GetTotalMemory(true);
             var sw = Stopwatch.StartNew();
 
@@ -36,7 +36,7 @@ namespace NovaTerminal.Tests.Performance
             {
                 parser.Process(Encoding.UTF8.GetString(chunk));
                 bytesSent += chunk.Length;
-                
+
                 // Yield occasionally to simulate async processing if needed
                 if (bytesSent % (1024 * 1024) == 0)
                 {

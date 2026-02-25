@@ -32,11 +32,7 @@ namespace NovaTerminal.Tests.ReplayTests
             string recPath = Path.Combine(_fixturesDir, "hello_world.rec");
             string snapPath = Path.Combine(_fixturesDir, "hello_world.snap");
 
-            // 0. Ensure Fixtures Exist (Self-bootstrapping for dev convenience)
-            if (!File.Exists(recPath))
-            {
-                RecordingGenerator.GenerateHelloWorld(recPath);
-            }
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GenerateHelloWorld);
 
             // 1. Setup Headless Environment
             var buffer = new TerminalBuffer(80, 24);
@@ -56,7 +52,7 @@ namespace NovaTerminal.Tests.ReplayTests
 
             // 4. Update Golden Master if requested (Environment Variable)
             // or if it doesn't exist yet (Bootstrap)
-            if (!File.Exists(snapPath) || System.Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            if (!File.Exists(snapPath) || FixtureUpdatePolicy.ShouldUpdateSnapshots())
             {
                 File.WriteAllText(snapPath, snapshot.ToFormattedString());
             }
@@ -72,8 +68,7 @@ namespace NovaTerminal.Tests.ReplayTests
             string recPath = Path.Combine(_fixturesDir, "vim_exit.rec");
             string snapPath = Path.Combine(_fixturesDir, "vim_exit.snap");
 
-            // Regenerate fixture to ensure it matches current logic intent
-            RecordingGenerator.GenerateVimExit(recPath);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GenerateVimExit);
 
             var buffer = new TerminalBuffer(80, 24);
             var parser = new NovaTerminal.Core.AnsiParser(buffer);
@@ -101,7 +96,7 @@ namespace NovaTerminal.Tests.ReplayTests
             Assert.False(hasInside, "Alt screen content 'Inside Vim' leaked into Main screen.");
 
             // Also check standard Golden Master
-            if (!File.Exists(snapPath) || System.Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            if (!File.Exists(snapPath) || FixtureUpdatePolicy.ShouldUpdateSnapshots())
             {
                 File.WriteAllText(snapPath, snapshot.ToFormattedString());
             }
@@ -115,7 +110,7 @@ namespace NovaTerminal.Tests.ReplayTests
             string recPath = Path.Combine(_fixturesDir, "alt_screen_cursor.rec");
             string snapPath = Path.Combine(_fixturesDir, "alt_screen_cursor.snap");
 
-            RecordingGenerator.GenerateAltScreenCursor(recPath);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GenerateAltScreenCursor);
 
             var buffer = new TerminalBuffer(80, 24);
             var parser = new NovaTerminal.Core.AnsiParser(buffer);
@@ -134,7 +129,7 @@ namespace NovaTerminal.Tests.ReplayTests
             // If it is at (5, 5), then the Alt Screen cursor overwrite the Main Screen saved cursor.
 
             // To be robust, saving Snapshot if needed
-            if (!File.Exists(snapPath) || System.Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            if (!File.Exists(snapPath) || FixtureUpdatePolicy.ShouldUpdateSnapshots())
             {
                 File.WriteAllText(snapPath, snapshot.ToFormattedString());
             }
@@ -149,7 +144,7 @@ namespace NovaTerminal.Tests.ReplayTests
             string recPath = Path.Combine(_fixturesDir, "powerline_prompt.rec");
             string snapPath = Path.Combine(_fixturesDir, "powerline_prompt.snap");
 
-            RecordingGenerator.GeneratePowerlinePrompt(recPath);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GeneratePowerlinePrompt);
 
             var buffer = new TerminalBuffer(80, 24);
             var parser = new NovaTerminal.Core.AnsiParser(buffer);
@@ -164,7 +159,7 @@ namespace NovaTerminal.Tests.ReplayTests
 
             var snapshot = BufferSnapshot.Capture(buffer);
 
-            if (!File.Exists(snapPath) || System.Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            if (!File.Exists(snapPath) || FixtureUpdatePolicy.ShouldUpdateSnapshots())
             {
                 File.WriteAllText(snapPath, snapshot.ToFormattedString());
             }
@@ -178,7 +173,7 @@ namespace NovaTerminal.Tests.ReplayTests
             string recPath = Path.Combine(_fixturesDir, "mixed_unicode.rec");
             string snapPath = Path.Combine(_fixturesDir, "mixed_unicode.snap");
 
-            RecordingGenerator.GenerateMixedUnicode(recPath);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GenerateMixedUnicode);
 
             var buffer = new TerminalBuffer(80, 24);
             var parser = new NovaTerminal.Core.AnsiParser(buffer);
@@ -193,7 +188,7 @@ namespace NovaTerminal.Tests.ReplayTests
 
             var snapshot = BufferSnapshot.Capture(buffer);
 
-            if (!File.Exists(snapPath) || System.Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            if (!File.Exists(snapPath) || FixtureUpdatePolicy.ShouldUpdateSnapshots())
             {
                 File.WriteAllText(snapPath, snapshot.ToFormattedString());
             }
@@ -207,7 +202,7 @@ namespace NovaTerminal.Tests.ReplayTests
             string recPath = Path.Combine(_fixturesDir, "wrapped_text.rec");
             string snapPath = Path.Combine(_fixturesDir, "wrapped_text.snap");
 
-            RecordingGenerator.GenerateWrappedText(recPath);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GenerateWrappedText);
 
             var buffer = new TerminalBuffer(80, 24);
             var parser = new NovaTerminal.Core.AnsiParser(buffer);
@@ -222,7 +217,7 @@ namespace NovaTerminal.Tests.ReplayTests
 
             var snapshot = BufferSnapshot.Capture(buffer);
 
-            if (!File.Exists(snapPath) || System.Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            if (!File.Exists(snapPath) || FixtureUpdatePolicy.ShouldUpdateSnapshots())
             {
                 File.WriteAllText(snapPath, snapshot.ToFormattedString());
             }
@@ -255,7 +250,7 @@ namespace NovaTerminal.Tests.ReplayTests
 
             var snapshot = BufferSnapshot.Capture(buffer);
 
-            if (!File.Exists(snapPath) || Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            if (!File.Exists(snapPath) || FixtureUpdatePolicy.ShouldUpdateSnapshots())
                 File.WriteAllText(snapPath, snapshot.ToFormattedString());
 
             GoldenMaster.AssertMatches(snapshot, snapPath);

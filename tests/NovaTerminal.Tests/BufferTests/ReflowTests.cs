@@ -87,8 +87,8 @@ namespace NovaTerminal.Tests.BufferTests
             // Setup: 10 columns
             var buffer = new TerminalBuffer(10, 5);
 
-            // Write "Line1\nLine2"
-            foreach (char c in "Line1\n") buffer.WriteChar(c);
+            // Write "Line1\r\nLine2"
+            foreach (char c in "Line1\r\n") buffer.WriteChar(c);
             foreach (char c in "Line2") buffer.WriteChar(c);
 
             Assert.False(buffer.ViewportRows[0].IsWrapped, "Row 0 should NOT be wrapped (explicit newline)");

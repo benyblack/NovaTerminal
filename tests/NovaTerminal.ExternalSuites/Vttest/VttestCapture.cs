@@ -21,6 +21,7 @@ namespace NovaTerminal.ExternalSuites.Vttest
         public string ShellCommand { get; }
         public bool IsRecording => false;
         public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && _ptyState != IntPtr.Zero;
+        public bool HasActiveChildProcesses => false;
         public int? ExitCode => _exitCode;
 
         public event Action<string>? OnOutputReceived;

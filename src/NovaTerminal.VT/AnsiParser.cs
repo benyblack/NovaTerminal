@@ -432,225 +432,225 @@ namespace NovaTerminal.Core
             {
                 switch (finalByte)
                 {
-                case 'A': // Cursor Up
-                    {
-                        int dist = Math.Max(1, arg0);
-                        if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
-                            _buffer.CursorRow = Math.Max(_buffer.ScrollTop, _buffer.CursorRow - dist);
-                        else
-                            _buffer.CursorRow = Math.Max(0, _buffer.CursorRow - dist);
-                        _buffer.Invalidate();
-                    }
-                    break;
-                case 'B': // Cursor Down
-                    {
-                        int dist = Math.Max(1, arg0);
-                        if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
-                            _buffer.CursorRow = Math.Min(_buffer.ScrollBottom, _buffer.CursorRow + dist);
-                        else
-                            _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + dist);
-                        _buffer.Invalidate();
-                    }
-                    break;
-                case 'r': // DECSTBM - Set Scrolling Region
-                    {
-                        int regionTop = (argCount > 0 && validArgs[0] > 0 ? validArgs[0] : 1) - 1;
-                        int regionBottom = (argCount > 1 && validArgs[1] > 0 ? validArgs[1] : _buffer.Rows) - 1;
-                        _buffer.SetScrollingRegion(regionTop, regionBottom);
-                        // Cursor moves to home after setting region.
-                        // In DECOM, home is the top of the scrolling region.
-                        int homeRow = _buffer.Modes.IsOriginMode ? _buffer.ScrollTop : 0;
-                        _buffer.SetCursorPosition(0, homeRow);
-                    }
-                    break;
-                case '@': // ICH - Insert Character
-                    {
-                        int ichCount = Math.Max(1, arg0);
-                        _buffer.InsertCharacters(ichCount);
-                    }
-                    break;
-                case 'P': // DCH - Delete Character
-                    {
-                        int dchCount = Math.Max(1, arg0);
-                        _buffer.DeleteCharacters(dchCount);
-                    }
-                    break;
-                case 'S': // SU - Scroll Up
-                    {
-                        int suCount = Math.Max(1, arg0);
-                        for (int i = 0; i < suCount; i++) _buffer.ScrollUp();
-                    }
-                    break;
-                case 'T': // SD - Scroll Down
-                    {
-                        int sdCount = Math.Max(1, arg0);
-                        for (int i = 0; i < sdCount; i++) _buffer.ScrollDown();
-                    }
-                    break;
-                case 'd': // VPA - Vertical Position Absolute
-                    {
-                        int vpaRow = Math.Max(1, arg0) - 1;
-                        if (_buffer.Modes.IsOriginMode) vpaRow += _buffer.ScrollTop;
-                        // NOTE: _verticalOffset intentionally NOT applied here — it's a ConPTY
-                        // image-rendering artifact that must not affect general cursor positioning.
-                        _buffer.CursorRow = ClampRowForMode(vpaRow);
-                        _buffer.Invalidate();
-                    }
-                    break;
-                case 'C': // Cursor Forward
-                    _buffer.CursorCol = Math.Min(_buffer.Cols - 1, _buffer.CursorCol + Math.Max(1, arg0));
-                    _buffer.Invalidate();
-                    break;
-                case 'D': // Cursor Back
-                    _buffer.CursorCol = Math.Max(0, _buffer.CursorCol - Math.Max(1, arg0));
-                    _buffer.Invalidate();
-                    break;
-                case 'H': // Cursor Position (row;col)
-                case 'f':
-                    int row = (argCount > 0 ? validArgs[0] : 1) - 1;
-                    int col = (argCount > 1 ? validArgs[1] : 1) - 1;
-
-                    if (_buffer.Modes.IsOriginMode)
-                    {
-                        row += _buffer.ScrollTop;
-                    }
-
-                    // NOTE: _verticalOffset intentionally NOT applied here — it is a ConPTY
-                    // image-rendering artifact that must not displace general TUI cursor positions.
-
-                    row = ClampRowForMode(row);
-                    _buffer.SetCursorPosition(col, row);
-                    _buffer.Invalidate();
-                    break;
-                case 'G': // Cursor Horizontal Absolute (CHA)
-                    int val = (argCount > 0 ? validArgs[0] : 1) - 1;
-                    int oldCol = _buffer.CursorCol;
-                    _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
-                    _buffer.Invalidate();
-                    break;
-                case 'J': // Erase in Display
-                    int displayMode = argCount > 0 ? validArgs[0] : 0;
-
-                    if (displayMode == 0) // Erase from cursor to end of screen
-                    {
-                        _buffer.EraseLineToEnd(); // Clear rest of current line
-                                                  // Clear all lines below cursor
-                        for (int r = _buffer.CursorRow + 1; r < _buffer.Rows; r++)
+                    case 'A': // Cursor Up
                         {
-                            _buffer.EraseLineAll(r);
+                            int dist = Math.Max(1, arg0);
+                            if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
+                                _buffer.CursorRow = Math.Max(_buffer.ScrollTop, _buffer.CursorRow - dist);
+                            else
+                                _buffer.CursorRow = Math.Max(0, _buffer.CursorRow - dist);
+                            _buffer.Invalidate();
                         }
-                    }
-                    else if (displayMode == 1) // Erase from start of screen to cursor
-                    {
-                        // Clear all lines above cursor
-                        for (int r = 0; r < _buffer.CursorRow; r++)
+                        break;
+                    case 'B': // Cursor Down
                         {
-                            _buffer.EraseLineAll(r);
+                            int dist = Math.Max(1, arg0);
+                            if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
+                                _buffer.CursorRow = Math.Min(_buffer.ScrollBottom, _buffer.CursorRow + dist);
+                            else
+                                _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + dist);
+                            _buffer.Invalidate();
                         }
-                        _buffer.EraseLineFromStart(); // Clear start of current line
-                    }
-                    else if (displayMode == 2 || displayMode == 3) // Erase entire screen
-                    {
-                        _buffer.Clear(resetCursor: false);
-                        _verticalOffset = 0; // Reset offset on clear screen
-                    }
-                    break;
-                case 'K': // Erase in Line
-                    int mode = argCount > 0 ? validArgs[0] : 0;
-
-                    if (mode == 0) _buffer.EraseLineToEnd();
-                    else if (mode == 1) _buffer.EraseLineFromStart();
-                    else if (mode == 2) _buffer.EraseLineAll();
-                    break;
-                case 'X': // Erase Character (ECH)
-                    int count = argCount > 0 ? validArgs[0] : 1;
-                    _buffer.EraseCharacters(count);
-                    break;
-                case 'L': // Insert Line (IL)
-                    int linesToInsert = argCount > 0 ? validArgs[0] : 1;
-                    _buffer.InsertLines(linesToInsert);
-                    break;
-                case 'M': // Delete Line (DL)
-                    int linesToDelete = argCount > 0 ? validArgs[0] : 1;
-                    _buffer.DeleteLines(linesToDelete);
-                    break;
-                case 's': // Save Cursor (ANSI.SYS / SCO)
-                    _buffer.SaveCursor();
-                    break;
-                case 'u': // Restore Cursor (ANSI.SYS / SCO)
-                    _buffer.RestoreCursor();
-                    break;
-                case 'm': // SGR (Select Graphic Rendition)
-                    // Ignore non-standard leader-prefixed "...m" control sequences, e.g.
-                    // CSI > Pp ; Pv m (xterm key-modifier options). They are NOT SGR.
-                    if (leader == '\0' && intermediates.Length == 0)
-                    {
-                        HandleSgr(validArgs, validSeparators);
-                    }
-                    break;
-                case 'h': // Set Mode
-                case 'l': // Reset Mode
-                    bool enableMode = (finalByte == 'h');
-                    if (isPrivate)
-                    {
-                        HandleDECPrivateMode(validArgs, enableMode);
-                    }
-                    else
-                    {
-                        // Handle Standard Modes (ANSI)
-                        foreach (int m in validArgs)
+                        break;
+                    case 'r': // DECSTBM - Set Scrolling Region
                         {
-                            if (m == 4) // IRM - Insert Replacement Mode
+                            int regionTop = (argCount > 0 && validArgs[0] > 0 ? validArgs[0] : 1) - 1;
+                            int regionBottom = (argCount > 1 && validArgs[1] > 0 ? validArgs[1] : _buffer.Rows) - 1;
+                            _buffer.SetScrollingRegion(regionTop, regionBottom);
+                            // Cursor moves to home after setting region.
+                            // In DECOM, home is the top of the scrolling region.
+                            int homeRow = _buffer.Modes.IsOriginMode ? _buffer.ScrollTop : 0;
+                            _buffer.SetCursorPosition(0, homeRow);
+                        }
+                        break;
+                    case '@': // ICH - Insert Character
+                        {
+                            int ichCount = Math.Max(1, arg0);
+                            _buffer.InsertCharacters(ichCount);
+                        }
+                        break;
+                    case 'P': // DCH - Delete Character
+                        {
+                            int dchCount = Math.Max(1, arg0);
+                            _buffer.DeleteCharacters(dchCount);
+                        }
+                        break;
+                    case 'S': // SU - Scroll Up
+                        {
+                            int suCount = Math.Max(1, arg0);
+                            for (int i = 0; i < suCount; i++) _buffer.ScrollUp();
+                        }
+                        break;
+                    case 'T': // SD - Scroll Down
+                        {
+                            int sdCount = Math.Max(1, arg0);
+                            for (int i = 0; i < sdCount; i++) _buffer.ScrollDown();
+                        }
+                        break;
+                    case 'd': // VPA - Vertical Position Absolute
+                        {
+                            int vpaRow = Math.Max(1, arg0) - 1;
+                            if (_buffer.Modes.IsOriginMode) vpaRow += _buffer.ScrollTop;
+                            // NOTE: _verticalOffset intentionally NOT applied here — it's a ConPTY
+                            // image-rendering artifact that must not affect general cursor positioning.
+                            _buffer.CursorRow = ClampRowForMode(vpaRow);
+                            _buffer.Invalidate();
+                        }
+                        break;
+                    case 'C': // Cursor Forward
+                        _buffer.CursorCol = Math.Min(_buffer.Cols - 1, _buffer.CursorCol + Math.Max(1, arg0));
+                        _buffer.Invalidate();
+                        break;
+                    case 'D': // Cursor Back
+                        _buffer.CursorCol = Math.Max(0, _buffer.CursorCol - Math.Max(1, arg0));
+                        _buffer.Invalidate();
+                        break;
+                    case 'H': // Cursor Position (row;col)
+                    case 'f':
+                        int row = (argCount > 0 ? validArgs[0] : 1) - 1;
+                        int col = (argCount > 1 ? validArgs[1] : 1) - 1;
+
+                        if (_buffer.Modes.IsOriginMode)
+                        {
+                            row += _buffer.ScrollTop;
+                        }
+
+                        // NOTE: _verticalOffset intentionally NOT applied here — it is a ConPTY
+                        // image-rendering artifact that must not displace general TUI cursor positions.
+
+                        row = ClampRowForMode(row);
+                        _buffer.SetCursorPosition(col, row);
+                        _buffer.Invalidate();
+                        break;
+                    case 'G': // Cursor Horizontal Absolute (CHA)
+                        int val = (argCount > 0 ? validArgs[0] : 1) - 1;
+                        int oldCol = _buffer.CursorCol;
+                        _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
+                        _buffer.Invalidate();
+                        break;
+                    case 'J': // Erase in Display
+                        int displayMode = argCount > 0 ? validArgs[0] : 0;
+
+                        if (displayMode == 0) // Erase from cursor to end of screen
+                        {
+                            _buffer.EraseLineToEnd(); // Clear rest of current line
+                                                      // Clear all lines below cursor
+                            for (int r = _buffer.CursorRow + 1; r < _buffer.Rows; r++)
                             {
-                                _buffer.Modes.IsInsertMode = enableMode;
-                            }
-                            else if (m == 20) // LNM - Line Feed New Line Mode
-                            {
-                                _buffer.Modes.IsLineFeedNewLineMode = enableMode;
+                                _buffer.EraseLineAll(r);
                             }
                         }
-                    }
-                    break;
-                case 'c': // DA - Device Attributes
-                    if (leader == '>')
-                    {
-                        // Secondary Device Attributes
-                        // CSI > 1 ; 1 0 ; 0 c (standard for VT220-ish)
-                        OnResponse?.Invoke("\x1b[>1;10;0c");
-                    }
-                    else if (!isPrivate)
-                    {
-                        // Primary Device Attributes (CSI c)
-                        // Respond with VT100/VT102 capability to satisfy vttest
-                        // ?1;2c (VT100 with AVO) is safest baseline, but we claim more.
-                        // ?62;4;22c (VT220 + Sixel + ANSI)
-                        // vttest checks these. 
-                        // Let's stick to ?62;4;22c as it worked for XTerm.
-                        OnResponse?.Invoke("\x1b[?62;4;22c");
-                    }
-                    break;
-                case 'n': // DSR - Device Status Report
-                    if (arg0 == 5) // Status Query
-                    {
-                        OnResponse?.Invoke("\x1b[0n"); // OK
-                    }
-                    else if (arg0 == 6) // Cursor Position Report (CPR)
-                    {
-                        // CSI r ; c R
-                        string response = $"\x1b[{_buffer.CursorRow + 1};{_buffer.CursorCol + 1}R";
-                        OnResponse?.Invoke(response);
-                    }
-                    else if (arg0 == 0) // DSR response (ignore)
-                    {
-                    }
-                    break;
-                case 'q':
-                    // DECSCUSR - Set Cursor Style (CSI Ps SP q)
-                    if (leader == '\0' && intermediates.Length > 0)
-                    {
-                        ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
-                    }
-                    break;
+                        else if (displayMode == 1) // Erase from start of screen to cursor
+                        {
+                            // Clear all lines above cursor
+                            for (int r = 0; r < _buffer.CursorRow; r++)
+                            {
+                                _buffer.EraseLineAll(r);
+                            }
+                            _buffer.EraseLineFromStart(); // Clear start of current line
+                        }
+                        else if (displayMode == 2 || displayMode == 3) // Erase entire screen
+                        {
+                            _buffer.Clear(resetCursor: false);
+                            _verticalOffset = 0; // Reset offset on clear screen
+                        }
+                        break;
+                    case 'K': // Erase in Line
+                        int mode = argCount > 0 ? validArgs[0] : 0;
+
+                        if (mode == 0) _buffer.EraseLineToEnd();
+                        else if (mode == 1) _buffer.EraseLineFromStart();
+                        else if (mode == 2) _buffer.EraseLineAll();
+                        break;
+                    case 'X': // Erase Character (ECH)
+                        int count = argCount > 0 ? validArgs[0] : 1;
+                        _buffer.EraseCharacters(count);
+                        break;
+                    case 'L': // Insert Line (IL)
+                        int linesToInsert = argCount > 0 ? validArgs[0] : 1;
+                        _buffer.InsertLines(linesToInsert);
+                        break;
+                    case 'M': // Delete Line (DL)
+                        int linesToDelete = argCount > 0 ? validArgs[0] : 1;
+                        _buffer.DeleteLines(linesToDelete);
+                        break;
+                    case 's': // Save Cursor (ANSI.SYS / SCO)
+                        _buffer.SaveCursor();
+                        break;
+                    case 'u': // Restore Cursor (ANSI.SYS / SCO)
+                        _buffer.RestoreCursor();
+                        break;
+                    case 'm': // SGR (Select Graphic Rendition)
+                              // Ignore non-standard leader-prefixed "...m" control sequences, e.g.
+                              // CSI > Pp ; Pv m (xterm key-modifier options). They are NOT SGR.
+                        if (leader == '\0' && intermediates.Length == 0)
+                        {
+                            HandleSgr(validArgs, validSeparators);
+                        }
+                        break;
+                    case 'h': // Set Mode
+                    case 'l': // Reset Mode
+                        bool enableMode = (finalByte == 'h');
+                        if (isPrivate)
+                        {
+                            HandleDECPrivateMode(validArgs, enableMode);
+                        }
+                        else
+                        {
+                            // Handle Standard Modes (ANSI)
+                            foreach (int m in validArgs)
+                            {
+                                if (m == 4) // IRM - Insert Replacement Mode
+                                {
+                                    _buffer.Modes.IsInsertMode = enableMode;
+                                }
+                                else if (m == 20) // LNM - Line Feed New Line Mode
+                                {
+                                    _buffer.Modes.IsLineFeedNewLineMode = enableMode;
+                                }
+                            }
+                        }
+                        break;
+                    case 'c': // DA - Device Attributes
+                        if (leader == '>')
+                        {
+                            // Secondary Device Attributes
+                            // CSI > 1 ; 1 0 ; 0 c (standard for VT220-ish)
+                            OnResponse?.Invoke("\x1b[>1;10;0c");
+                        }
+                        else if (!isPrivate)
+                        {
+                            // Primary Device Attributes (CSI c)
+                            // Respond with VT100/VT102 capability to satisfy vttest
+                            // ?1;2c (VT100 with AVO) is safest baseline, but we claim more.
+                            // ?62;4;22c (VT220 + Sixel + ANSI)
+                            // vttest checks these. 
+                            // Let's stick to ?62;4;22c as it worked for XTerm.
+                            OnResponse?.Invoke("\x1b[?62;4;22c");
+                        }
+                        break;
+                    case 'n': // DSR - Device Status Report
+                        if (arg0 == 5) // Status Query
+                        {
+                            OnResponse?.Invoke("\x1b[0n"); // OK
+                        }
+                        else if (arg0 == 6) // Cursor Position Report (CPR)
+                        {
+                            // CSI r ; c R
+                            string response = $"\x1b[{_buffer.CursorRow + 1};{_buffer.CursorCol + 1}R";
+                            OnResponse?.Invoke(response);
+                        }
+                        else if (arg0 == 0) // DSR response (ignore)
+                        {
+                        }
+                        break;
+                    case 'q':
+                        // DECSCUSR - Set Cursor Style (CSI Ps SP q)
+                        if (leader == '\0' && intermediates.Length > 0)
+                        {
+                            ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
+                        }
+                        break;
                     default:
                         TerminalLogger.Log($"[ANSI_PARSER] Unhandled CSI: {finalByte} (private={isPrivate}), params={new string(parameters)}");
                         break;

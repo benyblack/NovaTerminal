@@ -16,14 +16,16 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.10" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.10" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.10" />
-    <!--Condition below is needed to remove Avalonia.Diagnostics package from build output in Release configuration.-->
+    <!--Condition
+    below is needed to remove Avalonia.Diagnostics package from build output in Release
+    configuration.-->
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.10">
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
-     <PackageReference Include="SkiaSharp" Version="3.116.1" />
-     <PackageReference Include="SkiaSharp.HarfBuzz" Version="3.116.1" />
-     <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.HarfBuzz" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.116.1" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.116.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.2" />
   </ItemGroup>
@@ -37,16 +39,41 @@
     <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <NativeProjectDir>$(MSBuildProjectDirectory)\native\</NativeProjectDir>
+  </PropertyGroup>
+
+  <Target Name="BuildRustNative"
+    BeforeTargets="PrepareForBuild"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+
+    <Message Importance="high"
+      Text="[RustNative] Building Rust native library in: $(NativeProjectDir)" />
+
+    <Exec WorkingDirectory="$(NativeProjectDir)"
+      Command="cargo build --release"
+      EchoOff="false"
+      ConsoleToMSBuild="true"
+      StandardOutputImportance="High"
+      StandardErrorImportance="High" />
+
+    <Message Importance="high"
+      Text="[RustNative] Build complete." />
+  </Target>
+
   <ItemGroup>
-    <Content Include="native\target\release\rusty_pty.dll" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
+    <Content Include="native\target\release\rusty_pty.dll"
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
       <Link>rusty_pty.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="native\target_linux\release\librusty_pty.so" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
+    <Content Include="native\target_linux\release\librusty_pty.so"
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
       <Link>librusty_pty.so</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="native\target\release\librusty_pty.dylib" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">
+    <Content Include="native\target\release\librusty_pty.dylib"
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">
       <Link>librusty_pty.dylib</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

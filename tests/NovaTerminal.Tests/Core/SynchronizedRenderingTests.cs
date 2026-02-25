@@ -19,7 +19,7 @@ namespace NovaTerminal.Tests.Core
 
             // 2. Perform operations that usually invalidate
             buffer.WriteChar('A');
-            buffer.Invalidate(); 
+            buffer.Invalidate();
 
             // 3. Assert NO invalidation
             Assert.False(invalidated, "Invalidate should be deferred while in Sync mode");
@@ -27,7 +27,7 @@ namespace NovaTerminal.Tests.Core
             // 4. Exit Sync Mode
             buffer.EndSync();
             Assert.False(buffer.IsSynchronizedOutput);
-            
+
             // 5. Assert Invalidation Triggered
             Assert.True(invalidated, "Invalidate should be triggered after EndSync");
         }
@@ -41,7 +41,7 @@ namespace NovaTerminal.Tests.Core
 
             // 1. Enter Sync Mode
             buffer.BeginSync();
-            
+
             // 2. Write invalidation
             buffer.Invalidate();
             Assert.False(invalidated);

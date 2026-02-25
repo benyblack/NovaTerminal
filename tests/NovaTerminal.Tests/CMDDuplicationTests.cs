@@ -68,8 +68,8 @@ namespace NovaTerminal.Tests
             var buffer = new TerminalBuffer(80, 24);
 
             // Write some history
-            buffer.Write("Command output line 1\n");
-            buffer.Write("Command output line 2\n");
+            buffer.Write("Command output line 1\r\n");
+            buffer.Write("Command output line 2\r\n");
 
             // Write CMD prompt
             string prompt = "C:\\Users\\Dev> ";
@@ -119,8 +119,8 @@ namespace NovaTerminal.Tests
         {
             var buffer = new TerminalBuffer(60, 24);
 
-            buffer.Write("Output 1\n");
-            buffer.Write("Output 2\n");
+            buffer.Write("Output 1\r\n");
+            buffer.Write("Output 2\r\n");
 
             string prompt = "C:\\Users\\Dev> ";
             buffer.Write(prompt);

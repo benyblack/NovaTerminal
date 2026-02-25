@@ -29,7 +29,7 @@ namespace NovaTerminal.Tests.Regressions
         public async Task OhMyPosh_SegmentOffset_Regression()
         {
             string recPath = Path.Combine(_fixturesDir, "omp_prompt.rec");
-            RecordingGenerator.GenerateOhMyPosh(recPath);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GenerateOhMyPosh);
 
             var buffer = new TerminalBuffer(80, 24);
             var parser = new AnsiParser(buffer);

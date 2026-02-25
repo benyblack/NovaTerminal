@@ -24,13 +24,13 @@ namespace NovaTerminal.Tests.Performance
 
             // Measure time to process a single character
             var sw = new Stopwatch();
-            
+
             // Warmup
             parser.Process("A");
 
             long totalTicks = 0;
             int iterations = 1000;
-            
+
             for (int i = 0; i < iterations; i++)
             {
                 sw.Restart();

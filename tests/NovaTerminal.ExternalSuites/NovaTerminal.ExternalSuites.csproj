@@ -7,15 +7,15 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\NovaTerminal\NovaTerminal.csproj" />
+    <ProjectReference Include="..\..\src\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\NovaTerminal\native\target\release\rusty_pty.dll" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
+    <Content Include="..\..\src\NovaTerminal.App\native\target\release\rusty_pty.dll" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
       <Link>rusty_pty.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="..\..\NovaTerminal\native\target_linux\release\librusty_pty.so" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
+    <Content Include="..\..\src\NovaTerminal.App\native\target_linux\release\librusty_pty.so" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
       <Link>librusty_pty.so</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

@@ -11,7 +11,7 @@ namespace NovaTerminal.Tests
         public void TestEmojiWidths()
         {
             var buffer = new TerminalBuffer(80, 24);
-            
+
             // Thumbs Up (U+1F44D)
             string thumbsUp = "\U0001F44D";
             int w1 = buffer.GetGraphemeWidth(thumbsUp);

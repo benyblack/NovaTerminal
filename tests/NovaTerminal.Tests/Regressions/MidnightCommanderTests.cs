@@ -29,7 +29,7 @@ namespace NovaTerminal.Tests.Regressions
         public async Task MC_Resize_ShouldReflowCorrectly()
         {
             string recPath = Path.Combine(_fixturesDir, "mc_resize.rec");
-            RecordingGenerator.GenerateMidnightCommander(recPath);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GenerateMidnightCommander);
 
             var buffer = new TerminalBuffer(80, 24);
             var parser = new AnsiParser(buffer);
@@ -69,8 +69,8 @@ namespace NovaTerminal.Tests.Regressions
             string recPathResized = Path.Combine(_fixturesDir, "mc_100x30.rec");
 
             // 2. Generate artifacts
-            RecordingGenerator.GenerateMidnightCommander(recPathOriginal);
-            RecordingGenerator.GenerateMidnightCommander_Resized_100x30(recPathResized);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPathOriginal, RecordingGenerator.GenerateMidnightCommander);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPathResized, RecordingGenerator.GenerateMidnightCommander_Resized_100x30);
 
             // 3. Initialize
             var buffer = new TerminalBuffer(80, 24);
@@ -114,7 +114,7 @@ namespace NovaTerminal.Tests.Regressions
         public async Task MC_Menu_ShouldOverlayContent()
         {
             string recPath = Path.Combine(_fixturesDir, "mc_menu.rec");
-            RecordingGenerator.GenerateMidnightCommander_Menu(recPath);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GenerateMidnightCommander_Menu);
 
             var buffer = new TerminalBuffer(80, 24);
             var parser = new AnsiParser(buffer);
@@ -144,7 +144,7 @@ namespace NovaTerminal.Tests.Regressions
         public async Task MC_Dialog_ShouldCenterAndObscure()
         {
             string recPath = Path.Combine(_fixturesDir, "mc_dialog.rec");
-            RecordingGenerator.GenerateMidnightCommander_Dialog(recPath);
+            FixtureUpdatePolicy.GenerateReplayFixtureIfNeeded(recPath, RecordingGenerator.GenerateMidnightCommander_Dialog);
 
             var buffer = new TerminalBuffer(80, 24);
             var parser = new AnsiParser(buffer);

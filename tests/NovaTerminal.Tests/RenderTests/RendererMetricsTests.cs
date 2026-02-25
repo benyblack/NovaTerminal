@@ -22,7 +22,7 @@ namespace NovaTerminal.Tests.RenderTests
         {
             RendererStatistics.Reset();
             RendererStatistics.RecordFrame(true, 100);
-            
+
             Assert.Equal(1, RendererStatistics.TotalFrames);
             Assert.Equal(1, RendererStatistics.FullRedraws);
             Assert.Equal(100, RendererStatistics.DirtyCellsRendered);

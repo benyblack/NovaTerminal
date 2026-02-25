@@ -290,7 +290,7 @@ namespace NovaTerminal.Core
 
                 // 2. Paint the terminal's theme background layer (with alpha) over the pristine canvas
                 bgPaint.Color = frame.ThemeBg;
-                bgPaint.BlendMode = SKBlendMode.SrcOver; 
+                bgPaint.BlendMode = SKBlendMode.SrcOver;
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
 
                 float paddingLeft = 4f;
@@ -696,6 +696,15 @@ namespace NovaTerminal.Core
                 {
                     if (_glyphCache != null && !runIsItalic)
                     {
+                        if (ShouldDrawRunDirectWhenGlyphCacheEnabled(runText))
+                        {
+                            FlushBatches(canvas);
+                            canvas.DrawText(runText, rx, baselineY, font, fgPaint);
+                            cellsRendered += totalRunWidth;
+                            c = k - 1;
+                            continue;
+                        }
+
                         int cellX = c;
                         float yBaselineSnap = SnapY(baselineY);
                         float glyphY = SnapY(yBaselineSnap + font.Metrics.Ascent);
@@ -1359,6 +1368,30 @@ namespace NovaTerminal.Core
         {
             if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
             return cp >= minCodePointInclusive && cp <= maxCodePointInclusive;
+        }
+
+        private static bool ShouldDrawRunDirectWhenGlyphCacheEnabled(string runText)
+        {
+            bool hasRune = false;
+            foreach (var rune in runText.EnumerateRunes())
+            {
+                hasRune = true;
+                int cp = rune.Value;
+                if (Rune.IsWhiteSpace(rune))
+                {
+                    continue;
+                }
+                if ((cp >= 0x2580 && cp <= 0x259F) || // Block elements, shades, quadrants
+                    (cp >= 0x2800 && cp <= 0x28FF) || // Braille patterns
+                    (cp >= 0x25A0 && cp <= 0x25FF))   // Geometric symbols used by TUIs
+                {
+                    continue;
+                }
+
+                return false;
+            }
+
+            return hasRune;
         }
 
         private static bool ShouldBypassGlyphAtlasForGrapheme(string grapheme)

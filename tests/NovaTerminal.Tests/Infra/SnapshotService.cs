@@ -21,7 +21,7 @@ namespace NovaTerminal.Tests.Infra
                 var glyphTypeface = typeface.GlyphTypeface;
                 var skTypeface = new SharedSKTypeface(SKTypeface.FromFamilyName(typeface.FontFamily.Name));
                 var skFont = new SharedSKFont(new SKFont(skTypeface.Typeface, 14));
-                
+
                 var op = new TerminalDrawOperation(
                     new Rect(0, 0, width, height),
                     buffer,
@@ -52,11 +52,11 @@ namespace NovaTerminal.Tests.Infra
                 // Use reflection to call the private DrawTerminal method 
                 // OR we can just use the public Render if we had an ImmediateDrawingContext (harder to mock)
                 // Let's use reflection for the test utility to access the core drawing logic directly.
-                var method = typeof(TerminalDrawOperation).GetMethod("DrawTerminal", 
+                var method = typeof(TerminalDrawOperation).GetMethod("DrawTerminal",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                
+
                 method?.Invoke(op, new object[] { canvas });
-                
+
                 op.Dispose();
             }
             return bitmap;

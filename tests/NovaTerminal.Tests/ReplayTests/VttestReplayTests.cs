@@ -56,7 +56,7 @@ namespace NovaTerminal.Tests.ReplayTests
 
             var snapshot = BufferSnapshot.Capture(buffer);
 
-            if (!File.Exists(snapPath) || Environment.GetEnvironmentVariable("UPDATE_SNAPSHOTS") == "1")
+            if (!File.Exists(snapPath) || FixtureUpdatePolicy.ShouldUpdateSnapshots())
                 File.WriteAllText(snapPath, snapshot.ToFormattedString());
 
             GoldenMaster.AssertMatches(snapshot, snapPath);

@@ -81,8 +81,8 @@ namespace NovaTerminal.Tests
             var buffer = new TerminalBuffer(80, 24);
 
             // Write some history
-            buffer.Write("User History 1\n");
-            buffer.Write("User History 2\n");
+            buffer.Write("User History 1\r\n");
+            buffer.Write("User History 2\r\n");
 
             // Write "PowerShell" style prompt (no hard newline at end usually)
             string prompt = "PS C:\\Users\\Dev> ";
@@ -120,7 +120,7 @@ namespace NovaTerminal.Tests
             var buffer = new TerminalBuffer(80, rows);
 
             // Fill buffer to push cursor to bottom
-            for (int i = 0; i < rows - 1; i++) buffer.Write($"Line {i}\n");
+            for (int i = 0; i < rows - 1; i++) buffer.Write($"Line {i}\r\n");
 
             string prompt = "PS Bottom> ";
             buffer.Write(prompt);
@@ -155,7 +155,7 @@ namespace NovaTerminal.Tests
         {
             // Setup
             var buffer = new TerminalBuffer(80, 24);
-            buffer.Write("History\n");
+            buffer.Write("History\r\n");
 
             // Long Prompt
             string longPrompt = "user@very-long-hostname-machine:/var/www/html/project/deep/nested/directory$ ";
@@ -204,7 +204,7 @@ namespace NovaTerminal.Tests
             // It should NOT go to scrollback.
 
             var buffer = new TerminalBuffer(80, 24);
-            for (int i = 0; i < 23; i++) buffer.Write($"Line {i}\n");
+            for (int i = 0; i < 23; i++) buffer.Write($"Line {i}\r\n");
             buffer.Write("ActivePrompt$ ");
 
             // Act: Shrink Height 24 -> 20

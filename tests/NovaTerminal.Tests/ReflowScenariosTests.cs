@@ -41,7 +41,7 @@ namespace NovaTerminal.Tests
         {
             for (int i = 0; i < count; i++)
             {
-                buffer.Write($"Line {i}\n");
+                buffer.Write($"Line {i}\r\n");
             }
         }
 
@@ -83,7 +83,7 @@ namespace NovaTerminal.Tests
             var buffer = new TerminalBuffer(20, 10);
             for (int i = 1; i <= 15; i++)
             {
-                buffer.Write($"Line {i:D2}\n");
+                buffer.Write($"Line {i:D2}\r\n");
             }
 
             _output.WriteLine("Before Resize:");
@@ -107,8 +107,8 @@ namespace NovaTerminal.Tests
         {
             var buffer = new TerminalBuffer(20, 10);
 
-            buffer.Write("This is a long line that will wrap when resized.\n");
-            buffer.Write("Line 2\n");
+            buffer.Write("This is a long line that will wrap when resized.\r\n");
+            buffer.Write("Line 2\r\n");
             buffer.Write("PROMPT");
 
             _output.WriteLine("Before Resize:");
@@ -135,7 +135,7 @@ namespace NovaTerminal.Tests
             var buffer = new TerminalBuffer(80, 10);
             for (int i = 1; i <= 30; i++)
             {
-                buffer.Write($"History Line {i:D3}\n");
+                buffer.Write($"History Line {i:D3}\r\n");
             }
             buffer.Write("PROMPT");
 
@@ -202,7 +202,7 @@ namespace NovaTerminal.Tests
             var buffer = new TerminalBuffer(80, 24);
             for (int i = 1; i <= 100; i++)
             {
-                buffer.Write($"Line {i:D3} - " + new string('X', 60) + "\n");
+                buffer.Write($"Line {i:D3} - " + new string('X', 60) + "\r\n");
             }
             buffer.Write("PROMPT> ");
 
@@ -300,7 +300,7 @@ namespace NovaTerminal.Tests
             for (int i = 1; i <= 1000; i++)
             {
                 string text = $"[LINE-{i:D4}] " + new string((char)('A' + (i % 26)), 50);
-                buffer.Write(text + "\n");
+                buffer.Write(text + "\r\n");
                 expectedLines.Add(text);
             }
             buffer.Write("PROMPT>");
@@ -487,10 +487,10 @@ namespace NovaTerminal.Tests
             // Old content should be in SB.
 
             var buffer = new TerminalBuffer(20, 5);
-            buffer.Write("Line 1\n");
-            buffer.Write("Line 2\n");
-            buffer.Write("Line 3\n");
-            buffer.Write("Line 4\n");
+            buffer.Write("Line 1\r\n");
+            buffer.Write("Line 2\r\n");
+            buffer.Write("Line 3\r\n");
+            buffer.Write("Line 4\r\n");
             buffer.Write("Prompt> ");
 
             _output.WriteLine("Before Shrink (20x5):");
