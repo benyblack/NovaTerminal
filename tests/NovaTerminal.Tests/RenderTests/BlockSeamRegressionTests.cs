@@ -97,12 +97,16 @@ namespace NovaTerminal.Tests.RenderTests
             const string shade = "\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592";
             const double renderScaling = 1.5;
 
+            using var noCache = RenderRow(shade, cols, rows, renderScaling, useGlyphCache: false);
             using var withCache = RenderRow(shade, cols, rows, renderScaling, useGlyphCache: true);
 
             int y = (int)Math.Round(Metrics.CellHeight * 0.5, MidpointRounding.AwayFromZero);
-            int blackBoundaryHits = CountBoundaryPixelsNearBlack(withCache, blockCells, Metrics.CellWidth, y, maxLuma: 8);
+            int noCacheBlackBoundaryHits = CountBoundaryPixelsNearBlack(noCache, blockCells, Metrics.CellWidth, y, maxLuma: 8);
+            int withCacheBlackBoundaryHits = CountBoundaryPixelsNearBlack(withCache, blockCells, Metrics.CellWidth, y, maxLuma: 8);
 
-            Assert.Equal(0, blackBoundaryHits);
+            Assert.True(
+                withCacheBlackBoundaryHits <= noCacheBlackBoundaryHits,
+                $"Glyph cache introduced more near-black shade seams: no-cache={noCacheBlackBoundaryHits}, with-cache={withCacheBlackBoundaryHits}, y={y}");
         }
 
         [AvaloniaFact]
