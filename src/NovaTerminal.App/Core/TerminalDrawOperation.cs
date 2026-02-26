@@ -73,6 +73,12 @@ namespace NovaTerminal.Core
         private readonly List<SKColor> _alphaColors = new();
         private readonly List<SKRect> _colorRects = new();
         private readonly List<SKRotationScaleMatrix> _colorXforms = new();
+        private readonly SKPaint _bgFillPaint = new();
+        private readonly SKPaint _decoStrokePaint = new();
+        private readonly SKPaint _blockFillPaint = new();
+        private readonly SKPaint _shadeFillPaint = new();
+        private readonly SKPaint _atlasAlphaPaint = new();
+        private readonly SKPaint _atlasColorPaint = new();
         private const int RunBuilderInitialCapacity = 256;
         private const int RunBuilderMaxCapacity = 4096;
         private readonly StringBuilder _runBuilder = new(capacity: RunBuilderInitialCapacity);
@@ -177,6 +183,12 @@ namespace NovaTerminal.Core
             _colorRects.Clear();
             _colorXforms.Clear();
             ReturnEdgeBuffers();
+            _bgFillPaint.Dispose();
+            _decoStrokePaint.Dispose();
+            _blockFillPaint.Dispose();
+            _shadeFillPaint.Dispose();
+            _atlasAlphaPaint.Dispose();
+            _atlasColorPaint.Dispose();
         }
 
         public bool Equals(ICustomDrawOperation? other) => false;
@@ -548,7 +560,8 @@ namespace NovaTerminal.Core
 
             if (alphaGlyphs > 0)
             {
-                using var paint = new SKPaint { IsAntialias = false };
+                _atlasAlphaPaint.Style = SKPaintStyle.Fill;
+                _atlasAlphaPaint.IsAntialias = false;
                 canvas.DrawAtlas(
                     alphaAtlas,
                     _alphaRects.ToArray(),
@@ -556,7 +569,7 @@ namespace NovaTerminal.Core
                     _alphaColors.ToArray(),
                     SKBlendMode.Modulate,
                     new SKSamplingOptions(SKFilterMode.Nearest),
-                    paint);
+                    _atlasAlphaPaint);
                 atlasDrawCalls++;
 
                 _alphaRects.Clear();
@@ -566,7 +579,8 @@ namespace NovaTerminal.Core
 
             if (colorGlyphs > 0)
             {
-                using var paint = new SKPaint { IsAntialias = false };
+                _atlasColorPaint.Style = SKPaintStyle.Fill;
+                _atlasColorPaint.IsAntialias = false;
                 canvas.DrawAtlas(
                     colorAtlas,
                     _colorRects.ToArray(),
@@ -574,7 +588,7 @@ namespace NovaTerminal.Core
                     null,
                     SKBlendMode.SrcOver,
                     new SKSamplingOptions(SKFilterMode.Linear),
-                    paint);
+                    _atlasColorPaint);
                 atlasDrawCalls++;
 
                 _colorRects.Clear();
@@ -700,8 +714,10 @@ namespace NovaTerminal.Core
                 // Backgrounds (when requested)
                 if (drawBackgrounds && bg != themeBg && bg.Alpha != 0)
                 {
-                    using var bgP = new SKPaint { Color = bg, Style = SKPaintStyle.Fill };
-                    canvas.DrawRect(rx, rowTopY, rw, snappedCellHeight, bgP);
+                    _bgFillPaint.Color = bg;
+                    _bgFillPaint.Style = SKPaintStyle.Fill;
+                    _bgFillPaint.IsAntialias = false;
+                    canvas.DrawRect(rx, rowTopY, rw, snappedCellHeight, _bgFillPaint);
                     IncrementRectDrawCall();
                 }
 
@@ -759,12 +775,9 @@ namespace NovaTerminal.Core
                         float yBaselineSnap = SnapY(baselineY);
                         float glyphY = SnapY(yBaselineSnap + font.Metrics.Ascent);
                         float invScale = (float)(1.0 / _renderScaling);
-                        using var blockPaint = new SKPaint
-                        {
-                            Color = fg,
-                            Style = SKPaintStyle.Fill,
-                            IsAntialias = false
-                        };
+                        _blockFillPaint.Color = fg;
+                        _blockFillPaint.Style = SKPaintStyle.Fill;
+                        _blockFillPaint.IsAntialias = false;
 
                         foreach (var rune in runText.EnumerateRunes())
                         {
@@ -815,7 +828,7 @@ namespace NovaTerminal.Core
                                 float fillY2 = yEndEighths == 8 ? rowBottom : SnapY(rowTopY + (cellH * (yEndEighths / 8f)));
                                 if (fillX2 > fillX1 && fillY2 > fillY1)
                                 {
-                                    canvas.DrawRect(fillX1, fillY1, fillX2 - fillX1, fillY2 - fillY1, blockPaint);
+                                    canvas.DrawRect(fillX1, fillY1, fillX2 - fillX1, fillY2 - fillY1, _blockFillPaint);
                                     IncrementRectDrawCall();
                                 }
 
@@ -828,15 +841,12 @@ namespace NovaTerminal.Core
                             {
                                 FlushBatches(canvas);
                                 byte shadeA = (byte)Math.Clamp((int)Math.Round(fg.Alpha * shadeAlpha), 0, 255);
-                                using var shadePaint = new SKPaint
-                                {
-                                    Color = new SKColor(fg.Red, fg.Green, fg.Blue, shadeA),
-                                    Style = SKPaintStyle.Fill,
-                                    IsAntialias = false
-                                };
+                                _shadeFillPaint.Color = new SKColor(fg.Red, fg.Green, fg.Blue, shadeA);
+                                _shadeFillPaint.Style = SKPaintStyle.Fill;
+                                _shadeFillPaint.IsAntialias = false;
                                 if (cellW > 0 && cellH > 0)
                                 {
-                                    canvas.DrawRect(cellX1, rowTopY, cellW, cellH, shadePaint);
+                                    canvas.DrawRect(cellX1, rowTopY, cellW, cellH, _shadeFillPaint);
                                     IncrementRectDrawCall();
                                 }
 
@@ -848,7 +858,7 @@ namespace NovaTerminal.Core
                             if (UseBlockElementPrimitives && TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
                             {
                                 FlushBatches(canvas);
-                                DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopY, cellW, cellH, blockPaint);
+                                DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopY, cellW, cellH, _blockFillPaint);
                                 fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
@@ -857,7 +867,7 @@ namespace NovaTerminal.Core
                             if (UseBlockElementPrimitives && TryGetBraillePattern(grapheme, out byte brailleMask))
                             {
                                 FlushBatches(canvas);
-                                DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopY, cellW, cellH, blockPaint);
+                                DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopY, cellW, cellH, _blockFillPaint);
                                 fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
@@ -961,13 +971,10 @@ namespace NovaTerminal.Core
                 bool underlineHasVisibleText = runIsUnderline && ContainsNonWhitespace(runText);
                 if (underlineHasVisibleText || runIsStrikethrough)
                 {
-                    using var decoPaint = new SKPaint
-                    {
-                        Color = fg,
-                        IsAntialias = true,
-                        Style = SKPaintStyle.Stroke,
-                        StrokeWidth = strokeWidth
-                    };
+                    _decoStrokePaint.Color = fg;
+                    _decoStrokePaint.IsAntialias = true;
+                    _decoStrokePaint.Style = SKPaintStyle.Stroke;
+                    _decoStrokePaint.StrokeWidth = strokeWidth;
 
                     if (underlineHasVisibleText)
                     {
@@ -981,14 +988,14 @@ namespace NovaTerminal.Core
 
                         float underlineY = SnapY(rowTopY + _metrics.CellHeight - Math.Max(1.5, _metrics.CellHeight * 0.12));
                         underlineY = Math.Min(underlineY, rowTopY + snappedCellHeight);
-                        canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, decoPaint);
+                        canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, _decoStrokePaint);
                         IncrementRectDrawCall();
                     }
 
                     if (runIsStrikethrough)
                     {
                         float strikeY = SnapY(rowTopY + (snappedCellHeight * 0.52));
-                        canvas.DrawLine(rx, strikeY, rx + rw, strikeY, decoPaint);
+                        canvas.DrawLine(rx, strikeY, rx + rw, strikeY, _decoStrokePaint);
                         IncrementRectDrawCall();
                     }
                 }
