@@ -78,6 +78,7 @@ namespace NovaTerminal.Core
         private readonly SKPaint _atlasAlphaPaint = new();
         private readonly SKPaint _atlasColorPaint = new();
         private readonly Dictionary<SKTypeface, SKFont> _fallbackFontCache = new(SKTypefaceReferenceComparer.Instance);
+        private readonly Dictionary<SKTypeface, ShapingResources> _shapingCache = new(SKTypefaceReferenceComparer.Instance);
         private const int RunBuilderInitialCapacity = 256;
         private const int RunBuilderMaxCapacity = 4096;
         private readonly StringBuilder _runBuilder = new(capacity: RunBuilderInitialCapacity);
@@ -105,6 +106,18 @@ namespace NovaTerminal.Core
             public CursorStyle CursorStyle;
             public List<RowRenderItem> RowItems = new();
             public List<RenderImageSnapshot> Images = new();
+        }
+
+        private sealed class ShapingResources
+        {
+            public SKShaper Shaper { get; }
+            public SKFont Font { get; }
+
+            public ShapingResources(SKShaper shaper, SKFont font)
+            {
+                Shaper = shaper;
+                Font = font;
+            }
         }
 
         public Rect Bounds => _bounds;
@@ -187,6 +200,7 @@ namespace NovaTerminal.Core
             _shadeFillPaint.Dispose();
             _atlasAlphaPaint.Dispose();
             _atlasColorPaint.Dispose();
+            DisposeAndClearShapingCache();
             DisposeAndClearFallbackFontCache();
         }
 
@@ -548,6 +562,7 @@ namespace NovaTerminal.Core
             }
             finally
             {
+                DisposeAndClearShapingCache();
                 DisposeAndClearFallbackFontCache();
             }
         }
@@ -712,6 +727,20 @@ namespace NovaTerminal.Core
             return created;
         }
 
+        private ShapingResources GetOrCreateShapingResources(SKTypeface tf)
+        {
+            if (_shapingCache.TryGetValue(tf, out var cached))
+            {
+                return cached;
+            }
+
+            var font = new SKFont(tf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
+            var shaper = new SKShaper(tf);
+            var created = new ShapingResources(shaper, font);
+            _shapingCache[tf] = created;
+            return created;
+        }
+
         private void DisposeAndClearFallbackFontCache()
         {
             if (_fallbackFontCache.Count == 0)
@@ -725,6 +754,22 @@ namespace NovaTerminal.Core
             }
 
             _fallbackFontCache.Clear();
+        }
+
+        private void DisposeAndClearShapingCache()
+        {
+            if (_shapingCache.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var resources in _shapingCache.Values)
+            {
+                resources.Shaper.Dispose();
+                resources.Font.Dispose();
+            }
+
+            _shapingCache.Clear();
         }
 
         private int DrawRowTextFromSnapshot(
@@ -872,10 +917,11 @@ namespace NovaTerminal.Core
                         canvas.SaveLayer(new SKRect(rx, rowTopY, rx + rw, rowTopY + (float)_metrics.CellHeight), null);
                     }
 
-                    using var fFont = new SKFont(tfToUse ?? primaryTf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
-                    using var shaper = new SKShaper(tfToUse ?? primaryTf);
-                    LogBoxRunDiagnostics(runText, totalRunWidth, fFont, fFont.MeasureText(runText));
-                    canvas.DrawShapedText(shaper, runText, rx, baselineY, fFont, fgPaint);
+                    var shapingResources = GetOrCreateShapingResources(tfToUse ?? primaryTf);
+                    var shapedFont = shapingResources.Font;
+                    var shaper = shapingResources.Shaper;
+                    LogBoxRunDiagnostics(runText, totalRunWidth, shapedFont, shapedFont.MeasureText(runText));
+                    canvas.DrawShapedText(shaper, runText, rx, baselineY, shapedFont, fgPaint);
                     IncrementShapedTextRun();
                     IncrementTextDrawCall();
 
