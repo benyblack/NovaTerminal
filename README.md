@@ -160,6 +160,47 @@ Current focus:
 
 ---
 
+## Build & Test Locally
+
+Prerequisites:
+- .NET 10 SDK
+- Rust toolchain (`rustup`, `cargo`) for native PTY builds
+
+Build:
+
+```bash
+dotnet restore
+dotnet build -c Release
+```
+
+Run tests (same main filter used by CI unit lane):
+
+```bash
+dotnet test -c Release --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke"
+```
+
+Use `ci/run.sh` (Linux/macOS) or `ci/run.ps1` (Windows) for the full local CI-style sequence.
+
+---
+
+## Run GitHub CI Locally with `act`
+
+NovaTerminal workflows exchange artifacts between jobs (native binaries and test results).  
+When running via `act`, enable its artifact server or artifact upload/download steps will fail.
+
+Recommended command:
+
+```bash
+act pull_request -P ubuntu-latest=catthehacker/ubuntu:act-latest --artifact-server-path .act-artifacts
+```
+
+Notes:
+- `--artifact-server-path` is required for `actions/upload-artifact` / `actions/download-artifact`.
+- If you ever need to bypass Rust rebuild inside downstream .NET jobs, you can set:
+  `--env SKIP_RUST_NATIVE_BUILD=1`
+
+---
+
 ## Contributing
 
 Contributions are welcome.
