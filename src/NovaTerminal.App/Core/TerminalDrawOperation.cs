@@ -19,6 +19,7 @@ using Avalonia.Skia;
 using SkiaSharp;
 using SkiaSharp.HarfBuzz;
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Text;
@@ -64,6 +65,7 @@ namespace NovaTerminal.Core
         private static readonly bool UseBlockElementPrimitives = IsEnvFlagEnabled("NOVATERM_BLOCK_PRIMITIVES");
         private static readonly ConcurrentDictionary<string, byte> GlyphDiagOnce = new();
         private static readonly string[] KnownGoodBoxFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
+        private static readonly Lazy<RenderPerfWriter?> SharedRenderPerfWriter = new(RenderPerfWriter.CreateFromEnvironment);
 
         // Batching for DrawAtlas
         private readonly List<SKRect> _alphaRects = new();
@@ -71,6 +73,14 @@ namespace NovaTerminal.Core
         private readonly List<SKColor> _alphaColors = new();
         private readonly List<SKRect> _colorRects = new();
         private readonly List<SKRotationScaleMatrix> _colorXforms = new();
+        private float[]? _colEdges;
+        private float[]? _rowEdges;
+        private int _colEdgesCount;
+        private int _rowEdgesCount;
+        private RenderPerfMetrics _framePerfMetrics;
+        private long _frameAllocStartBytes;
+        private int _frameOtherDrawCalls;
+        private bool _collectFramePerfMetrics;
 
         private struct RowRenderItem
         {
@@ -163,6 +173,7 @@ namespace NovaTerminal.Core
             _alphaColors.Clear();
             _colorRects.Clear();
             _colorXforms.Clear();
+            ReturnEdgeBuffers();
         }
 
         public bool Equals(ICustomDrawOperation? other) => false;
@@ -203,6 +214,7 @@ namespace NovaTerminal.Core
                 _rowCache?.DrainDisposalsAndApplyClearIfRequested();
                 _glyphCache?.DrainDisposals();
 
+                RenderPerfWriter? perfWriter = BeginFramePerfMetrics();
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 var frame = new FrameSnapshot();
 
@@ -250,10 +262,12 @@ namespace NovaTerminal.Core
                             if (item.CachedPicture != null)
                             {
                                 RendererStatistics.RecordRowCacheHit();
+                                IncrementRowPictureCacheHit();
                             }
                             else
                             {
                                 RendererStatistics.RecordRowCacheMiss();
+                                IncrementRowPictureCacheMiss();
                                 item.Snapshot = _buffer.GetRowSnapshot(absRow, bufferCols);
                                 RendererStatistics.RecordRowSnapshot();
                                 dirtyRowCount++;
@@ -292,11 +306,12 @@ namespace NovaTerminal.Core
                 bgPaint.Color = frame.ThemeBg;
                 bgPaint.BlendMode = SKBlendMode.SrcOver;
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
+                IncrementRectDrawCall();
 
                 float paddingLeft = 4f;
                 float paddingTop = 0f;
-                float[] colEdges = BuildCellEdgeGrid(bufferCols, paddingLeft, _cellWidthDevicePx);
-                float[] rowEdges = BuildCellEdgeGrid(bufferRows, paddingTop, _cellHeightDevicePx);
+                float[] colEdges = EnsureCellEdgeGrid(ref _colEdges, ref _colEdgesCount, bufferCols, paddingLeft, _cellWidthDevicePx);
+                float[] rowEdges = EnsureCellEdgeGrid(ref _rowEdges, ref _rowEdgesCount, bufferRows, paddingTop, _cellHeightDevicePx);
 
                 int dirtyCells = 0;
                 int buildsThisFrame = 0;
@@ -322,6 +337,7 @@ namespace NovaTerminal.Core
                     if (item.CachedPicture != null)
                     {
                         canvas.DrawPicture(item.CachedPicture, 0, rowTopY);
+                        IncrementOtherDrawCall();
                         dirtyCells += bufferCols;
                         continue;
                     }
@@ -354,6 +370,8 @@ namespace NovaTerminal.Core
                             var picture = recorder.EndRecording();
                             _rowCache?.Add(snapshot.RowId, snapshot.Revision, picture);
                             canvas.DrawPicture(picture, 0, rowTopY);
+                            IncrementOtherDrawCall();
+                            IncrementPictureBuild();
 
                             recSw.Stop();
                             RendererStatistics.RecordRowPictureRecorded();
@@ -405,9 +423,11 @@ namespace NovaTerminal.Core
                             // Clear image target region first so transparent/semi-transparent
                             // image pixels do not reveal previously drawn text layers.
                             canvas.DrawRect(rect, imageBgPaint);
+                            IncrementRectDrawCall();
                             if (img.ImageHandle is SKBitmap bmp)
                             {
                                 canvas.DrawBitmap(bmp, rect, imagePaint);
+                                IncrementOtherDrawCall();
                             }
                             canvas.Restore();
                         }
@@ -431,6 +451,7 @@ namespace NovaTerminal.Core
                             float x1 = GetColEdge(colEdges, colStart, paddingLeft);
                             float x2 = GetColEdge(colEdges, colEnd + 1, paddingLeft);
                             canvas.DrawRect(x1, y, x2 - x1, rowHeight, selectionPaint);
+                            IncrementRectDrawCall();
                         }
                     }
 
@@ -450,6 +471,7 @@ namespace NovaTerminal.Core
                             float x1 = GetColEdge(colEdges, m.StartCol, paddingLeft);
                             float x2 = GetColEdge(colEdges, m.EndCol + 1, paddingLeft);
                             canvas.DrawRect(x1, y, x2 - x1, rowHeight, p);
+                            IncrementRectDrawCall();
                             tempIdx++;
                         }
                     }
@@ -474,11 +496,13 @@ namespace NovaTerminal.Core
                         {
                             case CursorStyle.Block:
                                 canvas.DrawRect(x1, rowTop, x2 - x1, rowHeight, cursorPaint);
+                                IncrementRectDrawCall();
                                 break;
                             case CursorStyle.Beam:
                                 {
                                     float beamW = Math.Max(1f, (float)Math.Floor(_metrics.CellWidth * 0.14));
                                     canvas.DrawRect(x1, rowTop, beamW, rowHeight, cursorPaint);
+                                    IncrementRectDrawCall();
                                     break;
                                 }
                             case CursorStyle.Underline:
@@ -486,6 +510,7 @@ namespace NovaTerminal.Core
                                 {
                                     float uY = SnapY(rowTop + rowHeight - 2);
                                     canvas.DrawRect(x1, uY, x2 - x1, 2, cursorPaint);
+                                    IncrementRectDrawCall();
                                     break;
                                 }
                         }
@@ -494,12 +519,13 @@ namespace NovaTerminal.Core
 
                 if (GridDiagnosticsEnabled)
                 {
-                    DrawDebugCellGrid(canvas, colEdges, rowEdges);
+                    DrawDebugCellGrid(canvas, colEdges, _colEdgesCount, rowEdges, _rowEdgesCount);
                 }
 
                 frameSw.Stop();
                 RendererStatistics.RecordFrameRenderTime(frameSw.ElapsedMilliseconds);
                 RendererStatistics.RecordFrame(fullRedraw: true, dirtyCells: dirtyCells);
+                CompleteFramePerfMetrics(perfWriter, frameSw.Elapsed.TotalMilliseconds, dirtyRowCount);
             }
             catch (Exception ex)
             {
@@ -513,8 +539,11 @@ namespace NovaTerminal.Core
             if (_glyphCache == null) return;
 
             var (alphaAtlas, colorAtlas) = _glyphCache.GetAtlasImages();
+            int alphaGlyphs = _alphaRects.Count;
+            int colorGlyphs = _colorRects.Count;
+            int atlasDrawCalls = 0;
 
-            if (_alphaRects.Count > 0)
+            if (alphaGlyphs > 0)
             {
                 using var paint = new SKPaint { IsAntialias = false };
                 canvas.DrawAtlas(
@@ -525,13 +554,14 @@ namespace NovaTerminal.Core
                     SKBlendMode.Modulate,
                     new SKSamplingOptions(SKFilterMode.Nearest),
                     paint);
+                atlasDrawCalls++;
 
                 _alphaRects.Clear();
                 _alphaXforms.Clear();
                 _alphaColors.Clear();
             }
 
-            if (_colorRects.Count > 0)
+            if (colorGlyphs > 0)
             {
                 using var paint = new SKPaint { IsAntialias = false };
                 canvas.DrawAtlas(
@@ -542,9 +572,15 @@ namespace NovaTerminal.Core
                     SKBlendMode.SrcOver,
                     new SKSamplingOptions(SKFilterMode.Linear),
                     paint);
+                atlasDrawCalls++;
 
                 _colorRects.Clear();
                 _colorXforms.Clear();
+            }
+
+            if (atlasDrawCalls > 0)
+            {
+                RecordFlush(alphaGlyphs, colorGlyphs, atlasDrawCalls);
             }
         }
 
@@ -657,6 +693,7 @@ namespace NovaTerminal.Core
                 {
                     using var bgP = new SKPaint { Color = bg, Style = SKPaintStyle.Fill };
                     canvas.DrawRect(rx, rowTopY, rw, snappedCellHeight, bgP);
+                    IncrementRectDrawCall();
                 }
 
                 bool appliedItalicTransform = false;
@@ -688,6 +725,8 @@ namespace NovaTerminal.Core
                     using var shaper = new SKShaper(tfToUse ?? primaryTf);
                     LogBoxRunDiagnostics(runText, totalRunWidth, fFont, fFont.MeasureText(runText));
                     canvas.DrawShapedText(shaper, runText, rx, baselineY, fFont, fgPaint);
+                    IncrementShapedTextRun();
+                    IncrementTextDrawCall();
 
                     if (useLayer) canvas.Restore();
                     cellsRendered += totalRunWidth;
@@ -700,6 +739,8 @@ namespace NovaTerminal.Core
                         {
                             FlushBatches(canvas);
                             canvas.DrawText(runText, rx, baselineY, font, fgPaint);
+                            IncrementTextDrawCall();
+                            IncrementDirectDrawTextCall();
                             cellsRendered += totalRunWidth;
                             c = k - 1;
                             continue;
@@ -766,6 +807,7 @@ namespace NovaTerminal.Core
                                 if (fillX2 > fillX1 && fillY2 > fillY1)
                                 {
                                     canvas.DrawRect(fillX1, fillY1, fillX2 - fillX1, fillY2 - fillY1, blockPaint);
+                                    IncrementRectDrawCall();
                                 }
 
                                 fallbackFont?.Dispose();
@@ -786,6 +828,7 @@ namespace NovaTerminal.Core
                                 if (cellW > 0 && cellH > 0)
                                 {
                                     canvas.DrawRect(cellX1, rowTopY, cellW, cellH, shadePaint);
+                                    IncrementRectDrawCall();
                                 }
 
                                 fallbackFont?.Dispose();
@@ -884,6 +927,8 @@ namespace NovaTerminal.Core
                             {
                                 FlushBatches(canvas);
                                 canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, glyphFont, fgPaint);
+                                IncrementTextDrawCall();
+                                IncrementDirectDrawTextCall();
                             }
                             fallbackFont?.Dispose();
                             cellX += graphemeWidth;
@@ -893,6 +938,8 @@ namespace NovaTerminal.Core
                     else
                     {
                         canvas.DrawText(runText, rx, baselineY, font, fgPaint);
+                        IncrementTextDrawCall();
+                        IncrementDirectDrawTextCall();
                     }
                     cellsRendered += totalRunWidth;
                 }
@@ -926,12 +973,14 @@ namespace NovaTerminal.Core
                         float underlineY = SnapY(rowTopY + _metrics.CellHeight - Math.Max(1.5, _metrics.CellHeight * 0.12));
                         underlineY = Math.Min(underlineY, rowTopY + snappedCellHeight);
                         canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, decoPaint);
+                        IncrementRectDrawCall();
                     }
 
                     if (runIsStrikethrough)
                     {
                         float strikeY = SnapY(rowTopY + (snappedCellHeight * 0.52));
                         canvas.DrawLine(rx, strikeY, rx + rw, strikeY, decoPaint);
+                        IncrementRectDrawCall();
                     }
                 }
 
@@ -955,6 +1004,120 @@ namespace NovaTerminal.Core
             return raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
         }
 
+        private RenderPerfWriter? BeginFramePerfMetrics()
+        {
+            RenderPerfWriter? writer = SharedRenderPerfWriter.Value;
+            if (writer == null)
+            {
+                _collectFramePerfMetrics = false;
+                _framePerfMetrics = default;
+                _frameOtherDrawCalls = 0;
+                _frameAllocStartBytes = 0;
+                return null;
+            }
+
+            _collectFramePerfMetrics = true;
+            _framePerfMetrics = default;
+            _frameOtherDrawCalls = 0;
+            _framePerfMetrics.FrameIndex = writer.NextFrameIndex();
+            _frameAllocStartBytes = GC.GetAllocatedBytesForCurrentThread();
+            return writer;
+        }
+
+        private void CompleteFramePerfMetrics(RenderPerfWriter? writer, double frameTimeMs, int dirtyRows)
+        {
+            if (!_collectFramePerfMetrics || writer == null)
+            {
+                return;
+            }
+
+            _framePerfMetrics.FrameTimeMs = frameTimeMs;
+            _framePerfMetrics.DirtyRows = dirtyRows;
+            _framePerfMetrics.DirtySpansTotal = dirtyRows;
+
+            long allocDelta = GC.GetAllocatedBytesForCurrentThread() - _frameAllocStartBytes;
+            _framePerfMetrics.AllocBytesThisFrame = allocDelta > 0 ? allocDelta : 0;
+            _framePerfMetrics.DrawCallsTotal = _framePerfMetrics.DrawCallsText + _framePerfMetrics.DrawCallsRects + _frameOtherDrawCalls;
+            writer.TryWrite(_framePerfMetrics);
+        }
+
+        private void IncrementRowPictureCacheHit()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.RowPictureCacheHits++;
+            }
+        }
+
+        private void IncrementRowPictureCacheMiss()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.RowPictureCacheMisses++;
+            }
+        }
+
+        private void IncrementPictureBuild()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.PictureBuilds++;
+            }
+        }
+
+        private void IncrementRectDrawCall()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.DrawCallsRects++;
+            }
+        }
+
+        private void IncrementTextDrawCall()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.DrawCallsText++;
+            }
+        }
+
+        private void IncrementDirectDrawTextCall()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.DirectDrawTextCount++;
+            }
+        }
+
+        private void IncrementShapedTextRun()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.ShapedTextRuns++;
+            }
+        }
+
+        private void IncrementOtherDrawCall()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _frameOtherDrawCalls++;
+            }
+        }
+
+        private void RecordFlush(int alphaGlyphs, int colorGlyphs, int atlasDrawCalls)
+        {
+            if (!_collectFramePerfMetrics)
+            {
+                return;
+            }
+
+            _framePerfMetrics.FlushCount++;
+            _framePerfMetrics.AtlasAlphaGlyphs += alphaGlyphs;
+            _framePerfMetrics.AtlasColorGlyphs += colorGlyphs;
+            _frameOtherDrawCalls += atlasDrawCalls;
+        }
+
         private int ToDevicePx(double logical)
             => (int)Math.Round(logical * _renderScaling, MidpointRounding.AwayFromZero);
 
@@ -968,16 +1131,28 @@ namespace NovaTerminal.Core
 
         private float SnapY(double logicalY) => Snap(logicalY);
 
-        private float[] BuildCellEdgeGrid(int cellCount, float logicalStart, int deviceCellSize)
+        private float[] EnsureCellEdgeGrid(ref float[]? buffer, ref int usedCount, int cellCount, float logicalStart, int deviceCellSize)
         {
             int count = Math.Max(0, cellCount);
-            var edges = new float[count + 1];
+            int required = count + 1;
+            if (buffer == null || buffer.Length < required)
+            {
+                var rented = ArrayPool<float>.Shared.Rent(required);
+                if (buffer != null)
+                {
+                    ArrayPool<float>.Shared.Return(buffer, clearArray: false);
+                }
+
+                buffer = rented;
+            }
+
+            usedCount = required;
             int startPx = ToDevicePx(logicalStart);
             for (int i = 0; i <= count; i++)
             {
-                edges[i] = FromDevicePx(startPx + (i * deviceCellSize));
+                buffer[i] = FromDevicePx(startPx + (i * deviceCellSize));
             }
-            return edges;
+            return buffer;
         }
 
         private float GetColEdge(float[] colEdges, int colIndex, float paddingLeft)
@@ -992,7 +1167,7 @@ namespace NovaTerminal.Core
             return SnapY((rowIndex * _metrics.CellHeight) + paddingTop);
         }
 
-        private void DrawDebugCellGrid(SKCanvas canvas, float[] colEdges, float[] rowEdges)
+        private void DrawDebugCellGrid(SKCanvas canvas, float[] colEdges, int colEdgeCount, float[] rowEdges, int rowEdgeCount)
         {
             using var gridPaint = new SKPaint
             {
@@ -1002,11 +1177,29 @@ namespace NovaTerminal.Core
                 StrokeWidth = Math.Max(1f, FromDevicePx(1))
             };
 
-            float y1 = rowEdges.Length > 0 ? rowEdges[0] : 0f;
-            float y2 = rowEdges.Length > 0 ? rowEdges[rowEdges.Length - 1] : (float)Bounds.Height;
-            foreach (float x in colEdges)
+            float y1 = rowEdgeCount > 0 ? rowEdges[0] : 0f;
+            float y2 = rowEdgeCount > 0 ? rowEdges[rowEdgeCount - 1] : (float)Bounds.Height;
+            for (int i = 0; i < colEdgeCount; i++)
             {
+                float x = colEdges[i];
                 canvas.DrawLine(x, y1, x, y2, gridPaint);
+            }
+        }
+
+        private void ReturnEdgeBuffers()
+        {
+            if (_colEdges != null)
+            {
+                ArrayPool<float>.Shared.Return(_colEdges);
+                _colEdges = null;
+                _colEdgesCount = 0;
+            }
+
+            if (_rowEdges != null)
+            {
+                ArrayPool<float>.Shared.Return(_rowEdges);
+                _rowEdges = null;
+                _rowEdgesCount = 0;
             }
         }
 
@@ -1068,6 +1261,8 @@ namespace NovaTerminal.Core
             if (!IsSingleRuneInRange(grapheme, 0x2500, 0x257F) || cellW <= 0 || cellH <= 0)
             {
                 canvas.DrawText(grapheme, x, baselineY, glyphFont, paint);
+                IncrementTextDrawCall();
+                IncrementDirectDrawTextCall();
                 return;
             }
 
@@ -1082,6 +1277,8 @@ namespace NovaTerminal.Core
                 Hinting = SKFontHinting.Full
             };
             canvas.DrawText(grapheme, x, baselineY, crispFont, paint);
+            IncrementTextDrawCall();
+            IncrementDirectDrawTextCall();
             canvas.Restore();
         }
 
