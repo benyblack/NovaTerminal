@@ -1,16 +1,3 @@
-// TerminalDrawOperation.cs (drop-in replacement)
-// Notes:
-// - Preserves existing constructor signature used by TerminalView.Render(...)
-// - Fixes baselineY usage + rowTopY background placement
-// - Removes fragile "recording canvas" type checks (explicit drawBackgrounds flag)
-// - Fixes active match detection WITHOUT IndexOf (avoids O(n^2))
-// - Reuses StringBuilder per row to reduce GC churn
-// - Keeps Z-order: Text -> Images -> Overlays -> Cursor
-// - Keeps lock timing instrumentation as-is (Step 4 will shrink lock scope)
-// - Root cause addressed: fractional cell metrics + fallback font advances caused deterministic
-//   box-drawing drift. We now render on a snapped device-pixel cell grid and log fallback/advance
-//   diagnostics behind env flags.
-
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Platform;
@@ -68,11 +55,16 @@ namespace NovaTerminal.Core
         private static readonly Lazy<RenderPerfWriter?> SharedRenderPerfWriter = new(RenderPerfWriter.CreateFromEnvironment);
 
         // Batching for DrawAtlas
-        private readonly List<SKRect> _alphaRects = new();
-        private readonly List<SKRotationScaleMatrix> _alphaXforms = new();
-        private readonly List<SKColor> _alphaColors = new();
-        private readonly List<SKRect> _colorRects = new();
-        private readonly List<SKRotationScaleMatrix> _colorXforms = new();
+        private const int InitialAtlasBatchCapacity = 128;
+        private SKRect[] _alphaRects = new SKRect[InitialAtlasBatchCapacity];
+        private SKRotationScaleMatrix[] _alphaXforms = new SKRotationScaleMatrix[InitialAtlasBatchCapacity];
+        private SKColor[] _alphaColors = new SKColor[InitialAtlasBatchCapacity];
+        private SKRect[] _colorRects = new SKRect[InitialAtlasBatchCapacity];
+        private SKRotationScaleMatrix[] _colorXforms = new SKRotationScaleMatrix[InitialAtlasBatchCapacity];
+        private int _alphaCount;
+        private int _alphaPrevCount;
+        private int _colorCount;
+        private int _colorPrevCount;
         private readonly SKPaint _bgFillPaint = new();
         private readonly SKPaint _decoStrokePaint = new();
         private readonly SKPaint _blockFillPaint = new();
@@ -177,11 +169,10 @@ namespace NovaTerminal.Core
             _skFont?.Dispose();
             _skTypeface?.Dispose();
 
-            _alphaRects.Clear();
-            _alphaXforms.Clear();
-            _alphaColors.Clear();
-            _colorRects.Clear();
-            _colorXforms.Clear();
+            _alphaCount = 0;
+            _alphaPrevCount = 0;
+            _colorCount = 0;
+            _colorPrevCount = 0;
             ReturnEdgeBuffers();
             _bgFillPaint.Dispose();
             _decoStrokePaint.Dispose();
@@ -554,51 +545,113 @@ namespace NovaTerminal.Core
             if (_glyphCache == null) return;
 
             var (alphaAtlas, colorAtlas) = _glyphCache.GetAtlasImages();
-            int alphaGlyphs = _alphaRects.Count;
-            int colorGlyphs = _colorRects.Count;
+            int alphaGlyphs = _alphaCount;
+            int colorGlyphs = _colorCount;
             int atlasDrawCalls = 0;
 
             if (alphaGlyphs > 0)
             {
+                if (_alphaPrevCount > alphaGlyphs)
+                {
+                    for (int i = alphaGlyphs; i < _alphaPrevCount; i++)
+                    {
+                        _alphaRects[i] = SKRect.Empty;
+                        _alphaXforms[i] = default;
+                        _alphaColors[i] = SKColors.Transparent;
+                    }
+                }
+
+                _alphaPrevCount = alphaGlyphs;
                 _atlasAlphaPaint.Style = SKPaintStyle.Fill;
                 _atlasAlphaPaint.IsAntialias = false;
                 canvas.DrawAtlas(
                     alphaAtlas,
-                    _alphaRects.ToArray(),
-                    _alphaXforms.ToArray(),
-                    _alphaColors.ToArray(),
+                    _alphaRects,
+                    _alphaXforms,
+                    _alphaColors,
                     SKBlendMode.Modulate,
                     new SKSamplingOptions(SKFilterMode.Nearest),
                     _atlasAlphaPaint);
                 atlasDrawCalls++;
 
-                _alphaRects.Clear();
-                _alphaXforms.Clear();
-                _alphaColors.Clear();
+                _alphaCount = 0;
             }
 
             if (colorGlyphs > 0)
             {
+                if (_colorPrevCount > colorGlyphs)
+                {
+                    for (int i = colorGlyphs; i < _colorPrevCount; i++)
+                    {
+                        _colorRects[i] = SKRect.Empty;
+                        _colorXforms[i] = default;
+                    }
+                }
+
+                _colorPrevCount = colorGlyphs;
                 _atlasColorPaint.Style = SKPaintStyle.Fill;
                 _atlasColorPaint.IsAntialias = false;
                 canvas.DrawAtlas(
                     colorAtlas,
-                    _colorRects.ToArray(),
-                    _colorXforms.ToArray(),
+                    _colorRects,
+                    _colorXforms,
                     null,
                     SKBlendMode.SrcOver,
                     new SKSamplingOptions(SKFilterMode.Linear),
                     _atlasColorPaint);
                 atlasDrawCalls++;
 
-                _colorRects.Clear();
-                _colorXforms.Clear();
+                _colorCount = 0;
             }
 
             if (atlasDrawCalls > 0)
             {
                 RecordFlush(alphaGlyphs, colorGlyphs, atlasDrawCalls);
             }
+        }
+
+        private void AddAlphaBatchEntry(SKRect rect, SKRotationScaleMatrix xform, SKColor color)
+        {
+            EnsureAlphaBatchCapacity(_alphaCount + 1);
+            int index = _alphaCount++;
+            _alphaRects[index] = rect;
+            _alphaXforms[index] = xform;
+            _alphaColors[index] = color;
+        }
+
+        private void AddColorBatchEntry(SKRect rect, SKRotationScaleMatrix xform)
+        {
+            EnsureColorBatchCapacity(_colorCount + 1);
+            int index = _colorCount++;
+            _colorRects[index] = rect;
+            _colorXforms[index] = xform;
+        }
+
+        private void EnsureAlphaBatchCapacity(int requiredCount)
+        {
+            if (_alphaRects.Length >= requiredCount)
+            {
+                return;
+            }
+
+            int current = _alphaRects.Length;
+            int newCapacity = Math.Max(requiredCount, Math.Max(InitialAtlasBatchCapacity, current == 0 ? InitialAtlasBatchCapacity : current * 2));
+            Array.Resize(ref _alphaRects, newCapacity);
+            Array.Resize(ref _alphaXforms, newCapacity);
+            Array.Resize(ref _alphaColors, newCapacity);
+        }
+
+        private void EnsureColorBatchCapacity(int requiredCount)
+        {
+            if (_colorRects.Length >= requiredCount)
+            {
+                return;
+            }
+
+            int current = _colorRects.Length;
+            int newCapacity = Math.Max(requiredCount, Math.Max(InitialAtlasBatchCapacity, current == 0 ? InitialAtlasBatchCapacity : current * 2));
+            Array.Resize(ref _colorRects, newCapacity);
+            Array.Resize(ref _colorXforms, newCapacity);
         }
 
         private int DrawRowTextFromSnapshot(
@@ -932,14 +985,11 @@ namespace NovaTerminal.Core
                                 var xform = SKRotationScaleMatrix.Create(invScale, 0, xIdxSnap, glyphY, 0, 0);
                                 if (type == AtlasType.Alpha8)
                                 {
-                                    _alphaRects.Add(rect);
-                                    _alphaXforms.Add(xform);
-                                    _alphaColors.Add(fg);
+                                    AddAlphaBatchEntry(rect, xform, fg);
                                 }
                                 else
                                 {
-                                    _colorRects.Add(rect);
-                                    _colorXforms.Add(xform);
+                                    AddColorBatchEntry(rect, xform);
                                 }
                             }
                             else
