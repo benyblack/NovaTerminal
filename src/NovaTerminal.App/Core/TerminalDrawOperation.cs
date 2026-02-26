@@ -73,6 +73,9 @@ namespace NovaTerminal.Core
         private readonly List<SKColor> _alphaColors = new();
         private readonly List<SKRect> _colorRects = new();
         private readonly List<SKRotationScaleMatrix> _colorXforms = new();
+        private const int RunBuilderInitialCapacity = 256;
+        private const int RunBuilderMaxCapacity = 4096;
+        private readonly StringBuilder _runBuilder = new(capacity: RunBuilderInitialCapacity);
         private float[]? _colEdges;
         private float[]? _rowEdges;
         private int _colEdgesCount;
@@ -602,8 +605,14 @@ namespace NovaTerminal.Core
             int cellsRendered = 0;
             float snappedCellHeight = FromDevicePx(_cellHeightDevicePx);
 
-            // Reuse per-row StringBuilder to avoid per-run allocations/GC churn.
-            var runBuilder = new StringBuilder(capacity: Math.Max(16, snapshot.Cols));
+            if (_runBuilder.Capacity > RunBuilderMaxCapacity)
+            {
+                // Guard against permanently retaining very large capacities after outlier runs.
+                _runBuilder.Clear();
+                _runBuilder.Capacity = RunBuilderInitialCapacity;
+            }
+
+            var runBuilder = _runBuilder;
 
             for (int c = 0; c < snapshot.Cols; c++)
             {
