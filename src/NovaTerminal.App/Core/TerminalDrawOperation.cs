@@ -9,6 +9,7 @@ using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace NovaTerminal.Core
@@ -76,6 +77,7 @@ namespace NovaTerminal.Core
         private readonly SKPaint _shadeFillPaint = new();
         private readonly SKPaint _atlasAlphaPaint = new();
         private readonly SKPaint _atlasColorPaint = new();
+        private readonly Dictionary<SKTypeface, SKFont> _fallbackFontCache = new(SKTypefaceReferenceComparer.Instance);
         private const int RunBuilderInitialCapacity = 256;
         private const int RunBuilderMaxCapacity = 4096;
         private readonly StringBuilder _runBuilder = new(capacity: RunBuilderInitialCapacity);
@@ -185,6 +187,7 @@ namespace NovaTerminal.Core
             _shadeFillPaint.Dispose();
             _atlasAlphaPaint.Dispose();
             _atlasColorPaint.Dispose();
+            DisposeAndClearFallbackFontCache();
         }
 
         public bool Equals(ICustomDrawOperation? other) => false;
@@ -543,6 +546,10 @@ namespace NovaTerminal.Core
                 try { System.IO.File.AppendAllText("error.log", "\n--- Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
                 throw;
             }
+            finally
+            {
+                DisposeAndClearFallbackFontCache();
+            }
         }
 
         private void FlushBatches(SKCanvas canvas)
@@ -691,6 +698,33 @@ namespace NovaTerminal.Core
 
             Array.Resize(ref buffer, newCapacity);
             return buffer;
+        }
+
+        private SKFont GetOrCreateFallbackFont(SKTypeface tf)
+        {
+            if (_fallbackFontCache.TryGetValue(tf, out var cached))
+            {
+                return cached;
+            }
+
+            var created = new SKFont(tf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
+            _fallbackFontCache[tf] = created;
+            return created;
+        }
+
+        private void DisposeAndClearFallbackFontCache()
+        {
+            if (_fallbackFontCache.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var cached in _fallbackFontCache.Values)
+            {
+                cached.Dispose();
+            }
+
+            _fallbackFontCache.Clear();
         }
 
         private int DrawRowTextFromSnapshot(
@@ -879,14 +913,12 @@ namespace NovaTerminal.Core
 
                             int fallbackChar = FindFirstMissingGlyphCodePoint(grapheme, primaryTf);
                             SKFont glyphFont = font;
-                            SKFont? fallbackFont = null;
                             if (fallbackChar != 0)
                             {
                                 var glyphTf = ResolveTypefaceForCodePoint(fallbackChar, primaryTf);
                                 if (glyphTf != primaryTf)
                                 {
-                                    fallbackFont = new SKFont(glyphTf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
-                                    glyphFont = fallbackFont;
+                                    glyphFont = GetOrCreateFallbackFont(glyphTf);
                                 }
                             }
 
@@ -936,7 +968,6 @@ namespace NovaTerminal.Core
                                     IncrementRectDrawCall();
                                 }
 
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -954,7 +985,6 @@ namespace NovaTerminal.Core
                                     IncrementRectDrawCall();
                                 }
 
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -963,7 +993,6 @@ namespace NovaTerminal.Core
                             {
                                 FlushBatches(canvas);
                                 DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopY, cellW, cellH, _blockFillPaint);
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -972,7 +1001,6 @@ namespace NovaTerminal.Core
                             {
                                 FlushBatches(canvas);
                                 DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopY, cellW, cellH, _blockFillPaint);
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -984,7 +1012,6 @@ namespace NovaTerminal.Core
                                 FlushBatches(canvas);
                                 if (TryDrawBoxDrawingGlyph(canvas, grapheme, cellX1, rowTopY, cellW, cellH, fg))
                                 {
-                                    fallbackFont?.Dispose();
                                     cellX += graphemeWidth;
                                     continue;
                                 }
@@ -1004,7 +1031,6 @@ namespace NovaTerminal.Core
                                     rowTopY,
                                     cellW,
                                     cellH);
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -1023,7 +1049,6 @@ namespace NovaTerminal.Core
                                     rowTopY,
                                     cellW,
                                     cellH);
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -1050,7 +1075,6 @@ namespace NovaTerminal.Core
                                 IncrementTextDrawCall();
                                 IncrementDirectDrawTextCall();
                             }
-                            fallbackFont?.Dispose();
                             cellX += graphemeWidth;
                         }
                         LogBoxRunDiagnostics(runText, totalRunWidth, font, font.MeasureText(runText));
@@ -2076,6 +2100,17 @@ namespace NovaTerminal.Core
             }
 
             return false;
+        }
+
+        private sealed class SKTypefaceReferenceComparer : IEqualityComparer<SKTypeface>
+        {
+            public static readonly SKTypefaceReferenceComparer Instance = new();
+
+            public bool Equals(SKTypeface? x, SKTypeface? y)
+                => ReferenceEquals(x, y);
+
+            public int GetHashCode(SKTypeface obj)
+                => RuntimeHelpers.GetHashCode(obj);
         }
 
         private bool TryGetUnderlineBounds(string runText, int runStartCol, float[] colEdges, float paddingLeft, out float x1, out float x2)
