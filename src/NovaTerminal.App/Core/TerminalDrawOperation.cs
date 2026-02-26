@@ -61,10 +61,15 @@ namespace NovaTerminal.Core
         private SKColor[] _alphaColors = new SKColor[InitialAtlasBatchCapacity];
         private SKRect[] _colorRects = new SKRect[InitialAtlasBatchCapacity];
         private SKRotationScaleMatrix[] _colorXforms = new SKRotationScaleMatrix[InitialAtlasBatchCapacity];
+        private SKRect[]? _alphaRectsScratch;
+        private SKRotationScaleMatrix[]? _alphaXformsScratch;
+        private SKColor[]? _alphaColorsScratch;
+        private SKRect[]? _colorRectsScratch;
+        private SKRotationScaleMatrix[]? _colorXformsScratch;
         private int _alphaCount;
-        private int _alphaPrevCount;
+        private int _alphaScratchPrevCount;
         private int _colorCount;
-        private int _colorPrevCount;
+        private int _colorScratchPrevCount;
         private readonly SKPaint _bgFillPaint = new();
         private readonly SKPaint _decoStrokePaint = new();
         private readonly SKPaint _blockFillPaint = new();
@@ -170,9 +175,9 @@ namespace NovaTerminal.Core
             _skTypeface?.Dispose();
 
             _alphaCount = 0;
-            _alphaPrevCount = 0;
+            _alphaScratchPrevCount = 0;
             _colorCount = 0;
-            _colorPrevCount = 0;
+            _colorScratchPrevCount = 0;
             ReturnEdgeBuffers();
             _bgFillPaint.Dispose();
             _decoStrokePaint.Dispose();
@@ -551,24 +556,28 @@ namespace NovaTerminal.Core
 
             if (alphaGlyphs > 0)
             {
-                if (_alphaPrevCount > alphaGlyphs)
+                var alphaRectsScratch = EnsureScratchCapacity(ref _alphaRectsScratch, alphaGlyphs);
+                var alphaXformsScratch = EnsureScratchCapacity(ref _alphaXformsScratch, alphaGlyphs);
+                var alphaColorsScratch = EnsureScratchCapacity(ref _alphaColorsScratch, alphaGlyphs);
+                Array.Copy(_alphaRects, alphaRectsScratch, alphaGlyphs);
+                Array.Copy(_alphaXforms, alphaXformsScratch, alphaGlyphs);
+                Array.Copy(_alphaColors, alphaColorsScratch, alphaGlyphs);
+                if (_alphaScratchPrevCount > alphaGlyphs)
                 {
-                    for (int i = alphaGlyphs; i < _alphaPrevCount; i++)
-                    {
-                        _alphaRects[i] = SKRect.Empty;
-                        _alphaXforms[i] = default;
-                        _alphaColors[i] = SKColors.Transparent;
-                    }
+                    int tailLength = _alphaScratchPrevCount - alphaGlyphs;
+                    Array.Clear(alphaRectsScratch, alphaGlyphs, tailLength);
+                    Array.Clear(alphaXformsScratch, alphaGlyphs, tailLength);
+                    Array.Clear(alphaColorsScratch, alphaGlyphs, tailLength);
                 }
+                _alphaScratchPrevCount = alphaGlyphs;
 
-                _alphaPrevCount = alphaGlyphs;
                 _atlasAlphaPaint.Style = SKPaintStyle.Fill;
                 _atlasAlphaPaint.IsAntialias = false;
                 canvas.DrawAtlas(
                     alphaAtlas,
-                    _alphaRects,
-                    _alphaXforms,
-                    _alphaColors,
+                    alphaRectsScratch,
+                    alphaXformsScratch,
+                    alphaColorsScratch,
                     SKBlendMode.Modulate,
                     new SKSamplingOptions(SKFilterMode.Nearest),
                     _atlasAlphaPaint);
@@ -579,22 +588,24 @@ namespace NovaTerminal.Core
 
             if (colorGlyphs > 0)
             {
-                if (_colorPrevCount > colorGlyphs)
+                var colorRectsScratch = EnsureScratchCapacity(ref _colorRectsScratch, colorGlyphs);
+                var colorXformsScratch = EnsureScratchCapacity(ref _colorXformsScratch, colorGlyphs);
+                Array.Copy(_colorRects, colorRectsScratch, colorGlyphs);
+                Array.Copy(_colorXforms, colorXformsScratch, colorGlyphs);
+                if (_colorScratchPrevCount > colorGlyphs)
                 {
-                    for (int i = colorGlyphs; i < _colorPrevCount; i++)
-                    {
-                        _colorRects[i] = SKRect.Empty;
-                        _colorXforms[i] = default;
-                    }
+                    int tailLength = _colorScratchPrevCount - colorGlyphs;
+                    Array.Clear(colorRectsScratch, colorGlyphs, tailLength);
+                    Array.Clear(colorXformsScratch, colorGlyphs, tailLength);
                 }
+                _colorScratchPrevCount = colorGlyphs;
 
-                _colorPrevCount = colorGlyphs;
                 _atlasColorPaint.Style = SKPaintStyle.Fill;
                 _atlasColorPaint.IsAntialias = false;
                 canvas.DrawAtlas(
                     colorAtlas,
-                    _colorRects,
-                    _colorXforms,
+                    colorRectsScratch,
+                    colorXformsScratch,
                     null,
                     SKBlendMode.SrcOver,
                     new SKSamplingOptions(SKFilterMode.Linear),
@@ -652,6 +663,34 @@ namespace NovaTerminal.Core
             int newCapacity = Math.Max(requiredCount, Math.Max(InitialAtlasBatchCapacity, current == 0 ? InitialAtlasBatchCapacity : current * 2));
             Array.Resize(ref _colorRects, newCapacity);
             Array.Resize(ref _colorXforms, newCapacity);
+        }
+
+        private static T[] EnsureScratchCapacity<T>(ref T[]? buffer, int requiredCount)
+        {
+            if (requiredCount <= 0)
+            {
+                return buffer ??= Array.Empty<T>();
+            }
+
+            if (buffer == null)
+            {
+                buffer = new T[Math.Max(InitialAtlasBatchCapacity, requiredCount)];
+                return buffer;
+            }
+
+            if (buffer.Length >= requiredCount)
+            {
+                return buffer;
+            }
+
+            int newCapacity = buffer.Length == 0 ? InitialAtlasBatchCapacity : buffer.Length;
+            while (newCapacity < requiredCount)
+            {
+                newCapacity = Math.Max(InitialAtlasBatchCapacity, newCapacity * 2);
+            }
+
+            Array.Resize(ref buffer, newCapacity);
+            return buffer;
         }
 
         private int DrawRowTextFromSnapshot(
@@ -865,11 +904,23 @@ namespace NovaTerminal.Core
                             float cellX2 = GetColEdge(colEdges, cellX + graphemeWidth, paddingLeft);
                             float cellW = cellX2 - cellX1;
                             float cellH = snappedCellHeight;
+                            bool hasSingleRune = TryGetSingleRuneCodePoint(grapheme, out int graphemeCodePoint);
+                            bool isBlockShadeOrQuadrant = hasSingleRune && graphemeCodePoint >= 0x2580 && graphemeCodePoint <= 0x259F;
+                            bool isBrailleGlyph = hasSingleRune && graphemeCodePoint >= 0x2800 && graphemeCodePoint <= 0x28FF;
+                            bool isBlackSquareGlyph = hasSingleRune && graphemeCodePoint == 0x25A0;
+                            bool graphGlyphMissing = false;
+                            if ((isBlockShadeOrQuadrant || isBrailleGlyph || isBlackSquareGlyph) &&
+                                (glyphFont.Typeface == null || !glyphFont.Typeface.ContainsGlyph(graphemeCodePoint)))
+                            {
+                                graphGlyphMissing = true;
+                            }
+                            bool usePrimitiveBlockLike = UseBlockElementPrimitives || isBlockShadeOrQuadrant || isBlackSquareGlyph || graphGlyphMissing;
+                            bool usePrimitiveBraille = UseBlockElementPrimitives || graphGlyphMissing;
 
-                            // Render block/braille primitives only when explicitly enabled.
-                            // Default path keeps font-authored glyph rasterization, which is required
-                            // for image-as-text previews (e.g. superfile/chafa) to avoid artifacting.
-                            if (UseBlockElementPrimitives &&
+                            // Prefer primitives for block/shade/quadrant bar glyphs to guarantee
+                            // seam-free cell fills. For braille, keep font rendering unless
+                            // primitives are enabled or the current typeface lacks the glyph.
+                            if (usePrimitiveBlockLike &&
                                 TryGetBlockFillRect(grapheme, out int xStartEighths, out int xEndEighths, out int yStartEighths, out int yEndEighths))
                             {
                                 FlushBatches(canvas);
@@ -890,7 +941,7 @@ namespace NovaTerminal.Core
                                 continue;
                             }
 
-                            if (UseBlockElementPrimitives && TryGetShadeFillAlpha(grapheme, out float shadeAlpha))
+                            if (usePrimitiveBlockLike && TryGetShadeFillAlpha(grapheme, out float shadeAlpha))
                             {
                                 FlushBatches(canvas);
                                 byte shadeA = (byte)Math.Clamp((int)Math.Round(fg.Alpha * shadeAlpha), 0, 255);
@@ -908,7 +959,7 @@ namespace NovaTerminal.Core
                                 continue;
                             }
 
-                            if (UseBlockElementPrimitives && TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
+                            if (usePrimitiveBlockLike && TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
                             {
                                 FlushBatches(canvas);
                                 DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopY, cellW, cellH, _blockFillPaint);
@@ -917,7 +968,7 @@ namespace NovaTerminal.Core
                                 continue;
                             }
 
-                            if (UseBlockElementPrimitives && TryGetBraillePattern(grapheme, out byte brailleMask))
+                            if (usePrimitiveBraille && TryGetBraillePattern(grapheme, out byte brailleMask))
                             {
                                 FlushBatches(canvas);
                                 DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopY, cellW, cellH, _blockFillPaint);
@@ -1639,19 +1690,13 @@ namespace NovaTerminal.Core
             foreach (var rune in runText.EnumerateRunes())
             {
                 hasRune = true;
-                int cp = rune.Value;
-                if (Rune.IsWhiteSpace(rune))
+                // Keep this optimization for whitespace-only runs.
+                // Graph/box/braille runs must flow through per-grapheme rendering so
+                // primitive and fallback logic can prevent tofu and seam artifacts.
+                if (!Rune.IsWhiteSpace(rune))
                 {
-                    continue;
+                    return false;
                 }
-                if ((cp >= 0x2580 && cp <= 0x259F) || // Block elements, shades, quadrants
-                    (cp >= 0x2800 && cp <= 0x28FF) || // Braille patterns
-                    (cp >= 0x25A0 && cp <= 0x25FF))   // Geometric symbols used by TUIs
-                {
-                    continue;
-                }
-
-                return false;
             }
 
             return hasRune;
