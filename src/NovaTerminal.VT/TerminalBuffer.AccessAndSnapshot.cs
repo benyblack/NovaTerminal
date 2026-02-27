@@ -580,6 +580,8 @@ namespace NovaTerminal.Core
             bool hasModifier = false;
             bool hasEmojiPresentation = false;
             bool hasAmbiguousSymbolBase = false;
+            int regionalIndicatorCount = 0;
+            int nonRegionalBaseCount = 0;
 
             foreach (var rune in textElement.EnumerateRunes())
             {
@@ -595,11 +597,28 @@ namespace NovaTerminal.Core
                     hasAmbiguousSymbolBase = true;
                 }
 
+                if (val >= 0x1F1E6 && val <= 0x1F1FF)
+                {
+                    regionalIndicatorCount++;
+                }
+                else
+                {
+                    nonRegionalBaseCount++;
+                }
+
                 int w = GetRuneWidth(rune);
                 if (totalBaseWidth == 0) totalBaseWidth = w;
                 else if (!hasZwj) totalBaseWidth += w; // Only sum widths if NOT a ZWJ sequence
 
                 if (w == 2) hasEmoji = true;
+            }
+
+            // Regional indicator symbols combine into 2-cell flag clusters by pair (e.g. 🇺🇸).
+            if (regionalIndicatorCount > 0 && nonRegionalBaseCount == 0)
+            {
+                int pairs = regionalIndicatorCount / 2;
+                int remainder = regionalIndicatorCount % 2;
+                return (pairs * 2) + (remainder * 2);
             }
 
             // Normal rule: Graphemes are at least the sum of their base parts.

@@ -11,6 +11,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 
 namespace NovaTerminal.Core
 {
@@ -49,6 +50,7 @@ namespace NovaTerminal.Core
         private static readonly bool ForceKnownGoodBoxFont = IsEnvFlagEnabled("NOVATERM_FORCE_BOX_FONT");
         private static readonly bool UseBoxDrawingPrimitives = IsEnvFlagEnabled("NOVATERM_BOX_PRIMITIVES");
         private static readonly bool UseBlockElementPrimitives = IsEnvFlagEnabled("NOVATERM_BLOCK_PRIMITIVES");
+        private static readonly AsyncLocal<TestPrimitiveRenderOverride?> PrimitiveRenderOverrideForTests = new();
         private static readonly ConcurrentDictionary<string, byte> GlyphDiagOnce = new();
         private static readonly string[] KnownGoodBoxFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
         private static Lazy<RenderPerfWriter?> SharedRenderPerfWriter = new(RenderPerfWriter.CreateFromEnvironment);
@@ -115,6 +117,34 @@ namespace NovaTerminal.Core
             {
                 Shaper = shaper;
                 Font = font;
+            }
+        }
+
+        private sealed class TestPrimitiveRenderOverride
+        {
+            public bool UseBoxDrawingPrimitives { get; init; }
+            public bool UseBlockElementPrimitives { get; init; }
+        }
+
+        private sealed class PrimitiveRenderOverrideScope : IDisposable
+        {
+            private readonly TestPrimitiveRenderOverride? _previous;
+            private bool _disposed;
+
+            public PrimitiveRenderOverrideScope(TestPrimitiveRenderOverride? previous)
+            {
+                _previous = previous;
+            }
+
+            public void Dispose()
+            {
+                if (_disposed)
+                {
+                    return;
+                }
+
+                _disposed = true;
+                PrimitiveRenderOverrideForTests.Value = _previous;
             }
         }
 
@@ -1027,6 +1057,15 @@ namespace NovaTerminal.Core
                             {
                                 break;
                             }
+
+                            // Keep complex-script shaping runs isolated from plain LTR runs.
+                            // Mixing prefixes like "Arabic: " with Arabic text in a single shaper
+                            // run can produce incorrect bidi/shaping output.
+                            if ((runHasComplexShapingGlyph && !cellNeedsComplexShaping) ||
+                                (!runHasComplexShapingGlyph && cellNeedsComplexShaping))
+                            {
+                                break;
+                            }
                         }
 
                         runHasBoxDrawing |= cellHasBoxDrawing;
@@ -1169,8 +1208,8 @@ namespace NovaTerminal.Core
                             {
                                 graphGlyphMissing = true;
                             }
-                            bool usePrimitiveBlockLike = UseBlockElementPrimitives || isBlockShadeOrQuadrant || isBlackSquareGlyph || graphGlyphMissing;
-                            bool usePrimitiveBraille = UseBlockElementPrimitives || graphGlyphMissing;
+                            bool usePrimitiveBlockLike = IsBlockElementPrimitiveRenderingEnabled() || isBlockShadeOrQuadrant || isBlackSquareGlyph || graphGlyphMissing;
+                            bool usePrimitiveBraille = IsBlockElementPrimitiveRenderingEnabled() || graphGlyphMissing;
 
                             // Prefer primitives for block/shade/quadrant bar glyphs to guarantee
                             // seam-free cell fills. For braille, keep font rendering unless
@@ -1228,7 +1267,7 @@ namespace NovaTerminal.Core
                                 continue;
                             }
 
-                            if (UseBoxDrawingPrimitives &&
+                            if (IsBoxDrawingPrimitiveRenderingEnabled() &&
                                 TryGetSingleRuneCodePoint(grapheme, out int cpBox) &&
                                 cpBox >= 0x2500 && cpBox <= 0x257F)
                             {
@@ -1394,6 +1433,30 @@ namespace NovaTerminal.Core
         {
             string? raw = Environment.GetEnvironmentVariable(name);
             return raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsBoxDrawingPrimitiveRenderingEnabled()
+        {
+            TestPrimitiveRenderOverride? overrideFlags = PrimitiveRenderOverrideForTests.Value;
+            return overrideFlags?.UseBoxDrawingPrimitives ?? UseBoxDrawingPrimitives;
+        }
+
+        private static bool IsBlockElementPrimitiveRenderingEnabled()
+        {
+            TestPrimitiveRenderOverride? overrideFlags = PrimitiveRenderOverrideForTests.Value;
+            return overrideFlags?.UseBlockElementPrimitives ?? UseBlockElementPrimitives;
+        }
+
+        internal static IDisposable PushPrimitiveRenderingOverrideForTests(bool useBoxDrawingPrimitives, bool useBlockElementPrimitives)
+        {
+            TestPrimitiveRenderOverride? previous = PrimitiveRenderOverrideForTests.Value;
+            PrimitiveRenderOverrideForTests.Value = new TestPrimitiveRenderOverride
+            {
+                UseBoxDrawingPrimitives = useBoxDrawingPrimitives,
+                UseBlockElementPrimitives = useBlockElementPrimitives
+            };
+
+            return new PrimitiveRenderOverrideScope(previous);
         }
 
         internal static void ResetRenderPerfWriterForTests()
@@ -1645,6 +1708,7 @@ namespace NovaTerminal.Core
                 int cp = rune.Value;
                 if ((cp >= 0x0590 && cp <= 0x0FFF) || // Complex scripts
                     (cp >= 0x1F300 && cp <= 0x1FAFF) || // Emoji
+                    IsRegionalIndicatorRune(cp) ||       // Flag emoji sequences
                     (cp >= 0x2600 && cp <= 0x27BF) ||   // Dingbats/symbols
                     (cp == 0x200D))                      // ZWJ
                 {
@@ -1693,6 +1757,9 @@ namespace NovaTerminal.Core
         private static bool IsBoxDrawingCodePoint(int cp)
             => cp >= 0x2500 && cp <= 0x257F;
 
+        private static bool IsRegionalIndicatorRune(int codePoint)
+            => codePoint >= 0x1F1E6 && codePoint <= 0x1F1FF;
+
         private void LogBoxRunDiagnostics(string runText, int runCells, SKFont runFont, float measuredWidth)
         {
             if (!GlyphDiagnosticsEnabled || !ContainsBoxDrawing(runText)) return;
@@ -1709,7 +1776,7 @@ namespace NovaTerminal.Core
             foreach (var rune in text.EnumerateRunes())
             {
                 int cp = rune.Value;
-                if (cp > 127 && !primaryTf.ContainsGlyph(cp))
+                if (cp > 127 && (IsRegionalIndicatorRune(cp) || !primaryTf.ContainsGlyph(cp)))
                 {
                     return cp;
                 }
@@ -1736,6 +1803,8 @@ namespace NovaTerminal.Core
                 bool hasModifier = false;
                 bool hasEmojiPresentation = false;
                 bool hasAmbiguousSymbolBase = false;
+                int regionalIndicatorCount = 0;
+                int nonRegionalBaseCount = 0;
 
                 foreach (var rune in textElement.EnumerateRunes())
                 {
@@ -1750,11 +1819,28 @@ namespace NovaTerminal.Core
                         hasAmbiguousSymbolBase = true;
                     }
 
+                    if (IsRegionalIndicatorRune(val))
+                    {
+                        regionalIndicatorCount++;
+                    }
+                    else
+                    {
+                        nonRegionalBaseCount++;
+                    }
+
                     int w = GetRuneWidth(rune);
                     if (totalBaseWidth == 0) totalBaseWidth = w;
                     else if (!hasZwj) totalBaseWidth += w;
 
                     if (w == 2) hasEmoji = true;
+                }
+
+                // Regional indicator symbols combine into 2-cell flag clusters by pair.
+                if (regionalIndicatorCount > 0 && nonRegionalBaseCount == 0)
+                {
+                    int pairs = regionalIndicatorCount / 2;
+                    int remainder = regionalIndicatorCount % 2;
+                    return (pairs * 2) + (remainder * 2);
                 }
 
                 if (hasZwj || hasModifier)
@@ -1934,6 +2020,7 @@ namespace NovaTerminal.Core
             {
                 SKTypeface? found = null;
                 if ((codePoint >= 0x1F300 && codePoint <= 0x1FAFF) ||
+                    IsRegionalIndicatorRune(codePoint) ||
                     (codePoint >= 0x2600 && codePoint <= 0x27BF))
                 {
                     found = SKTypeface.FromFamilyName("Segoe UI Emoji");

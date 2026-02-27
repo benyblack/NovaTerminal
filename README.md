@@ -200,6 +200,24 @@ Useful diagnostics flags:
 - `NOVATERM_BOX_PRIMITIVES=1`
 - `NOVATERM_BLOCK_PRIMITIVES=1`
 
+### Golden PNG Baselines
+
+- CI-required shared goldens: `tests/NovaTerminal.Tests/Baselines/Golden/shared/`
+- Optional OS-scoped font goldens:
+  - Windows: `tests/NovaTerminal.Tests/Baselines/Golden/win/`
+  - Linux: `tests/NovaTerminal.Tests/Baselines/Golden/linux/`
+  - macOS: `tests/NovaTerminal.Tests/Baselines/Golden/osx/`
+
+Commands:
+
+```bash
+# Shared (CI-safe) golden contracts
+UPDATE_SNAPSHOTS=1 dotnet test -c Release --filter GoldenSharedPng
+
+# Optional font-dependent contracts
+ENABLE_FONT_GOLDENS=1 UPDATE_SNAPSHOTS=1 dotnet test -c Release --filter GoldenFontPng
+```
+
 ---
 
 ## Build & Test Locally
