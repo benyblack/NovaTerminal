@@ -160,6 +160,48 @@ Current focus:
 
 ---
 
+## GPU Hardening Program
+
+NovaTerminal is running a focused GPU hardening workstream to improve rendering throughput while preserving deterministic behavior.
+
+Authoritative docs:
+- `documents/NovaTerminal_GPU_Hardening_Engineering_Spec.md`
+- `documents/NovaTerminal_GPU_Hardening_8_Week_Sprint_Plan.md`
+- `docs/RENDERING_PERF_CONTRACT.md`
+
+Core guardrails:
+- **Snapshot-only rendering boundary**: renderer consumes immutable snapshots and avoids mutable buffer reads during draw.
+- **Replay parity first**: no optimization is accepted if replay behavior regresses.
+- **Seam safety under fractional DPI**: block/box rendering must stay stable at 125% and 150% scaling.
+- **Conservative perf contract**: allocations and draw calls are gated with warmup-aware p95/average checks.
+
+### GPU Hardening Validation Matrix
+
+Run these commands before declaring rendering changes complete:
+
+```bash
+dotnet test -c Release
+dotnet test -c Release --filter Category=Replay
+dotnet test -c Release --filter Category=Performance
+dotnet test -c Release --filter FullyQualifiedName~BlockSeamRegressionTests
+```
+
+### Rendering Metrics Flags
+
+Use these runtime flags when capturing renderer metrics:
+
+- `NOVATERM_RENDER_METRICS=1`
+- `NOVATERM_RENDER_METRICS_OUT=<path-to-render_metrics.jsonl>`
+
+Useful diagnostics flags:
+- `NOVATERM_DIAG_GLYPH=1`
+- `NOVATERM_DIAG_GRID=1`
+- `NOVATERM_FORCE_BOX_FONT=1`
+- `NOVATERM_BOX_PRIMITIVES=1`
+- `NOVATERM_BLOCK_PRIMITIVES=1`
+
+---
+
 ## Build & Test Locally
 
 Prerequisites:
