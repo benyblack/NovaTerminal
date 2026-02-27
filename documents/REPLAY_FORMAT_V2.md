@@ -81,6 +81,8 @@ Each subsequent line is a JSON event with:
     "dfg":true,"dbg":true,"inv":false,"bold":false,"faint":false,
     "italic":false,"ul":false,"blink":false,"strike":false,"hidden":false,
     "cells":"BASE64_TERMINALCELL_BYTES",
+    "cells_sizeof":12,
+    "cells_layout_id":"TerminalCell/v1",
     "ext":{"15":"🚀"},
     "wrap":[false,false,false]
   }
@@ -95,6 +97,8 @@ Snapshot fields:
 - Current style state: `fg`, `bg`, `fgi`, `bgi`, defaults and style booleans
 - Cell payload:
   - `cells`: base64 `TerminalCell[]` bytes
+  - `cells_sizeof`: serialized `sizeof(TerminalCell)` from the recorder runtime
+  - `cells_layout_id`: serialized cell-layout contract id (currently `TerminalCell/v1`)
   - `ext`: sparse extended-text map (`row*cols+col -> string`)
   - `wrap`: per-row wrap flags
 
@@ -105,4 +109,8 @@ Snapshot fields:
   - Otherwise fallback to legacy v1 lines (`{"t":...,"d":"..."}`).
 - Input events:
   - Reader prefers `d` (base64 bytes), then falls back to legacy `i`.
+- Snapshot layout validation:
+  - If `cells_sizeof` and/or `cells_layout_id` are present, reader validates against the current runtime layout.
+  - On mismatch, reader throws `InvalidDataException` with a `cell layout mismatch` message and expected/actual values.
+  - Legacy snapshots without these fields still load.
 

@@ -13,6 +13,10 @@ namespace NovaTerminal.Core
         private long[] _lastSnapshotRowIds = Array.Empty<long>();
         private uint[] _lastSnapshotRowRevisions = Array.Empty<uint>();
         private RenderCellSnapshot[][] _lastSnapshotRowCells = Array.Empty<RenderCellSnapshot[]>();
+        private long[] _cachedRenderRowIds = Array.Empty<long>();
+        private uint[] _cachedRenderRowRevisions = Array.Empty<uint>();
+        private int[] _cachedRenderRowCols = Array.Empty<int>();
+        private RenderCellSnapshot[][] _cachedRenderRowCells = Array.Empty<RenderCellSnapshot[]>();
         private int _lastSnapshotCols = -1;
         private bool _hasSnapshotState;
 
@@ -182,7 +186,14 @@ namespace NovaTerminal.Core
 
                     if (row != null)
                     {
-                        rowSnapshot = GetRowSnapshot(absRow, viewportCols);
+                        rowSnapshot = new RenderRowSnapshot
+                        {
+                            AbsRow = absRow,
+                            Revision = row.Revision,
+                            Cols = viewportCols,
+                            Cells = GetOrBuildCachedRenderRowCells_NoLock(r, row, viewportCols),
+                            RowId = row.Id
+                        };
                         rowId = rowSnapshot.RowId;
                         rowRevision = rowSnapshot.Revision;
                     }
@@ -196,6 +207,10 @@ namespace NovaTerminal.Core
                             Cells = Array.Empty<RenderCellSnapshot>(),
                             RowId = 0
                         };
+                        _cachedRenderRowIds[r] = 0;
+                        _cachedRenderRowRevisions[r] = 0;
+                        _cachedRenderRowCols[r] = 0;
+                        _cachedRenderRowCells[r] = Array.Empty<RenderCellSnapshot>();
                     }
 
                     rowsData[r] = rowSnapshot;
@@ -315,6 +330,40 @@ namespace NovaTerminal.Core
             Array.Resize(ref _lastSnapshotRowIds, newLen);
             Array.Resize(ref _lastSnapshotRowRevisions, newLen);
             Array.Resize(ref _lastSnapshotRowCells, newLen);
+            Array.Resize(ref _cachedRenderRowIds, newLen);
+            Array.Resize(ref _cachedRenderRowRevisions, newLen);
+            Array.Resize(ref _cachedRenderRowCols, newLen);
+            Array.Resize(ref _cachedRenderRowCells, newLen);
+        }
+
+        private RenderCellSnapshot[] GetOrBuildCachedRenderRowCells_NoLock(int rowIndex, TerminalRow row, int viewportCols)
+        {
+            if (viewportCols <= 0)
+            {
+                return Array.Empty<RenderCellSnapshot>();
+            }
+
+            RenderCellSnapshot[]? cachedCells = _cachedRenderRowCells[rowIndex];
+            bool canReuse =
+                cachedCells != null &&
+                cachedCells.Length == viewportCols &&
+                _cachedRenderRowIds[rowIndex] == row.Id &&
+                _cachedRenderRowRevisions[rowIndex] == row.Revision &&
+                _cachedRenderRowCols[rowIndex] == viewportCols;
+
+            if (canReuse)
+            {
+                return cachedCells!;
+            }
+
+            var rebuiltCells = new RenderCellSnapshot[viewportCols];
+            PopulateRenderCellsFromRow_NoLock(row, viewportCols, rebuiltCells);
+
+            _cachedRenderRowIds[rowIndex] = row.Id;
+            _cachedRenderRowRevisions[rowIndex] = row.Revision;
+            _cachedRenderRowCols[rowIndex] = viewportCols;
+            _cachedRenderRowCells[rowIndex] = rebuiltCells;
+            return rebuiltCells;
         }
 
         private void AppendChangedSpansForRow_NoLock(int rowIndex, RenderCellSnapshot[] currentCells, int viewportCols, List<DirtySpan> dirtySpans)

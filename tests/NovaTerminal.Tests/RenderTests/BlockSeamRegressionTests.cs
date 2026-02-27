@@ -191,8 +191,7 @@ namespace NovaTerminal.Tests.RenderTests
 
             try
             {
-                MethodInfo? drawMethod = typeof(TerminalDrawOperation).GetMethod("DrawTerminal", BindingFlags.NonPublic | BindingFlags.Instance);
-                drawMethod?.Invoke(op, new object[] { canvas });
+                op.DrawTerminalInternal(canvas);
                 return bitmap;
             }
             finally

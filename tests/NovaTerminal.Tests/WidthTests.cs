@@ -52,5 +52,14 @@ namespace NovaTerminal.Tests
             // Red heart + VS16 emoji presentation should consume 2 cells.
             Assert.Equal(2, buffer.GetGraphemeWidth("\u2764\uFE0F"));
         }
+
+        [Fact]
+        public void RegionalIndicatorFlagSequence_IsTwoCells()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+
+            // US flag: should render as one emoji cluster with width 2, not two wide letters.
+            Assert.Equal(2, buffer.GetGraphemeWidth("🇺🇸"));
+        }
     }
 }
