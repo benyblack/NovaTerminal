@@ -92,6 +92,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\NovaTerminal.Core\NovaTerminal.Core.csproj" />
     <ProjectReference Include="..\NovaTerminal.VT\NovaTerminal.VT.csproj" />
     <ProjectReference Include="..\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj" />
     <ProjectReference Include="..\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />

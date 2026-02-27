@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:NovaTerminal.ViewModels.Ssh"
+        x:Class="NovaTerminal.Views.Ssh.NewSshConnectionView"
+        x:DataType="vm:NewSshConnectionViewModel"
+        Title="New SSH Connection"
+        Width="560"
+        Height="420"
+        CanResize="False">
+    <Grid RowDefinitions="*,Auto" Margin="16">
+        <Grid ColumnDefinitions="150,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Name" VerticalAlignment="Center" />
+            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Name}" Watermark="My server" />
+
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="HostName" VerticalAlignment="Center" />
+            <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HostName}" Watermark="example.internal" />
+
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="User" VerticalAlignment="Center" />
+            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding UserName}" Watermark="Optional" />
+
+            <TextBlock Grid.Row="3" Grid.Column="0" Text="Port" VerticalAlignment="Center" />
+            <NumericUpDown Grid.Row="3" Grid.Column="1"
+                           Minimum="1"
+                           Maximum="65535"
+                           Value="{Binding Port}" />
+
+            <TextBlock Grid.Row="4" Grid.Column="0" Text="Auth mode" VerticalAlignment="Center" />
+            <ComboBox Grid.Row="4" Grid.Column="1" Name="AuthModeCombo" SelectedItem="{Binding AuthMode}" />
+
+            <TextBlock Grid.Row="5" Grid.Column="0"
+                       Text="Identity file"
+                       VerticalAlignment="Center"
+                       IsVisible="{Binding IsIdentityFileAuth}" />
+            <Grid Grid.Row="5" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding IsIdentityFileAuth}">
+                <TextBox Grid.Column="0" Text="{Binding IdentityFilePath}" Watermark="Path to private key" />
+                <Button Grid.Column="1" Content="Browse..." Click="OnBrowseIdentityFileClick" />
+            </Grid>
+
+            <TextBlock Grid.Row="6"
+                       Grid.ColumnSpan="2"
+                       Text="{Binding ValidationError}"
+                       Foreground="#E06C75"
+                       TextWrapping="Wrap"
+                       IsVisible="{Binding ValidationError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </Grid>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,16,0,0">
+            <Button Content="Cancel" Width="90" Click="OnCancelClick" />
+            <Button Content="Save" Width="90" Click="OnSaveClick" />
+            <Button Content="Connect" Width="100" Click="OnConnectClick" />
+        </StackPanel>
+    </Grid>
+</Window>

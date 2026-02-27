@@ -136,6 +136,7 @@
                         <MenuFlyout>
                             <!-- Populated dynamically -->
                             <Separator />
+                            <MenuItem Header="New SSH Connection..." Name="MenuNewSshConnection" />
                             <MenuItem Header="Manage Profiles..." Name="MenuManageProfiles" />
                         </MenuFlyout>
                     </Button.Flyout>

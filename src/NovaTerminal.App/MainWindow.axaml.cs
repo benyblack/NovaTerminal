@@ -21,6 +21,9 @@ using Avalonia.Automation;
 using SkiaSharp;
 
 using NovaTerminal.Controls;
+using NovaTerminal.Services.Ssh;
+using NovaTerminal.ViewModels.Ssh;
+using NovaTerminal.Views.Ssh;
 
 namespace NovaTerminal
 {
@@ -55,6 +58,7 @@ namespace NovaTerminal
         private GlobalHotkey? _globalHotkey;
         private bool _closePaneInProgress;
         private bool _closeTabInProgress;
+        private readonly SshConnectionService _sshConnectionService;
         private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
 
         private sealed class PaneZoomState
@@ -1553,6 +1557,7 @@ namespace NovaTerminal
         {
             InitializeComponent();
             _settings = TerminalSettings.Load();
+            _sshConnectionService = new SshConnectionService();
 
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
@@ -1621,8 +1626,7 @@ namespace NovaTerminal
                 connManager.OnSyncRequested += HandleSshSync;
                 connManager.OnEditProfile += async (profile) =>
                 {
-                    // Open Settings (Tab 1 = Profiles), select profile
-                    await OpenSettings(1, profile.Id);
+                    await ShowNewSshConnectionDialogAsync(profile);
                 };
             }
 
@@ -1687,6 +1691,12 @@ namespace NovaTerminal
             if (menuManage != null) menuManage.Click += async (s, e) =>
             {
                 await OpenSettings(1); // Open Tab 1 (Profiles)
+            };
+
+            var menuNewSsh = this.FindControl<MenuItem>("MenuNewSshConnection");
+            if (menuNewSsh != null) menuNewSsh.Click += async (s, e) =>
+            {
+                await ShowNewSshConnectionDialogAsync(null);
             };
 
             var btnOpenRec = this.FindControl<Button>("BtnOpenRec");
@@ -3657,6 +3667,34 @@ namespace NovaTerminal
                 {
                     connManager.LoadProfiles(_settings.Profiles);
                 }
+            }
+        }
+
+        private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
+        {
+            var vm = NewSshConnectionViewModel.FromTerminalProfile(existingProfile);
+            var dialog = new NewSshConnectionView(vm);
+            bool saved = await dialog.ShowDialog<bool>(this);
+
+            if (!saved)
+            {
+                return;
+            }
+
+            try
+            {
+                TerminalProfile profile = _sshConnectionService.SaveProfile(vm, _settings.Profiles);
+                _settings.Save();
+                RefreshProfileUIs();
+
+                if (vm.ConnectAfterSave)
+                {
+                    AddTab(profile);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to save SSH connection: {ex.Message}");
             }
         }
 
