@@ -1,16 +1,3 @@
-// TerminalDrawOperation.cs (drop-in replacement)
-// Notes:
-// - Preserves existing constructor signature used by TerminalView.Render(...)
-// - Fixes baselineY usage + rowTopY background placement
-// - Removes fragile "recording canvas" type checks (explicit drawBackgrounds flag)
-// - Fixes active match detection WITHOUT IndexOf (avoids O(n^2))
-// - Reuses StringBuilder per row to reduce GC churn
-// - Keeps Z-order: Text -> Images -> Overlays -> Cursor
-// - Keeps lock timing instrumentation as-is (Step 4 will shrink lock scope)
-// - Root cause addressed: fractional cell metrics + fallback font advances caused deterministic
-//   box-drawing drift. We now render on a snapped device-pixel cell grid and log fallback/advance
-//   diagnostics behind env flags.
-
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Platform;
@@ -19,8 +6,10 @@ using Avalonia.Skia;
 using SkiaSharp;
 using SkiaSharp.HarfBuzz;
 using System;
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace NovaTerminal.Core
@@ -48,14 +37,12 @@ namespace NovaTerminal.Core
         private readonly double _renderScaling;
         private readonly int _bufferRows;
         private readonly int _bufferCols;
-        private readonly int _totalLines;
-        private readonly int _cursorRow;
-        private readonly int _cursorCol;
         private readonly RowImageCache? _rowCache;
         private readonly bool _enableComplexShaping;
         private readonly GlyphCache? _glyphCache;
         private readonly int _cellWidthDevicePx;
         private readonly int _cellHeightDevicePx;
+        private readonly PixelGrid _pixelGrid;
 
         private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
         private static readonly bool GridDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GRID");
@@ -64,13 +51,43 @@ namespace NovaTerminal.Core
         private static readonly bool UseBlockElementPrimitives = IsEnvFlagEnabled("NOVATERM_BLOCK_PRIMITIVES");
         private static readonly ConcurrentDictionary<string, byte> GlyphDiagOnce = new();
         private static readonly string[] KnownGoodBoxFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
+        private static Lazy<RenderPerfWriter?> SharedRenderPerfWriter = new(RenderPerfWriter.CreateFromEnvironment);
 
         // Batching for DrawAtlas
-        private readonly List<SKRect> _alphaRects = new();
-        private readonly List<SKRotationScaleMatrix> _alphaXforms = new();
-        private readonly List<SKColor> _alphaColors = new();
-        private readonly List<SKRect> _colorRects = new();
-        private readonly List<SKRotationScaleMatrix> _colorXforms = new();
+        private const int InitialAtlasBatchCapacity = 128;
+        private SKRect[] _alphaRects = new SKRect[InitialAtlasBatchCapacity];
+        private SKRotationScaleMatrix[] _alphaXforms = new SKRotationScaleMatrix[InitialAtlasBatchCapacity];
+        private SKColor[] _alphaColors = new SKColor[InitialAtlasBatchCapacity];
+        private SKRect[] _colorRects = new SKRect[InitialAtlasBatchCapacity];
+        private SKRotationScaleMatrix[] _colorXforms = new SKRotationScaleMatrix[InitialAtlasBatchCapacity];
+        private SKRect[]? _alphaRectsScratch;
+        private SKRotationScaleMatrix[]? _alphaXformsScratch;
+        private SKColor[]? _alphaColorsScratch;
+        private SKRect[]? _colorRectsScratch;
+        private SKRotationScaleMatrix[]? _colorXformsScratch;
+        private int _alphaCount;
+        private int _alphaScratchPrevCount;
+        private int _colorCount;
+        private int _colorScratchPrevCount;
+        private readonly SKPaint _bgFillPaint = new();
+        private readonly SKPaint _decoStrokePaint = new();
+        private readonly SKPaint _blockFillPaint = new();
+        private readonly SKPaint _shadeFillPaint = new();
+        private readonly SKPaint _atlasAlphaPaint = new();
+        private readonly SKPaint _atlasColorPaint = new();
+        private readonly Dictionary<SKTypeface, SKFont> _fallbackFontCache = new(SKTypefaceReferenceComparer.Instance);
+        private readonly Dictionary<SKTypeface, ShapingResources> _shapingCache = new(SKTypefaceReferenceComparer.Instance);
+        private const int RunBuilderInitialCapacity = 256;
+        private const int RunBuilderMaxCapacity = 4096;
+        private readonly StringBuilder _runBuilder = new(capacity: RunBuilderInitialCapacity);
+        private float[]? _colEdges;
+        private float[]? _rowEdges;
+        private int _colEdgesCount;
+        private int _rowEdgesCount;
+        private RenderPerfMetrics _framePerfMetrics;
+        private long _frameAllocStartBytes;
+        private int _frameOtherDrawCalls;
+        private bool _collectFramePerfMetrics;
 
         private struct RowRenderItem
         {
@@ -87,6 +104,18 @@ namespace NovaTerminal.Core
             public CursorStyle CursorStyle;
             public List<RowRenderItem> RowItems = new();
             public List<RenderImageSnapshot> Images = new();
+        }
+
+        private sealed class ShapingResources
+        {
+            public SKShaper Shaper { get; }
+            public SKFont Font { get; }
+
+            public ShapingResources(SKShaper shaper, SKFont font)
+            {
+                Shaper = shaper;
+                Font = font;
+            }
         }
 
         public Rect Bounds => _bounds;
@@ -143,14 +172,22 @@ namespace NovaTerminal.Core
             _renderScaling = renderScaling;
             _bufferRows = snapshotRows;
             _bufferCols = snapshotCols;
-            _totalLines = totalLines;
-            _cursorRow = cursorRow;
-            _cursorCol = cursorCol;
             _rowCache = rowCache;
             _enableComplexShaping = enableComplexShaping;
             _glyphCache = glyphCache;
             _cellWidthDevicePx = Math.Max(1, ToDevicePx(_metrics.CellWidth));
             _cellHeightDevicePx = Math.Max(1, ToDevicePx(_metrics.CellHeight));
+            int baselineOffsetPx = ToDevicePx(_metrics.Baseline);
+            int underlineOffsetPx = ToDevicePx(_metrics.CellHeight - Math.Max(1.5f, _metrics.CellHeight * 0.12f));
+            int strikeOffsetPx = (int)Math.Round(_cellHeightDevicePx * 0.52, MidpointRounding.AwayFromZero);
+            _pixelGrid = new PixelGrid(
+                originXPx: ToDevicePx(4f),
+                originYPx: 0,
+                cellWidthPx: _cellWidthDevicePx,
+                cellHeightPx: _cellHeightDevicePx,
+                baselineOffsetPx: baselineOffsetPx,
+                underlineOffsetPx: underlineOffsetPx,
+                strikeOffsetPx: strikeOffsetPx);
         }
 
         public void Dispose()
@@ -158,11 +195,19 @@ namespace NovaTerminal.Core
             _skFont?.Dispose();
             _skTypeface?.Dispose();
 
-            _alphaRects.Clear();
-            _alphaXforms.Clear();
-            _alphaColors.Clear();
-            _colorRects.Clear();
-            _colorXforms.Clear();
+            _alphaCount = 0;
+            _alphaScratchPrevCount = 0;
+            _colorCount = 0;
+            _colorScratchPrevCount = 0;
+            ReturnEdgeBuffers();
+            _bgFillPaint.Dispose();
+            _decoStrokePaint.Dispose();
+            _blockFillPaint.Dispose();
+            _shadeFillPaint.Dispose();
+            _atlasAlphaPaint.Dispose();
+            _atlasColorPaint.Dispose();
+            DisposeAndClearShapingCache();
+            DisposeAndClearFallbackFontCache();
         }
 
         public bool Equals(ICustomDrawOperation? other) => false;
@@ -188,6 +233,8 @@ namespace NovaTerminal.Core
         // cache hits on subsequent frames (mass invalidation "ghost" bug).
         private const int MaxPictureBuildsPerFrame = int.MaxValue;
         private const float MassInvalidationThreshold = 0.5f; // kept for stats only
+        private const int SpanRenderMaxSpansPerRow = 6;
+        private const float SpanRenderCoverageFallbackThreshold = 0.70f;
 
         // Drop-in replacement for TerminalDrawOperation.DrawTerminal(SKCanvas canvas)
         // Fixes:
@@ -203,77 +250,101 @@ namespace NovaTerminal.Core
                 _rowCache?.DrainDisposalsAndApplyClearIfRequested();
                 _glyphCache?.DrainDisposals();
 
-                var sw = System.Diagnostics.Stopwatch.StartNew();
+                RenderPerfWriter? perfWriter = BeginFramePerfMetrics();
                 var frame = new FrameSnapshot();
-
-                int bufferRows = _bufferRows;
-                int bufferCols = _bufferCols;
-                int absDisplayStart = 0;
-                byte alpha = (byte)(255 * _opacity);
-                int dirtyRowCount = 0;
-                bool isMassInvalidation = false;
-                var frameSw = System.Diagnostics.Stopwatch.StartNew();
-
-                // --------------------
-                // Snapshot Phase (LOCK HELD)
-                // --------------------
-                _buffer.Lock.EnterReadLock();
-                try
+                var snapshotRequest = new RenderSnapshotRequest
                 {
-                    frame.ThemeBg = new SKColor(_buffer.Theme.Background.R, _buffer.Theme.Background.G, _buffer.Theme.Background.B, alpha);
-                    frame.ThemeFg = new SKColor(_buffer.Theme.Foreground.R, _buffer.Theme.Foreground.G, _buffer.Theme.Foreground.B, 255);
-                    frame.CursorColor = new SKColor(_buffer.Theme.CursorColor.R, _buffer.Theme.CursorColor.G, _buffer.Theme.CursorColor.B, 255);
-                    frame.CursorStyle = _buffer.Modes.CursorStyle;
-                    // Intentionally leave ThemeBg with its window opacity to paint the base layer
+                    ViewportRows = _bufferRows,
+                    ViewportCols = _bufferCols,
+                    ScrollOffset = _scrollOffset,
+                    Selection = _selection,
+                    SearchMatches = _searchMatches,
+                    ActiveSearchIndex = _activeSearchIndex
+                };
+                TerminalRenderSnapshot renderSnapshot = _buffer.CaptureRenderSnapshot(snapshotRequest, out long readLockMs);
+                RendererStatistics.RecordBufferReadLockTimeMs(readLockMs);
 
-                    absDisplayStart = Math.Max(0, _totalLines - _bufferRows - _scrollOffset);
-
-                    // IMPORTANT: Always add exactly one RowRenderItem per visual row
-                    // so render loop can safely use r for Y positioning.
-                    for (int r = 0; r < bufferRows; r++)
+                int bufferRows = renderSnapshot.ViewportRows;
+                int bufferCols = renderSnapshot.ViewportCols;
+                int absDisplayStart = renderSnapshot.AbsDisplayStart;
+                byte alpha = (byte)(255 * _opacity);
+                int dirtySpanCount = renderSnapshot.DirtySpans.Length;
+                var spansByRow = new List<DirtySpan>[bufferRows];
+                for (int i = 0; i < dirtySpanCount; i++)
+                {
+                    var span = renderSnapshot.DirtySpans[i];
+                    if ((uint)span.Row >= (uint)bufferRows)
                     {
-                        int absRow = absDisplayStart + r;
-
-                        var item = new RowRenderItem
-                        {
-                            AbsRow = absRow,
-                            CachedPicture = null,
-                            Snapshot = null
-                        };
-
-                        var row = _buffer.GetRowAbsolute(absRow);
-                        if (row != null)
-                        {
-                            // Cache probe using unique RowId
-                            item.CachedPicture = _rowCache?.Get(row.Id, row.Revision);
-
-                            if (item.CachedPicture != null)
-                            {
-                                RendererStatistics.RecordRowCacheHit();
-                            }
-                            else
-                            {
-                                RendererStatistics.RecordRowCacheMiss();
-                                item.Snapshot = _buffer.GetRowSnapshot(absRow, bufferCols);
-                                RendererStatistics.RecordRowSnapshot();
-                                dirtyRowCount++;
-                            }
-                        }
-                        // else: row missing -> leave item empty; base background will show
-
-                        frame.RowItems.Add(item);
+                        continue;
                     }
 
-                    isMassInvalidation = (bufferRows > 0) && ((float)dirtyRowCount / bufferRows > MassInvalidationThreshold);
-                    frame.Images = _buffer.GetVisibleImagesSnapshot(absDisplayStart, bufferRows);
+                    var bucket = spansByRow[span.Row];
+                    if (bucket == null)
+                    {
+                        bucket = new List<DirtySpan>(4);
+                        spansByRow[span.Row] = bucket;
+                    }
 
-
+                    bucket.Add(span);
                 }
-                finally
+
+                int dirtyRowCount = 0;
+                for (int i = 0; i < spansByRow.Length; i++)
                 {
-                    _buffer.Lock.ExitReadLock();
-                    sw.Stop();
-                    RendererStatistics.RecordReadLockTime(sw.ElapsedMilliseconds);
+                    if (spansByRow[i] != null && spansByRow[i]!.Count > 0)
+                    {
+                        dirtyRowCount++;
+                    }
+                }
+                var frameSw = System.Diagnostics.Stopwatch.StartNew();
+                frame.ThemeBg = new SKColor(renderSnapshot.Theme.Background.R, renderSnapshot.Theme.Background.G, renderSnapshot.Theme.Background.B, alpha);
+                frame.ThemeFg = new SKColor(renderSnapshot.Theme.Foreground.R, renderSnapshot.Theme.Foreground.G, renderSnapshot.Theme.Foreground.B, 255);
+                frame.CursorColor = new SKColor(renderSnapshot.Theme.CursorColor.R, renderSnapshot.Theme.CursorColor.G, renderSnapshot.Theme.CursorColor.B, 255);
+                frame.CursorStyle = renderSnapshot.CursorStyle;
+                frame.Images = renderSnapshot.Images.Length > 0 ? new List<RenderImageSnapshot>(renderSnapshot.Images) : new List<RenderImageSnapshot>();
+
+                // IMPORTANT: Always add exactly one RowRenderItem per visual row
+                // so render loop can safely use r for Y positioning.
+                for (int r = 0; r < bufferRows; r++)
+                {
+                    RenderRowSnapshot rowSnapshot = r < renderSnapshot.RowsData.Length
+                        ? renderSnapshot.RowsData[r]
+                        : new RenderRowSnapshot
+                        {
+                            AbsRow = absDisplayStart + r,
+                            Cols = 0,
+                            Cells = Array.Empty<RenderCellSnapshot>(),
+                            Revision = 0,
+                            RowId = 0
+                        };
+
+                    var item = new RowRenderItem
+                    {
+                        AbsRow = rowSnapshot.AbsRow,
+                        CachedPicture = null,
+                        Snapshot = null
+                    };
+
+                    bool hasRenderableRow = rowSnapshot.Cols > 0 && rowSnapshot.Cells.Length >= rowSnapshot.Cols && rowSnapshot.RowId != 0;
+                    if (hasRenderableRow)
+                    {
+                        item.CachedPicture = _rowCache?.Get(rowSnapshot.RowId, rowSnapshot.Revision);
+
+                        if (item.CachedPicture != null)
+                        {
+                            RendererStatistics.RecordRowCacheHit();
+                            IncrementRowPictureCacheHit();
+                        }
+                        else
+                        {
+                            RendererStatistics.RecordRowCacheMiss();
+                            IncrementRowPictureCacheMiss();
+                            item.Snapshot = rowSnapshot;
+                            RendererStatistics.RecordRowSnapshot();
+                        }
+                    }
+
+                    frame.RowItems.Add(item);
                 }
 
                 // --------------------
@@ -292,14 +363,17 @@ namespace NovaTerminal.Core
                 bgPaint.Color = frame.ThemeBg;
                 bgPaint.BlendMode = SKBlendMode.SrcOver;
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
+                IncrementRectDrawCall();
 
-                float paddingLeft = 4f;
-                float paddingTop = 0f;
-                float[] colEdges = BuildCellEdgeGrid(bufferCols, paddingLeft, _cellWidthDevicePx);
-                float[] rowEdges = BuildCellEdgeGrid(bufferRows, paddingTop, _cellHeightDevicePx);
+                float paddingLeft = FromDevicePx(_pixelGrid.OriginXPx);
+                float paddingTop = FromDevicePx(_pixelGrid.OriginYPx);
+                float[] colEdges = EnsureCellEdgeGrid(ref _colEdges, ref _colEdgesCount, bufferCols, _pixelGrid.OriginXPx, _pixelGrid.CellWidthPx);
+                float[] rowEdges = EnsureCellEdgeGrid(ref _rowEdges, ref _rowEdgesCount, bufferRows, _pixelGrid.OriginYPx, _pixelGrid.CellHeightPx);
 
                 int dirtyCells = 0;
                 int buildsThisFrame = 0;
+                int spanRenderCount = 0;
+                int rowRenderCount = 0;
                 int maxBuilds = MaxPictureBuildsPerFrame; // always unlimited
 
                 // Pass 3: Text
@@ -315,13 +389,17 @@ namespace NovaTerminal.Core
                 for (int r = 0; r < frame.RowItems.Count; r++)
                 {
                     var item = frame.RowItems[r];
+                    var rowSpans = (r < spansByRow.Length) ? spansByRow[r] : null;
 
-                    float rowTopY = GetRowEdge(rowEdges, r, paddingTop);
-                    float baselineY = SnapY(rowTopY + _metrics.Baseline);
+                    int rowTopPx = _pixelGrid.YForRowTop(r);
+                    int baselinePx = _pixelGrid.YForBaseline(r);
+                    float rowTopY = FromDevicePx(rowTopPx);
+                    float baselineY = FromDevicePx(baselinePx);
 
                     if (item.CachedPicture != null)
                     {
                         canvas.DrawPicture(item.CachedPicture, 0, rowTopY);
+                        IncrementOtherDrawCall();
                         dirtyCells += bufferCols;
                         continue;
                     }
@@ -329,24 +407,108 @@ namespace NovaTerminal.Core
                     if (item.Snapshot.HasValue)
                     {
                         var snapshot = item.Snapshot.Value;
+                        bool hasDirtySpans = rowSpans != null && rowSpans.Count > 0;
+                        bool shouldUseSpanRendering = hasDirtySpans && ShouldUseSpanRenderingForRow(rowSpans!, snapshot.Cols);
 
-                        if (buildsThisFrame < maxBuilds)
+                        SKPicture? previousRowPicture = null;
+                        if (shouldUseSpanRendering)
                         {
+                            if (!(_rowCache?.TryGetLatestByRowId(snapshot.RowId, out previousRowPicture, out _) ?? false))
+                            {
+                                shouldUseSpanRendering = false;
+                            }
+                        }
+
+                        if (shouldUseSpanRendering && previousRowPicture != null)
+                        {
+                            // Base row from previous cached revision, then repaint dirty spans only.
+                            canvas.DrawPicture(previousRowPicture, 0, rowTopY);
+                            IncrementOtherDrawCall();
+
+                            int dirtyCellsInRow = 0;
+                            for (int i = 0; i < rowSpans!.Count; i++)
+                            {
+                                var span = rowSpans[i];
+                                int spanStart = Math.Max(0, span.ColStart - 1);
+                                int spanEndExclusive = Math.Min(snapshot.Cols, span.ColEnd + 1);
+                                if (spanEndExclusive <= spanStart)
+                                {
+                                    continue;
+                                }
+
+                                DrawRowTextFromSnapshot(
+                                    canvas,
+                                    snapshot,
+                                    rowTopY: rowTopY,
+                                    baselineY: baselineY,
+                                    colEdges: colEdges,
+                                    font,
+                                    fgPaint,
+                                    frame.ThemeFg,
+                                    frame.ThemeBg,
+                                    renderSnapshot.Theme,
+                                    alpha,
+                                    tf,
+                                    drawBackgrounds: true,
+                                    spanColStart: spanStart,
+                                    spanColEndExclusive: spanEndExclusive);
+
+                                spanRenderCount++;
+                                dirtyCellsInRow += Math.Max(0, span.ColEnd - span.ColStart);
+                            }
+
+                            dirtyCells += dirtyCellsInRow;
+
+                            // Refresh cache entry for the new revision (full-row picture for future frames).
+                            if (buildsThisFrame < maxBuilds)
+                            {
+                                var recSw = System.Diagnostics.Stopwatch.StartNew();
+                                using var recorder = new SKPictureRecorder();
+                                using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, FromDevicePx(_pixelGrid.CellHeightPx)));
+                                DrawRowTextFromSnapshot(
+                                    rowCanvas,
+                                    snapshot,
+                                    rowTopY: 0f,
+                                    baselineY: FromDevicePx(_pixelGrid.BaselineOffsetPx),
+                                    colEdges: colEdges,
+                                    font,
+                                    fgPaint,
+                                    frame.ThemeFg,
+                                    frame.ThemeBg,
+                                    renderSnapshot.Theme,
+                                    alpha,
+                                    tf,
+                                    drawBackgrounds: true);
+
+                                var picture = recorder.EndRecording();
+                                _rowCache?.Add(snapshot.RowId, snapshot.Revision, picture);
+                                IncrementPictureBuild();
+
+                                recSw.Stop();
+                                RendererStatistics.RecordRowPictureRecorded();
+                                RendererStatistics.RecordRowPictureRecordTime(recSw.ElapsedMilliseconds);
+                                buildsThisFrame++;
+                            }
+                        }
+                        else if (buildsThisFrame < maxBuilds)
+                        {
+                            rowRenderCount++;
                             var recSw = System.Diagnostics.Stopwatch.StartNew();
                             using var recorder = new SKPictureRecorder();
-                            using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, (float)_metrics.CellHeight));
+                            using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, FromDevicePx(_pixelGrid.CellHeightPx)));
 
                             // Row-local coordinates for cached picture recording
                             DrawRowTextFromSnapshot(
                                 rowCanvas,
                                 snapshot,
                                 rowTopY: 0f,
-                                baselineY: SnapY(_metrics.Baseline),
+                                baselineY: FromDevicePx(_pixelGrid.BaselineOffsetPx),
                                 colEdges: colEdges,
                                 font,
                                 fgPaint,
                                 frame.ThemeFg,
                                 frame.ThemeBg,
+                                renderSnapshot.Theme,
                                 alpha,
                                 tf,
                                 drawBackgrounds: true);
@@ -354,6 +516,8 @@ namespace NovaTerminal.Core
                             var picture = recorder.EndRecording();
                             _rowCache?.Add(snapshot.RowId, snapshot.Revision, picture);
                             canvas.DrawPicture(picture, 0, rowTopY);
+                            IncrementOtherDrawCall();
+                            IncrementPictureBuild();
 
                             recSw.Stop();
                             RendererStatistics.RecordRowPictureRecorded();
@@ -362,6 +526,7 @@ namespace NovaTerminal.Core
                         }
                         else
                         {
+                            rowRenderCount++;
                             // Budget exhausted: draw direct from snapshot (Correct BUT non-cached fallback)
                             DrawRowTextFromSnapshot(
                                 canvas,
@@ -373,12 +538,16 @@ namespace NovaTerminal.Core
                                 fgPaint,
                                 frame.ThemeFg,
                                 frame.ThemeBg,
+                                renderSnapshot.Theme,
                                 alpha,
                                 tf,
                                 drawBackgrounds: true);
                         }
 
-                        dirtyCells += bufferCols;
+                        if (!shouldUseSpanRendering)
+                        {
+                            dirtyCells += bufferCols;
+                        }
                     }
                 }
 
@@ -405,9 +574,11 @@ namespace NovaTerminal.Core
                             // Clear image target region first so transparent/semi-transparent
                             // image pixels do not reveal previously drawn text layers.
                             canvas.DrawRect(rect, imageBgPaint);
+                            IncrementRectDrawCall();
                             if (img.ImageHandle is SKBitmap bmp)
                             {
                                 canvas.DrawBitmap(bmp, rect, imagePaint);
+                                IncrementOtherDrawCall();
                             }
                             canvas.Restore();
                         }
@@ -415,58 +586,66 @@ namespace NovaTerminal.Core
                 }
 
                 // Pass 4: Overlays (Selection / Search)
+                int selectionIndex = 0;
                 int matchIndex = 0;
+                SelectionRowSnapshot[] selectionRows = renderSnapshot.SelectionRows;
+                SearchHighlightSnapshot[] searchHighlights = renderSnapshot.SearchHighlights;
                 for (int r = 0; r < bufferRows; r++)
                 {
-                    float y = GetRowEdge(rowEdges, r, paddingTop);
-                    float rowBottom = GetRowEdge(rowEdges, r + 1, paddingTop);
+                    float y = FromDevicePx(_pixelGrid.YForRowTop(r));
+                    float rowBottom = FromDevicePx(_pixelGrid.YForRowTop(r + 1));
                     float rowHeight = rowBottom - y;
                     int absRow = absDisplayStart + r;
 
-                    if (_selection.IsActive)
+                    while (selectionIndex < selectionRows.Length && selectionRows[selectionIndex].AbsRow < absRow)
                     {
-                        var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
-                        if (isSelected)
-                        {
-                            float x1 = GetColEdge(colEdges, colStart, paddingLeft);
-                            float x2 = GetColEdge(colEdges, colEnd + 1, paddingLeft);
-                            canvas.DrawRect(x1, y, x2 - x1, rowHeight, selectionPaint);
-                        }
+                        selectionIndex++;
                     }
 
-                    // Sub-linear scan for search matches (assumes _searchMatches are sorted by AbsRow)
-                    if (_searchMatches != null && _searchMatches.Count > 0)
+                    int selTemp = selectionIndex;
+                    while (selTemp < selectionRows.Length && selectionRows[selTemp].AbsRow == absRow)
                     {
-                        // Skip matches BEFORE current row
-                        while (matchIndex < _searchMatches.Count && _searchMatches[matchIndex].AbsRow < absRow)
-                            matchIndex++;
+                        var sel = selectionRows[selTemp];
+                        float x1 = GetColEdge(colEdges, sel.ColStart, paddingLeft);
+                        float x2 = GetColEdge(colEdges, sel.ColEnd + 1, paddingLeft);
+                        canvas.DrawRect(x1, y, x2 - x1, rowHeight, selectionPaint);
+                        IncrementRectDrawCall();
+                        selTemp++;
+                    }
 
-                        // Render matches ON current row
-                        int tempIdx = matchIndex;
-                        while (tempIdx < _searchMatches.Count && _searchMatches[tempIdx].AbsRow == absRow)
-                        {
-                            var m = _searchMatches[tempIdx];
-                            var p = (tempIdx == _activeSearchIndex) ? activeMatchPaint : matchPaint;
-                            float x1 = GetColEdge(colEdges, m.StartCol, paddingLeft);
-                            float x2 = GetColEdge(colEdges, m.EndCol + 1, paddingLeft);
-                            canvas.DrawRect(x1, y, x2 - x1, rowHeight, p);
-                            tempIdx++;
-                        }
+                    // Sub-linear scan for search matches (assumes highlights are sorted by AbsRow)
+                    while (matchIndex < searchHighlights.Length && searchHighlights[matchIndex].AbsRow < absRow)
+                    {
+                        matchIndex++;
+                    }
+
+                    int tempIdx = matchIndex;
+                    while (tempIdx < searchHighlights.Length && searchHighlights[tempIdx].AbsRow == absRow)
+                    {
+                        var m = searchHighlights[tempIdx];
+                        var p = m.IsActive ? activeMatchPaint : matchPaint;
+                        float x1 = GetColEdge(colEdges, m.StartCol, paddingLeft);
+                        float x2 = GetColEdge(colEdges, m.EndCol + 1, paddingLeft);
+                        canvas.DrawRect(x1, y, x2 - x1, rowHeight, p);
+                        IncrementRectDrawCall();
+                        tempIdx++;
                     }
                 }
 
                 // Cursor (optional policy: hide cursor when scrolled back)
                 if (!_hideCursor && _scrollOffset == 0)
                 {
-                    int absCursorRow = (_totalLines - bufferRows) + _cursorRow;
+                    int absCursorRow = (renderSnapshot.TotalLines - bufferRows) + renderSnapshot.CursorRow;
                     int visualRow = absCursorRow - absDisplayStart;
 
                     if (visualRow >= 0 && visualRow < bufferRows)
                     {
-                        float x1 = GetColEdge(colEdges, _cursorCol, paddingLeft);
-                        float x2 = GetColEdge(colEdges, _cursorCol + 1, paddingLeft);
-                        float rowTop = GetRowEdge(rowEdges, visualRow, paddingTop);
-                        float rowBottom = GetRowEdge(rowEdges, visualRow + 1, paddingTop);
+                        float x1 = FromDevicePx(_pixelGrid.XForCol(renderSnapshot.CursorCol));
+                        float x2 = FromDevicePx(_pixelGrid.XForCol(renderSnapshot.CursorCol + 1));
+                        int rowTopPx = _pixelGrid.YForRowTop(visualRow);
+                        int rowBottomPx = _pixelGrid.YForRowTop(visualRow + 1);
+                        float rowTop = FromDevicePx(rowTopPx);
+                        float rowBottom = FromDevicePx(rowBottomPx);
                         float rowHeight = rowBottom - rowTop;
                         using var cursorPaint = new SKPaint { Color = frame.CursorColor, Style = SKPaintStyle.Fill };
 
@@ -474,18 +653,23 @@ namespace NovaTerminal.Core
                         {
                             case CursorStyle.Block:
                                 canvas.DrawRect(x1, rowTop, x2 - x1, rowHeight, cursorPaint);
+                                IncrementRectDrawCall();
                                 break;
                             case CursorStyle.Beam:
                                 {
-                                    float beamW = Math.Max(1f, (float)Math.Floor(_metrics.CellWidth * 0.14));
+                                    int beamWPx = Math.Max(1, (int)Math.Floor(_pixelGrid.CellWidthPx * 0.14));
+                                    float beamW = FromDevicePx(beamWPx);
                                     canvas.DrawRect(x1, rowTop, beamW, rowHeight, cursorPaint);
+                                    IncrementRectDrawCall();
                                     break;
                                 }
                             case CursorStyle.Underline:
                             default:
                                 {
-                                    float uY = SnapY(rowTop + rowHeight - 2);
-                                    canvas.DrawRect(x1, uY, x2 - x1, 2, cursorPaint);
+                                    float uY = FromDevicePx(_pixelGrid.YForUnderline(visualRow));
+                                    float underlineH = FromDevicePx(Math.Max(1, ToDevicePx(2)));
+                                    canvas.DrawRect(x1, uY, x2 - x1, underlineH, cursorPaint);
+                                    IncrementRectDrawCall();
                                     break;
                                 }
                         }
@@ -494,17 +678,31 @@ namespace NovaTerminal.Core
 
                 if (GridDiagnosticsEnabled)
                 {
-                    DrawDebugCellGrid(canvas, colEdges, rowEdges);
+                    DrawDebugCellGrid(canvas, colEdges, _colEdgesCount, rowEdges, _rowEdgesCount);
                 }
 
                 frameSw.Stop();
                 RendererStatistics.RecordFrameRenderTime(frameSw.ElapsedMilliseconds);
                 RendererStatistics.RecordFrame(fullRedraw: true, dirtyCells: dirtyCells);
+                if (_collectFramePerfMetrics)
+                {
+                    _framePerfMetrics.DirtySpanCount = dirtySpanCount;
+                    _framePerfMetrics.SpanRenderCount = spanRenderCount;
+                    _framePerfMetrics.RowRenderCount = rowRenderCount;
+                    _framePerfMetrics.DirtyCellsEstimated = dirtyCells;
+                }
+
+                CompleteFramePerfMetrics(perfWriter, frameSw.Elapsed.TotalMilliseconds, dirtyRowCount, dirtySpanCount);
             }
             catch (Exception ex)
             {
                 try { System.IO.File.AppendAllText("error.log", "\n--- Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
                 throw;
+            }
+            finally
+            {
+                DisposeAndClearShapingCache();
+                DisposeAndClearFallbackFontCache();
             }
         }
 
@@ -513,39 +711,204 @@ namespace NovaTerminal.Core
             if (_glyphCache == null) return;
 
             var (alphaAtlas, colorAtlas) = _glyphCache.GetAtlasImages();
+            int alphaGlyphs = _alphaCount;
+            int colorGlyphs = _colorCount;
+            int atlasDrawCalls = 0;
 
-            if (_alphaRects.Count > 0)
+            if (alphaGlyphs > 0)
             {
-                using var paint = new SKPaint { IsAntialias = false };
+                var alphaRectsScratch = EnsureScratchCapacity(ref _alphaRectsScratch, alphaGlyphs);
+                var alphaXformsScratch = EnsureScratchCapacity(ref _alphaXformsScratch, alphaGlyphs);
+                var alphaColorsScratch = EnsureScratchCapacity(ref _alphaColorsScratch, alphaGlyphs);
+                Array.Copy(_alphaRects, alphaRectsScratch, alphaGlyphs);
+                Array.Copy(_alphaXforms, alphaXformsScratch, alphaGlyphs);
+                Array.Copy(_alphaColors, alphaColorsScratch, alphaGlyphs);
+                if (_alphaScratchPrevCount > alphaGlyphs)
+                {
+                    int tailLength = _alphaScratchPrevCount - alphaGlyphs;
+                    Array.Clear(alphaRectsScratch, alphaGlyphs, tailLength);
+                    Array.Clear(alphaXformsScratch, alphaGlyphs, tailLength);
+                    Array.Clear(alphaColorsScratch, alphaGlyphs, tailLength);
+                }
+                _alphaScratchPrevCount = alphaGlyphs;
+
+                _atlasAlphaPaint.Style = SKPaintStyle.Fill;
+                _atlasAlphaPaint.IsAntialias = false;
                 canvas.DrawAtlas(
                     alphaAtlas,
-                    _alphaRects.ToArray(),
-                    _alphaXforms.ToArray(),
-                    _alphaColors.ToArray(),
+                    alphaRectsScratch,
+                    alphaXformsScratch,
+                    alphaColorsScratch,
                     SKBlendMode.Modulate,
                     new SKSamplingOptions(SKFilterMode.Nearest),
-                    paint);
+                    _atlasAlphaPaint);
+                atlasDrawCalls++;
 
-                _alphaRects.Clear();
-                _alphaXforms.Clear();
-                _alphaColors.Clear();
+                _alphaCount = 0;
             }
 
-            if (_colorRects.Count > 0)
+            if (colorGlyphs > 0)
             {
-                using var paint = new SKPaint { IsAntialias = false };
+                var colorRectsScratch = EnsureScratchCapacity(ref _colorRectsScratch, colorGlyphs);
+                var colorXformsScratch = EnsureScratchCapacity(ref _colorXformsScratch, colorGlyphs);
+                Array.Copy(_colorRects, colorRectsScratch, colorGlyphs);
+                Array.Copy(_colorXforms, colorXformsScratch, colorGlyphs);
+                if (_colorScratchPrevCount > colorGlyphs)
+                {
+                    int tailLength = _colorScratchPrevCount - colorGlyphs;
+                    Array.Clear(colorRectsScratch, colorGlyphs, tailLength);
+                    Array.Clear(colorXformsScratch, colorGlyphs, tailLength);
+                }
+                _colorScratchPrevCount = colorGlyphs;
+
+                _atlasColorPaint.Style = SKPaintStyle.Fill;
+                _atlasColorPaint.IsAntialias = false;
                 canvas.DrawAtlas(
                     colorAtlas,
-                    _colorRects.ToArray(),
-                    _colorXforms.ToArray(),
+                    colorRectsScratch,
+                    colorXformsScratch,
                     null,
                     SKBlendMode.SrcOver,
                     new SKSamplingOptions(SKFilterMode.Linear),
-                    paint);
+                    _atlasColorPaint);
+                atlasDrawCalls++;
 
-                _colorRects.Clear();
-                _colorXforms.Clear();
+                _colorCount = 0;
             }
+
+            if (atlasDrawCalls > 0)
+            {
+                RecordFlush(alphaGlyphs, colorGlyphs, atlasDrawCalls);
+            }
+        }
+
+        private void AddAlphaBatchEntry(SKRect rect, SKRotationScaleMatrix xform, SKColor color)
+        {
+            EnsureAlphaBatchCapacity(_alphaCount + 1);
+            int index = _alphaCount++;
+            _alphaRects[index] = rect;
+            _alphaXforms[index] = xform;
+            _alphaColors[index] = color;
+        }
+
+        private void AddColorBatchEntry(SKRect rect, SKRotationScaleMatrix xform)
+        {
+            EnsureColorBatchCapacity(_colorCount + 1);
+            int index = _colorCount++;
+            _colorRects[index] = rect;
+            _colorXforms[index] = xform;
+        }
+
+        private void EnsureAlphaBatchCapacity(int requiredCount)
+        {
+            if (_alphaRects.Length >= requiredCount)
+            {
+                return;
+            }
+
+            int current = _alphaRects.Length;
+            int newCapacity = Math.Max(requiredCount, Math.Max(InitialAtlasBatchCapacity, current == 0 ? InitialAtlasBatchCapacity : current * 2));
+            Array.Resize(ref _alphaRects, newCapacity);
+            Array.Resize(ref _alphaXforms, newCapacity);
+            Array.Resize(ref _alphaColors, newCapacity);
+        }
+
+        private void EnsureColorBatchCapacity(int requiredCount)
+        {
+            if (_colorRects.Length >= requiredCount)
+            {
+                return;
+            }
+
+            int current = _colorRects.Length;
+            int newCapacity = Math.Max(requiredCount, Math.Max(InitialAtlasBatchCapacity, current == 0 ? InitialAtlasBatchCapacity : current * 2));
+            Array.Resize(ref _colorRects, newCapacity);
+            Array.Resize(ref _colorXforms, newCapacity);
+        }
+
+        private static T[] EnsureScratchCapacity<T>(ref T[]? buffer, int requiredCount)
+        {
+            if (requiredCount <= 0)
+            {
+                return buffer ??= Array.Empty<T>();
+            }
+
+            if (buffer == null)
+            {
+                buffer = new T[Math.Max(InitialAtlasBatchCapacity, requiredCount)];
+                return buffer;
+            }
+
+            if (buffer.Length >= requiredCount)
+            {
+                return buffer;
+            }
+
+            int newCapacity = buffer.Length == 0 ? InitialAtlasBatchCapacity : buffer.Length;
+            while (newCapacity < requiredCount)
+            {
+                newCapacity = Math.Max(InitialAtlasBatchCapacity, newCapacity * 2);
+            }
+
+            Array.Resize(ref buffer, newCapacity);
+            return buffer;
+        }
+
+        private SKFont GetOrCreateFallbackFont(SKTypeface tf)
+        {
+            if (_fallbackFontCache.TryGetValue(tf, out var cached))
+            {
+                return cached;
+            }
+
+            var created = new SKFont(tf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
+            _fallbackFontCache[tf] = created;
+            return created;
+        }
+
+        private ShapingResources GetOrCreateShapingResources(SKTypeface tf)
+        {
+            if (_shapingCache.TryGetValue(tf, out var cached))
+            {
+                return cached;
+            }
+
+            var font = new SKFont(tf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
+            var shaper = new SKShaper(tf);
+            var created = new ShapingResources(shaper, font);
+            _shapingCache[tf] = created;
+            return created;
+        }
+
+        private void DisposeAndClearFallbackFontCache()
+        {
+            if (_fallbackFontCache.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var cached in _fallbackFontCache.Values)
+            {
+                cached.Dispose();
+            }
+
+            _fallbackFontCache.Clear();
+        }
+
+        private void DisposeAndClearShapingCache()
+        {
+            if (_shapingCache.Count == 0)
+            {
+                return;
+            }
+
+            foreach (var resources in _shapingCache.Values)
+            {
+                resources.Shaper.Dispose();
+                resources.Font.Dispose();
+            }
+
+            _shapingCache.Clear();
         }
 
         private int DrawRowTextFromSnapshot(
@@ -558,136 +921,186 @@ namespace NovaTerminal.Core
             SKPaint fgPaint,
             SKColor themeFg,
             SKColor themeBg,
+            RenderThemeSnapshot themeSnapshot,
             byte alpha,
             SKTypeface primaryTf,
-            bool drawBackgrounds)
+            bool drawBackgrounds,
+            int spanColStart = 0,
+            int spanColEndExclusive = int.MaxValue)
         {
             const float paddingLeft = 4f;
             int cellsRendered = 0;
             float snappedCellHeight = FromDevicePx(_cellHeightDevicePx);
-
-            // Reuse per-row StringBuilder to avoid per-run allocations/GC churn.
-            var runBuilder = new StringBuilder(capacity: Math.Max(16, snapshot.Cols));
-
-            for (int c = 0; c < snapshot.Cols; c++)
+            int rowTopPx = ToDevicePx(rowTopY);
+            int baselinePx = ToDevicePx(baselineY);
+            int rowIndex = _pixelGrid.CellHeightPx > 0 ? (rowTopPx - _pixelGrid.OriginYPx) / _pixelGrid.CellHeightPx : 0;
+            float rowTopYDip = FromDevicePx(rowTopPx);
+            float baselineYDip = FromDevicePx(baselinePx);
+            int effectiveSpanStart = Math.Clamp(spanColStart, 0, snapshot.Cols);
+            int effectiveSpanEnd = Math.Clamp(spanColEndExclusive, effectiveSpanStart, snapshot.Cols);
+            if (effectiveSpanEnd <= effectiveSpanStart)
             {
-                var cell = snapshot.Cells[c];
-                if (cell.IsWideContinuation || cell.IsHidden) continue;
+                return 0;
+            }
 
-                var cb = ResolveCellBackground(cell, themeBg, alpha);
-                var cf = ResolveCellForeground(cell, themeFg, alpha);
-                bool runIsItalic = cell.IsItalic;
-                bool runIsUnderline = cell.IsUnderline;
-                bool runIsStrikethrough = cell.IsStrikethrough;
-                bool runIsFaint = cell.IsFaint;
-                var fg = cell.IsInverse ? cb : cf;
-                var bg = cell.IsInverse ? cf : cb;
-                if (runIsFaint)
+            bool hasSpanClip = effectiveSpanStart > 0 || effectiveSpanEnd < snapshot.Cols;
+            if (hasSpanClip)
+            {
+                float clipX1 = FromDevicePx(_pixelGrid.XForCol(effectiveSpanStart));
+                float clipX2 = FromDevicePx(_pixelGrid.XForCol(effectiveSpanEnd));
+                canvas.Save();
+                canvas.ClipRect(new SKRect(clipX1, rowTopYDip, clipX2, rowTopYDip + snappedCellHeight));
+            }
+
+            try
+            {
+                if (_runBuilder.Capacity > RunBuilderMaxCapacity)
                 {
-                    fg = BlendTowards(fg, bg, 0.5f);
+                    // Guard against permanently retaining very large capacities after outlier runs.
+                    _runBuilder.Clear();
+                    _runBuilder.Capacity = RunBuilderInitialCapacity;
                 }
 
-                runBuilder.Clear();
-                int totalRunWidth = 0;
-                bool runNeedsComplexShaping = false;
-                bool runHasBoxDrawing = false;
-                bool runHasComplexShapingGlyph = false;
-                int k = c;
+                var runBuilder = _runBuilder;
 
-                while (k < snapshot.Cols)
+                for (int c = 0; c < snapshot.Cols; c++)
                 {
-                    var next = snapshot.Cells[k];
-                    if (next.IsHidden || next.IsWideContinuation)
+                    var cell = snapshot.Cells[c];
+                    if (cell.IsWideContinuation || cell.IsHidden) continue;
+
+                    var cb = ResolveCellBackground(cell, themeBg, alpha, themeSnapshot);
+                    var cf = ResolveCellForeground(cell, themeFg, alpha, themeSnapshot);
+                    bool runIsItalic = cell.IsItalic;
+                    bool runIsUnderline = cell.IsUnderline;
+                    bool runIsStrikethrough = cell.IsStrikethrough;
+                    bool runIsFaint = cell.IsFaint;
+                    var fg = cell.IsInverse ? cb : cf;
+                    var bg = cell.IsInverse ? cf : cb;
+                    if (runIsFaint)
                     {
+                        fg = BlendTowards(fg, bg, 0.5f);
+                    }
+
+                    runBuilder.Clear();
+                    int totalRunWidth = 0;
+                    bool runNeedsComplexShaping = false;
+                    bool runHasBoxDrawing = false;
+                    bool runHasComplexShapingGlyph = false;
+                    int k = c;
+
+                    while (k < snapshot.Cols)
+                    {
+                        var next = snapshot.Cells[k];
+                        if (next.IsHidden || next.IsWideContinuation)
+                        {
+                            k++;
+                            continue;
+                        }
+
+                        var ncb = ResolveCellBackground(next, themeBg, alpha, themeSnapshot);
+                        var ncf = ResolveCellForeground(next, themeFg, alpha, themeSnapshot);
+                        var nfg = next.IsInverse ? ncb : ncf;
+                        var nbg = next.IsInverse ? ncf : ncb;
+                        if (next.IsFaint)
+                        {
+                            nfg = BlendTowards(nfg, nbg, 0.5f);
+                        }
+
+                        if (nfg != fg || nbg != bg)
+                            break;
+                        if (next.IsItalic != runIsItalic ||
+                            next.IsUnderline != runIsUnderline ||
+                            next.IsStrikethrough != runIsStrikethrough ||
+                            next.IsFaint != runIsFaint)
+                            break;
+
+                        string cellText = NormalizeTextElementForRender(next.Text ?? next.Character.ToString());
+                        bool cellHasBoxDrawing = ContainsBoxDrawing(cellText);
+                        bool cellNeedsComplexShaping = _enableComplexShaping && ContainsRunesRequiringComplexShaping(cellText);
+
+                        if (k > c)
+                        {
+                            // Keep box-drawing runs isolated from icon/complex-shaping runs so
+                            // snapped box primitives are not bypassed by mixed run shaping.
+                            if ((runHasBoxDrawing && cellNeedsComplexShaping) ||
+                                (runHasComplexShapingGlyph && cellHasBoxDrawing))
+                            {
+                                break;
+                            }
+                        }
+
+                        runHasBoxDrawing |= cellHasBoxDrawing;
+                        runHasComplexShapingGlyph |= cellNeedsComplexShaping;
+                        runNeedsComplexShaping = runHasComplexShapingGlyph && !runHasBoxDrawing;
+
+                        runBuilder.Append(cellText);
+                        int w = GetSafeGraphemeWidth(cellText); // GetGraphemeWidth is thread-safe
+                        totalRunWidth += w;
                         k++;
+                    }
+
+                    int runStartCol = c;
+                    int runEndCol = c + totalRunWidth;
+                    if (runEndCol <= effectiveSpanStart)
+                    {
+                        c = k - 1;
                         continue;
                     }
 
-                    var ncb = ResolveCellBackground(next, themeBg, alpha);
-                    var ncf = ResolveCellForeground(next, themeFg, alpha);
-                    var nfg = next.IsInverse ? ncb : ncf;
-                    var nbg = next.IsInverse ? ncf : ncb;
-                    if (next.IsFaint)
+                    if (runStartCol >= effectiveSpanEnd)
                     {
-                        nfg = BlendTowards(nfg, nbg, 0.5f);
+                        break;
                     }
 
-                    if (nfg != fg || nbg != bg)
-                        break;
-                    if (next.IsItalic != runIsItalic ||
-                        next.IsUnderline != runIsUnderline ||
-                        next.IsStrikethrough != runIsStrikethrough ||
-                        next.IsFaint != runIsFaint)
-                        break;
+                    string runText = runBuilder.ToString();
+                    float rx = FromDevicePx(_pixelGrid.XForCol(c));
+                    float rx2 = FromDevicePx(_pixelGrid.XForCol(c + totalRunWidth));
+                    fgPaint.Color = fg;
+                    float rw = rx2 - rx;
+                    float strokeWidth = Math.Max(1f, (float)(_metrics.CellHeight * 0.06));
 
-                    string cellText = NormalizeTextElementForRender(next.Text ?? next.Character.ToString());
-                    bool cellHasBoxDrawing = ContainsBoxDrawing(cellText);
-                    bool cellNeedsComplexShaping = _enableComplexShaping && ContainsRunesRequiringComplexShaping(cellText);
-
-                    if (k > c)
+                    // Backgrounds (when requested)
+                    if (drawBackgrounds && bg != themeBg && bg.Alpha != 0)
                     {
-                        // Keep box-drawing runs isolated from icon/complex-shaping runs so
-                        // snapped box primitives are not bypassed by mixed run shaping.
-                        if ((runHasBoxDrawing && cellNeedsComplexShaping) ||
-                            (runHasComplexShapingGlyph && cellHasBoxDrawing))
-                        {
-                            break;
-                        }
+                        _bgFillPaint.Color = bg;
+                        _bgFillPaint.Style = SKPaintStyle.Fill;
+                        _bgFillPaint.IsAntialias = false;
+                        canvas.DrawRect(rx, rowTopYDip, rw, snappedCellHeight, _bgFillPaint);
+                        IncrementRectDrawCall();
                     }
 
-                    runHasBoxDrawing |= cellHasBoxDrawing;
-                    runHasComplexShapingGlyph |= cellNeedsComplexShaping;
-                    runNeedsComplexShaping = runHasComplexShapingGlyph && !runHasBoxDrawing;
+                    bool appliedItalicTransform = false;
+                    if (runIsItalic)
+                    {
+                        FlushBatches(canvas);
+                        canvas.Save();
+                        canvas.Translate(rx, baselineYDip);
+                        canvas.Skew(-0.22f, 0f);
+                        canvas.Translate(-rx, -baselineYDip);
+                        appliedItalicTransform = true;
+                    }
 
-                    runBuilder.Append(cellText);
-                    int w = GetSafeGraphemeWidth(cellText); // GetGraphemeWidth is thread-safe
-                    totalRunWidth += w;
-                    k++;
-                }
-
-                string runText = runBuilder.ToString();
-                float rx = GetColEdge(colEdges, c, paddingLeft);
-                float rx2 = GetColEdge(colEdges, c + totalRunWidth, paddingLeft);
-                fgPaint.Color = fg;
-                float rw = rx2 - rx;
-                float strokeWidth = Math.Max(1f, (float)(_metrics.CellHeight * 0.06));
-
-                // Backgrounds (when requested)
-                if (drawBackgrounds && bg != themeBg && bg.Alpha != 0)
-                {
-                    using var bgP = new SKPaint { Color = bg, Style = SKPaintStyle.Fill };
-                    canvas.DrawRect(rx, rowTopY, rw, snappedCellHeight, bgP);
-                }
-
-                bool appliedItalicTransform = false;
-                if (runIsItalic)
-                {
-                    FlushBatches(canvas);
-                    canvas.Save();
-                    canvas.Translate(rx, baselineY);
-                    canvas.Skew(-0.22f, 0f);
-                    canvas.Translate(-rx, -baselineY);
-                    appliedItalicTransform = true;
-                }
-
-                if (runNeedsComplexShaping)
-                {
-                    FlushBatches(canvas);
-                    int fallbackChar = FindFirstMissingGlyphCodePoint(runText, primaryTf);
-                    SKTypeface tfToUse = fallbackChar != 0
-                        ? ResolveTypefaceForCodePoint(fallbackChar, primaryTf)
-                        : primaryTf;
+                    if (runNeedsComplexShaping)
+                    {
+                        FlushBatches(canvas);
+                        int fallbackChar = FindFirstMissingGlyphCodePoint(runText, primaryTf);
+                        SKTypeface tfToUse = fallbackChar != 0
+                            ? ResolveTypefaceForCodePoint(fallbackChar, primaryTf)
+                            : primaryTf;
 
                     bool useLayer = totalRunWidth > 1;
                     if (useLayer)
                     {
-                        canvas.SaveLayer(new SKRect(rx, rowTopY, rx + rw, rowTopY + (float)_metrics.CellHeight), null);
+                        canvas.SaveLayer(new SKRect(rx, rowTopYDip, rx + rw, rowTopYDip + (float)_metrics.CellHeight), null);
                     }
 
-                    using var fFont = new SKFont(tfToUse ?? primaryTf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
-                    using var shaper = new SKShaper(tfToUse ?? primaryTf);
-                    LogBoxRunDiagnostics(runText, totalRunWidth, fFont, fFont.MeasureText(runText));
-                    canvas.DrawShapedText(shaper, runText, rx, baselineY, fFont, fgPaint);
+                    var shapingResources = GetOrCreateShapingResources(tfToUse ?? primaryTf);
+                    var shapedFont = shapingResources.Font;
+                    var shaper = shapingResources.Shaper;
+                    LogBoxRunDiagnostics(runText, totalRunWidth, shapedFont, shapedFont.MeasureText(runText));
+                    canvas.DrawShapedText(shaper, runText, rx, baselineYDip, shapedFont, fgPaint);
+                    IncrementShapedTextRun();
+                    IncrementTextDrawCall();
 
                     if (useLayer) canvas.Restore();
                     cellsRendered += totalRunWidth;
@@ -699,39 +1112,36 @@ namespace NovaTerminal.Core
                         if (ShouldDrawRunDirectWhenGlyphCacheEnabled(runText))
                         {
                             FlushBatches(canvas);
-                            canvas.DrawText(runText, rx, baselineY, font, fgPaint);
+                            canvas.DrawText(runText, rx, baselineYDip, font, fgPaint);
+                            IncrementTextDrawCall();
+                            IncrementDirectDrawTextCall();
                             cellsRendered += totalRunWidth;
                             c = k - 1;
                             continue;
                         }
 
                         int cellX = c;
-                        float yBaselineSnap = SnapY(baselineY);
-                        float glyphY = SnapY(yBaselineSnap + font.Metrics.Ascent);
+                        float yBaselineSnap = baselineYDip;
+                        float glyphY = FromDevicePx(ToDevicePx(yBaselineSnap + font.Metrics.Ascent));
                         float invScale = (float)(1.0 / _renderScaling);
-                        using var blockPaint = new SKPaint
-                        {
-                            Color = fg,
-                            Style = SKPaintStyle.Fill,
-                            IsAntialias = false
-                        };
+                        _blockFillPaint.Color = fg;
+                        _blockFillPaint.Style = SKPaintStyle.Fill;
+                        _blockFillPaint.IsAntialias = false;
 
                         foreach (var rune in runText.EnumerateRunes())
                         {
                             string grapheme = rune.ToString();
                             int graphemeWidth = GetSafeGraphemeWidth(grapheme);
-                            float xIdxSnap = GetColEdge(colEdges, cellX, paddingLeft);
+                            float xIdxSnap = FromDevicePx(_pixelGrid.XForCol(cellX));
 
                             int fallbackChar = FindFirstMissingGlyphCodePoint(grapheme, primaryTf);
                             SKFont glyphFont = font;
-                            SKFont? fallbackFont = null;
                             if (fallbackChar != 0)
                             {
                                 var glyphTf = ResolveTypefaceForCodePoint(fallbackChar, primaryTf);
                                 if (glyphTf != primaryTf)
                                 {
-                                    fallbackFont = new SKFont(glyphTf, (float)_fontSize) { Edging = SKFontEdging.Antialias };
-                                    glyphFont = fallbackFont;
+                                    glyphFont = GetOrCreateFallbackFont(glyphTf);
                                 }
                             }
 
@@ -746,67 +1156,74 @@ namespace NovaTerminal.Core
                             }
 
                             float cellX1 = xIdxSnap;
-                            float cellX2 = GetColEdge(colEdges, cellX + graphemeWidth, paddingLeft);
+                            float cellX2 = FromDevicePx(_pixelGrid.XForCol(cellX + graphemeWidth));
                             float cellW = cellX2 - cellX1;
                             float cellH = snappedCellHeight;
+                            bool hasSingleRune = TryGetSingleRuneCodePoint(grapheme, out int graphemeCodePoint);
+                            bool isBlockShadeOrQuadrant = hasSingleRune && graphemeCodePoint >= 0x2580 && graphemeCodePoint <= 0x259F;
+                            bool isBrailleGlyph = hasSingleRune && graphemeCodePoint >= 0x2800 && graphemeCodePoint <= 0x28FF;
+                            bool isBlackSquareGlyph = hasSingleRune && graphemeCodePoint == 0x25A0;
+                            bool graphGlyphMissing = false;
+                            if ((isBlockShadeOrQuadrant || isBrailleGlyph || isBlackSquareGlyph) &&
+                                (glyphFont.Typeface == null || !glyphFont.Typeface.ContainsGlyph(graphemeCodePoint)))
+                            {
+                                graphGlyphMissing = true;
+                            }
+                            bool usePrimitiveBlockLike = UseBlockElementPrimitives || isBlockShadeOrQuadrant || isBlackSquareGlyph || graphGlyphMissing;
+                            bool usePrimitiveBraille = UseBlockElementPrimitives || graphGlyphMissing;
 
-                            // Render block/braille primitives only when explicitly enabled.
-                            // Default path keeps font-authored glyph rasterization, which is required
-                            // for image-as-text previews (e.g. superfile/chafa) to avoid artifacting.
-                            if (UseBlockElementPrimitives &&
+                            // Prefer primitives for block/shade/quadrant bar glyphs to guarantee
+                            // seam-free cell fills. For braille, keep font rendering unless
+                            // primitives are enabled or the current typeface lacks the glyph.
+                            if (usePrimitiveBlockLike &&
                                 TryGetBlockFillRect(grapheme, out int xStartEighths, out int xEndEighths, out int yStartEighths, out int yEndEighths))
                             {
                                 FlushBatches(canvas);
 
                                 float fillX1 = xStartEighths == 0 ? cellX1 : SnapX(cellX1 + (cellW * (xStartEighths / 8f)));
                                 float fillX2 = xEndEighths == 8 ? cellX2 : SnapX(cellX1 + (cellW * (xEndEighths / 8f)));
-                                float rowBottom = rowTopY + cellH;
-                                float fillY1 = yStartEighths == 0 ? rowTopY : SnapY(rowTopY + (cellH * (yStartEighths / 8f)));
-                                float fillY2 = yEndEighths == 8 ? rowBottom : SnapY(rowTopY + (cellH * (yEndEighths / 8f)));
+                                float rowBottom = rowTopYDip + cellH;
+                                float fillY1 = yStartEighths == 0 ? rowTopYDip : SnapY(rowTopYDip + (cellH * (yStartEighths / 8f)));
+                                float fillY2 = yEndEighths == 8 ? rowBottom : SnapY(rowTopYDip + (cellH * (yEndEighths / 8f)));
                                 if (fillX2 > fillX1 && fillY2 > fillY1)
                                 {
-                                    canvas.DrawRect(fillX1, fillY1, fillX2 - fillX1, fillY2 - fillY1, blockPaint);
+                                    canvas.DrawRect(fillX1, fillY1, fillX2 - fillX1, fillY2 - fillY1, _blockFillPaint);
+                                    IncrementRectDrawCall();
                                 }
 
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
 
-                            if (UseBlockElementPrimitives && TryGetShadeFillAlpha(grapheme, out float shadeAlpha))
+                            if (usePrimitiveBlockLike && TryGetShadeFillAlpha(grapheme, out float shadeAlpha))
                             {
                                 FlushBatches(canvas);
                                 byte shadeA = (byte)Math.Clamp((int)Math.Round(fg.Alpha * shadeAlpha), 0, 255);
-                                using var shadePaint = new SKPaint
-                                {
-                                    Color = new SKColor(fg.Red, fg.Green, fg.Blue, shadeA),
-                                    Style = SKPaintStyle.Fill,
-                                    IsAntialias = false
-                                };
+                                _shadeFillPaint.Color = new SKColor(fg.Red, fg.Green, fg.Blue, shadeA);
+                                _shadeFillPaint.Style = SKPaintStyle.Fill;
+                                _shadeFillPaint.IsAntialias = false;
                                 if (cellW > 0 && cellH > 0)
                                 {
-                                    canvas.DrawRect(cellX1, rowTopY, cellW, cellH, shadePaint);
+                                    canvas.DrawRect(cellX1, rowTopYDip, cellW, cellH, _shadeFillPaint);
+                                    IncrementRectDrawCall();
                                 }
 
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
 
-                            if (UseBlockElementPrimitives && TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
+                            if (usePrimitiveBlockLike && TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
                             {
                                 FlushBatches(canvas);
-                                DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopY, cellW, cellH, blockPaint);
-                                fallbackFont?.Dispose();
+                                DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopYDip, cellW, cellH, _blockFillPaint);
                                 cellX += graphemeWidth;
                                 continue;
                             }
 
-                            if (UseBlockElementPrimitives && TryGetBraillePattern(grapheme, out byte brailleMask))
+                            if (usePrimitiveBraille && TryGetBraillePattern(grapheme, out byte brailleMask))
                             {
                                 FlushBatches(canvas);
-                                DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopY, cellW, cellH, blockPaint);
-                                fallbackFont?.Dispose();
+                                DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopYDip, cellW, cellH, _blockFillPaint);
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -816,9 +1233,8 @@ namespace NovaTerminal.Core
                                 cpBox >= 0x2500 && cpBox <= 0x257F)
                             {
                                 FlushBatches(canvas);
-                                if (TryDrawBoxDrawingGlyph(canvas, grapheme, cellX1, rowTopY, cellW, cellH, fg))
+                                if (TryDrawBoxDrawingGlyph(canvas, grapheme, cellX1, rowTopYDip, cellW, cellH, fg))
                                 {
-                                    fallbackFont?.Dispose();
                                     cellX += graphemeWidth;
                                     continue;
                                 }
@@ -835,10 +1251,9 @@ namespace NovaTerminal.Core
                                     glyphFont,
                                     fgPaint,
                                     cellX1,
-                                    rowTopY,
+                                    rowTopYDip,
                                     cellW,
                                     cellH);
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -854,10 +1269,9 @@ namespace NovaTerminal.Core
                                     glyphFont,
                                     fgPaint,
                                     cellX1,
-                                    rowTopY,
+                                    rowTopYDip,
                                     cellW,
                                     cellH);
-                                fallbackFont?.Dispose();
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -870,29 +1284,29 @@ namespace NovaTerminal.Core
                                 var xform = SKRotationScaleMatrix.Create(invScale, 0, xIdxSnap, glyphY, 0, 0);
                                 if (type == AtlasType.Alpha8)
                                 {
-                                    _alphaRects.Add(rect);
-                                    _alphaXforms.Add(xform);
-                                    _alphaColors.Add(fg);
+                                    AddAlphaBatchEntry(rect, xform, fg);
                                 }
                                 else
                                 {
-                                    _colorRects.Add(rect);
-                                    _colorXforms.Add(xform);
+                                    AddColorBatchEntry(rect, xform);
                                 }
                             }
                             else
                             {
                                 FlushBatches(canvas);
                                 canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, glyphFont, fgPaint);
+                                IncrementTextDrawCall();
+                                IncrementDirectDrawTextCall();
                             }
-                            fallbackFont?.Dispose();
                             cellX += graphemeWidth;
                         }
                         LogBoxRunDiagnostics(runText, totalRunWidth, font, font.MeasureText(runText));
                     }
                     else
                     {
-                        canvas.DrawText(runText, rx, baselineY, font, fgPaint);
+                        canvas.DrawText(runText, rx, baselineYDip, font, fgPaint);
+                        IncrementTextDrawCall();
+                        IncrementDirectDrawTextCall();
                     }
                     cellsRendered += totalRunWidth;
                 }
@@ -905,13 +1319,10 @@ namespace NovaTerminal.Core
                 bool underlineHasVisibleText = runIsUnderline && ContainsNonWhitespace(runText);
                 if (underlineHasVisibleText || runIsStrikethrough)
                 {
-                    using var decoPaint = new SKPaint
-                    {
-                        Color = fg,
-                        IsAntialias = true,
-                        Style = SKPaintStyle.Stroke,
-                        StrokeWidth = strokeWidth
-                    };
+                    _decoStrokePaint.Color = fg;
+                    _decoStrokePaint.IsAntialias = true;
+                    _decoStrokePaint.Style = SKPaintStyle.Stroke;
+                    _decoStrokePaint.StrokeWidth = strokeWidth;
 
                     if (underlineHasVisibleText)
                     {
@@ -923,23 +1334,53 @@ namespace NovaTerminal.Core
                             underlineX2 = trimmedX2;
                         }
 
-                        float underlineY = SnapY(rowTopY + _metrics.CellHeight - Math.Max(1.5, _metrics.CellHeight * 0.12));
-                        underlineY = Math.Min(underlineY, rowTopY + snappedCellHeight);
-                        canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, decoPaint);
+                        float underlineY = FromDevicePx(_pixelGrid.YForUnderline(rowIndex));
+                        canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, _decoStrokePaint);
+                        IncrementRectDrawCall();
                     }
 
                     if (runIsStrikethrough)
                     {
-                        float strikeY = SnapY(rowTopY + (snappedCellHeight * 0.52));
-                        canvas.DrawLine(rx, strikeY, rx + rw, strikeY, decoPaint);
+                        float strikeY = FromDevicePx(_pixelGrid.YForStrike(rowIndex));
+                        canvas.DrawLine(rx, strikeY, rx + rw, strikeY, _decoStrokePaint);
+                        IncrementRectDrawCall();
                     }
                 }
 
-                c = k - 1;
+                    c = k - 1;
+                }
+
+                FlushBatches(canvas);
+                return cellsRendered;
+            }
+            finally
+            {
+                if (hasSpanClip)
+                {
+                    canvas.Restore();
+                }
+            }
+        }
+
+        private static bool ShouldUseSpanRenderingForRow(List<DirtySpan> rowSpans, int rowCols)
+        {
+            if (rowSpans.Count == 0 || rowCols <= 0)
+            {
+                return false;
             }
 
-            FlushBatches(canvas);
-            return cellsRendered;
+            if (rowSpans.Count > SpanRenderMaxSpansPerRow)
+            {
+                return false;
+            }
+
+            int covered = 0;
+            for (int i = 0; i < rowSpans.Count; i++)
+            {
+                covered += Math.Max(0, rowSpans[i].ColEnd - rowSpans[i].ColStart);
+            }
+
+            return covered < (int)Math.Ceiling(rowCols * SpanRenderCoverageFallbackThreshold);
         }
 
         private int DrawRowText(SKCanvas canvas, int absRow, int bufferCols, float rowTopY, float baselineY, SKFont font, SKPaint fgPaint, SKColor themeFg, SKColor themeBg, byte alpha, SKTypeface primaryTf, bool drawBackgrounds)
@@ -955,6 +1396,137 @@ namespace NovaTerminal.Core
             return raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
         }
 
+        internal static void ResetRenderPerfWriterForTests()
+        {
+            if (SharedRenderPerfWriter.IsValueCreated)
+            {
+                try
+                {
+                    SharedRenderPerfWriter.Value?.Dispose();
+                }
+                catch
+                {
+                    // Keep test helper non-fatal.
+                }
+            }
+
+            SharedRenderPerfWriter = new Lazy<RenderPerfWriter?>(RenderPerfWriter.CreateFromEnvironment);
+        }
+
+        private RenderPerfWriter? BeginFramePerfMetrics()
+        {
+            RenderPerfWriter? writer = SharedRenderPerfWriter.Value;
+            if (writer == null)
+            {
+                _collectFramePerfMetrics = false;
+                _framePerfMetrics = default;
+                _frameOtherDrawCalls = 0;
+                _frameAllocStartBytes = 0;
+                return null;
+            }
+
+            _collectFramePerfMetrics = true;
+            _framePerfMetrics = default;
+            _frameOtherDrawCalls = 0;
+            _framePerfMetrics.FrameIndex = writer.NextFrameIndex();
+            _frameAllocStartBytes = GC.GetAllocatedBytesForCurrentThread();
+            return writer;
+        }
+
+        private void CompleteFramePerfMetrics(RenderPerfWriter? writer, double frameTimeMs, int dirtyRows, int dirtySpans)
+        {
+            if (!_collectFramePerfMetrics || writer == null)
+            {
+                return;
+            }
+
+            _framePerfMetrics.FrameTimeMs = frameTimeMs;
+            _framePerfMetrics.DirtyRows = dirtyRows;
+            _framePerfMetrics.DirtySpansTotal = dirtySpans;
+
+            long allocDelta = GC.GetAllocatedBytesForCurrentThread() - _frameAllocStartBytes;
+            _framePerfMetrics.AllocBytesThisFrame = allocDelta > 0 ? allocDelta : 0;
+            _framePerfMetrics.DrawCallsTotal = _framePerfMetrics.DrawCallsText + _framePerfMetrics.DrawCallsRects + _frameOtherDrawCalls;
+            writer.TryWrite(_framePerfMetrics);
+        }
+
+        private void IncrementRowPictureCacheHit()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.RowPictureCacheHits++;
+            }
+        }
+
+        private void IncrementRowPictureCacheMiss()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.RowPictureCacheMisses++;
+            }
+        }
+
+        private void IncrementPictureBuild()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.PictureBuilds++;
+            }
+        }
+
+        private void IncrementRectDrawCall()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.DrawCallsRects++;
+            }
+        }
+
+        private void IncrementTextDrawCall()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.DrawCallsText++;
+            }
+        }
+
+        private void IncrementDirectDrawTextCall()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.DirectDrawTextCount++;
+            }
+        }
+
+        private void IncrementShapedTextRun()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _framePerfMetrics.ShapedTextRuns++;
+            }
+        }
+
+        private void IncrementOtherDrawCall()
+        {
+            if (_collectFramePerfMetrics)
+            {
+                _frameOtherDrawCalls++;
+            }
+        }
+
+        private void RecordFlush(int alphaGlyphs, int colorGlyphs, int atlasDrawCalls)
+        {
+            if (!_collectFramePerfMetrics)
+            {
+                return;
+            }
+
+            _framePerfMetrics.FlushCount++;
+            _framePerfMetrics.AtlasAlphaGlyphs += alphaGlyphs;
+            _framePerfMetrics.AtlasColorGlyphs += colorGlyphs;
+            _frameOtherDrawCalls += atlasDrawCalls;
+        }
+
         private int ToDevicePx(double logical)
             => (int)Math.Round(logical * _renderScaling, MidpointRounding.AwayFromZero);
 
@@ -968,31 +1540,42 @@ namespace NovaTerminal.Core
 
         private float SnapY(double logicalY) => Snap(logicalY);
 
-        private float[] BuildCellEdgeGrid(int cellCount, float logicalStart, int deviceCellSize)
+        private float[] EnsureCellEdgeGrid(ref float[]? buffer, ref int usedCount, int cellCount, int originPx, int deviceCellSize)
         {
             int count = Math.Max(0, cellCount);
-            var edges = new float[count + 1];
-            int startPx = ToDevicePx(logicalStart);
+            int required = count + 1;
+            if (buffer == null || buffer.Length < required)
+            {
+                var rented = ArrayPool<float>.Shared.Rent(required);
+                if (buffer != null)
+                {
+                    ArrayPool<float>.Shared.Return(buffer, clearArray: false);
+                }
+
+                buffer = rented;
+            }
+
+            usedCount = required;
             for (int i = 0; i <= count; i++)
             {
-                edges[i] = FromDevicePx(startPx + (i * deviceCellSize));
+                buffer[i] = FromDevicePx(originPx + (i * deviceCellSize));
             }
-            return edges;
+            return buffer;
         }
 
         private float GetColEdge(float[] colEdges, int colIndex, float paddingLeft)
         {
             if ((uint)colIndex < (uint)colEdges.Length) return colEdges[colIndex];
-            return SnapX((colIndex * _metrics.CellWidth) + paddingLeft);
+            return FromDevicePx(_pixelGrid.XForCol(colIndex));
         }
 
         private float GetRowEdge(float[] rowEdges, int rowIndex, float paddingTop)
         {
             if ((uint)rowIndex < (uint)rowEdges.Length) return rowEdges[rowIndex];
-            return SnapY((rowIndex * _metrics.CellHeight) + paddingTop);
+            return FromDevicePx(_pixelGrid.YForRowTop(rowIndex));
         }
 
-        private void DrawDebugCellGrid(SKCanvas canvas, float[] colEdges, float[] rowEdges)
+        private void DrawDebugCellGrid(SKCanvas canvas, float[] colEdges, int colEdgeCount, float[] rowEdges, int rowEdgeCount)
         {
             using var gridPaint = new SKPaint
             {
@@ -1002,11 +1585,29 @@ namespace NovaTerminal.Core
                 StrokeWidth = Math.Max(1f, FromDevicePx(1))
             };
 
-            float y1 = rowEdges.Length > 0 ? rowEdges[0] : 0f;
-            float y2 = rowEdges.Length > 0 ? rowEdges[rowEdges.Length - 1] : (float)Bounds.Height;
-            foreach (float x in colEdges)
+            float y1 = rowEdgeCount > 0 ? rowEdges[0] : 0f;
+            float y2 = rowEdgeCount > 0 ? rowEdges[rowEdgeCount - 1] : (float)Bounds.Height;
+            for (int i = 0; i < colEdgeCount; i++)
             {
+                float x = colEdges[i];
                 canvas.DrawLine(x, y1, x, y2, gridPaint);
+            }
+        }
+
+        private void ReturnEdgeBuffers()
+        {
+            if (_colEdges != null)
+            {
+                ArrayPool<float>.Shared.Return(_colEdges);
+                _colEdges = null;
+                _colEdgesCount = 0;
+            }
+
+            if (_rowEdges != null)
+            {
+                ArrayPool<float>.Shared.Return(_rowEdges);
+                _rowEdges = null;
+                _rowEdgesCount = 0;
             }
         }
 
@@ -1068,6 +1669,8 @@ namespace NovaTerminal.Core
             if (!IsSingleRuneInRange(grapheme, 0x2500, 0x257F) || cellW <= 0 || cellH <= 0)
             {
                 canvas.DrawText(grapheme, x, baselineY, glyphFont, paint);
+                IncrementTextDrawCall();
+                IncrementDirectDrawTextCall();
                 return;
             }
 
@@ -1082,6 +1685,8 @@ namespace NovaTerminal.Core
                 Hinting = SKFontHinting.Full
             };
             canvas.DrawText(grapheme, x, baselineY, crispFont, paint);
+            IncrementTextDrawCall();
+            IncrementDirectDrawTextCall();
             canvas.Restore();
         }
 
@@ -1118,12 +1723,102 @@ namespace NovaTerminal.Core
             if (string.IsNullOrEmpty(textElement)) return 0;
             try
             {
-                return Math.Max(1, _buffer.GetGraphemeWidth(textElement));
+                if (textElement.Length == 1)
+                {
+                    return Rune.TryCreate(textElement[0], out var rune)
+                        ? Math.Max(1, GetRuneWidth(rune))
+                        : 1;
+                }
+
+                int totalBaseWidth = 0;
+                bool hasEmoji = false;
+                bool hasZwj = false;
+                bool hasModifier = false;
+                bool hasEmojiPresentation = false;
+                bool hasAmbiguousSymbolBase = false;
+
+                foreach (var rune in textElement.EnumerateRunes())
+                {
+                    int val = rune.Value;
+                    if (val == 0x200D) { hasZwj = true; continue; }
+                    if (val == 0xFE0F) { hasEmojiPresentation = true; continue; }
+                    if (val >= 0x1F3FB && val <= 0x1F3FF) { hasModifier = true; continue; }
+                    if (IsCombiningRune(rune)) continue;
+
+                    if (val >= 0x2600 && val <= 0x27BF)
+                    {
+                        hasAmbiguousSymbolBase = true;
+                    }
+
+                    int w = GetRuneWidth(rune);
+                    if (totalBaseWidth == 0) totalBaseWidth = w;
+                    else if (!hasZwj) totalBaseWidth += w;
+
+                    if (w == 2) hasEmoji = true;
+                }
+
+                if (hasZwj || hasModifier)
+                {
+                    return hasEmoji ? 2 : Math.Max(1, totalBaseWidth);
+                }
+
+                if (hasEmojiPresentation && hasAmbiguousSymbolBase)
+                {
+                    return Math.Max(2, totalBaseWidth);
+                }
+
+                if (totalBaseWidth == 0) return 0;
+                return totalBaseWidth;
             }
             catch (ArgumentOutOfRangeException)
             {
                 return 1;
             }
+            catch (ArgumentException)
+            {
+                return 1;
+            }
+        }
+
+        private static int GetRuneWidth(Rune rune)
+        {
+            if (IsCombiningRune(rune)) return 0;
+
+            int cp = rune.Value;
+            if (cp < 32 || (cp >= 0x7F && cp <= 0x9F)) return 0;
+            if (cp >= 0x1100 && cp <= 0x115F) return 2;
+            if (cp >= 0x2329 && cp <= 0x232A) return 2;
+            if (cp >= 0x2E80 && cp <= 0xA4CF && cp != 0x303F) return 2;
+            if (cp >= 0xAC00 && cp <= 0xD7A3) return 2;
+            if (cp >= 0xF900 && cp <= 0xFAFF) return 2;
+            if (cp >= 0xFE10 && cp <= 0xFE6F) return 2;
+            if (cp >= 0xFF00 && cp <= 0xFFEF) return 2;
+            if (cp >= 0x1F000 && cp <= 0x1FBFF) return 2;
+            if (cp >= 0x20000 && cp <= 0x3FFFF) return 2;
+
+            return 1;
+        }
+
+        private static bool IsCombiningRune(Rune rune)
+        {
+            if (rune.Value < 0x80) return false;
+
+            var category = Rune.GetUnicodeCategory(rune);
+            if (category == System.Globalization.UnicodeCategory.NonSpacingMark ||
+                category == System.Globalization.UnicodeCategory.SpacingCombiningMark ||
+                category == System.Globalization.UnicodeCategory.EnclosingMark ||
+                category == System.Globalization.UnicodeCategory.ModifierSymbol)
+            {
+                return true;
+            }
+
+            int val = rune.Value;
+            if (val >= 0x200B && val <= 0x200F) return true;
+            if (val >= 0xFE00 && val <= 0xFE0F) return true;
+            if (val >= 0x1F3FB && val <= 0x1F3FF) return true;
+            if (val >= 0xE0020 && val <= 0xE007F) return true;
+
+            return false;
         }
 
         private static string NormalizeTextElementForRender(string text)
@@ -1376,19 +2071,13 @@ namespace NovaTerminal.Core
             foreach (var rune in runText.EnumerateRunes())
             {
                 hasRune = true;
-                int cp = rune.Value;
-                if (Rune.IsWhiteSpace(rune))
+                // Keep this optimization for whitespace-only runs.
+                // Graph/box/braille runs must flow through per-grapheme rendering so
+                // primitive and fallback logic can prevent tofu and seam artifacts.
+                if (!Rune.IsWhiteSpace(rune))
                 {
-                    continue;
+                    return false;
                 }
-                if ((cp >= 0x2580 && cp <= 0x259F) || // Block elements, shades, quadrants
-                    (cp >= 0x2800 && cp <= 0x28FF) || // Braille patterns
-                    (cp >= 0x25A0 && cp <= 0x25FF))   // Geometric symbols used by TUIs
-                {
-                    continue;
-                }
-
-                return false;
             }
 
             return hasRune;
@@ -1770,6 +2459,17 @@ namespace NovaTerminal.Core
             return false;
         }
 
+        private sealed class SKTypefaceReferenceComparer : IEqualityComparer<SKTypeface>
+        {
+            public static readonly SKTypefaceReferenceComparer Instance = new();
+
+            public bool Equals(SKTypeface? x, SKTypeface? y)
+                => ReferenceEquals(x, y);
+
+            public int GetHashCode(SKTypeface obj)
+                => RuntimeHelpers.GetHashCode(obj);
+        }
+
         private bool TryGetUnderlineBounds(string runText, int runStartCol, float[] colEdges, float paddingLeft, out float x1, out float x2)
         {
             x1 = 0f;
@@ -1828,34 +2528,39 @@ namespace NovaTerminal.Core
             return new SKColor(v, v, v, fg.Alpha);
         }
 
-        private SKColor ResolveCellForeground(RenderCellSnapshot cell, SKColor themeFg, byte alpha)
+        private SKColor ResolveCellForeground(RenderCellSnapshot cell, SKColor themeFg, byte alpha, RenderThemeSnapshot themeSnapshot)
         {
             if (cell.IsDefaultForeground) return themeFg;
             if (cell.FgIndex >= 0)
             {
-                var c = ResolvePaletteIndex(cell.FgIndex);
+                var c = ResolvePaletteIndex(cell.FgIndex, themeSnapshot);
                 return new SKColor(c.R, c.G, c.B, 255);
             }
             return new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, 255);
         }
 
-        private SKColor ResolveCellBackground(RenderCellSnapshot cell, SKColor themeBg, byte alpha)
+        private SKColor ResolveCellBackground(RenderCellSnapshot cell, SKColor themeBg, byte alpha, RenderThemeSnapshot themeSnapshot)
         {
             if (cell.IsDefaultBackground) return themeBg;
             if (cell.BgIndex >= 0)
             {
-                var c = ResolvePaletteIndex(cell.BgIndex);
+                var c = ResolvePaletteIndex(cell.BgIndex, themeSnapshot);
                 return new SKColor(c.R, c.G, c.B, 255);
             }
             return new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, 255);
         }
 
-        private TermColor ResolvePaletteIndex(int index)
+        private static TermColor ResolvePaletteIndex(int index, RenderThemeSnapshot themeSnapshot)
         {
             // 0-15 come from the active theme palette.
             if (index < 16)
             {
-                return _buffer.Theme.GetAnsiColor(index % 8, index >= 8);
+                if (themeSnapshot.AnsiPalette != null && (uint)index < (uint)themeSnapshot.AnsiPalette.Length)
+                {
+                    return themeSnapshot.AnsiPalette[index];
+                }
+
+                return TermColor.White;
             }
 
             // 16-231: xterm 6x6x6 cube.
