@@ -94,6 +94,10 @@ namespace NovaTerminal.Core
                         writer.WriteNumber(nameof(RenderPerfMetrics.FrameTimeMs), metrics.FrameTimeMs);
                         writer.WriteNumber(nameof(RenderPerfMetrics.DirtyRows), metrics.DirtyRows);
                         writer.WriteNumber(nameof(RenderPerfMetrics.DirtySpansTotal), metrics.DirtySpansTotal);
+                        writer.WriteNumber(nameof(RenderPerfMetrics.DirtySpanCount), metrics.DirtySpanCount);
+                        writer.WriteNumber(nameof(RenderPerfMetrics.SpanRenderCount), metrics.SpanRenderCount);
+                        writer.WriteNumber(nameof(RenderPerfMetrics.RowRenderCount), metrics.RowRenderCount);
+                        writer.WriteNumber(nameof(RenderPerfMetrics.DirtyCellsEstimated), metrics.DirtyCellsEstimated);
                         writer.WriteNumber(nameof(RenderPerfMetrics.DrawCallsText), metrics.DrawCallsText);
                         writer.WriteNumber(nameof(RenderPerfMetrics.DrawCallsRects), metrics.DrawCallsRects);
                         writer.WriteNumber(nameof(RenderPerfMetrics.DrawCallsTotal), metrics.DrawCallsTotal);

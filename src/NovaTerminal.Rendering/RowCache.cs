@@ -75,6 +75,33 @@ namespace NovaTerminal.Core
             }
         }
 
+        public bool TryGetLatestByRowId(long rowId, out SKPicture? picture, out uint revision)
+        {
+            lock (_sync)
+            {
+                picture = null;
+                revision = 0;
+                bool found = false;
+
+                foreach (var kvp in _cache)
+                {
+                    if (kvp.Key.RowId != rowId)
+                    {
+                        continue;
+                    }
+
+                    if (!found || kvp.Key.Revision > revision)
+                    {
+                        found = true;
+                        revision = kvp.Key.Revision;
+                        picture = kvp.Value.Picture;
+                    }
+                }
+
+                return found && picture != null;
+            }
+        }
+
         public void Add(long rowId, uint revision, SKPicture picture)
         {
             lock (_sync)

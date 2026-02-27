@@ -12,6 +12,7 @@ namespace NovaTerminal.Core
         private int[] _lastSnapshotAbsRows = Array.Empty<int>();
         private long[] _lastSnapshotRowIds = Array.Empty<long>();
         private uint[] _lastSnapshotRowRevisions = Array.Empty<uint>();
+        private RenderCellSnapshot[][] _lastSnapshotRowCells = Array.Empty<RenderCellSnapshot[]>();
         private int _lastSnapshotCols = -1;
         private bool _hasSnapshotState;
 
@@ -169,8 +170,7 @@ namespace NovaTerminal.Core
 
                 EnsureSnapshotStateCapacity_NoLock(viewportRows);
 
-                var dirtyTmp = viewportRows > 0 ? new DirtySpan[viewportRows] : Array.Empty<DirtySpan>();
-                int dirtyCount = 0;
+                var dirtyList = new List<DirtySpan>(Math.Max(8, viewportRows * 2));
 
                 for (int r = 0; r < viewportRows; r++)
                 {
@@ -200,34 +200,47 @@ namespace NovaTerminal.Core
 
                     rowsData[r] = rowSnapshot;
 
-                    bool rowDirty = !_hasSnapshotState ||
-                                    _lastSnapshotCols != viewportCols ||
-                                    _lastSnapshotAbsRows[r] != absRow ||
-                                    _lastSnapshotRowIds[r] != rowId ||
-                                    _lastSnapshotRowRevisions[r] != rowRevision;
-                    if (rowDirty && viewportCols > 0)
+                    bool fullRowDirty = !_hasSnapshotState ||
+                                        _lastSnapshotCols != viewportCols ||
+                                        _lastSnapshotAbsRows[r] != absRow ||
+                                        _lastSnapshotRowIds[r] != rowId;
+
+                    if (rowSnapshot.Cols > 0 && viewportCols > 0)
                     {
-                        dirtyTmp[dirtyCount++] = new DirtySpan
+                        if (fullRowDirty)
                         {
-                            Row = r,
-                            ColStart = 0,
-                            ColEnd = viewportCols - 1
-                        };
+                            dirtyList.Add(new DirtySpan
+                            {
+                                Row = r,
+                                ColStart = 0,
+                                ColEnd = viewportCols
+                            });
+                        }
+                        else if (_lastSnapshotRowRevisions[r] != rowRevision)
+                        {
+                            AppendChangedSpansForRow_NoLock(r, rowSnapshot.Cells, viewportCols, dirtyList);
+                            if (dirtyList.Count == 0 || dirtyList[^1].Row != r)
+                            {
+                                // Revision changed but cell diff produced no spans. Be conservative.
+                                dirtyList.Add(new DirtySpan
+                                {
+                                    Row = r,
+                                    ColStart = 0,
+                                    ColEnd = viewportCols
+                                });
+                            }
+                        }
                     }
 
                     _lastSnapshotAbsRows[r] = absRow;
                     _lastSnapshotRowIds[r] = rowId;
                     _lastSnapshotRowRevisions[r] = rowRevision;
+                    _lastSnapshotRowCells[r] = rowSnapshot.Cells;
                 }
 
                 _lastSnapshotCols = viewportCols;
                 _hasSnapshotState = true;
-
-                if (dirtyCount > 0)
-                {
-                    dirtySpans = new DirtySpan[dirtyCount];
-                    Array.Copy(dirtyTmp, dirtySpans, dirtyCount);
-                }
+                dirtySpans = NormalizeDirtySpans(dirtyList, viewportRows, viewportCols);
 
                 var visibleImages = GetVisibleImagesSnapshot(absDisplayStart, viewportRows);
                 images = visibleImages.Count > 0 ? visibleImages.ToArray() : Array.Empty<RenderImageSnapshot>();
@@ -301,6 +314,140 @@ namespace NovaTerminal.Core
             Array.Resize(ref _lastSnapshotAbsRows, newLen);
             Array.Resize(ref _lastSnapshotRowIds, newLen);
             Array.Resize(ref _lastSnapshotRowRevisions, newLen);
+            Array.Resize(ref _lastSnapshotRowCells, newLen);
+        }
+
+        private void AppendChangedSpansForRow_NoLock(int rowIndex, RenderCellSnapshot[] currentCells, int viewportCols, List<DirtySpan> dirtySpans)
+        {
+            int cols = Math.Max(0, Math.Min(viewportCols, currentCells.Length));
+            if (cols == 0)
+            {
+                return;
+            }
+
+            RenderCellSnapshot[] previousCells = _lastSnapshotRowCells[rowIndex] ?? Array.Empty<RenderCellSnapshot>();
+            int previousCols = previousCells.Length;
+
+            int spanStart = -1;
+            for (int c = 0; c < cols; c++)
+            {
+                bool isChanged = c >= previousCols || !RenderCellEquals(previousCells[c], currentCells[c]);
+                if (isChanged)
+                {
+                    if (spanStart < 0)
+                    {
+                        spanStart = c;
+                    }
+                }
+                else if (spanStart >= 0)
+                {
+                    dirtySpans.Add(new DirtySpan
+                    {
+                        Row = rowIndex,
+                        ColStart = spanStart,
+                        ColEnd = c
+                    });
+                    spanStart = -1;
+                }
+            }
+
+            if (spanStart >= 0)
+            {
+                dirtySpans.Add(new DirtySpan
+                {
+                    Row = rowIndex,
+                    ColStart = spanStart,
+                    ColEnd = cols
+                });
+            }
+        }
+
+        private static bool RenderCellEquals(in RenderCellSnapshot a, in RenderCellSnapshot b)
+        {
+            return a.Character == b.Character &&
+                   a.Text == b.Text &&
+                   a.Foreground.Equals(b.Foreground) &&
+                   a.Background.Equals(b.Background) &&
+                   a.IsInverse == b.IsInverse &&
+                   a.IsBold == b.IsBold &&
+                   a.IsDefaultForeground == b.IsDefaultForeground &&
+                   a.IsDefaultBackground == b.IsDefaultBackground &&
+                   a.IsWide == b.IsWide &&
+                   a.IsWideContinuation == b.IsWideContinuation &&
+                   a.IsHidden == b.IsHidden &&
+                   a.IsFaint == b.IsFaint &&
+                   a.IsItalic == b.IsItalic &&
+                   a.IsUnderline == b.IsUnderline &&
+                   a.IsBlink == b.IsBlink &&
+                   a.IsStrikethrough == b.IsStrikethrough &&
+                   a.FgIndex == b.FgIndex &&
+                   a.BgIndex == b.BgIndex;
+        }
+
+        private static DirtySpan[] NormalizeDirtySpans(List<DirtySpan> spans, int viewportRows, int viewportCols)
+        {
+            if (spans.Count == 0 || viewportRows <= 0 || viewportCols <= 0)
+            {
+                return Array.Empty<DirtySpan>();
+            }
+
+            spans.Sort(static (a, b) =>
+            {
+                int rowCmp = a.Row.CompareTo(b.Row);
+                if (rowCmp != 0) return rowCmp;
+
+                int startCmp = a.ColStart.CompareTo(b.ColStart);
+                if (startCmp != 0) return startCmp;
+
+                return a.ColEnd.CompareTo(b.ColEnd);
+            });
+
+            var normalized = new List<DirtySpan>(spans.Count);
+            for (int i = 0; i < spans.Count; i++)
+            {
+                var span = spans[i];
+                int row = Math.Clamp(span.Row, 0, viewportRows - 1);
+                int colStart = Math.Clamp(span.ColStart, 0, viewportCols);
+                int colEnd = Math.Clamp(span.ColEnd, 0, viewportCols);
+                if (colEnd <= colStart)
+                {
+                    continue;
+                }
+
+                if (normalized.Count == 0)
+                {
+                    normalized.Add(new DirtySpan
+                    {
+                        Row = row,
+                        ColStart = colStart,
+                        ColEnd = colEnd
+                    });
+                    continue;
+                }
+
+                int lastIdx = normalized.Count - 1;
+                DirtySpan last = normalized[lastIdx];
+                if (last.Row == row && last.ColEnd >= colStart)
+                {
+                    normalized[lastIdx] = new DirtySpan
+                    {
+                        Row = last.Row,
+                        ColStart = last.ColStart,
+                        ColEnd = Math.Max(last.ColEnd, colEnd)
+                    };
+                }
+                else
+                {
+                    normalized.Add(new DirtySpan
+                    {
+                        Row = row,
+                        ColStart = colStart,
+                        ColEnd = colEnd
+                    });
+                }
+            }
+
+            return normalized.Count > 0 ? normalized.ToArray() : Array.Empty<DirtySpan>();
         }
 
         private static SelectionRowSnapshot[] BuildSelectionRows(SelectionState? selection, int absDisplayStart, int viewportRows, int viewportCols)

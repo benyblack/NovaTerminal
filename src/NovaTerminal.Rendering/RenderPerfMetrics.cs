@@ -6,6 +6,10 @@ namespace NovaTerminal.Core
         public double FrameTimeMs { get; set; }
         public int DirtyRows { get; set; }
         public int DirtySpansTotal { get; set; }
+        public int DirtySpanCount { get; set; }
+        public int SpanRenderCount { get; set; }
+        public int RowRenderCount { get; set; }
+        public int DirtyCellsEstimated { get; set; }
         public int DrawCallsText { get; set; }
         public int DrawCallsRects { get; set; }
         public int DrawCallsTotal { get; set; }

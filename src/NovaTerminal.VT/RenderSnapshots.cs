@@ -23,6 +23,7 @@ namespace NovaTerminal.Core
 
     public readonly struct DirtySpan
     {
+        // End-exclusive range: [ColStart, ColEnd)
         public int Row { get; init; }
         public int ColStart { get; init; }
         public int ColEnd { get; init; }

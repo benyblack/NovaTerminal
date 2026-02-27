@@ -233,6 +233,8 @@ namespace NovaTerminal.Core
         // cache hits on subsequent frames (mass invalidation "ghost" bug).
         private const int MaxPictureBuildsPerFrame = int.MaxValue;
         private const float MassInvalidationThreshold = 0.5f; // kept for stats only
+        private const int SpanRenderMaxSpansPerRow = 6;
+        private const float SpanRenderCoverageFallbackThreshold = 0.70f;
 
         // Drop-in replacement for TerminalDrawOperation.DrawTerminal(SKCanvas canvas)
         // Fixes:
@@ -266,7 +268,34 @@ namespace NovaTerminal.Core
                 int bufferCols = renderSnapshot.ViewportCols;
                 int absDisplayStart = renderSnapshot.AbsDisplayStart;
                 byte alpha = (byte)(255 * _opacity);
-                int dirtyRowCount = renderSnapshot.DirtySpans.Length;
+                int dirtySpanCount = renderSnapshot.DirtySpans.Length;
+                var spansByRow = new List<DirtySpan>[bufferRows];
+                for (int i = 0; i < dirtySpanCount; i++)
+                {
+                    var span = renderSnapshot.DirtySpans[i];
+                    if ((uint)span.Row >= (uint)bufferRows)
+                    {
+                        continue;
+                    }
+
+                    var bucket = spansByRow[span.Row];
+                    if (bucket == null)
+                    {
+                        bucket = new List<DirtySpan>(4);
+                        spansByRow[span.Row] = bucket;
+                    }
+
+                    bucket.Add(span);
+                }
+
+                int dirtyRowCount = 0;
+                for (int i = 0; i < spansByRow.Length; i++)
+                {
+                    if (spansByRow[i] != null && spansByRow[i]!.Count > 0)
+                    {
+                        dirtyRowCount++;
+                    }
+                }
                 var frameSw = System.Diagnostics.Stopwatch.StartNew();
                 frame.ThemeBg = new SKColor(renderSnapshot.Theme.Background.R, renderSnapshot.Theme.Background.G, renderSnapshot.Theme.Background.B, alpha);
                 frame.ThemeFg = new SKColor(renderSnapshot.Theme.Foreground.R, renderSnapshot.Theme.Foreground.G, renderSnapshot.Theme.Foreground.B, 255);
@@ -343,6 +372,8 @@ namespace NovaTerminal.Core
 
                 int dirtyCells = 0;
                 int buildsThisFrame = 0;
+                int spanRenderCount = 0;
+                int rowRenderCount = 0;
                 int maxBuilds = MaxPictureBuildsPerFrame; // always unlimited
 
                 // Pass 3: Text
@@ -358,6 +389,7 @@ namespace NovaTerminal.Core
                 for (int r = 0; r < frame.RowItems.Count; r++)
                 {
                     var item = frame.RowItems[r];
+                    var rowSpans = (r < spansByRow.Length) ? spansByRow[r] : null;
 
                     int rowTopPx = _pixelGrid.YForRowTop(r);
                     int baselinePx = _pixelGrid.YForBaseline(r);
@@ -375,9 +407,92 @@ namespace NovaTerminal.Core
                     if (item.Snapshot.HasValue)
                     {
                         var snapshot = item.Snapshot.Value;
+                        bool hasDirtySpans = rowSpans != null && rowSpans.Count > 0;
+                        bool shouldUseSpanRendering = hasDirtySpans && ShouldUseSpanRenderingForRow(rowSpans!, snapshot.Cols);
 
-                        if (buildsThisFrame < maxBuilds)
+                        SKPicture? previousRowPicture = null;
+                        if (shouldUseSpanRendering)
                         {
+                            if (!(_rowCache?.TryGetLatestByRowId(snapshot.RowId, out previousRowPicture, out _) ?? false))
+                            {
+                                shouldUseSpanRendering = false;
+                            }
+                        }
+
+                        if (shouldUseSpanRendering && previousRowPicture != null)
+                        {
+                            // Base row from previous cached revision, then repaint dirty spans only.
+                            canvas.DrawPicture(previousRowPicture, 0, rowTopY);
+                            IncrementOtherDrawCall();
+
+                            int dirtyCellsInRow = 0;
+                            for (int i = 0; i < rowSpans!.Count; i++)
+                            {
+                                var span = rowSpans[i];
+                                int spanStart = Math.Max(0, span.ColStart - 1);
+                                int spanEndExclusive = Math.Min(snapshot.Cols, span.ColEnd + 1);
+                                if (spanEndExclusive <= spanStart)
+                                {
+                                    continue;
+                                }
+
+                                DrawRowTextFromSnapshot(
+                                    canvas,
+                                    snapshot,
+                                    rowTopY: rowTopY,
+                                    baselineY: baselineY,
+                                    colEdges: colEdges,
+                                    font,
+                                    fgPaint,
+                                    frame.ThemeFg,
+                                    frame.ThemeBg,
+                                    renderSnapshot.Theme,
+                                    alpha,
+                                    tf,
+                                    drawBackgrounds: true,
+                                    spanColStart: spanStart,
+                                    spanColEndExclusive: spanEndExclusive);
+
+                                spanRenderCount++;
+                                dirtyCellsInRow += Math.Max(0, span.ColEnd - span.ColStart);
+                            }
+
+                            dirtyCells += dirtyCellsInRow;
+
+                            // Refresh cache entry for the new revision (full-row picture for future frames).
+                            if (buildsThisFrame < maxBuilds)
+                            {
+                                var recSw = System.Diagnostics.Stopwatch.StartNew();
+                                using var recorder = new SKPictureRecorder();
+                                using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, FromDevicePx(_pixelGrid.CellHeightPx)));
+                                DrawRowTextFromSnapshot(
+                                    rowCanvas,
+                                    snapshot,
+                                    rowTopY: 0f,
+                                    baselineY: FromDevicePx(_pixelGrid.BaselineOffsetPx),
+                                    colEdges: colEdges,
+                                    font,
+                                    fgPaint,
+                                    frame.ThemeFg,
+                                    frame.ThemeBg,
+                                    renderSnapshot.Theme,
+                                    alpha,
+                                    tf,
+                                    drawBackgrounds: true);
+
+                                var picture = recorder.EndRecording();
+                                _rowCache?.Add(snapshot.RowId, snapshot.Revision, picture);
+                                IncrementPictureBuild();
+
+                                recSw.Stop();
+                                RendererStatistics.RecordRowPictureRecorded();
+                                RendererStatistics.RecordRowPictureRecordTime(recSw.ElapsedMilliseconds);
+                                buildsThisFrame++;
+                            }
+                        }
+                        else if (buildsThisFrame < maxBuilds)
+                        {
+                            rowRenderCount++;
                             var recSw = System.Diagnostics.Stopwatch.StartNew();
                             using var recorder = new SKPictureRecorder();
                             using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, FromDevicePx(_pixelGrid.CellHeightPx)));
@@ -411,6 +526,7 @@ namespace NovaTerminal.Core
                         }
                         else
                         {
+                            rowRenderCount++;
                             // Budget exhausted: draw direct from snapshot (Correct BUT non-cached fallback)
                             DrawRowTextFromSnapshot(
                                 canvas,
@@ -428,7 +544,10 @@ namespace NovaTerminal.Core
                                 drawBackgrounds: true);
                         }
 
-                        dirtyCells += bufferCols;
+                        if (!shouldUseSpanRendering)
+                        {
+                            dirtyCells += bufferCols;
+                        }
                     }
                 }
 
@@ -565,7 +684,15 @@ namespace NovaTerminal.Core
                 frameSw.Stop();
                 RendererStatistics.RecordFrameRenderTime(frameSw.ElapsedMilliseconds);
                 RendererStatistics.RecordFrame(fullRedraw: true, dirtyCells: dirtyCells);
-                CompleteFramePerfMetrics(perfWriter, frameSw.Elapsed.TotalMilliseconds, dirtyRowCount);
+                if (_collectFramePerfMetrics)
+                {
+                    _framePerfMetrics.DirtySpanCount = dirtySpanCount;
+                    _framePerfMetrics.SpanRenderCount = spanRenderCount;
+                    _framePerfMetrics.RowRenderCount = rowRenderCount;
+                    _framePerfMetrics.DirtyCellsEstimated = dirtyCells;
+                }
+
+                CompleteFramePerfMetrics(perfWriter, frameSw.Elapsed.TotalMilliseconds, dirtyRowCount, dirtySpanCount);
             }
             catch (Exception ex)
             {
@@ -797,7 +924,9 @@ namespace NovaTerminal.Core
             RenderThemeSnapshot themeSnapshot,
             byte alpha,
             SKTypeface primaryTf,
-            bool drawBackgrounds)
+            bool drawBackgrounds,
+            int spanColStart = 0,
+            int spanColEndExclusive = int.MaxValue)
         {
             const float paddingLeft = 4f;
             int cellsRendered = 0;
@@ -807,127 +936,157 @@ namespace NovaTerminal.Core
             int rowIndex = _pixelGrid.CellHeightPx > 0 ? (rowTopPx - _pixelGrid.OriginYPx) / _pixelGrid.CellHeightPx : 0;
             float rowTopYDip = FromDevicePx(rowTopPx);
             float baselineYDip = FromDevicePx(baselinePx);
-
-            if (_runBuilder.Capacity > RunBuilderMaxCapacity)
+            int effectiveSpanStart = Math.Clamp(spanColStart, 0, snapshot.Cols);
+            int effectiveSpanEnd = Math.Clamp(spanColEndExclusive, effectiveSpanStart, snapshot.Cols);
+            if (effectiveSpanEnd <= effectiveSpanStart)
             {
-                // Guard against permanently retaining very large capacities after outlier runs.
-                _runBuilder.Clear();
-                _runBuilder.Capacity = RunBuilderInitialCapacity;
+                return 0;
             }
 
-            var runBuilder = _runBuilder;
-
-            for (int c = 0; c < snapshot.Cols; c++)
+            bool hasSpanClip = effectiveSpanStart > 0 || effectiveSpanEnd < snapshot.Cols;
+            if (hasSpanClip)
             {
-                var cell = snapshot.Cells[c];
-                if (cell.IsWideContinuation || cell.IsHidden) continue;
+                float clipX1 = FromDevicePx(_pixelGrid.XForCol(effectiveSpanStart));
+                float clipX2 = FromDevicePx(_pixelGrid.XForCol(effectiveSpanEnd));
+                canvas.Save();
+                canvas.ClipRect(new SKRect(clipX1, rowTopYDip, clipX2, rowTopYDip + snappedCellHeight));
+            }
 
-                var cb = ResolveCellBackground(cell, themeBg, alpha, themeSnapshot);
-                var cf = ResolveCellForeground(cell, themeFg, alpha, themeSnapshot);
-                bool runIsItalic = cell.IsItalic;
-                bool runIsUnderline = cell.IsUnderline;
-                bool runIsStrikethrough = cell.IsStrikethrough;
-                bool runIsFaint = cell.IsFaint;
-                var fg = cell.IsInverse ? cb : cf;
-                var bg = cell.IsInverse ? cf : cb;
-                if (runIsFaint)
+            try
+            {
+                if (_runBuilder.Capacity > RunBuilderMaxCapacity)
                 {
-                    fg = BlendTowards(fg, bg, 0.5f);
+                    // Guard against permanently retaining very large capacities after outlier runs.
+                    _runBuilder.Clear();
+                    _runBuilder.Capacity = RunBuilderInitialCapacity;
                 }
 
-                runBuilder.Clear();
-                int totalRunWidth = 0;
-                bool runNeedsComplexShaping = false;
-                bool runHasBoxDrawing = false;
-                bool runHasComplexShapingGlyph = false;
-                int k = c;
+                var runBuilder = _runBuilder;
 
-                while (k < snapshot.Cols)
+                for (int c = 0; c < snapshot.Cols; c++)
                 {
-                    var next = snapshot.Cells[k];
-                    if (next.IsHidden || next.IsWideContinuation)
+                    var cell = snapshot.Cells[c];
+                    if (cell.IsWideContinuation || cell.IsHidden) continue;
+
+                    var cb = ResolveCellBackground(cell, themeBg, alpha, themeSnapshot);
+                    var cf = ResolveCellForeground(cell, themeFg, alpha, themeSnapshot);
+                    bool runIsItalic = cell.IsItalic;
+                    bool runIsUnderline = cell.IsUnderline;
+                    bool runIsStrikethrough = cell.IsStrikethrough;
+                    bool runIsFaint = cell.IsFaint;
+                    var fg = cell.IsInverse ? cb : cf;
+                    var bg = cell.IsInverse ? cf : cb;
+                    if (runIsFaint)
                     {
+                        fg = BlendTowards(fg, bg, 0.5f);
+                    }
+
+                    runBuilder.Clear();
+                    int totalRunWidth = 0;
+                    bool runNeedsComplexShaping = false;
+                    bool runHasBoxDrawing = false;
+                    bool runHasComplexShapingGlyph = false;
+                    int k = c;
+
+                    while (k < snapshot.Cols)
+                    {
+                        var next = snapshot.Cells[k];
+                        if (next.IsHidden || next.IsWideContinuation)
+                        {
+                            k++;
+                            continue;
+                        }
+
+                        var ncb = ResolveCellBackground(next, themeBg, alpha, themeSnapshot);
+                        var ncf = ResolveCellForeground(next, themeFg, alpha, themeSnapshot);
+                        var nfg = next.IsInverse ? ncb : ncf;
+                        var nbg = next.IsInverse ? ncf : ncb;
+                        if (next.IsFaint)
+                        {
+                            nfg = BlendTowards(nfg, nbg, 0.5f);
+                        }
+
+                        if (nfg != fg || nbg != bg)
+                            break;
+                        if (next.IsItalic != runIsItalic ||
+                            next.IsUnderline != runIsUnderline ||
+                            next.IsStrikethrough != runIsStrikethrough ||
+                            next.IsFaint != runIsFaint)
+                            break;
+
+                        string cellText = NormalizeTextElementForRender(next.Text ?? next.Character.ToString());
+                        bool cellHasBoxDrawing = ContainsBoxDrawing(cellText);
+                        bool cellNeedsComplexShaping = _enableComplexShaping && ContainsRunesRequiringComplexShaping(cellText);
+
+                        if (k > c)
+                        {
+                            // Keep box-drawing runs isolated from icon/complex-shaping runs so
+                            // snapped box primitives are not bypassed by mixed run shaping.
+                            if ((runHasBoxDrawing && cellNeedsComplexShaping) ||
+                                (runHasComplexShapingGlyph && cellHasBoxDrawing))
+                            {
+                                break;
+                            }
+                        }
+
+                        runHasBoxDrawing |= cellHasBoxDrawing;
+                        runHasComplexShapingGlyph |= cellNeedsComplexShaping;
+                        runNeedsComplexShaping = runHasComplexShapingGlyph && !runHasBoxDrawing;
+
+                        runBuilder.Append(cellText);
+                        int w = GetSafeGraphemeWidth(cellText); // GetGraphemeWidth is thread-safe
+                        totalRunWidth += w;
                         k++;
+                    }
+
+                    int runStartCol = c;
+                    int runEndCol = c + totalRunWidth;
+                    if (runEndCol <= effectiveSpanStart)
+                    {
+                        c = k - 1;
                         continue;
                     }
 
-                    var ncb = ResolveCellBackground(next, themeBg, alpha, themeSnapshot);
-                    var ncf = ResolveCellForeground(next, themeFg, alpha, themeSnapshot);
-                    var nfg = next.IsInverse ? ncb : ncf;
-                    var nbg = next.IsInverse ? ncf : ncb;
-                    if (next.IsFaint)
+                    if (runStartCol >= effectiveSpanEnd)
                     {
-                        nfg = BlendTowards(nfg, nbg, 0.5f);
+                        break;
                     }
 
-                    if (nfg != fg || nbg != bg)
-                        break;
-                    if (next.IsItalic != runIsItalic ||
-                        next.IsUnderline != runIsUnderline ||
-                        next.IsStrikethrough != runIsStrikethrough ||
-                        next.IsFaint != runIsFaint)
-                        break;
+                    string runText = runBuilder.ToString();
+                    float rx = FromDevicePx(_pixelGrid.XForCol(c));
+                    float rx2 = FromDevicePx(_pixelGrid.XForCol(c + totalRunWidth));
+                    fgPaint.Color = fg;
+                    float rw = rx2 - rx;
+                    float strokeWidth = Math.Max(1f, (float)(_metrics.CellHeight * 0.06));
 
-                    string cellText = NormalizeTextElementForRender(next.Text ?? next.Character.ToString());
-                    bool cellHasBoxDrawing = ContainsBoxDrawing(cellText);
-                    bool cellNeedsComplexShaping = _enableComplexShaping && ContainsRunesRequiringComplexShaping(cellText);
-
-                    if (k > c)
+                    // Backgrounds (when requested)
+                    if (drawBackgrounds && bg != themeBg && bg.Alpha != 0)
                     {
-                        // Keep box-drawing runs isolated from icon/complex-shaping runs so
-                        // snapped box primitives are not bypassed by mixed run shaping.
-                        if ((runHasBoxDrawing && cellNeedsComplexShaping) ||
-                            (runHasComplexShapingGlyph && cellHasBoxDrawing))
-                        {
-                            break;
-                        }
+                        _bgFillPaint.Color = bg;
+                        _bgFillPaint.Style = SKPaintStyle.Fill;
+                        _bgFillPaint.IsAntialias = false;
+                        canvas.DrawRect(rx, rowTopYDip, rw, snappedCellHeight, _bgFillPaint);
+                        IncrementRectDrawCall();
                     }
 
-                    runHasBoxDrawing |= cellHasBoxDrawing;
-                    runHasComplexShapingGlyph |= cellNeedsComplexShaping;
-                    runNeedsComplexShaping = runHasComplexShapingGlyph && !runHasBoxDrawing;
+                    bool appliedItalicTransform = false;
+                    if (runIsItalic)
+                    {
+                        FlushBatches(canvas);
+                        canvas.Save();
+                        canvas.Translate(rx, baselineYDip);
+                        canvas.Skew(-0.22f, 0f);
+                        canvas.Translate(-rx, -baselineYDip);
+                        appliedItalicTransform = true;
+                    }
 
-                    runBuilder.Append(cellText);
-                    int w = GetSafeGraphemeWidth(cellText); // GetGraphemeWidth is thread-safe
-                    totalRunWidth += w;
-                    k++;
-                }
-
-                string runText = runBuilder.ToString();
-                float rx = FromDevicePx(_pixelGrid.XForCol(c));
-                float rx2 = FromDevicePx(_pixelGrid.XForCol(c + totalRunWidth));
-                fgPaint.Color = fg;
-                float rw = rx2 - rx;
-                float strokeWidth = Math.Max(1f, (float)(_metrics.CellHeight * 0.06));
-
-                // Backgrounds (when requested)
-                if (drawBackgrounds && bg != themeBg && bg.Alpha != 0)
-                {
-                    _bgFillPaint.Color = bg;
-                    _bgFillPaint.Style = SKPaintStyle.Fill;
-                    _bgFillPaint.IsAntialias = false;
-                    canvas.DrawRect(rx, rowTopYDip, rw, snappedCellHeight, _bgFillPaint);
-                    IncrementRectDrawCall();
-                }
-
-                bool appliedItalicTransform = false;
-                if (runIsItalic)
-                {
-                    FlushBatches(canvas);
-                    canvas.Save();
-                    canvas.Translate(rx, baselineYDip);
-                    canvas.Skew(-0.22f, 0f);
-                    canvas.Translate(-rx, -baselineYDip);
-                    appliedItalicTransform = true;
-                }
-
-                if (runNeedsComplexShaping)
-                {
-                    FlushBatches(canvas);
-                    int fallbackChar = FindFirstMissingGlyphCodePoint(runText, primaryTf);
-                    SKTypeface tfToUse = fallbackChar != 0
-                        ? ResolveTypefaceForCodePoint(fallbackChar, primaryTf)
-                        : primaryTf;
+                    if (runNeedsComplexShaping)
+                    {
+                        FlushBatches(canvas);
+                        int fallbackChar = FindFirstMissingGlyphCodePoint(runText, primaryTf);
+                        SKTypeface tfToUse = fallbackChar != 0
+                            ? ResolveTypefaceForCodePoint(fallbackChar, primaryTf)
+                            : primaryTf;
 
                     bool useLayer = totalRunWidth > 1;
                     if (useLayer)
@@ -1188,11 +1347,40 @@ namespace NovaTerminal.Core
                     }
                 }
 
-                c = k - 1;
+                    c = k - 1;
+                }
+
+                FlushBatches(canvas);
+                return cellsRendered;
+            }
+            finally
+            {
+                if (hasSpanClip)
+                {
+                    canvas.Restore();
+                }
+            }
+        }
+
+        private static bool ShouldUseSpanRenderingForRow(List<DirtySpan> rowSpans, int rowCols)
+        {
+            if (rowSpans.Count == 0 || rowCols <= 0)
+            {
+                return false;
             }
 
-            FlushBatches(canvas);
-            return cellsRendered;
+            if (rowSpans.Count > SpanRenderMaxSpansPerRow)
+            {
+                return false;
+            }
+
+            int covered = 0;
+            for (int i = 0; i < rowSpans.Count; i++)
+            {
+                covered += Math.Max(0, rowSpans[i].ColEnd - rowSpans[i].ColStart);
+            }
+
+            return covered < (int)Math.Ceiling(rowCols * SpanRenderCoverageFallbackThreshold);
         }
 
         private int DrawRowText(SKCanvas canvas, int absRow, int bufferCols, float rowTopY, float baselineY, SKFont font, SKPaint fgPaint, SKColor themeFg, SKColor themeBg, byte alpha, SKTypeface primaryTf, bool drawBackgrounds)
@@ -1228,7 +1416,7 @@ namespace NovaTerminal.Core
             return writer;
         }
 
-        private void CompleteFramePerfMetrics(RenderPerfWriter? writer, double frameTimeMs, int dirtyRows)
+        private void CompleteFramePerfMetrics(RenderPerfWriter? writer, double frameTimeMs, int dirtyRows, int dirtySpans)
         {
             if (!_collectFramePerfMetrics || writer == null)
             {
@@ -1237,7 +1425,7 @@ namespace NovaTerminal.Core
 
             _framePerfMetrics.FrameTimeMs = frameTimeMs;
             _framePerfMetrics.DirtyRows = dirtyRows;
-            _framePerfMetrics.DirtySpansTotal = dirtyRows;
+            _framePerfMetrics.DirtySpansTotal = dirtySpans;
 
             long allocDelta = GC.GetAllocatedBytesForCurrentThread() - _frameAllocStartBytes;
             _framePerfMetrics.AllocBytesThisFrame = allocDelta > 0 ? allocDelta : 0;
