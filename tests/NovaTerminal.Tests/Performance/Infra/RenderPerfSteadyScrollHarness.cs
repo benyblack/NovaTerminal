@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using Avalonia;
 using Avalonia.Media;
 using NovaTerminal.Core;
@@ -140,16 +139,10 @@ namespace NovaTerminal.Tests.Performance.Infra
 
                     try
                     {
-                        MethodInfo? drawMethod = typeof(TerminalDrawOperation).GetMethod("DrawTerminal", BindingFlags.NonPublic | BindingFlags.Instance);
-                        if (drawMethod == null)
-                        {
-                            throw new XunitException("Unable to locate TerminalDrawOperation.DrawTerminal via reflection.");
-                        }
-
                         for (int frame = 0; frame < totalFrames; frame++)
                         {
                             parser.Process(BuildFrameLine(frame + rows));
-                            drawMethod.Invoke(op, new object[] { canvas });
+                            op.DrawTerminalInternal(canvas);
                         }
                     }
                     finally

@@ -252,7 +252,7 @@ namespace NovaTerminal.Core
             var canvas = lease.SkCanvas;
 
             canvas.Save();
-            DrawTerminal(canvas);
+            DrawTerminalInternal(canvas);
             canvas.Restore();
         }
 
@@ -272,7 +272,7 @@ namespace NovaTerminal.Core
         // 2) Preserves row->Y mapping even if some rows are missing (uses VisualRow)
         // 3) Uses a single snapshotted absDisplayStart for consistent image/overlay/cursor mapping
 
-        private void DrawTerminal(SKCanvas canvas)
+        internal void DrawTerminalInternal(SKCanvas canvas)
         {
             try
             {
@@ -735,6 +735,9 @@ namespace NovaTerminal.Core
                 DisposeAndClearFallbackFontCache();
             }
         }
+
+        private void DrawTerminal(SKCanvas canvas)
+            => DrawTerminalInternal(canvas);
 
         private void FlushBatches(SKCanvas canvas)
         {

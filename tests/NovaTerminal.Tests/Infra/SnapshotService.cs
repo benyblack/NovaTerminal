@@ -85,16 +85,7 @@ namespace NovaTerminal.Tests.Infra
 
             try
             {
-                var method = typeof(TerminalDrawOperation).GetMethod(
-                    "DrawTerminal",
-                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
-                if (method == null)
-                {
-                    throw new XunitException("Unable to locate TerminalDrawOperation.DrawTerminal via reflection.");
-                }
-
-                method.Invoke(op, new object[] { canvas });
+                op.DrawTerminalInternal(canvas);
                 return bitmap;
             }
             finally
