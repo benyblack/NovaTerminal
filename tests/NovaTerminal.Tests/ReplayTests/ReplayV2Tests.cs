@@ -247,7 +247,7 @@ namespace NovaTerminal.Tests.ReplayTests
         }
 
         [Fact]
-        public async Task ReplayRunner_StrictHeader_FailsOnMalformData()
+        public async Task ReplayRunner_StrictHeader_ThrowsOnMalformedData()
         {
             string tempFile = Path.GetTempFileName();
             try
@@ -256,22 +256,14 @@ namespace NovaTerminal.Tests.ReplayTests
                 string corruptContent = "This is not JSON\n{\"t\":20,\"d\":\"IFdvcmxk\"}";
                 File.WriteAllText(tempFile, corruptContent);
 
-                var gathered = new StringBuilder();
                 var runner = new ReplayRunner(tempFile);
 
-                // Should not throw, but gathered should be empty if it fails to detect either format
-                // or if it fails the first line and then tries to continue
-                await runner.RunAsync(async (data) =>
-                {
-                    gathered.Append(Encoding.UTF8.GetString(data));
-                    await Task.CompletedTask;
-                });
-
-                // Since it didn't find v2 header, it falls back to v1 parser.
-                // V1 parser is lenient and might skip the first line.
-                // Our implementation skips the first line if it's V2, but if V1 it processes it.
-                // If the first line is garbage, V1 parser catches and skips it.
-                Assert.Equal(" World", gathered.ToString());
+                await Assert.ThrowsAnyAsync<System.Text.Json.JsonException>(() =>
+                    runner.RunAsync(async (data) =>
+                    {
+                        _ = data;
+                        await Task.CompletedTask;
+                    }));
             }
             finally
             {

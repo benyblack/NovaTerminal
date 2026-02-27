@@ -8,6 +8,24 @@ using System.Threading.Tasks;
 
 namespace NovaTerminal.Core.Replay
 {
+    public enum ReplayPlaybackMode
+    {
+        Realtime,
+        Virtual
+    }
+
+    public sealed class ReplayRunOptions
+    {
+        public ReplayPlaybackMode PlaybackMode { get; init; } = ReplayPlaybackMode.Virtual;
+    }
+
+    public sealed class ReplayRunResult
+    {
+        public bool Truncated { get; internal set; }
+        public long LastGoodOffset { get; internal set; } = -1;
+        public int EventsProcessed { get; internal set; }
+    }
+
     public class ReplayRunner
     {
         private readonly string _filePath;
@@ -31,12 +49,44 @@ namespace NovaTerminal.Core.Replay
             double playbackSpeed = 1.0,
             CancellationToken ct = default)
         {
+            ReplayPlaybackMode playbackMode = realtime ? ReplayPlaybackMode.Realtime : ReplayPlaybackMode.Virtual;
+            var options = new ReplayRunOptions { PlaybackMode = playbackMode };
+            _ = await RunWithResultAsync(
+                onDataCallback,
+                onResizeCallback,
+                onMarkerCallback,
+                onInputCallback,
+                onSnapshotCallback,
+                onTimeUpdate,
+                options,
+                minTimeMs,
+                fastForwardToMs,
+                playbackSpeed,
+                ct);
+        }
+
+        public async Task<ReplayRunResult> RunWithResultAsync(
+            Func<byte[], Task> onDataCallback,
+            Func<int, int, Task>? onResizeCallback = null,
+            Func<string, Task>? onMarkerCallback = null,
+            Func<string, Task>? onInputCallback = null,
+            Func<ReplaySnapshot, Task>? onSnapshotCallback = null,
+            Func<long, Task>? onTimeUpdate = null,
+            ReplayRunOptions? options = null,
+            long minTimeMs = 0,
+            long fastForwardToMs = 0,
+            double playbackSpeed = 1.0,
+            CancellationToken ct = default)
+        {
             if (!File.Exists(_filePath))
                 throw new FileNotFoundException("Replay file not found", _filePath);
 
+            var result = new ReplayRunResult();
+            ReplayPlaybackMode playbackMode = options?.PlaybackMode ?? ReplayPlaybackMode.Virtual;
+
             using var reader = new StreamReader(_filePath);
             string? line = await reader.ReadLineAsync();
-            if (line == null) return;
+            if (line == null) return result;
 
             // Detect Version
             bool isV2 = false;
@@ -69,149 +119,139 @@ namespace NovaTerminal.Core.Replay
                 lastOffset = minTimeMs;
             }
 
+            string? nextLine = await reader.ReadLineAsync();
             while (line != null && !ct.IsCancellationRequested)
             {
                 if (!skipCurrentLine)
                 {
                     if (!string.IsNullOrWhiteSpace(line))
                     {
-                        if (isV2)
+                        bool isLastLine = nextLine == null;
+                        try
                         {
-                            lastOffset = await ProcessV2Line(line, onDataCallback, onResizeCallback, onMarkerCallback, onInputCallback, onSnapshotCallback,
-                                realtime, lastOffset, minTimeMs, fastForwardToMs, playbackSpeed);
+                            ProcessedLine processedLine = isV2
+                                ? await ProcessV2Line(line, onDataCallback, onResizeCallback, onMarkerCallback, onInputCallback, onSnapshotCallback,
+                                    playbackMode, lastOffset, minTimeMs, fastForwardToMs, playbackSpeed)
+                                : await ProcessV1Line(line, onDataCallback, playbackMode, lastOffset, minTimeMs, fastForwardToMs, playbackSpeed);
+
+                            lastOffset = processedLine.LastOffsetMs;
+                            if (processedLine.EventProcessed)
+                            {
+                                result.EventsProcessed++;
+                                result.LastGoodOffset = lastOffset;
+                            }
+                            if (onTimeUpdate != null)
+                            {
+                                await onTimeUpdate(lastOffset);
+                            }
                         }
-                        else
+                        catch (Exception ex) when (isLastLine && IsTailTruncationException(ex))
                         {
-                            lastOffset = await ProcessV1Line(line, onDataCallback, realtime, lastOffset, minTimeMs, fastForwardToMs, playbackSpeed);
+                            result.Truncated = true;
+                            break;
                         }
-                        if (onTimeUpdate != null) await onTimeUpdate(lastOffset);
                     }
                 }
                 skipCurrentLine = false;
-                line = await reader.ReadLineAsync();
+                line = nextLine;
+                nextLine = await reader.ReadLineAsync();
             }
+
+            return result;
         }
 
-        private async Task<long> ProcessV2Line(
+        private readonly struct ProcessedLine
+        {
+            public ProcessedLine(long lastOffsetMs, bool eventProcessed)
+            {
+                LastOffsetMs = lastOffsetMs;
+                EventProcessed = eventProcessed;
+            }
+
+            public long LastOffsetMs { get; }
+            public bool EventProcessed { get; }
+        }
+
+        private async Task<ProcessedLine> ProcessV2Line(
             string line,
             Func<byte[], Task> onDataCallback,
             Func<int, int, Task>? onResizeCallback,
             Func<string, Task>? onMarkerCallback,
             Func<string, Task>? onInputCallback,
             Func<ReplaySnapshot, Task>? onSnapshotCallback,
-            bool realtime,
+            ReplayPlaybackMode playbackMode,
             long lastOffset,
             long minTimeMs,
             long fastForwardToMs,
             double playbackSpeed)
         {
-            try
+            var ev = JsonSerializer.Deserialize(line, ReplayJsonContext.Default.ReplayEvent)
+                     ?? throw new JsonException("Replay event line deserialized to null.");
+
+            // SKIP logic: If event is strictly before minTimeMs, ignore it completely (unless it's a resize? No, caller handles state).
+            if (ev.TimeOffsetMs < minTimeMs) return new ProcessedLine(lastOffset, eventProcessed: false);
+
+            long updatedOffset = await AdvanceClockAsync(ev.TimeOffsetMs, playbackMode, lastOffset, fastForwardToMs, playbackSpeed);
+
+            switch (ev.Type)
             {
-                var ev = JsonSerializer.Deserialize(line, ReplayJsonContext.Default.ReplayEvent);
-                if (ev == null) return lastOffset;
-
-                // SKIP logic: If event is strictly before minTimeMs, ignore it completely (unless it's a resize? No, caller handles state).
-                if (ev.TimeOffsetMs < minTimeMs) return lastOffset;
-
-                // FAST FORWARD logic: If event is before fastForwardToMs, process immediately (no delay).
-                bool isFastForwarding = ev.TimeOffsetMs < fastForwardToMs;
-
-                if (realtime && !isFastForwarding)
-                {
-                    if (lastOffset == -1)
+                case "data":
+                    if (!string.IsNullOrEmpty(ev.Data))
                     {
-                        // First event in playback: snap to it immediately, no delay
-                        lastOffset = ev.TimeOffsetMs;
+                        byte[] data = Convert.FromBase64String(ev.Data);
+                        await onDataCallback(data);
                     }
-
-                    long delay = ev.TimeOffsetMs - lastOffset;
-                    if (delay > 0)
+                    break;
+                case "resize":
+                    if (ev.Cols.HasValue && ev.Rows.HasValue && onResizeCallback != null)
                     {
-                        // Apply playback speed
-                        int outputDelay = (int)(delay / playbackSpeed);
-                        if (outputDelay > 0) await Task.Delay(outputDelay);
+                        await onResizeCallback(ev.Cols.Value, ev.Rows.Value);
                     }
-                    lastOffset = ev.TimeOffsetMs;
-                }
-                else if (isFastForwarding)
-                {
-                    // Update lastOffset but don't sleep
-                    lastOffset = ev.TimeOffsetMs;
-                }
-                else
-                {
-                    // Normal non-realtime (should behave like fast forward technically, but kept logic same as before)
-                    lastOffset = ev.TimeOffsetMs;
-                }
-
-                switch (ev.Type)
-                {
-                    case "data":
+                    break;
+                case "marker":
+                    if (!string.IsNullOrEmpty(ev.MarkerName) && onMarkerCallback != null)
+                    {
+                        await onMarkerCallback(ev.MarkerName);
+                    }
+                    break;
+                case "input":
+                    if (onInputCallback != null)
+                    {
                         if (!string.IsNullOrEmpty(ev.Data))
                         {
-                            byte[] data = Convert.FromBase64String(ev.Data);
-                            await onDataCallback(data);
-                        }
-                        break;
-                    case "resize":
-                        if (ev.Cols.HasValue && ev.Rows.HasValue && onResizeCallback != null)
-                        {
-                            await onResizeCallback(ev.Cols.Value, ev.Rows.Value);
-                        }
-                        break;
-                    case "marker":
-                        if (!string.IsNullOrEmpty(ev.MarkerName) && onMarkerCallback != null)
-                        {
-                            await onMarkerCallback(ev.MarkerName);
-                        }
-                        break;
-                    case "input":
-                        if (onInputCallback != null)
-                        {
-                            if (!string.IsNullOrEmpty(ev.Data))
+                            try
                             {
-                                try
+                                string input = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(ev.Data));
+                                await onInputCallback(input);
+                            }
+                            catch
+                            {
+                                // Fallback to legacy field if decoding fails
+                                if (!string.IsNullOrEmpty(ev.Input))
                                 {
-                                    string input = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(ev.Data));
-                                    await onInputCallback(input);
-                                }
-                                catch
-                                {
-                                    // Fallback to legacy field if decoding fails
-                                    if (!string.IsNullOrEmpty(ev.Input))
-                                    {
-                                        await onInputCallback(ev.Input);
-                                    }
+                                    await onInputCallback(ev.Input);
                                 }
                             }
-                            else if (!string.IsNullOrEmpty(ev.Input))
-                            {
-                                await onInputCallback(ev.Input);
-                            }
                         }
-                        break;
-                    case "snapshot":
-                        if (ev.Snapshot != null)
+                        else if (!string.IsNullOrEmpty(ev.Input))
                         {
-                            ValidateSnapshotCellLayout(ev.Snapshot);
-                            if (onSnapshotCallback != null)
-                            {
-                                await onSnapshotCallback(ev.Snapshot);
-                            }
+                            await onInputCallback(ev.Input);
                         }
-                        break;
-                }
-                return lastOffset;
+                    }
+                    break;
+                case "snapshot":
+                    if (ev.Snapshot != null)
+                    {
+                        ValidateSnapshotCellLayout(ev.Snapshot);
+                        if (onSnapshotCallback != null)
+                        {
+                            await onSnapshotCallback(ev.Snapshot);
+                        }
+                    }
+                    break;
             }
-            catch (InvalidDataException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[ReplayRunner] Skip malformed V2 line: {ex.Message}");
-                return lastOffset;
-            }
+
+            return new ProcessedLine(updatedOffset, eventProcessed: true);
         }
 
         private static void ValidateSnapshotCellLayout(ReplaySnapshot snapshot)
@@ -241,62 +281,84 @@ namespace NovaTerminal.Core.Replay
                 $"cell layout mismatch: expected cells_sizeof={expectedSizeOf}, cells_layout_id={expectedLayoutId}; actual cells_sizeof={actualSizeLabel}, cells_layout_id={actualLayoutLabel}.");
         }
 
-        private async Task<long> ProcessV1Line(string line, Func<byte[], Task> onDataCallback, bool realtime, long lastOffset, long minTimeMs, long fastForwardToMs, double playbackSpeed)
+        private async Task<ProcessedLine> ProcessV1Line(
+            string line,
+            Func<byte[], Task> onDataCallback,
+            ReplayPlaybackMode playbackMode,
+            long lastOffset,
+            long minTimeMs,
+            long fastForwardToMs,
+            double playbackSpeed)
         {
-            try
+            using JsonDocument doc = JsonDocument.Parse(line);
+            JsonElement root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
             {
-                // Legacy V1 parsing logic: {"t":TIK,"d":"DATA"}
-                int tIndex = line.IndexOf("\"t\":");
-                int dIndex = line.IndexOf("\"d\":");
-                if (tIndex == -1 || dIndex == -1) return lastOffset;
-
-                // Extract time
-                int tStart = tIndex + 4;
-                int tEnd = line.IndexOf(',', tStart);
-                if (tEnd == -1) tEnd = line.IndexOf('}', tStart);
-                string tStr = line.Substring(tStart, tEnd - tStart);
-                long timeMs = long.Parse(tStr);
-
-                if (timeMs < minTimeMs) return lastOffset;
-
-                // Extract data
-                int dValueStart = line.IndexOf('"', dIndex + 4) + 1; // Find the " after "d":
-                int dValueEnd = line.LastIndexOf('"');
-                if (dValueEnd <= dValueStart) return lastOffset;
-
-                string dataBase64 = line.Substring(dValueStart, dValueEnd - dValueStart);
-
-                bool isFastForwarding = timeMs < fastForwardToMs;
-
-                if (realtime && !isFastForwarding)
-                {
-                    if (lastOffset == -1)
-                    {
-                        lastOffset = timeMs;
-                    }
-
-                    long delay = timeMs - lastOffset;
-                    if (delay > 0)
-                    {
-                        int outputDelay = (int)(delay / playbackSpeed);
-                        if (outputDelay > 0) await Task.Delay(outputDelay);
-                    }
-                    lastOffset = timeMs;
-                }
-                else
-                {
-                    lastOffset = timeMs;
-                }
-
-                byte[] data = Convert.FromBase64String(dataBase64);
-                await onDataCallback(data);
-                return lastOffset;
+                throw new JsonException("Legacy replay line must be a JSON object.");
             }
-            catch
+
+            if (!root.TryGetProperty("t", out JsonElement timeElement) || !timeElement.TryGetInt64(out long timeMs))
             {
-                // Skip malformed V1 lines
-                return lastOffset;
+                throw new JsonException("Legacy replay line missing numeric 't' field.");
             }
+
+            if (timeMs < minTimeMs)
+            {
+                return new ProcessedLine(lastOffset, eventProcessed: false);
+            }
+
+            if (!root.TryGetProperty("d", out JsonElement dataElement) || dataElement.ValueKind != JsonValueKind.String)
+            {
+                throw new JsonException("Legacy replay line missing string 'd' field.");
+            }
+
+            string dataBase64 = dataElement.GetString() ?? throw new JsonException("Legacy replay data field is null.");
+
+            long updatedOffset = await AdvanceClockAsync(timeMs, playbackMode, lastOffset, fastForwardToMs, playbackSpeed);
+            byte[] data = Convert.FromBase64String(dataBase64);
+            await onDataCallback(data);
+            return new ProcessedLine(updatedOffset, eventProcessed: true);
+        }
+
+        private static async Task<long> AdvanceClockAsync(
+            long eventOffsetMs,
+            ReplayPlaybackMode playbackMode,
+            long lastOffsetMs,
+            long fastForwardToMs,
+            double playbackSpeed)
+        {
+            if (playbackMode == ReplayPlaybackMode.Virtual)
+            {
+                return eventOffsetMs;
+            }
+
+            bool isFastForwarding = eventOffsetMs < fastForwardToMs;
+            if (isFastForwarding)
+            {
+                return eventOffsetMs;
+            }
+
+            if (lastOffsetMs == -1)
+            {
+                return eventOffsetMs;
+            }
+
+            long delay = eventOffsetMs - lastOffsetMs;
+            if (delay > 0)
+            {
+                int outputDelay = (int)(delay / playbackSpeed);
+                if (outputDelay > 0)
+                {
+                    await Task.Delay(outputDelay);
+                }
+            }
+
+            return eventOffsetMs;
+        }
+
+        private static bool IsTailTruncationException(Exception ex)
+        {
+            return ex is JsonException || ex is FormatException;
         }
     }
 }
