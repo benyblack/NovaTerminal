@@ -27,23 +27,24 @@ namespace NovaTerminal.Tests.RenderTests
             const int rows = 3;
             const int blockCells = 32;
             const string blocks = "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588";
-            const double renderScaling = 1.5;
+            foreach (double renderScaling in new[] { 1.25, 1.5 })
+            {
+                using var noCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: false);
+                using var withCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: true);
 
-            using var noCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: false);
-            using var withCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: true);
+                int x1 = XForColBitmap(0, renderScaling);
+                int x2 = XForColBitmap(blockCells, renderScaling);
+                int y = YForLogicalOffsetBitmap(Metrics.CellHeight * 0.5, renderScaling);
 
-            int x1 = (int)Math.Round(4.0, MidpointRounding.AwayFromZero);
-            int x2 = (int)Math.Round(4.0 + (blockCells * Metrics.CellWidth), MidpointRounding.AwayFromZero);
-            int y = (int)Math.Round(Metrics.CellHeight * 0.5, MidpointRounding.AwayFromZero);
+                SKColor fg = new SKColor(255, 255, 255, 255);
+                SKColor bg = new SKColor(0, 0, 0, 255);
+                int noCacheGapCols = CountBackgroundLikeColumns(noCache, x1, x2, y, fg, bg);
+                int withCacheGapCols = CountBackgroundLikeColumns(withCache, x1, x2, y, fg, bg);
 
-            SKColor fg = new SKColor(255, 255, 255, 255);
-            SKColor bg = new SKColor(0, 0, 0, 255);
-            int noCacheGapCols = CountBackgroundLikeColumns(noCache, x1, x2, y, fg, bg);
-            int withCacheGapCols = CountBackgroundLikeColumns(withCache, x1, x2, y, fg, bg);
-
-            Assert.True(
-                withCacheGapCols <= noCacheGapCols,
-                $"Glyph cache introduced more seams: no-cache={noCacheGapCols}, with-cache={withCacheGapCols}, range=[{x1},{x2}), y={y}");
+                Assert.True(
+                    withCacheGapCols <= noCacheGapCols,
+                    $"Glyph cache introduced more seams at scaling={renderScaling}: no-cache={noCacheGapCols}, with-cache={withCacheGapCols}, range=[{x1},{x2}), y={y}");
+            }
         }
 
         [AvaloniaFact]
@@ -53,16 +54,21 @@ namespace NovaTerminal.Tests.RenderTests
             const int rows = 3;
             const int blockCells = 24;
             const string blocks = "\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588";
-            const double renderScaling = 1.5;
+            foreach (double renderScaling in new[] { 1.25, 1.5 })
+            {
+                using var withCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: true);
+                using var noCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: false);
 
-            using var withCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: true);
+                int y = YForLogicalOffsetBitmap(Metrics.CellHeight * 0.5, renderScaling);
+                SKColor fg = new SKColor(255, 255, 255, 255);
+                SKColor bg = new SKColor(0, 0, 0, 255);
+                int noCacheBoundaryBgLike = CountBoundaryBackgroundLikePixels(noCache, blockCells, renderScaling, y, fg, bg);
+                int boundaryBgLike = CountBoundaryBackgroundLikePixels(withCache, blockCells, renderScaling, y, fg, bg);
 
-            int y = (int)Math.Round(Metrics.CellHeight * 0.5, MidpointRounding.AwayFromZero);
-            SKColor fg = new SKColor(255, 255, 255, 255);
-            SKColor bg = new SKColor(0, 0, 0, 255);
-            int boundaryBgLike = CountBoundaryBackgroundLikePixels(withCache, blockCells, Metrics.CellWidth, y, fg, bg);
-
-            Assert.Equal(0, boundaryBgLike);
+                Assert.True(
+                    boundaryBgLike <= noCacheBoundaryBgLike,
+                    $"Full block seams regressed at scaling={renderScaling}: no-cache={noCacheBoundaryBgLike}, with-cache={boundaryBgLike}");
+            }
         }
 
         [AvaloniaFact]
@@ -72,20 +78,21 @@ namespace NovaTerminal.Tests.RenderTests
             const int rows = 3;
             const int blockCells = 24;
             const string blocks = "\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581\u2581";
-            const double renderScaling = 1.5;
+            foreach (double renderScaling in new[] { 1.25, 1.5 })
+            {
+                using var noCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: false);
+                using var withCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: true);
 
-            using var noCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: false);
-            using var withCache = RenderRow(blocks, cols, rows, renderScaling, useGlyphCache: true);
+                int y = Math.Clamp(YForLogicalOffsetBitmap(Metrics.CellHeight * 0.96, renderScaling), 0, withCache.Height - 1);
+                SKColor fg = new SKColor(255, 255, 255, 255);
+                SKColor bg = new SKColor(0, 0, 0, 255);
+                int noCacheBoundaryBgLike = CountBoundaryBackgroundLikePixels(noCache, blockCells, renderScaling, y, fg, bg);
+                int boundaryBgLike = CountBoundaryBackgroundLikePixels(withCache, blockCells, renderScaling, y, fg, bg);
 
-            int y = Math.Clamp((int)Math.Round((Metrics.CellHeight * 0.96), MidpointRounding.AwayFromZero), 0, withCache.Height - 1);
-            SKColor fg = new SKColor(255, 255, 255, 255);
-            SKColor bg = new SKColor(0, 0, 0, 255);
-            int noCacheBoundaryBgLike = CountBoundaryBackgroundLikePixels(noCache, blockCells, Metrics.CellWidth, y, fg, bg);
-            int boundaryBgLike = CountBoundaryBackgroundLikePixels(withCache, blockCells, Metrics.CellWidth, y, fg, bg);
-
-            Assert.True(
-                boundaryBgLike <= noCacheBoundaryBgLike,
-                $"Glyph cache introduced more seams for lower blocks: no-cache={noCacheBoundaryBgLike}, with-cache={boundaryBgLike}");
+                Assert.True(
+                    boundaryBgLike <= noCacheBoundaryBgLike,
+                    $"Glyph cache introduced more seams for lower blocks at scaling={renderScaling}: no-cache={noCacheBoundaryBgLike}, with-cache={boundaryBgLike}");
+            }
         }
 
         [AvaloniaFact]
@@ -95,18 +102,19 @@ namespace NovaTerminal.Tests.RenderTests
             const int rows = 3;
             const int blockCells = 24;
             const string shade = "\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592\u2592";
-            const double renderScaling = 1.5;
+            foreach (double renderScaling in new[] { 1.25, 1.5 })
+            {
+                using var noCache = RenderRow(shade, cols, rows, renderScaling, useGlyphCache: false);
+                using var withCache = RenderRow(shade, cols, rows, renderScaling, useGlyphCache: true);
 
-            using var noCache = RenderRow(shade, cols, rows, renderScaling, useGlyphCache: false);
-            using var withCache = RenderRow(shade, cols, rows, renderScaling, useGlyphCache: true);
+                int y = YForLogicalOffsetBitmap(Metrics.CellHeight * 0.5, renderScaling);
+                int noCacheBlackBoundaryHits = CountBoundaryPixelsNearBlack(noCache, blockCells, renderScaling, y, maxLuma: 8);
+                int withCacheBlackBoundaryHits = CountBoundaryPixelsNearBlack(withCache, blockCells, renderScaling, y, maxLuma: 8);
 
-            int y = (int)Math.Round(Metrics.CellHeight * 0.5, MidpointRounding.AwayFromZero);
-            int noCacheBlackBoundaryHits = CountBoundaryPixelsNearBlack(noCache, blockCells, Metrics.CellWidth, y, maxLuma: 8);
-            int withCacheBlackBoundaryHits = CountBoundaryPixelsNearBlack(withCache, blockCells, Metrics.CellWidth, y, maxLuma: 8);
-
-            Assert.True(
-                withCacheBlackBoundaryHits <= noCacheBlackBoundaryHits,
-                $"Glyph cache introduced more near-black shade seams: no-cache={noCacheBlackBoundaryHits}, with-cache={withCacheBlackBoundaryHits}, y={y}");
+                Assert.True(
+                    withCacheBlackBoundaryHits <= noCacheBlackBoundaryHits,
+                    $"Glyph cache introduced more near-black shade seams at scaling={renderScaling}: no-cache={noCacheBlackBoundaryHits}, with-cache={withCacheBlackBoundaryHits}, y={y}");
+            }
         }
 
         [AvaloniaFact]
@@ -216,13 +224,13 @@ namespace NovaTerminal.Tests.RenderTests
             return gapCols;
         }
 
-        private static int CountBoundaryBackgroundLikePixels(SKBitmap bitmap, int cells, float cellWidth, int y, SKColor fg, SKColor bg)
+        private static int CountBoundaryBackgroundLikePixels(SKBitmap bitmap, int cells, double renderScaling, int y, SKColor fg, SKColor bg)
         {
             int hits = 0;
             int row = Math.Clamp(y, 0, bitmap.Height - 1);
             for (int i = 1; i < cells; i++)
             {
-                int x = (int)Math.Round(4.0 + (i * cellWidth), MidpointRounding.AwayFromZero);
+                int x = XForColBitmap(i, renderScaling);
                 if (x < 0 || x >= bitmap.Width) continue;
 
                 SKColor px = bitmap.GetPixel(x, row);
@@ -245,13 +253,13 @@ namespace NovaTerminal.Tests.RenderTests
             return (dr * dr) + (dg * dg) + (db * db);
         }
 
-        private static int CountBoundaryPixelsNearBlack(SKBitmap bitmap, int cells, float cellWidth, int y, int maxLuma)
+        private static int CountBoundaryPixelsNearBlack(SKBitmap bitmap, int cells, double renderScaling, int y, int maxLuma)
         {
             int hits = 0;
             int row = Math.Clamp(y, 0, bitmap.Height - 1);
             for (int i = 1; i < cells; i++)
             {
-                int x = (int)Math.Round(4.0 + (i * cellWidth), MidpointRounding.AwayFromZero);
+                int x = XForColBitmap(i, renderScaling);
                 if (x < 0 || x >= bitmap.Width) continue;
 
                 SKColor px = bitmap.GetPixel(x, row);
@@ -264,5 +272,25 @@ namespace NovaTerminal.Tests.RenderTests
 
             return hits;
         }
+
+        private static int XForColBitmap(int col, double renderScaling)
+        {
+            int originPx = ToDevicePx(4.0, renderScaling);
+            int cellPx = ToDevicePx(Metrics.CellWidth, renderScaling);
+            int xPx = originPx + (col * cellPx);
+            return ToBitmapPx(xPx, renderScaling);
+        }
+
+        private static int YForLogicalOffsetBitmap(double logicalY, double renderScaling)
+        {
+            int yPx = ToDevicePx(logicalY, renderScaling);
+            return ToBitmapPx(yPx, renderScaling);
+        }
+
+        private static int ToDevicePx(double logical, double renderScaling)
+            => (int)Math.Round(logical * renderScaling, MidpointRounding.AwayFromZero);
+
+        private static int ToBitmapPx(int devicePx, double renderScaling)
+            => (int)Math.Round(devicePx / renderScaling, MidpointRounding.AwayFromZero);
     }
 }

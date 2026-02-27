@@ -37,14 +37,12 @@ namespace NovaTerminal.Core
         private readonly double _renderScaling;
         private readonly int _bufferRows;
         private readonly int _bufferCols;
-        private readonly int _totalLines;
-        private readonly int _cursorRow;
-        private readonly int _cursorCol;
         private readonly RowImageCache? _rowCache;
         private readonly bool _enableComplexShaping;
         private readonly GlyphCache? _glyphCache;
         private readonly int _cellWidthDevicePx;
         private readonly int _cellHeightDevicePx;
+        private readonly PixelGrid _pixelGrid;
 
         private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
         private static readonly bool GridDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GRID");
@@ -174,14 +172,22 @@ namespace NovaTerminal.Core
             _renderScaling = renderScaling;
             _bufferRows = snapshotRows;
             _bufferCols = snapshotCols;
-            _totalLines = totalLines;
-            _cursorRow = cursorRow;
-            _cursorCol = cursorCol;
             _rowCache = rowCache;
             _enableComplexShaping = enableComplexShaping;
             _glyphCache = glyphCache;
             _cellWidthDevicePx = Math.Max(1, ToDevicePx(_metrics.CellWidth));
             _cellHeightDevicePx = Math.Max(1, ToDevicePx(_metrics.CellHeight));
+            int baselineOffsetPx = ToDevicePx(_metrics.Baseline);
+            int underlineOffsetPx = ToDevicePx(_metrics.CellHeight - Math.Max(1.5f, _metrics.CellHeight * 0.12f));
+            int strikeOffsetPx = (int)Math.Round(_cellHeightDevicePx * 0.52, MidpointRounding.AwayFromZero);
+            _pixelGrid = new PixelGrid(
+                originXPx: ToDevicePx(4f),
+                originYPx: 0,
+                cellWidthPx: _cellWidthDevicePx,
+                cellHeightPx: _cellHeightDevicePx,
+                baselineOffsetPx: baselineOffsetPx,
+                underlineOffsetPx: underlineOffsetPx,
+                strikeOffsetPx: strikeOffsetPx);
         }
 
         public void Dispose()
@@ -243,79 +249,73 @@ namespace NovaTerminal.Core
                 _glyphCache?.DrainDisposals();
 
                 RenderPerfWriter? perfWriter = BeginFramePerfMetrics();
-                var sw = System.Diagnostics.Stopwatch.StartNew();
                 var frame = new FrameSnapshot();
-
-                int bufferRows = _bufferRows;
-                int bufferCols = _bufferCols;
-                int absDisplayStart = 0;
-                byte alpha = (byte)(255 * _opacity);
-                int dirtyRowCount = 0;
-                bool isMassInvalidation = false;
-                var frameSw = System.Diagnostics.Stopwatch.StartNew();
-
-                // --------------------
-                // Snapshot Phase (LOCK HELD)
-                // --------------------
-                _buffer.Lock.EnterReadLock();
-                try
+                var snapshotRequest = new RenderSnapshotRequest
                 {
-                    frame.ThemeBg = new SKColor(_buffer.Theme.Background.R, _buffer.Theme.Background.G, _buffer.Theme.Background.B, alpha);
-                    frame.ThemeFg = new SKColor(_buffer.Theme.Foreground.R, _buffer.Theme.Foreground.G, _buffer.Theme.Foreground.B, 255);
-                    frame.CursorColor = new SKColor(_buffer.Theme.CursorColor.R, _buffer.Theme.CursorColor.G, _buffer.Theme.CursorColor.B, 255);
-                    frame.CursorStyle = _buffer.Modes.CursorStyle;
-                    // Intentionally leave ThemeBg with its window opacity to paint the base layer
+                    ViewportRows = _bufferRows,
+                    ViewportCols = _bufferCols,
+                    ScrollOffset = _scrollOffset,
+                    Selection = _selection,
+                    SearchMatches = _searchMatches,
+                    ActiveSearchIndex = _activeSearchIndex
+                };
+                TerminalRenderSnapshot renderSnapshot = _buffer.CaptureRenderSnapshot(snapshotRequest, out long readLockMs);
+                RendererStatistics.RecordBufferReadLockTimeMs(readLockMs);
 
-                    absDisplayStart = Math.Max(0, _totalLines - _bufferRows - _scrollOffset);
+                int bufferRows = renderSnapshot.ViewportRows;
+                int bufferCols = renderSnapshot.ViewportCols;
+                int absDisplayStart = renderSnapshot.AbsDisplayStart;
+                byte alpha = (byte)(255 * _opacity);
+                int dirtyRowCount = renderSnapshot.DirtySpans.Length;
+                var frameSw = System.Diagnostics.Stopwatch.StartNew();
+                frame.ThemeBg = new SKColor(renderSnapshot.Theme.Background.R, renderSnapshot.Theme.Background.G, renderSnapshot.Theme.Background.B, alpha);
+                frame.ThemeFg = new SKColor(renderSnapshot.Theme.Foreground.R, renderSnapshot.Theme.Foreground.G, renderSnapshot.Theme.Foreground.B, 255);
+                frame.CursorColor = new SKColor(renderSnapshot.Theme.CursorColor.R, renderSnapshot.Theme.CursorColor.G, renderSnapshot.Theme.CursorColor.B, 255);
+                frame.CursorStyle = renderSnapshot.CursorStyle;
+                frame.Images = renderSnapshot.Images.Length > 0 ? new List<RenderImageSnapshot>(renderSnapshot.Images) : new List<RenderImageSnapshot>();
 
-                    // IMPORTANT: Always add exactly one RowRenderItem per visual row
-                    // so render loop can safely use r for Y positioning.
-                    for (int r = 0; r < bufferRows; r++)
-                    {
-                        int absRow = absDisplayStart + r;
-
-                        var item = new RowRenderItem
+                // IMPORTANT: Always add exactly one RowRenderItem per visual row
+                // so render loop can safely use r for Y positioning.
+                for (int r = 0; r < bufferRows; r++)
+                {
+                    RenderRowSnapshot rowSnapshot = r < renderSnapshot.RowsData.Length
+                        ? renderSnapshot.RowsData[r]
+                        : new RenderRowSnapshot
                         {
-                            AbsRow = absRow,
-                            CachedPicture = null,
-                            Snapshot = null
+                            AbsRow = absDisplayStart + r,
+                            Cols = 0,
+                            Cells = Array.Empty<RenderCellSnapshot>(),
+                            Revision = 0,
+                            RowId = 0
                         };
 
-                        var row = _buffer.GetRowAbsolute(absRow);
-                        if (row != null)
+                    var item = new RowRenderItem
+                    {
+                        AbsRow = rowSnapshot.AbsRow,
+                        CachedPicture = null,
+                        Snapshot = null
+                    };
+
+                    bool hasRenderableRow = rowSnapshot.Cols > 0 && rowSnapshot.Cells.Length >= rowSnapshot.Cols && rowSnapshot.RowId != 0;
+                    if (hasRenderableRow)
+                    {
+                        item.CachedPicture = _rowCache?.Get(rowSnapshot.RowId, rowSnapshot.Revision);
+
+                        if (item.CachedPicture != null)
                         {
-                            // Cache probe using unique RowId
-                            item.CachedPicture = _rowCache?.Get(row.Id, row.Revision);
-
-                            if (item.CachedPicture != null)
-                            {
-                                RendererStatistics.RecordRowCacheHit();
-                                IncrementRowPictureCacheHit();
-                            }
-                            else
-                            {
-                                RendererStatistics.RecordRowCacheMiss();
-                                IncrementRowPictureCacheMiss();
-                                item.Snapshot = _buffer.GetRowSnapshot(absRow, bufferCols);
-                                RendererStatistics.RecordRowSnapshot();
-                                dirtyRowCount++;
-                            }
+                            RendererStatistics.RecordRowCacheHit();
+                            IncrementRowPictureCacheHit();
                         }
-                        // else: row missing -> leave item empty; base background will show
-
-                        frame.RowItems.Add(item);
+                        else
+                        {
+                            RendererStatistics.RecordRowCacheMiss();
+                            IncrementRowPictureCacheMiss();
+                            item.Snapshot = rowSnapshot;
+                            RendererStatistics.RecordRowSnapshot();
+                        }
                     }
 
-                    isMassInvalidation = (bufferRows > 0) && ((float)dirtyRowCount / bufferRows > MassInvalidationThreshold);
-                    frame.Images = _buffer.GetVisibleImagesSnapshot(absDisplayStart, bufferRows);
-
-
-                }
-                finally
-                {
-                    _buffer.Lock.ExitReadLock();
-                    sw.Stop();
-                    RendererStatistics.RecordReadLockTime(sw.ElapsedMilliseconds);
+                    frame.RowItems.Add(item);
                 }
 
                 // --------------------
@@ -336,10 +336,10 @@ namespace NovaTerminal.Core
                 canvas.DrawRect(0, 0, (float)Bounds.Width, (float)Bounds.Height, bgPaint);
                 IncrementRectDrawCall();
 
-                float paddingLeft = 4f;
-                float paddingTop = 0f;
-                float[] colEdges = EnsureCellEdgeGrid(ref _colEdges, ref _colEdgesCount, bufferCols, paddingLeft, _cellWidthDevicePx);
-                float[] rowEdges = EnsureCellEdgeGrid(ref _rowEdges, ref _rowEdgesCount, bufferRows, paddingTop, _cellHeightDevicePx);
+                float paddingLeft = FromDevicePx(_pixelGrid.OriginXPx);
+                float paddingTop = FromDevicePx(_pixelGrid.OriginYPx);
+                float[] colEdges = EnsureCellEdgeGrid(ref _colEdges, ref _colEdgesCount, bufferCols, _pixelGrid.OriginXPx, _pixelGrid.CellWidthPx);
+                float[] rowEdges = EnsureCellEdgeGrid(ref _rowEdges, ref _rowEdgesCount, bufferRows, _pixelGrid.OriginYPx, _pixelGrid.CellHeightPx);
 
                 int dirtyCells = 0;
                 int buildsThisFrame = 0;
@@ -359,8 +359,10 @@ namespace NovaTerminal.Core
                 {
                     var item = frame.RowItems[r];
 
-                    float rowTopY = GetRowEdge(rowEdges, r, paddingTop);
-                    float baselineY = SnapY(rowTopY + _metrics.Baseline);
+                    int rowTopPx = _pixelGrid.YForRowTop(r);
+                    int baselinePx = _pixelGrid.YForBaseline(r);
+                    float rowTopY = FromDevicePx(rowTopPx);
+                    float baselineY = FromDevicePx(baselinePx);
 
                     if (item.CachedPicture != null)
                     {
@@ -378,19 +380,20 @@ namespace NovaTerminal.Core
                         {
                             var recSw = System.Diagnostics.Stopwatch.StartNew();
                             using var recorder = new SKPictureRecorder();
-                            using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, (float)_metrics.CellHeight));
+                            using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, FromDevicePx(_pixelGrid.CellHeightPx)));
 
                             // Row-local coordinates for cached picture recording
                             DrawRowTextFromSnapshot(
                                 rowCanvas,
                                 snapshot,
                                 rowTopY: 0f,
-                                baselineY: SnapY(_metrics.Baseline),
+                                baselineY: FromDevicePx(_pixelGrid.BaselineOffsetPx),
                                 colEdges: colEdges,
                                 font,
                                 fgPaint,
                                 frame.ThemeFg,
                                 frame.ThemeBg,
+                                renderSnapshot.Theme,
                                 alpha,
                                 tf,
                                 drawBackgrounds: true);
@@ -419,6 +422,7 @@ namespace NovaTerminal.Core
                                 fgPaint,
                                 frame.ThemeFg,
                                 frame.ThemeBg,
+                                renderSnapshot.Theme,
                                 alpha,
                                 tf,
                                 drawBackgrounds: true);
@@ -463,60 +467,66 @@ namespace NovaTerminal.Core
                 }
 
                 // Pass 4: Overlays (Selection / Search)
+                int selectionIndex = 0;
                 int matchIndex = 0;
+                SelectionRowSnapshot[] selectionRows = renderSnapshot.SelectionRows;
+                SearchHighlightSnapshot[] searchHighlights = renderSnapshot.SearchHighlights;
                 for (int r = 0; r < bufferRows; r++)
                 {
-                    float y = GetRowEdge(rowEdges, r, paddingTop);
-                    float rowBottom = GetRowEdge(rowEdges, r + 1, paddingTop);
+                    float y = FromDevicePx(_pixelGrid.YForRowTop(r));
+                    float rowBottom = FromDevicePx(_pixelGrid.YForRowTop(r + 1));
                     float rowHeight = rowBottom - y;
                     int absRow = absDisplayStart + r;
 
-                    if (_selection.IsActive)
+                    while (selectionIndex < selectionRows.Length && selectionRows[selectionIndex].AbsRow < absRow)
                     {
-                        var (isSelected, colStart, colEnd) = _selection.GetSelectionRangeForRow(absRow, bufferCols);
-                        if (isSelected)
-                        {
-                            float x1 = GetColEdge(colEdges, colStart, paddingLeft);
-                            float x2 = GetColEdge(colEdges, colEnd + 1, paddingLeft);
-                            canvas.DrawRect(x1, y, x2 - x1, rowHeight, selectionPaint);
-                            IncrementRectDrawCall();
-                        }
+                        selectionIndex++;
                     }
 
-                    // Sub-linear scan for search matches (assumes _searchMatches are sorted by AbsRow)
-                    if (_searchMatches != null && _searchMatches.Count > 0)
+                    int selTemp = selectionIndex;
+                    while (selTemp < selectionRows.Length && selectionRows[selTemp].AbsRow == absRow)
                     {
-                        // Skip matches BEFORE current row
-                        while (matchIndex < _searchMatches.Count && _searchMatches[matchIndex].AbsRow < absRow)
-                            matchIndex++;
+                        var sel = selectionRows[selTemp];
+                        float x1 = GetColEdge(colEdges, sel.ColStart, paddingLeft);
+                        float x2 = GetColEdge(colEdges, sel.ColEnd + 1, paddingLeft);
+                        canvas.DrawRect(x1, y, x2 - x1, rowHeight, selectionPaint);
+                        IncrementRectDrawCall();
+                        selTemp++;
+                    }
 
-                        // Render matches ON current row
-                        int tempIdx = matchIndex;
-                        while (tempIdx < _searchMatches.Count && _searchMatches[tempIdx].AbsRow == absRow)
-                        {
-                            var m = _searchMatches[tempIdx];
-                            var p = (tempIdx == _activeSearchIndex) ? activeMatchPaint : matchPaint;
-                            float x1 = GetColEdge(colEdges, m.StartCol, paddingLeft);
-                            float x2 = GetColEdge(colEdges, m.EndCol + 1, paddingLeft);
-                            canvas.DrawRect(x1, y, x2 - x1, rowHeight, p);
-                            IncrementRectDrawCall();
-                            tempIdx++;
-                        }
+                    // Sub-linear scan for search matches (assumes highlights are sorted by AbsRow)
+                    while (matchIndex < searchHighlights.Length && searchHighlights[matchIndex].AbsRow < absRow)
+                    {
+                        matchIndex++;
+                    }
+
+                    int tempIdx = matchIndex;
+                    while (tempIdx < searchHighlights.Length && searchHighlights[tempIdx].AbsRow == absRow)
+                    {
+                        var m = searchHighlights[tempIdx];
+                        var p = m.IsActive ? activeMatchPaint : matchPaint;
+                        float x1 = GetColEdge(colEdges, m.StartCol, paddingLeft);
+                        float x2 = GetColEdge(colEdges, m.EndCol + 1, paddingLeft);
+                        canvas.DrawRect(x1, y, x2 - x1, rowHeight, p);
+                        IncrementRectDrawCall();
+                        tempIdx++;
                     }
                 }
 
                 // Cursor (optional policy: hide cursor when scrolled back)
                 if (!_hideCursor && _scrollOffset == 0)
                 {
-                    int absCursorRow = (_totalLines - bufferRows) + _cursorRow;
+                    int absCursorRow = (renderSnapshot.TotalLines - bufferRows) + renderSnapshot.CursorRow;
                     int visualRow = absCursorRow - absDisplayStart;
 
                     if (visualRow >= 0 && visualRow < bufferRows)
                     {
-                        float x1 = GetColEdge(colEdges, _cursorCol, paddingLeft);
-                        float x2 = GetColEdge(colEdges, _cursorCol + 1, paddingLeft);
-                        float rowTop = GetRowEdge(rowEdges, visualRow, paddingTop);
-                        float rowBottom = GetRowEdge(rowEdges, visualRow + 1, paddingTop);
+                        float x1 = FromDevicePx(_pixelGrid.XForCol(renderSnapshot.CursorCol));
+                        float x2 = FromDevicePx(_pixelGrid.XForCol(renderSnapshot.CursorCol + 1));
+                        int rowTopPx = _pixelGrid.YForRowTop(visualRow);
+                        int rowBottomPx = _pixelGrid.YForRowTop(visualRow + 1);
+                        float rowTop = FromDevicePx(rowTopPx);
+                        float rowBottom = FromDevicePx(rowBottomPx);
                         float rowHeight = rowBottom - rowTop;
                         using var cursorPaint = new SKPaint { Color = frame.CursorColor, Style = SKPaintStyle.Fill };
 
@@ -528,7 +538,8 @@ namespace NovaTerminal.Core
                                 break;
                             case CursorStyle.Beam:
                                 {
-                                    float beamW = Math.Max(1f, (float)Math.Floor(_metrics.CellWidth * 0.14));
+                                    int beamWPx = Math.Max(1, (int)Math.Floor(_pixelGrid.CellWidthPx * 0.14));
+                                    float beamW = FromDevicePx(beamWPx);
                                     canvas.DrawRect(x1, rowTop, beamW, rowHeight, cursorPaint);
                                     IncrementRectDrawCall();
                                     break;
@@ -536,8 +547,9 @@ namespace NovaTerminal.Core
                             case CursorStyle.Underline:
                             default:
                                 {
-                                    float uY = SnapY(rowTop + rowHeight - 2);
-                                    canvas.DrawRect(x1, uY, x2 - x1, 2, cursorPaint);
+                                    float uY = FromDevicePx(_pixelGrid.YForUnderline(visualRow));
+                                    float underlineH = FromDevicePx(Math.Max(1, ToDevicePx(2)));
+                                    canvas.DrawRect(x1, uY, x2 - x1, underlineH, cursorPaint);
                                     IncrementRectDrawCall();
                                     break;
                                 }
@@ -782,6 +794,7 @@ namespace NovaTerminal.Core
             SKPaint fgPaint,
             SKColor themeFg,
             SKColor themeBg,
+            RenderThemeSnapshot themeSnapshot,
             byte alpha,
             SKTypeface primaryTf,
             bool drawBackgrounds)
@@ -789,6 +802,11 @@ namespace NovaTerminal.Core
             const float paddingLeft = 4f;
             int cellsRendered = 0;
             float snappedCellHeight = FromDevicePx(_cellHeightDevicePx);
+            int rowTopPx = ToDevicePx(rowTopY);
+            int baselinePx = ToDevicePx(baselineY);
+            int rowIndex = _pixelGrid.CellHeightPx > 0 ? (rowTopPx - _pixelGrid.OriginYPx) / _pixelGrid.CellHeightPx : 0;
+            float rowTopYDip = FromDevicePx(rowTopPx);
+            float baselineYDip = FromDevicePx(baselinePx);
 
             if (_runBuilder.Capacity > RunBuilderMaxCapacity)
             {
@@ -804,8 +822,8 @@ namespace NovaTerminal.Core
                 var cell = snapshot.Cells[c];
                 if (cell.IsWideContinuation || cell.IsHidden) continue;
 
-                var cb = ResolveCellBackground(cell, themeBg, alpha);
-                var cf = ResolveCellForeground(cell, themeFg, alpha);
+                var cb = ResolveCellBackground(cell, themeBg, alpha, themeSnapshot);
+                var cf = ResolveCellForeground(cell, themeFg, alpha, themeSnapshot);
                 bool runIsItalic = cell.IsItalic;
                 bool runIsUnderline = cell.IsUnderline;
                 bool runIsStrikethrough = cell.IsStrikethrough;
@@ -833,8 +851,8 @@ namespace NovaTerminal.Core
                         continue;
                     }
 
-                    var ncb = ResolveCellBackground(next, themeBg, alpha);
-                    var ncf = ResolveCellForeground(next, themeFg, alpha);
+                    var ncb = ResolveCellBackground(next, themeBg, alpha, themeSnapshot);
+                    var ncf = ResolveCellForeground(next, themeFg, alpha, themeSnapshot);
                     var nfg = next.IsInverse ? ncb : ncf;
                     var nbg = next.IsInverse ? ncf : ncb;
                     if (next.IsFaint)
@@ -876,8 +894,8 @@ namespace NovaTerminal.Core
                 }
 
                 string runText = runBuilder.ToString();
-                float rx = GetColEdge(colEdges, c, paddingLeft);
-                float rx2 = GetColEdge(colEdges, c + totalRunWidth, paddingLeft);
+                float rx = FromDevicePx(_pixelGrid.XForCol(c));
+                float rx2 = FromDevicePx(_pixelGrid.XForCol(c + totalRunWidth));
                 fgPaint.Color = fg;
                 float rw = rx2 - rx;
                 float strokeWidth = Math.Max(1f, (float)(_metrics.CellHeight * 0.06));
@@ -888,7 +906,7 @@ namespace NovaTerminal.Core
                     _bgFillPaint.Color = bg;
                     _bgFillPaint.Style = SKPaintStyle.Fill;
                     _bgFillPaint.IsAntialias = false;
-                    canvas.DrawRect(rx, rowTopY, rw, snappedCellHeight, _bgFillPaint);
+                    canvas.DrawRect(rx, rowTopYDip, rw, snappedCellHeight, _bgFillPaint);
                     IncrementRectDrawCall();
                 }
 
@@ -897,9 +915,9 @@ namespace NovaTerminal.Core
                 {
                     FlushBatches(canvas);
                     canvas.Save();
-                    canvas.Translate(rx, baselineY);
+                    canvas.Translate(rx, baselineYDip);
                     canvas.Skew(-0.22f, 0f);
-                    canvas.Translate(-rx, -baselineY);
+                    canvas.Translate(-rx, -baselineYDip);
                     appliedItalicTransform = true;
                 }
 
@@ -914,14 +932,14 @@ namespace NovaTerminal.Core
                     bool useLayer = totalRunWidth > 1;
                     if (useLayer)
                     {
-                        canvas.SaveLayer(new SKRect(rx, rowTopY, rx + rw, rowTopY + (float)_metrics.CellHeight), null);
+                        canvas.SaveLayer(new SKRect(rx, rowTopYDip, rx + rw, rowTopYDip + (float)_metrics.CellHeight), null);
                     }
 
                     var shapingResources = GetOrCreateShapingResources(tfToUse ?? primaryTf);
                     var shapedFont = shapingResources.Font;
                     var shaper = shapingResources.Shaper;
                     LogBoxRunDiagnostics(runText, totalRunWidth, shapedFont, shapedFont.MeasureText(runText));
-                    canvas.DrawShapedText(shaper, runText, rx, baselineY, shapedFont, fgPaint);
+                    canvas.DrawShapedText(shaper, runText, rx, baselineYDip, shapedFont, fgPaint);
                     IncrementShapedTextRun();
                     IncrementTextDrawCall();
 
@@ -935,7 +953,7 @@ namespace NovaTerminal.Core
                         if (ShouldDrawRunDirectWhenGlyphCacheEnabled(runText))
                         {
                             FlushBatches(canvas);
-                            canvas.DrawText(runText, rx, baselineY, font, fgPaint);
+                            canvas.DrawText(runText, rx, baselineYDip, font, fgPaint);
                             IncrementTextDrawCall();
                             IncrementDirectDrawTextCall();
                             cellsRendered += totalRunWidth;
@@ -944,8 +962,8 @@ namespace NovaTerminal.Core
                         }
 
                         int cellX = c;
-                        float yBaselineSnap = SnapY(baselineY);
-                        float glyphY = SnapY(yBaselineSnap + font.Metrics.Ascent);
+                        float yBaselineSnap = baselineYDip;
+                        float glyphY = FromDevicePx(ToDevicePx(yBaselineSnap + font.Metrics.Ascent));
                         float invScale = (float)(1.0 / _renderScaling);
                         _blockFillPaint.Color = fg;
                         _blockFillPaint.Style = SKPaintStyle.Fill;
@@ -955,7 +973,7 @@ namespace NovaTerminal.Core
                         {
                             string grapheme = rune.ToString();
                             int graphemeWidth = GetSafeGraphemeWidth(grapheme);
-                            float xIdxSnap = GetColEdge(colEdges, cellX, paddingLeft);
+                            float xIdxSnap = FromDevicePx(_pixelGrid.XForCol(cellX));
 
                             int fallbackChar = FindFirstMissingGlyphCodePoint(grapheme, primaryTf);
                             SKFont glyphFont = font;
@@ -979,7 +997,7 @@ namespace NovaTerminal.Core
                             }
 
                             float cellX1 = xIdxSnap;
-                            float cellX2 = GetColEdge(colEdges, cellX + graphemeWidth, paddingLeft);
+                            float cellX2 = FromDevicePx(_pixelGrid.XForCol(cellX + graphemeWidth));
                             float cellW = cellX2 - cellX1;
                             float cellH = snappedCellHeight;
                             bool hasSingleRune = TryGetSingleRuneCodePoint(grapheme, out int graphemeCodePoint);
@@ -1005,9 +1023,9 @@ namespace NovaTerminal.Core
 
                                 float fillX1 = xStartEighths == 0 ? cellX1 : SnapX(cellX1 + (cellW * (xStartEighths / 8f)));
                                 float fillX2 = xEndEighths == 8 ? cellX2 : SnapX(cellX1 + (cellW * (xEndEighths / 8f)));
-                                float rowBottom = rowTopY + cellH;
-                                float fillY1 = yStartEighths == 0 ? rowTopY : SnapY(rowTopY + (cellH * (yStartEighths / 8f)));
-                                float fillY2 = yEndEighths == 8 ? rowBottom : SnapY(rowTopY + (cellH * (yEndEighths / 8f)));
+                                float rowBottom = rowTopYDip + cellH;
+                                float fillY1 = yStartEighths == 0 ? rowTopYDip : SnapY(rowTopYDip + (cellH * (yStartEighths / 8f)));
+                                float fillY2 = yEndEighths == 8 ? rowBottom : SnapY(rowTopYDip + (cellH * (yEndEighths / 8f)));
                                 if (fillX2 > fillX1 && fillY2 > fillY1)
                                 {
                                     canvas.DrawRect(fillX1, fillY1, fillX2 - fillX1, fillY2 - fillY1, _blockFillPaint);
@@ -1027,7 +1045,7 @@ namespace NovaTerminal.Core
                                 _shadeFillPaint.IsAntialias = false;
                                 if (cellW > 0 && cellH > 0)
                                 {
-                                    canvas.DrawRect(cellX1, rowTopY, cellW, cellH, _shadeFillPaint);
+                                    canvas.DrawRect(cellX1, rowTopYDip, cellW, cellH, _shadeFillPaint);
                                     IncrementRectDrawCall();
                                 }
 
@@ -1038,7 +1056,7 @@ namespace NovaTerminal.Core
                             if (usePrimitiveBlockLike && TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
                             {
                                 FlushBatches(canvas);
-                                DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopY, cellW, cellH, _blockFillPaint);
+                                DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopYDip, cellW, cellH, _blockFillPaint);
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -1046,7 +1064,7 @@ namespace NovaTerminal.Core
                             if (usePrimitiveBraille && TryGetBraillePattern(grapheme, out byte brailleMask))
                             {
                                 FlushBatches(canvas);
-                                DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopY, cellW, cellH, _blockFillPaint);
+                                DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopYDip, cellW, cellH, _blockFillPaint);
                                 cellX += graphemeWidth;
                                 continue;
                             }
@@ -1056,7 +1074,7 @@ namespace NovaTerminal.Core
                                 cpBox >= 0x2500 && cpBox <= 0x257F)
                             {
                                 FlushBatches(canvas);
-                                if (TryDrawBoxDrawingGlyph(canvas, grapheme, cellX1, rowTopY, cellW, cellH, fg))
+                                if (TryDrawBoxDrawingGlyph(canvas, grapheme, cellX1, rowTopYDip, cellW, cellH, fg))
                                 {
                                     cellX += graphemeWidth;
                                     continue;
@@ -1074,7 +1092,7 @@ namespace NovaTerminal.Core
                                     glyphFont,
                                     fgPaint,
                                     cellX1,
-                                    rowTopY,
+                                    rowTopYDip,
                                     cellW,
                                     cellH);
                                 cellX += graphemeWidth;
@@ -1092,7 +1110,7 @@ namespace NovaTerminal.Core
                                     glyphFont,
                                     fgPaint,
                                     cellX1,
-                                    rowTopY,
+                                    rowTopYDip,
                                     cellW,
                                     cellH);
                                 cellX += graphemeWidth;
@@ -1127,7 +1145,7 @@ namespace NovaTerminal.Core
                     }
                     else
                     {
-                        canvas.DrawText(runText, rx, baselineY, font, fgPaint);
+                        canvas.DrawText(runText, rx, baselineYDip, font, fgPaint);
                         IncrementTextDrawCall();
                         IncrementDirectDrawTextCall();
                     }
@@ -1157,15 +1175,14 @@ namespace NovaTerminal.Core
                             underlineX2 = trimmedX2;
                         }
 
-                        float underlineY = SnapY(rowTopY + _metrics.CellHeight - Math.Max(1.5, _metrics.CellHeight * 0.12));
-                        underlineY = Math.Min(underlineY, rowTopY + snappedCellHeight);
+                        float underlineY = FromDevicePx(_pixelGrid.YForUnderline(rowIndex));
                         canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, _decoStrokePaint);
                         IncrementRectDrawCall();
                     }
 
                     if (runIsStrikethrough)
                     {
-                        float strikeY = SnapY(rowTopY + (snappedCellHeight * 0.52));
+                        float strikeY = FromDevicePx(_pixelGrid.YForStrike(rowIndex));
                         canvas.DrawLine(rx, strikeY, rx + rw, strikeY, _decoStrokePaint);
                         IncrementRectDrawCall();
                     }
@@ -1318,7 +1335,7 @@ namespace NovaTerminal.Core
 
         private float SnapY(double logicalY) => Snap(logicalY);
 
-        private float[] EnsureCellEdgeGrid(ref float[]? buffer, ref int usedCount, int cellCount, float logicalStart, int deviceCellSize)
+        private float[] EnsureCellEdgeGrid(ref float[]? buffer, ref int usedCount, int cellCount, int originPx, int deviceCellSize)
         {
             int count = Math.Max(0, cellCount);
             int required = count + 1;
@@ -1334,10 +1351,9 @@ namespace NovaTerminal.Core
             }
 
             usedCount = required;
-            int startPx = ToDevicePx(logicalStart);
             for (int i = 0; i <= count; i++)
             {
-                buffer[i] = FromDevicePx(startPx + (i * deviceCellSize));
+                buffer[i] = FromDevicePx(originPx + (i * deviceCellSize));
             }
             return buffer;
         }
@@ -1345,13 +1361,13 @@ namespace NovaTerminal.Core
         private float GetColEdge(float[] colEdges, int colIndex, float paddingLeft)
         {
             if ((uint)colIndex < (uint)colEdges.Length) return colEdges[colIndex];
-            return SnapX((colIndex * _metrics.CellWidth) + paddingLeft);
+            return FromDevicePx(_pixelGrid.XForCol(colIndex));
         }
 
         private float GetRowEdge(float[] rowEdges, int rowIndex, float paddingTop)
         {
             if ((uint)rowIndex < (uint)rowEdges.Length) return rowEdges[rowIndex];
-            return SnapY((rowIndex * _metrics.CellHeight) + paddingTop);
+            return FromDevicePx(_pixelGrid.YForRowTop(rowIndex));
         }
 
         private void DrawDebugCellGrid(SKCanvas canvas, float[] colEdges, int colEdgeCount, float[] rowEdges, int rowEdgeCount)
@@ -1502,12 +1518,102 @@ namespace NovaTerminal.Core
             if (string.IsNullOrEmpty(textElement)) return 0;
             try
             {
-                return Math.Max(1, _buffer.GetGraphemeWidth(textElement));
+                if (textElement.Length == 1)
+                {
+                    return Rune.TryCreate(textElement[0], out var rune)
+                        ? Math.Max(1, GetRuneWidth(rune))
+                        : 1;
+                }
+
+                int totalBaseWidth = 0;
+                bool hasEmoji = false;
+                bool hasZwj = false;
+                bool hasModifier = false;
+                bool hasEmojiPresentation = false;
+                bool hasAmbiguousSymbolBase = false;
+
+                foreach (var rune in textElement.EnumerateRunes())
+                {
+                    int val = rune.Value;
+                    if (val == 0x200D) { hasZwj = true; continue; }
+                    if (val == 0xFE0F) { hasEmojiPresentation = true; continue; }
+                    if (val >= 0x1F3FB && val <= 0x1F3FF) { hasModifier = true; continue; }
+                    if (IsCombiningRune(rune)) continue;
+
+                    if (val >= 0x2600 && val <= 0x27BF)
+                    {
+                        hasAmbiguousSymbolBase = true;
+                    }
+
+                    int w = GetRuneWidth(rune);
+                    if (totalBaseWidth == 0) totalBaseWidth = w;
+                    else if (!hasZwj) totalBaseWidth += w;
+
+                    if (w == 2) hasEmoji = true;
+                }
+
+                if (hasZwj || hasModifier)
+                {
+                    return hasEmoji ? 2 : Math.Max(1, totalBaseWidth);
+                }
+
+                if (hasEmojiPresentation && hasAmbiguousSymbolBase)
+                {
+                    return Math.Max(2, totalBaseWidth);
+                }
+
+                if (totalBaseWidth == 0) return 0;
+                return totalBaseWidth;
             }
             catch (ArgumentOutOfRangeException)
             {
                 return 1;
             }
+            catch (ArgumentException)
+            {
+                return 1;
+            }
+        }
+
+        private static int GetRuneWidth(Rune rune)
+        {
+            if (IsCombiningRune(rune)) return 0;
+
+            int cp = rune.Value;
+            if (cp < 32 || (cp >= 0x7F && cp <= 0x9F)) return 0;
+            if (cp >= 0x1100 && cp <= 0x115F) return 2;
+            if (cp >= 0x2329 && cp <= 0x232A) return 2;
+            if (cp >= 0x2E80 && cp <= 0xA4CF && cp != 0x303F) return 2;
+            if (cp >= 0xAC00 && cp <= 0xD7A3) return 2;
+            if (cp >= 0xF900 && cp <= 0xFAFF) return 2;
+            if (cp >= 0xFE10 && cp <= 0xFE6F) return 2;
+            if (cp >= 0xFF00 && cp <= 0xFFEF) return 2;
+            if (cp >= 0x1F000 && cp <= 0x1FBFF) return 2;
+            if (cp >= 0x20000 && cp <= 0x3FFFF) return 2;
+
+            return 1;
+        }
+
+        private static bool IsCombiningRune(Rune rune)
+        {
+            if (rune.Value < 0x80) return false;
+
+            var category = Rune.GetUnicodeCategory(rune);
+            if (category == System.Globalization.UnicodeCategory.NonSpacingMark ||
+                category == System.Globalization.UnicodeCategory.SpacingCombiningMark ||
+                category == System.Globalization.UnicodeCategory.EnclosingMark ||
+                category == System.Globalization.UnicodeCategory.ModifierSymbol)
+            {
+                return true;
+            }
+
+            int val = rune.Value;
+            if (val >= 0x200B && val <= 0x200F) return true;
+            if (val >= 0xFE00 && val <= 0xFE0F) return true;
+            if (val >= 0x1F3FB && val <= 0x1F3FF) return true;
+            if (val >= 0xE0020 && val <= 0xE007F) return true;
+
+            return false;
         }
 
         private static string NormalizeTextElementForRender(string text)
@@ -2217,34 +2323,39 @@ namespace NovaTerminal.Core
             return new SKColor(v, v, v, fg.Alpha);
         }
 
-        private SKColor ResolveCellForeground(RenderCellSnapshot cell, SKColor themeFg, byte alpha)
+        private SKColor ResolveCellForeground(RenderCellSnapshot cell, SKColor themeFg, byte alpha, RenderThemeSnapshot themeSnapshot)
         {
             if (cell.IsDefaultForeground) return themeFg;
             if (cell.FgIndex >= 0)
             {
-                var c = ResolvePaletteIndex(cell.FgIndex);
+                var c = ResolvePaletteIndex(cell.FgIndex, themeSnapshot);
                 return new SKColor(c.R, c.G, c.B, 255);
             }
             return new SKColor(cell.Foreground.R, cell.Foreground.G, cell.Foreground.B, 255);
         }
 
-        private SKColor ResolveCellBackground(RenderCellSnapshot cell, SKColor themeBg, byte alpha)
+        private SKColor ResolveCellBackground(RenderCellSnapshot cell, SKColor themeBg, byte alpha, RenderThemeSnapshot themeSnapshot)
         {
             if (cell.IsDefaultBackground) return themeBg;
             if (cell.BgIndex >= 0)
             {
-                var c = ResolvePaletteIndex(cell.BgIndex);
+                var c = ResolvePaletteIndex(cell.BgIndex, themeSnapshot);
                 return new SKColor(c.R, c.G, c.B, 255);
             }
             return new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, 255);
         }
 
-        private TermColor ResolvePaletteIndex(int index)
+        private static TermColor ResolvePaletteIndex(int index, RenderThemeSnapshot themeSnapshot)
         {
             // 0-15 come from the active theme palette.
             if (index < 16)
             {
-                return _buffer.Theme.GetAnsiColor(index % 8, index >= 8);
+                if (themeSnapshot.AnsiPalette != null && (uint)index < (uint)themeSnapshot.AnsiPalette.Length)
+                {
+                    return themeSnapshot.AnsiPalette[index];
+                }
+
+                return TermColor.White;
             }
 
             // 16-231: xterm 6x6x6 cube.

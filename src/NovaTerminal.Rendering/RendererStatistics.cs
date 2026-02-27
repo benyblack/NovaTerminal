@@ -93,6 +93,11 @@ namespace NovaTerminal.Core
             Interlocked.Add(ref _bufferReadLockTimeMs, ms);
         }
 
+        public static void RecordBufferReadLockTimeMs(long ms)
+        {
+            Interlocked.Add(ref _bufferReadLockTimeMs, ms);
+        }
+
         public static void RecordBackgroundScan()
         {
             Interlocked.Increment(ref _backgroundScans);
