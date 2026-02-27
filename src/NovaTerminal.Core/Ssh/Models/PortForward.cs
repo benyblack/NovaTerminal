@@ -14,4 +14,19 @@ public sealed class PortForward
     public int SourcePort { get; set; }
     public string DestinationHost { get; set; } = string.Empty;
     public int DestinationPort { get; set; }
+
+    public override string ToString()
+    {
+        string bind = string.IsNullOrWhiteSpace(BindAddress)
+            ? SourcePort.ToString()
+            : $"{BindAddress}:{SourcePort}";
+
+        return Kind switch
+        {
+            PortForwardKind.Local => $"Local {bind} -> {DestinationHost}:{DestinationPort}",
+            PortForwardKind.Remote => $"Remote {bind} -> {DestinationHost}:{DestinationPort}",
+            PortForwardKind.Dynamic => $"Dynamic {bind}",
+            _ => bind
+        };
+    }
 }

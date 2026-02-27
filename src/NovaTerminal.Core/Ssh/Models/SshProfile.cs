@@ -21,5 +21,8 @@ public sealed class SshProfile
     public List<SshJumpHop> JumpHops { get; set; } = new();
     public List<PortForward> Forwards { get; set; } = new();
     public SshMuxOptions MuxOptions { get; set; } = new();
+    public int ServerAliveIntervalSeconds { get; set; } = 30;
+    public int ServerAliveCountMax { get; set; } = 3;
+    public string ExtraSshArgs { get; set; } = string.Empty;
     public string WorkingDirectory { get; set; } = string.Empty;
 }

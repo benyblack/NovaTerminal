@@ -69,6 +69,40 @@ public sealed class SshLaunchPlannerTests
         }
     }
 
+    [Fact]
+    public void Plan_WithProfileExtraArgs_AppendsTokenizedArguments()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            var store = new JsonSshProfileStore(Path.Combine(root, "profiles.json"));
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("2ec84ef4-4140-447f-b9a9-10f9a9cd5e9f"),
+                Host = "example.com",
+                ExtraSshArgs = "-o StrictHostKeyChecking=no -o \"UserKnownHostsFile /dev/null\""
+            };
+            store.SaveProfile(profile);
+
+            var compiler = new OpenSshConfigCompiler(root);
+            var planner = new SshLaunchPlanner(store, compiler);
+
+            SshLaunchPlan plan = planner.Plan(profile.Id);
+
+            Assert.Equal(7, plan.Arguments.Count);
+            Assert.Equal("-F", plan.Arguments[0]);
+            Assert.Equal(plan.Alias, plan.Arguments[2]);
+            Assert.Equal("-o", plan.Arguments[3]);
+            Assert.Equal("StrictHostKeyChecking=no", plan.Arguments[4]);
+            Assert.Equal("-o", plan.Arguments[5]);
+            Assert.Equal("UserKnownHostsFile /dev/null", plan.Arguments[6]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), $"nova_ssh_planner_test_{Guid.NewGuid():N}");

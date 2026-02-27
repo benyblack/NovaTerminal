@@ -1617,11 +1617,10 @@ namespace NovaTerminal
 
             if (connManager != null)
             {
-                connManager.OnConnect += (profile, diagnosticsLevel) =>
+                connManager.OnQuickOpenRequested += (profile, target, diagnosticsLevel) =>
                 {
-                    AddTab(profile, diagnosticsLevel);
+                    HandleSshQuickOpen(profile, target, diagnosticsLevel);
                     ToggleConnections();
-                    // Save LastUsed update
                     _settings.Save();
                 };
                 connManager.OnCopyLaunchCommandRequested += (profile, diagnosticsLevel) =>
@@ -1631,6 +1630,10 @@ namespace NovaTerminal
                 connManager.OnConnectionDetailsRequested += (profile, diagnosticsLevel) =>
                 {
                     _ = ShowSshConnectionDetailsAsync(profile, diagnosticsLevel);
+                };
+                connManager.OnProfilesChanged += () =>
+                {
+                    _settings.Save();
                 };
                 connManager.OnSyncRequested += HandleSshSync;
                 connManager.OnEditProfile += async (profile) =>
@@ -2847,6 +2850,123 @@ namespace NovaTerminal
             else if (control is ContentPresenter cp && cp.Content is Control childContent) DisposeControlTree(childContent);
         }
 
+        private void HandleSshQuickOpen(TerminalProfile profile, SshQuickOpenTarget target, SshDiagnosticsLevel diagnosticsLevel)
+        {
+            switch (target)
+            {
+                case SshQuickOpenTarget.CurrentPane:
+                    OpenProfileInCurrentPane(profile, diagnosticsLevel);
+                    return;
+                case SshQuickOpenTarget.NewTab:
+                    AddTab(profile, diagnosticsLevel);
+                    return;
+                case SshQuickOpenTarget.SplitHorizontal:
+                    OpenProfileInSplitPane(profile, Avalonia.Layout.Orientation.Vertical, diagnosticsLevel);
+                    return;
+                case SshQuickOpenTarget.SplitVertical:
+                    OpenProfileInSplitPane(profile, Avalonia.Layout.Orientation.Horizontal, diagnosticsLevel);
+                    return;
+                default:
+                    AddTab(profile, diagnosticsLevel);
+                    return;
+            }
+        }
+
+        private void OpenProfileInSplitPane(TerminalProfile profile, Avalonia.Layout.Orientation splitOrientation, SshDiagnosticsLevel diagnosticsLevel)
+        {
+            if (_currentPane == null)
+            {
+                AddTab(profile, diagnosticsLevel);
+                return;
+            }
+
+            SplitPane(splitOrientation);
+            OpenProfileInCurrentPane(profile, diagnosticsLevel);
+        }
+
+        private void OpenProfileInCurrentPane(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel)
+        {
+            if (_currentPane == null)
+            {
+                AddTab(profile, diagnosticsLevel);
+                return;
+            }
+
+            TerminalProfile resolvedProfile = _settings.Profiles.Find(p => p.Id == profile.Id) ?? profile;
+            var paneToReplace = _currentPane;
+            var replacementPane = new TerminalPane(resolvedProfile, diagnosticsLevel);
+            replacementPane.ApplySettings(_settings);
+            WirePane(replacementPane);
+
+            if (!ReplacePaneInVisualTree(paneToReplace, replacementPane))
+            {
+                DisposeControlTree(replacementPane);
+                AddTab(resolvedProfile, diagnosticsLevel);
+                return;
+            }
+
+            _currentPane = replacementPane;
+            if (TryGetSelectedTab(out var selectedTab))
+            {
+                _activePaneByTab[selectedTab] = replacementPane;
+                if (selectedTab.Header is TextBlock tabHeader)
+                {
+                    tabHeader.Text = resolvedProfile.Name;
+                }
+            }
+
+            DisposeControlTree(paneToReplace);
+            Dispatcher.UIThread.Post(() => replacementPane.ActiveControl.Focus(), DispatcherPriority.Loaded);
+            UpdateTabVisuals();
+            UpdatePaneAutomationLabels();
+            UpdateBroadcastIndicator();
+            if (TryGetSelectedTab(out selectedTab))
+            {
+                RefreshLayoutModelForTab(selectedTab);
+            }
+        }
+
+        private static bool ReplacePaneInVisualTree(TerminalPane sourcePane, TerminalPane replacementPane)
+        {
+            switch (sourcePane.Parent)
+            {
+                case Grid grid:
+                    CopyGridPlacement(sourcePane, replacementPane);
+                    int gridIndex = grid.Children.IndexOf(sourcePane);
+                    if (gridIndex < 0)
+                    {
+                        return false;
+                    }
+
+                    grid.Children.RemoveAt(gridIndex);
+                    grid.Children.Insert(gridIndex, replacementPane);
+                    return true;
+
+                case ContentPresenter presenter:
+                    presenter.Content = replacementPane;
+                    return true;
+
+                case TabItem tabItem:
+                    tabItem.Content = replacementPane;
+                    return true;
+
+                case Panel panel:
+                    CopyGridPlacement(sourcePane, replacementPane);
+                    int panelIndex = panel.Children.IndexOf(sourcePane);
+                    if (panelIndex < 0)
+                    {
+                        return false;
+                    }
+
+                    panel.Children.RemoveAt(panelIndex);
+                    panel.Children.Insert(panelIndex, replacementPane);
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
         void AddTab(TerminalProfile? profile = null, SshDiagnosticsLevel sshDiagnostics = SshDiagnosticsLevel.None)
         {
             var tabs = this.FindControl<TabControl>("Tabs");
@@ -3681,7 +3801,7 @@ namespace NovaTerminal
 
         private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
         {
-            var vm = NewSshConnectionViewModel.FromTerminalProfile(existingProfile);
+            var vm = _sshConnectionService.CreateEditorViewModel(existingProfile);
             var dialog = new NewSshConnectionView(vm);
             bool saved = await dialog.ShowDialog<bool>(this);
 
@@ -3712,6 +3832,7 @@ namespace NovaTerminal
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.Clipboard == null)
             {
+                await ShowSimpleMessageDialogAsync("Copy launch command", "Clipboard is not available.");
                 return;
             }
 
@@ -3723,6 +3844,7 @@ namespace NovaTerminal
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to copy SSH command: {ex.Message}");
+                await ShowSimpleMessageDialogAsync("Copy launch command", ex.Message);
             }
         }
 
@@ -3736,7 +3858,48 @@ namespace NovaTerminal
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to show SSH connection details: {ex.Message}");
+                await ShowSimpleMessageDialogAsync("Connection details", ex.Message);
             }
+        }
+
+        private async Task ShowSimpleMessageDialogAsync(string title, string message)
+        {
+            var dialog = new Window
+            {
+                Title = title,
+                Width = 520,
+                Height = 220,
+                CanResize = false,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+
+            var closeButton = new Button { Content = "Close", Width = 92 };
+            closeButton.Click += (_, __) => dialog.Close();
+
+            dialog.Content = new Border
+            {
+                Padding = new Thickness(16),
+                Child = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = message,
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Children = { closeButton }
+                        }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
         }
 
         private async Task ShowConnectionDetailsDialogAsync(SshLaunchDetails details, SshDiagnosticsLevel diagnosticsLevel)

@@ -36,6 +36,11 @@ public sealed class SshLaunchPlanner : ISshLaunchPlanner
             result.Alias
         };
 
+        foreach (string arg in ParseExtraArguments(profile.ExtraSshArgs))
+        {
+            args.Add(arg);
+        }
+
         if (extraArgs != null)
         {
             foreach (string arg in extraArgs.Where(arg => !string.IsNullOrWhiteSpace(arg)))
@@ -112,5 +117,62 @@ public sealed class SshLaunchPlanner : ISshLaunchPlanner
         }
 
         return false;
+    }
+
+    private static IReadOnlyList<string> ParseExtraArguments(string? rawArguments)
+    {
+        if (string.IsNullOrWhiteSpace(rawArguments))
+        {
+            return Array.Empty<string>();
+        }
+
+        var tokens = new List<string>();
+        var current = new System.Text.StringBuilder(rawArguments.Length);
+        bool inQuotes = false;
+        char quoteChar = '\0';
+
+        foreach (char ch in rawArguments)
+        {
+            if (inQuotes)
+            {
+                if (ch == quoteChar)
+                {
+                    inQuotes = false;
+                }
+                else
+                {
+                    current.Append(ch);
+                }
+
+                continue;
+            }
+
+            if (ch == '"' || ch == '\'')
+            {
+                inQuotes = true;
+                quoteChar = ch;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(ch))
+            {
+                if (current.Length > 0)
+                {
+                    tokens.Add(current.ToString());
+                    current.Clear();
+                }
+
+                continue;
+            }
+
+            current.Append(ch);
+        }
+
+        if (current.Length > 0)
+        {
+            tokens.Add(current.ToString());
+        }
+
+        return tokens;
     }
 }

@@ -79,9 +79,11 @@ public sealed class OpenSshConfigCompiler : IOpenSshConfigCompiler
         }
 
         int port = profile.Port > 0 ? profile.Port : 22;
+        int serverAliveInterval = profile.ServerAliveIntervalSeconds > 0 ? profile.ServerAliveIntervalSeconds : 30;
+        int serverAliveCountMax = profile.ServerAliveCountMax > 0 ? profile.ServerAliveCountMax : 3;
         sb.Append("  Port ").Append(port.ToString()).AppendLine();
-        sb.AppendLine("  ServerAliveInterval 30");
-        sb.AppendLine("  ServerAliveCountMax 3");
+        sb.Append("  ServerAliveInterval ").Append(serverAliveInterval.ToString()).AppendLine();
+        sb.Append("  ServerAliveCountMax ").Append(serverAliveCountMax.ToString()).AppendLine();
 
         if (profile.AuthMode == SshAuthMode.IdentityFile && !string.IsNullOrWhiteSpace(profile.IdentityFilePath))
         {
@@ -311,6 +313,9 @@ public sealed class OpenSshConfigCompiler : IOpenSshConfigCompiler
                 ControlPath = profile.MuxOptions.ControlPath,
                 ControlPersistSeconds = profile.MuxOptions.ControlPersistSeconds
             },
+            ServerAliveIntervalSeconds = profile.ServerAliveIntervalSeconds,
+            ServerAliveCountMax = profile.ServerAliveCountMax,
+            ExtraSshArgs = profile.ExtraSshArgs,
             WorkingDirectory = profile.WorkingDirectory
         };
     }
