@@ -4,6 +4,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using NovaTerminal.Core;
+using NovaTerminal.Core.Ssh.Launch;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,8 +13,10 @@ namespace NovaTerminal.Controls
 {
     public partial class ConnectionManager : UserControl
     {
-        public event Action<TerminalProfile>? OnConnect;
+        public event Action<TerminalProfile, SshDiagnosticsLevel>? OnConnect;
         public event Action<TerminalProfile>? OnEditProfile;
+        public event Action<TerminalProfile, SshDiagnosticsLevel>? OnCopyLaunchCommandRequested;
+        public event Action<TerminalProfile, SshDiagnosticsLevel>? OnConnectionDetailsRequested;
         public event Action? OnSyncRequested;
 
         private List<TerminalProfile> _allProfiles = new();
@@ -23,6 +26,12 @@ namespace NovaTerminal.Controls
         {
             InitializeComponent();
             SearchInput.TextChanged += (s, e) => FilterConnections();
+            var diagnosticsCombo = this.FindControl<ComboBox>("DiagnosticsCombo");
+            if (diagnosticsCombo != null)
+            {
+                diagnosticsCombo.ItemsSource = Enum.GetValues<SshDiagnosticsLevel>();
+                diagnosticsCombo.SelectedItem = SshDiagnosticsLevel.None;
+            }
         }
 
         public static readonly StyledProperty<IBrush> CardBackgroundProperty =
@@ -69,7 +78,7 @@ namespace NovaTerminal.Controls
         {
             if (sender is Button btn && btn.Tag is TerminalProfile profile)
             {
-                OnConnect?.Invoke(profile);
+                OnConnect?.Invoke(profile, GetSelectedDiagnosticsLevel());
             }
         }
 
@@ -79,6 +88,24 @@ namespace NovaTerminal.Controls
             {
                 e.Handled = true;
                 OnEditProfile?.Invoke(profile);
+            }
+        }
+
+        private void OnCopyCommandClick(object? sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is TerminalProfile profile)
+            {
+                e.Handled = true;
+                OnCopyLaunchCommandRequested?.Invoke(profile, GetSelectedDiagnosticsLevel());
+            }
+        }
+
+        private void OnDetailsClick(object? sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn && btn.Tag is TerminalProfile profile)
+            {
+                e.Handled = true;
+                OnConnectionDetailsRequested?.Invoke(profile, GetSelectedDiagnosticsLevel());
             }
         }
 
@@ -168,6 +195,15 @@ namespace NovaTerminal.Controls
             FilterByGroup(currentGroup);
         }
 
+        private SshDiagnosticsLevel GetSelectedDiagnosticsLevel()
+        {
+            var diagnosticsCombo = this.FindControl<ComboBox>("DiagnosticsCombo");
+            if (diagnosticsCombo?.SelectedItem is SshDiagnosticsLevel level)
+            {
+                return level;
+            }
 
+            return SshDiagnosticsLevel.None;
+        }
     }
 }

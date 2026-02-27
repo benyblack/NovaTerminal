@@ -52,7 +52,13 @@ public static class SshArgBuilder
     public static string BuildCommandLine(SshProfile profile)
     {
         IReadOnlyList<string> args = BuildArguments(profile);
-        return string.Join(' ', args.Select(QuoteToken));
+        return BuildCommandLine(args);
+    }
+
+    public static string BuildCommandLine(IEnumerable<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        return string.Join(' ', arguments.Select(QuoteToken));
     }
 
     public static string SanitizeForLog(string commandLine)
