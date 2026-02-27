@@ -23,9 +23,9 @@ Please read the following documents first:
 
 - `README.md` – project overview
 - `README.internal.md` – engineering rules and intent
-- `documents/ARCHITECTURE.md` – architectural boundaries
-- `documents/MODULE_OWNERSHIP.md` – invariant ownership
-- `documents/ROADMAP.md` – test-gated roadmap
+- `docs/ARCHITECTURE.md` – architectural boundaries
+- `docs/MODULE_OWNERSHIP.md` – invariant ownership
+- `docs/ROADMAP.md` – test-gated roadmap
 
 PRs that ignore these documents will be rejected.
 

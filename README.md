@@ -113,7 +113,7 @@ graph TD
 - **Kitty Graphics Protocol** (native on Linux/macOS; tunneled mode on Windows)
 - **Proper ConPTY Synchronization** (Images render inline with prompts)
 
-See `documents/IMAGE_PROTOCOL_SUPPORT.md` for platform-specific protocol behavior and fallback rules.
+See `docs/IMAGE_PROTOCOL_SUPPORT.md` for platform-specific protocol behavior and fallback rules.
 
 ### UI
 - Tabs
@@ -124,7 +124,7 @@ See `documents/IMAGE_PROTOCOL_SUPPORT.md` for platform-specific protocol behavio
 - Themes and fonts
 - Live settings (no restart)
 
-See `documents/TABS_USER_MANUAL.md` for tabs behavior, shortcuts, workspace flows, and troubleshooting.
+See `docs/TABS_USER_MANUAL.md` for tabs behavior, shortcuts, workspace flows, and troubleshooting.
 
 ### Remote
 - SSH profiles
@@ -165,8 +165,8 @@ Current focus:
 NovaTerminal is running a focused GPU hardening workstream to improve rendering throughput while preserving deterministic behavior.
 
 Authoritative docs:
-- `documents/NovaTerminal_GPU_Hardening_Engineering_Spec.md`
-- `documents/NovaTerminal_GPU_Hardening_8_Week_Sprint_Plan.md`
+- `docs/NovaTerminal_GPU_Hardening_Engineering_Spec.md`
+- `docs/NovaTerminal_GPU_Hardening_8_Week_Sprint_Plan.md`
 - `docs/RENDERING_PERF_CONTRACT.md`
 
 Core guardrails:

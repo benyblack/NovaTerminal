@@ -3,7 +3,7 @@
 Date: 2026-02-14  
 Status: In Execution (M1/M2 complete; M3 foundation implemented; nightly stability gate pending)
 
-User manual: `documents/TABS_USER_MANUAL.md`
+User manual: `docs/TABS_USER_MANUAL.md`
 
 ## Execution Status Snapshot (2026-02-14)
 

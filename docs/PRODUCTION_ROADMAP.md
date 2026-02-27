@@ -438,7 +438,7 @@ gantt
 - Moved runtime writable files to user-scoped LocalAppData paths with one-time non-destructive migration.
 - Switched parity comparison to runtime-generated replay artifacts; parity compare fails when artifacts are missing.
 - Fixed nightly stress lane to run real `Stress`, `Performance`, and `Latency` categories (instead of empty `ReplayStress` filter).
-- Synced execution documentation in `documents/PRODUCTION_EXECUTION_PLAN.md`.
+- Synced execution documentation in `docs/PRODUCTION_EXECUTION_PLAN.md`.
 
 **Exit criteria**: met.
 

@@ -8,9 +8,9 @@ It applies to:
 - automated agents (Antigravity / Codex)
 
 Related execution plans:
-- `documents/PRODUCTION_EXECUTION_PLAN.md`
-- `documents/MULTI_PANE_EXECUTION_PLAN.md`
-- `documents/TABS_EXECUTION_PLAN.md`
+- `docs/PRODUCTION_EXECUTION_PLAN.md`
+- `docs/MULTI_PANE_EXECUTION_PLAN.md`
+- `docs/TABS_EXECUTION_PLAN.md`
 
 ---
 

@@ -3,12 +3,12 @@
 This document is the central hub for all testing activities. It links to specialized documentation for each major component of Nova Terminal.
 
 ## 1. Component Testing
-- [Core VT/ANSI Correctness](file:///d:/projects/nova2/documents/qa/QA_CORE.md) `[Automated]`
-- [Buffer Integrity & Reflow](file:///d:/projects/nova2/documents/qa/QA_BUFFER_REFLOW.md) `[Automated]`
-- [Rendering Fidelity & Performance](file:///d:/projects/nova2/documents/qa/QA_RENDERING.md) `[Semi-Automated]`
-- [UI, Theming & Interaction](file:///d:/projects/nova2/documents/qa/QA_UI_INTERACTION.md) `[Manual]`
-- [Platform Parity & Environment](file:///d:/projects/nova2/documents/qa/QA_PLATFORM_PARITY.md) `[Automated (via Replay)]`
-- [Graphics Protocols (Kitty, iTerm2, Sixel)](file:///d:/projects/nova2/documents/qa/QA_GRAPHICS.md) `[Automated (Logic)]`
+- [Core VT/ANSI Correctness](file:///d:/projects/nova2/docs/qa/QA_CORE.md) `[Automated]`
+- [Buffer Integrity & Reflow](file:///d:/projects/nova2/docs/qa/QA_BUFFER_REFLOW.md) `[Automated]`
+- [Rendering Fidelity & Performance](file:///d:/projects/nova2/docs/qa/QA_RENDERING.md) `[Semi-Automated]`
+- [UI, Theming & Interaction](file:///d:/projects/nova2/docs/qa/QA_UI_INTERACTION.md) `[Manual]`
+- [Platform Parity & Environment](file:///d:/projects/nova2/docs/qa/QA_PLATFORM_PARITY.md) `[Automated (via Replay)]`
+- [Graphics Protocols (Kitty, iTerm2, Sixel)](file:///d:/projects/nova2/docs/qa/QA_GRAPHICS.md) `[Automated (Logic)]`
 
 ---
 

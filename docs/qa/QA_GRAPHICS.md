@@ -1,6 +1,6 @@
 # QA: Graphics Regression Test Plan
 
-This document defines the manual steps required to verify that Nova Terminal's graphics implementation is robust across updates. It is a subset of the [Master QA Plan](file:///d:/projects/nova2/documents/qa/MASTER_QA_PLAN.md).
+This document defines the manual steps required to verify that Nova Terminal's graphics implementation is robust across updates. It is a subset of the [Master QA Plan](file:///d:/projects/nova2/docs/qa/MASTER_QA_PLAN.md).
 
 ## 1. Protocol Verification
 
