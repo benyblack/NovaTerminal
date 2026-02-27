@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("NovaTerminal.Tests")]
+[assembly: InternalsVisibleTo("NovaTerminal.Replay")]
 
 namespace NovaTerminal.Core
 {

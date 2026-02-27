@@ -27,6 +27,8 @@ namespace NovaTerminal.Core
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     public struct TerminalCell
     {
+        internal const string TerminalCellLayoutId = "TerminalCell/v1";
+
         public char Character;
         public ushort Flags; // TerminalCellFlags bitmask
         public uint Fg; // RGB 0xRRGGBB or Palette Index

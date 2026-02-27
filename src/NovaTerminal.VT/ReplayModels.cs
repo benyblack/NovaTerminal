@@ -85,6 +85,12 @@ namespace NovaTerminal.Core.Replay
         [JsonPropertyName("cells")]
         public string? CellsBase64 { get; set; }
 
+        [JsonPropertyName("cells_sizeof")]
+        public int? CellsSizeOf { get; set; }
+
+        [JsonPropertyName("cells_layout_id")]
+        public string? CellsLayoutId { get; set; }
+
         [JsonPropertyName("ext")]
         public System.Collections.Generic.Dictionary<int, string>? ExtendedText { get; set; }
 

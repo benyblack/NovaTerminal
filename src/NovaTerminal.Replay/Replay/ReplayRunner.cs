@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -190,19 +191,54 @@ namespace NovaTerminal.Core.Replay
                         }
                         break;
                     case "snapshot":
-                        if (ev.Snapshot != null && onSnapshotCallback != null)
+                        if (ev.Snapshot != null)
                         {
-                            await onSnapshotCallback(ev.Snapshot);
+                            ValidateSnapshotCellLayout(ev.Snapshot);
+                            if (onSnapshotCallback != null)
+                            {
+                                await onSnapshotCallback(ev.Snapshot);
+                            }
                         }
                         break;
                 }
                 return lastOffset;
+            }
+            catch (InvalidDataException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[ReplayRunner] Skip malformed V2 line: {ex.Message}");
                 return lastOffset;
             }
+        }
+
+        private static void ValidateSnapshotCellLayout(ReplaySnapshot snapshot)
+        {
+            bool hasAnyLayoutMetadata = snapshot.CellsSizeOf.HasValue || snapshot.CellsLayoutId != null;
+            if (!hasAnyLayoutMetadata)
+            {
+                // Legacy recordings may not carry layout metadata.
+                return;
+            }
+
+            int expectedSizeOf = Unsafe.SizeOf<TerminalCell>();
+            string expectedLayoutId = TerminalCell.TerminalCellLayoutId;
+            int? actualSizeOf = snapshot.CellsSizeOf;
+            string? actualLayoutId = snapshot.CellsLayoutId;
+
+            bool sizeMatches = actualSizeOf.HasValue && actualSizeOf.Value == expectedSizeOf;
+            bool layoutMatches = string.Equals(actualLayoutId, expectedLayoutId, StringComparison.Ordinal);
+            if (sizeMatches && layoutMatches)
+            {
+                return;
+            }
+
+            string actualSizeLabel = actualSizeOf.HasValue ? actualSizeOf.Value.ToString() : "<missing>";
+            string actualLayoutLabel = string.IsNullOrEmpty(actualLayoutId) ? "<missing>" : actualLayoutId;
+            throw new InvalidDataException(
+                $"cell layout mismatch: expected cells_sizeof={expectedSizeOf}, cells_layout_id={expectedLayoutId}; actual cells_sizeof={actualSizeLabel}, cells_layout_id={actualLayoutLabel}.");
         }
 
         private async Task<long> ProcessV1Line(string line, Func<byte[], Task> onDataCallback, bool realtime, long lastOffset, long minTimeMs, long fastForwardToMs, double playbackSpeed)

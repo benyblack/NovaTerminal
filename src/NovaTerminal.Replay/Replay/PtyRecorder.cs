@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Collections.Generic;
 using System.IO;
@@ -150,6 +151,8 @@ namespace NovaTerminal.Core.Replay
                 // Convert allCells to Base64 using zero-copy casting
                 var byteSpan = MemoryMarshal.AsBytes(allCells.AsSpan());
                 snapshot.CellsBase64 = Convert.ToBase64String(byteSpan);
+                snapshot.CellsSizeOf = Unsafe.SizeOf<TerminalCell>();
+                snapshot.CellsLayoutId = TerminalCell.TerminalCellLayoutId;
             }
             finally
             {

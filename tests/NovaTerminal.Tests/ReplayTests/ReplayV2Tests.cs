@@ -3,6 +3,7 @@ using NovaTerminal.Core.Replay;
 using System.Text;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Xunit;
@@ -205,6 +206,11 @@ namespace NovaTerminal.Tests.ReplayTests
                 var firstCell = cellSpan[0];
                 Assert.Equal('C', firstCell.Character);
                 Assert.Equal(new TermColor(255, 0, 0).ToUint(), firstCell.Fg);
+
+                // Snapshot metadata for cell layout should be recorded for replay safety.
+                string snapshotLine = File.ReadAllLines(tempFile).First(l => l.Contains("\"type\":\"snapshot\""));
+                Assert.Contains("\"cells_sizeof\":", snapshotLine);
+                Assert.Contains($"\"cells_layout_id\":\"{TerminalCell.TerminalCellLayoutId}\"", snapshotLine);
             }
             finally
             {
@@ -302,6 +308,89 @@ namespace NovaTerminal.Tests.ReplayTests
         }
 
         [Fact]
+        public async Task ReplayRunner_SnapshotLegacyWithoutLayoutMetadata_Loads()
+        {
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                WriteMinimalReplayWithSnapshot(
+                    tempFile,
+                    "\"cols\":1,\"rows\":1,\"cells\":\"AAAAAAAAAAAAAA==\"");
+
+                var runner = new ReplayRunner(tempFile);
+                bool sawSnapshot = false;
+
+                await runner.RunAsync(
+                    onDataCallback: _ => Task.CompletedTask,
+                    onSnapshotCallback: snapshot =>
+                    {
+                        sawSnapshot = true;
+                        return Task.CompletedTask;
+                    });
+
+                Assert.True(sawSnapshot);
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public async Task ReplayRunner_SnapshotWithMismatchedCellSize_ThrowsInvalidDataException()
+        {
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                WriteMinimalReplayWithSnapshot(
+                    tempFile,
+                    "\"cols\":1,\"rows\":1,\"cells\":\"AAAAAAAAAAAAAA==\",\"cells_sizeof\":123,\"cells_layout_id\":\"TerminalCell/v1\"");
+
+                var runner = new ReplayRunner(tempFile);
+                var ex = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                    runner.RunAsync(
+                        onDataCallback: _ => Task.CompletedTask,
+                        onSnapshotCallback: _ => Task.CompletedTask));
+
+                Assert.Contains("cell layout mismatch", ex.Message);
+                Assert.Contains("cells_sizeof", ex.Message);
+                Assert.Contains("123", ex.Message);
+                Assert.Contains(Unsafe.SizeOf<TerminalCell>().ToString(), ex.Message);
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public async Task ReplayRunner_SnapshotWithMismatchedLayoutId_ThrowsInvalidDataException()
+        {
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                WriteMinimalReplayWithSnapshot(
+                    tempFile,
+                    $"\"cols\":1,\"rows\":1,\"cells\":\"AAAAAAAAAAAAAA==\",\"cells_sizeof\":{Unsafe.SizeOf<TerminalCell>()},\"cells_layout_id\":\"TerminalCell/v999\"");
+
+                var runner = new ReplayRunner(tempFile);
+                var ex = await Assert.ThrowsAsync<InvalidDataException>(() =>
+                    runner.RunAsync(
+                        onDataCallback: _ => Task.CompletedTask,
+                        onSnapshotCallback: _ => Task.CompletedTask));
+
+                Assert.Contains("cell layout mismatch", ex.Message);
+                Assert.Contains("cells_layout_id", ex.Message);
+                Assert.Contains("TerminalCell/v999", ex.Message);
+                Assert.Contains("TerminalCell/v1", ex.Message);
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
         public void ApplySnapshot_RestoresModeAndStyleState()
         {
             var buffer = new TerminalBuffer(80, 24);
@@ -358,6 +447,13 @@ namespace NovaTerminal.Tests.ReplayTests
             Assert.True(buffer.IsBlink);
             Assert.True(buffer.IsStrikethrough);
             Assert.True(buffer.IsHidden);
+        }
+
+        private static void WriteMinimalReplayWithSnapshot(string filePath, string snapshotJsonProperties)
+        {
+            string header = "{\"type\":\"novarec\",\"v\":2,\"cols\":1,\"rows\":1,\"date\":\"2026-01-01T00:00:00.0000000Z\",\"shell\":\"\"}";
+            string snapshotEvent = $"{{\"t\":0,\"type\":\"snapshot\",\"s\":{{{snapshotJsonProperties}}}}}";
+            File.WriteAllText(filePath, $"{header}\n{snapshotEvent}\n");
         }
     }
 }
