@@ -26,12 +26,13 @@ public sealed class SshSession : ITerminalSession
         Guid profileId,
         int cols = 120,
         int rows = 30,
+        SshDiagnosticsLevel diagnosticsLevel = SshDiagnosticsLevel.None,
         ISshProcessLauncher? launcher = null,
         Action<string>? log = null)
     {
         ISshProfileStore store = new JsonSshProfileStore();
         ISshLaunchPlanner planner = new SshLaunchPlanner(store, new OpenSshConfigCompiler());
-        return new SshSession(profileId, planner, cols, rows, launcher, log);
+        return new SshSession(profileId, planner, cols, rows, diagnosticsLevel, null, launcher, log);
     }
 
     public SshSession(
@@ -39,12 +40,14 @@ public sealed class SshSession : ITerminalSession
         ISshProfileStore profileStore,
         int cols = 120,
         int rows = 30,
+        SshDiagnosticsLevel diagnosticsLevel = SshDiagnosticsLevel.None,
+        IReadOnlyList<string>? extraArgs = null,
         ISshProcessLauncher? launcher = null,
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(profileStore);
         ISshLaunchPlanner planner = new SshLaunchPlanner(profileStore, new OpenSshConfigCompiler());
-        Initialize(profileId, planner, cols, rows, launcher, log);
+        Initialize(profileId, planner, cols, rows, diagnosticsLevel, extraArgs, launcher, log);
     }
 
     public SshSession(
@@ -52,10 +55,12 @@ public sealed class SshSession : ITerminalSession
         ISshLaunchPlanner launchPlanner,
         int cols = 120,
         int rows = 30,
+        SshDiagnosticsLevel diagnosticsLevel = SshDiagnosticsLevel.None,
+        IReadOnlyList<string>? extraArgs = null,
         ISshProcessLauncher? launcher = null,
         Action<string>? log = null)
     {
-        Initialize(profileId, launchPlanner, cols, rows, launcher, log);
+        Initialize(profileId, launchPlanner, cols, rows, diagnosticsLevel, extraArgs, launcher, log);
     }
 
     private void Initialize(
@@ -63,12 +68,22 @@ public sealed class SshSession : ITerminalSession
         ISshLaunchPlanner launchPlanner,
         int cols,
         int rows,
+        SshDiagnosticsLevel diagnosticsLevel,
+        IReadOnlyList<string>? extraArgs,
         ISshProcessLauncher? launcher,
         Action<string>? log)
     {
         ArgumentNullException.ThrowIfNull(launchPlanner);
+        var requestedExtraArgs = new List<string>();
+        requestedExtraArgs.AddRange(diagnosticsLevel.ToArguments());
+        if (extraArgs != null)
+        {
+            requestedExtraArgs.AddRange(extraArgs);
+        }
 
-        SshLaunchPlan launchPlan = launchPlanner.Plan(profileId);
+        SshLaunchPlan launchPlan = launchPlanner.Plan(
+            profileId,
+            requestedExtraArgs.Count == 0 ? null : requestedExtraArgs);
         string args = SshArgBuilder.BuildCommandLine(launchPlan.Arguments);
         string safeArgs = SshArgBuilder.SanitizeForLog(args);
 
@@ -77,6 +92,7 @@ public sealed class SshSession : ITerminalSession
         logger($"[SshSession] Arguments: {safeArgs}");
         logger($"[SshSession] Generated config: {launchPlan.ConfigFilePath}");
         logger($"[SshSession] Alias: {launchPlan.Alias}");
+        logger($"[SshSession] Diagnostics: {diagnosticsLevel}");
 
         // Keep launch behind an abstraction so we can swap to native SSH in the future
         // without changing the session surface used by the rest of the app.

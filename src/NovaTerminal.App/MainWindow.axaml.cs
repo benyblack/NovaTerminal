@@ -22,6 +22,7 @@ using SkiaSharp;
 
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
+using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.ViewModels.Ssh;
 using NovaTerminal.Views.Ssh;
 
@@ -1616,12 +1617,20 @@ namespace NovaTerminal
 
             if (connManager != null)
             {
-                connManager.OnConnect += (profile) =>
+                connManager.OnConnect += (profile, diagnosticsLevel) =>
                 {
-                    AddTab(profile);
+                    AddTab(profile, diagnosticsLevel);
                     ToggleConnections();
                     // Save LastUsed update
                     _settings.Save();
+                };
+                connManager.OnCopyLaunchCommandRequested += (profile, diagnosticsLevel) =>
+                {
+                    _ = CopySshLaunchCommandAsync(profile, diagnosticsLevel);
+                };
+                connManager.OnConnectionDetailsRequested += (profile, diagnosticsLevel) =>
+                {
+                    _ = ShowSshConnectionDetailsAsync(profile, diagnosticsLevel);
                 };
                 connManager.OnSyncRequested += HandleSshSync;
                 connManager.OnEditProfile += async (profile) =>
@@ -2838,7 +2847,7 @@ namespace NovaTerminal
             else if (control is ContentPresenter cp && cp.Content is Control childContent) DisposeControlTree(childContent);
         }
 
-        void AddTab(TerminalProfile? profile = null)
+        void AddTab(TerminalProfile? profile = null, SshDiagnosticsLevel sshDiagnostics = SshDiagnosticsLevel.None)
         {
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs == null) return;
@@ -2878,7 +2887,7 @@ namespace NovaTerminal
                 return;
             }
 
-            var pane = new TerminalPane(profile);
+            var pane = new TerminalPane(profile, sshDiagnostics);
             WirePane(pane);
 
             pane.ApplySettings(_settings);
@@ -3019,7 +3028,7 @@ namespace NovaTerminal
             {
                 // Create a copy of the profile for the new split pane
                 var profile = originalPane.Profile;
-                newPane = new TerminalPane(profile);
+                newPane = new TerminalPane(profile, SshDiagnosticsLevel.None);
             }
             else
             {
@@ -3689,13 +3698,110 @@ namespace NovaTerminal
 
                 if (vm.ConnectAfterSave)
                 {
-                    AddTab(profile);
+                    AddTab(profile, SshDiagnosticsLevel.None);
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to save SSH connection: {ex.Message}");
             }
+        }
+
+        private async Task CopySshLaunchCommandAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel)
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.Clipboard == null)
+            {
+                return;
+            }
+
+            try
+            {
+                string command = _sshConnectionService.BuildLaunchCommand(profile, diagnosticsLevel);
+                await topLevel.Clipboard.SetTextAsync(command);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to copy SSH command: {ex.Message}");
+            }
+        }
+
+        private async Task ShowSshConnectionDetailsAsync(TerminalProfile profile, SshDiagnosticsLevel diagnosticsLevel)
+        {
+            try
+            {
+                var details = _sshConnectionService.BuildLaunchDetails(profile, diagnosticsLevel);
+                await ShowConnectionDetailsDialogAsync(details, diagnosticsLevel);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to show SSH connection details: {ex.Message}");
+            }
+        }
+
+        private async Task ShowConnectionDetailsDialogAsync(SshLaunchDetails details, SshDiagnosticsLevel diagnosticsLevel)
+        {
+            var dialog = new Window
+            {
+                Title = "Connection details",
+                Width = 760,
+                Height = 340,
+                CanResize = false,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+
+            var sshPathBox = new TextBox { Text = details.SshPath, IsReadOnly = true };
+            var configPathBox = new TextBox { Text = details.ConfigPath, IsReadOnly = true };
+            var commandBox = new TextBox
+            {
+                Text = details.CommandLine,
+                IsReadOnly = true,
+                TextWrapping = TextWrapping.Wrap,
+                AcceptsReturn = true,
+                Height = 72
+            };
+
+            var closeButton = new Button { Content = "Close", Width = 92 };
+            closeButton.Click += (_, __) => dialog.Close();
+
+            var copyButton = new Button { Content = "Copy command", Width = 120 };
+            copyButton.Click += async (_, __) =>
+            {
+                var topLevel = TopLevel.GetTopLevel(dialog);
+                if (topLevel?.Clipboard != null)
+                {
+                    await topLevel.Clipboard.SetTextAsync(details.CommandLine);
+                }
+            };
+
+            dialog.Content = new Border
+            {
+                Padding = new Thickness(16),
+                Child = new StackPanel
+                {
+                    Spacing = 10,
+                    Children =
+                    {
+                        new TextBlock { Text = $"Diagnostics: {diagnosticsLevel}" },
+                        new TextBlock { Text = $"Alias: {details.Alias}" },
+                        new TextBlock { Text = "Resolved SSH path" },
+                        sshPathBox,
+                        new TextBlock { Text = "Generated config path" },
+                        configPathBox,
+                        new TextBlock { Text = "Repro command" },
+                        commandBox,
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Spacing = 8,
+                            Children = { copyButton, closeButton }
+                        }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
         }
 
         private void RefreshProfileUIs()

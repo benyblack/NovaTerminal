@@ -40,6 +40,35 @@ public sealed class SshLaunchPlannerTests
         }
     }
 
+    [Fact]
+    public void Plan_WithDiagnostics_AppendsVerbosityFlagAfterAlias()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            var store = new JsonSshProfileStore(Path.Combine(root, "profiles.json"));
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("f3e45de6-895e-4b18-bb6e-7a0265f398db"),
+                Host = "example.com"
+            };
+            store.SaveProfile(profile);
+
+            var compiler = new OpenSshConfigCompiler(root);
+            var planner = new SshLaunchPlanner(store, compiler);
+
+            SshLaunchPlan plan = planner.Plan(profile.Id, SshDiagnosticsLevel.VeryVerbose.ToArguments());
+
+            Assert.Equal(4, plan.Arguments.Count);
+            Assert.Equal(plan.Alias, plan.Arguments[2]);
+            Assert.Equal("-vv", plan.Arguments[3]);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), $"nova_ssh_planner_test_{Guid.NewGuid():N}");

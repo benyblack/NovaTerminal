@@ -10,7 +10,7 @@
     <Grid ColumnDefinitions="250, *" Margin="10">
         <!-- Sidebar: Groups & Tags -->
         <Border Grid.Column="0" BorderBrush="#333" BorderThickness="0,0,1,0" Padding="0,0,10,0">
-            <Grid RowDefinitions="Auto, *">
+            <Grid RowDefinitions="Auto, Auto, *">
                 <Grid ColumnDefinitions="*, Auto">
                     <TextBox Name="SearchInput" Watermark="Search connections..." Margin="0,0,5,10"/>
                     <Button Name="BtnSync" Grid.Column="1" Width="30" Height="30" Padding="5" Background="Transparent" BorderThickness="0"
@@ -18,8 +18,13 @@
                         <PathIcon Data="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z" Width="16" Height="16"/>
                     </Button>
                 </Grid>
+
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+                    <TextBlock Text="Diagnostics" VerticalAlignment="Center" />
+                    <ComboBox Name="DiagnosticsCombo" Width="145" SelectedIndex="0" />
+                </StackPanel>
                 
-                <TreeView Name="GroupsTree" Grid.Row="1" Background="Transparent" BorderThickness="0">
+                <TreeView Name="GroupsTree" Grid.Row="2" Background="Transparent" BorderThickness="0">
                     <TreeView.Styles>
                         <Style Selector="TreeViewItem">
                             <Setter Property="FontSize" Value="13"/>
@@ -53,11 +58,23 @@
                                     HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                                     Click="OnConnectionClick" Tag="{Binding}">
                                 <Grid RowDefinitions="Auto, *, Auto">
-                                    <Grid ColumnDefinitions="*, Auto">
+                                    <Grid ColumnDefinitions="*, Auto, Auto, Auto">
                                         <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
                                         <Button Grid.Column="1" Width="20" Height="20" Padding="2" Background="Transparent" BorderThickness="0"
                                                 ToolTip.Tip="Edit Connection" Tag="{Binding}" Click="OnEditClick">
                                             <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" Width="12" Height="12" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"/>
+                                        </Button>
+                                        <Button Grid.Column="2" Width="20" Height="20" Padding="2" Background="Transparent" BorderThickness="0"
+                                                ToolTip.Tip="Copy launch command" Tag="{Binding}" Click="OnCopyCommandClick">
+                                            <PathIcon Data="M19,21H9A2,2 0 0,1 7,19V7H9V19H19M16,3A2,2 0 0,1 18,5V15A2,2 0 0,1 16,17H12A2,2 0 0,1 10,15V5A2,2 0 0,1 12,3H16Z"
+                                                      Width="12" Height="12"
+                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"/>
+                                        </Button>
+                                        <Button Grid.Column="3" Width="20" Height="20" Padding="2" Background="Transparent" BorderThickness="0"
+                                                ToolTip.Tip="Connection details" Tag="{Binding}" Click="OnDetailsClick">
+                                            <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"
+                                                      Width="12" Height="12"
+                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"/>
                                         </Button>
                                     </Grid>
                                     <TextBlock Grid.Row="1" Text="{Binding Command}" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>

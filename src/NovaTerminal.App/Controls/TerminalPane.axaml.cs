@@ -13,6 +13,7 @@ using System.Net.NetworkInformation;
 using System.Linq;
 using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
+using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Sessions;
 
 namespace NovaTerminal.Controls
@@ -52,6 +53,7 @@ namespace NovaTerminal.Controls
         private bool _isUpdatingScroll = false;
         private DispatcherTimer? _statusTimer;
         private bool _hasUserInteraction;
+        private readonly SshDiagnosticsLevel _sshDiagnosticsLevel;
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -136,6 +138,7 @@ namespace NovaTerminal.Controls
         public TerminalPane()
         {
             InitializeComponent();
+            _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(null, null, c, r);
@@ -145,6 +148,7 @@ namespace NovaTerminal.Controls
         public TerminalPane(string shell)
         {
             InitializeComponent();
+            _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(shell, null, c, r);
@@ -154,6 +158,7 @@ namespace NovaTerminal.Controls
         public TerminalPane(string shell, string args)
         {
             InitializeComponent();
+            _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(shell, null, c, r, args);
@@ -161,9 +166,15 @@ namespace NovaTerminal.Controls
         }
 
         public TerminalPane(TerminalProfile profile)
+            : this(profile, SshDiagnosticsLevel.None)
+        {
+        }
+
+        public TerminalPane(TerminalProfile profile, SshDiagnosticsLevel sshDiagnosticsLevel)
         {
             Profile = profile;
             InitializeComponent();
+            _sshDiagnosticsLevel = sshDiagnosticsLevel;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(profile.Command, profile, c, r);
@@ -375,7 +386,12 @@ namespace NovaTerminal.Controls
                     {
                         // Uses system OpenSSH in PTY; session abstraction can be swapped later
                         // if a native SSH backend is introduced.
-                        Session = SshSession.FromDefaultStore(profile.Id, cols, rows, log: TerminalLogger.Log);
+                        Session = SshSession.FromDefaultStore(
+                            profile.Id,
+                            cols,
+                            rows,
+                            _sshDiagnosticsLevel,
+                            log: TerminalLogger.Log);
                         ShellCommand = Session.ShellCommand;
                         ShellArgs = string.Empty;
                     }
