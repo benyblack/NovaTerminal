@@ -695,10 +695,18 @@ namespace NovaTerminal.Core
                 RowId = row.Id
             };
 
-            for (int c = 0; c < bufferCols; c++)
+            PopulateRenderCellsFromRow_NoLock(row, bufferCols, snapshot.Cells);
+
+            return snapshot;
+        }
+
+        private static void PopulateRenderCellsFromRow_NoLock(TerminalRow row, int bufferCols, RenderCellSnapshot[] destination)
+        {
+            int colsToWrite = Math.Min(bufferCols, destination.Length);
+            for (int c = 0; c < colsToWrite; c++)
             {
                 var cell = (c < row.Cells.Length) ? row.Cells[c] : TerminalCell.Default;
-                snapshot.Cells[c] = new RenderCellSnapshot
+                destination[c] = new RenderCellSnapshot
                 {
                     Character = cell.Character,
                     Text = cell.HasExtendedText ? row.GetExtendedText(c) : null,
@@ -720,8 +728,6 @@ namespace NovaTerminal.Core
                     BgIndex = cell.BgIndex
                 };
             }
-
-            return snapshot;
         }
 
         public List<RenderImageSnapshot> GetVisibleImagesSnapshot(int absDisplayStart, int bufferRows)
