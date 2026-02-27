@@ -13,6 +13,7 @@ using System.Net.NetworkInformation;
 using System.Linq;
 using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
+using NovaTerminal.Core.Ssh.Sessions;
 
 namespace NovaTerminal.Controls
 {
@@ -337,10 +338,9 @@ namespace NovaTerminal.Controls
             // ADVANCED SSH: Generate correct argument chain for ssh.exe
             if (profile != null && profile.Type == ConnectionType.SSH)
             {
-                // Ensure we have profiles for resolution. 
+                // Fallback command line for legacy SSH profiles that are not in the SSH profile store.
                 var profiles = _settings?.Profiles ?? new System.Collections.Generic.List<TerminalProfile>();
-                effectiveShell = "ssh.exe";
-                effectiveShell = "ssh.exe";
+                effectiveShell = OperatingSystem.IsWindows() ? "ssh.exe" : "ssh";
                 args = profile.GenerateSshArguments(profiles);
             }
 
@@ -369,7 +369,23 @@ namespace NovaTerminal.Controls
                 ShellCommand = effectiveShell;
                 ShellArgs = args;
 
-                Session = new RustPtySession(effectiveShell, cols, rows, args, startingDir);
+                if (profile != null && profile.Type == ConnectionType.SSH)
+                {
+                    try
+                    {
+                        // Uses system OpenSSH in PTY; session abstraction can be swapped later
+                        // if a native SSH backend is introduced.
+                        Session = SshSession.FromDefaultStore(profile.Id, cols, rows, log: TerminalLogger.Log);
+                        ShellCommand = Session.ShellCommand;
+                        ShellArgs = string.Empty;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[TerminalPane] SSH store session unavailable for '{profile.Name}', falling back: {ex.Message}");
+                    }
+                }
+
+                Session ??= new RustPtySession(effectiveShell, cols, rows, args, startingDir);
                 Session.AttachBuffer(Buffer);
 
                 TermView.SetSession(Session);
