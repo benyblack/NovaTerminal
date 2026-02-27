@@ -84,6 +84,8 @@ namespace NovaTerminal.Core
         public string? DefaultLocalDir { get; set; }
 
         public string Group { get; set; } = "General";
+        public string Notes { get; set; } = "";
+        public string AccentColor { get; set; } = string.Empty;
         public System.Collections.Generic.List<string> Tags { get; set; } = new();
         public System.Collections.Generic.List<ForwardingRule> Forwards { get; set; } = new();
         public string Icon { get; set; } = "Terminal";

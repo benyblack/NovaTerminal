@@ -6,10 +6,6 @@ namespace NovaTerminal.Core.Ssh.Storage;
 public sealed class JsonSshProfileStore : ISshProfileStore
 {
     private const int CurrentSchemaVersion = 1;
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true
-    };
 
     private readonly object _syncRoot = new();
     private readonly string _storeFilePath;
@@ -95,7 +91,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         }
     }
 
-    private StoreDocument LoadDocumentLocked()
+    private SshStoreDocument LoadDocumentLocked()
     {
         if (!File.Exists(_storeFilePath))
         {
@@ -105,7 +101,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         try
         {
             string json = File.ReadAllText(_storeFilePath);
-            var document = JsonSerializer.Deserialize<StoreDocument>(json, JsonOptions) ?? CreateNewDocument();
+            var document = JsonSerializer.Deserialize(json, SshJsonContext.Default.SshStoreDocument) ?? CreateNewDocument();
             document.Profiles ??= new List<SshProfile>();
 
             if (document.SchemaVersion <= 0)
@@ -126,7 +122,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         }
     }
 
-    private StoreDocument ApplyMigrationsLocked(StoreDocument document)
+    private SshStoreDocument ApplyMigrationsLocked(SshStoreDocument document)
     {
         int guard = 0;
         var snapshot = ToSnapshot(document);
@@ -154,7 +150,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         return FromSnapshot(snapshot);
     }
 
-    private void PersistDocumentLocked(StoreDocument document)
+    private void PersistDocumentLocked(SshStoreDocument document)
     {
         document.SchemaVersion = CurrentSchemaVersion;
         SortProfiles(document.Profiles);
@@ -165,7 +161,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
             Directory.CreateDirectory(directory);
         }
 
-        string json = JsonSerializer.Serialize(document, JsonOptions);
+        string json = JsonSerializer.Serialize(document, SshJsonContext.Default.SshStoreDocument);
         File.WriteAllText(_storeFilePath, json);
     }
 
@@ -174,9 +170,9 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         profiles.Sort((left, right) => left.Id.CompareTo(right.Id));
     }
 
-    private static StoreDocument CreateNewDocument()
+    private static SshStoreDocument CreateNewDocument()
     {
-        return new StoreDocument
+        return new SshStoreDocument
         {
             SchemaVersion = CurrentSchemaVersion,
             Profiles = new List<SshProfile>()
@@ -192,6 +188,13 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         normalized.Port = normalized.Port > 0 ? normalized.Port : 22;
         normalized.IdentityFilePath = normalized.IdentityFilePath?.Trim() ?? string.Empty;
         normalized.WorkingDirectory = normalized.WorkingDirectory?.Trim() ?? string.Empty;
+        normalized.ServerAliveIntervalSeconds = normalized.ServerAliveIntervalSeconds > 0
+            ? normalized.ServerAliveIntervalSeconds
+            : 30;
+        normalized.ServerAliveCountMax = normalized.ServerAliveCountMax > 0
+            ? normalized.ServerAliveCountMax
+            : 3;
+        normalized.ExtraSshArgs = normalized.ExtraSshArgs?.Trim() ?? string.Empty;
         normalized.JumpHops = normalized.JumpHops.Select(NormalizeJumpHop).ToList();
         normalized.Forwards = normalized.Forwards.Select(NormalizeForward).ToList();
         normalized.MuxOptions = NormalizeMuxOptions(normalized.MuxOptions);
@@ -252,6 +255,9 @@ public sealed class JsonSshProfileStore : ISshProfileStore
             JumpHops = profile.JumpHops.Select(CloneJumpHop).ToList(),
             Forwards = profile.Forwards.Select(CloneForward).ToList(),
             MuxOptions = CloneMuxOptions(profile.MuxOptions),
+            ServerAliveIntervalSeconds = profile.ServerAliveIntervalSeconds,
+            ServerAliveCountMax = profile.ServerAliveCountMax,
+            ExtraSshArgs = profile.ExtraSshArgs,
             WorkingDirectory = profile.WorkingDirectory
         };
     }
@@ -290,7 +296,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         };
     }
 
-    private static SshProfileStoreSnapshot ToSnapshot(StoreDocument document)
+    private static SshProfileStoreSnapshot ToSnapshot(SshStoreDocument document)
     {
         return new SshProfileStoreSnapshot
         {
@@ -299,18 +305,18 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         };
     }
 
-    private static StoreDocument FromSnapshot(SshProfileStoreSnapshot snapshot)
+    private static SshStoreDocument FromSnapshot(SshProfileStoreSnapshot snapshot)
     {
-        return new StoreDocument
+        return new SshStoreDocument
         {
             SchemaVersion = snapshot.SchemaVersion,
             Profiles = snapshot.Profiles.Select(CloneProfile).ToList()
         };
     }
+}
 
-    private sealed class StoreDocument
-    {
-        public int SchemaVersion { get; set; } = CurrentSchemaVersion;
-        public List<SshProfile> Profiles { get; set; } = new();
-    }
+internal sealed class SshStoreDocument
+{
+    public int SchemaVersion { get; set; } = 1;
+    public List<SshProfile> Profiles { get; set; } = new();
 }

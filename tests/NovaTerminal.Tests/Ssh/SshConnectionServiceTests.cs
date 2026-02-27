@@ -1,4 +1,5 @@
 using NovaTerminal.Core;
+using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Storage;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.ViewModels.Ssh;
@@ -92,6 +93,65 @@ public sealed class SshConnectionServiceTests
             Assert.Equal(2222, saved.SshPort);
             Assert.False(saved.UseSshAgent);
             Assert.Equal("C:\\keys\\id_ed25519", saved.IdentityFilePath);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_PersistsAdvancedSshOptionsAndFavoriteMetadata()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+            var profiles = new List<TerminalProfile>();
+
+            var vm = new NewSshConnectionViewModel
+            {
+                Name = "Advanced",
+                HostName = "advanced.internal",
+                UserName = "dba",
+                Port = 2201,
+                AuthMode = NewSshAuthMode.Agent,
+                IsFavorite = true,
+                Notes = "critical profile",
+                AccentColor = "#11AA88",
+                KeepAliveIntervalSeconds = 10,
+                KeepAliveCountMax = 4,
+                EnableMux = true,
+                ControlPersistSeconds = 75,
+                ExtraSshArgs = "-o StrictHostKeyChecking=no"
+            };
+
+            vm.JumpHops.Add(new SshJumpHop { Host = "jump.internal", User = "ops", Port = 22 });
+            vm.Forwards.Add(new PortForward
+            {
+                Kind = PortForwardKind.Dynamic,
+                BindAddress = "127.0.0.1",
+                SourcePort = 1080
+            });
+
+            TerminalProfile saved = service.SaveProfile(vm, profiles);
+            SshProfile? persisted = store.GetProfile(saved.Id);
+
+            Assert.NotNull(persisted);
+            Assert.Equal(10, persisted!.ServerAliveIntervalSeconds);
+            Assert.Equal(4, persisted.ServerAliveCountMax);
+            Assert.True(persisted.MuxOptions.Enabled);
+            Assert.Equal(75, persisted.MuxOptions.ControlPersistSeconds);
+            Assert.Equal("-o StrictHostKeyChecking=no", persisted.ExtraSshArgs);
+            Assert.Single(persisted.JumpHops);
+            Assert.Single(persisted.Forwards);
+
+            Assert.Contains("favorite", saved.Tags, StringComparer.OrdinalIgnoreCase);
+            Assert.Equal("critical profile", saved.Notes);
+            Assert.Equal("#11AA88", saved.AccentColor);
+            Assert.Single(saved.Forwards);
         }
         finally
         {

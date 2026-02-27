@@ -2,36 +2,65 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using Avalonia.Threading;
+using Avalonia.VisualTree;
 using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.ViewModels.Ssh;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace NovaTerminal.Controls
 {
     public partial class ConnectionManager : UserControl
     {
         public event Action<TerminalProfile, SshDiagnosticsLevel>? OnConnect;
+        public event Action<TerminalProfile, SshQuickOpenTarget, SshDiagnosticsLevel>? OnQuickOpenRequested;
         public event Action<TerminalProfile>? OnEditProfile;
         public event Action<TerminalProfile, SshDiagnosticsLevel>? OnCopyLaunchCommandRequested;
         public event Action<TerminalProfile, SshDiagnosticsLevel>? OnConnectionDetailsRequested;
+        public event Action? OnProfilesChanged;
         public event Action? OnSyncRequested;
 
-        private List<TerminalProfile> _allProfiles = new();
-        private List<TerminalProfile> _filteredProfiles = new();
+        private readonly SshManagerViewModel _viewModel = new();
 
         public ConnectionManager()
         {
             InitializeComponent();
-            SearchInput.TextChanged += (s, e) => FilterConnections();
+            DataContext = _viewModel;
+
+            SearchInput.TextChanged += (_, _) =>
+            {
+                _viewModel.SearchText = SearchInput.Text ?? string.Empty;
+                UpdateResultCountText();
+            };
+
+            var connectionsList = this.FindControl<ItemsControl>("ConnectionsList");
+            if (connectionsList != null)
+            {
+                connectionsList.ItemsSource = _viewModel.FilteredRows;
+            }
+
+            _viewModel.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(SshManagerViewModel.SearchText))
+                {
+                    UpdateResultCountText();
+                }
+            };
+
             var diagnosticsCombo = this.FindControl<ComboBox>("DiagnosticsCombo");
             if (diagnosticsCombo != null)
             {
                 diagnosticsCombo.ItemsSource = Enum.GetValues<SshDiagnosticsLevel>();
                 diagnosticsCombo.SelectedItem = SshDiagnosticsLevel.None;
+                diagnosticsCombo.SelectionChanged += (_, _) =>
+                {
+                    _viewModel.DiagnosticsLevel = GetSelectedDiagnosticsLevel();
+                };
             }
+
+            _viewModel.DiagnosticsLevel = SshDiagnosticsLevel.None;
+            UpdateResultCountText();
         }
 
         public static readonly StyledProperty<IBrush> CardBackgroundProperty =
@@ -74,125 +103,74 @@ namespace NovaTerminal.Controls
             OnSyncRequested?.Invoke();
         }
 
-        private void OnConnectionClick(object? sender, RoutedEventArgs e)
-        {
-            if (sender is Button btn && btn.Tag is TerminalProfile profile)
-            {
-                OnConnect?.Invoke(profile, GetSelectedDiagnosticsLevel());
-            }
-        }
-
         private void OnEditClick(object? sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Tag is TerminalProfile profile)
+            if (TryGetRow(sender, out var row))
             {
                 e.Handled = true;
-                OnEditProfile?.Invoke(profile);
+                OnEditProfile?.Invoke(row.Profile);
             }
         }
 
         private void OnCopyCommandClick(object? sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Tag is TerminalProfile profile)
+            if (TryGetRow(sender, out var row))
             {
                 e.Handled = true;
-                OnCopyLaunchCommandRequested?.Invoke(profile, GetSelectedDiagnosticsLevel());
+                OnCopyLaunchCommandRequested?.Invoke(row.Profile, GetSelectedDiagnosticsLevel());
             }
         }
 
         private void OnDetailsClick(object? sender, RoutedEventArgs e)
         {
-            if (sender is Button btn && btn.Tag is TerminalProfile profile)
+            if (TryGetRow(sender, out var row))
             {
                 e.Handled = true;
-                OnConnectionDetailsRequested?.Invoke(profile, GetSelectedDiagnosticsLevel());
+                OnConnectionDetailsRequested?.Invoke(row.Profile, GetSelectedDiagnosticsLevel());
             }
         }
 
         public void LoadProfiles(List<TerminalProfile> profiles)
         {
-            // Filter: Only show SSH connections (Remote First)
-            _allProfiles = profiles.Where(p => p.Type == ConnectionType.SSH).ToList();
-            RefreshTree();
-            FilterConnections();
+            _viewModel.LoadProfiles(profiles);
+            UpdateResultCountText();
         }
 
-        private void RefreshTree()
+        private void OnFavoriteClick(object? sender, RoutedEventArgs e)
         {
-            // Simple Grouping Logic for V1
-            // In V2, we can make this a proper hierarchical data structure
-            var groups = _allProfiles.Select(p => p.Group).Distinct().OrderBy(g => g).ToList();
-
-            var rootNodes = new List<TreeViewItem>();
-
-            var allItem = new TreeViewItem { Header = "All Connections", Tag = "ALL", IsExpanded = true };
-            // allItem.PointerPressed += (s, e) => { FilterByGroup(null); e.Handled = true; }; // REMOVED: Breaks selection
-            rootNodes.Add(allItem);
-
-            foreach (var group in groups)
+            if (!TryGetRow(sender, out var row))
             {
-                if (string.IsNullOrEmpty(group)) continue;
-
-                var item = new TreeViewItem { Header = group, Tag = group };
-                rootNodes.Add(item);
+                return;
             }
 
-            GroupsTree.ItemsSource = rootNodes;
-            GroupsTree.SelectionChanged += GroupsTree_SelectionChanged;
-
-            // Default selection
-            GroupsTree.SelectedItem = allItem;
+            e.Handled = true;
+            _viewModel.ToggleFavorite(row);
+            UpdateResultCountText();
+            OnProfilesChanged?.Invoke();
         }
 
-        private void GroupsTree_SelectionChanged(object? sender, SelectionChangedEventArgs e)
+        private void OnOpenCurrentClick(object? sender, RoutedEventArgs e)
         {
-            if (GroupsTree.SelectedItem is TreeViewItem item)
-            {
-                if (item.Tag?.ToString() == "ALL")
-                    FilterByGroup(null);
-                else
-                    FilterByGroup(item.Header?.ToString());
-            }
+            RequestOpen(sender, SshQuickOpenTarget.CurrentPane);
+            e.Handled = true;
         }
 
-        private void FilterByGroup(string? group)
+        private void OnOpenNewTabClick(object? sender, RoutedEventArgs e)
         {
-            if (group == null)
-            {
-                _filteredProfiles = _allProfiles.ToList();
-                SelectedGroupTitle.Text = "All";
-            }
-            else
-            {
-                _filteredProfiles = _allProfiles.Where(p => p.Group == group).ToList();
-                SelectedGroupTitle.Text = group;
-            }
-
-            // Re-apply search text if any
-            if (!string.IsNullOrEmpty(SearchInput.Text))
-            {
-                var q = SearchInput.Text.ToLowerInvariant();
-                _filteredProfiles = _filteredProfiles.Where(p =>
-                    p.Name.ToLowerInvariant().Contains(q) ||
-                    p.Command.ToLowerInvariant().Contains(q) ||
-                    (p.Tags != null && p.Tags.Any(t => t.ToLowerInvariant().Contains(q)))
-                ).ToList();
-            }
-
-            ConnectionsList.ItemsSource = _filteredProfiles;
+            RequestOpen(sender, SshQuickOpenTarget.NewTab);
+            e.Handled = true;
         }
 
-        private void FilterConnections()
+        private void OnSplitHorizontalClick(object? sender, RoutedEventArgs e)
         {
-            // Trigger group filter to re-apply logic (it handles search text too)
-            // Get current group
-            string? currentGroup = null;
-            if (GroupsTree.SelectedItem is TreeViewItem item && item.Tag?.ToString() != "ALL")
-            {
-                currentGroup = item.Header?.ToString();
-            }
+            RequestOpen(sender, SshQuickOpenTarget.SplitHorizontal);
+            e.Handled = true;
+        }
 
-            FilterByGroup(currentGroup);
+        private void OnSplitVerticalClick(object? sender, RoutedEventArgs e)
+        {
+            RequestOpen(sender, SshQuickOpenTarget.SplitVertical);
+            e.Handled = true;
         }
 
         private SshDiagnosticsLevel GetSelectedDiagnosticsLevel()
@@ -204,6 +182,73 @@ namespace NovaTerminal.Controls
             }
 
             return SshDiagnosticsLevel.None;
+        }
+
+        private bool TryGetRow(object? sender, out SshProfileRowViewModel row)
+        {
+            if (sender is Control control)
+            {
+                if (control.Tag is SshProfileRowViewModel taggedRow)
+                {
+                    row = taggedRow;
+                    return true;
+                }
+
+                if (control.DataContext is SshProfileRowViewModel dataContextRow)
+                {
+                    row = dataContextRow;
+                    return true;
+                }
+
+                foreach (var ancestor in control.GetVisualAncestors())
+                {
+                    if (ancestor is Control ancestorControl)
+                    {
+                        if (ancestorControl.Tag is SshProfileRowViewModel ancestorTaggedRow)
+                        {
+                            row = ancestorTaggedRow;
+                            return true;
+                        }
+
+                        if (ancestorControl.DataContext is SshProfileRowViewModel ancestorDataContextRow)
+                        {
+                            row = ancestorDataContextRow;
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            row = null!;
+            return false;
+        }
+
+        private void RequestOpen(object? sender, SshQuickOpenTarget target)
+        {
+            if (!TryGetRow(sender, out var row))
+            {
+                return;
+            }
+
+            _viewModel.DiagnosticsLevel = GetSelectedDiagnosticsLevel();
+            _viewModel.RequestOpen(row, target);
+            OnQuickOpenRequested?.Invoke(row.Profile, target, _viewModel.DiagnosticsLevel);
+
+            if (target == SshQuickOpenTarget.CurrentPane)
+            {
+                // Backward-compat for existing handlers until all callers use quick-open targets.
+                OnConnect?.Invoke(row.Profile, _viewModel.DiagnosticsLevel);
+            }
+        }
+
+        private void UpdateResultCountText()
+        {
+            var resultCountText = this.FindControl<TextBlock>("ResultCountText");
+            if (resultCountText != null)
+            {
+                int count = _viewModel.FilteredRows.Count;
+                resultCountText.Text = count == 1 ? "1 connection" : $"{count} connections";
+            }
         }
     }
 }

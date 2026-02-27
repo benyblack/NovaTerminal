@@ -130,6 +130,33 @@ public sealed class OpenSshConfigCompilerTests
     }
 
     [Fact]
+    public void Compile_WithCustomKeepAlive_EmitsConfiguredValues()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            var compiler = new OpenSshConfigCompiler(root);
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("f3499d7f-72de-452c-95ae-e4c3290ee088"),
+                Host = "keepalive.internal",
+                ServerAliveIntervalSeconds = 15,
+                ServerAliveCountMax = 7
+            };
+
+            OpenSshCompilationResult result = compiler.Compile(new[] { profile }, profile.Id);
+            string text = File.ReadAllText(result.ConfigFilePath);
+
+            Assert.Contains("ServerAliveInterval 15", text);
+            Assert.Contains("ServerAliveCountMax 7", text);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Compile_WritesAtomically_WithoutTempFileLeftBehind()
     {
         string root = CreateTempDirectory();

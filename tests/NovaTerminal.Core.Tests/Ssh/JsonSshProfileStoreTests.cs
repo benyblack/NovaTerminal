@@ -38,7 +38,10 @@ public sealed class JsonSshProfileStoreTests
                         DestinationHost = "db.internal",
                         DestinationPort = 5432
                     }
-                }
+                },
+                ServerAliveIntervalSeconds = 45,
+                ServerAliveCountMax = 5,
+                ExtraSshArgs = "-o StrictHostKeyChecking=no"
             };
 
             store.SaveProfile(profile);
@@ -53,6 +56,9 @@ public sealed class JsonSshProfileStoreTests
             Assert.Equal(profile.IdentityFilePath, loaded.IdentityFilePath);
             Assert.Equal(2, loaded.JumpHops.Count);
             Assert.Single(loaded.Forwards);
+            Assert.Equal(45, loaded.ServerAliveIntervalSeconds);
+            Assert.Equal(5, loaded.ServerAliveCountMax);
+            Assert.Equal("-o StrictHostKeyChecking=no", loaded.ExtraSshArgs);
         }
         finally
         {

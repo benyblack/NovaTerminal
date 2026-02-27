@@ -2,106 +2,109 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             xmlns:core="clr-namespace:NovaTerminal.Core"
+             xmlns:sshvm="clr-namespace:NovaTerminal.ViewModels.Ssh"
              xmlns:local="clr-namespace:NovaTerminal.Controls"
              x:Class="NovaTerminal.Controls.ConnectionManager"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="500">
-
-    <Grid ColumnDefinitions="250, *" Margin="10">
-        <!-- Sidebar: Groups & Tags -->
+    <Grid ColumnDefinitions="250,*" Margin="10">
         <Border Grid.Column="0" BorderBrush="#333" BorderThickness="0,0,1,0" Padding="0,0,10,0">
-            <Grid RowDefinitions="Auto, Auto, *">
-                <Grid ColumnDefinitions="*, Auto">
-                    <TextBox Name="SearchInput" Watermark="Search connections..." Margin="0,0,5,10"/>
-                    <Button Name="BtnSync" Grid.Column="1" Width="30" Height="30" Padding="5" Background="Transparent" BorderThickness="0"
-                            ToolTip.Tip="Sync from ~/.ssh/config" Click="OnSyncClick" Margin="0,0,0,10">
+            <Grid RowDefinitions="Auto,Auto,Auto,*">
+                <TextBlock Text="Connections" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                    <TextBox Name="SearchInput" Watermark="Search name, host, tags, notes..." Margin="0,0,5,0" />
+                    <Button Name="BtnSync"
+                            Grid.Column="1"
+                            Width="30"
+                            Height="30"
+                            Padding="5"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            ToolTip.Tip="Sync from ~/.ssh/config"
+                            Click="OnSyncClick">
                         <PathIcon Data="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z" Width="16" Height="16"/>
                     </Button>
                 </Grid>
-
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
                     <TextBlock Text="Diagnostics" VerticalAlignment="Center" />
                     <ComboBox Name="DiagnosticsCombo" Width="145" SelectedIndex="0" />
                 </StackPanel>
-                
-                <TreeView Name="GroupsTree" Grid.Row="2" Background="Transparent" BorderThickness="0">
-                    <TreeView.Styles>
-                        <Style Selector="TreeViewItem">
-                            <Setter Property="FontSize" Value="13"/>
-                            <Setter Property="Padding" Value="4,2"/>
-                        </Style>
-                    </TreeView.Styles>
-                    <!-- Populated in Code-behind for V1 simplicity -->
-                </TreeView>
+                <TextBlock Grid.Row="3" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" Text="Favorites are pinned. Use ⭐ to toggle." VerticalAlignment="Top" TextWrapping="Wrap" />
             </Grid>
         </Border>
 
-        <!-- Main Content: Connection Grid -->
-        <Grid Grid.Column="1" RowDefinitions="Auto, *" Margin="10,0,0,0">
-            <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
-                <TextBlock Text="Connections" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center"/>
-        <TextBlock Name="SelectedGroupTitle" Text="" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" VerticalAlignment="Bottom" Margin="5,0,0,4"/>
-            </StackPanel>
-
+        <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="10,0,0,0">
+            <TextBlock Name="ResultCountText"
+                       Text="0 connections"
+                       Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"
+                       Margin="0,0,0,8" />
             <ScrollViewer Grid.Row="1">
                 <ItemsControl Name="ConnectionsList">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel Orientation="Horizontal" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
                     <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="core:TerminalProfile">
-                            <Button Background="{Binding CardBackground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" 
-                                    BorderThickness="1" BorderBrush="#333" 
-                                    Width="200" Height="80" Margin="0,0,10,10"
-                                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
-                                    Click="OnConnectionClick" Tag="{Binding}">
-                                <Grid RowDefinitions="Auto, *, Auto">
-                                    <Grid ColumnDefinitions="*, Auto, Auto, Auto">
-                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="14" VerticalAlignment="Center"/>
-                                        <Button Grid.Column="1" Width="20" Height="20" Padding="2" Background="Transparent" BorderThickness="0"
-                                                ToolTip.Tip="Edit Connection" Tag="{Binding}" Click="OnEditClick">
-                                            <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" Width="12" Height="12" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"/>
-                                        </Button>
-                                        <Button Grid.Column="2" Width="20" Height="20" Padding="2" Background="Transparent" BorderThickness="0"
-                                                ToolTip.Tip="Copy launch command" Tag="{Binding}" Click="OnCopyCommandClick">
-                                            <PathIcon Data="M19,21H9A2,2 0 0,1 7,19V7H9V19H19M16,3A2,2 0 0,1 18,5V15A2,2 0 0,1 16,17H12A2,2 0 0,1 10,15V5A2,2 0 0,1 12,3H16Z"
-                                                      Width="12" Height="12"
-                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"/>
-                                        </Button>
-                                        <Button Grid.Column="3" Width="20" Height="20" Padding="2" Background="Transparent" BorderThickness="0"
-                                                ToolTip.Tip="Connection details" Tag="{Binding}" Click="OnDetailsClick">
-                                            <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"
-                                                      Width="12" Height="12"
-                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"/>
-                                        </Button>
+                        <DataTemplate x:DataType="sshvm:SshProfileRowViewModel">
+                            <Border Background="{Binding CardBackground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"
+                                    BorderThickness="1"
+                                    BorderBrush="#333"
+                                    CornerRadius="6"
+                                    Margin="0,0,0,8"
+                                    Padding="10">
+                                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <StackPanel Grid.Column="0" Spacing="2">
+                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="14" />
+                                            <TextBlock Text="{Binding Endpoint}"
+                                                       FontSize="12"
+                                                       Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
+                                            <TextBlock Text="{Binding GroupPath}"
+                                                       FontSize="11"
+                                                       IsVisible="{Binding GroupPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                       Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                                            <Button Content="Open" Width="56" Tag="{Binding}" Click="OnOpenCurrentClick" ToolTip.Tip="Open in current pane" />
+                                            <Button Content="+Tab" Width="52" Tag="{Binding}" Click="OnOpenNewTabClick" ToolTip.Tip="Open in new tab" />
+                                            <Button Content="Split H" Width="62" Tag="{Binding}" Click="OnSplitHorizontalClick" ToolTip.Tip="Open in horizontal split" />
+                                            <Button Content="Split V" Width="62" Tag="{Binding}" Click="OnSplitVerticalClick" ToolTip.Tip="Open in vertical split" />
+                                        </StackPanel>
                                     </Grid>
-                                    <TextBlock Grid.Row="1" Text="{Binding Command}" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="0,4,0,0"/>
-                                    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right">
-                                        <!-- Group Badge -->
-                                        <Border Background="#444" CornerRadius="3" Padding="4,1" IsVisible="{Binding Group, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                            <TextBlock Text="{Binding Group}" FontSize="10" Foreground="#CCC"/>
-                                        </Border>
-                                        
-                                        <!-- Tags List -->
-                                        <ItemsControl ItemsSource="{Binding Tags}">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <StackPanel Orientation="Horizontal" Spacing="4"/>
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border Background="#005A9E" CornerRadius="3" Padding="4,1">
-                                                        <TextBlock Text="{Binding}" FontSize="10" Foreground="White"/>
-                                                    </Border>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
+
+                                    <ItemsControl Grid.Row="1" ItemsSource="{Binding Tags}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Orientation="Horizontal" Spacing="4" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="#005A9E" CornerRadius="3" Padding="4,1">
+                                                    <TextBlock Text="{Binding}" FontSize="10" Foreground="White" />
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
+                                        <Button Content="⭐" Width="30" Tag="{Binding}" ToolTip.Tip="Toggle favorite" Click="OnFavoriteClick" />
+                                        <Button Width="30" Height="24" Padding="2" Background="Transparent" BorderThickness="0" ToolTip.Tip="Edit connection" Tag="{Binding}" Click="OnEditClick">
+                                            <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"
+                                                      Width="12"
+                                                      Height="12"
+                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
+                                        </Button>
+                                        <Button Width="30" Height="24" Padding="2" Background="Transparent" BorderThickness="0" ToolTip.Tip="Copy launch command" Tag="{Binding}" Click="OnCopyCommandClick">
+                                            <PathIcon Data="M19,21H9A2,2 0 0,1 7,19V7H9V19H19M16,3A2,2 0 0,1 18,5V15A2,2 0 0,1 16,17H12A2,2 0 0,1 10,15V5A2,2 0 0,1 12,3H16Z"
+                                                      Width="12"
+                                                      Height="12"
+                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
+                                        </Button>
+                                        <Button Width="30" Height="24" Padding="2" Background="Transparent" BorderThickness="0" ToolTip.Tip="Connection details" Tag="{Binding}" Click="OnDetailsClick">
+                                            <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"
+                                                      Width="12"
+                                                      Height="12"
+                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
+                                        </Button>
                                     </StackPanel>
                                 </Grid>
-                            </Button>
+                            </Border>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>

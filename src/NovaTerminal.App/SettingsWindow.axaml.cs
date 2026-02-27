@@ -62,6 +62,8 @@ namespace NovaTerminal
                 JumpHostProfileId = p.JumpHostProfileId,
                 UseSshAgent = p.UseSshAgent,
                 IdentityFilePath = p.IdentityFilePath,
+                Notes = p.Notes,
+                AccentColor = p.AccentColor,
                 Tags = p.Tags.ToList(),
                 Forwards = p.Forwards.Select(f => new ForwardingRule { Type = f.Type, LocalAddress = f.LocalAddress, RemoteAddress = f.RemoteAddress }).ToList()
             }).ToList();
