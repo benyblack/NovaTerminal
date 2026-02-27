@@ -51,7 +51,7 @@ namespace NovaTerminal.Core
         private static readonly bool UseBlockElementPrimitives = IsEnvFlagEnabled("NOVATERM_BLOCK_PRIMITIVES");
         private static readonly ConcurrentDictionary<string, byte> GlyphDiagOnce = new();
         private static readonly string[] KnownGoodBoxFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
-        private static readonly Lazy<RenderPerfWriter?> SharedRenderPerfWriter = new(RenderPerfWriter.CreateFromEnvironment);
+        private static Lazy<RenderPerfWriter?> SharedRenderPerfWriter = new(RenderPerfWriter.CreateFromEnvironment);
 
         // Batching for DrawAtlas
         private const int InitialAtlasBatchCapacity = 128;
@@ -1394,6 +1394,23 @@ namespace NovaTerminal.Core
         {
             string? raw = Environment.GetEnvironmentVariable(name);
             return raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static void ResetRenderPerfWriterForTests()
+        {
+            if (SharedRenderPerfWriter.IsValueCreated)
+            {
+                try
+                {
+                    SharedRenderPerfWriter.Value?.Dispose();
+                }
+                catch
+                {
+                    // Keep test helper non-fatal.
+                }
+            }
+
+            SharedRenderPerfWriter = new Lazy<RenderPerfWriter?>(RenderPerfWriter.CreateFromEnvironment);
         }
 
         private RenderPerfWriter? BeginFramePerfMetrics()
