@@ -1,5 +1,6 @@
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Core.Ssh.OpenSsh;
 using NovaTerminal.Core.Ssh.Storage;
 
 namespace NovaTerminal.Core.Ssh.Sessions;
@@ -19,7 +20,7 @@ public sealed class PtySshProcessLauncher : ISshProcessLauncher
 
 public sealed class SshSession : ITerminalSession
 {
-    private readonly ITerminalSession _inner;
+    private ITerminalSession _inner = null!;
 
     public static SshSession FromDefaultStore(
         Guid profileId,
@@ -28,7 +29,9 @@ public sealed class SshSession : ITerminalSession
         ISshProcessLauncher? launcher = null,
         Action<string>? log = null)
     {
-        return new SshSession(profileId, new JsonSshProfileStore(), cols, rows, launcher, log);
+        ISshProfileStore store = new JsonSshProfileStore();
+        ISshLaunchPlanner planner = new SshLaunchPlanner(store, new OpenSshConfigCompiler());
+        return new SshSession(profileId, planner, cols, rows, launcher, log);
     }
 
     public SshSession(
@@ -40,22 +43,45 @@ public sealed class SshSession : ITerminalSession
         Action<string>? log = null)
     {
         ArgumentNullException.ThrowIfNull(profileStore);
+        ISshLaunchPlanner planner = new SshLaunchPlanner(profileStore, new OpenSshConfigCompiler());
+        Initialize(profileId, planner, cols, rows, launcher, log);
+    }
 
-        SshProfile profile = profileStore.GetProfile(profileId)
-            ?? throw new InvalidOperationException($"SSH profile '{profileId}' was not found.");
+    public SshSession(
+        Guid profileId,
+        ISshLaunchPlanner launchPlanner,
+        int cols = 120,
+        int rows = 30,
+        ISshProcessLauncher? launcher = null,
+        Action<string>? log = null)
+    {
+        Initialize(profileId, launchPlanner, cols, rows, launcher, log);
+    }
 
-        string sshPath = ResolveSshExecutablePath();
-        string args = SshArgBuilder.BuildCommandLine(profile);
+    private void Initialize(
+        Guid profileId,
+        ISshLaunchPlanner launchPlanner,
+        int cols,
+        int rows,
+        ISshProcessLauncher? launcher,
+        Action<string>? log)
+    {
+        ArgumentNullException.ThrowIfNull(launchPlanner);
+
+        SshLaunchPlan launchPlan = launchPlanner.Plan(profileId);
+        string args = SshArgBuilder.BuildCommandLine(launchPlan.Arguments);
         string safeArgs = SshArgBuilder.SanitizeForLog(args);
 
         Action<string> logger = log ?? Console.WriteLine;
-        logger($"[SshSession] Using OpenSSH executable: {sshPath}");
+        logger($"[SshSession] Using OpenSSH executable: {launchPlan.SshExecutablePath}");
         logger($"[SshSession] Arguments: {safeArgs}");
+        logger($"[SshSession] Generated config: {launchPlan.ConfigFilePath}");
+        logger($"[SshSession] Alias: {launchPlan.Alias}");
 
         // Keep launch behind an abstraction so we can swap to native SSH in the future
         // without changing the session surface used by the rest of the app.
         _inner = (launcher ?? new PtySshProcessLauncher())
-            .Launch(sshPath, args, cols, rows, string.IsNullOrWhiteSpace(profile.WorkingDirectory) ? null : profile.WorkingDirectory);
+            .Launch(launchPlan.SshExecutablePath, args, cols, rows, launchPlan.WorkingDirectory);
     }
 
     public Guid Id => _inner.Id;
@@ -84,63 +110,4 @@ public sealed class SshSession : ITerminalSession
     public void AttachBuffer(TerminalBuffer buffer) => _inner.AttachBuffer(buffer);
     public void TakeSnapshot() => _inner.TakeSnapshot();
     public void Dispose() => _inner.Dispose();
-
-    private static string ResolveSshExecutablePath()
-    {
-        if (TryFindInPath(out string? pathFromPath))
-        {
-            return pathFromPath ?? throw new InvalidOperationException("PATH lookup returned no executable path.");
-        }
-
-        if (OperatingSystem.IsWindows())
-        {
-            string windowsDir = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
-            string fallbackPath = string.IsNullOrWhiteSpace(windowsDir)
-                ? @"C:\Windows\System32\OpenSSH\ssh.exe"
-                : Path.Combine(windowsDir, "System32", "OpenSSH", "ssh.exe");
-
-            if (File.Exists(fallbackPath))
-            {
-                return fallbackPath;
-            }
-        }
-
-        throw new FileNotFoundException("Unable to locate system OpenSSH executable (ssh).");
-    }
-
-    private static bool TryFindInPath(out string? resolvedPath)
-    {
-        string? envPath = Environment.GetEnvironmentVariable("PATH");
-        resolvedPath = null;
-
-        if (string.IsNullOrWhiteSpace(envPath))
-        {
-            return false;
-        }
-
-        string[] candidates = OperatingSystem.IsWindows()
-            ? new[] { "ssh.exe", "ssh" }
-            : new[] { "ssh" };
-
-        foreach (string dir in envPath.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
-        {
-            string trimmed = dir.Trim();
-            if (trimmed.Length == 0)
-            {
-                continue;
-            }
-
-            foreach (string candidate in candidates)
-            {
-                string fullPath = Path.Combine(trimmed, candidate);
-                if (File.Exists(fullPath))
-                {
-                    resolvedPath = fullPath;
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
 }
