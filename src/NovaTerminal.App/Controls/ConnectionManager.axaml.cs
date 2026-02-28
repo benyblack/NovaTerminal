@@ -20,6 +20,7 @@ namespace NovaTerminal.Controls
         public event Action<TerminalProfile, SshDiagnosticsLevel>? OnConnectionDetailsRequested;
         public event Action? OnProfilesChanged;
         public event Action? OnSyncRequested;
+        public event Action? OnNewConnectionRequested;
 
         private readonly SshManagerViewModel _viewModel = new();
 
@@ -101,6 +102,11 @@ namespace NovaTerminal.Controls
         private void OnSyncClick(object? sender, RoutedEventArgs e)
         {
             OnSyncRequested?.Invoke();
+        }
+
+        private void OnNewConnectionClick(object? sender, RoutedEventArgs e)
+        {
+            OnNewConnectionRequested?.Invoke();
         }
 
         private void OnEditClick(object? sender, RoutedEventArgs e)

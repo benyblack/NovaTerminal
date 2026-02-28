@@ -226,7 +226,6 @@
                             <TextBlock Text="Import From:" Opacity="0.7" FontSize="11" Margin="0,0,0,2"/>
                             <StackPanel Orientation="Vertical" Spacing="5">
                                 <Button Name="BtnImportWT" Content="Windows Terminal" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                                <Button Name="BtnImportSSH" Content="SSH Config" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
                                 <TextBlock Name="ImportStatusText" Text="" Foreground="#00FF00" FontSize="11" HorizontalAlignment="Center" Margin="0,5,0,0"/>
                             </StackPanel>
                         </StackPanel>

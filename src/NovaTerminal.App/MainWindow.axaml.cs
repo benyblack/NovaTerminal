@@ -1642,6 +1642,10 @@ namespace NovaTerminal
                     _sshConnectionService.SaveConnectionProfiles(connManager.GetAllProfiles());
                 };
                 connManager.OnSyncRequested += HandleSshSync;
+                connManager.OnNewConnectionRequested += async () =>
+                {
+                    await ShowNewSshConnectionDialogAsync(null);
+                };
                 connManager.OnEditProfile += async (profile) =>
                 {
                     await ShowNewSshConnectionDialogAsync(profile);
