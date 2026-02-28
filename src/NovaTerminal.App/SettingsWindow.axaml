@@ -259,9 +259,8 @@
 
                             <StackPanel>
                                 <TextBlock Text="Connection Type" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                <ComboBox Name="ProfileTypeList" HorizontalAlignment="Stretch">
+                                <ComboBox Name="ProfileTypeList" HorizontalAlignment="Stretch" IsEnabled="False">
                                     <ComboBoxItem>Local (CMD, PowerShell, WSL)</ComboBoxItem>
-                                    <ComboBoxItem>SSH</ComboBoxItem>
                                 </ComboBox>
                             </StackPanel>
 
