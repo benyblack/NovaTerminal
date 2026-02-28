@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia.Controls.Shapes;
 using Avalonia.Styling;
+using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal
 {
@@ -19,7 +20,6 @@ namespace NovaTerminal
 
         private TerminalProfile? _selectedProfile;
         private System.Collections.Generic.List<TerminalProfile> _profilesList = new();
-        private readonly VaultService _vault = new();
 
         public event Action<double>? OnOpacityChanged;
         public event Action<string>? OnBlurChanged;
@@ -37,36 +37,19 @@ namespace NovaTerminal
         {
             InitializeComponent();
             _settings = TerminalSettings.Load();
+            var sshMigration = new SshLegacyProfileMigrationService();
+            if (sshMigration.MigrateLegacyProfiles(_settings))
+            {
+                _settings.Save();
+            }
             ApplyTheme();
 
             var tabs = this.FindControl<TabControl>("MainTabs");
             if (tabs != null) tabs.SelectedIndex = initialTab;
 
-            // Clone profiles for local editing
-            _profilesList = _settings.Profiles.Select(p => new TerminalProfile
-            {
-                Id = p.Id,
-                Name = p.Name,
-                Command = p.Command,
-                Arguments = p.Arguments,
-                StartingDirectory = p.StartingDirectory,
-                Type = p.Type,
-                SshHost = p.SshHost,
-                SshPort = p.SshPort,
-                SshUser = p.SshUser,
-                SshKeyPath = p.SshKeyPath,
-                FontFamily = p.FontFamily,
-                FontSize = p.FontSize,
-                ThemeName = p.ThemeName,
-                EnableLigatures = p.EnableLigatures,
-                JumpHostProfileId = p.JumpHostProfileId,
-                UseSshAgent = p.UseSshAgent,
-                IdentityFilePath = p.IdentityFilePath,
-                Notes = p.Notes,
-                AccentColor = p.AccentColor,
-                Tags = p.Tags.ToList(),
-                Forwards = p.Forwards.Select(f => new ForwardingRule { Type = f.Type, LocalAddress = f.LocalAddress, RemoteAddress = f.RemoteAddress }).ToList()
-            }).ToList();
+            // Settings editor is local-profiles only; SSH connections are managed in Connection Manager.
+            _profilesList = BuildLocalProfilesForEditor(_settings.Profiles);
+            _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _profilesList);
 
             PopulateFonts();
             PopulateThemes();
@@ -95,7 +78,6 @@ namespace NovaTerminal
             var sshHostInput = this.FindControl<TextBox>("SshHostInput");
             var sshPortInput = this.FindControl<NumericUpDown>("SshPortInput");
             var sshUserInput = this.FindControl<TextBox>("SshUserInput");
-            var sshPasswordInput = this.FindControl<TextBox>("SshPasswordInput");
             var sshKeyPathInput = this.FindControl<TextBox>("SshKeyPathInput");
             var btnBrowseSshKey = this.FindControl<Button>("BtnBrowseSshKey");
             var jumpList = this.FindControl<ComboBox>("JumpHostList");
@@ -350,7 +332,7 @@ namespace NovaTerminal
             {
                 btnAddProfile.Click += (s, e) =>
                 {
-                    var newProfile = new TerminalProfile { Name = "New Profile", Command = "cmd.exe" };
+                    var newProfile = new TerminalProfile { Name = "New Profile", Command = "cmd.exe", Type = ConnectionType.Local };
                     _profilesList.Add(newProfile);
                     PopulateProfilesList();
                     if (profilesListBox != null) profilesListBox.SelectedIndex = _profilesList.Count - 1;
@@ -379,6 +361,11 @@ namespace NovaTerminal
                     int added = 0;
                     foreach (var p in imported)
                     {
+                        if (p.Type != ConnectionType.Local)
+                        {
+                            continue;
+                        }
+
                         if (!_profilesList.Any(x => x.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase)))
                         {
                             _profilesList.Add(p);
@@ -402,25 +389,9 @@ namespace NovaTerminal
             {
                 btnImportSSH.Click += (s, e) =>
                 {
-                    var imported = ProfileImporter.ImportSshConfig();
-                    int added = 0;
-                    foreach (var p in imported)
+                    if (importStatus != null)
                     {
-                        if (!_profilesList.Any(x => x.Name.Equals(p.Name, StringComparison.OrdinalIgnoreCase)))
-                        {
-                            _profilesList.Add(p);
-                            added++;
-                        }
-                    }
-                    if (added > 0)
-                    {
-                        PopulateProfilesList();
-                        if (profilesListBox != null) profilesListBox.SelectedIndex = _profilesList.Count - 1;
-                        if (importStatus != null) importStatus.Text = $"Imported {added} SSH hosts.";
-                    }
-                    else
-                    {
-                        if (importStatus != null) importStatus.Text = "No new hosts found.";
+                        importStatus.Text = "SSH import moved to Connection Manager (use Sync).";
                     }
                 };
             }
@@ -452,12 +423,13 @@ namespace NovaTerminal
             // Connection Type and SSH Inputs
             if (typeList != null)
             {
+                typeList.SelectedIndex = 0;
                 typeList.SelectionChanged += (s, e) =>
                 {
                     if (_selectedProfile != null)
                     {
-                        _selectedProfile.Type = (ConnectionType)typeList.SelectedIndex;
-                        if (sshPanel != null) sshPanel.IsVisible = _selectedProfile.Type == ConnectionType.SSH;
+                        _selectedProfile.Type = ConnectionType.Local;
+                        if (sshPanel != null) sshPanel.IsVisible = false;
                     }
                 };
             }
@@ -465,11 +437,6 @@ namespace NovaTerminal
             if (sshHostInput != null) sshHostInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.SshHost = sshHostInput.Text ?? ""; };
             if (sshPortInput != null) sshPortInput.ValueChanged += (s, e) => { if (_selectedProfile != null && sshPortInput.Value.HasValue) _selectedProfile.SshPort = (int)sshPortInput.Value.Value; };
             if (sshUserInput != null) sshUserInput.KeyUp += (s, e) => { if (_selectedProfile != null) _selectedProfile.SshUser = sshUserInput.Text ?? ""; };
-            if (sshPasswordInput != null) sshPasswordInput.KeyUp += (s, e) =>
-            {
-                if (_selectedProfile != null)
-                    _selectedProfile.Password = sshPasswordInput.Text ?? "";
-            };
 
             // Advanced SSH Controls
             if (jumpList != null)
@@ -860,6 +827,70 @@ namespace NovaTerminal
             }
         }
 
+        internal static System.Collections.Generic.List<TerminalProfile> BuildLocalProfilesForEditor(System.Collections.Generic.IEnumerable<TerminalProfile> profiles)
+        {
+            var source = profiles ?? System.Array.Empty<TerminalProfile>();
+
+            return source
+                .Where(profile => profile.Type == ConnectionType.Local)
+                .Select(profile => new TerminalProfile
+                {
+                    Id = profile.Id,
+                    Name = profile.Name,
+                    Command = profile.Command,
+                    Arguments = profile.Arguments,
+                    StartingDirectory = profile.StartingDirectory,
+                    Type = ConnectionType.Local,
+                    FontFamily = profile.FontFamily,
+                    FontSize = profile.FontSize,
+                    ThemeName = profile.ThemeName,
+                    EnableLigatures = profile.EnableLigatures,
+                    Group = profile.Group,
+                    Notes = profile.Notes,
+                    AccentColor = profile.AccentColor,
+                    Tags = profile.Tags?.ToList() ?? new System.Collections.Generic.List<string>()
+                })
+                .ToList();
+        }
+
+        internal static System.Collections.Generic.List<TerminalProfile> NormalizeSettingsProfilesForSave(System.Collections.Generic.IEnumerable<TerminalProfile> profiles)
+        {
+            var source = profiles ?? System.Array.Empty<TerminalProfile>();
+
+            return source
+                .Where(profile => profile.Type == ConnectionType.Local)
+                .Select(profile => new TerminalProfile
+                {
+                    Id = profile.Id,
+                    Name = profile.Name,
+                    Command = profile.Command,
+                    Arguments = profile.Arguments,
+                    StartingDirectory = profile.StartingDirectory,
+                    Type = ConnectionType.Local,
+                    FontFamily = profile.FontFamily,
+                    FontSize = profile.FontSize,
+                    ThemeName = profile.ThemeName,
+                    EnableLigatures = profile.EnableLigatures,
+                    Group = profile.Group,
+                    Notes = profile.Notes,
+                    AccentColor = profile.AccentColor,
+                    Tags = profile.Tags?.ToList() ?? new System.Collections.Generic.List<string>()
+                })
+                .ToList();
+        }
+
+        internal static Guid ResolveDefaultLocalProfileId(Guid currentDefaultId, System.Collections.Generic.IReadOnlyList<TerminalProfile> localProfiles)
+        {
+            if (localProfiles == null || localProfiles.Count == 0)
+            {
+                return Guid.Empty;
+            }
+
+            return localProfiles.Any(profile => profile.Id == currentDefaultId)
+                ? currentDefaultId
+                : localProfiles[0].Id;
+        }
+
         private void PopulateProfilesList()
         {
             var profilesListBox = this.FindControl<ListBox>("ProfilesListBox");
@@ -911,24 +942,16 @@ namespace NovaTerminal
             this.FindControl<TextBox>("ProfileTagsInput")!.Text = string.Join(", ", profile.Tags ?? new System.Collections.Generic.List<string>());
 
             var typeList = this.FindControl<ComboBox>("ProfileTypeList");
-            if (typeList != null) typeList.SelectedIndex = (int)profile.Type;
+            if (typeList != null) typeList.SelectedIndex = 0;
 
             var sshPanel = this.FindControl<StackPanel>("SshSettingsPanel");
-            if (sshPanel != null) sshPanel.IsVisible = profile.Type == ConnectionType.SSH;
+            if (sshPanel != null) sshPanel.IsVisible = false;
 
             this.FindControl<TextBox>("SshHostInput")!.Text = profile.SshHost ?? "";
             this.FindControl<NumericUpDown>("SshPortInput")!.Value = profile.SshPort;
             this.FindControl<TextBox>("SshUserInput")!.Text = profile.SshUser ?? "";
             this.FindControl<TextBox>("SshKeyPathInput")!.Text = profile.SshKeyPath ?? "";
-
-            var pwdInput = this.FindControl<TextBox>("SshPasswordInput");
-            if (pwdInput != null)
-            {
-                string? pass = _vault.GetSshPasswordForProfile(profile);
-
-                pwdInput.Text = pass ?? "";
-                profile.Password = pass; // Ensure object is sync'd
-            }
+            this.FindControl<TextBox>("SshPasswordInput")!.Text = string.Empty;
 
             this.FindControl<CheckBox>("CheckOverrideFont")!.IsChecked = profile.FontFamily != null;
             this.FindControl<CheckBox>("CheckOverrideSize")!.IsChecked = profile.FontSize.HasValue;
@@ -960,23 +983,7 @@ namespace NovaTerminal
                     if (obj is ComboBoxItem item && item.Content?.ToString() == targetTheme) { overrideThemeList.SelectedItem = item; break; }
             }
 
-            // Advanced SSH & Port Forwarding
-            if (profile.Type == ConnectionType.SSH)
-            {
-                PopulateJumpHostList(profile);
-
-                var radioAgent = this.FindControl<RadioButton>("RadioAuthAgent");
-                var radioKey = this.FindControl<RadioButton>("RadioAuthKey");
-                if (radioAgent != null) radioAgent.IsChecked = profile.UseSshAgent;
-                if (radioKey != null) radioKey.IsChecked = !profile.UseSshAgent;
-
-                var keyPathInput = this.FindControl<TextBox>("SshKeyPathInput");
-                var browseBtn = this.FindControl<Button>("BtnBrowseSshKey");
-                if (keyPathInput != null) { keyPathInput.Text = profile.IdentityFilePath ?? profile.SshKeyPath ?? ""; keyPathInput.IsEnabled = !profile.UseSshAgent; }
-                if (browseBtn != null) browseBtn.IsEnabled = !profile.UseSshAgent;
-
-                RefreshForwardsList();
-            }
+            // SSH profile editing moved to Connection Manager.
         }
 
         private void PopulateJumpHostList(TerminalProfile current)
@@ -1347,17 +1354,9 @@ namespace NovaTerminal
             if (bgStretchList?.SelectedItem is ComboBoxItem stretchItem)
                 _settings.BackgroundImageStretch = stretchItem.Content?.ToString() ?? "UniformToFill";
 
-            // Sync profiles list back to settings
-            _settings.Profiles = _profilesList;
-
-            // Save passwords for any modified/visited SSH profiles
-            foreach (var p in _profilesList)
-            {
-                if (p.Type == ConnectionType.SSH && p.Password != null)
-                {
-                    _vault.SetSshPasswordForProfile(p, p.Password);
-                }
-            }
+            // Sync local profiles list back to settings (SSH connections are store-backed separately).
+            _settings.Profiles = NormalizeSettingsProfilesForSave(_profilesList);
+            _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _settings.Profiles);
 
             _settings.Save();
             Close(true); // Return true to indicate saved
