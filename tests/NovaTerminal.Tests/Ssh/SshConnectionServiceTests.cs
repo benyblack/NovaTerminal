@@ -9,7 +9,7 @@ namespace NovaTerminal.Tests.Ssh;
 public sealed class SshConnectionServiceTests
 {
     [Fact]
-    public void SaveProfile_AddsTerminalProfileAndPersistsSshProfile()
+    public void SaveProfile_PersistsSshProfileWithoutMutatingTerminalProfiles()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -17,7 +17,16 @@ public sealed class SshConnectionServiceTests
             string path = Path.Combine(tempRoot, "profiles.json");
             var store = new JsonSshProfileStore(path);
             var service = new SshConnectionService(store);
-            var profiles = new List<TerminalProfile>();
+            var localProfiles = new List<TerminalProfile>
+            {
+                new TerminalProfile
+                {
+                    Id = Guid.Parse("90bcf34a-83af-4e84-b0a3-4a74a9b62615"),
+                    Name = "PowerShell",
+                    Type = ConnectionType.Local,
+                    Command = "pwsh.exe"
+                }
+            };
 
             var vm = new NewSshConnectionViewModel
             {
@@ -28,15 +37,14 @@ public sealed class SshConnectionServiceTests
                 AuthMode = NewSshAuthMode.Agent
             };
 
-            TerminalProfile saved = service.SaveProfile(vm, profiles);
+            SshProfile saved = service.SaveProfile(vm);
 
-            Assert.Single(profiles);
-            Assert.Equal(ConnectionType.SSH, saved.Type);
+            Assert.Single(localProfiles);
             Assert.Equal("Prod", saved.Name);
-            Assert.Equal("prod.internal", saved.SshHost);
-            Assert.Equal("alice", saved.SshUser);
-            Assert.Equal(2200, saved.SshPort);
-            Assert.True(saved.UseSshAgent);
+            Assert.Equal("prod.internal", saved.Host);
+            Assert.Equal("alice", saved.User);
+            Assert.Equal(2200, saved.Port);
+            Assert.Equal(SshAuthMode.Agent, saved.AuthMode);
 
             var persisted = store.GetProfile(saved.Id);
             Assert.NotNull(persisted);
@@ -50,7 +58,7 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void SaveProfile_UpdatesExistingTerminalProfile()
+    public void SaveProfile_UpdatesExistingStoreProfile()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -60,17 +68,13 @@ public sealed class SshConnectionServiceTests
             var service = new SshConnectionService(store);
 
             var existingId = Guid.Parse("5d4bf55d-1b7a-48e9-b368-c03295dcbf1f");
-            var profiles = new List<TerminalProfile>
+            store.SaveProfile(new SshProfile
             {
-                new TerminalProfile
-                {
-                    Id = existingId,
-                    Name = "Old",
-                    Type = ConnectionType.SSH,
-                    SshHost = "old.internal",
-                    SshPort = 22
-                }
-            };
+                Id = existingId,
+                Name = "Old",
+                Host = "old.internal",
+                Port = 22
+            });
 
             var vm = new NewSshConnectionViewModel
             {
@@ -83,15 +87,14 @@ public sealed class SshConnectionServiceTests
                 IdentityFilePath = "C:\\keys\\id_ed25519"
             };
 
-            TerminalProfile saved = service.SaveProfile(vm, profiles);
+            SshProfile saved = service.SaveProfile(vm);
 
-            Assert.Single(profiles);
             Assert.Equal(existingId, saved.Id);
             Assert.Equal("Updated", saved.Name);
-            Assert.Equal("new.internal", saved.SshHost);
-            Assert.Equal("ops", saved.SshUser);
-            Assert.Equal(2222, saved.SshPort);
-            Assert.False(saved.UseSshAgent);
+            Assert.Equal("new.internal", saved.Host);
+            Assert.Equal("ops", saved.User);
+            Assert.Equal(2222, saved.Port);
+            Assert.Equal(SshAuthMode.IdentityFile, saved.AuthMode);
             Assert.Equal("C:\\keys\\id_ed25519", saved.IdentityFilePath);
         }
         finally
@@ -109,7 +112,6 @@ public sealed class SshConnectionServiceTests
             string path = Path.Combine(tempRoot, "profiles.json");
             var store = new JsonSshProfileStore(path);
             var service = new SshConnectionService(store);
-            var profiles = new List<TerminalProfile>();
 
             var vm = new NewSshConnectionViewModel
             {
@@ -136,7 +138,7 @@ public sealed class SshConnectionServiceTests
                 SourcePort = 1080
             });
 
-            TerminalProfile saved = service.SaveProfile(vm, profiles);
+            SshProfile saved = service.SaveProfile(vm);
             SshProfile? persisted = store.GetProfile(saved.Id);
 
             Assert.NotNull(persisted);
@@ -147,11 +149,64 @@ public sealed class SshConnectionServiceTests
             Assert.Equal("-o StrictHostKeyChecking=no", persisted.ExtraSshArgs);
             Assert.Single(persisted.JumpHops);
             Assert.Single(persisted.Forwards);
+            Assert.Equal("critical profile", persisted.Notes);
+            Assert.Equal("#11AA88", persisted.AccentColor);
+            Assert.Contains("favorite", persisted.Tags, StringComparer.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
 
-            Assert.Contains("favorite", saved.Tags, StringComparer.OrdinalIgnoreCase);
-            Assert.Equal("critical profile", saved.Notes);
-            Assert.Equal("#11AA88", saved.AccentColor);
-            Assert.Single(saved.Forwards);
+    [Fact]
+    public void GetConnectionProfiles_ProjectsStoredProfilesIntoRuntimeRows()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+
+            var firstId = Guid.Parse("2f2a8e09-bb80-48cc-b386-969ea7b8558f");
+            store.SaveProfile(new SshProfile
+            {
+                Id = firstId,
+                Name = "Prod",
+                Host = "prod.internal",
+                User = "ops",
+                Port = 2200,
+                Notes = "critical",
+                AccentColor = "#66AAFF",
+                GroupPath = "Prod/API",
+                Tags = new List<string> { "favorite", "api" }
+            });
+
+            store.SaveProfile(new SshProfile
+            {
+                Id = Guid.Parse("f013020a-86d4-4829-a9e5-db06d4cd11dc"),
+                Name = "Stage",
+                Host = "stage.internal",
+                Port = 22,
+                GroupPath = "Stage",
+                Tags = new List<string> { "staging" }
+            });
+
+            IReadOnlyList<TerminalProfile> rows = service.GetConnectionProfiles();
+
+            Assert.Equal(2, rows.Count);
+            TerminalProfile prod = rows[0].Id == firstId ? rows[0] : rows[1];
+            Assert.Equal(ConnectionType.SSH, prod.Type);
+            Assert.Equal("Prod", prod.Name);
+            Assert.Equal("prod.internal", prod.SshHost);
+            Assert.Equal("ops", prod.SshUser);
+            Assert.Equal(2200, prod.SshPort);
+            Assert.Equal("critical", prod.Notes);
+            Assert.Equal("#66AAFF", prod.AccentColor);
+            Assert.Equal("Prod/API", prod.Group);
+            Assert.Contains("favorite", prod.Tags, StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(OperatingSystem.IsWindows() ? "ssh.exe" : "ssh", prod.Command);
         }
         finally
         {

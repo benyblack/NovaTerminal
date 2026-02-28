@@ -60,6 +60,7 @@ namespace NovaTerminal
         private bool _closePaneInProgress;
         private bool _closeTabInProgress;
         private readonly SshConnectionService _sshConnectionService;
+        private readonly SshLegacyProfileMigrationService _sshLegacyMigrationService;
         private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
 
         private sealed class PaneZoomState
@@ -108,7 +109,7 @@ namespace NovaTerminal
                 overlay.IsVisible = !overlay.IsVisible;
                 if (overlay.IsVisible && connManager != null)
                 {
-                    connManager.LoadProfiles(_settings.Profiles);
+                    connManager.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
                     // Focus search
                     var search = connManager.FindControl<TextBox>("SearchInput");
                     search?.Focus();
@@ -1559,6 +1560,12 @@ namespace NovaTerminal
             InitializeComponent();
             _settings = TerminalSettings.Load();
             _sshConnectionService = new SshConnectionService();
+            _sshLegacyMigrationService = new SshLegacyProfileMigrationService();
+
+            if (_sshLegacyMigrationService.MigrateLegacyProfiles(_settings))
+            {
+                _settings.Save();
+            }
 
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
@@ -1621,7 +1628,6 @@ namespace NovaTerminal
                 {
                     HandleSshQuickOpen(profile, target, diagnosticsLevel);
                     ToggleConnections();
-                    _settings.Save();
                 };
                 connManager.OnCopyLaunchCommandRequested += (profile, diagnosticsLevel) =>
                 {
@@ -1633,7 +1639,7 @@ namespace NovaTerminal
                 };
                 connManager.OnProfilesChanged += () =>
                 {
-                    _settings.Save();
+                    _sshConnectionService.SaveConnectionProfiles(connManager.GetAllProfiles());
                 };
                 connManager.OnSyncRequested += HandleSshSync;
                 connManager.OnEditProfile += async (profile) =>
@@ -1994,41 +2000,10 @@ namespace NovaTerminal
         {
             try
             {
-                var sshProfiles = NovaTerminal.Core.ProfileImporter.ImportSshConfig();
-                bool changed = false;
-
-                foreach (var newProfile in sshProfiles)
+                var importedProfiles = NovaTerminal.Core.ProfileImporter.ImportSshConfig();
+                int changed = _sshConnectionService.MergeImportedProfiles(importedProfiles);
+                if (changed > 0)
                 {
-                    // Match by Name and Type
-                    var existing = _settings.Profiles.FirstOrDefault(p => p.Name == newProfile.Name && p.Type == NovaTerminal.Core.ConnectionType.SSH);
-                    if (existing != null)
-                    {
-                        // MERGE: Update technical details, preserve user metadata (Groups, Tags, Icon, LastUsed)
-                        bool diff = existing.SshHost != newProfile.SshHost ||
-                                    existing.SshPort != newProfile.SshPort ||
-                                    existing.SshUser != newProfile.SshUser ||
-                                    existing.SshKeyPath != newProfile.SshKeyPath;
-
-                        if (diff)
-                        {
-                            existing.SshHost = newProfile.SshHost;
-                            existing.SshPort = newProfile.SshPort;
-                            existing.SshUser = newProfile.SshUser;
-                            existing.SshKeyPath = newProfile.SshKeyPath;
-                            changed = true;
-                        }
-                    }
-                    else
-                    {
-                        // ADD: New profile
-                        _settings.Profiles.Add(newProfile);
-                        changed = true;
-                    }
-                }
-
-                if (changed)
-                {
-                    _settings.Save();
                     RefreshProfileUIs();
                 }
             }
@@ -2046,7 +2021,9 @@ namespace NovaTerminal
                 // Refresh the profile object if possible to pick up overrides
                 if (pane.Profile != null)
                 {
-                    var updatedProfile = settings.Profiles.Find(p => p.Id == pane.Profile.Id);
+                    TerminalProfile? updatedProfile = pane.Profile.Type == ConnectionType.SSH
+                        ? _sshConnectionService.GetConnectionProfile(pane.Profile.Id)
+                        : settings.Profiles.Find(p => p.Id == pane.Profile.Id);
                     if (updatedProfile != null) pane.UpdateProfile(updatedProfile);
                 }
                 pane.ApplySettings(settings);
@@ -2892,7 +2869,9 @@ namespace NovaTerminal
                 return;
             }
 
-            TerminalProfile resolvedProfile = _settings.Profiles.Find(p => p.Id == profile.Id) ?? profile;
+            TerminalProfile resolvedProfile = profile.Type == ConnectionType.SSH
+                ? _sshConnectionService.GetConnectionProfile(profile.Id) ?? profile
+                : _settings.Profiles.Find(p => p.Id == profile.Id) ?? profile;
             var paneToReplace = _currentPane;
             var replacementPane = new TerminalPane(resolvedProfile, diagnosticsLevel);
             replacementPane.ApplySettings(_settings);
@@ -2979,9 +2958,21 @@ namespace NovaTerminal
             }
             else
             {
-                // REFRESH the profile from settings to ensure we have the latest version (e.g. updated overrides)
-                var freshProfile = _settings.Profiles.Find(p => p.Id == profile.Id);
-                if (freshProfile != null) profile = freshProfile;
+                if (profile.Type == ConnectionType.SSH)
+                {
+                    // SSH profiles are store-backed and independent from TerminalSettings.Profiles.
+                    TerminalProfile? sshProfile = _sshConnectionService.GetConnectionProfile(profile.Id);
+                    if (sshProfile != null)
+                    {
+                        profile = sshProfile;
+                    }
+                }
+                else
+                {
+                    // Refresh local profile from settings to pick up latest overrides.
+                    var freshProfile = _settings.Profiles.Find(p => p.Id == profile.Id);
+                    if (freshProfile != null) profile = freshProfile;
+                }
             }
 
             // Ensure the command exists on this platform (handles shared settings between Windows/Linux)
@@ -2999,7 +2990,7 @@ namespace NovaTerminal
             if (profile.Type == ConnectionType.SSH)
             {
                 profile.Command = RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "ssh.exe" : "ssh";
-                profile.Arguments = profile.GenerateSshArguments(_settings.Profiles);
+                profile.Arguments = string.Empty;
             }
 
             if (TryApplyTemplateRuleForProfile(profile))
@@ -3071,7 +3062,7 @@ namespace NovaTerminal
             flyout.Items.Clear();
 
             // Add profiles
-            foreach (var profile in _settings.Profiles)
+            foreach (var profile in _settings.Profiles.Where(p => p.Type == ConnectionType.Local))
             {
                 // UI Polish: Show all profiles the user has configured.
                 // Previously we hid "invalid" ones, but that hides imported WSL profiles if not found in path.
@@ -3367,14 +3358,10 @@ namespace NovaTerminal
             // Dynamic Profile Tabs
             if (_settings.Profiles != null)
             {
-                foreach (var profile in _settings.Profiles)
+                foreach (var profile in _settings.Profiles.Where(p => p.Type == ConnectionType.Local))
                 {
-                    // UI Polish: Only register commands for profiles that make sense for the current platform
-                    if (profile.Type == ConnectionType.Local)
-                    {
-                        bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
-                        if (!exists) continue;
-                    }
+                    bool exists = File.Exists(profile.Command) || ShellHelper.InPath(profile.Command);
+                    if (!exists) continue;
                     CommandRegistry.Register($"New Tab: {profile.Name}", "Shell", () => AddTab(profile), "");
                 }
             }
@@ -3785,6 +3772,11 @@ namespace NovaTerminal
                     _settings = TerminalSettings.Load();
                 }
 
+                if (_sshLegacyMigrationService.MigrateLegacyProfiles(_settings))
+                {
+                    _settings.Save();
+                }
+
                 RefreshProfileUIs();
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
@@ -3794,7 +3786,7 @@ namespace NovaTerminal
                 var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
                 if (connManager != null)
                 {
-                    connManager.LoadProfiles(_settings.Profiles);
+                    connManager.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
                 }
             }
         }
@@ -3812,8 +3804,9 @@ namespace NovaTerminal
 
             try
             {
-                TerminalProfile profile = _sshConnectionService.SaveProfile(vm, _settings.Profiles);
-                _settings.Save();
+                var savedProfile = _sshConnectionService.SaveProfile(vm);
+                TerminalProfile profile = _sshConnectionService.GetConnectionProfile(savedProfile.Id)
+                    ?? SshConnectionService.ToRuntimeProfile(savedProfile);
                 RefreshProfileUIs();
 
                 if (vm.ConnectAfterSave)
@@ -3976,7 +3969,7 @@ namespace NovaTerminal
             var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
             if (connManager != null)
             {
-                connManager.LoadProfiles(_settings.Profiles);
+                connManager.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
             }
         }
 

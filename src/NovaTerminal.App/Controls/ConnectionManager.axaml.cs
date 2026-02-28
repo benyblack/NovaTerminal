@@ -130,10 +130,15 @@ namespace NovaTerminal.Controls
             }
         }
 
-        public void LoadProfiles(List<TerminalProfile> profiles)
+        public void LoadProfiles(IEnumerable<TerminalProfile> profiles)
         {
             _viewModel.LoadProfiles(profiles);
             UpdateResultCountText();
+        }
+
+        public IReadOnlyList<TerminalProfile> GetAllProfiles()
+        {
+            return _viewModel.GetAllProfiles();
         }
 
         private void OnFavoriteClick(object? sender, RoutedEventArgs e)

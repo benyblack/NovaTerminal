@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Core
 {
@@ -81,6 +83,14 @@ namespace NovaTerminal.Core
             {
                 var settings = TerminalSettings.Load();
                 var profile = settings.Profiles.Find(p => p.Name == job.ProfileName);
+                if (profile == null || profile.Type != ConnectionType.SSH)
+                {
+                    var sshService = new SshConnectionService();
+                    profile = sshService.GetConnectionProfiles()
+                        .FirstOrDefault(p => p.Type == ConnectionType.SSH &&
+                                             string.Equals(p.Name, job.ProfileName, StringComparison.OrdinalIgnoreCase));
+                }
+
                 if (profile == null) throw new Exception("Profile not found");
 
                 string scpExe = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) ? "scp.exe" : "scp";
