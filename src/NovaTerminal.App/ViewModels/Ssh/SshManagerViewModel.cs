@@ -71,6 +71,11 @@ public sealed class SshManagerViewModel : INotifyPropertyChanged
         OpenRequested?.Invoke(row, target, DiagnosticsLevel);
     }
 
+    public IReadOnlyList<TerminalProfile> GetAllProfiles()
+    {
+        return _allRows.Select(row => row.Profile).ToArray();
+    }
+
     private void ApplyFilter()
     {
         string query = SearchText?.Trim() ?? string.Empty;

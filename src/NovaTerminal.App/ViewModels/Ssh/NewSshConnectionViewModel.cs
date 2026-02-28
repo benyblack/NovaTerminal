@@ -234,6 +234,9 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         {
             Id = id,
             Name = name,
+            Notes = Notes?.Trim() ?? string.Empty,
+            AccentColor = AccentColor?.Trim() ?? string.Empty,
+            Tags = BuildTags(IsFavorite),
             Host = host,
             User = user,
             Port = port,
@@ -311,10 +314,13 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(sshProfile);
 
         ProfileId = sshProfile.Id;
-        Name = string.IsNullOrWhiteSpace(Name) ? sshProfile.Name : Name;
+        Name = sshProfile.Name;
         HostName = sshProfile.Host;
         UserName = sshProfile.User;
         Port = sshProfile.Port > 0 ? sshProfile.Port : 22;
+        Notes = sshProfile.Notes ?? string.Empty;
+        AccentColor = sshProfile.AccentColor ?? string.Empty;
+        IsFavorite = sshProfile.Tags.Any(tag => string.Equals(tag, "favorite", StringComparison.OrdinalIgnoreCase));
         AuthMode = sshProfile.AuthMode == SshAuthMode.IdentityFile ? NewSshAuthMode.IdentityFile : NewSshAuthMode.Agent;
         IdentityFilePath = sshProfile.IdentityFilePath ?? string.Empty;
 
@@ -446,6 +452,16 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
 
         host = trimmed[..colon].Trim();
         return !string.IsNullOrWhiteSpace(host) && int.TryParse(trimmed[(colon + 1)..].Trim(), out port);
+    }
+
+    private static List<string> BuildTags(bool isFavorite)
+    {
+        if (!isFavorite)
+        {
+            return new List<string>();
+        }
+
+        return new List<string> { "favorite" };
     }
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

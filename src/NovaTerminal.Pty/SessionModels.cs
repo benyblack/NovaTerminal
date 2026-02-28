@@ -39,6 +39,7 @@ namespace NovaTerminal.Core
 
         // For Leafs
         public string? ProfileId { get; set; }
+        public string? SshProfileId { get; set; }
         public string? PaneId { get; set; }
 
         // Fallbacks for ad-hoc panes (no profile)

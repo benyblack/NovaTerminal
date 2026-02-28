@@ -18,6 +18,10 @@ public sealed class JsonSshProfileStoreTests
             {
                 Id = Guid.Parse("aeb456e4-8dd2-4b33-a74d-cb473de0323b"),
                 Name = "prod",
+                GroupPath = "Prod/DB",
+                Notes = "critical",
+                AccentColor = "#3399EE",
+                Tags = new List<string> { "zeta", "Favorite", "alpha", "favorite" },
                 Host = "prod.internal",
                 User = "svc",
                 Port = 2222,
@@ -49,6 +53,10 @@ public sealed class JsonSshProfileStoreTests
 
             Assert.NotNull(loaded);
             Assert.Equal(profile.Name, loaded!.Name);
+            Assert.Equal("Prod/DB", loaded.GroupPath);
+            Assert.Equal("critical", loaded.Notes);
+            Assert.Equal("#3399EE", loaded.AccentColor);
+            Assert.Equal(new[] { "alpha", "Favorite", "zeta" }, loaded.Tags);
             Assert.Equal(profile.Host, loaded.Host);
             Assert.Equal(profile.User, loaded.User);
             Assert.Equal(profile.Port, loaded.Port);

@@ -183,6 +183,15 @@ public sealed class JsonSshProfileStore : ISshProfileStore
     {
         var normalized = CloneProfile(profile);
         normalized.Name = normalized.Name?.Trim() ?? string.Empty;
+        normalized.GroupPath = normalized.GroupPath?.Trim() ?? string.Empty;
+        normalized.Notes = normalized.Notes?.Trim() ?? string.Empty;
+        normalized.AccentColor = normalized.AccentColor?.Trim() ?? string.Empty;
+        normalized.Tags = (normalized.Tags ?? new List<string>())
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Select(tag => tag.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         normalized.Host = normalized.Host?.Trim() ?? string.Empty;
         normalized.User = normalized.User?.Trim() ?? string.Empty;
         normalized.Port = normalized.Port > 0 ? normalized.Port : 22;
@@ -247,6 +256,10 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         {
             Id = profile.Id,
             Name = profile.Name,
+            GroupPath = profile.GroupPath,
+            Notes = profile.Notes,
+            AccentColor = profile.AccentColor,
+            Tags = (profile.Tags ?? new List<string>()).ToList(),
             Host = profile.Host,
             User = profile.User,
             Port = profile.Port,

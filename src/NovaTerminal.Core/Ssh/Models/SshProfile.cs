@@ -13,6 +13,10 @@ public sealed class SshProfile
 {
     public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = "New SSH Profile";
+    public string GroupPath { get; set; } = "General";
+    public string Notes { get; set; } = string.Empty;
+    public string AccentColor { get; set; } = string.Empty;
+    public List<string> Tags { get; set; } = new();
     public string Host { get; set; } = string.Empty;
     public string User { get; set; } = string.Empty;
     public int Port { get; set; } = 22;

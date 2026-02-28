@@ -349,10 +349,8 @@ namespace NovaTerminal.Controls
             // ADVANCED SSH: Generate correct argument chain for ssh.exe
             if (profile != null && profile.Type == ConnectionType.SSH)
             {
-                // Fallback command line for legacy SSH profiles that are not in the SSH profile store.
-                var profiles = _settings?.Profiles ?? new System.Collections.Generic.List<TerminalProfile>();
                 effectiveShell = OperatingSystem.IsWindows() ? "ssh.exe" : "ssh";
-                args = profile.GenerateSshArguments(profiles);
+                args = BuildBasicSshFallbackArguments(profile);
             }
 
             // Update SFTP Menu Visibility
@@ -462,6 +460,36 @@ namespace NovaTerminal.Controls
                     Parser.CellHeight = ch;
                 }
             };
+        }
+
+        private static string BuildBasicSshFallbackArguments(TerminalProfile profile)
+        {
+            var args = new System.Text.StringBuilder();
+
+            string identityPath = !string.IsNullOrWhiteSpace(profile.IdentityFilePath)
+                ? profile.IdentityFilePath!
+                : profile.SshKeyPath ?? string.Empty;
+            bool useIdentity = !profile.UseSshAgent && !string.IsNullOrWhiteSpace(identityPath);
+            if (useIdentity)
+            {
+                args.Append($" -i \"{identityPath}\"");
+            }
+
+            if (profile.SshPort > 0 && profile.SshPort != 22)
+            {
+                args.Append($" -p {profile.SshPort}");
+            }
+
+            string target = string.IsNullOrWhiteSpace(profile.SshUser)
+                ? profile.SshHost
+                : $"{profile.SshUser}@{profile.SshHost}";
+            if (!string.IsNullOrWhiteSpace(target))
+            {
+                args.Append(' ');
+                args.Append(target);
+            }
+
+            return args.ToString().Trim();
         }
 
         public void ApplySettings(TerminalSettings settings)

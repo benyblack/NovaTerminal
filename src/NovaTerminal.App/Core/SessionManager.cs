@@ -8,6 +8,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia;
 using NovaTerminal.Controls;
+using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Core
 {
@@ -95,6 +96,7 @@ namespace NovaTerminal.Core
                 {
                     Type = NodeType.Leaf,
                     ProfileId = pane.Profile?.Id.ToString(),
+                    SshProfileId = pane.Profile?.Type == ConnectionType.SSH ? pane.Profile.Id.ToString() : null,
                     PaneId = pane.PaneId.ToString(),
                     Command = pane.ShellCommand,
                     Arguments = pane.ShellArgs
@@ -243,8 +245,9 @@ namespace NovaTerminal.Core
             if (node.Type == NodeType.Leaf)
             {
                 // Reconstruct TerminalPane
-                TerminalProfile? profile = null;
-                if (!string.IsNullOrEmpty(node.ProfileId) && Guid.TryParse(node.ProfileId, out var profileGuid))
+                TerminalProfile? profile = ResolveSshProfile(node.SshProfileId);
+
+                if (profile == null && !string.IsNullOrEmpty(node.ProfileId) && Guid.TryParse(node.ProfileId, out var profileGuid))
                 {
                     profile = settings.Profiles?.Find(p => p.Id == profileGuid);
                 }
@@ -345,6 +348,24 @@ namespace NovaTerminal.Core
             }
 
             return null;
+        }
+
+        private static TerminalProfile? ResolveSshProfile(string? sshProfileId)
+        {
+            if (string.IsNullOrWhiteSpace(sshProfileId) || !Guid.TryParse(sshProfileId, out Guid parsedId))
+            {
+                return null;
+            }
+
+            try
+            {
+                var service = new SshConnectionService();
+                return service.GetConnectionProfile(parsedId);
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }
