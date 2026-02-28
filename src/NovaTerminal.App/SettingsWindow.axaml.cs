@@ -97,7 +97,6 @@ namespace NovaTerminal
             var bgOpacityDisplay = this.FindControl<TextBlock>("BgImageOpacityDisplay");
             var importStatus = this.FindControl<TextBlock>("ImportStatusText");
             var btnImportWT = this.FindControl<Button>("BtnImportWT");
-            var btnImportSSH = this.FindControl<Button>("BtnImportSSH");
             var btnAddRule = this.FindControl<Button>("BtnAddRule");
 
             // Theme Editor Controls
@@ -381,17 +380,6 @@ namespace NovaTerminal
                     else
                     {
                         if (importStatus != null) importStatus.Text = "No new profiles found.";
-                    }
-                };
-            }
-
-            if (btnImportSSH != null)
-            {
-                btnImportSSH.Click += (s, e) =>
-                {
-                    if (importStatus != null)
-                    {
-                        importStatus.Text = "SSH import moved to Connection Manager (use Sync).";
                     }
                 };
             }

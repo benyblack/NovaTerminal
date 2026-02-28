@@ -7,7 +7,25 @@
         Title="New SSH Connection"
         Width="760"
         Height="620"
-        CanResize="True">
+        CanResize="True"
+        WindowStartupLocation="CenterOwner">
+    <Window.Styles>
+        <Style Selector="TabItem">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+            <Setter Property="FontSize" Value="14" />
+        </Style>
+        <Style Selector="TabItem:selected">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style Selector="TabItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+        </Style>
+        <Style Selector="TabItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+        </Style>
+    </Window.Styles>
+
     <Grid RowDefinitions="*,Auto,Auto" Margin="16">
         <TabControl>
             <TabItem Header="Basic">

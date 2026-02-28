@@ -746,14 +746,7 @@ namespace NovaTerminal
         private async Task<string?> ShowTextPromptAsync(string title, string prompt, string defaultValue)
         {
             string? result = null;
-            var dialog = new Window
-            {
-                Title = title,
-                Width = 520,
-                Height = 190,
-                CanResize = false,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner
-            };
+            var dialog = CreateThemedDialogWindow(title, 520, 190, canResize: false);
 
             var input = new TextBox
             {
@@ -794,6 +787,30 @@ namespace NovaTerminal
 
             await dialog.ShowDialog(this);
             return result;
+        }
+
+        private Window CreateThemedDialogWindow(string title, double width, double height, bool canResize)
+        {
+            var dialog = new Window
+            {
+                Title = title,
+                Width = width,
+                Height = height,
+                CanResize = canResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner
+            };
+
+            ApplyThemeToDialogWindow(dialog);
+            return dialog;
+        }
+
+        private void ApplyThemeToDialogWindow(Window dialog)
+        {
+            var theme = _settings.ActiveTheme;
+            var contrast = theme.GetContrastForeground();
+            dialog.Background = new SolidColorBrush(theme.Background.ToAvaloniaColor());
+            dialog.Foreground = new SolidColorBrush(contrast.ToAvaloniaColor());
+            dialog.RequestedThemeVariant = contrast == TermColor.Black ? ThemeVariant.Light : ThemeVariant.Dark;
         }
 
         private async Task RenameSelectedTabAsync()
@@ -1642,6 +1659,10 @@ namespace NovaTerminal
                     _sshConnectionService.SaveConnectionProfiles(connManager.GetAllProfiles());
                 };
                 connManager.OnSyncRequested += HandleSshSync;
+                connManager.OnNewConnectionRequested += async () =>
+                {
+                    await ShowNewSshConnectionDialogAsync(null);
+                };
                 connManager.OnEditProfile += async (profile) =>
                 {
                     await ShowNewSshConnectionDialogAsync(profile);
@@ -2749,14 +2770,7 @@ namespace NovaTerminal
         {
             bool confirmed = false;
 
-            var dialog = new Window
-            {
-                Title = "Close Running Pane",
-                Width = 460,
-                Height = 190,
-                CanResize = false,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner
-            };
+            var dialog = CreateThemedDialogWindow("Close Running Pane", 460, 190, canResize: false);
 
             var messageBlock = new TextBlock
             {
@@ -3795,6 +3809,7 @@ namespace NovaTerminal
         {
             var vm = _sshConnectionService.CreateEditorViewModel(existingProfile);
             var dialog = new NewSshConnectionView(vm);
+            ApplyThemeToDialogWindow(dialog);
             bool saved = await dialog.ShowDialog<bool>(this);
 
             if (!saved)
@@ -3857,14 +3872,7 @@ namespace NovaTerminal
 
         private async Task ShowSimpleMessageDialogAsync(string title, string message)
         {
-            var dialog = new Window
-            {
-                Title = title,
-                Width = 520,
-                Height = 220,
-                CanResize = false,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner
-            };
+            var dialog = CreateThemedDialogWindow(title, 520, 220, canResize: false);
 
             var closeButton = new Button { Content = "Close", Width = 92 };
             closeButton.Click += (_, __) => dialog.Close();
@@ -3897,14 +3905,7 @@ namespace NovaTerminal
 
         private async Task ShowConnectionDetailsDialogAsync(SshLaunchDetails details, SshDiagnosticsLevel diagnosticsLevel)
         {
-            var dialog = new Window
-            {
-                Title = "Connection details",
-                Width = 760,
-                Height = 340,
-                CanResize = false,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner
-            };
+            var dialog = CreateThemedDialogWindow("Connection details", 760, 340, canResize: false);
 
             var sshPathBox = new TextBox { Text = details.SshPath, IsReadOnly = true };
             var configPathBox = new TextBox { Text = details.ConfigPath, IsReadOnly = true };
