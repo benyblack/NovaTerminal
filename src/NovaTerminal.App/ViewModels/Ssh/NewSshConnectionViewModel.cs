@@ -228,7 +228,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         string identityPath = IsIdentityFileAuth ? IdentityFilePath?.Trim() ?? string.Empty : string.Empty;
         int keepAliveInterval = KeepAliveIntervalSeconds > 0 ? KeepAliveIntervalSeconds : 30;
         int keepAliveCountMax = KeepAliveCountMax > 0 ? KeepAliveCountMax : 3;
-        int controlPersistSeconds = ControlPersistSeconds > 0 ? ControlPersistSeconds : 90;
+        int controlPersistSeconds = ControlPersistSeconds >= 0 ? ControlPersistSeconds : 90;
 
         return new SshProfile
         {
@@ -351,7 +351,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         KeepAliveIntervalSeconds = sshProfile.ServerAliveIntervalSeconds > 0 ? sshProfile.ServerAliveIntervalSeconds : 30;
         KeepAliveCountMax = sshProfile.ServerAliveCountMax > 0 ? sshProfile.ServerAliveCountMax : 3;
         EnableMux = sshProfile.MuxOptions.Enabled;
-        ControlPersistSeconds = sshProfile.MuxOptions.ControlPersistSeconds > 0 ? sshProfile.MuxOptions.ControlPersistSeconds : 90;
+        ControlPersistSeconds = sshProfile.MuxOptions.ControlPersistSeconds >= 0 ? sshProfile.MuxOptions.ControlPersistSeconds : 90;
         ExtraSshArgs = sshProfile.ExtraSshArgs ?? string.Empty;
     }
 

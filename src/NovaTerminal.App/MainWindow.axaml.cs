@@ -3572,6 +3572,7 @@ namespace NovaTerminal
                 var job = new TransferJob
                 {
                     SessionId = sessionId,
+                    ProfileId = profile.Id,
                     ProfileName = profile.Name,
                     Direction = direction,
                     Kind = kind,

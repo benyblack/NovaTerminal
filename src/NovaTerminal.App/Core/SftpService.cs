@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Core
@@ -35,6 +36,7 @@ namespace NovaTerminal.Core
     {
         public Guid Id { get; set; } = Guid.NewGuid();
         public Guid SessionId { get; set; }
+        public Guid ProfileId { get; set; }
         public string ProfileName { get; set; } = "";
         public TransferDirection Direction { get; set; }
         public TransferKind Kind { get; set; }
@@ -82,66 +84,30 @@ namespace NovaTerminal.Core
             try
             {
                 var settings = TerminalSettings.Load();
-                var profile = settings.Profiles.Find(p => p.Name == job.ProfileName);
-                if (profile == null || profile.Type != ConnectionType.SSH)
-                {
-                    var sshService = new SshConnectionService();
-                    profile = sshService.GetConnectionProfiles()
-                        .FirstOrDefault(p => p.Type == ConnectionType.SSH &&
-                                             string.Equals(p.Name, job.ProfileName, StringComparison.OrdinalIgnoreCase));
-                }
+                settings.Profiles ??= new List<TerminalProfile>();
+                var sshService = new SshConnectionService();
+                IReadOnlyList<TerminalProfile> storeProfiles = sshService.GetConnectionProfiles();
+                TerminalProfile? profile = ResolveProfileForJob(job, settings.Profiles, storeProfiles);
 
                 if (profile == null) throw new Exception("Profile not found");
 
+                SshLaunchDetails? launchDetails = null;
+                try
+                {
+                    launchDetails = sshService.BuildLaunchDetails(profile, SshDiagnosticsLevel.None);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[SftpService] SSH launch details unavailable for '{profile.Name}', using legacy SCP args: {ex.Message}");
+                }
+
                 string scpExe = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) ? "scp.exe" : "scp";
-                var args = new System.Text.StringBuilder();
-
-                // Recursion
-                if (job.Kind == TransferKind.Folder) args.Append(" -r");
-
-                // Identity / Port / JumpHost (Reuse profile logic but adapt for SCP)
-                if (!profile.UseSshAgent && !string.IsNullOrEmpty(profile.IdentityFilePath))
-                    args.Append($" -i \"{profile.IdentityFilePath}\"");
-                else if (!string.IsNullOrEmpty(profile.SshKeyPath))
-                    args.Append($" -i \"{profile.SshKeyPath}\"");
-
-                if (profile.SshPort != 22) args.Append($" -P {profile.SshPort}"); // scp uses -P
-
-                if (profile.JumpHostProfileId.HasValue)
-                {
-                    var visited = new HashSet<Guid>();
-                    var sshArgs = profile.GenerateSshArguments(settings.Profiles);
-                    // Extract -J if present. This is a bit hacky but avoids duplicating recursive jump logic
-                    if (sshArgs.Contains("-J "))
-                    {
-                        var parts = sshArgs.Split("-J ");
-                        if (parts.Length > 1)
-                        {
-                            var jumpChain = parts[1].Trim().Split(" ")[0];
-                            args.Append($" -J {jumpChain}");
-                        }
-                    }
-                }
-
-                // Batch mode to avoid hang on auth prompts
-                args.Append(" -B");
-
-                // Source and Destination
-                string remotePart = string.IsNullOrEmpty(profile.SshUser) ? profile.SshHost : $"{profile.SshUser}@{profile.SshHost}";
-
-                if (job.Direction == TransferDirection.Upload)
-                {
-                    args.Append($" \"{job.LocalPath.Replace("\\", "/")}\" {remotePart}:\"{job.RemotePath}\"");
-                }
-                else
-                {
-                    args.Append($" {remotePart}:\"{job.RemotePath}\" \"{job.LocalPath.Replace("\\", "/")}\"");
-                }
+                string args = BuildScpArguments(job, profile, launchDetails, settings.Profiles);
 
                 var startInfo = new ProcessStartInfo
                 {
                     FileName = scpExe,
-                    Arguments = args.ToString(),
+                    Arguments = args,
                     UseShellExecute = false,
                     RedirectStandardError = true,
                     CreateNoWindow = true
@@ -176,6 +142,136 @@ namespace NovaTerminal.Core
                     JobUpdated?.Invoke(this, job);
                 });
             }
+        }
+
+        internal static TerminalProfile? ResolveProfileForJob(
+            TransferJob job,
+            IReadOnlyList<TerminalProfile>? localProfiles,
+            IReadOnlyList<TerminalProfile>? storeProfiles)
+        {
+            ArgumentNullException.ThrowIfNull(job);
+
+            IEnumerable<TerminalProfile> localSsh = (localProfiles ?? Array.Empty<TerminalProfile>())
+                .Where(profile => profile.Type == ConnectionType.SSH);
+            IEnumerable<TerminalProfile> storeSsh = (storeProfiles ?? Array.Empty<TerminalProfile>())
+                .Where(profile => profile.Type == ConnectionType.SSH);
+
+            if (job.ProfileId != Guid.Empty)
+            {
+                TerminalProfile? byId = storeSsh.FirstOrDefault(profile => profile.Id == job.ProfileId)
+                    ?? localSsh.FirstOrDefault(profile => profile.Id == job.ProfileId);
+                if (byId != null)
+                {
+                    return byId;
+                }
+            }
+
+            string name = job.ProfileName?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return null;
+            }
+
+            List<TerminalProfile> storeMatches = storeSsh
+                .Where(profile => string.Equals(profile.Name, name, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (storeMatches.Count == 1)
+            {
+                return storeMatches[0];
+            }
+            if (storeMatches.Count > 1)
+            {
+                return null;
+            }
+
+            List<TerminalProfile> localMatches = localSsh
+                .Where(profile => string.Equals(profile.Name, name, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (localMatches.Count == 1)
+            {
+                return localMatches[0];
+            }
+
+            return null;
+        }
+
+        internal static string BuildScpArguments(
+            TransferJob job,
+            TerminalProfile profile,
+            SshLaunchDetails? launchDetails,
+            IReadOnlyList<TerminalProfile>? allProfiles = null)
+        {
+            ArgumentNullException.ThrowIfNull(job);
+            ArgumentNullException.ThrowIfNull(profile);
+
+            var args = new System.Text.StringBuilder();
+
+            if (job.Kind == TransferKind.Folder)
+            {
+                args.Append(" -r");
+            }
+
+            string remotePart;
+            if (launchDetails != null &&
+                !string.IsNullOrWhiteSpace(launchDetails.ConfigPath) &&
+                !string.IsNullOrWhiteSpace(launchDetails.Alias))
+            {
+                args.Append(" -F ").Append(QuoteArg(launchDetails.ConfigPath));
+                remotePart = launchDetails.Alias;
+            }
+            else
+            {
+                if (!profile.UseSshAgent && !string.IsNullOrEmpty(profile.IdentityFilePath))
+                {
+                    args.Append(" -i ").Append(QuoteArg(profile.IdentityFilePath));
+                }
+                else if (!string.IsNullOrEmpty(profile.SshKeyPath))
+                {
+                    args.Append(" -i ").Append(QuoteArg(profile.SshKeyPath));
+                }
+
+                if (profile.SshPort != 22)
+                {
+                    args.Append($" -P {profile.SshPort}");
+                }
+
+                if (profile.JumpHostProfileId.HasValue)
+                {
+                    string sshArgs = profile.GenerateSshArguments((allProfiles ?? new List<TerminalProfile> { profile }).ToList());
+                    if (sshArgs.Contains("-J ", StringComparison.Ordinal))
+                    {
+                        string[] parts = sshArgs.Split("-J ", StringSplitOptions.None);
+                        if (parts.Length > 1)
+                        {
+                            string jumpChain = parts[1].Trim().Split(" ")[0];
+                            args.Append($" -J {jumpChain}");
+                        }
+                    }
+                }
+
+                remotePart = string.IsNullOrEmpty(profile.SshUser) ? profile.SshHost : $"{profile.SshUser}@{profile.SshHost}";
+            }
+
+            args.Append(" -B");
+
+            string localPath = QuoteArg(job.LocalPath.Replace("\\", "/", StringComparison.Ordinal));
+            string remotePath = QuoteArg(job.RemotePath);
+            if (job.Direction == TransferDirection.Upload)
+            {
+                args.Append(' ').Append(localPath).Append(' ').Append(remotePart).Append(':').Append(remotePath);
+            }
+            else
+            {
+                args.Append(' ').Append(remotePart).Append(':').Append(remotePath).Append(' ').Append(localPath);
+            }
+
+            return args.ToString();
+        }
+
+        private static string QuoteArg(string value)
+        {
+            string normalized = value ?? string.Empty;
+            return $"\"{normalized.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
         }
     }
 }

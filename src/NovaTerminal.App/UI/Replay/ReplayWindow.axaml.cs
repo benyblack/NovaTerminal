@@ -17,6 +17,7 @@ namespace NovaTerminal.UI.Replay
     {
         private ReplayViewModel? _viewModel;
         private CancellationTokenSource? _playbackCts;
+        private readonly PlaybackSessionGate _playbackSessionGate = new();
         private TerminalBuffer? _buffer;
         private AnsiParser? _parser;
         private string? _filePath;
@@ -109,11 +110,13 @@ namespace NovaTerminal.UI.Replay
         {
             if (_viewModel == null || _filePath == null) return;
 
+            _playbackCts?.Cancel();
             _viewModel.IsPlaying = true;
             this.FindControl<Button>("BtnPlayPause")!.Content = "⏸";
             _playbackCts = new CancellationTokenSource();
-
-            Task.Run(() => PlaybackLoop(_playbackCts.Token));
+            int sessionId = _playbackSessionGate.BeginSession();
+            CancellationToken token = _playbackCts.Token;
+            Task.Run(() => PlaybackLoop(sessionId, token));
         }
 
         private void StopPlayback()
@@ -122,7 +125,9 @@ namespace NovaTerminal.UI.Replay
 
             _viewModel.IsPlaying = false;
             this.FindControl<Button>("BtnPlayPause")!.Content = "▶";
+            _playbackSessionGate.InvalidateCurrentSession();
             _playbackCts?.Cancel();
+            _playbackCts = null;
         }
 
         private async Task PerformSeek(long targetTimeMs)
@@ -179,7 +184,7 @@ namespace NovaTerminal.UI.Replay
             catch { }
         }
 
-        private async Task PlaybackLoop(CancellationToken ct)
+        private async Task PlaybackLoop(int sessionId, CancellationToken ct)
         {
             if (_filePath == null || _viewModel == null || _buffer == null) return;
 
@@ -242,7 +247,10 @@ namespace NovaTerminal.UI.Replay
             }
             finally
             {
-                Dispatcher.UIThread.Post(StopPlayback);
+                if (_playbackSessionGate.IsCurrent(sessionId))
+                {
+                    Dispatcher.UIThread.Post(StopPlayback);
+                }
             }
         }
 

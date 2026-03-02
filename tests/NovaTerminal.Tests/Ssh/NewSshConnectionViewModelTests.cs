@@ -111,4 +111,41 @@ public sealed class NewSshConnectionViewModelTests
         Assert.Single(profile.JumpHops);
         Assert.Single(profile.Forwards);
     }
+
+    [Fact]
+    public void ToSshProfile_PreservesZeroControlPersistWhenMuxEnabled()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "ZeroPersist",
+            HostName = "zero.internal",
+            EnableMux = true,
+            ControlPersistSeconds = 0
+        };
+
+        SshProfile profile = vm.ToSshProfile();
+
+        Assert.True(profile.MuxOptions.Enabled);
+        Assert.Equal(0, profile.MuxOptions.ControlPersistSeconds);
+    }
+
+    [Fact]
+    public void ApplySshProfile_PreservesZeroControlPersistValue()
+    {
+        var vm = new NewSshConnectionViewModel();
+        var profile = new SshProfile
+        {
+            Name = "ZeroPersist",
+            Host = "zero.internal",
+            MuxOptions = new SshMuxOptions
+            {
+                Enabled = true,
+                ControlPersistSeconds = 0
+            }
+        };
+
+        vm.ApplySshProfile(profile);
+
+        Assert.Equal(0, vm.ControlPersistSeconds);
+    }
 }
