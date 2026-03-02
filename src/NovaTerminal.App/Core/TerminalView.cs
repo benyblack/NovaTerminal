@@ -1271,10 +1271,11 @@ namespace NovaTerminal.Core
 
             // Hide cursor if we are not focused or if blink mode currently hides it.
             bool hideCursor = !IsKeyboardFocusWithin;
+            long nowTicks = DateTime.UtcNow.Ticks;
 
             // Snapshot state under lock to prevent race conditions during resize
             int snapshotRows, snapshotCols, totalLines, cursorRow, cursorCol;
-            bool cursorVisibleMode, cursorBlinkMode;
+            bool cursorVisibleMode, cursorBlinkMode, cursorSuppressedTemporarily;
             buffer.Lock.EnterReadLock();
             try
             {
@@ -1285,11 +1286,13 @@ namespace NovaTerminal.Core
                 cursorCol = buffer.InternalCursorCol;
                 cursorVisibleMode = buffer.Modes.IsCursorVisible;
                 cursorBlinkMode = buffer.Modes.IsCursorBlinkEnabled;
+                cursorSuppressedTemporarily = buffer.CursorSuppressedUntilUtcTicks > nowTicks;
             }
             finally { buffer.Lock.ExitReadLock(); }
 
             if (!cursorVisibleMode) hideCursor = true;
             if (cursorBlinkMode && !_cursorBlinkPhase) hideCursor = true;
+            if (cursorSuppressedTemporarily) hideCursor = true;
 
             // Create and dispatch custom draw op
             var scaling = VisualRoot?.RenderScaling ?? 1.0;

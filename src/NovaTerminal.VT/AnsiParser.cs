@@ -35,6 +35,9 @@ namespace NovaTerminal.Core
 
         // M2.1: Lock Batching Buffer
         private System.Text.StringBuilder _textBuffer = new System.Text.StringBuilder(4096);
+        private bool _sawCursorHideInBatch;
+        private bool _sawCursorShowAfterHideInBatch;
+        private static readonly TimeSpan CursorTransientSuppressionWindow = TimeSpan.FromMilliseconds(60);
 
         public float CellWidth { get; set; } = 10.0f;  // Default fallback
         public float CellHeight { get; set; } = 20.0f; // Default fallback
@@ -85,6 +88,8 @@ namespace NovaTerminal.Core
             if (string.IsNullOrEmpty(input)) return;
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
+            _sawCursorHideInBatch = false;
+            _sawCursorShowAfterHideInBatch = false;
 
 
 
@@ -315,6 +320,12 @@ namespace NovaTerminal.Core
                     }
                 }
                 FlushText();
+
+                if (_sawCursorShowAfterHideInBatch)
+                {
+                    _buffer.ExtendCursorSuppression_NoLock(CursorTransientSuppressionWindow);
+                    _buffer.Invalidate();
+                }
             }
             finally
             {
@@ -762,7 +773,17 @@ namespace NovaTerminal.Core
                         _buffer.Modes.MouseModeSGR = enable;
                         break;
                     case 25:    // DECTCEM - Text Cursor Enable Mode
+                        if (!enable)
+                        {
+                            _sawCursorHideInBatch = true;
+                        }
+                        else if (_sawCursorHideInBatch)
+                        {
+                            _sawCursorShowAfterHideInBatch = true;
+                        }
+
                         _buffer.Modes.IsCursorVisible = enable;
+                        _buffer.Invalidate();
                         break;
                     case 47:    // Alternate screen (legacy)
                     case 1047:  // Alternate screen

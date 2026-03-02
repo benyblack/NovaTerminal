@@ -8,6 +8,7 @@ namespace NovaTerminal.Core
     {
         private int _batchWriteDepth;
         private bool _batchInvalidatePending;
+        private long _cursorSuppressedUntilUtcTicks;
         private static readonly TimeSpan _maxSyncDuration = TimeSpan.FromMilliseconds(200);
         private int[] _lastSnapshotAbsRows = Array.Empty<int>();
         private long[] _lastSnapshotRowIds = Array.Empty<long>();
@@ -21,6 +22,21 @@ namespace NovaTerminal.Core
         private bool _hasSnapshotState;
 
         public bool IsSynchronizedOutput => _isSynchronizedOutput;
+        public long CursorSuppressedUntilUtcTicks => _cursorSuppressedUntilUtcTicks;
+
+        internal void ExtendCursorSuppression_NoLock(TimeSpan duration)
+        {
+            if (duration <= TimeSpan.Zero)
+            {
+                return;
+            }
+
+            long suppressUntilTicks = DateTime.UtcNow.Add(duration).Ticks;
+            if (suppressUntilTicks > _cursorSuppressedUntilUtcTicks)
+            {
+                _cursorSuppressedUntilUtcTicks = suppressUntilTicks;
+            }
+        }
 
         private bool EnterReadLockIfNeeded()
         {

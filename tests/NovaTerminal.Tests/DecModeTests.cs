@@ -1,3 +1,4 @@
+using System;
 using Xunit;
 using NovaTerminal.Core;
 
@@ -47,6 +48,45 @@ namespace NovaTerminal.Tests
             parser.Process("\x1b[?25h");
             Assert.True(buffer.IsCursorVisible);
             Assert.True(buffer.Modes.IsCursorVisible);
+        }
+
+        [Fact]
+        public void CursorVisibility_HideThenShowInSingleChunk_ArmsTransientSuppression()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[?25lThinking...\x1b[?25h");
+
+            Assert.True(buffer.Modes.IsCursorVisible);
+
+            long nowTicks = DateTime.UtcNow.Ticks;
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                Assert.True(buffer.CursorSuppressedUntilUtcTicks > nowTicks);
+            }
+            finally { buffer.Lock.ExitReadLock(); }
+        }
+
+        [Fact]
+        public void CursorVisibility_HideAndShowInSeparateChunks_DoesNotArmTransientSuppression()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[?25l");
+            parser.Process("\x1b[?25h");
+
+            Assert.True(buffer.Modes.IsCursorVisible);
+
+            long nowTicks = DateTime.UtcNow.Ticks;
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                Assert.True(buffer.CursorSuppressedUntilUtcTicks <= nowTicks);
+            }
+            finally { buffer.Lock.ExitReadLock(); }
         }
 
         [Fact]
