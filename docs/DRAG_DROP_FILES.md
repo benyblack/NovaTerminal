@@ -283,3 +283,170 @@ Proposed file / module map
 -   `tests/NovaTerminal.Tests/DropRouterTests.cs`
 
 (Adapt names to your repo layout; the structure is what matters.)
+
+Milestone M2: WSL path mapping (Windows host → WSL shell)
+=========================================================
+
+Goal
+----
+
+When the active terminal session is **WSL** (bash/zsh/etc inside WSL), drag-dropping Windows files should insert **WSL paths** (e.g. `/mnt/c/...`) instead of `C:\...`.
+
+Example:
+
+-   Drop: `C:\Users\Behnam\code\prompt.md`
+
+-   Insert: `'/mnt/c/Users/Behnam/code/prompt.md'` (quoted per POSIX rules)
+
+* * * * *
+
+M2 Issues / Tasks
+=================
+
+M2.1 --- Detect WSL session reliably
+----------------------------------
+
+**Approach (best-effort; layered)**
+
+1.  **If PTY child process is `wsl.exe`** → session is WSL.
+
+2.  If process args include `--distribution` / `-d` / `--exec` etc → still WSL.
+
+3.  If environment indicates WSL (less reliable because it's *inside* WSL, not host) --- optional.
+
+**Acceptance criteria**
+
+-   WSL sessions are detected correctly for common launch modes:
+
+    -   `wsl.exe`
+
+    -   `wsl.exe -d Ubuntu`
+
+    -   `wsl.exe --exec bash -lc ...`
+
+* * * * *
+
+M2.2 --- Implement Windows → WSL path mapper
+------------------------------------------
+
+**Mechanism**
+
+-   Call: `wsl.exe wslpath -a -u "<winpath>"`
+
+    -   `-a`: absolute
+
+    -   `-u`: Unix style
+
+-   Use the **same distribution** as the session if known:
+
+    -   `wsl.exe -d <Distro> wslpath -a -u "<winpath>"`
+
+**Acceptance criteria**
+
+-   For a session in distro "Ubuntu", mapping uses Ubuntu's view.
+
+-   Returns `/mnt/<driveLower>/...` for normal paths (typical).
+
+-   Handles spaces/unicode.
+
+**Failure handling**
+
+-   If `wslpath` fails:
+
+    -   fallback to original Windows path (still quoted, but less useful)
+
+    -   show a toast once per session: "WSL path mapping failed; inserted Windows path."
+
+* * * * *
+
+M2.3 --- Cache path mapping per session
+-------------------------------------
+
+**Why**: People drop the same file repeatedly; also avoids spawning `wsl.exe` too often.
+
+**Design**
+
+-   Cache key: `(distroName?, winPathNormalized)`
+
+-   Value: `wslPath`
+
+-   Size limit: e.g. 512 entries per session (LRU)
+
+-   Normalize win path for key:
+
+    -   full path
+
+    -   consistent casing on drive letter (upper/lower)
+
+    -   trim trailing separators
+
+**Acceptance criteria**
+
+-   Re-dropping the same path does not re-invoke `wsl.exe` (verify via debug logs or a counter in tests).
+
+* * * * *
+
+M2.4 --- Integrate mapping into DropRouter
+----------------------------------------
+
+**Pipeline**
+
+1.  DropRouter receives file paths
+
+2.  If session context says WSL:
+
+    -   map each path via `IPathMapper` into WSL path
+
+    -   then quote with `PosixShQuoter`
+
+3.  Else:
+
+    -   quote as before (pwsh/cmd/posix)
+
+**Acceptance criteria**
+
+-   WSL session: inserted paths are POSIX-style
+
+-   Non-WSL session: unchanged from M0/M1 behavior
+
+* * * * *
+
+M2.5 --- Tests
+------------
+
+### Unit tests
+
+-   Mapper caching behavior (mock runner).
+
+-   Win path normalization edge cases.
+
+-   DropRouter uses mapper when `IsWslSession == true`.
+
+### Integration tests (Windows-only if your CI supports it)
+
+-   Actually run `wsl.exe wslpath` and assert mapping.
+
+-   If CI can't run WSL, keep this test optional/guarded.
+
+* * * * *
+
+Suggested code structure
+========================
+
+### Core
+
+-   `src/NovaTerminal.Core/Paths/IPathMapper.cs`
+
+-   `src/NovaTerminal.Core/Paths/IdentityPathMapper.cs`
+
+-   `src/NovaTerminal.Core/Paths/WslPathMapper.cs`
+
+-   `src/NovaTerminal.Core/Paths/WslPathMapperCache.cs` (or internal LRU)
+
+-   `src/NovaTerminal.Core/Process/IProcessRunner.cs` (abstract spawning)
+
+-   `src/NovaTerminal.Core/Sessions/SessionContext.cs` (add `WslDistroName?`)
+
+### DropRouter change
+
+-   add `IPathMapper` dependency and call it when WSL.
