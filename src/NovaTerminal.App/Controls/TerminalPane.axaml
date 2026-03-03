@@ -125,7 +125,8 @@
                     </StackPanel>
                 </StackPanel>
             </Border>
-            
+
+
             <!-- Focus Indicator Border -->
             <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" ZIndex="300" Grid.RowSpan="2" />
         </Grid>

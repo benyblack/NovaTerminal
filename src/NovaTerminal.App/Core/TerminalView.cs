@@ -318,6 +318,7 @@ namespace NovaTerminal.Core
                         {
                             _session.SendInput(result.TextToSend);
                         }
+                        
                         return;
                     }
                 }
