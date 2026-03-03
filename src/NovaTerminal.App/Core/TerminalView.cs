@@ -254,6 +254,14 @@ namespace NovaTerminal.Core
 
         public ShellOverride ShellOverride { get; set; } = ShellOverride.Auto;
 
+        public class TextFileDroppedEventArgs : EventArgs
+        {
+            public string FilePath { get; set; } = string.Empty;
+            public string EscapedPath { get; set; } = string.Empty;
+        }
+
+        public event EventHandler<TextFileDroppedEventArgs>? TextFileDropped;
+
         private void OnDragOver(object? sender, DragEventArgs e)
         {
             if (e.Data.GetFiles() != null || e.Data.Contains(DataFormats.Text))
@@ -294,6 +302,18 @@ namespace NovaTerminal.Core
                     var result = DropRouter.HandleDrop(ctx, paths, isAlt);
                     if (result.Handled)
                     {
+                        // Fire smart action event if only 1 text file was dropped
+                        if (paths.Count == 1 && NovaTerminal.Core.Input.TextFileDetector.IsTextFile(paths[0]))
+                        {
+                            var args = new TextFileDroppedEventArgs
+                            {
+                                FilePath = paths[0],
+                                EscapedPath = result.TextToSend ?? string.Empty
+                            };
+                            TextFileDropped?.Invoke(this, args);
+                            return; // Do NOT insert path automatically, wait for user to click Toast
+                        }
+
                         if (!string.IsNullOrEmpty(result.TextToSend))
                         {
                             _session.SendInput(result.TextToSend);
