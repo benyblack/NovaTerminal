@@ -54,6 +54,8 @@ namespace NovaTerminal.Controls
         private DispatcherTimer? _statusTimer;
         private bool _hasUserInteraction;
         private readonly SshDiagnosticsLevel _sshDiagnosticsLevel;
+        private string? _pendingPasteFilePath;
+        private int _lastInsertedPathLength = 0;
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -247,6 +249,48 @@ namespace NovaTerminal.Controls
             UpdateMinimumSizeConstraints();
             AutomationProperties.SetName(TermView, "Terminal Pane");
             AutomationProperties.SetName(this, "Terminal Pane");
+
+            // Smart Paste Action setup
+            TermView.TextFileDropped += (s, args) =>
+            {
+                _pendingPasteFilePath = args.FilePath;
+                _lastInsertedPathLength = args.InsertedPathLength;
+                ToastMessageText.Text = $"Paste contents of {System.IO.Path.GetFileName(args.FilePath)}?";
+                ToastPanel.IsVisible = true;
+            };
+
+            ToastCloseBtn.Click += (s, e) =>
+            {
+                ToastPanel.IsVisible = false;
+                _pendingPasteFilePath = null;
+            };
+
+            ToastActionBtn.Click += async (s, e) =>
+            {
+                ToastPanel.IsVisible = false;
+                if (!string.IsNullOrEmpty(_pendingPasteFilePath) && Session != null)
+                {
+                    try
+                    {
+                        // Delete the path that was just inserted by sending Backspaces
+                        if (_lastInsertedPathLength > 0)
+                        {
+                            string backspaces = new string('\x08', _lastInsertedPathLength);
+                            Session.SendInput(backspaces);
+                        }
+
+                        string content = await System.IO.File.ReadAllTextAsync(_pendingPasteFilePath);
+                        NovaTerminal.Core.Input.TerminalInputSender.SendBracketedPaste(Session, content);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to paste file contents: {ex.Message}");
+                    }
+                    _pendingPasteFilePath = null;
+                    _lastInsertedPathLength = 0;
+                }
+            };
+
 
             // SFTP Context Menu
             var contextMenu = RootGrid.ContextMenu;

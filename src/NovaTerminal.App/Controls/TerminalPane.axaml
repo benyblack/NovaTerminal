@@ -105,6 +105,24 @@
                     </StackPanel>
                 </StackPanel>
             </Border>
+
+            <!-- Action Toast Panel -->
+            <Border Name="ToastPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Center"
+                    Margin="0,20,0,0" Background="#383838" CornerRadius="6" Padding="12,8"
+                    BorderBrush="#505050" BorderThickness="1" ZIndex="250" Grid.Row="0">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="8" Opacity="0.5" OffsetY="2" Color="Black" />
+                </Border.Effect>
+                <Grid ColumnDefinitions="Auto, *, Auto, Auto">
+                    <TextBlock Grid.Column="0" Text="📄" Foreground="#AAA" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBlock Name="ToastMessageText" Grid.Column="1" Text="Paste contents of filename.txt?" 
+                               Foreground="White" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <Button Name="ToastActionBtn" Grid.Column="2" Content="Paste contents" 
+                            Background="#0078D7" Foreground="White" BorderThickness="0" CornerRadius="4" Padding="8,4" Margin="0,0,8,0" Cursor="Hand" />
+                    <Button Name="ToastCloseBtn" Grid.Column="3" Content="✕" 
+                            Background="Transparent" Foreground="#AAA" BorderThickness="0" VerticalAlignment="Center" Padding="4" Cursor="Hand" />
+                </Grid>
+            </Border>
             
             <!-- Focus Indicator Border -->
             <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" ZIndex="300" Grid.RowSpan="2" />
