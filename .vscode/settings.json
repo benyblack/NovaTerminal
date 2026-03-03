@@ -1,9 +1,0 @@
-{
-  "workbench.colorTheme": "Default Light Modern",
-  "workbench.preferredDarkColorTheme": "Default Dark Modern",
-  "workbench.colorCustomizations": {
-    "terminal.foreground": "#3b3b3b",
-    "terminal.background": "#ffffff",
-    "terminal.integrated.drawBoldTextInBrightColors": true
-  }
-}

@@ -131,6 +131,7 @@ namespace NovaTerminal.Controls
         public void UpdateProfile(TerminalProfile profile)
         {
             Profile = profile;
+            TermView.ShellOverride = profile.ShellOverride;
         }
 
         public Control ActiveControl => TermView;
@@ -177,6 +178,7 @@ namespace NovaTerminal.Controls
             _sshDiagnosticsLevel = sshDiagnosticsLevel;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
+            TermView.ShellOverride = profile.ShellOverride;
             TermView.Ready += (c, r) => InitializeSession(profile.Command, profile, c, r);
             SetupCommon();
         }

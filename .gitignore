@@ -492,9 +492,10 @@ test_repro*.txt
 .agent/
 
 #ide
-.vscode/
+.vscode
 .idea/
 .vs/
+.dotnetcli/
 
 # temporary output
 _temp_out/
