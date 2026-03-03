@@ -55,7 +55,7 @@ namespace NovaTerminal.Controls
         private bool _hasUserInteraction;
         private readonly SshDiagnosticsLevel _sshDiagnosticsLevel;
         private string? _pendingPasteFilePath;
-        private int _lastInsertedPathLength = 0;
+        private string? _pendingEscapedPath;
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -254,8 +254,8 @@ namespace NovaTerminal.Controls
             TermView.TextFileDropped += (s, args) =>
             {
                 _pendingPasteFilePath = args.FilePath;
-                _lastInsertedPathLength = args.InsertedPathLength;
-                ToastMessageText.Text = $"Paste contents of {System.IO.Path.GetFileName(args.FilePath)}?";
+                _pendingEscapedPath = args.EscapedPath;
+                ToastMessageText.Text = System.IO.Path.GetFileName(args.FilePath);
                 ToastPanel.IsVisible = true;
             };
 
@@ -263,6 +263,18 @@ namespace NovaTerminal.Controls
             {
                 ToastPanel.IsVisible = false;
                 _pendingPasteFilePath = null;
+                _pendingEscapedPath = null;
+            };
+
+            ToastPastePathBtn.Click += (s, e) =>
+            {
+                ToastPanel.IsVisible = false;
+                if (!string.IsNullOrEmpty(_pendingEscapedPath) && Session != null)
+                {
+                    Session.SendInput(_pendingEscapedPath);
+                    _pendingPasteFilePath = null;
+                    _pendingEscapedPath = null;
+                }
             };
 
             ToastActionBtn.Click += async (s, e) =>
@@ -272,13 +284,6 @@ namespace NovaTerminal.Controls
                 {
                     try
                     {
-                        // Delete the path that was just inserted by sending Backspaces
-                        if (_lastInsertedPathLength > 0)
-                        {
-                            string backspaces = new string('\x08', _lastInsertedPathLength);
-                            Session.SendInput(backspaces);
-                        }
-
                         string content = await System.IO.File.ReadAllTextAsync(_pendingPasteFilePath);
                         NovaTerminal.Core.Input.TerminalInputSender.SendBracketedPaste(Session, content);
                     }
@@ -287,10 +292,9 @@ namespace NovaTerminal.Controls
                         System.Diagnostics.Debug.WriteLine($"Failed to paste file contents: {ex.Message}");
                     }
                     _pendingPasteFilePath = null;
-                    _lastInsertedPathLength = 0;
+                    _pendingEscapedPath = null;
                 }
             };
-
 
             // SFTP Context Menu
             var contextMenu = RootGrid.ContextMenu;

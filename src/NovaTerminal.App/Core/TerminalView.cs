@@ -257,7 +257,7 @@ namespace NovaTerminal.Core
         public class TextFileDroppedEventArgs : EventArgs
         {
             public string FilePath { get; set; } = string.Empty;
-            public int InsertedPathLength { get; set; }
+            public string EscapedPath { get; set; } = string.Empty;
         }
 
         public event EventHandler<TextFileDroppedEventArgs>? TextFileDropped;
@@ -302,20 +302,29 @@ namespace NovaTerminal.Core
                     var result = DropRouter.HandleDrop(ctx, paths, isAlt);
                     if (result.Handled)
                     {
-                        if (!string.IsNullOrEmpty(result.TextToSend))
+                        // 1) First check if DropRouter explicitly blocked the input for security
+                        if (!string.IsNullOrEmpty(result.ToastMessage) && string.IsNullOrEmpty(result.TextToSend))
                         {
-                            _session.SendInput(result.TextToSend);
+                            // Terminal session echo is disabled and Alt was not held
+                            // Do not show the Smart Paste toast. It's unsafe.
+                            return;
                         }
-                        
+
                         // Fire smart action event if only 1 text file was dropped
                         if (paths.Count == 1 && NovaTerminal.Core.Input.TextFileDetector.IsTextFile(paths[0]))
                         {
                             var args = new TextFileDroppedEventArgs
                             {
                                 FilePath = paths[0],
-                                InsertedPathLength = result.TextToSend.Length
+                                EscapedPath = result.TextToSend ?? string.Empty
                             };
                             TextFileDropped?.Invoke(this, args);
+                            return; // Do NOT insert path automatically, wait for user to click Toast
+                        }
+
+                        if (!string.IsNullOrEmpty(result.TextToSend))
+                        {
+                            _session.SendInput(result.TextToSend);
                         }
                         
                         return;

@@ -71,7 +71,6 @@ namespace NovaTerminal.Tests.Input
                 File.Delete(tempFile);
             }
         }
-
         [Fact]
         public void IsTextFile_NonExistentFile_ReturnsFalse()
         {

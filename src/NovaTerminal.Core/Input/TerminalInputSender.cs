@@ -21,7 +21,6 @@ namespace NovaTerminal.Core.Input
             // the risk is lower (they chose to paste it).
             // A safest approach: remove or escape trailing the end sequence.
             string safeContent = content.Replace(bracketedPasteEnd, "");
-
             session.SendInput(bracketedPasteStart + safeContent + bracketedPasteEnd);
         }
     }
