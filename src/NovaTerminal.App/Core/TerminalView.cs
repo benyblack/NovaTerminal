@@ -302,6 +302,14 @@ namespace NovaTerminal.Core
                     var result = DropRouter.HandleDrop(ctx, paths, isAlt);
                     if (result.Handled)
                     {
+                        // 1) First check if DropRouter explicitly blocked the input for security
+                        if (!string.IsNullOrEmpty(result.ToastMessage) && string.IsNullOrEmpty(result.TextToSend))
+                        {
+                            // Terminal session echo is disabled and Alt was not held
+                            // Do not show the Smart Paste toast. It's unsafe.
+                            return;
+                        }
+
                         // Fire smart action event if only 1 text file was dropped
                         if (paths.Count == 1 && NovaTerminal.Core.Input.TextFileDetector.IsTextFile(paths[0]))
                         {
