@@ -19,7 +19,7 @@
     </UserControl.Styles>
 
     <Border Padding="0">
-        <Grid x:Name="RootGrid" Background="Transparent">
+        <Grid x:Name="RootGrid" Background="Transparent" RowDefinitions="*,Auto">
             <!-- Context Menu for SFTP Actions -->
             <Grid.ContextMenu>
                 <ContextMenu Name="PaneContextMenu">
@@ -43,15 +43,17 @@
             </Grid.ContextMenu>
 
             <!-- Terminal View Layer -->
-            <core:TerminalView x:Name="TermView" />
+            <core:TerminalView x:Name="TermView" Grid.Row="0" />
             <Border Name="InactiveOverlay"
                     Background="#66000000"
                     IsVisible="False"
                     IsHitTestVisible="False"
-                    ZIndex="20" />
+                    ZIndex="20"
+                    Grid.Row="0" />
 
             <!-- ScrollBar Overlay -->
             <ScrollBar x:Name="TermScrollBar"
+                       Grid.Row="0"
                        Orientation="Vertical"
                        AllowAutoHide="True"
                        Visibility="Visible"
@@ -63,7 +65,8 @@
             <!-- Search Overlay -->
             <Border Name="SearchPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Right" 
                     Margin="0,10,24,0" Background="#383838" CornerRadius="4" Padding="6" Width="400"
-                    BorderBrush="#505050" BorderThickness="1" ZIndex="200">
+                    BorderBrush="#505050" BorderThickness="1" ZIndex="200"
+                    Grid.Row="0">
                 <Border.Resources>
                     <SolidColorBrush x:Key="TextControlBackground">#1a1a1a</SolidColorBrush>
                     <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
@@ -91,7 +94,7 @@
 
             <!-- Port Forwarding Status Bar -->
             <Border Name="StatusBar" VerticalAlignment="Bottom" Height="22" Background="#CC1A1A1A" 
-                    BorderBrush="#333" BorderThickness="0,1,0,0" IsVisible="False" ZIndex="100">
+                    BorderBrush="#333" BorderThickness="0,1,0,0" IsVisible="False" ZIndex="100" Grid.Row="1">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0" Spacing="10">
                     <TextBlock Name="StatusBarLabel" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
                     <StackPanel Name="StatusBarRules" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"/>
@@ -104,7 +107,7 @@
             </Border>
             
             <!-- Focus Indicator Border -->
-            <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" ZIndex="300" />
+            <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" ZIndex="300" Grid.RowSpan="2" />
         </Grid>
     </Border>
 </UserControl>
