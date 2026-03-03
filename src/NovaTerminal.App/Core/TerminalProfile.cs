@@ -63,6 +63,8 @@ namespace NovaTerminal.Core
         public string SshUser { get; set; } = "";
         public string SshKeyPath { get; set; } = "";
 
+        public ShellOverride ShellOverride { get; set; } = ShellOverride.Auto;
+
         // Advanced SSH
         public Guid? JumpHostProfileId { get; set; }
         public bool UseSshAgent { get; set; } = true;

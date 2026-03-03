@@ -615,6 +615,12 @@ namespace NovaTerminal.Core
                                 {
                                     _buffer.Modes.IsInsertMode = enableMode;
                                 }
+                                else if (m == 12) // SRM - Send/Receive Mode (Echo)
+                                {
+                                    // SRM Reset (l) means Local Echo is ON.
+                                    // SRM Set (h) means Local Echo is OFF.
+                                    _buffer.Modes.IsEchoEnabled = !enableMode;
+                                }
                                 else if (m == 20) // LNM - Line Feed New Line Mode
                                 {
                                     _buffer.Modes.IsLineFeedNewLineMode = enableMode;

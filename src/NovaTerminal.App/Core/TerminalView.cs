@@ -252,6 +252,8 @@ namespace NovaTerminal.Core
             ScrollOffset = _scrollOffset + step;
         }
 
+        public ShellOverride ShellOverride { get; set; } = ShellOverride.Auto;
+
         private void OnDragOver(object? sender, DragEventArgs e)
         {
             if (e.Data.GetFiles() != null || e.Data.Contains(DataFormats.Text))
@@ -268,24 +270,36 @@ namespace NovaTerminal.Core
             var files = e.Data.GetFiles();
             if (files != null)
             {
-                var parts = new List<string>();
+                var paths = new List<string>();
                 foreach (var item in files)
                 {
-                    string? localPath = (item is IStorageItem storage && storage.Path.IsFile)
-                        ? storage.Path.LocalPath
-                        : null;
-
-                    if (!string.IsNullOrWhiteSpace(localPath))
+                    if (item is IStorageItem storage && storage.Path.IsFile)
                     {
-                        parts.Add(QuotePathForShell(localPath));
+                        paths.Add(storage.Path.LocalPath);
                     }
                 }
 
-                if (parts.Count > 0)
+                if (paths.Count > 0)
                 {
-                    _session.SendInput(string.Join(" ", parts) + " ");
-                    e.Handled = true;
-                    return;
+                    bool isAlt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+                    var ctx = new SessionContext
+                    {
+                        DetectedShell = DetectShellFromCommand(_session.ShellCommand),
+                        IsEchoEnabled = _buffer?.Modes.IsEchoEnabled ?? true,
+                        IsWslSession = _session.ShellCommand?.Contains("wsl", StringComparison.OrdinalIgnoreCase) ?? false,
+                        IsAltScreen = _buffer?.IsAltScreenActive ?? false,
+                        ShellOverride = this.ShellOverride
+                    };
+
+                    var result = DropRouter.HandleDrop(ctx, paths, isAlt);
+                    if (result.Handled)
+                    {
+                        if (!string.IsNullOrEmpty(result.TextToSend))
+                        {
+                            _session.SendInput(result.TextToSend);
+                        }
+                        return;
+                    }
                 }
             }
 
@@ -296,14 +310,13 @@ namespace NovaTerminal.Core
             }
         }
 
-        private static string QuotePathForShell(string path)
+        private static DetectedShell DetectShellFromCommand(string command)
         {
-            if (OperatingSystem.IsWindows())
-            {
-                return "\"" + path.Replace("\"", "\\\"") + "\"";
-            }
-
-            return "'" + path.Replace("'", "'\"'\"'") + "'";
+            if (string.IsNullOrWhiteSpace(command)) return DetectedShell.Unknown;
+            if (command.Contains("pwsh", StringComparison.OrdinalIgnoreCase) || command.Contains("powershell", StringComparison.OrdinalIgnoreCase)) return DetectedShell.Pwsh;
+            if (command.Contains("cmd", StringComparison.OrdinalIgnoreCase)) return DetectedShell.Cmd;
+            if (command.Contains("bash", StringComparison.OrdinalIgnoreCase) || command.Contains("zsh", StringComparison.OrdinalIgnoreCase) || command.Contains("sh", StringComparison.OrdinalIgnoreCase)) return DetectedShell.PosixSh;
+            return DetectedShell.Unknown;
         }
 
         public void TriggerBell()
