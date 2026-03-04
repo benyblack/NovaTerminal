@@ -44,6 +44,7 @@ namespace NovaTerminal.Core
         private readonly int _cellWidthDevicePx;
         private readonly int _cellHeightDevicePx;
         private readonly PixelGrid _pixelGrid;
+        private readonly bool _showRenderHud;
 
         private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
         private static readonly bool GridDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GRID");
@@ -177,7 +178,8 @@ namespace NovaTerminal.Core
             int cursorCol = 0,
             RowImageCache? rowCache = null,
             bool enableComplexShaping = true,
-            GlyphCache? glyphCache = null)
+            GlyphCache? glyphCache = null,
+            bool showRenderHud = false)
         {
             _bounds = bounds;
             _buffer = buffer;
@@ -205,6 +207,7 @@ namespace NovaTerminal.Core
             _rowCache = rowCache;
             _enableComplexShaping = enableComplexShaping;
             _glyphCache = glyphCache;
+            _showRenderHud = showRenderHud;
             _cellWidthDevicePx = Math.Max(1, ToDevicePx(_metrics.CellWidth));
             _cellHeightDevicePx = Math.Max(1, ToDevicePx(_metrics.CellHeight));
             int baselineOffsetPx = ToDevicePx(_metrics.Baseline);
@@ -714,12 +717,19 @@ namespace NovaTerminal.Core
                 frameSw.Stop();
                 RendererStatistics.RecordFrameRenderTime(frameSw.ElapsedMilliseconds);
                 RendererStatistics.RecordFrame(fullRedraw: true, dirtyCells: dirtyCells);
-                if (_collectFramePerfMetrics)
+                if (_collectFramePerfMetrics || _showRenderHud)
                 {
                     _framePerfMetrics.DirtySpanCount = dirtySpanCount;
                     _framePerfMetrics.SpanRenderCount = spanRenderCount;
                     _framePerfMetrics.RowRenderCount = rowRenderCount;
                     _framePerfMetrics.DirtyCellsEstimated = dirtyCells;
+                    _framePerfMetrics.FrameTimeMs = frameSw.Elapsed.TotalMilliseconds;
+                    _framePerfMetrics.FrameIndex = RendererStatistics.TotalFrames;
+                }
+
+                if (_showRenderHud)
+                {
+                    DrawPerformanceHud(canvas, _framePerfMetrics, alpha);
                 }
 
                 CompleteFramePerfMetrics(perfWriter, frameSw.Elapsed.TotalMilliseconds, dirtyRowCount, dirtySpanCount);
@@ -738,6 +748,55 @@ namespace NovaTerminal.Core
 
         private void DrawTerminal(SKCanvas canvas)
             => DrawTerminalInternal(canvas);
+
+        private void DrawPerformanceHud(SKCanvas canvas, RenderPerfMetrics metrics, byte alpha)
+        {
+            float hudWidth = 280f;
+            float hudHeight = 90f;
+            float padding = 10f;
+            float margin = 10f;
+
+            // Top Right
+            float x = (float)Bounds.Width - hudWidth - margin;
+            float y = margin;
+
+            using var bgPaint = new SKPaint
+            {
+                Color = new SKColor(0, 0, 0, (byte)(alpha * 0.85f)),
+                Style = SKPaintStyle.Fill,
+                IsAntialias = true
+            };
+            canvas.DrawRoundRect(new SKRect(x, y, x + hudWidth, y + hudHeight), 4, 4, bgPaint);
+
+            using var borderPaint = new SKPaint
+            {
+                Color = new SKColor(100, 100, 100, alpha),
+                Style = SKPaintStyle.Stroke,
+                StrokeWidth = 1,
+                IsAntialias = true
+            };
+            canvas.DrawRoundRect(new SKRect(x, y, x + hudWidth, y + hudHeight), 4, 4, borderPaint);
+
+            using var textPaint = new SKPaint
+            {
+                Color = new SKColor(0, 255, 0, alpha),
+                Typeface = SKTypeface.Default,
+                TextSize = 12f,
+                IsAntialias = true
+            };
+
+            float textX = x + padding;
+            float textY = y + padding + 12f;
+            float lineHeight = 16f;
+
+            canvas.DrawText($"Frame: {metrics.FrameTimeMs:F2} ms", textX, textY, textPaint);
+            textY += lineHeight;
+            canvas.DrawText($"Dirty Cells: {metrics.DirtyCellsEstimated} | Rows: {metrics.DirtyRows}", textX, textY, textPaint);
+            textY += lineHeight;
+            canvas.DrawText($"Draws: {metrics.DrawCallsTotal} (Cache:{metrics.RowPictureCacheHits}/{metrics.RowPictureCacheMisses})", textX, textY, textPaint);
+            textY += lineHeight;
+            canvas.DrawText($"Atlas Builds: {metrics.AtlasAlphaGlyphs}/{metrics.AtlasColorGlyphs} | Mem: {metrics.AllocBytesThisFrame/1024.0:F1} kb", textX, textY, textPaint);
+        }
 
         private void FlushBatches(SKCanvas canvas)
         {

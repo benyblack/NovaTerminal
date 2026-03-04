@@ -37,6 +37,21 @@ namespace NovaTerminal.Core
         /// </summary>
         public event Action<float, float>? MetricsChanged;
 
+        private bool _showRenderHud;
+        public bool ShowRenderHud
+        {
+            get => _showRenderHud;
+            set
+            {
+                if (_showRenderHud != value)
+                {
+                    _showRenderHud = value;
+                    _isDirty = true;
+                    if (_isUiRenderable) InvalidateVisual();
+                }
+            }
+        }
+
         public TerminalView()
         {
             Focusable = true;
@@ -219,6 +234,11 @@ namespace NovaTerminal.Core
             if (!_isDirty && _buffer?.IsSynchronizedOutput == true)
             {
                 _buffer.FlushSynchronizedOutputTimeout();
+            }
+
+            if (_showRenderHud)
+            {
+                _isDirty = true;
             }
 
             if (_isDirty)
@@ -1453,7 +1473,8 @@ namespace NovaTerminal.Core
                 cursorCol,
                 _rowCache,
                 _enableComplexShaping,
-                _glyphCache
+                _glyphCache,
+                _showRenderHud
             ));
 
             if (_isBellFlashActive)
