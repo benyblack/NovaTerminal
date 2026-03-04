@@ -57,6 +57,7 @@ namespace NovaTerminal.Core
         }
 
         public string ShellCommand { get; }
+        public string? ShellArguments { get; }
 
         public bool HasActiveChildProcesses
         {
@@ -167,6 +168,7 @@ namespace NovaTerminal.Core
         public RustPtySession(string shellCommand, int cols = 120, int rows = 30, string? args = null, string? cwd = null)
         {
             ShellCommand = shellCommand;
+            ShellArguments = args;
             _cols = cols;
             _rows = rows;
 

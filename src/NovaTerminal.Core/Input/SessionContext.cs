@@ -22,6 +22,7 @@ namespace NovaTerminal.Core
     {
         public DetectedShell DetectedShell { get; set; } = DetectedShell.Unknown;
         public bool IsWslSession { get; set; } = false;
+        public string? WslDistroName { get; set; }
         public bool IsEchoEnabled { get; set; } = true;
         public bool IsAltScreen { get; set; } = false;
         public ShellOverride ShellOverride { get; set; } = ShellOverride.Auto;

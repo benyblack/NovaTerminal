@@ -102,6 +102,7 @@ public sealed class SshSession : ITerminalSession
 
     public Guid Id => _inner.Id;
     public string ShellCommand => _inner.ShellCommand;
+    public string? ShellArguments => _inner.ShellArguments;
     public bool IsProcessRunning => _inner.IsProcessRunning;
     public bool HasActiveChildProcesses => _inner.HasActiveChildProcesses;
     public int? ExitCode => _inner.ExitCode;
