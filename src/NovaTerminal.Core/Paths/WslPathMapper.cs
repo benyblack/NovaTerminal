@@ -42,7 +42,7 @@ namespace NovaTerminal.Core.Paths
             {
                 string arguments = string.IsNullOrWhiteSpace(_distroName)
                     ? $"wslpath -a -u \"{normalizedWinPath}\""
-                    : $"-d \"{_distroName}\" wslpath -a -u \"{normalizedWinPath}\"";
+                    : $"-d {_distroName} wslpath -a -u \"{normalizedWinPath}\"";
 
                 var runResult = await _processRunner.RunProcessAsync("wsl.exe", arguments, ct);
                 
@@ -56,8 +56,9 @@ namespace NovaTerminal.Core.Paths
                     resultWslPath = hostPath;
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"[WslPathMapper] Exception: {ex.Message}");
                 // Fallback to original Windows path on exception
                 resultWslPath = hostPath;
             }

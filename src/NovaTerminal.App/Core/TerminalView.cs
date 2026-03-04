@@ -52,7 +52,13 @@ namespace NovaTerminal.Core
 
             DragDrop.SetAllowDrop(this, true);
             AddHandler(DragDrop.DragOverEvent, OnDragOver);
-            AddHandler(DragDrop.DropEvent, OnDrop);
+            AddHandler(DragDrop.DropEvent, async (s, e) => {
+                try {
+                    await OnDropAsync(s, e);
+                } catch (Exception ex) {
+                    System.Diagnostics.Debug.WriteLine($"[TerminalView] OnDropAsync Failed: {ex}");
+                }
+            });
         }
 
         protected override void OnTextInput(TextInputEventArgs e)
@@ -271,7 +277,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        private async void OnDrop(object? sender, DragEventArgs e)
+        private async Task OnDropAsync(object? sender, DragEventArgs e)
         {
             if (_session == null) return;
 

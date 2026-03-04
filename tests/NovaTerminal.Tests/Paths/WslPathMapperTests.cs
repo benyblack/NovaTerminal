@@ -29,7 +29,7 @@ namespace NovaTerminal.Tests.Paths
         public async Task MapAsync_IncludesDistroNameIfProvided()
         {
             var runnerMock = new Mock<IProcessRunner>();
-            runnerMock.Setup(r => r.RunProcessAsync("wsl.exe", "-d \"Ubuntu\" wslpath -a -u \"C:\\file.txt\"", It.IsAny<CancellationToken>()))
+            runnerMock.Setup(r => r.RunProcessAsync("wsl.exe", "-d Ubuntu wslpath -a -u \"C:\\file.txt\"", It.IsAny<CancellationToken>()))
                       .ReturnsAsync((0, "/mnt/c/file.txt\n"));
 
             var mapper = new WslPathMapper(runnerMock.Object, "Ubuntu");
@@ -37,14 +37,14 @@ namespace NovaTerminal.Tests.Paths
             string result = await mapper.MapAsync("C:\\file.txt");
 
             Assert.Equal("/mnt/c/file.txt", result);
-            runnerMock.Verify(r => r.RunProcessAsync("wsl.exe", "-d \"Ubuntu\" wslpath -a -u \"C:\\file.txt\"", It.IsAny<CancellationToken>()), Times.Once);
+            runnerMock.Verify(r => r.RunProcessAsync("wsl.exe", "-d Ubuntu wslpath -a -u \"C:\\file.txt\"", It.IsAny<CancellationToken>()), Times.Once);
         }
 
         [Fact]
         public async Task MapAsync_CachesSubsequentCalls()
         {
             var runnerMock = new Mock<IProcessRunner>();
-            runnerMock.Setup(r => r.RunProcessAsync("wsl.exe", "-d \"Debian\" wslpath -a -u \"D:\\cached.txt\"", It.IsAny<CancellationToken>()))
+            runnerMock.Setup(r => r.RunProcessAsync("wsl.exe", "-d Debian wslpath -a -u \"D:\\cached.txt\"", It.IsAny<CancellationToken>()))
                       .ReturnsAsync((0, "/mnt/d/cached.txt\n"));
 
             var mapper1 = new WslPathMapper(runnerMock.Object, "Debian");
