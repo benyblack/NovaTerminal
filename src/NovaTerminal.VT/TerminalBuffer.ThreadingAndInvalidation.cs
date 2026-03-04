@@ -9,6 +9,7 @@ namespace NovaTerminal.Core
         private int _batchWriteDepth;
         private bool _batchInvalidatePending;
         private long _cursorSuppressedUntilUtcTicks;
+        private long _cursorSuppressionBlockedUntilUtcTicks;
         private static readonly TimeSpan _maxSyncDuration = TimeSpan.FromMilliseconds(200);
         private int[] _lastSnapshotAbsRows = Array.Empty<int>();
         private long[] _lastSnapshotRowIds = Array.Empty<long>();
@@ -31,11 +32,43 @@ namespace NovaTerminal.Core
                 return;
             }
 
-            long suppressUntilTicks = DateTime.UtcNow.Add(duration).Ticks;
+            long now = DateTime.UtcNow.Ticks;
+            if (_cursorSuppressionBlockedUntilUtcTicks > now)
+            {
+                // Cursor suppression is currently immune due to recent user input
+                return;
+            }
+
+            long suppressUntilTicks = now + duration.Ticks;
             if (suppressUntilTicks > _cursorSuppressedUntilUtcTicks)
             {
                 _cursorSuppressedUntilUtcTicks = suppressUntilTicks;
             }
+        }
+
+        public void ClearCursorSuppression()
+        {
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                _cursorSuppressedUntilUtcTicks = 0;
+            }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
+        }
+
+        public void BlockCursorSuppression(TimeSpan duration)
+        {
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                _cursorSuppressedUntilUtcTicks = 0; // Clear any active suppression immediately
+                long blockUntilTicks = DateTime.UtcNow.Add(duration).Ticks;
+                if (blockUntilTicks > _cursorSuppressionBlockedUntilUtcTicks)
+                {
+                    _cursorSuppressionBlockedUntilUtcTicks = blockUntilTicks;
+                }
+            }
+            finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
         }
 
         private bool EnterReadLockIfNeeded()

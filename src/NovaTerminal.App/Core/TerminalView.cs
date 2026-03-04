@@ -66,6 +66,7 @@ namespace NovaTerminal.Core
             base.OnTextInput(e);
             if (!e.Handled && _session != null && !string.IsNullOrEmpty(e.Text))
             {
+                ResetCursorBlink();
                 _session.SendInput(e.Text);
                 e.Handled = true;
             }
@@ -75,6 +76,8 @@ namespace NovaTerminal.Core
         {
             base.OnKeyDown(e);
             if (e.Handled || _session == null) return;
+
+            ResetCursorBlink();
 
             // Handle keys that don't generate text input (Control codes, arrows, etc.)
             // Logic copied from MainWindow
@@ -208,6 +211,8 @@ namespace NovaTerminal.Core
         private bool _enableSmoothScrolling = true;
         private int _targetScrollOffset;
         private CursorStyle _preferredCursorStyle = CursorStyle.Underline;
+        private int _lastCursorRow = -1;
+        private int _lastCursorCol = -1;
 
         private void OnRenderTimerTick(object? sender, EventArgs e)
         {
@@ -222,6 +227,41 @@ namespace NovaTerminal.Core
                 {
                     RendererStatistics.RecordHiddenInvalidationRequest();
                     return;
+                }
+
+                if (_buffer != null)
+                {
+                    int cursorRow, cursorCol;
+                    long cursorSuppressedUntil;
+                    _buffer.Lock.EnterReadLock();
+                    try
+                    {
+                        cursorRow = _buffer.InternalCursorRow;
+                        cursorCol = _buffer.InternalCursorCol;
+                        cursorSuppressedUntil = _buffer.CursorSuppressedUntilUtcTicks;
+                    }
+                    finally { _buffer.Lock.ExitReadLock(); }
+
+                    if (cursorRow != _lastCursorRow || cursorCol != _lastCursorCol)
+                    {
+                        _lastCursorRow = cursorRow;
+                        _lastCursorCol = cursorCol;
+                        
+                        // Reset blink timer on VT cursor movement (like in Vim)
+                        // Ensure we don't override the transient cursor suppression (used by AnsiParser for animated text)
+                        long now = DateTime.UtcNow.Ticks;
+                        if (_cursorBlinkEnabled && _cursorBlinkTimer.IsEnabled && cursorSuppressedUntil <= now)
+                        {
+                            TerminalLogger.Log($"[TerminalView] OnRenderTimerTick: VT cursor moved ({_lastCursorRow},{_lastCursorCol}). Resetting blink phase.");
+                            _cursorBlinkPhase = true;
+                            _cursorBlinkTimer.Stop();
+                            _cursorBlinkTimer.Start();
+                        }
+                        else if (cursorSuppressedUntil > now)
+                        {
+                            TerminalLogger.Log($"[TerminalView] OnRenderTimerTick: VT cursor moved, but suppressed until {cursorSuppressedUntil} (now {now})");
+                        }
+                    }
                 }
 
                 _isDirty = false;
@@ -243,6 +283,20 @@ namespace NovaTerminal.Core
 
             _cursorBlinkPhase = !_cursorBlinkPhase;
             _isDirty = true;
+        }
+
+        private void ResetCursorBlink()
+        {
+            if (!_cursorBlinkEnabled) return;
+            
+            // Block transient cursor suppression for 200ms to allow smooth TUI navigation
+            _buffer?.BlockCursorSuppression(TimeSpan.FromMilliseconds(200));
+            
+            _cursorBlinkPhase = true;
+            _cursorBlinkTimer.Stop();
+            _cursorBlinkTimer.Start();
+            _isDirty = true;
+            InvalidateVisual();
         }
 
         private void OnScrollAnimationTick(object? sender, EventArgs e)
@@ -1358,7 +1412,11 @@ namespace NovaTerminal.Core
 
             if (!cursorVisibleMode) hideCursor = true;
             if (cursorBlinkMode && !_cursorBlinkPhase) hideCursor = true;
-            if (cursorSuppressedTemporarily) hideCursor = true;
+            if (cursorSuppressedTemporarily)
+            {
+                 hideCursor = true;
+                 TerminalLogger.Log($"[TerminalView] Render: Cursor suppressed temporarily.");
+            }
 
             // Create and dispatch custom draw op
             var scaling = VisualRoot?.RenderScaling ?? 1.0;
