@@ -3451,6 +3451,7 @@ namespace NovaTerminal
             CommandRegistry.Register("Pane: Export Snapshot (Plain Text)", "View", () => _currentPane?.ExportSnapshotAsync("txt"), "");
             CommandRegistry.Register("Pane: Export Snapshot (ANSI)", "View", () => _currentPane?.ExportSnapshotAsync("ansi"), "");
             CommandRegistry.Register("Pane: Export Snapshot (PNG)", "View", () => _currentPane?.ExportSnapshotAsync("png"), "");
+            CommandRegistry.Register("Pane: Toggle Render HUD", "View", () => _currentPane?.ToggleRenderHud(), "");
             CommandRegistry.Register("Paste", "Edit", () => _ = PasteFromClipboardAsync(), "Ctrl+V");
             CommandRegistry.Register("Font: Increase", "View", () => { _settings.FontSize++; ApplySettingsToAllTabs(); _settings.Save(); }, "Ctrl++");
             CommandRegistry.Register("Font: Decrease", "View", () => { _settings.FontSize = Math.Max(6, _settings.FontSize - 1); ApplySettingsToAllTabs(); _settings.Save(); }, "Ctrl+-");
