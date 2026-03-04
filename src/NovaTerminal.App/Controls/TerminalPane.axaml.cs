@@ -668,6 +668,11 @@ namespace NovaTerminal.Controls
             }
         }
 
+        public void ToggleRenderHud()
+        {
+            TermView.ShowRenderHud = !TermView.ShowRenderHud;
+        }
+
         protected override void OnGotFocus(GotFocusEventArgs e)
         {
             base.OnGotFocus(e);
