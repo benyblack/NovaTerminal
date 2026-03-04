@@ -47,6 +47,7 @@ namespace NovaTerminal.Core.Replay
             long minTimeMs = 0,
             long fastForwardToMs = 0,
             double playbackSpeed = 1.0,
+            long startOffsetBytes = 0,
             CancellationToken ct = default)
         {
             ReplayPlaybackMode playbackMode = realtime ? ReplayPlaybackMode.Realtime : ReplayPlaybackMode.Virtual;
@@ -62,6 +63,7 @@ namespace NovaTerminal.Core.Replay
                 minTimeMs,
                 fastForwardToMs,
                 playbackSpeed,
+                startOffsetBytes,
                 ct);
         }
 
@@ -76,6 +78,7 @@ namespace NovaTerminal.Core.Replay
             long minTimeMs = 0,
             long fastForwardToMs = 0,
             double playbackSpeed = 1.0,
+            long startOffsetBytes = 0,
             CancellationToken ct = default)
         {
             if (!File.Exists(_filePath))
@@ -84,7 +87,8 @@ namespace NovaTerminal.Core.Replay
             var result = new ReplayRunResult();
             ReplayPlaybackMode playbackMode = options?.PlaybackMode ?? ReplayPlaybackMode.Virtual;
 
-            using var reader = new StreamReader(_filePath);
+            using var fs = new FileStream(_filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs);
             string? line = await reader.ReadLineAsync();
             if (line == null) return result;
 
@@ -110,8 +114,16 @@ namespace NovaTerminal.Core.Replay
             // If it's V1, we process the first line immediately.
             bool skipCurrentLine = isV2;
 
+            if (startOffsetBytes > 0)
+            {
+                fs.Seek(startOffsetBytes, SeekOrigin.Begin);
+                reader.DiscardBufferedData();
+                line = await reader.ReadLineAsync();
+                skipCurrentLine = false; // We already skipped what we needed to via Seek
+            }
+
             // Use MinTimeMs if > 0, otherwise start from 0
-            if (minTimeMs > 0)
+            if (minTimeMs > 0 && startOffsetBytes == 0)
             {
                 // If we have a minTime, we assume the caller has already set the state 
                 // to what it was at minTimeMs (e.g. via snapshot).
