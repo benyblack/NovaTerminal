@@ -3257,6 +3257,9 @@ namespace NovaTerminal
                     var text = await topLevel.Clipboard.GetTextAsync();
                     if (!string.IsNullOrEmpty(text) && _currentPane?.Session != null)
                     {
+                        // Normalize line endings to avoid double newlines on paste
+                        text = text.Replace("\r\n", "\r");
+
                         // Handle Bracketed Paste Mode
                         if (_currentPane.Buffer != null && _currentPane.Buffer.Modes.IsBracketedPasteMode)
                         {
