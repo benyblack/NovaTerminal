@@ -396,13 +396,6 @@ namespace NovaTerminal.Controls
             string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
             string args = explicitArgs ?? profile?.Arguments ?? "";
 
-            // ADVANCED SSH: Generate correct argument chain for ssh.exe
-            if (profile != null && profile.Type == ConnectionType.SSH)
-            {
-                effectiveShell = OperatingSystem.IsWindows() ? "ssh.exe" : "ssh";
-                args = BuildBasicSshFallbackArguments(profile);
-            }
-
             // Update SFTP Menu Visibility
             // If it's not an SSH session, detach the context menu entirely to avoid "tiny empty box" artifacts
             if (profile == null || profile.Type != ConnectionType.SSH)
@@ -432,8 +425,9 @@ namespace NovaTerminal.Controls
                 {
                     try
                     {
-                        // Uses system OpenSSH in PTY; session abstraction can be swapped later
-                        // if a native SSH backend is introduced.
+                        var connectionService = new NovaTerminal.Services.Ssh.SshConnectionService();
+                        var launchDetails = connectionService.BuildLaunchDetails(profile, _sshDiagnosticsLevel);
+                        
                         Session = SshSession.FromDefaultStore(
                             profile.Id,
                             cols,
@@ -445,7 +439,11 @@ namespace NovaTerminal.Controls
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[TerminalPane] SSH store session unavailable for '{profile.Name}', falling back: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[TerminalPane] SSH connection failed for '{profile.Name}': {ex.Message}");
+                        Buffer.WriteContent($"\r\n[ERROR] SSH Connection Failed: {ex.Message}\r\n", false);
+                        
+                        // Fail loudly: Do not fall back to RustPtySession with missing arguments.
+                        return;
                     }
                 }
 
@@ -512,35 +510,7 @@ namespace NovaTerminal.Controls
             };
         }
 
-        private static string BuildBasicSshFallbackArguments(TerminalProfile profile)
-        {
-            var args = new System.Text.StringBuilder();
 
-            string identityPath = !string.IsNullOrWhiteSpace(profile.IdentityFilePath)
-                ? profile.IdentityFilePath!
-                : profile.SshKeyPath ?? string.Empty;
-            bool useIdentity = !profile.UseSshAgent && !string.IsNullOrWhiteSpace(identityPath);
-            if (useIdentity)
-            {
-                args.Append($" -i \"{identityPath}\"");
-            }
-
-            if (profile.SshPort > 0 && profile.SshPort != 22)
-            {
-                args.Append($" -p {profile.SshPort}");
-            }
-
-            string target = string.IsNullOrWhiteSpace(profile.SshUser)
-                ? profile.SshHost
-                : $"{profile.SshUser}@{profile.SshHost}";
-            if (!string.IsNullOrWhiteSpace(target))
-            {
-                args.Append(' ');
-                args.Append(target);
-            }
-
-            return args.ToString().Trim();
-        }
 
         public void ApplySettings(TerminalSettings settings)
         {

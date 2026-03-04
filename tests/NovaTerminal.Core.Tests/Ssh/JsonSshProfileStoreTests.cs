@@ -117,6 +117,61 @@ public sealed class JsonSshProfileStoreTests
         Assert.EndsWith(Path.Combine("NovaTerminal", "ssh", "profiles.json"), path);
     }
 
+    [Fact]
+    public void LoadDocument_WhenJsonIsCorrupt_QuarantinesFileAndReturnsEmptyStore()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string storePath = Path.Combine(tempRoot, "profiles.json");
+            File.WriteAllText(storePath, "{ \"Profiles\": [ invalid_json_here ] }");
+
+            var store = new JsonSshProfileStore(storePath);
+            IReadOnlyList<SshProfile> profiles = store.GetProfiles(); // Will trigger LoadDocumentLocked
+
+            Assert.Empty(profiles);
+
+            // Store file should be missing due to quarantine
+            Assert.False(File.Exists(storePath));
+
+            // Quarantined file should exist
+            string[] corruptFiles = Directory.GetFiles(tempRoot, "profiles.json.corrupt.*.json");
+            Assert.Single(corruptFiles);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_UsesAtomicWriteAndDoesNotLeaveTempFiles()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string storePath = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(storePath);
+
+            var profile = new SshProfile
+            {
+                Id = Guid.NewGuid(),
+                Name = "atomic-test",
+                Host = "test.internal"
+            };
+
+            store.SaveProfile(profile);
+
+            Assert.True(File.Exists(storePath));
+            string[] tempFiles = Directory.GetFiles(tempRoot, "*.tmp");
+            Assert.Empty(tempFiles);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), $"nova_ssh_store_test_{Guid.NewGuid():N}");

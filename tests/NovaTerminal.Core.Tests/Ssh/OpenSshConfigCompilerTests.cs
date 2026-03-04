@@ -210,6 +210,73 @@ public sealed class OpenSshConfigCompilerTests
         }
     }
 
+    [Fact]
+    public void Compile_WhenHashMatches_DoesNotRecompile()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            var compiler = new OpenSshConfigCompiler(root);
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                Host = "cached.internal"
+            };
+
+            OpenSshCompilationResult firstResult = compiler.Compile(new[] { profile }, profile.Id);
+            DateTime firstWriteTime = File.GetLastWriteTimeUtc(firstResult.ConfigFilePath);
+
+            // Wait brief moment to guarantee write time difference if modified
+            Thread.Sleep(100);
+
+            OpenSshCompilationResult secondResult = compiler.Compile(new[] { profile }, profile.Id);
+            DateTime secondWriteTime = File.GetLastWriteTimeUtc(secondResult.ConfigFilePath);
+
+            Assert.Equal(firstWriteTime, secondWriteTime);
+
+            string hashPath = Path.Combine(root, "ssh_config.generated.hash");
+            Assert.True(File.Exists(hashPath));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Compile_WhenHashDiffers_WritesNewConfigAndHash()
+    {
+        string root = CreateTempDirectory();
+        try
+        {
+            var compiler = new OpenSshConfigCompiler(root);
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("22222222-2222-2222-2222-222222222222"),
+                Host = "mutable.internal"
+            };
+
+            OpenSshCompilationResult firstResult = compiler.Compile(new[] { profile }, profile.Id);
+            string hashPath = Path.Combine(root, "ssh_config.generated.hash");
+            string firstHash = File.ReadAllText(hashPath);
+
+            // Simulate modifying the store profile
+            profile.User = "new_user";
+
+            OpenSshCompilationResult secondResult = compiler.Compile(new[] { profile }, profile.Id);
+            string secondHash = File.ReadAllText(hashPath);
+
+            Assert.NotEqual(firstHash, secondHash);
+            
+            string configText = File.ReadAllText(secondResult.ConfigFilePath);
+            Assert.Contains("User new_user", configText);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), $"nova_ssh_compiler_test_{Guid.NewGuid():N}");

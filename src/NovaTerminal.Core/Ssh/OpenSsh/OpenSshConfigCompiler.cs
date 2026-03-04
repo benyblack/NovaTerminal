@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using NovaTerminal.Core.Ssh.Models;
 
@@ -8,6 +9,7 @@ public sealed class OpenSshConfigCompiler : IOpenSshConfigCompiler
     private readonly object _syncRoot = new();
     private readonly string _sshRootDirectory;
     private readonly string _generatedConfigPath;
+    private readonly string _generatedHashPath;
     private readonly OpenSshCompilerOptions _options;
 
     public OpenSshConfigCompiler(string? sshRootDirectory = null, OpenSshCompilerOptions? options = null)
@@ -16,6 +18,7 @@ public sealed class OpenSshConfigCompiler : IOpenSshConfigCompiler
             ? GetDefaultSshRootDirectory()
             : Path.GetFullPath(sshRootDirectory);
         _generatedConfigPath = Path.Combine(_sshRootDirectory, "ssh_config.generated");
+        _generatedHashPath = Path.Combine(_sshRootDirectory, "ssh_config.generated.hash");
         _options = options ?? new OpenSshCompilerOptions();
     }
 
@@ -32,6 +35,7 @@ public sealed class OpenSshConfigCompiler : IOpenSshConfigCompiler
             .ToList();
 
         string configText = BuildConfigText(orderedProfiles);
+        string newHash = ComputeHash(configText);
 
         lock (_syncRoot)
         {
@@ -42,7 +46,25 @@ public sealed class OpenSshConfigCompiler : IOpenSshConfigCompiler
                 Directory.CreateDirectory(Path.GetDirectoryName(GetKnownHostsFilePath())!);
             }
 
-            WriteFileAtomically(_generatedConfigPath, configText);
+            bool isCached = false;
+            if (File.Exists(_generatedConfigPath) && File.Exists(_generatedHashPath))
+            {
+                try
+                {
+                    string existingHash = File.ReadAllText(_generatedHashPath).Trim();
+                    isCached = string.Equals(existingHash, newHash, StringComparison.Ordinal);
+                }
+                catch
+                {
+                    isCached = false;
+                }
+            }
+
+            if (!isCached)
+            {
+                WriteFileAtomically(_generatedConfigPath, configText);
+                WriteFileAtomically(_generatedHashPath, newHash);
+            }
         }
 
         return new OpenSshCompilationResult
@@ -50,6 +72,13 @@ public sealed class OpenSshConfigCompiler : IOpenSshConfigCompiler
             ConfigFilePath = _generatedConfigPath,
             Alias = BuildAlias(launchProfile.Id)
         };
+    }
+
+    private string ComputeHash(string text)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
+        byte[] hashBytes = SHA256.HashData(bytes);
+        return Convert.ToHexString(hashBytes);
     }
 
     private string BuildConfigText(IReadOnlyList<SshProfile> profiles)
