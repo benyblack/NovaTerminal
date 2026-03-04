@@ -116,9 +116,35 @@ public sealed class JsonSshProfileStore : ISshProfileStore
             SortProfiles(document.Profiles);
             return document;
         }
-        catch
+        catch (JsonException ex)
         {
+            QuarantineCorruptStoreLocked();
+            TerminalLogger.Log($"[JsonSshProfileStore] Parsed JSON is corrupt. Store quarantined. Error: {ex.Message}");
             return CreateNewDocument();
+        }
+        catch (Exception ex)
+        {
+            TerminalLogger.Log($"[JsonSshProfileStore] Unexpected error reading store: {ex.Message}");
+            return CreateNewDocument();
+        }
+    }
+
+    private void QuarantineCorruptStoreLocked()
+    {
+        try
+        {
+            if (File.Exists(_storeFilePath))
+            {
+                string directory = Path.GetDirectoryName(_storeFilePath) ?? string.Empty;
+                string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+                string backupPath = Path.Combine(directory, $"profiles.json.corrupt.{timestamp}.json");
+                
+                File.Move(_storeFilePath, backupPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            TerminalLogger.Log($"[JsonSshProfileStore] Failed to quarantine corrupt store: {ex.Message}");
         }
     }
 
@@ -162,7 +188,35 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         }
 
         string json = JsonSerializer.Serialize(document, SshJsonContext.Default.SshStoreDocument);
-        File.WriteAllText(_storeFilePath, json);
+        
+        string tempPath = Path.Combine(directory ?? string.Empty, $"profiles.json.{Guid.NewGuid():N}.tmp");
+        File.WriteAllText(tempPath, json);
+        
+        try
+        {
+            if (File.Exists(_storeFilePath))
+            {
+                File.Move(tempPath, _storeFilePath, overwrite: true);
+            }
+            else
+            {
+                File.Move(tempPath, _storeFilePath);
+            }
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                try
+                {
+                    File.Delete(tempPath);
+                }
+                catch
+                {
+                    // Best effort cleanup
+                }
+            }
+        }
     }
 
     private static void SortProfiles(List<SshProfile> profiles)

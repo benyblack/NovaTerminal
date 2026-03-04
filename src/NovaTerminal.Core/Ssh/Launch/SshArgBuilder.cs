@@ -68,11 +68,26 @@ public static class SshArgBuilder
             return commandLine;
         }
 
-        return Regex.Replace(
-            commandLine,
-            "(^|\\s)-i\\s+(\"[^\"]+\"|\\S+)",
-            "$1-i <identity-file>",
-            RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        bool showFullArgs = Environment.GetEnvironmentVariable("NOVA_SSH_FULL_ARGS") == "1";
+        if (showFullArgs)
+        {
+            // Just scrub identity paths if enabled, but full args requested
+            return Regex.Replace(
+                commandLine,
+                "(^|\\s)-i\\s+(\"[^\"]+\"|\\S+)",
+                "$1-i <identity-file>",
+                RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        }
+
+        // Standard sanitization: Only show config file and alias. Redact ExtraSshArgs and other flags.
+        // The command line has a known structure built by SshLaunchPlanner: "-F config_path alias [extra_args...]"
+        var match = Regex.Match(commandLine, @"-F\s+("".*?""|\S+)\s+(nova_[a-fA-F0-9]+)", RegexOptions.CultureInvariant);
+        if (match.Success)
+        {
+            return $"-F {match.Groups[1].Value} {match.Groups[2].Value} <args-redacted>";
+        }
+
+        return "<command-line-redacted>";
     }
 
     private static void AddMuxArguments(List<string> args, SshMuxOptions? muxOptions)
