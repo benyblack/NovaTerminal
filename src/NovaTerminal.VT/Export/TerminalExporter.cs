@@ -86,7 +86,12 @@ namespace NovaTerminal.Core.Export
                     }
                     
                     // Reset at end of line if needed
-                    if (!isFirstCell && (!lastCell.IsDefaultBackground || !lastCell.IsDefaultForeground))
+                    bool needsEolReset = !lastCell.IsDefaultBackground || !lastCell.IsDefaultForeground || 
+                                       lastCell.IsBold || lastCell.IsItalic || lastCell.IsUnderline || 
+                                       lastCell.IsInverse || lastCell.IsStrikethrough || lastCell.IsFaint || 
+                                       lastCell.IsHidden || lastCell.IsBlink;
+
+                    if (!isFirstCell && needsEolReset)
                     {
                         sb.Append("\x1b[0m");
                         lastCell = TerminalCell.Default;
@@ -115,10 +120,10 @@ namespace NovaTerminal.Core.Export
                 return true;
 
             if (a.IsDefaultForeground != b.IsDefaultForeground) return true;
-            if (!b.IsDefaultForeground && a.Fg != b.Fg) return true;
+            if (!b.IsDefaultForeground && (a.Fg != b.Fg || a.IsPaletteForeground != b.IsPaletteForeground)) return true;
 
             if (a.IsDefaultBackground != b.IsDefaultBackground) return true;
-            if (!b.IsDefaultBackground && a.Bg != b.Bg) return true;
+            if (!b.IsDefaultBackground && (a.Bg != b.Bg || a.IsPaletteBackground != b.IsPaletteBackground)) return true;
 
             return false;
         }
