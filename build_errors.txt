@@ -1,0 +1,35 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [d:\projects\nova2\src\NovaTerminal.Replay\NovaTerminal.Replay.csproj]
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [d:\projects\nova2\src\NovaTerminal.VT\NovaTerminal.VT.csproj]
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [d:\projects\nova2\src\NovaTerminal.Core\NovaTerminal.Core.csproj]
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [d:\projects\nova2\src\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj]
+  NovaTerminal.VT -> d:\projects\nova2\src\NovaTerminal.VT\bin\Debug\net10.0\NovaTerminal.VT.dll
+  NovaTerminal.Rendering -> d:\projects\nova2\src\NovaTerminal.Rendering\bin\Debug\net10.0\NovaTerminal.Rendering.dll
+  NovaTerminal.Replay -> d:\projects\nova2\src\NovaTerminal.Replay\bin\Debug\net10.0\NovaTerminal.Replay.dll
+  NovaTerminal.Pty -> d:\projects\nova2\src\NovaTerminal.Pty\bin\Debug\net10.0\NovaTerminal.Pty.dll
+  NovaTerminal.Core -> d:\projects\nova2\src\NovaTerminal.Core\bin\Debug\net10.0\NovaTerminal.Core.dll
+d:\projects\nova2\src\NovaTerminal.App\Core\SftpService.cs(116,37): error CS0234: The type or namespace name 'Start' does not exist in the namespace 'NovaTerminal.Core.Process' (are you missing an assembly reference?) [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(267,17): warning CS0618: 'DragEventArgs.Data' is obsolete: 'Use DataTransfer instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(267,46): warning CS0618: 'DragEventArgs.Data' is obsolete: 'Use DataTransfer instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(267,62): warning CS0618: 'DataFormats.Text' is obsolete: 'Use DataFormat.Text instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(278,25): warning CS0618: 'DragEventArgs.Data' is obsolete: 'Use DataTransfer instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(353,17): warning CS0618: 'DragEventArgs.Data' is obsolete: 'Use DataTransfer instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(311,64): warning CS8604: Possible null reference argument for parameter 'command' in 'DetectedShell TerminalView.DetectShellFromCommand(string command)'. [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(1489,29): error CS0234: The type or namespace name 'Start' does not exist in the namespace 'NovaTerminal.Core.Process' (are you missing an assembly reference?) [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+
+Build FAILED.
+
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(267,17): warning CS0618: 'DragEventArgs.Data' is obsolete: 'Use DataTransfer instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(267,46): warning CS0618: 'DragEventArgs.Data' is obsolete: 'Use DataTransfer instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(267,62): warning CS0618: 'DataFormats.Text' is obsolete: 'Use DataFormat.Text instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(278,25): warning CS0618: 'DragEventArgs.Data' is obsolete: 'Use DataTransfer instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(353,17): warning CS0618: 'DragEventArgs.Data' is obsolete: 'Use DataTransfer instead.' [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(311,64): warning CS8604: Possible null reference argument for parameter 'command' in 'DetectedShell TerminalView.DetectShellFromCommand(string command)'. [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\SftpService.cs(116,37): error CS0234: The type or namespace name 'Start' does not exist in the namespace 'NovaTerminal.Core.Process' (are you missing an assembly reference?) [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+d:\projects\nova2\src\NovaTerminal.App\Core\TerminalView.cs(1489,29): error CS0234: The type or namespace name 'Start' does not exist in the namespace 'NovaTerminal.Core.Process' (are you missing an assembly reference?) [d:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+    6 Warning(s)
+    2 Error(s)
+
+Time Elapsed 00:00:02.49

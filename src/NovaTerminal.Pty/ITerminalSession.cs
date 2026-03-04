@@ -10,6 +10,7 @@ namespace NovaTerminal.Core
         void SendInput(string input);
         void Resize(int cols, int rows);
         string ShellCommand { get; }
+        string? ShellArguments { get; }
         bool IsProcessRunning { get; }
         bool HasActiveChildProcesses { get; }
         int? ExitCode { get; }

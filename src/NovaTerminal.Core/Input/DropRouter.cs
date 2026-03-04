@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
+using NovaTerminal.Core.Paths;
 
 namespace NovaTerminal.Core
 {
@@ -11,7 +13,11 @@ namespace NovaTerminal.Core
 
     public static class DropRouter
     {
-        public static DropRouterResult HandleDrop(SessionContext context, System.Collections.Generic.IReadOnlyList<string> paths, bool isAltHeld)
+        public static async Task<DropRouterResult> HandleDropAsync(
+            SessionContext context, 
+            IReadOnlyList<string> paths, 
+            bool isAltHeld, 
+            IPathMapper? pathMapper = null)
         {
             if (!context.IsEchoEnabled && !isAltHeld)
             {
@@ -28,13 +34,26 @@ namespace NovaTerminal.Core
             }
 
             IShellQuoter quoter = ResolveQuoter(context);
+            bool anyMappingFailed = false;
 
             var quotedPaths = new List<string>(paths.Count);
             foreach (var path in paths)
             {
                 if (!string.IsNullOrWhiteSpace(path))
                 {
-                    quotedPaths.Add(quoter.QuotePath(path));
+                    string mappedPath = path;
+                    if (context.IsWslSession && pathMapper != null)
+                    {
+                        mappedPath = await pathMapper.MapAsync(path);
+                        // A simple heuristic for failure: the mapping returned the exact host path
+                        // (which is a Windows path like C:\...)
+                        if (mappedPath == path && path.Contains(":\\"))
+                        {
+                            anyMappingFailed = true;
+                        }
+                    }
+
+                    quotedPaths.Add(quoter.QuotePath(mappedPath));
                 }
             }
 
@@ -46,7 +65,8 @@ namespace NovaTerminal.Core
             return new DropRouterResult
             {
                 Handled = true,
-                TextToSend = string.Join(" ", quotedPaths) + " "
+                TextToSend = string.Join(" ", quotedPaths) + " ",
+                ToastMessage = anyMappingFailed ? "WSL path mapping failed; inserted Windows path." : null
             };
         }
 

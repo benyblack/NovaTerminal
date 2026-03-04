@@ -52,7 +52,13 @@ namespace NovaTerminal.Core
 
             DragDrop.SetAllowDrop(this, true);
             AddHandler(DragDrop.DragOverEvent, OnDragOver);
-            AddHandler(DragDrop.DropEvent, OnDrop);
+            AddHandler(DragDrop.DropEvent, async (s, e) => {
+                try {
+                    await OnDropAsync(s, e);
+                } catch (Exception ex) {
+                    System.Diagnostics.Debug.WriteLine($"[TerminalView] OnDropAsync Failed: {ex}");
+                }
+            });
         }
 
         protected override void OnTextInput(TextInputEventArgs e)
@@ -271,7 +277,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        private void OnDrop(object? sender, DragEventArgs e)
+        private async Task OnDropAsync(object? sender, DragEventArgs e)
         {
             if (_session == null) return;
 
@@ -290,16 +296,34 @@ namespace NovaTerminal.Core
                 if (paths.Count > 0)
                 {
                     bool isAlt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
+                    
+                    bool isWsl = _session.ShellCommand?.Contains("wsl", StringComparison.OrdinalIgnoreCase) ?? false;
+                    string? distroName = null;
+                    if (isWsl && !string.IsNullOrWhiteSpace(_session.ShellArguments))
+                    {
+                        var args = _session.ShellArguments.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        for (int i = 0; i < args.Length - 1; i++)
+                        {
+                            if (args[i] == "-d" || args[i] == "--distribution")
+                            {
+                                distroName = args[i + 1];
+                                break;
+                            }
+                        }
+                    }
+
                     var ctx = new SessionContext
                     {
                         DetectedShell = DetectShellFromCommand(_session.ShellCommand),
                         IsEchoEnabled = _buffer?.Modes.IsEchoEnabled ?? true,
-                        IsWslSession = _session.ShellCommand?.Contains("wsl", StringComparison.OrdinalIgnoreCase) ?? false,
+                        IsWslSession = isWsl,
+                        WslDistroName = distroName,
                         IsAltScreen = _buffer?.IsAltScreenActive ?? false,
                         ShellOverride = this.ShellOverride
                     };
 
-                    var result = DropRouter.HandleDrop(ctx, paths, isAlt);
+                    var mapper = new NovaTerminal.Core.Paths.WslPathMapper(new NovaTerminal.Core.Execution.DefaultProcessRunner(), distroName);
+                    var result = await DropRouter.HandleDropAsync(ctx, paths, isAlt, mapper);
                     if (result.Handled)
                     {
                         // 1) First check if DropRouter explicitly blocked the input for security
