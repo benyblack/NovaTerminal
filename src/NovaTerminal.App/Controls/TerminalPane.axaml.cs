@@ -13,6 +13,7 @@ using System.Net.NetworkInformation;
 using System.Linq;
 using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
+using Avalonia.Platform.Storage;
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Sessions;
 
@@ -849,6 +850,62 @@ namespace NovaTerminal.Controls
             {
                 UpdateStatusBarUI();
                 (VisualRoot as MainWindow)?.UpdateTabVisuals();
+            }
+        }
+
+        public async Task ExportSnapshotAsync(string format)
+        {
+            if (Buffer == null) return;
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null) return;
+
+            string ext = format.ToLowerInvariant() switch {
+                "png" => ".png",
+                "ansi" => ".ansi",
+                _ => ".txt"
+            };
+
+            var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = $"Export Terminal Snapshot ({format.ToUpperInvariant()})",
+                SuggestedFileName = $"snapshot_{DateTime.Now:yyyyMMdd_HHmmss}{ext}"
+            });
+
+            if (file == null) return;
+
+            try
+            {
+                if (format.Equals("png", StringComparison.OrdinalIgnoreCase))
+                {
+                    var dpi = topLevel.RenderScaling;
+                    var pixelSize = new PixelSize(
+                        (int)Math.Ceiling(TermView.Bounds.Width * dpi), 
+                        (int)Math.Ceiling(TermView.Bounds.Height * dpi));
+                    
+                    var rtb = new Avalonia.Media.Imaging.RenderTargetBitmap(pixelSize, new Vector(96 * dpi, 96 * dpi));
+                    rtb.Render(TermView);
+                    
+                    using var stream = await file.OpenWriteAsync();
+                    rtb.Save(stream);
+                }
+                else if (format.Equals("ansi", StringComparison.OrdinalIgnoreCase))
+                {
+                    string data = NovaTerminal.Core.Export.TerminalExporter.ExportToAnsi(Buffer);
+                    using var stream = await file.OpenWriteAsync();
+                    using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8);
+                    await writer.WriteAsync(data);
+                }
+                else
+                {
+                    string data = NovaTerminal.Core.Export.TerminalExporter.ExportToPlainText(Buffer);
+                    using var stream = await file.OpenWriteAsync();
+                    using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8);
+                    await writer.WriteAsync(data);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] Failed to export snapshot: {ex}");
             }
         }
 
