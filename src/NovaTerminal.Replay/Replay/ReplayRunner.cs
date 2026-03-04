@@ -123,7 +123,7 @@ namespace NovaTerminal.Core.Replay
             }
 
             // Use MinTimeMs if > 0, otherwise start from 0
-            if (minTimeMs > 0)
+            if (minTimeMs > 0 && startOffsetBytes == 0)
             {
                 // If we have a minTime, we assume the caller has already set the state 
                 // to what it was at minTimeMs (e.g. via snapshot).

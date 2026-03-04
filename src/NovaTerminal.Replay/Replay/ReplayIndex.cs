@@ -42,18 +42,23 @@ namespace NovaTerminal.Core.Replay
             int left = 0;
             int right = _entries.Count - 1;
             int bestIndex = 0;
+            bool foundExact = false;
 
             while (left <= right)
             {
                 int mid = left + (right - left) / 2;
                 if (_entries[mid].TimeMs == targetTimeMs)
                 {
-                    return _entries[mid].ByteOffset;
-                }
-                
-                if (_entries[mid].TimeMs < targetTimeMs)
-                {
                     bestIndex = mid;
+                    foundExact = true;
+                    right = mid - 1; // Keep searching to the left for potentially earlier matches
+                }
+                else if (_entries[mid].TimeMs < targetTimeMs)
+                {
+                    if (!foundExact)
+                    {
+                        bestIndex = mid;
+                    }
                     left = mid + 1;
                 }
                 else
@@ -132,17 +137,20 @@ namespace NovaTerminal.Core.Replay
             try
             {
                 var reader = new Utf8JsonReader(lineBytes);
+                long? foundTime = null;
                 
                 while (reader.Read())
                 {
-                    if (reader.TokenType == JsonTokenType.PropertyName && reader.ValueTextEquals("t"u8))
+                    if (foundTime == null && reader.TokenType == JsonTokenType.PropertyName && reader.ValueTextEquals("t"u8))
                     {
                         if (reader.Read() && reader.TokenType == JsonTokenType.Number)
                         {
-                            return reader.GetInt64();
+                            foundTime = reader.GetInt64();
                         }
                     }
                 }
+                
+                return foundTime;
             }
             catch (JsonException)
             {
