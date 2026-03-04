@@ -1577,7 +1577,7 @@ namespace NovaTerminal.Core
 
         private void IncrementRowPictureCacheHit()
         {
-            if (_collectFramePerfMetrics)
+            if (_collectFramePerfMetrics || _showRenderHud)
             {
                 _framePerfMetrics.RowPictureCacheHits++;
             }
@@ -1585,7 +1585,7 @@ namespace NovaTerminal.Core
 
         private void IncrementRowPictureCacheMiss()
         {
-            if (_collectFramePerfMetrics)
+            if (_collectFramePerfMetrics || _showRenderHud)
             {
                 _framePerfMetrics.RowPictureCacheMisses++;
             }
@@ -1593,7 +1593,7 @@ namespace NovaTerminal.Core
 
         private void IncrementPictureBuild()
         {
-            if (_collectFramePerfMetrics)
+            if (_collectFramePerfMetrics || _showRenderHud)
             {
                 _framePerfMetrics.PictureBuilds++;
             }
@@ -1601,7 +1601,7 @@ namespace NovaTerminal.Core
 
         private void IncrementRectDrawCall()
         {
-            if (_collectFramePerfMetrics)
+            if (_collectFramePerfMetrics || _showRenderHud)
             {
                 _framePerfMetrics.DrawCallsRects++;
             }
@@ -1609,7 +1609,7 @@ namespace NovaTerminal.Core
 
         private void IncrementTextDrawCall()
         {
-            if (_collectFramePerfMetrics)
+            if (_collectFramePerfMetrics || _showRenderHud)
             {
                 _framePerfMetrics.DrawCallsText++;
             }
@@ -1617,7 +1617,7 @@ namespace NovaTerminal.Core
 
         private void IncrementDirectDrawTextCall()
         {
-            if (_collectFramePerfMetrics)
+            if (_collectFramePerfMetrics || _showRenderHud)
             {
                 _framePerfMetrics.DirectDrawTextCount++;
             }
@@ -1625,7 +1625,7 @@ namespace NovaTerminal.Core
 
         private void IncrementShapedTextRun()
         {
-            if (_collectFramePerfMetrics)
+            if (_collectFramePerfMetrics || _showRenderHud)
             {
                 _framePerfMetrics.ShapedTextRuns++;
             }
@@ -1633,7 +1633,7 @@ namespace NovaTerminal.Core
 
         private void IncrementOtherDrawCall()
         {
-            if (_collectFramePerfMetrics)
+            if (_collectFramePerfMetrics || _showRenderHud)
             {
                 _frameOtherDrawCalls++;
             }
@@ -1641,7 +1641,7 @@ namespace NovaTerminal.Core
 
         private void RecordFlush(int alphaGlyphs, int colorGlyphs, int atlasDrawCalls)
         {
-            if (!_collectFramePerfMetrics)
+            if (!_collectFramePerfMetrics && !_showRenderHud)
             {
                 return;
             }
