@@ -20,11 +20,12 @@ Reference documents:
 
 # Phase 1 — Observability Foundations
 
+(All features currently **COMPLETED** and **MERGED**)
 Implement the following features in order:
 
-1. Render Performance HUD
-2. Terminal Snapshot Export
-3. ReplayIndex + Seek API
+- [x] 1. Render Performance HUD
+- [x] 2. Terminal Snapshot Export
+- [x] 3. ReplayIndex + Seek API
 
 Each feature must be implemented in a separate PR.
 

@@ -154,6 +154,7 @@ Recently completed:
 - M3 replay product core
 - M4 cross-platform polish
 - M4.5 production hardening (auth, vault keys, LocalAppData runtime paths, CI parity/nightly corrections)
+- **vNext Phase 1**: Render Performance HUD, Terminal Snapshot Export, and ReplayIndex + Seek API
 
 Current focus:
 - M5 ship readiness (beta workflow, release motion, launch docs/site)
