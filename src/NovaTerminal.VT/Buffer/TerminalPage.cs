@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
 
-namespace NovaTerminal.Core.Buffer
+namespace NovaTerminal.Core.Storage
 {
     /// <summary>
     /// A contiguous slab of TerminalCell values for multiple scrollback rows.
@@ -31,6 +31,7 @@ namespace NovaTerminal.Core.Buffer
         public int UsedRows;
 
         private bool _returned;
+        private ulong _isWrappedMask;
 
         public TerminalPage(int rowsInPage, int cols)
         {
@@ -101,6 +102,7 @@ namespace NovaTerminal.Core.Buffer
         {
             UsedRows = 0;
             _returned = false;
+            _isWrappedMask = 0;
             ResetCells();
         }
 
@@ -112,9 +114,23 @@ namespace NovaTerminal.Core.Buffer
         {
             if (_returned) return;
             _returned = true;
+            _isWrappedMask = 0;
             // Clear the usable portion so pooled memory doesn't retain stale data.
             Cells.AsSpan(0, RowsInPage * Cols).Clear();
             ArrayPool<TerminalCell>.Shared.Return(Cells, clearArray: false);
+        }
+
+        public bool IsRowWrapped(int rowIndex)
+        {
+            if ((uint)rowIndex >= (uint)RowsInPage) throw new ArgumentOutOfRangeException(nameof(rowIndex));
+            return (_isWrappedMask & (1UL << rowIndex)) != 0;
+        }
+
+        public void SetRowWrapped(int rowIndex, bool wrapped)
+        {
+            if ((uint)rowIndex >= (uint)RowsInPage) throw new ArgumentOutOfRangeException(nameof(rowIndex));
+            if (wrapped) _isWrappedMask |= (1UL << rowIndex);
+            else _isWrappedMask &= ~(1UL << rowIndex);
         }
 
         // ── Private ──────────────────────────────────────────────────────────────

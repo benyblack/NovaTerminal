@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using NovaTerminal.Core.Storage;
 using System.Diagnostics;
 
 namespace NovaTerminal.Core
@@ -243,6 +244,21 @@ namespace NovaTerminal.Core
                             Cols = viewportCols,
                             Cells = GetOrBuildCachedRenderRowCells_NoLock(r, row, viewportCols),
                             RowId = row.Id
+                        };
+                        rowId = rowSnapshot.RowId;
+                        rowRevision = rowSnapshot.Revision;
+                    }
+                    else if (!_isAltScreen && absRow < _scrollback.Count)
+                    {
+                        // Scrollback row (paged)
+                        long absRowId = _scrollback.TotalRowsEvicted + absRow;
+                        rowSnapshot = new RenderRowSnapshot
+                        {
+                            AbsRow = absRow,
+                            Revision = 0, // Scrollback rows are immutable
+                            Cols = viewportCols,
+                            Cells = GetOrBuildCachedPagedRenderRowCells_NoLock(r, absRow, absRowId, viewportCols),
+                            RowId = absRowId
                         };
                         rowId = rowSnapshot.RowId;
                         rowRevision = rowSnapshot.Revision;
@@ -640,6 +656,79 @@ namespace NovaTerminal.Core
                 return new PooledArray<SearchHighlightSnapshot>(arr, list.Count);
             }
             return PooledArray<SearchHighlightSnapshot>.Empty;
+        }
+
+        private RenderCellSnapshot[] GetOrBuildCachedPagedRenderRowCells_NoLock(int rowIndex, int absRow, long rowId, int viewportCols)
+        {
+            if (viewportCols <= 0)
+            {
+                return Array.Empty<RenderCellSnapshot>();
+            }
+
+            RenderCellSnapshot[]? cachedCells = _cachedRenderRowCells[rowIndex];
+            bool canReuse =
+                cachedCells != null &&
+                cachedCells.Length == viewportCols &&
+                _cachedRenderRowIds[rowIndex] == rowId &&
+                _cachedRenderRowRevisions[rowIndex] == 0 &&
+                _cachedRenderRowCols[rowIndex] == viewportCols;
+
+            if (canReuse)
+            {
+                return cachedCells!;
+            }
+
+            // Scrollback rows are immutable, so we only need to build them once per rowId/Cols combination.
+            var rebuiltCells = new RenderCellSnapshot[viewportCols];
+            var sourceCells = _scrollback.GetRow(absRow);
+            int copyLen = Math.Min(sourceCells.Length, viewportCols);
+
+            for (int c = 0; c < viewportCols; c++)
+            {
+                if (c < copyLen)
+                {
+                    var cell = sourceCells[c];
+                    rebuiltCells[c] = new RenderCellSnapshot
+                    {
+                        Character = cell.Character,
+                        Text = null, // TODO Step 5: Support extended text in scrollback
+                        Foreground = cell.Foreground,
+                        Background = cell.Background,
+                        IsInverse = cell.IsInverse,
+                        IsBold = cell.IsBold,
+                        IsDefaultForeground = cell.IsDefaultForeground,
+                        IsDefaultBackground = cell.IsDefaultBackground,
+                        IsWide = cell.IsWide,
+                        IsWideContinuation = cell.IsWideContinuation,
+                        IsHidden = cell.IsHidden,
+                        IsFaint = cell.IsFaint,
+                        IsItalic = cell.IsItalic,
+                        IsUnderline = cell.IsUnderline,
+                        IsBlink = cell.IsBlink,
+                        IsStrikethrough = cell.IsStrikethrough,
+                        FgIndex = cell.FgIndex,
+                        BgIndex = cell.BgIndex
+                    };
+                }
+                else
+                {
+                    rebuiltCells[c] = new RenderCellSnapshot
+                    {
+                        Character = ' ',
+                        Foreground = Theme.Foreground,
+                        Background = Theme.Background,
+                        IsDefaultForeground = true,
+                        IsDefaultBackground = true
+                    };
+                }
+            }
+
+            _cachedRenderRowIds[rowIndex] = rowId;
+            _cachedRenderRowRevisions[rowIndex] = 0;
+            _cachedRenderRowCols[rowIndex] = viewportCols;
+            _cachedRenderRowCells[rowIndex] = rebuiltCells;
+
+            return rebuiltCells;
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.Core.Storage;
 using Xunit.Abstractions;
 
 namespace NovaTerminal.Tests
@@ -19,50 +20,43 @@ namespace NovaTerminal.Tests
         // Helper to check standard prompt preservation
         private bool RowContainsText(TerminalBuffer buffer, int rowIndex, string text)
         {
-            var row = GetRow(buffer, rowIndex);
-            var rowText = GetRowText(row);
+            var rowText = GetRowText(buffer, rowIndex);
             return rowText.Contains(text);
         }
 
-        private TerminalRow GetRow(TerminalBuffer buffer, int rowIndex)
-        {
-            // Handle extended indices (Virtual interface simulation)
-            // Just use the internal method logic via reflection or simple mapping
-            if (rowIndex < 0) return null;
-
-            // Map to Scrollback + Viewport
-            // We need a helper that exposes the *whole* simulated linear buffer
-            // But for simple tests, we can peek private methods or just use what we have.
-            // Let's rely on TerminalBuffer's GetCellAbsolute or similar? No, that's complex.
-            // Let's use the Reflection helpers we established in ReflowScenariosTests
-            // Copied locally for isolation
-            return InternalGetRow(buffer, rowIndex);
-        }
-
-        // --- Helper Reflection Methods (Copied/Adapted) ---
-        private TerminalRow InternalGetRow(TerminalBuffer buffer, int absoluteIndex)
+        private string GetRowText(TerminalBuffer buffer, int absoluteIndex)
         {
             var sb = GetScrollback(buffer);
             var vp = GetViewport(buffer);
             int sbCount = sb.Count;
 
-            if (absoluteIndex < sbCount) return sb[absoluteIndex];
+            if (absoluteIndex < sbCount)
+            {
+                return GetTextFromSpan(sb.GetRow(absoluteIndex));
+            }
+            
             int vpIndex = absoluteIndex - sbCount;
-            if (vpIndex >= 0 && vpIndex < vp.Length) return vp[vpIndex];
-            return null;
+            if (vpIndex >= 0 && vpIndex < vp.Length)
+            {
+                return GetTextFromSpan(vp[vpIndex].Cells);
+            }
+            return "";
         }
 
-        private string GetRowText(TerminalRow row)
+        private string GetTextFromSpan(ReadOnlySpan<TerminalCell> span)
         {
-            if (row == null || row.Cells == null) return "";
-            var chars = row.Cells.Select(c => c.Character == '\0' ? ' ' : c.Character).ToArray();
+            char[] chars = new char[span.Length];
+            for (int i = 0; i < span.Length; i++)
+            {
+                chars[i] = span[i].Character == '\0' ? ' ' : span[i].Character;
+            }
             return new string(chars).TrimEnd();
         }
 
-        private NovaTerminal.Core.CircularBuffer<TerminalRow> GetScrollback(TerminalBuffer buffer)
+        private ScrollbackPages GetScrollback(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            return (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
+            return (ScrollbackPages)field!.GetValue(buffer)!;
         }
 
         private TerminalRow[] GetViewport(TerminalBuffer buffer)
@@ -99,8 +93,7 @@ namespace NovaTerminal.Tests
             buffer.Resize(60, 24);
 
             // Assert: Prompt should be preserved (not cleared)
-            var row = GetRow(buffer, buffer.ScrollbackRows.Count + buffer.CursorRow);
-            string text = GetRowText(row);
+            string text = GetRowText(buffer, buffer.Scrollback.Count + buffer.CursorRow);
 
             _output.WriteLine($"Cursor Row Text after resize: '{text}'");
 
@@ -143,8 +136,7 @@ namespace NovaTerminal.Tests
             Assert.Equal(expectedCol, buffer.CursorCol);
 
             // 3. Prompt text should be at the cursor row
-            var row = GetRow(buffer, buffer.ScrollbackRows.Count + buffer.CursorRow);
-            Assert.Contains("PS Bottom>", GetRowText(row));
+            Assert.Contains("PS Bottom>", GetRowText(buffer, buffer.Scrollback.Count + buffer.CursorRow));
         }
 
         // ====================================================================
@@ -177,7 +169,7 @@ namespace NovaTerminal.Tests
             var sb = GetScrollback(buffer);
             if (sb.Count > 0)
             {
-                var lastHistory = GetRowText(sb.Last());
+                var lastHistory = GetTextFromSpan(sb.GetRow(sb.Count - 1));
                 // The history might validly contain the specific *previous* command output ("History")
                 // but should NOT contain the Active Prompt we just reflowed.
                 Assert.DoesNotContain("long-hostname", lastHistory);
@@ -194,7 +186,7 @@ namespace NovaTerminal.Tests
             // during a vertical resize, which would cause the shell to effectively "duplicate" it
             // when it redraws the cursor line.
 
-            // Ideally, the "Active Logical Line" (where cursor is) should stay in the Viewport
+            // Ideally, the "Active Logical Line" (where cursor is) stay in the Viewport
             // as much as possible, or if it moves to scrollback, the cursor should follow it exactly?
             // Actually, usually on vertical resize, if we just grow/shrink height, 
             // the *relative* view changes.
@@ -217,12 +209,12 @@ namespace NovaTerminal.Tests
             // Check Viewport Bottom
             var vp = GetViewport(buffer);
             var bottomRow = vp[buffer.CursorRow]; // Should be last row (19)
-            Assert.Contains("ActivePrompt", GetRowText(bottomRow));
+            Assert.Contains("ActivePrompt", GetTextFromSpan(bottomRow.Cells));
 
             // Check Scrollback Last
             var sb = GetScrollback(buffer);
-            var lastSb = sb.Last(); // Should be "Line X"
-            Assert.DoesNotContain("ActivePrompt", GetRowText(lastSb));
+            var lastSb = GetTextFromSpan(sb.GetRow(sb.Count - 1)); // Should be "Line X"
+            Assert.DoesNotContain("ActivePrompt", lastSb);
         }
     }
 }

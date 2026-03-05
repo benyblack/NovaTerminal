@@ -1,5 +1,6 @@
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.Core.Storage;
 using System.Text;
 using Xunit.Abstractions;
 using System.Collections.Generic;
@@ -19,22 +20,25 @@ namespace NovaTerminal.Tests
         private string GetRowText(TerminalBuffer buffer, int physIdx)
         {
             var sbCount = GetScrollbackCount(buffer);
-            TerminalRow row;
             if (physIdx < sbCount)
             {
-                row = GetScrollbackRow(buffer, physIdx);
+                return GetTextFromSpan(buffer.Scrollback.GetRow(physIdx));
             }
             else
             {
-                row = GetViewportRow(buffer, physIdx - sbCount);
+                var row = GetViewportRow(buffer, physIdx - sbCount);
+                return GetTextFromSpan(row.Cells);
             }
+        }
 
-            StringBuilder sb = new StringBuilder();
-            foreach (var cell in row.Cells)
+        private string GetTextFromSpan(ReadOnlySpan<TerminalCell> span)
+        {
+            char[] chars = new char[span.Length];
+            for (int i = 0; i < span.Length; i++)
             {
-                sb.Append(cell.Character == '\0' ? ' ' : cell.Character);
+                chars[i] = span[i].Character == '\0' ? ' ' : span[i].Character;
             }
-            return sb.ToString();
+            return new string(chars);
         }
 
         private void WriteLines(TerminalBuffer buffer, int count)
@@ -58,16 +62,7 @@ namespace NovaTerminal.Tests
 
         private int GetScrollbackCount(TerminalBuffer buffer)
         {
-            var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var list = (IReadOnlyList<TerminalRow>)field!.GetValue(buffer)!;
-            return list.Count;
-        }
-
-        private TerminalRow GetScrollbackRow(TerminalBuffer buffer, int idx)
-        {
-            var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            var list = (IReadOnlyList<TerminalRow>)field!.GetValue(buffer)!;
-            return list[idx]!;
+            return buffer.Scrollback.Count;
         }
 
         private TerminalRow GetViewportRow(TerminalBuffer buffer, int idx)
@@ -330,14 +325,24 @@ namespace NovaTerminal.Tests
 
             for (int i = 0; i < totalPhys; i++)
             {
-                var row = (i < sbCount) ? GetScrollbackRow(buffer, i) : GetViewportRow(buffer, i - sbCount);
+                string rowText;
+                bool isWrapped;
 
-                StringBuilder rowText = new StringBuilder();
-                foreach (var c in row.Cells) rowText.Append(c.Character == '\0' ? ' ' : c.Character);
+                if (i < sbCount)
+                {
+                    rowText = GetTextFromSpan(buffer.Scrollback.GetRow(i));
+                    isWrapped = buffer.Scrollback.IsRowWrapped(i);
+                }
+                else
+                {
+                    var row = GetViewportRow(buffer, i - sbCount);
+                    rowText = GetTextFromSpan(row.Cells);
+                    isWrapped = row.IsWrapped;
+                }
 
-                currentLogical.Append(rowText.ToString().TrimEnd());
+                currentLogical.Append(rowText.TrimEnd());
 
-                if (!row.IsWrapped)
+                if (!isWrapped)
                 {
                     string logical = currentLogical.ToString().Trim();
                     if (logical.StartsWith("[LINE-"))
@@ -356,12 +361,8 @@ namespace NovaTerminal.Tests
         private bool GetRowWrapped(TerminalBuffer buffer, int physIdx)
         {
             var sbCount = GetScrollbackCount(buffer);
-            TerminalRow row;
-            if (physIdx < sbCount)
-                row = GetScrollbackRow(buffer, physIdx);
-            else
-                row = GetViewportRow(buffer, physIdx - sbCount);
-            return row.IsWrapped;
+            if (physIdx < sbCount) return buffer.Scrollback.IsRowWrapped(physIdx);
+            return GetViewportRow(buffer, physIdx - sbCount).IsWrapped;
         }
 
         [Fact]
@@ -480,12 +481,6 @@ namespace NovaTerminal.Tests
         [Fact]
         public void HorizontalResize_PromptAtBottom_ShouldKeepCursorVisible()
         {
-            // Scenario: 20x5. Filled with 4 lines of text. Prompt on Line 4 (Bottom).
-            // Shrink to 10x5. Text wraps.
-            // Should force scroll (content pushes to SB).
-            // Cursor should remain at Bottom (Line 4).
-            // Old content should be in SB.
-
             var buffer = new TerminalBuffer(20, 5);
             buffer.Write("Line 1\r\n");
             buffer.Write("Line 2\r\n");
@@ -499,55 +494,12 @@ namespace NovaTerminal.Tests
             // Cursor at (4, 8)
             Assert.Equal(4, buffer.CursorRow);
 
-            // Shrink width to 10.
-            // "Line X" (6 chars) -> No wrap.
-            // "Prompt> " (8 chars) -> No wrap.
-            // Wait, this doesn't force wrap. I need longer lines.
-            // Let's use 20 chars lines.
-            // "12345678901234567890" (20 chars).
-            // Shrink to 10. Becomes 2 lines each.
-
-            buffer.Resize(20, 5); // Reset size just in case (no op)
-            // Clear and Refill
-            // We can't clear easily without helper, just make new buffer
             buffer = new TerminalBuffer(20, 5);
             buffer.Write("12345678901234567890"); // Line 0
             buffer.Write("12345678901234567890"); // Line 1
             buffer.Write("12345678901234567890"); // Line 2
             buffer.Write("12345678901234567890"); // Line 3
             buffer.Write("Prompt> ");             // Line 4 (8 chars)
-
-            // Cursor at (4, 8).
-
-            // Shrink to 10.
-            // Line 0 -> 2 lines.
-            // Line 1 -> 2 lines.
-            // Line 2 -> 2 lines.
-            // Line 3 -> 2 lines.
-            // Prompt -> 1 line.
-            // Total 9 lines.
-            // Buffer Height 5.
-            // We expect 4 lines to go to SB.
-            // Viewport shows last 5 lines.
-            // VP[0] = Line 2b.
-            // VP[1] = Line 3a.
-            // VP[2] = Line 3b.
-            // VP[3] = Prompt.
-            // VP[4] = Empty/Padding?
-
-            // Wait, "Top Anchoring" logic for Shrink:
-            // "activeContentSize" = 9. "newRows" = 5.
-            // "sbCount" increases by 4.
-            // "vpCount" = 5.
-            // We fill viewport with last 5 rows.
-            // Prompt (Row 8) should be at VP[3] or VP[4]?
-            // Rows are 0..8.
-            // SB gets 0..3.
-            // VP gets 4..8.
-            // Row 4 is "1234..." (Line 2 part 1).
-            // Row 8 is "Prompt> ".
-            // So VP contains: Line 2a, Line 2b, Line 3a, Line 3b, Prompt.
-            // So Prompt is at VP[4] (Bottom).
 
             buffer.Resize(10, 5);
 

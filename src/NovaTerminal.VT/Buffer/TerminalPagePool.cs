@@ -2,7 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading;
 
-namespace NovaTerminal.Core.Buffer
+namespace NovaTerminal.Core.Storage
 {
     /// <summary>
     /// Thread-safe pool of <see cref="TerminalPage"/> objects.

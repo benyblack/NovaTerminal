@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.Core.Storage;
 using Avalonia.Media;
 
 namespace NovaTerminal.Tests
@@ -70,28 +71,37 @@ namespace NovaTerminal.Tests
             // Check if last line of scrollback contains prompt text
             if (newScrollbackCount > 0)
             {
-                var lastHistoryLine = newScrollback.Last();
-                var text = GetTextFromRow(lastHistoryLine);
+                var lastHistoryRow = newScrollback.GetRow(newScrollbackCount - 1);
+                var text = GetTextFromSpan(lastHistoryRow);
 
                 Assert.DoesNotContain("Command Input", text);
                 Assert.DoesNotContain("user@host", text);
             }
         }
 
-        private NovaTerminal.Core.CircularBuffer<TerminalRow> GetScrollback(TerminalBuffer buffer)
+        private ScrollbackPages GetScrollback(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
-            return (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
+            return (ScrollbackPages)field!.GetValue(buffer)!;
         }
 
         private string GetTextFromRow(TerminalRow row)
         {
             if (row.Cells != null)
             {
-                var chars = row.Cells.Select(c => c.Character == '\0' ? ' ' : c.Character).ToArray();
-                return new string(chars).Trim();
+                return GetTextFromSpan(row.Cells);
             }
             return "";
+        }
+
+        private string GetTextFromSpan(ReadOnlySpan<TerminalCell> span)
+        {
+            char[] chars = new char[span.Length];
+            for (int i = 0; i < span.Length; i++)
+            {
+                chars[i] = span[i].Character == '\0' ? ' ' : span[i].Character;
+            }
+            return new string(chars).Trim();
         }
 
         [Fact]
@@ -152,7 +162,7 @@ namespace NovaTerminal.Tests
 
             // Assert
             var scrollback = GetScrollback(buffer);
-            var text = GetTextFromRow(scrollback.Last());
+            var text = GetTextFromSpan(scrollback.GetRow(scrollback.Count - 1));
 
             // Should NOT contain the prompt
             Assert.DoesNotContain("user@host", text);
@@ -195,7 +205,7 @@ namespace NovaTerminal.Tests
             // If this test FAILS (Duplication), then Fallback Logic is broken.
 
             var scrollback = GetScrollback(buffer);
-            var text = GetTextFromRow(scrollback.Last());
+            var text = GetTextFromSpan(scrollback.GetRow(scrollback.Count - 1));
 
             // Attempt to assert NO duplication (Validation of Fallback)
             Assert.DoesNotContain("user@host", text);
@@ -238,7 +248,7 @@ namespace NovaTerminal.Tests
                 $"History was wiped! Expected > 50 lines, found {newScrollback.Count}. Upward scan likely too greedy.");
 
             // Also check that the TOP of history is preserved
-            var firstLine = GetTextFromRow(newScrollback[0]);
+            var firstLine = GetTextFromSpan(newScrollback.GetRow(0));
             Assert.Contains("Data Line 0", firstLine);
         }
         [Fact]
@@ -276,22 +286,23 @@ namespace NovaTerminal.Tests
             var viewport = GetViewport(buffer);
 
             // Combine all rows to check content
-            var allRows = new List<TerminalRow>();
-            allRows.AddRange(scrollback);
-            allRows.AddRange(viewport);
+            var contentTexts = new List<string>();
+            var sbRows = GetScrollback(buffer);
+            for (int i = 0; i < sbRows.Count; i++) contentTexts.Add(GetTextFromSpan(sbRows.GetRow(i)));
+            
+            var vpRows = GetViewport(buffer);
+            foreach (var r in vpRows) contentTexts.Add(GetTextFromRow(r));
 
-            // Filter to just the rows that have text or are part of the content block
-            // (Ignoring the massive empty padding at the end of viewport)
-            var contentRows = allRows.Where(r => !IsRowEmpty(r)).ToList();
+            var contentRowsText = contentTexts.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
 
             // We expect exactly 4 content rows.
             // If the bug exists, we might see 8, 12, or spaces in between.
 
-            Assert.Equal(4, contentRows.Count);
-            Assert.Contains("Line 1", GetTextFromRow(contentRows[0]));
-            Assert.Contains("Line 2", GetTextFromRow(contentRows[1]));
-            Assert.Contains("Line 3", GetTextFromRow(contentRows[2]));
-            Assert.Contains("Line 4", GetTextFromRow(contentRows[3]));
+            Assert.Equal(4, contentRowsText.Count);
+            Assert.Contains("Line 1", contentRowsText[0]);
+            Assert.Contains("Line 2", contentRowsText[1]);
+            Assert.Contains("Line 3", contentRowsText[2]);
+            Assert.Contains("Line 4", contentRowsText[3]);
         }
 
 
@@ -328,7 +339,7 @@ namespace NovaTerminal.Tests
 
             if (scrollback.Count > 0)
             {
-                var text = GetTextFromRow(scrollback.Last());
+                var text = GetTextFromSpan(scrollback.GetRow(scrollback.Count - 1));
                 Assert.DoesNotContain("user@host", text);
             }
         }
@@ -366,12 +377,8 @@ namespace NovaTerminal.Tests
                 buffer.Resize(80, 24);     // Srink width
             }
 
-            var all = GetAllRows(buffer);
-            var nonNullContent = all.Where(r =>
-            {
-                foreach (var c in r.Cells) if (c.Character != '\0' && c.Character != ' ') return true;
-                return false;
-            }).ToList();
+            var allTexts = GetAllRowTexts(buffer);
+            var nonNullContent = allTexts.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
 
             // Should just be 2 lines
             Assert.Equal(2, nonNullContent.Count);
@@ -394,11 +401,14 @@ namespace NovaTerminal.Tests
             viewport[viewport.Length - 1] = row;
         }
 
-        private List<TerminalRow> GetAllRows(TerminalBuffer buffer)
+        private List<string> GetAllRowTexts(TerminalBuffer buffer)
         {
-            var list = new List<TerminalRow>();
-            list.AddRange(GetScrollback(buffer));
-            list.AddRange(GetViewport(buffer));
+            var list = new List<string>();
+            var sb = GetScrollback(buffer);
+            for (int i = 0; i < sb.Count; i++) list.Add(GetTextFromSpan(sb.GetRow(i)));
+            
+            var vp = GetViewport(buffer);
+            foreach (var r in vp) list.Add(GetTextFromRow(r));
             return list;
         }
 
@@ -493,7 +503,7 @@ namespace NovaTerminal.Tests
 
             // Assert
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
-            var scrollback = (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
+            var scrollback = (ScrollbackPages)field!.GetValue(buffer)!;
 
             static string GetTextFromRow(TerminalRow row)
             {
@@ -505,7 +515,9 @@ namespace NovaTerminal.Tests
                 return "";
             }
 
-            var historyText = string.Join("\n", scrollback.Select(GetTextFromRow));
+            var sbText = "";
+            for (int i = 0; i < scrollback.Count; i++) sbText += GetTextFromSpan(scrollback.GetRow(i)) + "\n";
+            var historyText = sbText.Trim();
 
             // Neither part of the prompt should be in history
             Assert.DoesNotContain("user@host", historyText);
@@ -531,12 +543,18 @@ namespace NovaTerminal.Tests
 
             // Access _scrollback via reflection for thorough check
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
-            var sb = (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
+            var sb = (ScrollbackPages)field!.GetValue(buffer)!;
 
             // Check Scrollback
-            foreach (var row in sb)
-                foreach (var cell in row.Cells)
+            for (int i = 0; i < sb.Count; i++)
+            {
+                var rowSpan = sb.GetRow(i);
+                foreach (var cell in rowSpan)
+                {
                     if (cell.Background == TermColor.Red) { foundRed = true; break; }
+                }
+                if (foundRed) break;
+            }
 
             // Check Viewport
             if (!foundRed)
@@ -571,7 +589,7 @@ namespace NovaTerminal.Tests
             for (int i = 0; i < 5; i++) buffer.Write($"Line {i}\n");
             buffer.Write("Prompt> ");
 
-            int initialTotal = buffer.ScrollbackRows.Count + buffer.Rows;
+            int initialTotal = buffer.Scrollback.Count + buffer.Rows;
 
             // Act
             for (int i = 0; i < 10; i++)
@@ -581,7 +599,7 @@ namespace NovaTerminal.Tests
             }
 
             // Assert
-            int finalTotal = buffer.ScrollbackRows.Count + buffer.Rows;
+            int finalTotal = buffer.Scrollback.Count + buffer.Rows;
             // It shouldn't grow indefinitely. 
             Assert.True(finalTotal < initialTotal + 20, $"Buffer grew too much: {initialTotal} -> {finalTotal}");
         }

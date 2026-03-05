@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Core.Buffer
+namespace NovaTerminal.Core.Storage
 {
     /// <summary>
     /// Metrics snapshot for <see cref="ScrollbackPages"/>.
@@ -63,6 +63,12 @@ namespace NovaTerminal.Core.Buffer
         /// <summary>Number of rows currently accessible (after eviction).</summary>
         public int Count => (int)Math.Min(_totalRowsAppended - _totalRowsEvicted, int.MaxValue);
 
+        /// <summary>Total rows that have ever been appended to this scrollback.</summary>
+        public long TotalRowsAppended => _totalRowsAppended;
+
+        /// <summary>Total rows that have been evicted from this scrollback due to budget limits.</summary>
+        public long TotalRowsEvicted => _totalRowsEvicted;
+
         /// <summary>Approximate byte consumption of retained cell data.</summary>
         public long CurrentBytes => _currentBytes;
 
@@ -92,7 +98,8 @@ namespace NovaTerminal.Core.Buffer
         /// is rented from the pool. Budget eviction is applied afterwards.
         /// </summary>
         /// <param name="row">Read-only span of exactly <see cref="_cols"/> cells.</param>
-        public void AppendRow(ReadOnlySpan<TerminalCell> row)
+        /// <param name="isWrapped">Whether this row is wrapped (flows into the next).</param>
+        public void AppendRow(ReadOnlySpan<TerminalCell> row, bool isWrapped = false)
         {
             if (row.Length != _cols)
                 throw new ArgumentException($"Row length {row.Length} must equal Cols {_cols}.", nameof(row));
@@ -106,11 +113,39 @@ namespace NovaTerminal.Core.Buffer
             }
 
             var currentPage = _pages.Last!.Value;
-            row.CopyTo(currentPage.GetRowSpan(currentPage.UsedRows));
+            int rowIndex = currentPage.UsedRows;
+            row.CopyTo(currentPage.GetRowSpan(rowIndex));
+            currentPage.SetRowWrapped(rowIndex, isWrapped);
             currentPage.UsedRows++;
             _totalRowsAppended++;
 
             TryEvictUntilWithinBudget();
+        }
+
+        /// <summary>
+        /// Retrieves a read-only span of cells for the given logical row index
+        /// (0 = oldest retained row, Count-1 = newest row).
+        /// </summary>
+        public bool IsRowWrapped(int logicalIndex)
+        {
+            if ((uint)logicalIndex >= (uint)Count)
+                throw new ArgumentOutOfRangeException(nameof(logicalIndex));
+
+            long absRow = _totalRowsEvicted + logicalIndex;
+            long pageStartAbs = _totalRowsEvicted;
+
+            foreach (var page in _pages)
+            {
+                long pageEndAbs = pageStartAbs + page.UsedRows;
+                if (absRow < pageEndAbs)
+                {
+                    int rowInPage = (int)(absRow - pageStartAbs);
+                    return page.IsRowWrapped(rowInPage);
+                }
+                pageStartAbs = pageEndAbs;
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -145,6 +180,31 @@ namespace NovaTerminal.Core.Buffer
         public void CopyRowTo(int logicalIndex, Span<TerminalCell> destination)
         {
             GetRow(logicalIndex).CopyTo(destination);
+        }
+
+        /// <summary>
+        /// Attempts to remove the newest row from the scrollback (the reverse of AppendRow).
+        /// Used during vertical resize (height grow) to pull history back into the viewport.
+        /// </summary>
+        public bool TryPopLastRow(Span<TerminalCell> destination)
+        {
+            if (_pages.Last == null || _pages.Last.Value.UsedRows == 0)
+                return false;
+
+            var page = _pages.Last.Value;
+            page.GetRowSpanReadOnly(page.UsedRows - 1).CopyTo(destination);
+            
+            page.UsedRows--;
+            _totalRowsAppended--;
+
+            if (page.UsedRows == 0)
+            {
+                _pages.RemoveLast();
+                _currentBytes -= page.ByteSize;
+                _pool.Return(page);
+            }
+
+            return true;
         }
 
         /// <summary>

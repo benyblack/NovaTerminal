@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using NovaTerminal.Core.Replay;
+using NovaTerminal.Core.Storage;
 
 namespace NovaTerminal.Core
 {
@@ -33,7 +34,9 @@ namespace NovaTerminal.Core
                 return _viewport[absRow];
             }
 
-            if (absRow < _scrollback.Count) return _scrollback[absRow];
+            // Scrollback rows are now paged, they don't exist as persistent TerminalRow objects.
+            if (absRow < _scrollback.Count) return null;
+            
             int viewportRow = absRow - _scrollback.Count;
             if (viewportRow < 0 || viewportRow >= Rows) return null;
             return _viewport[viewportRow];
@@ -52,8 +55,8 @@ namespace NovaTerminal.Core
 
             if (absRow < _scrollback.Count)
             {
-                // Reading from scrollback
-                return _scrollback[absRow].Cells[col];
+                // Reading from paged scrollback
+                return _scrollback.GetRow(absRow)[col];
             }
             else
             {
@@ -67,9 +70,16 @@ namespace NovaTerminal.Core
         public string GetGraphemeAbsolute(int col, int absRow)
         {
             AssertLockHeld();
-            if (absRow < 0) return " ";
+            if (absRow < 0 || col < 0 || col >= Cols) return " ";
+            
+            if (!_isAltScreen && absRow < _scrollback.Count)
+            {
+                // Scrollback doesn't support extended text yet (Step 5)
+                return _scrollback.GetRow(absRow)[col].Character.ToString();
+            }
+
             var row = GetRowAbsolute(absRow);
-            if (row == null || col < 0 || col >= Cols) return " ";
+            if (row == null) return " ";
             var cell = row.Cells[col];
             return (cell.HasExtendedText ? row.GetExtendedText(col) : null) ?? cell.Character.ToString();
         }
@@ -80,6 +90,13 @@ namespace NovaTerminal.Core
             try
             {
                 if (absRow < 0 || col < 0 || col >= Cols) return null;
+                
+                if (!_isAltScreen && absRow < _scrollback.Count)
+                {
+                    // Scrollback doesn't support hyperlinks yet (Step 5)
+                    return null;
+                }
+
                 var row = GetRowAbsolute(absRow);
                 return row?.GetHyperlink(col);
             }
@@ -517,7 +534,17 @@ namespace NovaTerminal.Core
                 for (int r = 0; r < totalRows; r++)
                 {
                     // Build row string
-                    var row = (r < _scrollback.Count) ? _scrollback[r] : _viewport[r - _scrollback.Count];
+                    ReadOnlySpan<TerminalCell> cells;
+                    TerminalRow? rowObj = null;
+                    if (r < _scrollback.Count)
+                    {
+                        cells = _scrollback.GetRow(r);
+                    }
+                    else
+                    {
+                        rowObj = _viewport[r - _scrollback.Count];
+                        cells = rowObj.Cells;
+                    }
 
                     // Build row string with mapping for wide/complex characters
                     var sb = new StringBuilder();
@@ -525,10 +552,11 @@ namespace NovaTerminal.Core
 
                     for (int c = 0; c < Cols; c++)
                     {
-                        var cell = row.Cells[c];
+                        var cell = cells[c];
                         if (cell.IsWideContinuation) continue;
 
-                        string text = (cell.HasExtendedText ? row.GetExtendedText(c) : null) ?? cell.Character.ToString();
+                        string? text = (rowObj != null && cell.HasExtendedText) ? rowObj.GetExtendedText(c) : null;
+                        text ??= cell.Character.ToString();
                         int startIdx = sb.Length;
                         sb.Append(text);
                         for (int k = 0; k < text.Length; k++) colMapping.Add(c);
