@@ -44,7 +44,29 @@ namespace NovaTerminal.Core
         public bool IsActive { get; init; }
     }
 
-    public readonly struct TerminalRenderSnapshot
+    public readonly struct PooledArray<T> : IDisposable
+    {
+        public readonly T[] Array;
+        public readonly int Length;
+
+        public PooledArray(T[] array, int length)
+        {
+            Array = array;
+            Length = length;
+        }
+
+        public void Dispose()
+        {
+            if (Array != null)
+            {
+                System.Buffers.ArrayPool<T>.Shared.Return(Array, clearArray: true);
+            }
+        }
+
+        public static PooledArray<T> Empty => new();
+    }
+
+    public readonly struct TerminalRenderSnapshot : IDisposable
     {
         public int ViewportRows { get; init; }
         public int ViewportCols { get; init; }
@@ -55,11 +77,20 @@ namespace NovaTerminal.Core
         public int CursorCol { get; init; }
         public CursorStyle CursorStyle { get; init; }
         public RenderThemeSnapshot Theme { get; init; }
-        public DirtySpan[] DirtySpans { get; init; }
-        public RenderRowSnapshot[] RowsData { get; init; }
-        public RenderImageSnapshot[] Images { get; init; }
-        public SelectionRowSnapshot[] SelectionRows { get; init; }
-        public SearchHighlightSnapshot[] SearchHighlights { get; init; }
+        public PooledArray<DirtySpan> DirtySpans { get; init; }
+        public PooledArray<RenderRowSnapshot> RowsData { get; init; }
+        public PooledArray<RenderImageSnapshot> Images { get; init; }
+        public PooledArray<SelectionRowSnapshot> SelectionRows { get; init; }
+        public PooledArray<SearchHighlightSnapshot> SearchHighlights { get; init; }
+
+        public void Dispose()
+        {
+            DirtySpans.Dispose();
+            RowsData.Dispose();
+            Images.Dispose();
+            SelectionRows.Dispose();
+            SearchHighlights.Dispose();
+        }
     }
 
     public struct RenderCellSnapshot

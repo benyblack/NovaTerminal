@@ -19,7 +19,7 @@ namespace NovaTerminal.Core
 
     public class GlyphAtlas : IDisposable
     {
-        private const int AtlasSize = 2048;
+        private const int AtlasSize = 1024;
         private readonly SKSurface _alphaSurface;
         private readonly SKSurface _colorSurface;
 
@@ -33,6 +33,10 @@ namespace NovaTerminal.Core
 
         public GlyphAtlas()
         {
+            // Both surfaces use Rgba8888 — required for DrawAtlas with SKBlendMode.Modulate,
+            // which multiplies texture RGB (must be white=255) by vertex color to tint glyphs.
+            // Alpha8 would give RGB=(0,0,0) → all glyphs render black.
+            // 1024² is a 4× reduction from the original 2048², saving 12MB per atlas.
             _alphaSurface = SKSurface.Create(new SKImageInfo(AtlasSize, AtlasSize, SKColorType.Rgba8888));
             _colorSurface = SKSurface.Create(new SKImageInfo(AtlasSize, AtlasSize, SKColorType.Rgba8888));
 

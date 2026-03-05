@@ -45,10 +45,25 @@ namespace NovaTerminal.Core
                     {
                         var oldAlt = _viewport;
                         _viewport = new TerminalRow[newRows];
+                        
+                        var lastCell = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                        if (oldAlt.Length > 0 && oldCols > 0)
+                        {
+                            var src = oldAlt[oldAlt.Length - 1].Cells[oldCols - 1];
+                            lastCell = new TerminalCell(' ', src.Fg, src.Bg, src.Flags);
+                        }
+
                         for (int i = 0; i < newRows; i++)
                         {
-                            if (i < oldAlt.Length) _viewport[i] = oldAlt[i];
-                            else _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                            if (i < oldAlt.Length) 
+                            {
+                                _viewport[i] = oldAlt[i];
+                            }
+                            else 
+                            {
+                                _viewport[i] = new TerminalRow(newCols);
+                                for (int cx = 0; cx < newCols; cx++) _viewport[i].Cells[cx] = lastCell;
+                            }
                         }
                         _cursorRow = Math.Clamp(_cursorRow, 0, newRows - 1);
                     }
@@ -114,9 +129,26 @@ namespace NovaTerminal.Core
                     // We preserve what fits top-left to avoid flashing empty if redraw is slow.
                     var oldAlt = _viewport;
                     _viewport = new TerminalRow[newRows];
+                    
+                    var lastCell = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                    if (oldAlt.Length > 0 && oldCols > 0)
+                    {
+                        var src = oldAlt[oldAlt.Length - 1].Cells[oldCols - 1];
+                        lastCell = new TerminalCell(' ', src.Fg, src.Bg, src.Flags);
+                    }
+
                     for (int i = 0; i < newRows; i++)
                     {
-                        _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                        var rowCell = lastCell;
+                        if (i < oldAlt.Length && oldCols > 0)
+                        {
+                            var src = oldAlt[i].Cells[oldCols - 1];
+                            rowCell = new TerminalCell(' ', src.Fg, src.Bg, src.Flags);
+                        }
+
+                        _viewport[i] = new TerminalRow(newCols);
+                        for (int cx = 0; cx < newCols; cx++) _viewport[i].Cells[cx] = rowCell;
+
                         if (i < oldAlt.Length)
                         {
                             int copyCols = Math.Min(oldCols, newCols);

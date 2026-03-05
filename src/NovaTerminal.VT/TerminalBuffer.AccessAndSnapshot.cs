@@ -429,6 +429,9 @@ namespace NovaTerminal.Core
 
                 _cursorRow = 0;
                 _cursorCol = 0;
+                // Reset row-diff cache so the next CaptureRenderSnapshot compares the alt-screen
+                // rows fresh rather than against stale main-screen row IDs.
+                _hasSnapshotState = false;
                 Invalidate();
                 OnScreenSwitched?.Invoke(true); // Notify that we switched to alt screen
             }
@@ -457,6 +460,9 @@ namespace NovaTerminal.Core
                 _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
                 _cursorCol = Math.Clamp(_cursorCol, 0, Cols - 1);
 
+                // Reset row-diff cache so the next CaptureRenderSnapshot compares the main-screen
+                // rows fresh rather than against stale alt-screen row IDs.
+                _hasSnapshotState = false;
                 Invalidate();
                 OnScreenSwitched?.Invoke(false); // Notify that we switched back to main screen
             }
