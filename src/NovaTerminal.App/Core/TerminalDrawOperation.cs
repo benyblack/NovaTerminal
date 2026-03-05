@@ -469,6 +469,15 @@ namespace NovaTerminal.Core
                                     continue;
                                 }
 
+                                // OVERLAP FIX: Erase the dirty span bounding box before redrawing it.
+                                // DrawRowTextFromSnapshot skips default background painting, so drawing over previousRowPicture 
+                                // will leave ghost text mixed with the new text if not cleared.
+                                float sx1 = GetColEdge(colEdges, spanStart, paddingLeft);
+                                float sx2 = GetColEdge(colEdges, spanEndExclusive, paddingLeft);
+                                float sH = FromDevicePx(_pixelGrid.CellHeightPx);
+                                canvas.DrawRect(sx1, rowTopY, sx2 - sx1, sH, bgPaint);
+                                IncrementRectDrawCall();
+
                                 DrawRowTextFromSnapshot(
                                     canvas,
                                     snapshot,
