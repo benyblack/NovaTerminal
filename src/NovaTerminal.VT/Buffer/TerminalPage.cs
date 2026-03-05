@@ -1,10 +1,16 @@
 using System;
+using System.Buffers;
 
 namespace NovaTerminal.Core.Buffer
 {
     /// <summary>
     /// A contiguous slab of TerminalCell values for multiple scrollback rows.
     /// Eliminates per-row heap objects by packing many rows into one flat array.
+    ///
+    /// The backing <see cref="Cells"/> array is rented from
+    /// <see cref="ArrayPool{T}.Shared"/> to avoid repeated large allocations.
+    /// Call <see cref="ReturnToPool"/> when the page is no longer needed so the
+    /// array is returned to the pool.
     /// </summary>
     public sealed class TerminalPage
     {
@@ -15,13 +21,16 @@ namespace NovaTerminal.Core.Buffer
         public readonly int Cols;
 
         /// <summary>
-        /// Flat cell storage: row r, column c is at index (r * Cols + c).
-        /// Length = RowsInPage * Cols.
+        /// Flat cell storage rented from <see cref="ArrayPool{T}.Shared"/>.
+        /// Length may be >= RowsInPage * Cols (pool over-allocation is normal).
+        /// Only use indices [0, RowsInPage * Cols).
         /// </summary>
         public readonly TerminalCell[] Cells;
 
         /// <summary>How many rows in this page contain actual data (0 … RowsInPage).</summary>
         public int UsedRows;
+
+        private bool _returned;
 
         public TerminalPage(int rowsInPage, int cols)
         {
@@ -30,31 +39,29 @@ namespace NovaTerminal.Core.Buffer
 
             RowsInPage = rowsInPage;
             Cols = cols;
-            Cells = new TerminalCell[rowsInPage * cols];
+            // Rent — pool may give us a slightly larger array; that's fine.
+            Cells = ArrayPool<TerminalCell>.Shared.Rent(rowsInPage * cols);
             UsedRows = 0;
+            _returned = false;
 
-            // Pre-fill with default cells so stale data is never visible.
-            var def = TerminalCell.Default;
-            var span = Cells.AsSpan();
-            for (int i = 0; i < span.Length; i++)
-                span[i] = def;
+            // Pre-fill the usable portion with default cells.
+            ResetCells();
         }
 
         /// <summary>Returns true when no more rows can be appended to this page.</summary>
         public bool IsFull => UsedRows >= RowsInPage;
 
         /// <summary>
-        /// Byte size of the cell data, used for budget tracking.
-        /// Does not count object/array overheads (negligible once paged).
+        /// Byte size of the cell data in the usable part of the array,
+        /// used for budget tracking.
         /// </summary>
-        public int ByteSize => Cells.Length * TerminalPageConstants.CellBytes;
+        public int ByteSize => RowsInPage * Cols * TerminalPageConstants.CellBytes;
 
         // ──────────────────────────────────────────────────────────────────
 
         /// <summary>
         /// Returns a span over the cells of the given row within this page.
         /// </summary>
-        /// <param name="rowIndex">Row index within the page (0-based, must be &lt; UsedRows).</param>
         public Span<TerminalCell> GetRowSpan(int rowIndex)
         {
             if ((uint)rowIndex >= (uint)RowsInPage)
@@ -73,9 +80,7 @@ namespace NovaTerminal.Core.Buffer
         }
 
         /// <summary>
-        /// Resets a row to all-default cells and clears the UsedRows counter
-        /// back to <paramref name="rowIndex"/> so the page can be reused from that point.
-        /// Typically used by the pool when reclaiming a page.
+        /// Resets a single row to all-default cells.
         /// </summary>
         public void ClearRow(int rowIndex)
         {
@@ -90,13 +95,34 @@ namespace NovaTerminal.Core.Buffer
 
         /// <summary>
         /// Resets all rows to default cells and sets UsedRows to 0.
-        /// Called by the page pool before returning the page for reuse.
+        /// Called by the pool before returning the page for reuse.
         /// </summary>
         public void Reset()
         {
             UsedRows = 0;
+            _returned = false;
+            ResetCells();
+        }
+
+        /// <summary>
+        /// Returns the backing <see cref="Cells"/> array to <see cref="ArrayPool{T}.Shared"/>.
+        /// The page must not be used after this call.
+        /// </summary>
+        public void ReturnToPool()
+        {
+            if (_returned) return;
+            _returned = true;
+            // Clear the usable portion so pooled memory doesn't retain stale data.
+            Cells.AsSpan(0, RowsInPage * Cols).Clear();
+            ArrayPool<TerminalCell>.Shared.Return(Cells, clearArray: false);
+        }
+
+        // ── Private ──────────────────────────────────────────────────────────────
+
+        private void ResetCells()
+        {
             var def = TerminalCell.Default;
-            var span = Cells.AsSpan();
+            var span = Cells.AsSpan(0, RowsInPage * Cols);
             for (int i = 0; i < span.Length; i++)
                 span[i] = def;
         }
@@ -109,5 +135,8 @@ namespace NovaTerminal.Core.Buffer
 
         /// <summary>Number of rows stored per page. 64 rows balances allocation granularity vs. overhead.</summary>
         public const int DefaultRowsPerPage = 64;
+
+        /// <summary>Number of pages to pre-warm per terminal instance.</summary>
+        public const int PreheatPagesPerInstance = 4;
     }
 }

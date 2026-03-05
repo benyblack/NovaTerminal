@@ -4,11 +4,33 @@ using System.Collections.Generic;
 namespace NovaTerminal.Core.Buffer
 {
     /// <summary>
+    /// Metrics snapshot for <see cref="ScrollbackPages"/>.
+    /// </summary>
+    public readonly struct ScrollbackMetrics
+    {
+        /// <summary>Number of rows currently retained in the scrollback.</summary>
+        public int RowCount { get; init; }
+
+        /// <summary>Number of page objects currently in use (rented from the pool).</summary>
+        public int ActivePages { get; init; }
+
+        /// <summary>Number of pages waiting in the pool, ready for reuse.</summary>
+        public int PooledPages { get; init; }
+
+        /// <summary>Total bytes consumed by live cell data.</summary>
+        public long BytesUsed { get; init; }
+
+        /// <summary>Configured byte budget (maximum allowed).</summary>
+        public long MaxBytes { get; init; }
+    }
+
+    /// <summary>
     /// Page-based scrollback store that replaces the per-row <see cref="CircularBuffer{TerminalRow}"/>.
     ///
     /// Rows are packed into <see cref="TerminalPage"/> slabs (default 64 rows each), so adding
     /// 10,000 scrollback lines allocates ~157 page objects instead of 10,000 <c>TerminalRow</c>
-    /// objects, reducing GC overhead dramatically.
+    /// objects. Each page's backing <c>TerminalCell[]</c> is rented from
+    /// <see cref="System.Buffers.ArrayPool{T}.Shared"/> for further allocation reuse.
     ///
     /// Memory is bounded by <see cref="MaxScrollbackBytes"/>. When the budget is exceeded the
     /// oldest pages are evicted and returned to the <see cref="TerminalPagePool"/>.
@@ -26,24 +48,22 @@ namespace NovaTerminal.Core.Buffer
 
         /// <summary>
         /// Ordered list of pages, oldest first.
-        /// We use a <see cref="LinkedList{T}"/> so that eviction at the front is O(1).
+        /// <see cref="LinkedList{T}"/> gives O(1) front eviction.
         /// </summary>
         private readonly LinkedList<TerminalPage> _pages = new();
 
         private long _currentBytes;
 
-        // Logical row count (the number of appended rows still retained after eviction).
-        private long _totalRowsAppended;   // ever appended
-        private long _totalRowsEvicted;    // already evicted from the front
+        // Absolute row counters (never reset on eviction so indexing stays correct).
+        private long _totalRowsAppended;
+        private long _totalRowsEvicted;
 
-        /// <summary>
-        /// Number of rows currently accessible in the scrollback (after eviction).
-        /// </summary>
+        // ── Properties ───────────────────────────────────────────────────────────
+
+        /// <summary>Number of rows currently accessible (after eviction).</summary>
         public int Count => (int)Math.Min(_totalRowsAppended - _totalRowsEvicted, int.MaxValue);
 
-        /// <summary>
-        /// Approximate byte consumption of retained cell data.
-        /// </summary>
+        /// <summary>Approximate byte consumption of retained cell data.</summary>
         public long CurrentBytes => _currentBytes;
 
         // ── Construction ─────────────────────────────────────────────────────────
@@ -80,7 +100,7 @@ namespace NovaTerminal.Core.Buffer
             // Ensure there is a page with available space.
             if (_pages.Last == null || _pages.Last.Value.IsFull)
             {
-                var page = _pool.Rent(_rowsPerPage, _cols);
+                var page = _pool.Rent(_cols, _rowsPerPage);
                 _pages.AddLast(page);
                 _currentBytes += page.ByteSize;
             }
@@ -102,15 +122,11 @@ namespace NovaTerminal.Core.Buffer
             if ((uint)logicalIndex >= (uint)Count)
                 throw new ArgumentOutOfRangeException(nameof(logicalIndex));
 
-            // The absolute row number (ignoring evictions).
             long absRow = _totalRowsEvicted + logicalIndex;
+            long pageStartAbs = _totalRowsEvicted;
 
-            // Walk pages from the oldest to find which page owns this absolute row.
-            long pageStartAbs = _totalRowsEvicted - GetEvictedRowsInCurrentFront();
             foreach (var page in _pages)
             {
-                // Compute how many rows this page starts at (absolute).
-                // We track this via walking: pageStartAbs updated each iteration.
                 long pageEndAbs = pageStartAbs + page.UsedRows;
                 if (absRow < pageEndAbs)
                 {
@@ -120,7 +136,6 @@ namespace NovaTerminal.Core.Buffer
                 pageStartAbs = pageEndAbs;
             }
 
-            // Should not happen if Count is correct.
             throw new InvalidOperationException($"Row {logicalIndex} not found in pages (absRow={absRow}).");
         }
 
@@ -133,7 +148,7 @@ namespace NovaTerminal.Core.Buffer
         }
 
         /// <summary>
-        /// Evicts oldest pages until total bytes are within budget.
+        /// Evicts oldest pages until total bytes are within <see cref="MaxScrollbackBytes"/>.
         /// Returned pages go back to the pool.
         /// </summary>
         public void TryEvictUntilWithinBudget()
@@ -162,15 +177,16 @@ namespace NovaTerminal.Core.Buffer
             _totalRowsEvicted = 0;
         }
 
-        // ── Private helpers ──────────────────────────────────────────────────────
-
         /// <summary>
-        /// When pages are evicted, _totalRowsEvicted tracks absolute rows gone.
-        /// However, the first live page may not start exactly at _totalRowsEvicted
-        /// if some partial-page tracking is needed.  In this design we evict whole
-        /// pages, so the first page always starts at the current _totalRowsEvicted.
-        /// This helper therefore returns 0.
+        /// Returns a point-in-time snapshot of memory metrics for diagnostics.
         /// </summary>
-        private static long GetEvictedRowsInCurrentFront() => 0;
+        public ScrollbackMetrics GetMetrics() => new ScrollbackMetrics
+        {
+            RowCount = Count,
+            ActivePages = _pool.ActivePages,
+            PooledPages = _pool.PooledPages,
+            BytesUsed = _currentBytes,
+            MaxBytes = MaxScrollbackBytes,
+        };
     }
 }
