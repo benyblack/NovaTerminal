@@ -15,13 +15,13 @@ namespace NovaTerminal.Core
         public void TouchRevision() => Revision++;
 
         // M2.2: Side-table for extended graphemes (strings)
-        private Dictionary<int, string>? _extendedText;
-        private Dictionary<int, string>? _hyperlinks;
+        private Storage.SmallMap<string>? _extendedText;
+        private Storage.SmallMap<string>? _hyperlinks;
 
         public string? GetExtendedText(int col)
         {
             if (_extendedText == null) return null;
-            return _extendedText.TryGetValue(col, out var text) ? text : null;
+            return _extendedText.TryGet(col, out var text) ? text : null;
         }
 
         public void SetExtendedText(int col, string? text)
@@ -32,8 +32,8 @@ namespace NovaTerminal.Core
                 if (_extendedText?.Count == 0) _extendedText = null;
                 return;
             }
-            _extendedText ??= new Dictionary<int, string>();
-            _extendedText[col] = text;
+            _extendedText ??= new Storage.SmallMap<string>();
+            _extendedText.Set(col, text);
         }
 
         public void ClearExtendedText()
@@ -44,7 +44,7 @@ namespace NovaTerminal.Core
         public string? GetHyperlink(int col)
         {
             if (_hyperlinks == null) return null;
-            return _hyperlinks.TryGetValue(col, out var link) ? link : null;
+            return _hyperlinks.TryGet(col, out var link) ? link : null;
         }
 
         public void SetHyperlink(int col, string? link)
@@ -56,8 +56,8 @@ namespace NovaTerminal.Core
                 return;
             }
 
-            _hyperlinks ??= new Dictionary<int, string>();
-            _hyperlinks[col] = link;
+            _hyperlinks ??= new Storage.SmallMap<string>();
+            _hyperlinks.Set(col, link);
         }
 
         public void ClearHyperlinks()
