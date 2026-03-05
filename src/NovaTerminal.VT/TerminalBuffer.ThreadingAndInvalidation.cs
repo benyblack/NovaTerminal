@@ -21,6 +21,7 @@ namespace NovaTerminal.Core
         private RenderCellSnapshot[][] _cachedRenderRowCells = Array.Empty<RenderCellSnapshot[]>();
         private int _lastSnapshotCols = -1;
         private bool _hasSnapshotState;
+        private TermColor[]? _cachedAnsiPalette;
 
         public bool IsSynchronizedOutput => _isSynchronizedOutput;
         public long CursorSuppressedUntilUtcTicks => _cursorSuppressedUntilUtcTicks;
@@ -206,9 +207,9 @@ namespace NovaTerminal.Core
             int cursorCol = 0;
             CursorStyle cursorStyle = CursorStyle.Block;
             RenderThemeSnapshot theme = default;
-            RenderRowSnapshot[] rowsData = viewportRows > 0 ? new RenderRowSnapshot[viewportRows] : Array.Empty<RenderRowSnapshot>();
-            RenderImageSnapshot[] images = Array.Empty<RenderImageSnapshot>();
-            DirtySpan[] dirtySpans = Array.Empty<DirtySpan>();
+            var rowsData = viewportRows > 0 ? new PooledArray<RenderRowSnapshot>(System.Buffers.ArrayPool<RenderRowSnapshot>.Shared.Rent(viewportRows), viewportRows) : PooledArray<RenderRowSnapshot>.Empty;
+            PooledArray<RenderImageSnapshot> images = PooledArray<RenderImageSnapshot>.Empty;
+            PooledArray<DirtySpan> dirtySpans = PooledArray<DirtySpan>.Empty;
 
             var lockSw = Stopwatch.StartNew();
             Lock.EnterReadLock();
@@ -262,7 +263,10 @@ namespace NovaTerminal.Core
                         _cachedRenderRowCells[r] = Array.Empty<RenderCellSnapshot>();
                     }
 
-                    rowsData[r] = rowSnapshot;
+                    if (viewportRows > 0 && rowsData.Array != null)
+                    {
+                        rowsData.Array[r] = rowSnapshot;
+                    }
 
                     bool fullRowDirty = !_hasSnapshotState ||
                                         _lastSnapshotCols != viewportCols ||
@@ -307,7 +311,12 @@ namespace NovaTerminal.Core
                 dirtySpans = NormalizeDirtySpans(dirtyList, viewportRows, viewportCols);
 
                 var visibleImages = GetVisibleImagesSnapshot(absDisplayStart, viewportRows);
-                images = visibleImages.Count > 0 ? visibleImages.ToArray() : Array.Empty<RenderImageSnapshot>();
+                if (visibleImages.Count > 0)
+                {
+                    var imgArray = System.Buffers.ArrayPool<RenderImageSnapshot>.Shared.Rent(visibleImages.Count);
+                    visibleImages.CopyTo(imgArray, 0);
+                    images = new PooledArray<RenderImageSnapshot>(imgArray, visibleImages.Count);
+                }
             }
             finally
             {
@@ -316,8 +325,8 @@ namespace NovaTerminal.Core
                 readLockMs = lockSw.ElapsedMilliseconds;
             }
 
-            SelectionRowSnapshot[] selectionRows = BuildSelectionRows(req.Selection, absDisplayStart, viewportRows, viewportCols);
-            SearchHighlightSnapshot[] searchHighlights = BuildSearchHighlights(req.SearchMatches, req.ActiveSearchIndex, absDisplayStart, viewportRows);
+            PooledArray<SelectionRowSnapshot> selectionRows = BuildSelectionRows(req.Selection, absDisplayStart, viewportRows, viewportCols);
+            PooledArray<SearchHighlightSnapshot> searchHighlights = BuildSearchHighlights(req.SearchMatches, req.ActiveSearchIndex, absDisplayStart, viewportRows);
 
             return new TerminalRenderSnapshot
             {
@@ -340,30 +349,33 @@ namespace NovaTerminal.Core
 
         private RenderThemeSnapshot CreateRenderThemeSnapshot_NoLock()
         {
+            // Reuse the palette array to avoid per-frame allocation.
+            if (_cachedAnsiPalette == null)
+            {
+                _cachedAnsiPalette = new TermColor[16];
+            }
+            _cachedAnsiPalette[0]  = Theme.Black;
+            _cachedAnsiPalette[1]  = Theme.Red;
+            _cachedAnsiPalette[2]  = Theme.Green;
+            _cachedAnsiPalette[3]  = Theme.Yellow;
+            _cachedAnsiPalette[4]  = Theme.Blue;
+            _cachedAnsiPalette[5]  = Theme.Magenta;
+            _cachedAnsiPalette[6]  = Theme.Cyan;
+            _cachedAnsiPalette[7]  = Theme.White;
+            _cachedAnsiPalette[8]  = Theme.BrightBlack;
+            _cachedAnsiPalette[9]  = Theme.BrightRed;
+            _cachedAnsiPalette[10] = Theme.BrightGreen;
+            _cachedAnsiPalette[11] = Theme.BrightYellow;
+            _cachedAnsiPalette[12] = Theme.BrightBlue;
+            _cachedAnsiPalette[13] = Theme.BrightMagenta;
+            _cachedAnsiPalette[14] = Theme.BrightCyan;
+            _cachedAnsiPalette[15] = Theme.BrightWhite;
             return new RenderThemeSnapshot
             {
                 Foreground = Theme.Foreground,
                 Background = Theme.Background,
                 CursorColor = Theme.CursorColor,
-                AnsiPalette = new[]
-                {
-                    Theme.Black,
-                    Theme.Red,
-                    Theme.Green,
-                    Theme.Yellow,
-                    Theme.Blue,
-                    Theme.Magenta,
-                    Theme.Cyan,
-                    Theme.White,
-                    Theme.BrightBlack,
-                    Theme.BrightRed,
-                    Theme.BrightGreen,
-                    Theme.BrightYellow,
-                    Theme.BrightBlue,
-                    Theme.BrightMagenta,
-                    Theme.BrightCyan,
-                    Theme.BrightWhite
-                }
+                AnsiPalette = _cachedAnsiPalette
             };
         }
 
@@ -482,11 +494,11 @@ namespace NovaTerminal.Core
                    a.BgIndex == b.BgIndex;
         }
 
-        private static DirtySpan[] NormalizeDirtySpans(List<DirtySpan> spans, int viewportRows, int viewportCols)
+        private static PooledArray<DirtySpan> NormalizeDirtySpans(List<DirtySpan> spans, int viewportRows, int viewportCols)
         {
             if (spans.Count == 0 || viewportRows <= 0 || viewportCols <= 0)
             {
-                return Array.Empty<DirtySpan>();
+                return PooledArray<DirtySpan>.Empty;
             }
 
             spans.Sort(static (a, b) =>
@@ -545,14 +557,20 @@ namespace NovaTerminal.Core
                 }
             }
 
-            return normalized.Count > 0 ? normalized.ToArray() : Array.Empty<DirtySpan>();
+            if (normalized.Count > 0)
+            {
+                var arr = System.Buffers.ArrayPool<DirtySpan>.Shared.Rent(normalized.Count);
+                normalized.CopyTo(arr, 0);
+                return new PooledArray<DirtySpan>(arr, normalized.Count);
+            }
+            return PooledArray<DirtySpan>.Empty;
         }
 
-        private static SelectionRowSnapshot[] BuildSelectionRows(SelectionState? selection, int absDisplayStart, int viewportRows, int viewportCols)
+        private static PooledArray<SelectionRowSnapshot> BuildSelectionRows(SelectionState? selection, int absDisplayStart, int viewportRows, int viewportCols)
         {
             if (selection == null || !selection.IsActive || viewportRows <= 0 || viewportCols <= 0)
             {
-                return Array.Empty<SelectionRowSnapshot>();
+                return PooledArray<SelectionRowSnapshot>.Empty;
             }
 
             var list = new List<SelectionRowSnapshot>();
@@ -580,14 +598,20 @@ namespace NovaTerminal.Core
                 });
             }
 
-            return list.Count > 0 ? list.ToArray() : Array.Empty<SelectionRowSnapshot>();
+            if (list.Count > 0)
+            {
+                var arr = System.Buffers.ArrayPool<SelectionRowSnapshot>.Shared.Rent(list.Count);
+                list.CopyTo(arr, 0);
+                return new PooledArray<SelectionRowSnapshot>(arr, list.Count);
+            }
+            return PooledArray<SelectionRowSnapshot>.Empty;
         }
 
-        private static SearchHighlightSnapshot[] BuildSearchHighlights(IReadOnlyList<SearchMatch>? matches, int activeSearchIndex, int absDisplayStart, int viewportRows)
+        private static PooledArray<SearchHighlightSnapshot> BuildSearchHighlights(IReadOnlyList<SearchMatch>? matches, int activeSearchIndex, int absDisplayStart, int viewportRows)
         {
             if (matches == null || matches.Count == 0 || viewportRows <= 0)
             {
-                return Array.Empty<SearchHighlightSnapshot>();
+                return PooledArray<SearchHighlightSnapshot>.Empty;
             }
 
             int absEnd = absDisplayStart + viewportRows;
@@ -609,7 +633,13 @@ namespace NovaTerminal.Core
                 });
             }
 
-            return list.Count > 0 ? list.ToArray() : Array.Empty<SearchHighlightSnapshot>();
+            if (list.Count > 0)
+            {
+                var arr = System.Buffers.ArrayPool<SearchHighlightSnapshot>.Shared.Rent(list.Count);
+                list.CopyTo(arr, 0);
+                return new PooledArray<SearchHighlightSnapshot>(arr, list.Count);
+            }
+            return PooledArray<SearchHighlightSnapshot>.Empty;
         }
     }
 }

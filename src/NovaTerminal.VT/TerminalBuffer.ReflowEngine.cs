@@ -54,6 +54,9 @@ namespace NovaTerminal.Core
 
             private void Reflow(int oldCols, int oldRows, int newCols, int newRows)
             {
+                TerminalRow[]? allPhysicalRows = null;
+                (TerminalCell Cell, string? ExtendedText)[]? logicalCells = null;
+
                 try
                 {
                     if (newCols <= 0 || newRows <= 0) return;
@@ -95,53 +98,56 @@ namespace NovaTerminal.Core
                     int totalPhysRows = _scrollback.Count + vpRowsToTake;
 
                     // Rent array to avoid LOH/large allocation
-                    var allPhysicalRows = System.Buffers.ArrayPool<TerminalRow>.Shared.Rent(totalPhysRows);
+                    allPhysicalRows = System.Buffers.ArrayPool<TerminalRow>.Shared.Rent(totalPhysRows);
 
                     // 3. Metadata-Aware Logical Reconstruction
-                    var logicalLines = new List<(List<(TerminalCell Cell, string? ExtendedText)> Cells, bool IsWrapped, int StartPhysIdx)>(totalPhysRows);
+                    var logicalCellsPool = System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText)>.Shared;
+                    int maxLogicalCells = totalPhysRows * Math.Max(oldCols, newCols) + 1000;
+                    logicalCells = logicalCellsPool.Rent(maxLogicalCells);
+                    int logicalCellsCount = 0;
 
-                    try
+                    var logicalLines = new List<(int StartIdx, int Length, bool IsWrapped, int StartPhysIdx)>(totalPhysRows);
+
+                    // Fill rented array
+                    for (int i = 0; i < _scrollback.Count; i++) allPhysicalRows[i] = _scrollback[i];
+                    for (int i = 0; i < vpRowsToTake; i++)
                     {
-                        // Fill rented array
-                        for (int i = 0; i < _scrollback.Count; i++) allPhysicalRows[i] = _scrollback[i];
-                        for (int i = 0; i < vpRowsToTake; i++)
+                        if (i < actualVpLen) allPhysicalRows[_scrollback.Count + i] = _viewport[i];
+                        else allPhysicalRows[_scrollback.Count + i] = new TerminalRow(oldCols, Theme.Foreground, Theme.Background);
+                    }
+
+                    int currentLogStart = -1;
+                    int currentStartPhys = -1;
+
+                    // Iterate using totalPhysRows count
+                    for (int i = 0; i < totalPhysRows; i++)
+                    {
+                        var physRow = allPhysicalRows[i];
+
+                        if (currentLogStart == -1)
                         {
-                            if (i < actualVpLen) allPhysicalRows[_scrollback.Count + i] = _viewport[i];
-                            else allPhysicalRows[_scrollback.Count + i] = new TerminalRow(oldCols, Theme.Foreground, Theme.Background);
+                            currentLogStart = logicalCellsCount;
+                            currentStartPhys = i;
                         }
 
-                        List<(TerminalCell Cell, string? ExtendedText)>? currentLogical = null;
-                        int currentStartPhys = -1;
-
-                        // Iterate using totalPhysRows count
-                        for (int i = 0; i < totalPhysRows; i++)
+                        // Cursor Tracking
+                        if (i == absCursorPhysicalIdx)
                         {
-                            var physRow = allPhysicalRows[i];
+                            cursorLogicalIdx = logicalLines.Count;
+                            cursorInLogicalOffset = (logicalCellsCount - currentLogStart) + _cursorCol;
+                        }
 
-                            if (currentLogical == null)
-                            {
-                                currentLogical = new List<(TerminalCell Cell, string? ExtendedText)>();
-                                currentStartPhys = i;
-                            }
+                        if (i == absMainSavedIdx)
+                        {
+                            mainSavedLogicalIdx = logicalLines.Count;
+                            mainSavedInLogicalOffset = (logicalCellsCount - currentLogStart) + _savedCursors.Main.Col;
+                        }
 
-                            // Cursor Tracking
-                            if (i == absCursorPhysicalIdx)
-                            {
-                                cursorLogicalIdx = logicalLines.Count;
-                                cursorInLogicalOffset = currentLogical.Count + _cursorCol;
-                            }
-
-                            if (i == absMainSavedIdx)
-                            {
-                                mainSavedLogicalIdx = logicalLines.Count;
-                                mainSavedInLogicalOffset = currentLogical.Count + _savedCursors.Main.Col;
-                            }
-
-                            if (i == absAltSavedIdx)
-                            {
-                                altSavedLogicalIdx = logicalLines.Count;
-                                altSavedInLogicalOffset = currentLogical.Count + _savedCursors.Alt.Col;
-                            }
+                        if (i == absAltSavedIdx)
+                        {
+                            altSavedLogicalIdx = logicalLines.Count;
+                            altSavedInLogicalOffset = (logicalCellsCount - currentLogStart) + _savedCursors.Alt.Col;
+                        }
 
                             int validLen = physRow.Cells.Length;
 
@@ -329,21 +335,14 @@ namespace NovaTerminal.Core
                                     // Extract Left+Middle
                                     for (int k = 0; k < gapStart; k++)
                                     {
-                                        currentLogical.Add((physRow.Cells[k], physRow.GetExtendedText(k)));
-                                    }
-
-                                    // Extract Right Part
-                                    var rightCells = new List<(TerminalCell Cell, string? ExtendedText)>();
-                                    for (int k = rightStart; k <= rightEnd; k++)
-                                    {
-                                        rightCells.Add((physRow.Cells[k], physRow.GetExtendedText(k)));
+                                        logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k));
                                     }
 
                                     // Calculate new position
-                                    int rightBlockWidth = rightCells.Count;
+                                    int rightBlockWidth = rightEnd - rightStart + 1;
                                     int newRightPos = newCols - rightBlockWidth;
 
-                                    int currentPos = currentLogical.Count; // This is effectively gapStart
+                                    int currentPos = logicalCellsCount - currentLogStart; // This is effectively gapStart
 
                                     if (newRightPos > currentPos + 2 && (newRightPos + rightBlockWidth) <= newCols)
                                     {
@@ -351,25 +350,28 @@ namespace NovaTerminal.Core
                                         var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                                         for (int s = currentPos; s < newRightPos; s++)
                                         {
-                                            currentLogical.Add((spaceFill, null));
+                                            logicalCells[logicalCellsCount++] = (spaceFill, null);
                                         }
                                         // Add right content
-                                        currentLogical.AddRange(rightCells);
+                                        for (int k = rightStart; k <= rightEnd; k++)
+                                        {
+                                            logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k));
+                                        }
                                     }
                                     else
                                     {
                                         // Truncate/Squish
                                         var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
-                                        currentLogical.Add((spaceFill, null));
-                                        currentLogical.Add((spaceFill, null));
+                                        logicalCells[logicalCellsCount++] = (spaceFill, null);
+                                        logicalCells[logicalCellsCount++] = (spaceFill, null);
 
-                                        int available = newCols - currentLogical.Count;
+                                        int available = newCols - (logicalCellsCount - currentLogStart);
                                         if (available > 0)
                                         {
-                                            int take = Math.Min(available, rightCells.Count);
-                                            int startOffset = rightCells.Count - take;
-                                            for (int k = startOffset; k < rightCells.Count; k++)
-                                                currentLogical.Add(rightCells[k]);
+                                            int take = Math.Min(available, rightBlockWidth);
+                                            int startOffset = rightBlockWidth - take;
+                                            for (int k = rightStart + startOffset; k <= rightEnd; k++)
+                                                logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k));
                                         }
                                     }
                                     isSparseRowRepositioned = true;
@@ -381,27 +383,20 @@ namespace NovaTerminal.Core
                             if (!isSparseRowRepositioned)
                             {
                                 for (int k = 0; k < validLen; k++)
-                                    currentLogical.Add((physRow.Cells[k], physRow.GetExtendedText(k)));
+                                    logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k));
                             }
 
                             if (!physRow.IsWrapped || ignoreWrap)
                             {
-                                logicalLines.Add((currentLogical, false, currentStartPhys));
-                                currentLogical = null;
+                                logicalLines.Add((currentLogStart, logicalCellsCount - currentLogStart, false, currentStartPhys));
+                                currentLogStart = -1;
                             }
                         }
 
-                        if (currentLogical != null)
+                        if (currentLogStart != -1)
                         {
-                            logicalLines.Add((currentLogical, true, currentStartPhys));
+                            logicalLines.Add((currentLogStart, logicalCellsCount - currentLogStart, true, currentStartPhys));
                         }
-                    }
-                    finally
-                    {
-                        System.Buffers.ArrayPool<TerminalRow>.Shared.Return(allPhysicalRows);
-                    }
-
-
                     // 5. Distribution logic
                     _scrollback.Clear();
                     _viewport = new TerminalRow[newRows];
@@ -463,12 +458,14 @@ namespace NovaTerminal.Core
 
                     for (int i = 0; i < logicalLines.Count; i++)
                     {
-                        var lineCells = logicalLines[i].Cells;
+                        var lineInfo = logicalLines[i];
+                        int lineStart = lineInfo.StartIdx;
+                        int lineCount = lineInfo.Length;
 
                         // Track start of this logical line in flowed rows
                         int startFlowIndex = allFlowedRows.Count;
 
-                        if (lineCells.Count == 0)
+                        if (lineCount == 0)
                         {
                             // If this is the WIPED prompt, place cursor here
                             if (i == cursorLogicalIdx) { newCursorPhysRow = allFlowedRows.Count; newCursorPhysCol = 0; }
@@ -479,13 +476,13 @@ namespace NovaTerminal.Core
                         else
                         {
                             int processed = 0;
-                            while (processed < lineCells.Count)
+                            while (processed < lineCount)
                             {
-                                int remaining = lineCells.Count - processed;
+                                int remaining = lineCount - processed;
                                 int take = Math.Min(remaining, newCols);
 
                                 // Prevent splitting a wide character across lines
-                                if (take < remaining && take > 0 && lineCells[processed + take - 1].Cell.IsWide)
+                                if (take < remaining && take > 0 && logicalCells[lineStart + processed + take - 1].Cell.IsWide)
                                 {
                                     take--; // This row will end with a space, wide char moves to next row
                                 }
@@ -530,7 +527,7 @@ namespace NovaTerminal.Core
                                 var row = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
                                 for (int c = 0; c < take; c++)
                                 {
-                                    var entry = lineCells[processed + c];
+                                    var entry = logicalCells[lineStart + processed + c];
                                     row.Cells[c] = entry.Cell;
                                     row.SetExtendedText(c, entry.ExtendedText);
                                 }

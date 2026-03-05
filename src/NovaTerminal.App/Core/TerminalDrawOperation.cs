@@ -45,6 +45,7 @@ namespace NovaTerminal.Core
         private readonly int _cellHeightDevicePx;
         private readonly PixelGrid _pixelGrid;
         private readonly bool _showRenderHud;
+        private bool _wasAltScreenLastFrame;
 
         private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
         private static readonly bool GridDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GRID");
@@ -255,7 +256,7 @@ namespace NovaTerminal.Core
             var canvas = lease.SkCanvas;
 
             canvas.Save();
-            DrawTerminalInternal(canvas);
+            using var snapshotToDispose = DrawTerminalInternal(canvas);
             canvas.Restore();
         }
 
@@ -275,7 +276,7 @@ namespace NovaTerminal.Core
         // 2) Preserves row->Y mapping even if some rows are missing (uses VisualRow)
         // 3) Uses a single snapshotted absDisplayStart for consistent image/overlay/cursor mapping
 
-        internal void DrawTerminalInternal(SKCanvas canvas)
+        internal TerminalRenderSnapshot? DrawTerminalInternal(SKCanvas canvas)
         {
             try
             {
@@ -305,7 +306,7 @@ namespace NovaTerminal.Core
                 var spansByRow = new List<DirtySpan>[bufferRows];
                 for (int i = 0; i < dirtySpanCount; i++)
                 {
-                    var span = renderSnapshot.DirtySpans[i];
+                    var span = renderSnapshot.DirtySpans.Array[i];
                     if ((uint)span.Row >= (uint)bufferRows)
                     {
                         continue;
@@ -334,14 +335,38 @@ namespace NovaTerminal.Core
                 frame.ThemeFg = new SKColor(renderSnapshot.Theme.Foreground.R, renderSnapshot.Theme.Foreground.G, renderSnapshot.Theme.Foreground.B, 255);
                 frame.CursorColor = new SKColor(renderSnapshot.Theme.CursorColor.R, renderSnapshot.Theme.CursorColor.G, renderSnapshot.Theme.CursorColor.B, 255);
                 frame.CursorStyle = renderSnapshot.CursorStyle;
-                frame.Images = renderSnapshot.Images.Length > 0 ? new List<RenderImageSnapshot>(renderSnapshot.Images) : new List<RenderImageSnapshot>();
+                
+                if (renderSnapshot.Images.Length > 0 && renderSnapshot.Images.Array != null)
+                {
+                    frame.Images = new List<RenderImageSnapshot>(renderSnapshot.Images.Length);
+                    for (int i = 0; i < renderSnapshot.Images.Length; i++)
+                    {
+                        frame.Images.Add(renderSnapshot.Images.Array[i]);
+                    }
+                }
+                else
+                {
+                    frame.Images = new List<RenderImageSnapshot>();
+                }
 
-                // IMPORTANT: Always add exactly one RowRenderItem per visual row
+                 // IMPORTANT: Always add exactly one RowRenderItem per visual row
                 // so render loop can safely use r for Y positioning.
+                // Skip row picture cache for AltScreen (mc, vim, htop etc.) — these apps
+                // redraw every row on every focus/resize, giving near-zero cache hit rate.
+                // Caching only wastes native Skia memory (~1-5MB per SKPicture × 90 entries).
+                bool isAltScreen = _buffer.IsAltScreenActive;
+                bool useRowCache = _rowCache != null && !isAltScreen;
+                if (!useRowCache && _rowCache != null && !_wasAltScreenLastFrame)
+                {
+                    // First AltScreen frame: clear any pictures cached from the main-screen session.
+                    _rowCache.RequestClear();
+                }
+                _wasAltScreenLastFrame = isAltScreen;
+
                 for (int r = 0; r < bufferRows; r++)
                 {
-                    RenderRowSnapshot rowSnapshot = r < renderSnapshot.RowsData.Length
-                        ? renderSnapshot.RowsData[r]
+                    RenderRowSnapshot rowSnapshot = r < renderSnapshot.RowsData.Length && renderSnapshot.RowsData.Array != null
+                        ? renderSnapshot.RowsData.Array[r]
                         : new RenderRowSnapshot
                         {
                             AbsRow = absDisplayStart + r,
@@ -361,7 +386,7 @@ namespace NovaTerminal.Core
                     bool hasRenderableRow = rowSnapshot.Cols > 0 && rowSnapshot.Cells.Length >= rowSnapshot.Cols && rowSnapshot.RowId != 0;
                     if (hasRenderableRow)
                     {
-                        item.CachedPicture = _rowCache?.Get(rowSnapshot.RowId, rowSnapshot.Revision);
+                        item.CachedPicture = useRowCache ? _rowCache?.Get(rowSnapshot.RowId, rowSnapshot.Revision) : null;
 
                         if (item.CachedPicture != null)
                         {
@@ -379,6 +404,7 @@ namespace NovaTerminal.Core
 
                     frame.RowItems.Add(item);
                 }
+
 
                 // --------------------
                 // Render Phase (LOCK RELEASED)
@@ -469,6 +495,15 @@ namespace NovaTerminal.Core
                                     continue;
                                 }
 
+                                // OVERLAP FIX: Erase the dirty span bounding box before redrawing it.
+                                // DrawRowTextFromSnapshot skips default background painting, so drawing over previousRowPicture 
+                                // will leave ghost text mixed with the new text if not cleared.
+                                float sx1 = GetColEdge(colEdges, spanStart, paddingLeft);
+                                float sx2 = GetColEdge(colEdges, spanEndExclusive, paddingLeft);
+                                float sH = FromDevicePx(_pixelGrid.CellHeightPx);
+                                canvas.DrawRect(sx1, rowTopY, sx2 - sx1, sH, bgPaint);
+                                IncrementRectDrawCall();
+
                                 DrawRowTextFromSnapshot(
                                     canvas,
                                     snapshot,
@@ -493,7 +528,8 @@ namespace NovaTerminal.Core
                             dirtyCells += dirtyCellsInRow;
 
                             // Refresh cache entry for the new revision (full-row picture for future frames).
-                            if (buildsThisFrame < maxBuilds)
+                            // Skip when useRowCache=false (AltScreen) — no point recording a picture we won't store.
+                            if (useRowCache && buildsThisFrame < maxBuilds)
                             {
                                 var recSw = System.Diagnostics.Stopwatch.StartNew();
                                 using var recorder = new SKPictureRecorder();
@@ -514,7 +550,7 @@ namespace NovaTerminal.Core
                                     drawBackgrounds: true);
 
                                 var picture = recorder.EndRecording();
-                                _rowCache?.Add(snapshot.RowId, snapshot.Revision, picture);
+                                _rowCache!.Add(snapshot.RowId, snapshot.Revision, picture);
                                 IncrementPictureBuild();
 
                                 recSw.Stop();
@@ -526,36 +562,57 @@ namespace NovaTerminal.Core
                         else if (buildsThisFrame < maxBuilds)
                         {
                             rowRenderCount++;
-                            var recSw = System.Diagnostics.Stopwatch.StartNew();
-                            using var recorder = new SKPictureRecorder();
-                            using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, FromDevicePx(_pixelGrid.CellHeightPx)));
+                            if (useRowCache)
+                            {
+                                // Record into a picture so it can be cached and replayed on future frames.
+                                var recSw = System.Diagnostics.Stopwatch.StartNew();
+                                using var recorder = new SKPictureRecorder();
+                                using var rowCanvas = recorder.BeginRecording(new SKRect(0, 0, (float)Bounds.Width, FromDevicePx(_pixelGrid.CellHeightPx)));
 
-                            // Row-local coordinates for cached picture recording
-                            DrawRowTextFromSnapshot(
-                                rowCanvas,
-                                snapshot,
-                                rowTopY: 0f,
-                                baselineY: FromDevicePx(_pixelGrid.BaselineOffsetPx),
-                                colEdges: colEdges,
-                                font,
-                                fgPaint,
-                                frame.ThemeFg,
-                                frame.ThemeBg,
-                                renderSnapshot.Theme,
-                                alpha,
-                                tf,
-                                drawBackgrounds: true);
+                                DrawRowTextFromSnapshot(
+                                    rowCanvas,
+                                    snapshot,
+                                    rowTopY: 0f,
+                                    baselineY: FromDevicePx(_pixelGrid.BaselineOffsetPx),
+                                    colEdges: colEdges,
+                                    font,
+                                    fgPaint,
+                                    frame.ThemeFg,
+                                    frame.ThemeBg,
+                                    renderSnapshot.Theme,
+                                    alpha,
+                                    tf,
+                                    drawBackgrounds: true);
 
-                            var picture = recorder.EndRecording();
-                            _rowCache?.Add(snapshot.RowId, snapshot.Revision, picture);
-                            canvas.DrawPicture(picture, 0, rowTopY);
-                            IncrementOtherDrawCall();
-                            IncrementPictureBuild();
+                                var picture = recorder.EndRecording();
+                                _rowCache!.Add(snapshot.RowId, snapshot.Revision, picture);
+                                canvas.DrawPicture(picture, 0, rowTopY);
+                                IncrementOtherDrawCall();
+                                IncrementPictureBuild();
 
-                            recSw.Stop();
-                            RendererStatistics.RecordRowPictureRecorded();
-                            RendererStatistics.RecordRowPictureRecordTime(recSw.ElapsedMilliseconds);
-                            buildsThisFrame++;
+                                recSw.Stop();
+                                RendererStatistics.RecordRowPictureRecorded();
+                                RendererStatistics.RecordRowPictureRecordTime(recSw.ElapsedMilliseconds);
+                                buildsThisFrame++;
+                            }
+                            else
+                            {
+                                // AltScreen / cache disabled: draw directly — no SKPicture allocation.
+                                DrawRowTextFromSnapshot(
+                                    canvas,
+                                    snapshot,
+                                    rowTopY: rowTopY,
+                                    baselineY: baselineY,
+                                    colEdges: colEdges,
+                                    font,
+                                    fgPaint,
+                                    frame.ThemeFg,
+                                    frame.ThemeBg,
+                                    renderSnapshot.Theme,
+                                    alpha,
+                                    tf,
+                                    drawBackgrounds: true);
+                            }
                         }
                         else
                         {
@@ -621,8 +678,8 @@ namespace NovaTerminal.Core
                 // Pass 4: Overlays (Selection / Search)
                 int selectionIndex = 0;
                 int matchIndex = 0;
-                SelectionRowSnapshot[] selectionRows = renderSnapshot.SelectionRows;
-                SearchHighlightSnapshot[] searchHighlights = renderSnapshot.SearchHighlights;
+                var selectionRows = renderSnapshot.SelectionRows;
+                var searchHighlights = renderSnapshot.SearchHighlights;
                 for (int r = 0; r < bufferRows; r++)
                 {
                     float y = FromDevicePx(_pixelGrid.YForRowTop(r));
@@ -630,15 +687,15 @@ namespace NovaTerminal.Core
                     float rowHeight = rowBottom - y;
                     int absRow = absDisplayStart + r;
 
-                    while (selectionIndex < selectionRows.Length && selectionRows[selectionIndex].AbsRow < absRow)
+                    while (selectionIndex < selectionRows.Length && selectionRows.Array[selectionIndex].AbsRow < absRow)
                     {
                         selectionIndex++;
                     }
 
                     int selTemp = selectionIndex;
-                    while (selTemp < selectionRows.Length && selectionRows[selTemp].AbsRow == absRow)
+                    while (selTemp < selectionRows.Length && selectionRows.Array[selTemp].AbsRow == absRow)
                     {
-                        var sel = selectionRows[selTemp];
+                        var sel = selectionRows.Array[selTemp];
                         float x1 = GetColEdge(colEdges, sel.ColStart, paddingLeft);
                         float x2 = GetColEdge(colEdges, sel.ColEnd + 1, paddingLeft);
                         canvas.DrawRect(x1, y, x2 - x1, rowHeight, selectionPaint);
@@ -647,15 +704,15 @@ namespace NovaTerminal.Core
                     }
 
                     // Sub-linear scan for search matches (assumes highlights are sorted by AbsRow)
-                    while (matchIndex < searchHighlights.Length && searchHighlights[matchIndex].AbsRow < absRow)
+                    while (matchIndex < searchHighlights.Length && searchHighlights.Array[matchIndex].AbsRow < absRow)
                     {
                         matchIndex++;
                     }
 
                     int tempIdx = matchIndex;
-                    while (tempIdx < searchHighlights.Length && searchHighlights[tempIdx].AbsRow == absRow)
+                    while (tempIdx < searchHighlights.Length && searchHighlights.Array[tempIdx].AbsRow == absRow)
                     {
-                        var m = searchHighlights[tempIdx];
+                        var m = searchHighlights.Array[tempIdx];
                         var p = m.IsActive ? activeMatchPaint : matchPaint;
                         float x1 = GetColEdge(colEdges, m.StartCol, paddingLeft);
                         float x2 = GetColEdge(colEdges, m.EndCol + 1, paddingLeft);
@@ -733,6 +790,8 @@ namespace NovaTerminal.Core
                 }
 
                 CompleteFramePerfMetrics(perfWriter, frameSw.Elapsed.TotalMilliseconds, dirtyRowCount, dirtySpanCount);
+                
+                return renderSnapshot;
             }
             catch (Exception ex)
             {
@@ -746,7 +805,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        private void DrawTerminal(SKCanvas canvas)
+        private TerminalRenderSnapshot? DrawTerminal(SKCanvas canvas)
             => DrawTerminalInternal(canvas);
 
         private void DrawPerformanceHud(SKCanvas canvas, RenderPerfMetrics metrics, byte alpha)
