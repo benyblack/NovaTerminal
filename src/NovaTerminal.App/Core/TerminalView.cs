@@ -64,6 +64,8 @@ namespace NovaTerminal.Core
 
             _cursorBlinkTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(530), DispatcherPriority.Render, OnCursorBlinkTick);
             _scrollAnimationTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, OnScrollAnimationTick);
+            _metricsTimer = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Background, OnMetricsTimerTick);
+            _metricsTimer.Start();
 
             DragDrop.SetAllowDrop(this, true);
             AddHandler(DragDrop.DragOverEvent, OnDragOver);
@@ -229,6 +231,7 @@ namespace NovaTerminal.Core
         private int _lastCursorRow = -1;
         private int _lastCursorCol = -1;
         private long _lastHudUpdateTicks = 0;
+        private readonly DispatcherTimer _metricsTimer;
 
         private void OnRenderTimerTick(object? sender, EventArgs e)
         {
@@ -336,6 +339,22 @@ namespace NovaTerminal.Core
             int delta = _targetScrollOffset - _scrollOffset;
             int step = Math.Sign(delta) * Math.Max(1, Math.Abs(delta) / 3);
             ScrollOffset = _scrollOffset + step;
+        }
+
+        private void OnMetricsTimerTick(object? sender, EventArgs e)
+        {
+            if (_buffer == null) return;
+
+            var m = _buffer.GetMemoryMetrics(_glyphCache.EntryCount, _glyphCache.AtlasByteSize);
+            
+            // Format for easy log parsing/grep
+            TerminalLogger.Log(
+                $"[TerminalMemory] " +
+                $"ScrollbackMB={m.ScrollbackBytes / 1024.0 / 1024.0:F2} | " +
+                $"Pages={m.ActivePages} (pooled={m.PooledPages}) | " +
+                $"ViewportCells={m.ViewportCells} | " +
+                $"GlyphCache={m.GlyphCacheEntries} entries ({m.GlyphCacheAtlasBytes / 1024.0 / 1024.0:F1} MB atlas)"
+            );
         }
 
         public ShellOverride ShellOverride { get; set; } = ShellOverride.Auto;

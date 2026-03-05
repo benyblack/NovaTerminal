@@ -14,7 +14,7 @@ namespace NovaTerminal.Tests.Input
         {
             // Arrange
             var mockSession = new Mock<ITerminalSession>();
-            string sentPayload = null;
+            string? sentPayload = null;
             
             mockSession.Setup(s => s.SendInput(It.IsAny<string>()))
                        .Callback<string>(s => sentPayload = s);
@@ -34,7 +34,7 @@ namespace NovaTerminal.Tests.Input
         {
             // Arrange
             var mockSession = new Mock<ITerminalSession>();
-            string sentPayload = null;
+            string? sentPayload = null;
             
             mockSession.Setup(s => s.SendInput(It.IsAny<string>()))
                        .Callback<string>(s => sentPayload = s);

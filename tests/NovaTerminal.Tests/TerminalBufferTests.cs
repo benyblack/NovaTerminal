@@ -85,7 +85,7 @@ namespace NovaTerminal.Tests
             return (ScrollbackPages)field!.GetValue(buffer)!;
         }
 
-        private string GetTextFromRow(TerminalRow row)
+        private string GetRowTextContent(TerminalRow row)
         {
             if (row.Cells != null)
             {
@@ -291,7 +291,7 @@ namespace NovaTerminal.Tests
             for (int i = 0; i < sbRows.Count; i++) contentTexts.Add(GetTextFromSpan(sbRows.GetRow(i)));
             
             var vpRows = GetViewport(buffer);
-            foreach (var r in vpRows) contentTexts.Add(GetTextFromRow(r));
+            foreach (var r in vpRows) contentTexts.Add(GetRowTextContent(r));
 
             var contentRowsText = contentTexts.Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
 
@@ -408,7 +408,7 @@ namespace NovaTerminal.Tests
             for (int i = 0; i < sb.Count; i++) list.Add(GetTextFromSpan(sb.GetRow(i)));
             
             var vp = GetViewport(buffer);
-            foreach (var r in vp) list.Add(GetTextFromRow(r));
+            foreach (var r in vp) list.Add(GetRowTextContent(r));
             return list;
         }
 
@@ -504,16 +504,6 @@ namespace NovaTerminal.Tests
             // Assert
             var field = typeof(TerminalBuffer).GetField("_scrollback", BindingFlags.NonPublic | BindingFlags.Instance);
             var scrollback = (ScrollbackPages)field!.GetValue(buffer)!;
-
-            static string GetTextFromRow(TerminalRow row)
-            {
-                if (row.Cells != null)
-                {
-                    var chars = row.Cells.Select(c => c.Character == '\0' ? ' ' : c.Character).ToArray();
-                    return new string(chars).Trim();
-                }
-                return "";
-            }
 
             var sbText = "";
             for (int i = 0; i < scrollback.Count; i++) sbText += GetTextFromSpan(scrollback.GetRow(i)) + "\n";

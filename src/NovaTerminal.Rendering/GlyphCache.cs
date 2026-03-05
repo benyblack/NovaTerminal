@@ -61,6 +61,9 @@ namespace NovaTerminal.Core
 
         // Color is NOT part of the key for Alpha8 as we color it during DrawAtlas.
 
+        public int EntryCount => _entries.Count;
+        public long AtlasByteSize => GlyphAtlas.AtlasSize * GlyphAtlas.AtlasSize * 4 * 2; // 2 surfaces, RGBA8888
+
         public GlyphCache()
         {
             _atlas = new GlyphAtlas();

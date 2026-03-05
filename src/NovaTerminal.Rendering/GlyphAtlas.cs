@@ -19,7 +19,7 @@ namespace NovaTerminal.Core
 
     public class GlyphAtlas : IDisposable
     {
-        private const int AtlasSize = 1024;
+        public const int AtlasSize = 1024;
         private readonly SKSurface _alphaSurface;
         private readonly SKSurface _colorSurface;
 
