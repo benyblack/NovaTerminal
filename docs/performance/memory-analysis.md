@@ -154,3 +154,36 @@ Per TerminalRow (220 cols, typical terminal):
 | **8** | **Reduce `TerminalRow` dictionary pressure** — `_extendedText` and `_hyperlinks` use `Dictionary<int,string>` which has high per-instance overhead (~176 B minimum). Replace with a small sorted array for the common case of ≤ 4 extended cells per row. | **Per-row overhead for emoji-heavy content** | Medium |
 | **9** | **GlyphAtlas LRU eviction instead of full reset** — the current strategy clears the whole atlas when it overflows. An LRU shelf eviction would reduce `SKImage.Snapshot()` re-generation (each snapshot = 4 MB GPU→CPU copy). | **Reduce snapshot churn** | High |
 | **10** | **StringBuilder pooling in `FindMatches()`** — search allocates a new `StringBuilder` and `List<int>` colMapping per row. Use `ArrayPool` / `StringBuilderPool` to amortize these. | **Low absolute bytes, high frequency** | Low |
+
+---
+
+## 7. PR17 Follow-up Fixes (2026-03-06)
+
+These targeted fixes were applied after the initial PR17 memory optimization pass to address correctness and performance gaps.
+
+### Fix 1 — Theme-change correctness for paged scrollback
+**Problem:** `TerminalBuffer.Maintenance.cs` previously skipped theme updates for scrollback rows (marked TODO). After switching to paged slab storage, the scrollback no longer has live `TerminalRow` objects, so the theme update path was silently broken.
+
+**Fix:**
+- Added `UpdateThemeDefaults(uint newFg, uint newBg)` to `TerminalPage` — O(n) walk over `UsedRows × Cols` cells, replacing `Fg`/`Bg` only where `IsDefaultForeground`/`IsDefaultBackground` flags are set.
+- Added `UpdateThemeDefaults(TerminalTheme old, TerminalTheme new)` to `ScrollbackPages` — iterates all active pages.
+- Wired this into `TerminalBuffer.UpdateThemeColors` to replace the old skipped comment block.
+- **Tests:** `ScrollbackThemeTests.UpdateThemeDefaults_UpdatesDefaultColoredCells`
+
+### Fix 2 — O(1) sequential row access in `ScrollbackPages.GetRow`
+**Problem:** `GetRow(logicalIndex)` did a linear page scan from `_pages.First` on every call. During reflow, rows are accessed sequentially (index 0, 1, 2, …), turning the full reflow pass into O(n × p) where p = page count ≈ O(n²) for a deep scrollback.
+
+**Fix:** Added a two-field cursor cache:
+- `TerminalPage? _lastAccessedPage` + `long _lastAccessedPageStartAbsRow`
+- On each `GetRow` call, check if the requested `absRow` falls within the cached page bounds — O(1) hit. On miss, fall through to linear scan and update the cache.
+- Cache is reset in `Clear()` and invalidated implicitly if the page is returned.
+- **Tests:** `ScrollbackPagesTests.GetRow_SequentialAccess_AvoidsON2Performance`
+
+### Fix 3 — Harden eviction image-shift int overflow
+**Problem:** `newlyEvicted` is a `long`. Casting directly via `(int)newlyEvicted` overflows silently for very large evictions (> 2 billion rows, theoretically possible in stress scenarios). The resulting negative delta would incorrectly shift images up instead of pruning them.
+
+**Fix:** Two-line clamp before cast in both `ScrollUpInternal` (`WritePath.cs`) and the resize shrink path (`ResizeAndReflow.cs`):
+```csharp
+int delta = newlyEvicted > int.MaxValue ? int.MaxValue : (int)newlyEvicted;
+img.CellY -= delta;
+```
