@@ -118,7 +118,9 @@ namespace NovaTerminal.Core
                         var row = new TerminalRow(oldCols, Theme.Foreground, Theme.Background);
                         rowCells.CopyTo(row.Cells);
                         row.IsWrapped = _scrollback.IsRowWrapped(i);
-                        // NOTE: Extended text is lost in scrollback until Step 5
+                        // Restore extended graphemes and hyperlinks from the paged scrollback side-channel.
+                        _scrollback.GetExtendedTextMap(i)?.ForEach((col, text) => row.SetExtendedText(col, text));
+                        _scrollback.GetHyperlinkMap(i)?.ForEach((col, link) => row.SetHyperlink(col, link));
                         allPhysicalRows[i] = row;
                     }
                     for (int i = 0; i < vpRowsToTake; i++)

@@ -419,7 +419,13 @@ namespace NovaTerminal.Core
                 
                 // This copies the cell array into the page-based store;
                 // No TerminalRow object is stored in scrollback anymore.
-                _scrollback.AppendRow(_viewport[0].Cells, _viewport[0].IsWrapped);
+                var evictingRow = _viewport[0];
+                _scrollback.AppendRow(
+                    evictingRow.Cells,
+                    evictingRow.IsWrapped,
+                    evictingRow.GetExtendedTextMap(),
+                    evictingRow.GetHyperlinkMap());
+
 
                 long newlyEvicted = _scrollback.TotalRowsEvicted - prevEvicted;
 
