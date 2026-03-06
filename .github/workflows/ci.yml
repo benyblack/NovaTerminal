@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["windows-latest","ubuntu-latest","macos-latest"]') }}
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["windows-latest","ubuntu-latest"]' || '["windows-latest","ubuntu-latest","macos-latest"]') }}
     
     steps:
       - uses: actions/checkout@v4
@@ -105,7 +105,9 @@ jobs:
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Test (unit)
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke" --logger "trx;LogFileName=unit_tests.trx"
+        # Keep the unit lane focused on deterministic tests; stress tests run in nightly,
+        # and shared golden PNGs are currently only stable against the checked-in baselines on Windows.
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" --logger "trx;LogFileName=unit_tests.trx"
 
       - name: Upload test results
         if: always()
@@ -114,6 +116,43 @@ jobs:
           name: unit-tests-${{ runner.os }}
           retention-days: 5
           path: "**/*.trx"
+
+  golden_shared_png_tests:
+    name: Golden Shared PNGs (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    needs: [build_native]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download Native Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-windows-latest
+          path: src/NovaTerminal.App/native
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+
+      - name: Run Golden Shared PNG Tests
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=GoldenSharedPng" --logger "trx;LogFileName=golden_shared_png_tests.trx"
+
+      - name: Upload golden shared PNG test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-shared-png-tests-windows
+          retention-days: 5
+          path: "**/*golden_shared_png_tests.trx"
 
   replay_tests:
     name: Replay Tests (${{ matrix.os }})
