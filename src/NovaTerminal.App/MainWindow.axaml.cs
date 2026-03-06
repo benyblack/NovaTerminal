@@ -1835,9 +1835,11 @@ namespace NovaTerminal
 
                 if (IsShortcut(e, "command_assist_history", "Ctrl+R"))
                 {
-                    _currentPane?.OpenCommandAssistHistorySearch();
-                    e.Handled = true;
-                    return;
+                    if (_currentPane?.OpenCommandAssistHistorySearch() == true)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
                 }
 
                 if (IsShortcut(e, "font_increase", "Ctrl+OemPlus") || IsShortcut(e, "font_increase_alt", "Ctrl+Add"))

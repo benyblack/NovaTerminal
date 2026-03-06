@@ -53,17 +53,18 @@ public sealed class CommandAssistController
         ViewModel.IsVisible = !ViewModel.IsVisible;
     }
 
-    public void OpenHistorySearch()
+    public bool OpenHistorySearch()
     {
         if (_isAltScreenActive)
         {
             ViewModel.IsVisible = false;
-            return;
+            return false;
         }
 
         ViewModel.ModeLabel = "History";
         ViewModel.IsVisible = true;
         QueueRefreshSuggestions();
+        return true;
     }
 
     public void HandleTextInput(string text)
@@ -102,34 +103,43 @@ public sealed class CommandAssistController
 
     public async Task HandleEnterAsync()
     {
-        string submission = ViewModel.QueryText.Trim();
-        bool shouldPersist = !_isAltScreenActive &&
-                             !_ignoreCurrentSubmission &&
-                             !string.IsNullOrWhiteSpace(submission) &&
-                             !submission.Contains('\n') &&
-                             !submission.Contains('\r');
-
-        if (shouldPersist)
+        try
         {
-            RedactionResult redaction = SecretsFilter.Redact(submission);
-            var entry = new CommandHistoryEntry(
-                Id: Guid.NewGuid().ToString("N"),
-                CommandText: redaction.RedactedText,
-                ExecutedAt: DateTimeOffset.UtcNow,
-                ShellKind: _shellKind ?? "unknown",
-                WorkingDirectory: _workingDirectory,
-                ProfileId: _profileId,
-                SessionId: _sessionId,
-                HostId: _hostId,
-                ExitCode: null,
-                IsRemote: _isRemote,
-                IsRedacted: redaction.WasRedacted,
-                Source: CommandCaptureSource.Heuristic);
+            string submission = ViewModel.QueryText.Trim();
+            bool shouldPersist = !_isAltScreenActive &&
+                                 !_ignoreCurrentSubmission &&
+                                 !string.IsNullOrWhiteSpace(submission) &&
+                                 !submission.Contains('\n') &&
+                                 !submission.Contains('\r');
 
-            await HistoryStore.AppendAsync(entry);
+            if (shouldPersist)
+            {
+                RedactionResult redaction = SecretsFilter.Redact(submission);
+                var entry = new CommandHistoryEntry(
+                    Id: Guid.NewGuid().ToString("N"),
+                    CommandText: redaction.RedactedText,
+                    ExecutedAt: DateTimeOffset.UtcNow,
+                    ShellKind: _shellKind ?? "unknown",
+                    WorkingDirectory: _workingDirectory,
+                    ProfileId: _profileId,
+                    SessionId: _sessionId,
+                    HostId: _hostId,
+                    ExitCode: null,
+                    IsRemote: _isRemote,
+                    IsRedacted: redaction.WasRedacted,
+                    Source: CommandCaptureSource.Heuristic);
+
+                await HistoryStore.AppendAsync(entry);
+            }
         }
-
-        ResetSubmissionState();
+        catch
+        {
+            // Assist capture is best-effort; Enter should still reach the shell path even if persistence fails.
+        }
+        finally
+        {
+            ResetSubmissionState();
+        }
     }
 
     public void UpdateSessionContext(

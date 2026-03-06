@@ -372,13 +372,7 @@ namespace NovaTerminal.Controls
 
             TermView.TextInputObserved += text => _commandAssistController?.HandleTextInput(text);
             TermView.BackspaceObserved += () => _commandAssistController?.HandleBackspace();
-            TermView.EnterObserved += async () =>
-            {
-                if (_commandAssistController != null)
-                {
-                    await _commandAssistController.HandleEnterAsync();
-                }
-            };
+            TermView.EnterObserved += OnCommandAssistEnterObserved;
             TermView.PasteObserved += text => _commandAssistController?.HandlePastedText(text);
 
             if (Buffer != null)
@@ -390,6 +384,28 @@ namespace NovaTerminal.Controls
         private void OnBufferScreenSwitched(bool isAltScreen)
         {
             Dispatcher.UIThread.Post(() => _commandAssistController?.HandleAltScreenChanged(isAltScreen));
+        }
+
+        private void OnCommandAssistEnterObserved()
+        {
+            _ = HandleCommandAssistEnterObservedAsync();
+        }
+
+        private async Task HandleCommandAssistEnterObservedAsync()
+        {
+            if (_commandAssistController == null)
+            {
+                return;
+            }
+
+            try
+            {
+                await _commandAssistController.HandleEnterAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] Command Assist enter handling failed: {ex.Message}");
+            }
         }
 
         private void UpdateCommandAssistContext()
@@ -775,9 +791,9 @@ namespace NovaTerminal.Controls
             _commandAssistController?.ToggleAssist();
         }
 
-        public void OpenCommandAssistHistorySearch()
+        public bool OpenCommandAssistHistorySearch()
         {
-            _commandAssistController?.OpenHistorySearch();
+            return _commandAssistController?.OpenHistorySearch() ?? false;
         }
 
         public void NotifyCommandAssistPaste(string text)

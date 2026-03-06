@@ -41,6 +41,30 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
+    public void OpenHistorySearch_WhenNotInAltScreen_ReturnsTrue()
+    {
+        var controller = CreateController();
+
+        bool opened = controller.OpenHistorySearch();
+
+        Assert.True(opened);
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.Equal("History", controller.ViewModel.ModeLabel);
+    }
+
+    [Fact]
+    public void OpenHistorySearch_WhenAltScreenActive_ReturnsFalse()
+    {
+        var controller = CreateController();
+        controller.HandleAltScreenChanged(true);
+
+        bool opened = controller.OpenHistorySearch();
+
+        Assert.False(opened);
+        Assert.False(controller.ViewModel.IsVisible);
+    }
+
+    [Fact]
     public void HandleTextInput_UpdatesQueryAndTopSuggestion()
     {
         var historyStore = new InMemoryHistoryStore();
@@ -82,6 +106,18 @@ public sealed class CommandAssistControllerTests
         await controller.HandleEnterAsync();
 
         Assert.Empty(historyStore.Entries);
+    }
+
+    [Fact]
+    public async Task HandleEnterAsync_WhenHistoryStoreThrows_DoesNotPropagate()
+    {
+        var controller = CreateController(new ThrowingHistoryStore());
+        controller.HandleTextInput("git status");
+
+        await controller.HandleEnterAsync();
+
+        Assert.Equal(string.Empty, controller.ViewModel.QueryText);
+        Assert.False(controller.ViewModel.IsVisible);
     }
 
     [Fact]
@@ -203,5 +239,20 @@ public sealed class CommandAssistControllerTests
         }
 
         public Task WaitForLastSearchAsync() => _lastSearchTask;
+    }
+
+    private sealed class ThrowingHistoryStore : IHistoryStore
+    {
+        public Task AppendAsync(CommandHistoryEntry entry, CancellationToken cancellationToken = default)
+            => Task.FromException(new InvalidOperationException("simulated write failure"));
+
+        public Task ClearAsync(CancellationToken cancellationToken = default)
+            => Task.CompletedTask;
+
+        public Task<IReadOnlyList<CommandHistoryEntry>> GetRecentAsync(int maxResults, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<CommandHistoryEntry>>(Array.Empty<CommandHistoryEntry>());
+
+        public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken = default)
+            => Task.FromResult<IReadOnlyList<CommandHistoryEntry>>(Array.Empty<CommandHistoryEntry>());
     }
 }
