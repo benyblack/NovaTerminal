@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:CompileBindings="False"
+             x:Class="NovaTerminal.CommandAssist.Views.CommandAssistBarView"
+             IsVisible="{Binding IsVisible}">
+    <Border Background="#CC202020"
+            BorderBrush="#404040"
+            BorderThickness="0,1,0,0"
+            Padding="10,6">
+        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+            <TextBlock Text="{Binding ModeLabel}"
+                       Foreground="#8EC5FF"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1"
+                       Text="{Binding TopSuggestionText}"
+                       Foreground="White"
+                       TextTrimming="CharacterEllipsis"
+                       VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="2"
+                       Text="Ctrl+R history | Ctrl+Space toggle | Esc close"
+                       Foreground="#A0A0A0"
+                       FontSize="11"
+                       VerticalAlignment="Center"/>
+        </Grid>
+    </Border>
+</UserControl>
