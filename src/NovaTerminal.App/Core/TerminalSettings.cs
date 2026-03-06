@@ -33,6 +33,10 @@ namespace NovaTerminal.Core
 
         public bool QuakeModeEnabled { get; set; } = true;
         public string GlobalHotkey { get; set; } = "Alt+OemTilde";
+        public bool CommandAssistEnabled { get; set; } = true;
+        public bool CommandAssistHistoryEnabled { get; set; } = true;
+        public int CommandAssistMaxHistoryEntries { get; set; } = 5000;
+        public bool CommandAssistAutoHideInAltScreen { get; set; } = true;
 
         public System.Collections.Generic.List<TerminalProfile> Profiles { get; set; } = new();
         public Guid DefaultProfileId { get; set; }

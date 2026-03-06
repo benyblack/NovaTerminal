@@ -1826,6 +1826,22 @@ namespace NovaTerminal
                     return;
                 }
 
+                if (IsShortcut(e, "command_assist_toggle", "Ctrl+Space"))
+                {
+                    _currentPane?.ToggleCommandAssist();
+                    e.Handled = true;
+                    return;
+                }
+
+                if (IsShortcut(e, "command_assist_history", "Ctrl+R"))
+                {
+                    if (_currentPane?.OpenCommandAssistHistorySearch() == true)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+                }
+
                 if (IsShortcut(e, "font_increase", "Ctrl+OemPlus") || IsShortcut(e, "font_increase_alt", "Ctrl+Add"))
                 {
                     _settings.FontSize++;
@@ -3259,6 +3275,7 @@ namespace NovaTerminal
                     {
                         // Normalize line endings to avoid double newlines on paste
                         text = text.Replace("\r\n", "\r");
+                        _currentPane.NotifyCommandAssistPaste(text);
 
                         // Handle Bracketed Paste Mode
                         if (_currentPane.Buffer != null && _currentPane.Buffer.Modes.IsBracketedPasteMode)

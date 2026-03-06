@@ -14,6 +14,7 @@ using System.Linq;
 using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
 using Avalonia.Platform.Storage;
+using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Sessions;
 
@@ -57,6 +58,7 @@ namespace NovaTerminal.Controls
         private readonly SshDiagnosticsLevel _sshDiagnosticsLevel;
         private string? _pendingPasteFilePath;
         private string? _pendingEscapedPath;
+        private CommandAssistController? _commandAssistController;
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -135,6 +137,7 @@ namespace NovaTerminal.Controls
         {
             Profile = profile;
             TermView.ShellOverride = profile.ShellOverride;
+            UpdateCommandAssistContext();
         }
 
         public Control ActiveControl => TermView;
@@ -197,6 +200,13 @@ namespace NovaTerminal.Controls
             };
             TermView.KeyDown += (_, e) =>
             {
+                if (e.Key == Key.Escape && _commandAssistController?.ViewModel.IsVisible == true)
+                {
+                    _commandAssistController.Dismiss();
+                    e.Handled = true;
+                    return;
+                }
+
                 if (e.Key != Key.LeftShift &&
                     e.Key != Key.RightShift &&
                     e.Key != Key.LeftCtrl &&
@@ -247,6 +257,7 @@ namespace NovaTerminal.Controls
 
             // Load Settings
             ApplySettings(TerminalSettings.Load());
+            InitializeCommandAssist();
             UpdateMinimumSizeConstraints();
             AutomationProperties.SetName(TermView, "Terminal Pane");
             AutomationProperties.SetName(this, "Terminal Pane");
@@ -332,6 +343,110 @@ namespace NovaTerminal.Controls
 
         }
 
+        private void InitializeCommandAssist()
+        {
+            if (_settings == null || !_settings.CommandAssistEnabled || !_settings.CommandAssistHistoryEnabled)
+            {
+                if (CommandAssistBar != null)
+                {
+                    CommandAssistBar.DataContext = null;
+                    CommandAssistBar.IsVisible = false;
+                }
+
+                return;
+            }
+
+            _commandAssistController = new CommandAssistController(
+                CommandAssistInfrastructure.GetHistoryStore(_settings),
+                CommandAssistInfrastructure.GetSecretsFilter(),
+                CommandAssistInfrastructure.GetSuggestionEngine(),
+                action => Dispatcher.UIThread.Post(action));
+
+            if (CommandAssistBar != null)
+            {
+                CommandAssistBar.DataContext = _commandAssistController.ViewModel;
+            }
+
+            _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
+            UpdateCommandAssistContext();
+
+            TermView.TextInputObserved += text => _commandAssistController?.HandleTextInput(text);
+            TermView.BackspaceObserved += () => _commandAssistController?.HandleBackspace();
+            TermView.EnterObserved += OnCommandAssistEnterObserved;
+            TermView.PasteObserved += text => _commandAssistController?.HandlePastedText(text);
+
+            if (Buffer != null)
+            {
+                Buffer.OnScreenSwitched += OnBufferScreenSwitched;
+            }
+        }
+
+        private void OnBufferScreenSwitched(bool isAltScreen)
+        {
+            Dispatcher.UIThread.Post(() => _commandAssistController?.HandleAltScreenChanged(isAltScreen));
+        }
+
+        private void OnCommandAssistEnterObserved()
+        {
+            _ = HandleCommandAssistEnterObservedAsync();
+        }
+
+        private async Task HandleCommandAssistEnterObservedAsync()
+        {
+            if (_commandAssistController == null)
+            {
+                return;
+            }
+
+            try
+            {
+                await _commandAssistController.HandleEnterAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] Command Assist enter handling failed: {ex.Message}");
+            }
+        }
+
+        private void UpdateCommandAssistContext()
+        {
+            _commandAssistController?.UpdateSessionContext(
+                shellKind: DetermineShellKind(Session?.ShellCommand ?? ShellCommand),
+                workingDirectory: CurrentWorkingDirectory,
+                profileId: Profile?.Id.ToString(),
+                sessionId: Session?.Id.ToString(),
+                hostId: Profile?.Type == ConnectionType.SSH ? Profile.SshHost : null,
+                isRemote: Profile?.Type == ConnectionType.SSH);
+        }
+
+        private static string DetermineShellKind(string? shellCommand)
+        {
+            if (string.IsNullOrWhiteSpace(shellCommand))
+            {
+                return "unknown";
+            }
+
+            if (shellCommand.Contains("pwsh", StringComparison.OrdinalIgnoreCase) ||
+                shellCommand.Contains("powershell", StringComparison.OrdinalIgnoreCase))
+            {
+                return "pwsh";
+            }
+
+            if (shellCommand.Contains("cmd", StringComparison.OrdinalIgnoreCase))
+            {
+                return "cmd";
+            }
+
+            if (shellCommand.Contains("bash", StringComparison.OrdinalIgnoreCase) ||
+                shellCommand.Contains("zsh", StringComparison.OrdinalIgnoreCase) ||
+                shellCommand.Contains("sh", StringComparison.OrdinalIgnoreCase))
+            {
+                return "posix";
+            }
+
+            return "unknown";
+        }
+
         private void InitializeSession(string? shell, TerminalProfile? profile, int cols, int rows, string? explicitArgs = null)
         {
             if (Session != null || Buffer == null) return;
@@ -355,6 +470,7 @@ namespace NovaTerminal.Controls
                 Dispatcher.UIThread.Post(() =>
                 {
                     CurrentWorkingDirectory = cwd;
+                    UpdateCommandAssistContext();
                     WorkingDirectoryChanged?.Invoke(this, cwd);
                 });
             };
@@ -460,6 +576,7 @@ namespace NovaTerminal.Controls
                         ProcessExited?.Invoke(this, code);
                     });
                 };
+                UpdateCommandAssistContext();
             }
             catch (Exception ex)
             {
@@ -669,6 +786,21 @@ namespace NovaTerminal.Controls
             }
         }
 
+        public void ToggleCommandAssist()
+        {
+            _commandAssistController?.ToggleAssist();
+        }
+
+        public bool OpenCommandAssistHistorySearch()
+        {
+            return _commandAssistController?.OpenHistorySearch() ?? false;
+        }
+
+        public void NotifyCommandAssistPaste(string text)
+        {
+            _commandAssistController?.HandlePastedText(text);
+        }
+
         public void ToggleRenderHud()
         {
             TermView.ShowRenderHud = !TermView.ShowRenderHud;
@@ -779,6 +911,10 @@ namespace NovaTerminal.Controls
 
         public void Dispose()
         {
+            if (Buffer != null)
+            {
+                Buffer.OnScreenSwitched -= OnBufferScreenSwitched;
+            }
             _statusTimer?.Stop();
             _statusTimer = null;
             SftpService.Instance.JobUpdated -= Sftp_JobUpdated;

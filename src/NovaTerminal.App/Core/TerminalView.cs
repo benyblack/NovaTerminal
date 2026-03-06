@@ -85,6 +85,7 @@ namespace NovaTerminal.Core
             {
                 ResetCursorBlink();
                 _session.SendInput(e.Text);
+                TextInputObserved?.Invoke(e.Text);
                 e.Handled = true;
             }
         }
@@ -105,10 +106,12 @@ namespace NovaTerminal.Core
             {
                 case Key.Enter:
                     _session.SendInput("\r");
+                    EnterObserved?.Invoke();
                     e.Handled = true;
                     return;
                 case Key.Back:
                     _session.SendInput("\x7f");
+                    BackspaceObserved?.Invoke();
                     e.Handled = true;
                     return;
                 case Key.Tab:
@@ -366,6 +369,10 @@ namespace NovaTerminal.Core
         }
 
         public event EventHandler<TextFileDroppedEventArgs>? TextFileDropped;
+        public event Action<string>? TextInputObserved;
+        public event Action? BackspaceObserved;
+        public event Action? EnterObserved;
+        public event Action<string>? PasteObserved;
 
         private void OnDragOver(object? sender, DragEventArgs e)
         {
@@ -448,6 +455,7 @@ namespace NovaTerminal.Core
                         if (!string.IsNullOrEmpty(result.TextToSend))
                         {
                             _session.SendInput(result.TextToSend);
+                            PasteObserved?.Invoke(result.TextToSend);
                         }
                         
                         return;
@@ -458,6 +466,7 @@ namespace NovaTerminal.Core
             if (e.Data.GetText() is string text && !string.IsNullOrWhiteSpace(text))
             {
                 _session.SendInput(text);
+                PasteObserved?.Invoke(text);
                 e.Handled = true;
             }
         }
