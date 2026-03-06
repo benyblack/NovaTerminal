@@ -1,3 +1,5 @@
+using NovaTerminal.Core.Storage;
+
 namespace NovaTerminal.Core
 {
     public partial class TerminalBuffer
@@ -196,14 +198,7 @@ namespace NovaTerminal.Core
                     _viewport[r].TouchRevision();
                 }
 
-                foreach (var row in _scrollback)
-                {
-                    for (int c = 0; c < row.Cells.Length; c++)
-                    {
-                        UpdateCell(ref row.Cells[c]);
-                    }
-                    row.TouchRevision();
-                }
+                _scrollback.UpdateThemeDefaults(oldTheme, Theme);
 
                 foreach (var row in _mainScreen) row.TouchRevision();
                 foreach (var row in _altScreen) row.TouchRevision();

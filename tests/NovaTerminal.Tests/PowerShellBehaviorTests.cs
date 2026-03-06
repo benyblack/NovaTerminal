@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.Core.Storage;
 using Xunit.Abstractions;
 
 namespace NovaTerminal.Tests
@@ -21,10 +22,10 @@ namespace NovaTerminal.Tests
             _output = output;
         }
 
-        private NovaTerminal.Core.CircularBuffer<TerminalRow> GetScrollback(TerminalBuffer buffer)
+        private ScrollbackPages GetScrollback(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_scrollback", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            return (NovaTerminal.Core.CircularBuffer<TerminalRow>)field!.GetValue(buffer)!;
+            return (ScrollbackPages)field!.GetValue(buffer)!;
         }
 
         private TerminalRow[] GetViewport(TerminalBuffer buffer)
@@ -36,7 +37,16 @@ namespace NovaTerminal.Tests
         private string GetRowText(TerminalRow row)
         {
             if (row == null || row.Cells == null) return "";
-            var chars = row.Cells.Select(c => c.Character == '\0' ? ' ' : c.Character).ToArray();
+            return GetTextFromSpan(row.Cells);
+        }
+
+        private string GetTextFromSpan(ReadOnlySpan<TerminalCell> span)
+        {
+            char[] chars = new char[span.Length];
+            for (int i = 0; i < span.Length; i++)
+            {
+                chars[i] = span[i].Character == '\0' ? ' ' : span[i].Character;
+            }
             return new string(chars).TrimEnd();
         }
 
@@ -49,7 +59,7 @@ namespace NovaTerminal.Tests
             _output.WriteLine("SCROLLBACK:");
             for (int i = 0; i < sb.Count; i++)
             {
-                _output.WriteLine($"  [{i}] '{GetRowText(sb[i])}'");
+                _output.WriteLine($"  [{i}] '{GetTextFromSpan(sb.GetRow(i))}'");
             }
             _output.WriteLine("VIEWPORT:");
             for (int i = 0; i < vp.Length; i++)

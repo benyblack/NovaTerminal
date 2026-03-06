@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.Core.Storage;
 
 namespace NovaTerminal.Tests
 {
@@ -18,7 +19,7 @@ namespace NovaTerminal.Tests
             for (int i = 0; i < 50; i++)
                 buffer.Write($"History {i}\n");
 
-            int initialScrollbackCount = buffer.ScrollbackRows.Count;
+            int initialScrollbackCount = buffer.Scrollback.Count;
 
             // Enter alt screen (vim)
             parser.Process("\x1b[?1049h");
@@ -31,10 +32,12 @@ namespace NovaTerminal.Tests
             parser.Process("\x1b[?1049l");
 
             // Assert: scrollback unchanged
-            Assert.Equal(initialScrollbackCount, buffer.ScrollbackRows.Count);
+            Assert.Equal(initialScrollbackCount, buffer.Scrollback.Count);
 
             // Assert: vim content not in scrollback
-            var scrollbackText = string.Join("", buffer.ScrollbackRows.Select(r => GetTextFromRow(r)));
+            var sb = buffer.Scrollback;
+            var scrollbackText = "";
+            for (int i = 0; i < sb.Count; i++) scrollbackText += GetTextFromSpan(sb.GetRow(i));
             Assert.DoesNotContain("VIM UI", scrollbackText);
         }
 
@@ -45,7 +48,7 @@ namespace NovaTerminal.Tests
             var parser = new AnsiParser(buffer);
 
             buffer.Write("Main screen content\n");
-            int initialScrollbackCount = buffer.ScrollbackRows.Count;
+            int initialScrollbackCount = buffer.Scrollback.Count;
 
             // Enter alt screen (legacy ?47)
             parser.Process("\x1b[?47h");
@@ -55,7 +58,7 @@ namespace NovaTerminal.Tests
             parser.Process("\x1b[?47l");
 
             // Scrollback should be unchanged
-            Assert.Equal(initialScrollbackCount, buffer.ScrollbackRows.Count);
+            Assert.Equal(initialScrollbackCount, buffer.Scrollback.Count);
         }
 
         [Fact]
@@ -117,7 +120,7 @@ namespace NovaTerminal.Tests
             for (int i = 0; i < 30; i++)
                 buffer.Write($"Line {i}\n");
 
-            int scrollbackBeforeAlt = buffer.ScrollbackRows.Count;
+            int scrollbackBeforeAlt = buffer.Scrollback.Count;
 
             // Enter alt screen
             parser.Process("\x1b[?1049h");
@@ -127,23 +130,32 @@ namespace NovaTerminal.Tests
                 buffer.Write($"Alt Line {i}\n");
 
             // Scrollback should NOT have grown
-            Assert.Equal(scrollbackBeforeAlt, buffer.ScrollbackRows.Count);
+            Assert.Equal(scrollbackBeforeAlt, buffer.Scrollback.Count);
 
             // Exit alt screen
             parser.Process("\x1b[?1049l");
 
             // Scrollback still unchanged
-            Assert.Equal(scrollbackBeforeAlt, buffer.ScrollbackRows.Count);
+            Assert.Equal(scrollbackBeforeAlt, buffer.Scrollback.Count);
         }
 
         private string GetTextFromRow(TerminalRow row)
         {
             if (row.Cells != null)
             {
-                var chars = row.Cells.Select(c => c.Character == '\0' ? ' ' : c.Character).ToArray();
-                return new string(chars).Trim();
+                return GetTextFromSpan(row.Cells);
             }
             return "";
+        }
+
+        private string GetTextFromSpan(ReadOnlySpan<TerminalCell> span)
+        {
+            char[] chars = new char[span.Length];
+            for (int i = 0; i < span.Length; i++)
+            {
+                chars[i] = span[i].Character == '\0' ? ' ' : span[i].Character;
+            }
+            return new string(chars).Trim();
         }
 
         private string GetViewportText(TerminalBuffer buffer)

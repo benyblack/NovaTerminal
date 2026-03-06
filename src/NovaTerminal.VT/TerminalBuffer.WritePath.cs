@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Text;
+using NovaTerminal.Core.Storage;
 
 namespace NovaTerminal.Core
 {
@@ -414,18 +415,23 @@ namespace NovaTerminal.Core
             // 1. If full screen and main screen, add to scrollback
             if (isFullScreenScroll && !_isAltScreen)
             {
-                // CircularBuffer automatically evicts oldest when at capacity
-                bool wasAtCapacity = _scrollback.Count >= MaxHistory;
-                _scrollback.Add(_viewport[0]);
+                long prevEvicted = _scrollback.TotalRowsEvicted;
+                
+                // This copies the cell array into the page-based store;
+                // No TerminalRow object is stored in scrollback anymore.
+                _scrollback.AppendRow(_viewport[0].Cells, _viewport[0].IsWrapped);
 
-                // If we evicted a row, all following rows shifted down in absolute index
-                // So we must decrement CellY for ALL images.
-                if (wasAtCapacity)
+                long newlyEvicted = _scrollback.TotalRowsEvicted - prevEvicted;
+
+                // If we evicted rows (pages), all following rows shifted down in absolute index
+                // So we must decrement CellY for ALL images by the number of evicted rows.
+                if (newlyEvicted > 0)
                 {
                     for (int i = _images.Count - 1; i >= 0; i--)
                     {
                         var img = _images[i];
-                        img.CellY--;
+                        int delta = newlyEvicted > int.MaxValue ? int.MaxValue : (int)newlyEvicted;
+                        img.CellY -= delta;
                         // If the image's entire area is now before the new index 0, prune it.
                         if (img.CellY + img.CellHeight <= 0)
                         {
@@ -433,8 +439,6 @@ namespace NovaTerminal.Core
                         }
                     }
                 }
-                // Note: If NOT pruning, we don't shift CellY. The absolute index of 
-                // viewport[0] didn't change (it just became the last index of scrollback).
             }
             else
             {

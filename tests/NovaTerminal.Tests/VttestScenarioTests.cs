@@ -30,7 +30,7 @@ namespace NovaTerminal.Tests
         public void PrimaryDA_ShouldRespondCorrectly()
         {
             var buffer = CreateBuffer();
-            string response = null;
+            string? response = null;
             var parser = CreateParser(buffer, r => response = r);
 
             // CSI c (Primary DA)
@@ -44,7 +44,7 @@ namespace NovaTerminal.Tests
         public void SecondaryDA_ShouldRespondCorrectly()
         {
             var buffer = CreateBuffer();
-            string response = null;
+            string? response = null;
             var parser = CreateParser(buffer, r => response = r);
 
             // CSI > c (Secondary DA)
@@ -58,7 +58,7 @@ namespace NovaTerminal.Tests
         public void CursorPositionReport_ShouldReturnCorrectCoordinates()
         {
             var buffer = CreateBuffer();
-            string response = null;
+            string? response = null;
             var parser = CreateParser(buffer, r => response = r);
 
             // Move cursor to 5, 10 (0-indexed -> 1-indexed 6, 11)

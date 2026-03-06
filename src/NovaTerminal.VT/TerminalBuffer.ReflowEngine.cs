@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using NovaTerminal.Core.Storage;
 
 namespace NovaTerminal.Core
 {
@@ -11,11 +12,12 @@ namespace NovaTerminal.Core
         {
             private readonly SavedCursorStates _savedCursors;
             private TerminalRow[] _viewport;
-            private CircularBuffer<TerminalRow> _scrollback;
+            private ScrollbackPages? _scrollback;
+            private readonly List<TerminalRow> _history;
             private readonly List<TerminalImage> _images;
             private readonly bool _isAltScreen;
             private readonly TerminalTheme Theme;
-            private readonly int MaxHistory;
+            private readonly long _maxScrollbackBytes;
             private int _cursorRow;
             private int _cursorCol;
             private readonly Func<string, int> _getGraphemeWidth;
@@ -25,10 +27,11 @@ namespace NovaTerminal.Core
                 _savedCursors = source._savedCursors;
                 _viewport = source._viewport;
                 _scrollback = source._scrollback;
+                _history = new List<TerminalRow>(_scrollback.Count + source.Rows);
+                _maxScrollbackBytes = source.MaxScrollbackBytes;
                 _images = source._images;
                 _isAltScreen = source._isAltScreen;
                 Theme = source.Theme;
-                MaxHistory = source.MaxHistory;
                 _cursorRow = source._cursorRow;
                 _cursorCol = source._cursorCol;
                 _getGraphemeWidth = source.GetGraphemeWidth;
@@ -109,7 +112,15 @@ namespace NovaTerminal.Core
                     var logicalLines = new List<(int StartIdx, int Length, bool IsWrapped, int StartPhysIdx)>(totalPhysRows);
 
                     // Fill rented array
-                    for (int i = 0; i < _scrollback.Count; i++) allPhysicalRows[i] = _scrollback[i];
+                    for (int i = 0; i < _scrollback.Count; i++)
+                    {
+                        var rowCells = _scrollback.GetRow(i);
+                        var row = new TerminalRow(oldCols, Theme.Foreground, Theme.Background);
+                        rowCells.CopyTo(row.Cells);
+                        row.IsWrapped = _scrollback.IsRowWrapped(i);
+                        // NOTE: Extended text is lost in scrollback until Step 5
+                        allPhysicalRows[i] = row;
+                    }
                     for (int i = 0; i < vpRowsToTake; i++)
                     {
                         if (i < actualVpLen) allPhysicalRows[_scrollback.Count + i] = _viewport[i];
@@ -570,19 +581,22 @@ namespace NovaTerminal.Core
                     {
                         sbCount += (activeContentSize - newRows);
                     }
-                    // Grow Adjustment: If active content fits, we keep sbCount as is. Viewport will have padding at bottom.
 
                     // Ensure safety
                     sbCount = Math.Clamp(sbCount, 0, total);
                     int vpCount = total - sbCount;
 
-                    int initialScrollbackCount = _scrollback.Count;
-                    for (int i = 0; i < sbCount; i++) _scrollback.Add(allFlowedRows[i]);
-
-                    // CircularBuffer auto-evicts when at capacity
-                    // Calculate how many rows were discarded due to auto-eviction
-                    int discardedRows = Math.Max(0, (initialScrollbackCount + sbCount) - _scrollback.Count);
-                    sbCount -= discardedRows;
+                    // Create new ScrollbackPages instance
+                    var newScrollback = new ScrollbackPages(newCols, _sharedPagePool, _maxScrollbackBytes);
+                    
+                    long prevEvicted = 0;
+                    for (int i = 0; i < sbCount; i++)
+                    {
+                        newScrollback.AppendRow(allFlowedRows[i].Cells, allFlowedRows[i].IsWrapped);
+                    }
+                    
+                    int discardedRows = (int)newScrollback.TotalRowsEvicted;
+                    _scrollback = newScrollback;
 
                     // Fill viewport
                     // If vpCount < newRows (Growth), we will have empty space at the bottom (Top Anchoring).
@@ -705,7 +719,7 @@ namespace NovaTerminal.Core
                 {
                     try { System.IO.File.AppendAllText("error.log", "\n--- Reflow Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
                     // Failsafe: if reflow crashes, we just reset the buffer to a clean state to avoid permanent hang
-                    _scrollback.Clear();
+                    _scrollback = new ScrollbackPages(newCols, _sharedPagePool, _maxScrollbackBytes);
                     _viewport = new TerminalRow[newRows];
                     for (int i = 0; i < newRows; i++) _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
                     _cursorRow = 0;

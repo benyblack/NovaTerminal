@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using NovaTerminal.Core.Storage;
 
 namespace NovaTerminal.Core
 {
@@ -70,45 +71,46 @@ namespace NovaTerminal.Core
                     else
                     {
                         // Main screen: Still needs redistribution to maintain scrollback vs viewport split
-                        // but we don't need the expensive logical line reconstruction.
-
-                        // Combine all current rows
-                        var all = new List<TerminalRow>(_scrollback.Count + oldRows);
-                        all.AddRange(_scrollback);
-                        all.AddRange(_viewport);
-
-                        int initialSbCount = _scrollback.Count;
-                        _scrollback.Clear();
-                        _viewport = new TerminalRow[newRows];
-
-                        int total = all.Count;
-                        int vpStart;
+                        
                         if (newRows < oldRows)
                         {
                             // Shrink height: push top of viewport to scrollback
-                            vpStart = initialSbCount + (oldRows - newRows);
+                            int diff = oldRows - newRows;
+                            long prevEvicted = _scrollback.TotalRowsEvicted;
+
+                            for (int i = 0; i < diff; i++)
+                            {
+                                _scrollback.AppendRow(_viewport[i].Cells);
+                            }
+
+                            var newVp = new TerminalRow[newRows];
+                            Array.Copy(_viewport, diff, newVp, 0, newRows);
+                            _viewport = newVp;
+                            _cursorRow -= diff;
+
+                            long newlyEvicted = _scrollback.TotalRowsEvicted - prevEvicted;
+                            if (newlyEvicted > 0)
+                            {
+                                for (int i = _images.Count - 1; i >= 0; i--)
+                                {
+                                    var img = _images[i];
+                                    int delta = newlyEvicted > int.MaxValue ? int.MaxValue : (int)newlyEvicted;
+                                    img.CellY -= delta;
+                                    if (img.CellY + img.CellHeight <= 0) _images.RemoveAt(i);
+                                }
+                            }
                         }
-                        else
+                        else if (newRows > oldRows)
                         {
                             // Grow height: anchor to top of current viewport (add padding at bottom)
-                            vpStart = initialSbCount;
+                            var newVp = new TerminalRow[newRows];
+                            Array.Copy(_viewport, 0, newVp, 0, oldRows);
+                            for (int i = oldRows; i < newRows; i++)
+                            {
+                                newVp[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
+                            }
+                            _viewport = newVp;
                         }
-                        vpStart = Math.Max(0, Math.Min(vpStart, total));
-
-                        for (int i = 0; i < vpStart; i++) _scrollback.Add(all[i]);
-                        for (int i = 0; i < newRows; i++)
-                        {
-                            if (vpStart + i < total) _viewport[i] = all[vpStart + i];
-                            else _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
-                        }
-
-                        // Clamping and relative adjustment
-                        if (newRows < oldRows)
-                        {
-                            // If we shrank, the cursor moves up relative to the viewport top
-                            _cursorRow -= (oldRows - newRows);
-                        }
-                        // If we grew, _cursorRow stays same (anchored to top)
 
                         _cursorRow = Math.Clamp(_cursorRow, 0, newRows - 1);
                         _cursorCol = Math.Clamp(_cursorCol, 0, newCols);
@@ -228,74 +230,62 @@ namespace NovaTerminal.Core
 
             if (newRows > oldRows)
             {
-                // GROW: Pull lines from scrollback logic
-                // We need (newRows - oldRows) extra lines at the top.
+                // GROW: Pull lines from scrollback
                 int linesNeeded = newRows - oldRows;
-                int linesAvailable = _scrollback.Count;
-                int linesToPull = Math.Min(linesNeeded, linesAvailable);
+                int pulled = 0;
 
-                // 1. Pull lines from Scrollback
-                for (int i = 0; i < linesToPull; i++)
+                // We want to fill the TOP of the new viewport with lines from history
+                for (int i = linesNeeded - 1; i >= 0; i--)
                 {
-                    // Get 'linesToPull' lines from the END of scrollback
-                    // Order: If we pull 2 lines (idx 98, 99).
-                    // NewViewport[0] = 98. NewViewport[1] = 99.
-                    newViewport[i] = _scrollback[_scrollback.Count - linesToPull + i];
-                }
-
-                // 2. Remove pulled lines from scrollback
-                // CircularBuffer doesn't support RemoveRange from the end
-                // We need to rebuild the scrollback without the last N lines
-                if (linesToPull > 0)
-                {
-                    var tempScrollback = new CircularBuffer<TerminalRow>(MaxHistory);
-                    int keepCount = _scrollback.Count - linesToPull;
-                    for (int i = 0; i < keepCount; i++)
+                    var row = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+                    if (_scrollback.TryPopLastRow(row.Cells))
                     {
-                        tempScrollback.Add(_scrollback[i]);
+                        newViewport[i] = row;
+                        pulled++;
                     }
-                    _scrollback = tempScrollback;
+                    else
+                    {
+                        newViewport[i] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+                    }
                 }
 
-                // 3. Copy OLD Viewport
-                for (int i = 0; i < oldRows; i++)
+                Array.Copy(_viewport, 0, newViewport, linesNeeded, oldRows);
+                _cursorRow += linesNeeded;
+                
+                // Shift images DOWN
+                for (int i = 0; i < _images.Count; i++)
                 {
-                    newViewport[linesToPull + i] = _viewport[i];
+                    _images[i].CellY += linesNeeded;
                 }
-
-                // 4. Fill remaining empty space at bottom
-                // (If we didn't have enough history to fill the top)
-                int filledRows = linesToPull + oldRows;
-                for (int i = filledRows; i < newRows; i++)
-                {
-                    newViewport[i] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
-                }
-
-                // Adjust cursor: Content moved DOWN by 'linesToPull'
-                _cursorRow += linesToPull;
             }
             else
             {
-                // SHRINK: Push lines to scrollback logic
+                // SHRINK: Push lines to scrollback
                 int linesToPush = oldRows - newRows;
+                long prevEvicted = _scrollback.TotalRowsEvicted;
 
-                // 1. Push top lines to scrollback
                 for (int i = 0; i < linesToPush; i++)
                 {
-                    _scrollback.Add(_viewport[i]);
+                    _scrollback.AppendRow(_viewport[i].Cells);
                 }
 
-                // 2. Copy remaining lines to new viewport
-                for (int i = 0; i < newRows; i++)
-                {
-                    newViewport[i] = _viewport[linesToPush + i];
-                }
-
-                // Adjust cursor: Content moved UP by 'linesToPush'
+                Array.Copy(_viewport, linesToPush, newViewport, 0, newRows);
                 _cursorRow -= linesToPush;
+
+                int newlyDiscarded = (int)(_scrollback.TotalRowsEvicted - prevEvicted);
+
+                // Shift images UP
+                for (int i = _images.Count - 1; i >= 0; i--)
+                {
+                    var img = _images[i];
+                    img.CellY -= (linesToPush + newlyDiscarded);
+                    if (img.CellY + img.CellHeight <= 0) _images.RemoveAt(i);
+                }
             }
 
             _viewport = newViewport;
+            _cursorRow = Math.Clamp(_cursorRow, 0, newRows - 1);
+            _cursorCol = Math.Clamp(_cursorCol, 0, Cols);
         }
 
         private void Reflow(int oldCols, int oldRows, int newCols, int newRows)

@@ -1,6 +1,7 @@
 
 using System;
 using System.Collections.Generic;
+using NovaTerminal.Core.Storage;
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("NovaTerminal.Tests")]
@@ -17,13 +18,15 @@ namespace NovaTerminal.Core
         // Alternate screen buffer support (for vim, htop, less, etc.)
         private TerminalRow[] _mainScreen;
         private TerminalRow[] _altScreen;
-        private CircularBuffer<TerminalRow> _mainScreenScrollback; // Preserve main screen scrollback
         private bool _isAltScreen = false;
         public bool IsAltScreenActive => _isAltScreen;
 
         // Scrollback buffer - historical lines that scrolled off the top
-        private CircularBuffer<TerminalRow> _scrollback;
+        private ScrollbackPages _scrollback;
+        private static readonly TerminalPagePool _sharedPagePool = new();
+
         public int MaxHistory { get; set; } = 10000;
+        public long MaxScrollbackBytes { get; set; } = 128L * 1024 * 1024;
 
         // Graphics support
         private readonly List<TerminalImage> _images = new();
@@ -80,7 +83,7 @@ namespace NovaTerminal.Core
         // Internal access for properties to avoid recursive locking
         public int InternalTotalLines => _isAltScreen ? Rows : (_scrollback.Count + Rows);
 
-        public IReadOnlyList<TerminalRow> ScrollbackRows => _scrollback;
+        public ScrollbackPages Scrollback => _scrollback;
         public IReadOnlyList<TerminalRow> ViewportRows => _viewport;
         public int TotalLines => _isAltScreen ? Rows : (_scrollback.Count + Rows);
 
@@ -114,15 +117,16 @@ namespace NovaTerminal.Core
             IsDefaultForeground = true;
             IsDefaultBackground = true;
 
-            // Initialize scrollback buffers
-            _scrollback = new CircularBuffer<TerminalRow>(MaxHistory);
-            _mainScreenScrollback = new CircularBuffer<TerminalRow>(MaxHistory);
+            // Initialize scrollback buffer
+            _scrollback = new ScrollbackPages(cols, _sharedPagePool, MaxScrollbackBytes);
 
             _viewport = new TerminalRow[rows];
             for (int i = 0; i < rows; i++)
             {
                 _viewport[i] = new TerminalRow(cols, Theme.Foreground, Theme.Background);
             }
+
+            _sharedPagePool.Preheat(TerminalPageConstants.PreheatPagesPerInstance, cols);
 
             // Initialize alternate screen buffer
             _mainScreen = _viewport;  // Main screen is the default viewport

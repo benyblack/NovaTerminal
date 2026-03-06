@@ -13,14 +13,56 @@ namespace NovaTerminal.Core
             public long LastUsed;
         }
 
+        private readonly struct GlyphKey : IEquatable<GlyphKey>
+        {
+            public readonly string Text;
+            public readonly SKTypeface Typeface;
+            public readonly float Size;
+            public readonly float Skew;
+            public readonly float Scale;
+
+            public GlyphKey(string text, SKTypeface typeface, float size, float skew, float scale)
+            {
+                Text = text;
+                Typeface = typeface;
+                Size = size;
+                Skew = skew;
+                Scale = scale;
+            }
+
+            public bool Equals(GlyphKey other)
+            {
+                return Text == other.Text &&
+                       Typeface == other.Typeface &&
+                       Size.Equals(other.Size) &&
+                       Skew.Equals(other.Skew) &&
+                       Scale.Equals(other.Scale);
+            }
+
+            public override bool Equals(object? obj) => obj is GlyphKey other && Equals(other);
+
+            public override int GetHashCode()
+            {
+                var hash = new HashCode();
+                hash.Add(Text);
+                hash.Add(Typeface);
+                hash.Add(Size);
+                hash.Add(Skew);
+                hash.Add(Scale);
+                return hash.ToHashCode();
+            }
+        }
+
         private readonly object _lock = new();
         private readonly List<SKImage> _disposalQueue = new();
         private readonly GlyphAtlas _atlas;
-        private readonly Dictionary<string, CacheEntry> _entries = new();
+        private readonly Dictionary<GlyphKey, CacheEntry> _entries = new();
         private long _usageCounter = 0;
 
-        // Key format: "Text|FontName|Size|Skew|Scale"
         // Color is NOT part of the key for Alpha8 as we color it during DrawAtlas.
+
+        public int EntryCount => _entries.Count;
+        public long AtlasByteSize => GlyphAtlas.AtlasSize * GlyphAtlas.AtlasSize * 4 * 2; // 2 surfaces, RGBA8888
 
         public GlyphCache()
         {
@@ -29,9 +71,11 @@ namespace NovaTerminal.Core
 
         public (SKRect Rect, AtlasType Type)? GetOrAdd(string text, SKFont font, float scale)
         {
+            if (string.IsNullOrEmpty(text)) return null;
+
             lock (_lock)
             {
-                string key = $"{text}|{font.Typeface.FamilyName}|{font.Size}|{font.SkewX}|{scale}";
+                var key = new GlyphKey(text, font.Typeface, font.Size, font.SkewX, scale);
 
                 if (_entries.TryGetValue(key, out var entry))
                 {
