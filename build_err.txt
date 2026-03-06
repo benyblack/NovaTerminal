@@ -1,0 +1,31 @@
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [D:\projects\nova2\src\NovaTerminal.Replay\NovaTerminal.Replay.csproj]
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [D:\projects\nova2\src\NovaTerminal.Pty\NovaTerminal.Pty.csproj]
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [D:\projects\nova2\src\NovaTerminal.VT\NovaTerminal.VT.csproj]
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [D:\projects\nova2\src\NovaTerminal.Core\NovaTerminal.Core.csproj]
+C:\Program Files\dotnet\sdk\10.0.200-preview.0.26103.119\Sdks\Microsoft.NET.Sdk\targets\Microsoft.NET.RuntimeIdentifierInference.targets(383,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [D:\projects\nova2\src\NovaTerminal.App\NovaTerminal.App.csproj]
+  NovaTerminal.VT -> D:\projects\nova2\src\NovaTerminal.VT\bin\Release\net10.0\NovaTerminal.VT.dll
+  NovaTerminal.Rendering -> D:\projects\nova2\src\NovaTerminal.Rendering\bin\Release\net10.0\NovaTerminal.Rendering.dll
+  NovaTerminal.Replay -> D:\projects\nova2\src\NovaTerminal.Replay\bin\Release\net10.0\NovaTerminal.Replay.dll
+  NovaTerminal.Pty -> D:\projects\nova2\src\NovaTerminal.Pty\bin\Release\net10.0\NovaTerminal.Pty.dll
+  NovaTerminal.Core -> D:\projects\nova2\src\NovaTerminal.Core\bin\Release\net10.0\NovaTerminal.Core.dll
+  NovaTerminal.App -> D:\projects\nova2\src\NovaTerminal.App\bin\Release\net10.0\NovaTerminal.dll
+D:\projects\nova2\tests\NovaTerminal.Tests\BufferTests\ScrollbackThemeTests.cs(14,42): error CS1739: The best overload for 'TerminalPagePool' does not have a parameter named 'preheatInstances' [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\tests\NovaTerminal.Tests\Buffer\ScrollbackPagesTests.cs(14,42): error CS1739: The best overload for 'TerminalPagePool' does not have a parameter named 'preheatInstances' [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\tests\NovaTerminal.Tests\GraphicsTests.cs(21,31): warning CS8600: Converting null literal or possible null value to non-nullable type. [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\tests\NovaTerminal.Tests\BufferTests\ScrollbackThemeTests.cs(31,30): error CS1729: 'TerminalBuffer' does not contain a constructor that takes 3 arguments [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\tests\NovaTerminal.Tests\GraphicsTests.cs(68,31): warning CS8600: Converting null literal or possible null value to non-nullable type. [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+
+Build FAILED.
+
+D:\projects\nova2\tests\NovaTerminal.Tests\GraphicsTests.cs(21,31): warning CS8600: Converting null literal or possible null value to non-nullable type. [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\tests\NovaTerminal.Tests\GraphicsTests.cs(68,31): warning CS8600: Converting null literal or possible null value to non-nullable type. [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\tests\NovaTerminal.Tests\BufferTests\ScrollbackThemeTests.cs(14,42): error CS1739: The best overload for 'TerminalPagePool' does not have a parameter named 'preheatInstances' [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\tests\NovaTerminal.Tests\Buffer\ScrollbackPagesTests.cs(14,42): error CS1739: The best overload for 'TerminalPagePool' does not have a parameter named 'preheatInstances' [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+D:\projects\nova2\tests\NovaTerminal.Tests\BufferTests\ScrollbackThemeTests.cs(31,30): error CS1729: 'TerminalBuffer' does not contain a constructor that takes 3 arguments [D:\projects\nova2\tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj]
+    2 Warning(s)
+    3 Error(s)
+
+Time Elapsed 00:00:01.55

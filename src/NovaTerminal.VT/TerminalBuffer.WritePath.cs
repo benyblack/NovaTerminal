@@ -430,7 +430,8 @@ namespace NovaTerminal.Core
                     for (int i = _images.Count - 1; i >= 0; i--)
                     {
                         var img = _images[i];
-                        img.CellY -= (int)newlyEvicted;
+                        int delta = newlyEvicted > int.MaxValue ? int.MaxValue : (int)newlyEvicted;
+                        img.CellY -= delta;
                         // If the image's entire area is now before the new index 0, prune it.
                         if (img.CellY + img.CellHeight <= 0)
                         {

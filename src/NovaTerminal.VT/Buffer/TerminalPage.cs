@@ -31,6 +31,10 @@ namespace NovaTerminal.Core.Storage
         public int UsedRows;
 
         private bool _returned;
+        
+        /// <summary>Returns true if this page has been returned to the pool and should not be accessed.</summary>
+        public bool IsReturned => _returned;
+        
         private ulong _isWrappedMask;
 
         public TerminalPage(int rowsInPage, int cols)
@@ -131,6 +135,26 @@ namespace NovaTerminal.Core.Storage
             if ((uint)rowIndex >= (uint)RowsInPage) throw new ArgumentOutOfRangeException(nameof(rowIndex));
             if (wrapped) _isWrappedMask |= (1UL << rowIndex);
             else _isWrappedMask &= ~(1UL << rowIndex);
+        }
+
+        /// <summary>
+        /// Updates cells that rely on default foreground or background colors to a new theme.
+        /// This is an O(n) operation over all used cells, invoked rarely during a theme change.
+        /// </summary>
+        public void UpdateThemeDefaults(uint newFg, uint newBg)
+        {
+            var span = Cells.AsSpan(0, UsedRows * Cols);
+            for (int i = 0; i < span.Length; i++)
+            {
+                if (span[i].IsDefaultForeground)
+                {
+                    span[i].Fg = newFg;
+                }
+                if (span[i].IsDefaultBackground)
+                {
+                    span[i].Bg = newBg;
+                }
+            }
         }
 
         // ── Private ──────────────────────────────────────────────────────────────

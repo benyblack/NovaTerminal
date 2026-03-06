@@ -87,7 +87,7 @@ namespace NovaTerminal.Tests
             parser.Process("\x1b_Ga=q,i=31\x1b\\");
 
             Assert.NotNull(response);
-            Assert.Contains(";ERR", response, StringComparison.Ordinal);
+            Assert.Contains(";ERR", response!, StringComparison.Ordinal);
         }
 
         [Fact]
@@ -102,7 +102,7 @@ namespace NovaTerminal.Tests
             parser.Process("\x1b]1339;K:Ga=q,i=31\x07");
 
             Assert.NotNull(response);
-            Assert.Contains(";OK", response, StringComparison.Ordinal);
+            Assert.Contains(";OK", response!, StringComparison.Ordinal);
         }
     }
 }

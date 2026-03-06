@@ -94,7 +94,8 @@ namespace NovaTerminal.Core
                                 for (int i = _images.Count - 1; i >= 0; i--)
                                 {
                                     var img = _images[i];
-                                    img.CellY -= (int)newlyEvicted;
+                                    int delta = newlyEvicted > int.MaxValue ? int.MaxValue : (int)newlyEvicted;
+                                    img.CellY -= delta;
                                     if (img.CellY + img.CellHeight <= 0) _images.RemoveAt(i);
                                 }
                             }

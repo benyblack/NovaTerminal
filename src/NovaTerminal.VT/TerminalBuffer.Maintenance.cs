@@ -198,19 +198,7 @@ namespace NovaTerminal.Core
                     _viewport[r].TouchRevision();
                 }
 
-                /*
-                foreach (var row in _scrollback)
-                {
-                    for (int c = 0; c < row.Cells.Length; c++)
-                    {
-                        UpdateCell(ref row.Cells[c]);
-                    }
-                    row.TouchRevision();
-                }
-                */
-                // TODO: Paged scrollback theme update needs to update cells inside TerminalPages.
-                // This is a performance hit but necessary for correctness if theme changes.
-                // For now, we skip it as it's a rare case, but we should address it in Step 7.
+                _scrollback.UpdateThemeDefaults(oldTheme, Theme);
 
                 foreach (var row in _mainScreen) row.TouchRevision();
                 foreach (var row in _altScreen) row.TouchRevision();

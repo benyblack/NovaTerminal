@@ -58,6 +58,10 @@ namespace NovaTerminal.Core.Storage
         private long _totalRowsAppended;
         private long _totalRowsEvicted;
 
+        // Cache for O(1) sequential GetRow access during reflow
+        private TerminalPage? _lastAccessedPage;
+        private long _lastAccessedPageStartAbsRow;
+
         // ── Properties ───────────────────────────────────────────────────────────
 
         /// <summary>Number of rows currently accessible (after eviction).</summary>
@@ -158,6 +162,18 @@ namespace NovaTerminal.Core.Storage
                 throw new ArgumentOutOfRangeException(nameof(logicalIndex));
 
             long absRow = _totalRowsEvicted + logicalIndex;
+            
+            // Fast path: Sequential access cache
+            if (_lastAccessedPage != null && !_lastAccessedPage.IsReturned)
+            {
+                long pageEndAbs = _lastAccessedPageStartAbsRow + _lastAccessedPage.UsedRows;
+                if (absRow >= _lastAccessedPageStartAbsRow && absRow < pageEndAbs)
+                {
+                    int rowInPage = (int)(absRow - _lastAccessedPageStartAbsRow);
+                    return _lastAccessedPage.GetRowSpanReadOnly(rowInPage);
+                }
+            }
+
             long pageStartAbs = _totalRowsEvicted;
 
             foreach (var page in _pages)
@@ -166,6 +182,8 @@ namespace NovaTerminal.Core.Storage
                 if (absRow < pageEndAbs)
                 {
                     int rowInPage = (int)(absRow - pageStartAbs);
+                    _lastAccessedPage = page;
+                    _lastAccessedPageStartAbsRow = pageStartAbs;
                     return page.GetRowSpanReadOnly(rowInPage);
                 }
                 pageStartAbs = pageEndAbs;
@@ -235,6 +253,23 @@ namespace NovaTerminal.Core.Storage
             _currentBytes = 0;
             _totalRowsAppended = 0;
             _totalRowsEvicted = 0;
+            
+            _lastAccessedPage = null;
+            _lastAccessedPageStartAbsRow = 0;
+        }
+
+        /// <summary>
+        /// Updates the default foreground and background colors for all cells currently retained.
+        /// This is allowed to be a slower full-scan because theme changes are infrequent.
+        /// </summary>
+        public void UpdateThemeDefaults(TerminalTheme oldTheme, TerminalTheme newTheme)
+        {
+            uint fgUint = newTheme.Foreground.ToUint();
+            uint bgUint = newTheme.Background.ToUint();
+            foreach (var page in _pages)
+            {
+                page.UpdateThemeDefaults(fgUint, bgUint);
+            }
         }
 
         /// <summary>
