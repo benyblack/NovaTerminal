@@ -30,6 +30,23 @@ namespace NovaTerminal.Core.Storage
         public int Count => _dictionary?.Count ?? _count;
 
         /// <summary>
+        /// Iterates over all key-value pairs without allocation.
+        /// </summary>
+        public void ForEach(System.Action<int, T> action)
+        {
+            if (_dictionary != null)
+            {
+                foreach (var kvp in _dictionary) action(kvp.Key, kvp.Value);
+                return;
+            }
+            if (_entries != null)
+            {
+                for (int i = 0; i < _count; i++)
+                    action(_entries[i].Key, _entries[i].Value);
+            }
+        }
+
+        /// <summary>
         /// Attempts to get the value associated with the specified key.
         /// </summary>
         public bool TryGet(int key, out T? value)

@@ -65,6 +65,18 @@ namespace NovaTerminal.Core
             _hyperlinks = null;
         }
 
+        /// <summary>
+        /// Returns the raw SmallMap backing extended text (grapheme clusters) for this row.
+        /// This is intended for preservation into paged scrollback — do not cache or mutate.
+        /// </summary>
+        public Storage.SmallMap<string>? GetExtendedTextMap() => _extendedText;
+
+        /// <summary>
+        /// Returns the raw SmallMap backing hyperlinks for this row.
+        /// This is intended for preservation into paged scrollback — do not cache or mutate.
+        /// </summary>
+        public Storage.SmallMap<string>? GetHyperlinkMap() => _hyperlinks;
+
         public TerminalRow(int cols)
         {
             Id = System.Threading.Interlocked.Increment(ref _nextId);

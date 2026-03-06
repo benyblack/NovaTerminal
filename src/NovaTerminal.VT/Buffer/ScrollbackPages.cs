@@ -103,7 +103,13 @@ namespace NovaTerminal.Core.Storage
         /// </summary>
         /// <param name="row">Read-only span of exactly <see cref="_cols"/> cells.</param>
         /// <param name="isWrapped">Whether this row is wrapped (flows into the next).</param>
-        public void AppendRow(ReadOnlySpan<TerminalCell> row, bool isWrapped = false)
+        /// <param name="extendedText">Optional extended grapheme clusters keyed by column index.</param>
+        /// <param name="hyperlinks">Optional hyperlink URIs keyed by column index.</param>
+        public long AppendRow(
+            ReadOnlySpan<TerminalCell> row,
+            bool isWrapped = false,
+            SmallMap<string>? extendedText = null,
+            SmallMap<string>? hyperlinks = null)
         {
             if (row.Length != _cols)
                 throw new ArgumentException($"Row length {row.Length} must equal Cols {_cols}.", nameof(row));
@@ -120,10 +126,15 @@ namespace NovaTerminal.Core.Storage
             int rowIndex = currentPage.UsedRows;
             row.CopyTo(currentPage.GetRowSpan(rowIndex));
             currentPage.SetRowWrapped(rowIndex, isWrapped);
+            if (extendedText != null && extendedText.Count > 0)
+                currentPage.SetExtendedTextFromMap(rowIndex, extendedText);
+            if (hyperlinks != null && hyperlinks.Count > 0)
+                currentPage.SetHyperlinkFromMap(rowIndex, hyperlinks);
             currentPage.UsedRows++;
             _totalRowsAppended++;
 
             TryEvictUntilWithinBudget();
+            return _totalRowsAppended - 1; // absolute row index just appended
         }
 
         /// <summary>
@@ -198,6 +209,46 @@ namespace NovaTerminal.Core.Storage
         public void CopyRowTo(int logicalIndex, Span<TerminalCell> destination)
         {
             GetRow(logicalIndex).CopyTo(destination);
+        }
+
+        /// <summary>Returns the extended text SmallMap for the given logical row, or null if none.</summary>
+        public SmallMap<string>? GetExtendedTextMap(int logicalIndex)
+        {
+            (TerminalPage page, int rowInPage) = FindPage(logicalIndex);
+            return page.GetExtendedTextMap(rowInPage);
+        }
+
+        /// <summary>Returns the hyperlink SmallMap for the given logical row, or null if none.</summary>
+        public SmallMap<string>? GetHyperlinkMap(int logicalIndex)
+        {
+            (TerminalPage page, int rowInPage) = FindPage(logicalIndex);
+            return page.GetHyperlinkMap(rowInPage);
+        }
+
+        /// <summary>
+        /// Helper to find the <see cref="TerminalPage"/> and row index within that page
+        /// for a given logical row index.
+        /// </summary>
+        private (TerminalPage page, int rowInPage) FindPage(int logicalIndex)
+        {
+            if ((uint)logicalIndex >= (uint)Count)
+                throw new ArgumentOutOfRangeException(nameof(logicalIndex));
+
+            long absRow = _totalRowsEvicted + logicalIndex;
+            long pageStartAbs = _totalRowsEvicted;
+
+            foreach (var page in _pages)
+            {
+                long pageEndAbs = pageStartAbs + page.UsedRows;
+                if (absRow < pageEndAbs)
+                {
+                    int rowInPage = (int)(absRow - pageStartAbs);
+                    return (page, rowInPage);
+                }
+                pageStartAbs = pageEndAbs;
+            }
+
+            throw new InvalidOperationException($"Row {logicalIndex} not found in pages (absRow={absRow}).");
         }
 
         /// <summary>

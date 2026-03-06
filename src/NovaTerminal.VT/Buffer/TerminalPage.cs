@@ -37,6 +37,11 @@ namespace NovaTerminal.Core.Storage
         
         private ulong _isWrappedMask;
 
+        // Sparse per-row metadata side-channels. null = no extended text/hyperlinks on any row in this page.
+        // Indexed by rowIndex (0..RowsInPage-1). Each element is null if that row has no metadata.
+        private SmallMap<string>?[]? _extendedText;
+        private SmallMap<string>?[]? _hyperlinks;
+
         public TerminalPage(int rowsInPage, int cols)
         {
             if (rowsInPage <= 0) throw new ArgumentOutOfRangeException(nameof(rowsInPage));
@@ -99,7 +104,7 @@ namespace NovaTerminal.Core.Storage
         }
 
         /// <summary>
-        /// Resets all rows to default cells and sets UsedRows to 0.
+        /// <summary>Resets all rows to default cells and sets UsedRows to 0.
         /// Called by the pool before returning the page for reuse.
         /// </summary>
         public void Reset()
@@ -107,6 +112,8 @@ namespace NovaTerminal.Core.Storage
             UsedRows = 0;
             _returned = false;
             _isWrappedMask = 0;
+            _extendedText = null;
+            _hyperlinks = null;
             ResetCells();
         }
 
@@ -119,6 +126,8 @@ namespace NovaTerminal.Core.Storage
             if (_returned) return;
             _returned = true;
             _isWrappedMask = 0;
+            _extendedText = null;
+            _hyperlinks = null;
             // Clear the usable portion so pooled memory doesn't retain stale data.
             Cells.AsSpan(0, RowsInPage * Cols).Clear();
             ArrayPool<TerminalCell>.Shared.Return(Cells, clearArray: false);
@@ -136,6 +145,61 @@ namespace NovaTerminal.Core.Storage
             if (wrapped) _isWrappedMask |= (1UL << rowIndex);
             else _isWrappedMask &= ~(1UL << rowIndex);
         }
+
+        // ── Extended Text Metadata ───────────────────────────────────────────────
+
+        /// <summary>Gets the extended text (grapheme cluster) for a cell, or null if none.</summary>
+        public string? GetExtendedText(int rowIndex, int col)
+        {
+            if (_extendedText == null) return null;
+            var map = _extendedText[rowIndex];
+            if (map == null) return null;
+            return map.TryGet(col, out var text) ? text : null;
+        }
+
+        /// <summary>Sets the extended text for a cell in the specified row.</summary>
+        public void SetExtendedText(int rowIndex, int col, string? text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            _extendedText ??= new SmallMap<string>?[RowsInPage];
+            _extendedText[rowIndex] ??= new SmallMap<string>();
+            _extendedText[rowIndex]!.Set(col, text);
+        }
+
+        /// <summary>Copies all extended text entries from an existing SmallMap into the specified row.</summary>
+        public void SetExtendedTextFromMap(int rowIndex, SmallMap<string>? source)
+        {
+            if (source == null || source.Count == 0) return;
+            _extendedText ??= new SmallMap<string>?[RowsInPage];
+            _extendedText[rowIndex] = source;
+        }
+
+        /// <summary>Returns the raw SmallMap for the row's extended text (null if none).</summary>
+        public SmallMap<string>? GetExtendedTextMap(int rowIndex) =>
+            _extendedText?[rowIndex];
+
+        // ── Hyperlink Metadata ───────────────────────────────────────────────────
+
+        /// <summary>Gets the hyperlink URL for a cell, or null if none.</summary>
+        public string? GetHyperlink(int rowIndex, int col)
+        {
+            if (_hyperlinks == null) return null;
+            var map = _hyperlinks[rowIndex];
+            if (map == null) return null;
+            return map.TryGet(col, out var link) ? link : null;
+        }
+
+        /// <summary>Copies all hyperlink entries from an existing SmallMap into the specified row.</summary>
+        public void SetHyperlinkFromMap(int rowIndex, SmallMap<string>? source)
+        {
+            if (source == null || source.Count == 0) return;
+            _hyperlinks ??= new SmallMap<string>?[RowsInPage];
+            _hyperlinks[rowIndex] = source;
+        }
+
+        /// <summary>Returns the raw SmallMap for the row's hyperlinks (null if none).</summary>
+        public SmallMap<string>? GetHyperlinkMap(int rowIndex) =>
+            _hyperlinks?[rowIndex];
 
         /// <summary>
         /// Updates cells that rely on default foreground or background colors to a new theme.
