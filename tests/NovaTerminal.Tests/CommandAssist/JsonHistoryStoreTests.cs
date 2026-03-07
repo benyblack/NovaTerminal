@@ -90,6 +90,28 @@ public sealed class JsonHistoryStoreTests : IDisposable
         Assert.Equal("git stash pop", entries[1].CommandText);
     }
 
+    [Fact]
+    public async Task TryUpdateExitCodeAsync_PersistsExitCodeAcrossStoreInstances()
+    {
+        string filePath = Path.Combine(_tempRoot, "history.json");
+        var store = new JsonHistoryStore(filePath, maxEntries: 50);
+        CommandHistoryEntry entry = CreateEntry(
+            "git status",
+            executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"),
+            exitCode: null);
+
+        await store.AppendAsync(entry);
+
+        bool updated = await store.TryUpdateExitCodeAsync(entry.Id, 17);
+
+        var reloaded = new JsonHistoryStore(filePath, maxEntries: 50);
+        IReadOnlyList<CommandHistoryEntry> entries = await reloaded.GetRecentAsync(10);
+
+        Assert.True(updated);
+        Assert.Single(entries);
+        Assert.Equal(17, entries[0].ExitCode);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempRoot))
@@ -98,7 +120,10 @@ public sealed class JsonHistoryStoreTests : IDisposable
         }
     }
 
-    private static CommandHistoryEntry CreateEntry(string commandText, DateTimeOffset? executedAt = null)
+    private static CommandHistoryEntry CreateEntry(
+        string commandText,
+        DateTimeOffset? executedAt = null,
+        int? exitCode = 0)
     {
         return new CommandHistoryEntry(
             Id: Guid.NewGuid().ToString("N"),
@@ -109,7 +134,7 @@ public sealed class JsonHistoryStoreTests : IDisposable
             ProfileId: "profile-1",
             SessionId: "session-1",
             HostId: null,
-            ExitCode: 0,
+            ExitCode: exitCode,
             IsRemote: false,
             IsRedacted: false,
             Source: CommandCaptureSource.Heuristic);

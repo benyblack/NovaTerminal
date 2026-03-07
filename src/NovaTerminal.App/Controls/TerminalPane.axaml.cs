@@ -200,11 +200,41 @@ namespace NovaTerminal.Controls
             };
             TermView.KeyDown += (_, e) =>
             {
-                if (e.Key == Key.Escape && _commandAssistController?.ViewModel.IsVisible == true)
+                if (_commandAssistController?.ViewModel.IsVisible == true)
                 {
-                    _commandAssistController.Dismiss();
-                    e.Handled = true;
-                    return;
+                    bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+                    bool isShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
+
+                    if (e.Key == Key.Escape && _commandAssistController.HandleEscape())
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (e.Key == Key.Down && _commandAssistController.MoveSelectionDown())
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (e.Key == Key.Up && _commandAssistController.MoveSelectionUp())
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (e.Key == Key.Tab && TryInsertSelectedCommandAssistSuggestion())
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+
+                    if (isCtrl && isShift && e.Key == Key.P)
+                    {
+                        _ = _commandAssistController.TogglePinSelectionAsync();
+                        e.Handled = true;
+                        return;
+                    }
                 }
 
                 if (e.Key != Key.LeftShift &&
@@ -360,6 +390,7 @@ namespace NovaTerminal.Controls
                 CommandAssistInfrastructure.GetHistoryStore(_settings),
                 CommandAssistInfrastructure.GetSecretsFilter(),
                 CommandAssistInfrastructure.GetSuggestionEngine(),
+                CommandAssistInfrastructure.GetSnippetStore(),
                 action => Dispatcher.UIThread.Post(action));
 
             if (CommandAssistBar != null)
@@ -417,6 +448,28 @@ namespace NovaTerminal.Controls
                 sessionId: Session?.Id.ToString(),
                 hostId: Profile?.Type == ConnectionType.SSH ? Profile.SshHost : null,
                 isRemote: Profile?.Type == ConnectionType.SSH);
+        }
+
+        private bool TryInsertSelectedCommandAssistSuggestion()
+        {
+            if (_commandAssistController == null || Session == null)
+            {
+                return false;
+            }
+
+            string existingQuery = _commandAssistController.ViewModel.QueryText;
+            if (!_commandAssistController.TryAcceptSelection(out string? insertionText) || insertionText == null)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrEmpty(existingQuery))
+            {
+                Session.SendInput(new string('\x7f', existingQuery.Length));
+            }
+
+            Session.SendInput(insertionText);
+            return true;
         }
 
         private static string DetermineShellKind(string? shellCommand)
@@ -500,6 +553,7 @@ namespace NovaTerminal.Controls
                     }
 
                     CommandFinished?.Invoke(this, exitCode);
+                    _ = _commandAssistController?.HandleCommandFinishedAsync(exitCode);
                 });
             };
 

@@ -12,7 +12,8 @@ public sealed class HistorySuggestionEngineTests
         var context = new CommandAssistQueryContext(
             Input: "git sta",
             WorkingDirectory: @"C:\repo",
-            ShellKind: "pwsh");
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
 
         var entries = new[]
         {
@@ -32,7 +33,8 @@ public sealed class HistorySuggestionEngineTests
         var context = new CommandAssistQueryContext(
             Input: "dotnet t",
             WorkingDirectory: @"C:\repo",
-            ShellKind: "pwsh");
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
 
         var entries = new[]
         {
@@ -52,7 +54,8 @@ public sealed class HistorySuggestionEngineTests
         var context = new CommandAssistQueryContext(
             Input: "npm run",
             WorkingDirectory: @"C:\repo",
-            ShellKind: "pwsh");
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
 
         var entries = new[]
         {
@@ -73,7 +76,8 @@ public sealed class HistorySuggestionEngineTests
         var context = new CommandAssistQueryContext(
             Input: "cargo t",
             WorkingDirectory: @"C:\repo-a",
-            ShellKind: "pwsh");
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
 
         var entries = new[]
         {

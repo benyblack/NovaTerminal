@@ -9,9 +9,10 @@ public static class CommandAssistInfrastructure
 {
     private static readonly object Sync = new();
     private static IHistoryStore? _historyStore;
+    private static ISnippetStore? _snippetStore;
     private static int _historyMaxEntries = -1;
     private static readonly ISecretsFilter SecretsFilterInstance = new SecretsFilter();
-    private static readonly ISuggestionEngine SuggestionEngineInstance = new HistorySuggestionEngine();
+    private static readonly ISuggestionEngine SuggestionEngineInstance = new CommandAssistSuggestionEngine();
 
     public static IHistoryStore GetHistoryStore(TerminalSettings settings)
     {
@@ -26,6 +27,15 @@ public static class CommandAssistInfrastructure
             }
 
             return _historyStore;
+        }
+    }
+
+    public static ISnippetStore GetSnippetStore()
+    {
+        lock (Sync)
+        {
+            _snippetStore ??= new JsonSnippetStore(AppPaths.CommandSnippetsFilePath);
+            return _snippetStore;
         }
     }
 
