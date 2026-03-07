@@ -161,6 +161,12 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
             : 0;
         double containsScore = lowerText.Contains(lowerQuery, StringComparison.Ordinal) ? 25 : 0;
         double subsequenceScore = IsSubsequence(lowerQuery, lowerText) ? 12 : 0;
+        double textMatchScore = prefixScore + tokenPrefixScore + containsScore + subsequenceScore;
+        if (textMatchScore <= 0)
+        {
+            return 0;
+        }
+
         double frequencyScore = frequency * 4;
         double cwdScore = Matches(context.WorkingDirectory, workingDirectory) ? 12 : 0;
         double shellScore = Matches(context.ShellKind, shellKind) ? 4 : 0;
@@ -168,7 +174,7 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
         double successScore = exitCode == 0 ? 18 : exitCode.HasValue ? -8 : 0;
         double pinScore = isPinned ? 40 : 0;
 
-        return prefixScore + tokenPrefixScore + containsScore + subsequenceScore + frequencyScore + cwdScore + shellScore + profileScore + successScore + pinScore;
+        return textMatchScore + frequencyScore + cwdScore + shellScore + profileScore + successScore + pinScore;
     }
 
     private static IReadOnlyList<string> BuildHistoryBadges(CommandHistoryEntry entry, CommandAssistQueryContext context, int frequency)

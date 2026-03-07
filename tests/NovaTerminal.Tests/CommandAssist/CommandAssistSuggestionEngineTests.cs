@@ -74,6 +74,30 @@ public sealed class CommandAssistSuggestionEngineTests
         Assert.Equal("cargo tree", results[0].InsertText);
     }
 
+    [Fact]
+    public void GetSuggestions_UnrelatedNonEmptyQuery_DoesNotReturnPinnedSnippet()
+    {
+        var engine = new CommandAssistSuggestionEngine();
+        var context = new CommandAssistQueryContext(
+            Input: "kubectl",
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
+
+        var snippets = new[]
+        {
+            CreateSnippet("Git Status", "git status", isPinned: true)
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(
+            Array.Empty<CommandHistoryEntry>(),
+            snippets,
+            context,
+            maxResults: 5);
+
+        Assert.Empty(results);
+    }
+
     private static CommandHistoryEntry CreateEntry(
         string commandText,
         string? profileId = "profile-1",
