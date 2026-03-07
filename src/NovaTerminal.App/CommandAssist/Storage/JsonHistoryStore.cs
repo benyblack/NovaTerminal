@@ -101,6 +101,28 @@ public sealed class JsonHistoryStore : IHistoryStore
         }
     }
 
+    public async Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            List<CommandHistoryEntry> entries = await LoadEntriesUnsafeAsync(cancellationToken);
+            int index = entries.FindIndex(x => x.Id == entryId);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            entries[index] = entries[index] with { ExitCode = exitCode };
+            await SaveEntriesUnsafeAsync(entries, cancellationToken);
+            return true;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<List<CommandHistoryEntry>> LoadEntriesUnsafeAsync(CancellationToken cancellationToken)
     {
         if (!File.Exists(_filePath))

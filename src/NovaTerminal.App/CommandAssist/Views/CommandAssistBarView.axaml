@@ -6,22 +6,91 @@
     <Border Background="#CC202020"
             BorderBrush="#404040"
             BorderThickness="0,1,0,0"
-            Padding="10,6">
-        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-            <TextBlock Text="{Binding ModeLabel}"
-                       Foreground="#8EC5FF"
-                       FontWeight="SemiBold"
-                       VerticalAlignment="Center"/>
-            <TextBlock Grid.Column="1"
-                       Text="{Binding TopSuggestionText}"
-                       Foreground="White"
-                       TextTrimming="CharacterEllipsis"
-                       VerticalAlignment="Center"/>
-            <TextBlock Grid.Column="2"
-                       Text="Ctrl+R history | Ctrl+Space toggle | Esc close"
-                       Foreground="#A0A0A0"
-                       FontSize="11"
-                       VerticalAlignment="Center"/>
+            Padding="10,8">
+        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="2*,*" RowSpacing="8" ColumnSpacing="16">
+            <Grid Grid.Row="0" Grid.ColumnSpan="2" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
+                <TextBlock Text="{Binding ModeLabel}"
+                           Foreground="#8EC5FF"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1"
+                           Text="{Binding QueryText}"
+                           Foreground="White"
+                           FontFamily="Consolas"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="2"
+                           Text="{Binding TopSuggestionText}"
+                           Foreground="#D7E8FF"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="3"
+                           Text="Up/Down select | Tab insert | Ctrl+Shift+P pin | Ctrl+R history | Esc close"
+                           Foreground="#A0A0A0"
+                           FontSize="11"
+                           VerticalAlignment="Center"/>
+            </Grid>
+
+            <Border Grid.Row="1"
+                    Grid.Column="0"
+                    Background="#22101010"
+                    CornerRadius="4"
+                    Padding="8"
+                    MinHeight="70">
+                <ItemsControl ItemsSource="{Binding Suggestions}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2">
+                                <TextBlock Text="{Binding SelectionGlyph}"
+                                           Foreground="#8EC5FF"
+                                           Width="12"
+                                           VerticalAlignment="Top"/>
+                                <StackPanel Grid.Column="1" Spacing="1">
+                                    <TextBlock Text="{Binding DisplayText}"
+                                               Foreground="White"
+                                               FontFamily="Consolas"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Text="{Binding MetadataText}"
+                                               Foreground="#9CA3AF"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding BadgesText}"
+                                           Foreground="#C8E1FF"
+                                           FontSize="11"
+                                           HorizontalAlignment="Right"
+                                           Margin="8,0,0,0"
+                                           TextWrapping="Wrap"/>
+                            </Grid>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </Border>
+
+            <Border Grid.Row="1"
+                    Grid.Column="1"
+                    Background="#1C151515"
+                    CornerRadius="4"
+                    Padding="8"
+                    MinHeight="70">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="Selected"
+                               Foreground="#8EC5FF"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding TopSuggestionText}"
+                               Foreground="White"
+                               FontFamily="Consolas"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding SelectedBadgesText}"
+                               Foreground="#C8E1FF"
+                               FontSize="11"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding SelectedMetadataText}"
+                               Foreground="#9CA3AF"
+                               FontSize="11"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
         </Grid>
     </Border>
 </UserControl>

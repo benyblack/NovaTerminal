@@ -15,6 +15,7 @@ namespace NovaTerminal.Core
     [JsonSerializable(typeof(List<TabTemplateRule>))]
     [JsonSerializable(typeof(List<ForwardingRule>))]
     [JsonSerializable(typeof(List<CommandHistoryEntry>))]
+    [JsonSerializable(typeof(List<CommandSnippet>))]
     [JsonSerializable(typeof(Dictionary<string, string>))]
     [JsonSerializable(typeof(WorkspacePolicyHooks))]
     [JsonSourceGenerationOptions(WriteIndented = true, Converters = new[] { typeof(JsonColorConverter), typeof(TermColorJsonConverter) })]

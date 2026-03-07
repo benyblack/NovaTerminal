@@ -34,6 +34,7 @@ namespace NovaTerminal.Core
         public static string RecordingsDirectory => Path.Combine(RootDirectory, "recordings");
         public static string CommandAssistDirectory => Path.Combine(RootDirectory, "command-assist");
         public static string CommandHistoryFilePath => Path.Combine(CommandAssistDirectory, "history.json");
+        public static string CommandSnippetsFilePath => Path.Combine(CommandAssistDirectory, "snippets.json");
 
         public static void EnsureInitialized()
         {

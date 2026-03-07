@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
 
 namespace NovaTerminal.CommandAssist.ViewModels;
@@ -9,6 +10,12 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     private string _modeLabel = "Suggest";
     private string _queryText = string.Empty;
     private string _topSuggestionText = string.Empty;
+    private int _selectedIndex = -1;
+    private string _selectedBadgesText = string.Empty;
+    private string _selectedMetadataText = string.Empty;
+    private bool _hasSuggestions;
+
+    public ObservableCollection<CommandAssistSuggestionItemViewModel> Suggestions { get; } = new();
 
     public bool IsVisible
     {
@@ -66,6 +73,66 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
             }
 
             _topSuggestionText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public int SelectedIndex
+    {
+        get => _selectedIndex;
+        set
+        {
+            if (_selectedIndex == value)
+            {
+                return;
+            }
+
+            _selectedIndex = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string SelectedBadgesText
+    {
+        get => _selectedBadgesText;
+        set
+        {
+            if (_selectedBadgesText == value)
+            {
+                return;
+            }
+
+            _selectedBadgesText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string SelectedMetadataText
+    {
+        get => _selectedMetadataText;
+        set
+        {
+            if (_selectedMetadataText == value)
+            {
+                return;
+            }
+
+            _selectedMetadataText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool HasSuggestions
+    {
+        get => _hasSuggestions;
+        set
+        {
+            if (_hasSuggestions == value)
+            {
+                return;
+            }
+
+            _hasSuggestions = value;
             OnPropertyChanged();
         }
     }

@@ -137,21 +137,162 @@ public sealed class CommandAssistControllerTests
         await historyStore.WaitForLastSearchAsync();
     }
 
-    private static CommandAssistController CreateController(IHistoryStore? historyStore = null)
+    [Fact]
+    public void MoveSelectionDown_WhenSuggestionsAreVisible_AdvancesSelectedSuggestion()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("git stash", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")));
+
+        var controller = CreateController(historyStore);
+        controller.OpenHistorySearch();
+        controller.HandleTextInput("git st");
+
+        bool moved = controller.MoveSelectionDown();
+
+        Assert.True(moved);
+        Assert.Equal(1, controller.ViewModel.SelectedIndex);
+    }
+
+    [Fact]
+    public void HandleEscape_WhenAssistIsVisible_DismissesAssist()
+    {
+        var controller = CreateController();
+        controller.ToggleAssist();
+
+        bool handled = controller.HandleEscape();
+
+        Assert.True(handled);
+        Assert.False(controller.ViewModel.IsVisible);
+    }
+
+    [Fact]
+    public async Task TryInsertSelection_WhenBufferIsSimpleReplacement_ReturnsSelectedCommandText()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("git stash", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")));
+
+        var controller = CreateController(historyStore);
+        controller.HandleTextInput("git st");
+        await historyStore.WaitForSearchSettledAsync();
+        controller.MoveSelectionDown();
+
+        bool inserted = controller.TryGetInsertionText(out string? insertionText);
+
+        Assert.True(inserted);
+        Assert.Equal("git stash", insertionText);
+    }
+
+    [Fact]
+    public async Task HandleCommandFinished_WhenPendingEntryExists_UpdatesHistoryExitCode()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.HandleTextInput("git status");
+
+        await controller.HandleEnterAsync();
+        await controller.HandleCommandFinishedAsync(23);
+
+        Assert.Single(historyStore.Entries);
+        Assert.Equal(23, historyStore.Entries[0].ExitCode);
+    }
+
+    [Fact]
+    public async Task HandleTextInput_WhenPinnedSnippetMatches_ShowsSnippetAsTopSuggestion()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        var snippetStore = new InMemorySnippetStore();
+        snippetStore.Seed(new CommandSnippet(
+            Id: "snippet-1",
+            Name: "Git Status",
+            CommandText: "git status",
+            Description: null,
+            ShellKind: "pwsh",
+            WorkingDirectory: @"C:\repo",
+            IsPinned: true,
+            CreatedAt: DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"),
+            LastUsedAt: DateTimeOffset.Parse("2026-03-01T09:30:00+00:00")));
+
+        var controller = CreateController(historyStore, snippetStore, new CommandAssistSuggestionEngine());
+        controller.HandleTextInput("git st");
+
+        await snippetStore.WaitForReadAsync();
+
+        Assert.Equal("Git Status", controller.ViewModel.TopSuggestionText);
+        Assert.Equal(AssistSuggestionType.Snippet, controller.Suggestions[0].Type);
+    }
+
+    [Fact]
+    public async Task TogglePinSelectionAsync_WhenHistorySuggestionSelected_CreatesPinnedSnippet()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        var snippetStore = new InMemorySnippetStore();
+        var controller = CreateController(historyStore, snippetStore, new CommandAssistSuggestionEngine());
+        controller.HandleTextInput("git st");
+
+        bool toggled = await controller.TogglePinSelectionAsync();
+        IReadOnlyList<CommandSnippet> snippets = await snippetStore.GetAllAsync();
+
+        Assert.True(toggled);
+        Assert.Single(snippets);
+        Assert.True(snippets[0].IsPinned);
+        Assert.Equal("git status", snippets[0].CommandText);
+    }
+
+    [Fact]
+    public async Task TogglePinSelectionAsync_WhenPinnedSnippetSelected_UnpinsSnippet()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        var snippetStore = new InMemorySnippetStore();
+        snippetStore.Seed(new CommandSnippet(
+            Id: "snippet-1",
+            Name: "Git Status",
+            CommandText: "git status",
+            Description: null,
+            ShellKind: "pwsh",
+            WorkingDirectory: @"C:\repo",
+            IsPinned: true,
+            CreatedAt: DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"),
+            LastUsedAt: DateTimeOffset.Parse("2026-03-01T09:30:00+00:00")));
+
+        var controller = CreateController(historyStore, snippetStore, new CommandAssistSuggestionEngine());
+        controller.HandleTextInput("git st");
+        await snippetStore.WaitForReadAsync();
+
+        bool toggled = await controller.TogglePinSelectionAsync();
+        IReadOnlyList<CommandSnippet> snippets = await snippetStore.GetAllAsync();
+
+        Assert.True(toggled);
+        Assert.Single(snippets);
+        Assert.False(snippets[0].IsPinned);
+    }
+
+    private static CommandAssistController CreateController(
+        IHistoryStore? historyStore = null,
+        ISnippetStore? snippetStore = null,
+        ISuggestionEngine? suggestionEngine = null)
     {
         historyStore ??= new InMemoryHistoryStore();
         var filter = new SecretsFilter();
-        var engine = new HistorySuggestionEngine();
+        var engine = suggestionEngine ?? new HistorySuggestionEngine();
 
-        return new CommandAssistController(historyStore, filter, engine);
+        return snippetStore == null
+            ? new CommandAssistController(historyStore, filter, engine)
+            : new CommandAssistController(historyStore, filter, engine, snippetStore);
     }
 
-    private static CommandHistoryEntry CreateEntry(string commandText)
+    private static CommandHistoryEntry CreateEntry(string commandText, DateTimeOffset? executedAt = null)
     {
         return new CommandHistoryEntry(
             Id: Guid.NewGuid().ToString("N"),
             CommandText: commandText,
-            ExecutedAt: DateTimeOffset.UtcNow,
+            ExecutedAt: executedAt ?? DateTimeOffset.UtcNow,
             ShellKind: "pwsh",
             WorkingDirectory: @"C:\repo",
             ProfileId: "profile-1",
@@ -198,10 +339,24 @@ public sealed class CommandAssistControllerTests
             return Task.FromResult(results);
         }
 
+        public Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
+        {
+            int index = _entries.FindIndex(x => x.Id == entryId);
+            if (index < 0)
+            {
+                return Task.FromResult(false);
+            }
+
+            _entries[index] = _entries[index] with { ExitCode = exitCode };
+            return Task.FromResult(true);
+        }
+
         public void Seed(params CommandHistoryEntry[] entries)
         {
             _entries.AddRange(entries);
         }
+
+        public Task WaitForSearchSettledAsync() => Task.Delay(50);
     }
 
     private sealed class DelayedHistoryStore : IHistoryStore
@@ -238,6 +393,9 @@ public sealed class CommandAssistControllerTests
                 cancellationToken);
         }
 
+        public Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
         public Task WaitForLastSearchAsync() => _lastSearchTask;
     }
 
@@ -254,5 +412,48 @@ public sealed class CommandAssistControllerTests
 
         public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CommandHistoryEntry>>(Array.Empty<CommandHistoryEntry>());
+
+        public Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
+            => Task.FromException<bool>(new InvalidOperationException("simulated write failure"));
+    }
+
+    private sealed class InMemorySnippetStore : ISnippetStore
+    {
+        private readonly List<CommandSnippet> _snippets = new();
+        private Task _lastReadTask = Task.CompletedTask;
+
+        public Task<IReadOnlyList<CommandSnippet>> GetAllAsync(CancellationToken cancellationToken = default)
+        {
+            _lastReadTask = Task.CompletedTask;
+            return Task.FromResult<IReadOnlyList<CommandSnippet>>(_snippets.ToList());
+        }
+
+        public Task UpsertAsync(CommandSnippet snippet, CancellationToken cancellationToken = default)
+        {
+            int index = _snippets.FindIndex(x => x.Id == snippet.Id);
+            if (index >= 0)
+            {
+                _snippets[index] = snippet;
+            }
+            else
+            {
+                _snippets.Add(snippet);
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task RemoveAsync(string snippetId, CancellationToken cancellationToken = default)
+        {
+            _snippets.RemoveAll(x => x.Id == snippetId);
+            return Task.CompletedTask;
+        }
+
+        public void Seed(params CommandSnippet[] snippets)
+        {
+            _snippets.AddRange(snippets);
+        }
+
+        public Task WaitForReadAsync() => _lastReadTask;
     }
 }
