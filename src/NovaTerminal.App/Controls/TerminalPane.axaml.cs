@@ -458,6 +458,11 @@ namespace NovaTerminal.Controls
 
             if (isCtrl && isShift && key == Key.P)
             {
+                if (!_commandAssistController.CanTogglePinSelection())
+                {
+                    return false;
+                }
+
                 _ = _commandAssistController.TogglePinSelectionAsync();
                 return true;
             }

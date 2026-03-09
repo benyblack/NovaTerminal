@@ -442,6 +442,20 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
+    public void CanTogglePinSelection_WhenNoSuggestionIsSelected_ReturnsFalse()
+    {
+        var controller = CreateController(
+            historyStore: new InMemoryHistoryStore(),
+            snippetStore: new InMemorySnippetStore(),
+            suggestionEngine: new CommandAssistSuggestionEngine());
+        controller.ToggleAssist();
+
+        bool canToggle = controller.CanTogglePinSelection();
+
+        Assert.False(canToggle);
+    }
+
+    [Fact]
     public async Task TogglePinSelectionAsync_WhenPinnedSnippetSelected_UnpinsSnippet()
     {
         var historyStore = new InMemoryHistoryStore();

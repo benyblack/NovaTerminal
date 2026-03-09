@@ -272,6 +272,11 @@ public sealed class CommandAssistController
         return true;
     }
 
+    public bool CanTogglePinSelection()
+    {
+        return SnippetStore != null && GetSelectedSuggestion() != null;
+    }
+
     public async Task HandleCommandFinishedAsync(int? exitCode)
     {
         string? pendingEntryId = _pendingHistoryEntryId;
@@ -330,7 +335,7 @@ public sealed class CommandAssistController
 
     public async Task<bool> TogglePinSelectionAsync()
     {
-        if (SnippetStore == null)
+        if (!CanTogglePinSelection())
         {
             return false;
         }
