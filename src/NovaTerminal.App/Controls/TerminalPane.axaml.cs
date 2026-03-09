@@ -8,6 +8,7 @@ using Avalonia;
 using NovaTerminal.Core;
 using Avalonia.Controls.Presenters;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Net.NetworkInformation;
 using System.Linq;
@@ -15,6 +16,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
 using Avalonia.Platform.Storage;
 using NovaTerminal.CommandAssist.Application;
+using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
@@ -65,6 +67,7 @@ namespace NovaTerminal.Controls
         private ShellLifecycleTracker? _shellLifecycleTracker;
         private bool _isShellIntegrationActive;
         private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
+        private string? _lastRelevantCommandText;
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -312,6 +315,8 @@ namespace NovaTerminal.Controls
             var contextMenu = RootGrid.ContextMenu;
             if (contextMenu != null)
             {
+                contextMenu.Opening += (_, _) => UpdatePaneContextMenuState();
+
                 var sftpMenu = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(m => (string?)m.Header == "SFTP");
                 if (sftpMenu != null)
                 {
@@ -337,6 +342,12 @@ namespace NovaTerminal.Controls
                         if (sub.Name == "MenuPaneClose") sub.Click += (s, e) => PaneActionRequested?.Invoke(this, PaneAction.Close);
                     }
                 }
+
+                var explainSelectionItem = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(m => m.Name == "MenuExplainSelection");
+                if (explainSelectionItem != null)
+                {
+                    explainSelectionItem.Click += async (_, _) => await ExplainSelectionAsync();
+                }
             }
 
 
@@ -356,11 +367,28 @@ namespace NovaTerminal.Controls
                 return;
             }
 
+            if (_commandAssistController != null)
+            {
+                if (CommandAssistBar != null)
+                {
+                    CommandAssistBar.DataContext = _commandAssistController.ViewModel;
+                }
+
+                _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
+                UpdateCommandAssistContext();
+                return;
+            }
+
             _commandAssistController = new CommandAssistController(
                 CommandAssistInfrastructure.GetHistoryStore(_settings),
                 CommandAssistInfrastructure.GetSecretsFilter(),
                 CommandAssistInfrastructure.GetSuggestionEngine(),
                 CommandAssistInfrastructure.GetSnippetStore(),
+                CommandAssistInfrastructure.GetCommandDocsProvider(),
+                CommandAssistInfrastructure.GetRecipeProvider(),
+                CommandAssistInfrastructure.GetErrorInsightService(),
+                modeRouter: null,
+                resultBuilder: null,
                 action => Dispatcher.UIThread.Post(action));
 
             if (CommandAssistBar != null)
@@ -401,6 +429,12 @@ namespace NovaTerminal.Controls
 
             try
             {
+                string currentQuery = _commandAssistController.ViewModel.QueryText;
+                if (!string.IsNullOrWhiteSpace(currentQuery))
+                {
+                    _lastRelevantCommandText = currentQuery.Trim();
+                }
+
                 await _commandAssistController.HandleEnterAsync();
             }
             catch (Exception ex)
@@ -421,9 +455,26 @@ namespace NovaTerminal.Controls
                 isShellIntegrated: _isShellIntegrationActive);
         }
 
+        private void UpdatePaneContextMenuState()
+        {
+            if (RootGrid.ContextMenu?.Items is not IEnumerable<object> items)
+            {
+                return;
+            }
+
+            MenuItem? explainSelectionItem = items.OfType<MenuItem>().FirstOrDefault(m => m.Name == "MenuExplainSelection");
+            if (explainSelectionItem != null)
+            {
+                bool canExplain = CanExplainSelection();
+                explainSelectionItem.IsEnabled = canExplain;
+                explainSelectionItem.IsVisible = canExplain;
+            }
+        }
+
         internal bool TryHandleCommandAssistKey(Key key, KeyModifiers modifiers)
         {
-            bool isAssistVisible = _commandAssistController?.ViewModel.IsVisible == true;
+            CommandAssistController? controller = _commandAssistController;
+            bool isAssistVisible = controller?.ViewModel.IsVisible == true;
             if (!CommandAssistKeyRouter.IsAssistOwnedKey(isAssistVisible, key, modifiers))
             {
                 return false;
@@ -434,19 +485,19 @@ namespace NovaTerminal.Controls
 
             if (key == Key.Escape)
             {
-                _commandAssistController.HandleEscape();
+                controller?.HandleEscape();
                 return true;
             }
 
             if (key == Key.Down)
             {
-                _commandAssistController.MoveSelectionDown();
+                controller?.MoveSelectionDown();
                 return true;
             }
 
             if (key == Key.Up)
             {
-                _commandAssistController.MoveSelectionUp();
+                controller?.MoveSelectionUp();
                 return true;
             }
 
@@ -458,12 +509,12 @@ namespace NovaTerminal.Controls
 
             if (isCtrl && isShift && key == Key.P)
             {
-                if (!_commandAssistController.CanTogglePinSelection())
+                if (controller == null || !controller.CanTogglePinSelection())
                 {
                     return false;
                 }
 
-                _ = _commandAssistController.TogglePinSelectionAsync();
+                _ = controller.TogglePinSelectionAsync();
                 return true;
             }
 
@@ -494,6 +545,7 @@ namespace NovaTerminal.Controls
                 return false;
             }
 
+            _lastRelevantCommandText = insertionText;
             Session.SendInput(textToSend);
             return true;
         }
@@ -568,6 +620,7 @@ namespace NovaTerminal.Controls
             };
             Parser.OnCommandAccepted += commandText =>
             {
+                _lastRelevantCommandText = commandText?.Trim();
                 _shellLifecycleTracker?.HandleCommandAccepted(commandText);
             };
             Parser.OnCommandStarted += () =>
@@ -589,10 +642,7 @@ namespace NovaTerminal.Controls
                     }
 
                     CommandFinished?.Invoke(this, exitCode);
-                    if (!_isShellIntegrationActive)
-                    {
-                        _ = _commandAssistController?.HandleCommandFinishedAsync(exitCode);
-                    }
+                    _ = HandleCommandAssistCompletionAsync(exitCode);
                 });
             };
             Parser.OnCommandFinishedDetailed += (exitCode, durationMs) =>
@@ -766,6 +816,10 @@ namespace NovaTerminal.Controls
                 BellAudioEnabled = settings.BellAudioEnabled,
                 BellVisualEnabled = settings.BellVisualEnabled,
                 SmoothScrolling = settings.SmoothScrolling,
+                CommandAssistEnabled = settings.CommandAssistEnabled,
+                CommandAssistHistoryEnabled = settings.CommandAssistHistoryEnabled,
+                CommandAssistMaxHistoryEntries = settings.CommandAssistMaxHistoryEntries,
+                CommandAssistAutoHideInAltScreen = settings.CommandAssistAutoHideInAltScreen,
                 CommandAssistShellIntegrationEnabled = settings.CommandAssistShellIntegrationEnabled,
                 CommandAssistPowerShellIntegrationEnabled = settings.CommandAssistPowerShellIntegrationEnabled,
                 Profiles = settings.Profiles,
@@ -773,6 +827,7 @@ namespace NovaTerminal.Controls
             };
 
             TermView.ApplySettings(effectiveSettings);
+            InitializeCommandAssist();
             UpdateMinimumSizeConstraints();
 
             // Sync metrics to parser after settings change (font size, etc.)
@@ -905,6 +960,11 @@ namespace NovaTerminal.Controls
             _commandAssistController?.ToggleAssist();
         }
 
+        public bool OpenCommandAssistHelp()
+        {
+            return _commandAssistController?.OpenHelp() ?? false;
+        }
+
         public bool OpenCommandAssistHistorySearch()
         {
             return _commandAssistController?.OpenHistorySearch() ?? false;
@@ -912,7 +972,34 @@ namespace NovaTerminal.Controls
 
         public void NotifyCommandAssistPaste(string text)
         {
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                _lastRelevantCommandText = text.Trim();
+            }
+
             _commandAssistController?.HandlePastedText(text);
+        }
+
+        internal bool CanExplainSelection(string? selectedTextOverride = null)
+        {
+            string? selectedText = selectedTextOverride ?? TermView.GetSelectedText();
+            return _commandAssistController != null && !string.IsNullOrWhiteSpace(selectedText);
+        }
+
+        internal async Task<bool> ExplainSelectionAsync(string? selectedTextOverride = null)
+        {
+            if (_commandAssistController == null)
+            {
+                return false;
+            }
+
+            string? selectedText = selectedTextOverride ?? TermView.GetSelectedText();
+            if (string.IsNullOrWhiteSpace(selectedText))
+            {
+                return false;
+            }
+
+            return await _commandAssistController.ExplainSelectionAsync(selectedText);
         }
 
         public void ToggleRenderHud()
@@ -1273,7 +1360,48 @@ namespace NovaTerminal.Controls
 
         private void OnShellIntegrationEventObserved(ShellIntegrationEvent shellEvent)
         {
+            if (shellEvent.Type == ShellIntegrationEventType.CommandAccepted &&
+                !string.IsNullOrWhiteSpace(shellEvent.CommandText))
+            {
+                _lastRelevantCommandText = shellEvent.CommandText.Trim();
+            }
+
             _ = _shellIntegrationEventDispatcher.EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent));
+        }
+
+        internal async Task HandleCommandAssistCompletionAsync(int? exitCode)
+        {
+            if (_commandAssistController == null)
+            {
+                return;
+            }
+
+            if (!_isShellIntegrationActive)
+            {
+                await _commandAssistController.HandleCommandFinishedAsync(exitCode);
+            }
+
+            if (!exitCode.HasValue || exitCode.Value == 0 || Buffer?.IsAltScreenActive == true)
+            {
+                return;
+            }
+
+            string commandText = _lastRelevantCommandText?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(commandText))
+            {
+                return;
+            }
+
+            var context = new CommandFailureContext(
+                CommandText: commandText,
+                ExitCode: exitCode,
+                ShellKind: DetermineShellKind(Session?.ShellCommand ?? ShellCommand),
+                WorkingDirectory: CurrentWorkingDirectory,
+                ErrorOutput: null,
+                IsRemote: Profile?.Type == ConnectionType.SSH,
+                SelectedText: null);
+
+            await _commandAssistController.HandleCommandFailureAsync(context);
         }
 
         private async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)

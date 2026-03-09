@@ -76,6 +76,86 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
+    public async Task OpenHelpAsync_WhenQueryHasRecognizedCommand_ShowsHelpAndRecipeRows()
+    {
+        var docsProvider = new RecordingDocsProvider(
+            [new CommandHelpItem("git checkout", "git checkout <branch>", "Switch branches.", "bash", ["Doc"])]);
+        var recipeProvider = new RecordingRecipeProvider(
+            [new CommandHelpItem("git recipe", "git status --short", "Show concise status.", "bash", ["Recipe"])]);
+        var controller = CreateController(
+            suggestionEngine: new CommandAssistSuggestionEngine(),
+            commandDocsProvider: docsProvider,
+            recipeProvider: recipeProvider);
+        controller.HandleTextInput("git checkout");
+
+        bool opened = await controller.OpenHelpAsync();
+
+        Assert.True(opened);
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.Equal("Help", controller.ViewModel.ModeLabel);
+        Assert.Contains(controller.Suggestions, item => item.Type == AssistSuggestionType.Doc);
+        Assert.Contains(controller.Suggestions, item => item.Type == AssistSuggestionType.Recipe);
+        Assert.Equal("git", docsProvider.LastQuery?.CommandToken);
+    }
+
+    [Fact]
+    public async Task HandleCommandFailureAsync_WhenInsightIsHighConfidence_OpensFixMode()
+    {
+        var controller = CreateController(
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion("Did you mean git?", "git status", "Closest local match.", 0.95, ["Fix"])]));
+
+        bool opened = await controller.HandleCommandFailureAsync(CreateFailureContext("gti status", 127, "command not found"));
+
+        Assert.True(opened);
+        Assert.Equal("Fix", controller.ViewModel.ModeLabel);
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.Equal(AssistSuggestionType.Fix, controller.Suggestions[0].Type);
+    }
+
+    [Fact]
+    public async Task HandleCommandFailureAsync_WhenInsightIsLowConfidence_DoesNotAutoOpenFixMode()
+    {
+        var controller = CreateController(
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion("Maybe try something else", "git status", "Low confidence.", 0.2, ["Fix"])]));
+
+        bool opened = await controller.HandleCommandFailureAsync(CreateFailureContext("gti status", 1, "command failed"));
+
+        Assert.False(opened);
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.DoesNotContain(controller.Suggestions, item => item.Type == AssistSuggestionType.Fix);
+    }
+
+    [Fact]
+    public async Task ExplainSelectionAsync_WhenSelectedTextProvided_PassesSelectionIntoHelpQuery()
+    {
+        var docsProvider = new RecordingDocsProvider(
+            [new CommandHelpItem("fatal explanation", "git status", "Explain the failure.", "bash", ["Doc"])]);
+        var controller = CreateController(commandDocsProvider: docsProvider);
+
+        bool opened = await controller.ExplainSelectionAsync("fatal: not a git repository");
+
+        Assert.True(opened);
+        Assert.Equal("Help", controller.ViewModel.ModeLabel);
+        Assert.Equal("fatal: not a git repository", docsProvider.LastQuery?.SelectedText);
+    }
+
+    [Fact]
+    public async Task OpenHelpAsync_WhenAltScreenActive_KeepsHelperModesHidden()
+    {
+        var controller = CreateController(
+            commandDocsProvider: new RecordingDocsProvider(
+                [new CommandHelpItem("git checkout", "git checkout <branch>", "Switch branches.", "bash", ["Doc"])]));
+        controller.HandleAltScreenChanged(true);
+
+        bool opened = await controller.OpenHelpAsync("git checkout");
+
+        Assert.False(opened);
+        Assert.False(controller.ViewModel.IsVisible);
+    }
+
+    [Fact]
     public void ToggleAssist_WhenNotInAltScreen_ShowsAssistBar()
     {
         var controller = CreateController();
@@ -554,15 +634,37 @@ public sealed class CommandAssistControllerTests
     private static CommandAssistController CreateController(
         IHistoryStore? historyStore = null,
         ISnippetStore? snippetStore = null,
-        ISuggestionEngine? suggestionEngine = null)
+        ISuggestionEngine? suggestionEngine = null,
+        ICommandDocsProvider? commandDocsProvider = null,
+        IRecipeProvider? recipeProvider = null,
+        IErrorInsightService? errorInsightService = null)
     {
         historyStore ??= new InMemoryHistoryStore();
         var filter = new SecretsFilter();
         var engine = suggestionEngine ?? new HistorySuggestionEngine();
 
-        return snippetStore == null
-            ? new CommandAssistController(historyStore, filter, engine)
-            : new CommandAssistController(historyStore, filter, engine, snippetStore);
+        return new CommandAssistController(
+            historyStore,
+            filter,
+            engine,
+            snippetStore,
+            commandDocsProvider,
+            recipeProvider,
+            errorInsightService,
+            modeRouter: null,
+            resultBuilder: null);
+    }
+
+    private static CommandFailureContext CreateFailureContext(string commandText, int? exitCode, string? errorOutput)
+    {
+        return new CommandFailureContext(
+            CommandText: commandText,
+            ExitCode: exitCode,
+            ShellKind: "pwsh",
+            WorkingDirectory: @"C:\repo",
+            ErrorOutput: errorOutput,
+            IsRemote: false,
+            SelectedText: null);
     }
 
     private static CommandHistoryEntry CreateEntry(string commandText, DateTimeOffset? executedAt = null)
@@ -756,5 +858,53 @@ public sealed class CommandAssistControllerTests
         }
 
         public Task WaitForReadAsync() => _lastReadTask;
+    }
+
+    private sealed class RecordingDocsProvider : ICommandDocsProvider
+    {
+        private readonly IReadOnlyList<CommandHelpItem> _results;
+
+        public RecordingDocsProvider(IReadOnlyList<CommandHelpItem> results)
+        {
+            _results = results;
+        }
+
+        public CommandHelpQuery? LastQuery { get; private set; }
+
+        public Task<IReadOnlyList<CommandHelpItem>> GetHelpAsync(CommandHelpQuery query, CancellationToken cancellationToken = default)
+        {
+            LastQuery = query;
+            return Task.FromResult(_results);
+        }
+    }
+
+    private sealed class RecordingRecipeProvider : IRecipeProvider
+    {
+        private readonly IReadOnlyList<CommandHelpItem> _results;
+
+        public RecordingRecipeProvider(IReadOnlyList<CommandHelpItem> results)
+        {
+            _results = results;
+        }
+
+        public Task<IReadOnlyList<CommandHelpItem>> GetRecipesAsync(CommandHelpQuery query, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_results);
+        }
+    }
+
+    private sealed class RecordingErrorInsightService : IErrorInsightService
+    {
+        private readonly IReadOnlyList<CommandFixSuggestion> _results;
+
+        public RecordingErrorInsightService(IReadOnlyList<CommandFixSuggestion> results)
+        {
+            _results = results;
+        }
+
+        public Task<IReadOnlyList<CommandFixSuggestion>> AnalyzeAsync(CommandFailureContext context, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(_results);
+        }
     }
 }

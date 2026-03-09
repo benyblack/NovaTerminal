@@ -13,7 +13,10 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     private int _selectedIndex = -1;
     private string _selectedBadgesText = string.Empty;
     private string _selectedMetadataText = string.Empty;
+    private string _selectedDescriptionText = string.Empty;
+    private string _emptyStateText = string.Empty;
     private bool _hasSuggestions;
+    private bool _showEmptyState;
 
     public ObservableCollection<CommandAssistSuggestionItemViewModel> Suggestions { get; } = new();
 
@@ -122,6 +125,36 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         }
     }
 
+    public string SelectedDescriptionText
+    {
+        get => _selectedDescriptionText;
+        set
+        {
+            if (_selectedDescriptionText == value)
+            {
+                return;
+            }
+
+            _selectedDescriptionText = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string EmptyStateText
+    {
+        get => _emptyStateText;
+        set
+        {
+            if (_emptyStateText == value)
+            {
+                return;
+            }
+
+            _emptyStateText = value;
+            OnPropertyChanged();
+        }
+    }
+
     public bool HasSuggestions
     {
         get => _hasSuggestions;
@@ -133,6 +166,21 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
             }
 
             _hasSuggestions = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public bool ShowEmptyState
+    {
+        get => _showEmptyState;
+        set
+        {
+            if (_showEmptyState == value)
+            {
+                return;
+            }
+
+            _showEmptyState = value;
             OnPropertyChanged();
         }
     }

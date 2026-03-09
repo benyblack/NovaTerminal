@@ -26,15 +26,31 @@ public sealed class CommandAssistController
     private int _refreshVersion;
     private string? _pendingHistoryEntryId;
     private string? _pendingHistoryCommandText;
+    private CommandAssistMode _currentMode = CommandAssistMode.Suggest;
     private readonly List<AssistSuggestion> _suggestions = new();
     private readonly Action<Action> _dispatch;
+    private readonly ICommandDocsProvider _commandDocsProvider;
+    private readonly IRecipeProvider _recipeProvider;
+    private readonly IErrorInsightService _errorInsightService;
+    private readonly CommandAssistModeRouter _modeRouter;
+    private readonly CommandAssistResultBuilder _resultBuilder;
 
     public CommandAssistController(
         IHistoryStore historyStore,
         ISecretsFilter secretsFilter,
         ISuggestionEngine suggestionEngine,
         Action<Action>? dispatch = null)
-        : this(historyStore, secretsFilter, suggestionEngine, snippetStore: null, dispatch)
+        : this(
+            historyStore,
+            secretsFilter,
+            suggestionEngine,
+            snippetStore: null,
+            commandDocsProvider: null,
+            recipeProvider: null,
+            errorInsightService: null,
+            modeRouter: null,
+            resultBuilder: null,
+            dispatch)
     {
     }
 
@@ -44,11 +60,41 @@ public sealed class CommandAssistController
         ISuggestionEngine suggestionEngine,
         ISnippetStore? snippetStore,
         Action<Action>? dispatch = null)
+        : this(
+            historyStore,
+            secretsFilter,
+            suggestionEngine,
+            snippetStore,
+            commandDocsProvider: null,
+            recipeProvider: null,
+            errorInsightService: null,
+            modeRouter: null,
+            resultBuilder: null,
+            dispatch)
+    {
+    }
+
+    public CommandAssistController(
+        IHistoryStore historyStore,
+        ISecretsFilter secretsFilter,
+        ISuggestionEngine suggestionEngine,
+        ISnippetStore? snippetStore,
+        ICommandDocsProvider? commandDocsProvider,
+        IRecipeProvider? recipeProvider,
+        IErrorInsightService? errorInsightService,
+        CommandAssistModeRouter? modeRouter,
+        CommandAssistResultBuilder? resultBuilder,
+        Action<Action>? dispatch = null)
     {
         HistoryStore = historyStore;
         SecretsFilter = secretsFilter;
         SuggestionEngine = suggestionEngine;
         SnippetStore = snippetStore;
+        _commandDocsProvider = commandDocsProvider ?? new EmptyCommandDocsProvider();
+        _recipeProvider = recipeProvider ?? new EmptyRecipeProvider();
+        _errorInsightService = errorInsightService ?? new EmptyErrorInsightService();
+        _modeRouter = modeRouter ?? new CommandAssistModeRouter();
+        _resultBuilder = resultBuilder ?? new CommandAssistResultBuilder();
         ViewModel = new CommandAssistBarViewModel();
         _dispatch = dispatch ?? (action => action());
     }
@@ -68,6 +114,8 @@ public sealed class CommandAssistController
             return;
         }
 
+        _currentMode = CommandAssistMode.Suggest;
+        ViewModel.ModeLabel = "Suggest";
         ViewModel.IsVisible = !ViewModel.IsVisible;
     }
 
@@ -79,9 +127,22 @@ public sealed class CommandAssistController
             return false;
         }
 
+        _currentMode = CommandAssistMode.Search;
         ViewModel.ModeLabel = "History";
         ViewModel.IsVisible = true;
         QueueRefreshSuggestions();
+        return true;
+    }
+
+    public bool OpenHelp()
+    {
+        if (_isAltScreenActive)
+        {
+            ViewModel.IsVisible = false;
+            return false;
+        }
+
+        _ = OpenHelpAsync();
         return true;
     }
 
@@ -93,6 +154,7 @@ public sealed class CommandAssistController
         }
 
         _ignoreCurrentSubmission = false;
+        _currentMode = CommandAssistMode.Suggest;
         ViewModel.QueryText += text;
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsVisible = true;
@@ -113,6 +175,7 @@ public sealed class CommandAssistController
     public void HandlePastedText(string text)
     {
         _ignoreCurrentSubmission = true;
+        _currentMode = CommandAssistMode.Suggest;
         ViewModel.QueryText = text ?? string.Empty;
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsVisible = !_isAltScreenActive;
@@ -197,11 +260,15 @@ public sealed class CommandAssistController
     public void Dismiss()
     {
         CancelPendingRefreshes();
+        _currentMode = CommandAssistMode.Suggest;
         ViewModel.IsVisible = false;
         ViewModel.TopSuggestionText = string.Empty;
         ViewModel.SelectedIndex = -1;
         ViewModel.SelectedBadgesText = string.Empty;
         ViewModel.SelectedMetadataText = string.Empty;
+        ViewModel.SelectedDescriptionText = string.Empty;
+        ViewModel.EmptyStateText = string.Empty;
+        ViewModel.ShowEmptyState = false;
         ViewModel.HasSuggestions = false;
         ViewModel.Suggestions.Clear();
         _suggestions.Clear();
@@ -267,6 +334,7 @@ public sealed class CommandAssistController
         }
 
         ViewModel.QueryText = insertionText;
+        _currentMode = CommandAssistMode.Suggest;
         ViewModel.ModeLabel = "Suggest";
         Dismiss();
         return true;
@@ -274,7 +342,10 @@ public sealed class CommandAssistController
 
     public bool CanTogglePinSelection()
     {
-        return SnippetStore != null && GetSelectedSuggestion() != null;
+        AssistSuggestion? selected = GetSelectedSuggestion();
+        return SnippetStore != null &&
+               selected != null &&
+               selected.Type is AssistSuggestionType.History or AssistSuggestionType.Snippet;
     }
 
     public async Task HandleCommandFinishedAsync(int? exitCode)
@@ -294,6 +365,71 @@ public sealed class CommandAssistController
         {
             // History metadata enrichment is best-effort only.
         }
+    }
+
+    public async Task<bool> OpenHelpAsync(string? queryText = null, string? selectedText = null)
+    {
+        if (_isAltScreenActive)
+        {
+            ViewModel.IsVisible = false;
+            return false;
+        }
+
+        CommandAssistContextSnapshot snapshot = CreateContextSnapshot(queryText, selectedText);
+        var helpQuery = new CommandHelpQuery(
+            RawInput: snapshot.QueryText,
+            CommandToken: snapshot.RecognizedCommand,
+            ShellKind: snapshot.ShellKind,
+            WorkingDirectory: snapshot.WorkingDirectory,
+            SelectedText: snapshot.SelectedText,
+            SessionId: snapshot.SessionId);
+
+        IReadOnlyList<CommandHelpItem> docs = await _commandDocsProvider.GetHelpAsync(helpQuery);
+        IReadOnlyList<CommandHelpItem> recipes = await _recipeProvider.GetRecipesAsync(helpQuery);
+        IReadOnlyList<AssistSuggestion> suggestions = _resultBuilder.BuildCombined(
+            Array.Empty<AssistSuggestion>(),
+            docs,
+            recipes,
+            Array.Empty<CommandFixSuggestion>());
+
+        _dispatch(() => ApplyHelperSuggestions(
+            _modeRouter.ChooseModeForHelpRequest(),
+            queryText ?? ViewModel.QueryText,
+            suggestions,
+            "No local help found."));
+
+        return true;
+    }
+
+    public async Task<bool> ExplainSelectionAsync(string? selectedText)
+    {
+        if (string.IsNullOrWhiteSpace(selectedText))
+        {
+            return false;
+        }
+
+        return await OpenHelpAsync(selectedText: selectedText);
+    }
+
+    public async Task<bool> HandleCommandFailureAsync(CommandFailureContext context)
+    {
+        if (_isAltScreenActive)
+        {
+            ViewModel.IsVisible = false;
+            return false;
+        }
+
+        IReadOnlyList<CommandFixSuggestion> fixes = await _errorInsightService.AnalyzeAsync(context);
+        double highestConfidence = fixes.Count == 0 ? 0 : fixes.Max(item => item.Confidence);
+        CommandAssistMode mode = _modeRouter.ChooseModeForFailure(highestConfidence);
+        if (mode != CommandAssistMode.Fix)
+        {
+            return false;
+        }
+
+        IReadOnlyList<AssistSuggestion> suggestions = _resultBuilder.BuildFixSuggestions(fixes);
+        _dispatch(() => ApplyHelperSuggestions(mode, context.CommandText, suggestions, "No likely local fix found."));
+        return true;
     }
 
     public async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
@@ -340,6 +476,7 @@ public sealed class CommandAssistController
             return false;
         }
 
+        ISnippetStore snippetStore = SnippetStore!;
         AssistSuggestion? selected = GetSelectedSuggestion();
         if (selected == null)
         {
@@ -348,7 +485,7 @@ public sealed class CommandAssistController
 
         try
         {
-            IReadOnlyList<CommandSnippet> snippets = await SnippetStore.GetAllAsync();
+            IReadOnlyList<CommandSnippet> snippets = await snippetStore.GetAllAsync();
             CommandSnippet? existing = snippets.FirstOrDefault(x => x.Id == selected.Id) ??
                                        snippets.FirstOrDefault(x =>
                                            string.Equals(x.CommandText, selected.InsertText, StringComparison.OrdinalIgnoreCase) &&
@@ -356,7 +493,7 @@ public sealed class CommandAssistController
 
             if (existing != null)
             {
-                await SnippetStore.UpsertAsync(existing with
+                await snippetStore.UpsertAsync(existing with
                 {
                     IsPinned = !existing.IsPinned,
                     LastUsedAt = DateTimeOffset.UtcNow
@@ -368,14 +505,14 @@ public sealed class CommandAssistController
                     Id: Guid.NewGuid().ToString("N"),
                     Name: selected.DisplayText,
                     CommandText: selected.InsertText,
-                    Description: null,
+                    Description: selected.Description,
                     ShellKind: _shellKind,
                     WorkingDirectory: _workingDirectory,
                     IsPinned: true,
                     CreatedAt: DateTimeOffset.UtcNow,
                     LastUsedAt: selected.LastUsedAt);
 
-                await SnippetStore.UpsertAsync(snippet);
+                await snippetStore.UpsertAsync(snippet);
             }
 
             QueueRefreshSuggestions();
@@ -393,11 +530,15 @@ public sealed class CommandAssistController
         if (isAltScreenActive)
         {
             CancelPendingRefreshes();
+            _currentMode = CommandAssistMode.Suggest;
             ViewModel.IsVisible = false;
             ViewModel.TopSuggestionText = string.Empty;
             ViewModel.SelectedIndex = -1;
             ViewModel.SelectedBadgesText = string.Empty;
             ViewModel.SelectedMetadataText = string.Empty;
+            ViewModel.SelectedDescriptionText = string.Empty;
+            ViewModel.EmptyStateText = string.Empty;
+            ViewModel.ShowEmptyState = false;
             ViewModel.HasSuggestions = false;
             ViewModel.Suggestions.Clear();
             _suggestions.Clear();
@@ -406,13 +547,23 @@ public sealed class CommandAssistController
 
     private void QueueRefreshSuggestions()
     {
+        if (_currentMode is not (CommandAssistMode.Suggest or CommandAssistMode.Search))
+        {
+            return;
+        }
+
         int refreshVersion = Interlocked.Increment(ref _refreshVersion);
+        CommandAssistMode requestedMode = _currentMode;
         string query = ViewModel.QueryText;
         var context = new CommandAssistQueryContext(query, _workingDirectory, _shellKind, _profileId);
-        _ = RefreshSuggestionsAsync(query, context, refreshVersion);
+        _ = RefreshSuggestionsAsync(query, context, refreshVersion, requestedMode);
     }
 
-    private async Task RefreshSuggestionsAsync(string query, CommandAssistQueryContext context, int refreshVersion)
+    private async Task RefreshSuggestionsAsync(
+        string query,
+        CommandAssistQueryContext context,
+        int refreshVersion,
+        CommandAssistMode requestedMode)
     {
         try
         {
@@ -426,7 +577,7 @@ public sealed class CommandAssistController
             IReadOnlyList<AssistSuggestion> suggestions = SuggestionEngine.GetSuggestions(history, snippets, context, 5);
             _dispatch(() =>
             {
-                if (refreshVersion != _refreshVersion)
+                if (refreshVersion != _refreshVersion || _currentMode != requestedMode)
                 {
                     return;
                 }
@@ -434,6 +585,8 @@ public sealed class CommandAssistController
                 _suggestions.Clear();
                 _suggestions.AddRange(suggestions);
                 ViewModel.SelectedIndex = suggestions.Count > 0 ? 0 : -1;
+                ViewModel.EmptyStateText = string.Empty;
+                ViewModel.ShowEmptyState = false;
                 SyncSuggestionViewModel();
             });
         }
@@ -441,7 +594,7 @@ public sealed class CommandAssistController
         {
             _dispatch(() =>
             {
-                if (refreshVersion != _refreshVersion)
+                if (refreshVersion != _refreshVersion || _currentMode != requestedMode)
                 {
                     return;
                 }
@@ -451,6 +604,9 @@ public sealed class CommandAssistController
                 ViewModel.SelectedIndex = -1;
                 ViewModel.SelectedBadgesText = string.Empty;
                 ViewModel.SelectedMetadataText = string.Empty;
+                ViewModel.SelectedDescriptionText = string.Empty;
+                ViewModel.EmptyStateText = string.Empty;
+                ViewModel.ShowEmptyState = false;
                 ViewModel.HasSuggestions = false;
                 ViewModel.Suggestions.Clear();
             });
@@ -471,6 +627,9 @@ public sealed class CommandAssistController
         ViewModel.SelectedIndex = -1;
         ViewModel.SelectedBadgesText = string.Empty;
         ViewModel.SelectedMetadataText = string.Empty;
+        ViewModel.SelectedDescriptionText = string.Empty;
+        ViewModel.EmptyStateText = string.Empty;
+        ViewModel.ShowEmptyState = false;
         ViewModel.HasSuggestions = false;
         ViewModel.Suggestions.Clear();
         ViewModel.IsVisible = false;
@@ -502,6 +661,7 @@ public sealed class CommandAssistController
         ViewModel.TopSuggestionText = selected?.DisplayText ?? string.Empty;
         ViewModel.SelectedBadgesText = selected == null ? string.Empty : string.Join("  ", selected.Badges);
         ViewModel.SelectedMetadataText = selected == null ? string.Empty : BuildMetadataText(selected);
+        ViewModel.SelectedDescriptionText = selected?.Description ?? string.Empty;
         ViewModel.HasSuggestions = _suggestions.Count > 0;
         ViewModel.Suggestions.Clear();
 
@@ -511,6 +671,7 @@ public sealed class CommandAssistController
             ViewModel.Suggestions.Add(new CommandAssistSuggestionItemViewModel(
                 SelectionGlyph: i == ViewModel.SelectedIndex ? ">" : " ",
                 DisplayText: suggestion.DisplayText,
+                DescriptionText: suggestion.Description ?? string.Empty,
                 BadgesText: string.Join("  ", suggestion.Badges),
                 MetadataText: BuildMetadataText(suggestion),
                 IsSelected: i == ViewModel.SelectedIndex,
@@ -537,6 +698,43 @@ public sealed class CommandAssistController
         }
 
         return string.Join("  |  ", parts);
+    }
+
+    private CommandAssistContextSnapshot CreateContextSnapshot(string? queryText, string? selectedText)
+    {
+        string effectiveQuery = queryText ?? ViewModel.QueryText;
+        string recognizedSource = string.IsNullOrWhiteSpace(effectiveQuery) ? selectedText ?? string.Empty : effectiveQuery;
+
+        return new CommandAssistContextSnapshot(
+            QueryText: effectiveQuery,
+            RecognizedCommand: RecognizedCommandParser.ParsePrimaryCommand(recognizedSource),
+            ShellKind: _shellKind,
+            WorkingDirectory: _workingDirectory,
+            ProfileId: _profileId,
+            SessionId: _sessionId,
+            HostId: _hostId,
+            IsRemote: _isRemote,
+            SelectedText: selectedText);
+    }
+
+    private void ApplyHelperSuggestions(
+        CommandAssistMode mode,
+        string? queryText,
+        IReadOnlyList<AssistSuggestion> suggestions,
+        string emptyStateText)
+    {
+        CancelPendingRefreshes();
+        _currentMode = mode;
+        ViewModel.ModeLabel = mode.ToString();
+        ViewModel.QueryText = queryText ?? string.Empty;
+        ViewModel.IsVisible = true;
+        ViewModel.EmptyStateText = suggestions.Count == 0 ? emptyStateText : string.Empty;
+        ViewModel.ShowEmptyState = suggestions.Count == 0;
+
+        _suggestions.Clear();
+        _suggestions.AddRange(suggestions);
+        ViewModel.SelectedIndex = suggestions.Count > 0 ? 0 : -1;
+        SyncSuggestionViewModel();
     }
 
     private async Task HandleShellIntegratedCommandAcceptedAsync(ShellIntegrationEvent shellEvent)
@@ -619,5 +817,29 @@ public sealed class CommandAssistController
     private static string NormalizeCommandText(string commandText)
     {
         return commandText.Trim();
+    }
+
+    private sealed class EmptyCommandDocsProvider : ICommandDocsProvider
+    {
+        public Task<IReadOnlyList<CommandHelpItem>> GetHelpAsync(CommandHelpQuery query, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CommandHelpItem>>(Array.Empty<CommandHelpItem>());
+        }
+    }
+
+    private sealed class EmptyRecipeProvider : IRecipeProvider
+    {
+        public Task<IReadOnlyList<CommandHelpItem>> GetRecipesAsync(CommandHelpQuery query, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CommandHelpItem>>(Array.Empty<CommandHelpItem>());
+        }
+    }
+
+    private sealed class EmptyErrorInsightService : IErrorInsightService
+    {
+        public Task<IReadOnlyList<CommandFixSuggestion>> AnalyzeAsync(CommandFailureContext context, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult<IReadOnlyList<CommandFixSuggestion>>(Array.Empty<CommandFixSuggestion>());
+        }
     }
 }

@@ -51,6 +51,18 @@ public sealed class HeuristicErrorInsightService : IErrorInsightService
                 suggestions.Add(correctionSuggestion);
             }
         }
+        else if (context.ExitCode.HasValue && context.ExitCode.Value != 0)
+        {
+            CommandFixSuggestion? correctionSuggestion = TryBuildCorrectionSuggestion(commandToken, context.CommandText);
+            if (correctionSuggestion != null)
+            {
+                suggestions.Add(correctionSuggestion with
+                {
+                    Confidence = Math.Min(correctionSuggestion.Confidence, 0.82),
+                    Description = "Closest known local command match after a failed command."
+                });
+            }
+        }
 
         if (IsPathNotFound(context.ErrorOutput))
         {

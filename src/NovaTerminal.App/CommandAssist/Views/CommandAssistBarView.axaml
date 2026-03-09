@@ -10,6 +10,7 @@
         <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="2*,*" RowSpacing="8" ColumnSpacing="16">
             <Grid Grid.Row="0" Grid.ColumnSpan="2" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="12">
                 <TextBlock Text="{Binding ModeLabel}"
+                           x:Name="ModeLabelText"
                            Foreground="#8EC5FF"
                            FontWeight="SemiBold"
                            VerticalAlignment="Center"/>
@@ -24,7 +25,7 @@
                            TextTrimming="CharacterEllipsis"
                            VerticalAlignment="Center"/>
                 <TextBlock Grid.Column="3"
-                           Text="Up/Down select | Tab insert | Ctrl+Shift+P pin | Ctrl+R history | Esc close"
+                           Text="Up/Down select | Tab insert | Ctrl+Shift+P pin | Ctrl+Shift+H help | Ctrl+R history | Esc close"
                            Foreground="#A0A0A0"
                            FontSize="11"
                            VerticalAlignment="Center"/>
@@ -36,35 +37,49 @@
                     CornerRadius="4"
                     Padding="8"
                     MinHeight="70">
-                <ItemsControl ItemsSource="{Binding Suggestions}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2">
-                                <TextBlock Text="{Binding SelectionGlyph}"
-                                           Foreground="#8EC5FF"
-                                           Width="12"
-                                           VerticalAlignment="Top"/>
-                                <StackPanel Grid.Column="1" Spacing="1">
-                                    <TextBlock Text="{Binding DisplayText}"
-                                               Foreground="White"
-                                               FontFamily="Consolas"
-                                               TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Text="{Binding MetadataText}"
-                                               Foreground="#9CA3AF"
+                <Grid>
+                    <ItemsControl ItemsSource="{Binding Suggestions}"
+                                  IsVisible="{Binding HasSuggestions}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,2">
+                                    <TextBlock Text="{Binding SelectionGlyph}"
+                                               Foreground="#8EC5FF"
+                                               Width="12"
+                                               VerticalAlignment="Top"/>
+                                    <StackPanel Grid.Column="1" Spacing="1">
+                                        <TextBlock Text="{Binding DisplayText}"
+                                                   Foreground="White"
+                                                   FontFamily="Consolas"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding DescriptionText}"
+                                                   Foreground="#C8E1FF"
+                                                   FontSize="11"
+                                                   TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding MetadataText}"
+                                                   Foreground="#9CA3AF"
+                                                   FontSize="11"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2"
+                                               Text="{Binding BadgesText}"
+                                               Foreground="#C8E1FF"
                                                FontSize="11"
-                                               TextTrimming="CharacterEllipsis"/>
-                                </StackPanel>
-                                <TextBlock Grid.Column="2"
-                                           Text="{Binding BadgesText}"
-                                           Foreground="#C8E1FF"
-                                           FontSize="11"
-                                           HorizontalAlignment="Right"
-                                           Margin="8,0,0,0"
-                                           TextWrapping="Wrap"/>
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                                               HorizontalAlignment="Right"
+                                               Margin="8,0,0,0"
+                                               TextWrapping="Wrap"/>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock x:Name="EmptyStateTextBlock"
+                               Text="{Binding EmptyStateText}"
+                               Foreground="#9CA3AF"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center"
+                               TextWrapping="Wrap"
+                               IsVisible="{Binding ShowEmptyState}"/>
+                </Grid>
             </Border>
 
             <Border Grid.Row="1"
@@ -80,6 +95,11 @@
                     <TextBlock Text="{Binding TopSuggestionText}"
                                Foreground="White"
                                FontFamily="Consolas"
+                               TextWrapping="Wrap"/>
+                    <TextBlock x:Name="SelectedDescriptionTextBlock"
+                               Text="{Binding SelectedDescriptionText}"
+                               Foreground="#C8E1FF"
+                               FontSize="11"
                                TextWrapping="Wrap"/>
                     <TextBlock Text="{Binding SelectedBadgesText}"
                                Foreground="#C8E1FF"
