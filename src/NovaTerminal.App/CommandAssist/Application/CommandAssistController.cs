@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ViewModels;
 
 namespace NovaTerminal.CommandAssist.Application;
@@ -18,9 +19,12 @@ public sealed class CommandAssistController
     private string? _sessionId;
     private string? _hostId;
     private bool _isRemote;
+    private bool _isShellIntegrationEnabled;
+    private bool _hasObservedShellIntegrationMarker;
     private bool _ignoreCurrentSubmission;
     private int _refreshVersion;
     private string? _pendingHistoryEntryId;
+    private string? _pendingHistoryCommandText;
     private readonly List<AssistSuggestion> _suggestions = new();
     private readonly Action<Action> _dispatch;
 
@@ -120,6 +124,7 @@ public sealed class CommandAssistController
         {
             string submission = ViewModel.QueryText.Trim();
             bool shouldPersist = !_isAltScreenActive &&
+                                 !IsStructuredShellIntegrationActive() &&
                                  !_ignoreCurrentSubmission &&
                                  !string.IsNullOrWhiteSpace(submission) &&
                                  !submission.Contains('\n') &&
@@ -140,10 +145,12 @@ public sealed class CommandAssistController
                     ExitCode: null,
                     IsRemote: _isRemote,
                     IsRedacted: redaction.WasRedacted,
-                    Source: CommandCaptureSource.Heuristic);
+                    Source: CommandCaptureSource.Heuristic,
+                    DurationMs: null);
 
                 await HistoryStore.AppendAsync(entry);
                 _pendingHistoryEntryId = entry.Id;
+                _pendingHistoryCommandText = NormalizeCommandText(submission);
             }
         }
         catch
@@ -162,7 +169,8 @@ public sealed class CommandAssistController
         string? profileId,
         string? sessionId,
         string? hostId,
-        bool isRemote)
+        bool isRemote,
+        bool isShellIntegrated = false)
     {
         _shellKind = shellKind;
         _workingDirectory = workingDirectory;
@@ -170,6 +178,17 @@ public sealed class CommandAssistController
         _sessionId = sessionId;
         _hostId = hostId;
         _isRemote = isRemote;
+        _isShellIntegrationEnabled = isShellIntegrated;
+        _hasObservedShellIntegrationMarker = false;
+    }
+
+    public void SetShellIntegrationEnabled(bool isEnabled)
+    {
+        _isShellIntegrationEnabled = isEnabled;
+        if (!isEnabled)
+        {
+            _hasObservedShellIntegrationMarker = false;
+        }
     }
 
     public void Dismiss()
@@ -261,11 +280,43 @@ public sealed class CommandAssistController
 
         try
         {
-            await HistoryStore.TryUpdateExitCodeAsync(pendingEntryId, exitCode);
+            await HistoryStore.TryUpdateExecutionResultAsync(pendingEntryId, exitCode, durationMs: null);
         }
         catch
         {
             // History metadata enrichment is best-effort only.
+        }
+    }
+
+    public async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
+    {
+        if (shellEvent.WorkingDirectory != null)
+        {
+            _workingDirectory = shellEvent.WorkingDirectory;
+        }
+
+        if (shellEvent.Type is ShellIntegrationEventType.PromptReady or
+            ShellIntegrationEventType.CommandAccepted or
+            ShellIntegrationEventType.CommandStarted or
+            ShellIntegrationEventType.CommandFinished)
+        {
+            _hasObservedShellIntegrationMarker = true;
+        }
+
+        switch (shellEvent.Type)
+        {
+            case ShellIntegrationEventType.WorkingDirectoryChanged:
+            case ShellIntegrationEventType.PromptReady:
+            case ShellIntegrationEventType.CommandStarted:
+                return;
+
+            case ShellIntegrationEventType.CommandAccepted:
+                await HandleShellIntegratedCommandAcceptedAsync(shellEvent);
+                return;
+
+            case ShellIntegrationEventType.CommandFinished:
+                await HandleShellIntegratedCommandFinishedAsync(shellEvent);
+                return;
         }
     }
 
@@ -473,5 +524,87 @@ public sealed class CommandAssistController
         }
 
         return string.Join("  |  ", parts);
+    }
+
+    private async Task HandleShellIntegratedCommandAcceptedAsync(ShellIntegrationEvent shellEvent)
+    {
+        if (!_isShellIntegrationEnabled || _isAltScreenActive)
+        {
+            return;
+        }
+
+        string commandText = shellEvent.CommandText?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(commandText))
+        {
+            return;
+        }
+
+        string normalizedCommandText = NormalizeCommandText(commandText);
+        if (!string.IsNullOrWhiteSpace(_pendingHistoryEntryId) &&
+            string.Equals(_pendingHistoryCommandText, normalizedCommandText, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            RedactionResult redaction = SecretsFilter.Redact(commandText);
+            var entry = new CommandHistoryEntry(
+                Id: Guid.NewGuid().ToString("N"),
+                CommandText: redaction.RedactedText,
+                ExecutedAt: shellEvent.Timestamp,
+                ShellKind: _shellKind ?? "unknown",
+                WorkingDirectory: shellEvent.WorkingDirectory ?? _workingDirectory,
+                ProfileId: _profileId,
+                SessionId: _sessionId,
+                HostId: _hostId,
+                ExitCode: null,
+                IsRemote: _isRemote,
+                IsRedacted: redaction.WasRedacted,
+                Source: CommandCaptureSource.ShellIntegration,
+                DurationMs: null);
+
+            await HistoryStore.AppendAsync(entry);
+            _pendingHistoryEntryId = entry.Id;
+            _pendingHistoryCommandText = normalizedCommandText;
+        }
+        catch
+        {
+            // Structured capture is best-effort and must not affect shell execution.
+        }
+    }
+
+    private async Task HandleShellIntegratedCommandFinishedAsync(ShellIntegrationEvent shellEvent)
+    {
+        string? pendingEntryId = _pendingHistoryEntryId;
+        if (string.IsNullOrWhiteSpace(pendingEntryId))
+        {
+            return;
+        }
+
+        long? durationMs = shellEvent.Duration.HasValue
+            ? (long)Math.Round(shellEvent.Duration.Value.TotalMilliseconds)
+            : null;
+
+        try
+        {
+            await HistoryStore.TryUpdateExecutionResultAsync(pendingEntryId, shellEvent.ExitCode, durationMs);
+            _pendingHistoryEntryId = null;
+            _pendingHistoryCommandText = null;
+        }
+        catch
+        {
+            // Structured metadata updates are best-effort only.
+        }
+    }
+
+    private bool IsStructuredShellIntegrationActive()
+    {
+        return _isShellIntegrationEnabled && _hasObservedShellIntegrationMarker;
+    }
+
+    private static string NormalizeCommandText(string commandText)
+    {
+        return commandText.Trim();
     }
 }

@@ -1,6 +1,7 @@
 using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using System.Diagnostics;
 
 namespace NovaTerminal.Tests.CommandAssist;
@@ -201,6 +202,118 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
+    public async Task HandleShellIntegrationEventAsync_WhenCommandAccepted_PersistsShellIntegratedEntry()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandAccepted,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:00+00:00"),
+            CommandText: "gh auth login --password hunter2",
+            WorkingDirectory: @"C:\repo",
+            ExitCode: null,
+            Duration: null));
+
+        Assert.Single(historyStore.Entries);
+        Assert.Equal("gh auth login --password [REDACTED]", historyStore.Entries[0].CommandText);
+        Assert.True(historyStore.Entries[0].IsRedacted);
+        Assert.Equal(CommandCaptureSource.ShellIntegration, historyStore.Entries[0].Source);
+    }
+
+    [Fact]
+    public async Task HandleEnterAsync_WhenShellIntegrationEnabled_DoesNotPersistHeuristicEntry()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.PromptReady,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T11:59:59+00:00"),
+            CommandText: null,
+            WorkingDirectory: @"C:\repo",
+            ExitCode: null,
+            Duration: null));
+        controller.HandleTextInput("git status");
+
+        await controller.HandleEnterAsync();
+
+        Assert.Empty(historyStore.Entries);
+    }
+
+    [Fact]
+    public async Task HandleEnterAsync_WhenShellIntegrationConfiguredButNotConfirmed_PersistsHeuristicFallback()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+        controller.HandleTextInput("git status");
+
+        await controller.HandleEnterAsync();
+
+        Assert.Single(historyStore.Entries);
+        Assert.Equal(CommandCaptureSource.Heuristic, historyStore.Entries[0].Source);
+    }
+
+    [Fact]
+    public async Task HandleShellIntegrationEventAsync_WhenCommandFinished_UpdatesExitCodeAndDuration()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandAccepted,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:00+00:00"),
+            CommandText: "git status",
+            WorkingDirectory: @"C:\repo",
+            ExitCode: null,
+            Duration: null));
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandFinished,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:03+00:00"),
+            CommandText: null,
+            WorkingDirectory: @"C:\repo",
+            ExitCode: 7,
+            Duration: TimeSpan.FromSeconds(3)));
+
+        Assert.Single(historyStore.Entries);
+        Assert.Equal(7, historyStore.Entries[0].ExitCode);
+        Assert.Equal(3000, historyStore.Entries[0].DurationMs);
+    }
+
+    [Fact]
+    public async Task HandleShellIntegrationEventAsync_WhenAcceptedMatchesPendingHeuristic_DoesNotCreateDuplicateEntry()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+        controller.HandleTextInput("git status");
+
+        await controller.HandleEnterAsync();
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandAccepted,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:00+00:00"),
+            CommandText: "git status",
+            WorkingDirectory: @"C:\repo",
+            ExitCode: null,
+            Duration: null));
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandFinished,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:01+00:00"),
+            CommandText: null,
+            WorkingDirectory: @"C:\repo",
+            ExitCode: 0,
+            Duration: TimeSpan.FromSeconds(1)));
+
+        Assert.Single(historyStore.Entries);
+        Assert.Equal(CommandCaptureSource.Heuristic, historyStore.Entries[0].Source);
+        Assert.Equal(0, historyStore.Entries[0].ExitCode);
+        Assert.Equal(1000, historyStore.Entries[0].DurationMs);
+    }
+
+    [Fact]
     public async Task HandleTextInput_WhenPinnedSnippetMatches_ShowsSnippetAsTopSuggestion()
     {
         var historyStore = new InMemoryHistoryStore();
@@ -301,7 +414,8 @@ public sealed class CommandAssistControllerTests
             ExitCode: 0,
             IsRemote: false,
             IsRedacted: false,
-            Source: CommandCaptureSource.Heuristic);
+            Source: CommandCaptureSource.Heuristic,
+            DurationMs: null);
     }
 
     private sealed class InMemoryHistoryStore : IHistoryStore
@@ -351,6 +465,22 @@ public sealed class CommandAssistControllerTests
             return Task.FromResult(true);
         }
 
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+        {
+            int index = _entries.FindIndex(x => x.Id == entryId);
+            if (index < 0)
+            {
+                return Task.FromResult(false);
+            }
+
+            _entries[index] = _entries[index] with
+            {
+                ExitCode = exitCode,
+                DurationMs = durationMs ?? _entries[index].DurationMs
+            };
+            return Task.FromResult(true);
+        }
+
         public void Seed(params CommandHistoryEntry[] entries)
         {
             _entries.AddRange(entries);
@@ -396,6 +526,9 @@ public sealed class CommandAssistControllerTests
         public Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
         public Task WaitForLastSearchAsync() => _lastSearchTask;
     }
 
@@ -414,6 +547,9 @@ public sealed class CommandAssistControllerTests
             => Task.FromResult<IReadOnlyList<CommandHistoryEntry>>(Array.Empty<CommandHistoryEntry>());
 
         public Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
+            => Task.FromException<bool>(new InvalidOperationException("simulated write failure"));
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
             => Task.FromException<bool>(new InvalidOperationException("simulated write failure"));
     }
 

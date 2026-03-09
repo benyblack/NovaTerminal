@@ -14,4 +14,5 @@ public sealed record CommandHistoryEntry(
     int? ExitCode,
     bool IsRemote,
     bool IsRedacted,
-    CommandCaptureSource Source);
+    CommandCaptureSource Source,
+    long? DurationMs);

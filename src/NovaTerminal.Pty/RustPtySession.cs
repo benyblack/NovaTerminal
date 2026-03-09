@@ -165,7 +165,13 @@ namespace NovaTerminal.Core
         private int _cols;
         private int _rows;
 
-        public RustPtySession(string shellCommand, int cols = 120, int rows = 30, string? args = null, string? cwd = null)
+        public RustPtySession(
+            string shellCommand,
+            int cols = 120,
+            int rows = 30,
+            string? args = null,
+            string? cwd = null,
+            bool skipPowerShellPostLaunchInit = false)
         {
             ShellCommand = shellCommand;
             ShellArguments = args;
@@ -186,7 +192,10 @@ namespace NovaTerminal.Core
                 else if (shellLower.Contains("powershell") || shellLower.Contains("pwsh"))
                 {
                     effectiveShell = shellCommand;
-                    combinedArgs = "-NoLogo " + combinedArgs;
+                    if (!combinedArgs.Contains("-NoLogo", StringComparison.OrdinalIgnoreCase))
+                    {
+                        combinedArgs = "-NoLogo " + combinedArgs;
+                    }
                 }
             }
 
@@ -203,7 +212,8 @@ namespace NovaTerminal.Core
             _processTask = Task.Run(ProcessLoop);
 
             // POST-LAUNCH INJECTION for PowerShell
-            if (shellLower.Contains("powershell") || shellLower.Contains("pwsh"))
+            if (!skipPowerShellPostLaunchInit &&
+                (shellLower.Contains("powershell") || shellLower.Contains("pwsh")))
             {
                 Task.Delay(300).ContinueWith(_ =>
                 {

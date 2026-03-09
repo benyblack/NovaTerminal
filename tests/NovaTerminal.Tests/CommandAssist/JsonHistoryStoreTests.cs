@@ -112,6 +112,29 @@ public sealed class JsonHistoryStoreTests : IDisposable
         Assert.Equal(17, entries[0].ExitCode);
     }
 
+    [Fact]
+    public async Task TryUpdateExecutionResultAsync_PersistsDurationAcrossStoreInstances()
+    {
+        string filePath = Path.Combine(_tempRoot, "history.json");
+        var store = new JsonHistoryStore(filePath, maxEntries: 50);
+        CommandHistoryEntry entry = CreateEntry(
+            "git status",
+            executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"),
+            exitCode: null);
+
+        await store.AppendAsync(entry);
+
+        bool updated = await store.TryUpdateExecutionResultAsync(entry.Id, 0, 2500);
+
+        var reloaded = new JsonHistoryStore(filePath, maxEntries: 50);
+        IReadOnlyList<CommandHistoryEntry> entries = await reloaded.GetRecentAsync(10);
+
+        Assert.True(updated);
+        Assert.Single(entries);
+        Assert.Equal(0, entries[0].ExitCode);
+        Assert.Equal(2500, entries[0].DurationMs);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_tempRoot))
@@ -137,6 +160,7 @@ public sealed class JsonHistoryStoreTests : IDisposable
             ExitCode: exitCode,
             IsRemote: false,
             IsRedacted: false,
-            Source: CommandCaptureSource.Heuristic);
+            Source: CommandCaptureSource.Heuristic,
+            DurationMs: null);
     }
 }
