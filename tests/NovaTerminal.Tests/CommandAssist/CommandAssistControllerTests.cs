@@ -223,7 +223,28 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
-    public async Task HandleEnterAsync_WhenShellIntegrationEnabled_DoesNotPersistHeuristicEntry()
+    public async Task HandleEnterAsync_WhenCommandAcceptedMarkerWasObserved_DoesNotPersistHeuristicEntry()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandAccepted,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T11:59:59+00:00"),
+            CommandText: "git status",
+            WorkingDirectory: @"C:\repo",
+            ExitCode: null,
+            Duration: null));
+        controller.HandleTextInput("git status");
+
+        await controller.HandleEnterAsync();
+
+        Assert.Single(historyStore.Entries);
+        Assert.Equal(CommandCaptureSource.ShellIntegration, historyStore.Entries[0].Source);
+    }
+
+    [Fact]
+    public async Task HandleEnterAsync_WhenShellIntegrationConfiguredButNotConfirmed_PersistsHeuristicFallback()
     {
         var historyStore = new InMemoryHistoryStore();
         var controller = CreateController(historyStore);
@@ -235,19 +256,6 @@ public sealed class CommandAssistControllerTests
             WorkingDirectory: @"C:\repo",
             ExitCode: null,
             Duration: null));
-        controller.HandleTextInput("git status");
-
-        await controller.HandleEnterAsync();
-
-        Assert.Empty(historyStore.Entries);
-    }
-
-    [Fact]
-    public async Task HandleEnterAsync_WhenShellIntegrationConfiguredButNotConfirmed_PersistsHeuristicFallback()
-    {
-        var historyStore = new InMemoryHistoryStore();
-        var controller = CreateController(historyStore);
-        controller.SetShellIntegrationEnabled(true);
         controller.HandleTextInput("git status");
 
         await controller.HandleEnterAsync();
@@ -284,6 +292,52 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
+    public async Task HandleShellIntegrationEventAsync_WhenCommandAcceptedIsMultiline_PersistsSingleHistoryEntry()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandAccepted,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:00+00:00"),
+            CommandText: "foreach ($i in 1..3)\r\n    Write-Output $i\r\n}",
+            WorkingDirectory: @"C:\repo",
+            ExitCode: null,
+            Duration: null));
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandFinished,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:03+00:00"),
+            CommandText: null,
+            WorkingDirectory: @"C:\repo",
+            ExitCode: 0,
+            Duration: TimeSpan.FromSeconds(3)));
+
+        Assert.Single(historyStore.Entries);
+        Assert.Equal("foreach ($i in 1..3)\r\n    Write-Output $i\r\n}", historyStore.Entries[0].CommandText);
+        Assert.Equal(0, historyStore.Entries[0].ExitCode);
+        Assert.Equal(3000, historyStore.Entries[0].DurationMs);
+    }
+
+    [Fact]
+    public async Task HandleShellIntegrationEventAsync_WhenFinishedWithoutAcceptedCommand_DoesNotPatchHistory()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandFinished,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:03+00:00"),
+            CommandText: null,
+            WorkingDirectory: @"C:\repo",
+            ExitCode: 1,
+            Duration: TimeSpan.FromMilliseconds(500)));
+
+        Assert.Empty(historyStore.Entries);
+    }
+
+    [Fact]
     public async Task HandleShellIntegrationEventAsync_WhenAcceptedMatchesPendingHeuristic_DoesNotCreateDuplicateEntry()
     {
         var historyStore = new InMemoryHistoryStore();
@@ -314,15 +368,15 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
-    public async Task UpdateSessionContext_WhenStructuredMarkersWereObserved_KeepsStructuredCaptureActive()
+    public async Task UpdateSessionContext_WhenCommandAcceptedMarkerWasObserved_KeepsStructuredCaptureActive()
     {
         var historyStore = new InMemoryHistoryStore();
         var controller = CreateController(historyStore);
         controller.SetShellIntegrationEnabled(true);
         await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
-            Type: ShellIntegrationEventType.PromptReady,
+            Type: ShellIntegrationEventType.CommandAccepted,
             Timestamp: DateTimeOffset.Parse("2026-03-09T11:59:59+00:00"),
-            CommandText: null,
+            CommandText: "git status",
             WorkingDirectory: @"C:\repo-a",
             ExitCode: null,
             Duration: null));
@@ -339,7 +393,8 @@ public sealed class CommandAssistControllerTests
 
         await controller.HandleEnterAsync();
 
-        Assert.Empty(historyStore.Entries);
+        Assert.Single(historyStore.Entries);
+        Assert.Equal(CommandCaptureSource.ShellIntegration, historyStore.Entries[0].Source);
     }
 
     [Fact]
@@ -384,6 +439,20 @@ public sealed class CommandAssistControllerTests
         Assert.Single(snippets);
         Assert.True(snippets[0].IsPinned);
         Assert.Equal("git status", snippets[0].CommandText);
+    }
+
+    [Fact]
+    public void CanTogglePinSelection_WhenNoSuggestionIsSelected_ReturnsFalse()
+    {
+        var controller = CreateController(
+            historyStore: new InMemoryHistoryStore(),
+            snippetStore: new InMemorySnippetStore(),
+            suggestionEngine: new CommandAssistSuggestionEngine());
+        controller.ToggleAssist();
+
+        bool canToggle = controller.CanTogglePinSelection();
+
+        Assert.False(canToggle);
     }
 
     [Fact]

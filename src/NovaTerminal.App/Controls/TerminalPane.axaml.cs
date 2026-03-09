@@ -197,6 +197,7 @@ namespace NovaTerminal.Controls
 
         private void SetupCommon()
         {
+            TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
             TermView.TextInput += (_, e) =>
             {
                 if (!string.IsNullOrEmpty(e.Text))
@@ -206,43 +207,6 @@ namespace NovaTerminal.Controls
             };
             TermView.KeyDown += (_, e) =>
             {
-                if (_commandAssistController?.ViewModel.IsVisible == true)
-                {
-                    bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
-                    bool isShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
-
-                    if (e.Key == Key.Escape && _commandAssistController.HandleEscape())
-                    {
-                        e.Handled = true;
-                        return;
-                    }
-
-                    if (e.Key == Key.Down && _commandAssistController.MoveSelectionDown())
-                    {
-                        e.Handled = true;
-                        return;
-                    }
-
-                    if (e.Key == Key.Up && _commandAssistController.MoveSelectionUp())
-                    {
-                        e.Handled = true;
-                        return;
-                    }
-
-                    if (e.Key == Key.Tab && TryInsertSelectedCommandAssistSuggestion())
-                    {
-                        e.Handled = true;
-                        return;
-                    }
-
-                    if (isCtrl && isShift && e.Key == Key.P)
-                    {
-                        _ = _commandAssistController.TogglePinSelectionAsync();
-                        e.Handled = true;
-                        return;
-                    }
-                }
-
                 if (e.Key != Key.LeftShift &&
                     e.Key != Key.RightShift &&
                     e.Key != Key.LeftCtrl &&
@@ -457,6 +421,60 @@ namespace NovaTerminal.Controls
                 isShellIntegrated: _isShellIntegrationActive);
         }
 
+        internal bool TryHandleCommandAssistKey(Key key, KeyModifiers modifiers)
+        {
+            bool isAssistVisible = _commandAssistController?.ViewModel.IsVisible == true;
+            if (!CommandAssistKeyRouter.IsAssistOwnedKey(isAssistVisible, key, modifiers))
+            {
+                return false;
+            }
+
+            bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
+            bool isShift = (modifiers & KeyModifiers.Shift) != 0;
+
+            if (key == Key.Escape)
+            {
+                _commandAssistController.HandleEscape();
+                return true;
+            }
+
+            if (key == Key.Down)
+            {
+                _commandAssistController.MoveSelectionDown();
+                return true;
+            }
+
+            if (key == Key.Up)
+            {
+                _commandAssistController.MoveSelectionUp();
+                return true;
+            }
+
+            if (key == Key.Tab)
+            {
+                TryInsertSelectedCommandAssistSuggestion();
+                return true;
+            }
+
+            if (isCtrl && isShift && key == Key.P)
+            {
+                if (!_commandAssistController.CanTogglePinSelection())
+                {
+                    return false;
+                }
+
+                _ = _commandAssistController.TogglePinSelectionAsync();
+                return true;
+            }
+
+            return false;
+        }
+
+        public bool TryToggleCommandAssistPinShortcut()
+        {
+            return TryHandleCommandAssistKey(Key.P, KeyModifiers.Control | KeyModifiers.Shift);
+        }
+
         private bool TryInsertSelectedCommandAssistSuggestion()
         {
             if (_commandAssistController == null || Session == null)
@@ -470,12 +488,13 @@ namespace NovaTerminal.Controls
                 return false;
             }
 
-            if (!string.IsNullOrEmpty(existingQuery))
+            if (!CommandAssistInsertionPlanner.TryCreateInsertion(existingQuery, insertionText, out string? textToSend) ||
+                string.IsNullOrEmpty(textToSend))
             {
-                Session.SendInput(new string('\x7f', existingQuery.Length));
+                return false;
             }
 
-            Session.SendInput(insertionText);
+            Session.SendInput(textToSend);
             return true;
         }
 

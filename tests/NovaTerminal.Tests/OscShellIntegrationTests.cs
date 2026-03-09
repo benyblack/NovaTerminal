@@ -1,3 +1,5 @@
+using System.Text;
+using System.Linq;
 using NovaTerminal.Core;
 
 namespace NovaTerminal.Tests;
@@ -77,6 +79,47 @@ public sealed class OscShellIntegrationTests
     }
 
     [Fact]
+    public void Osc133C_WithMultilineBase64Command_RaisesCommandAccepted()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+        string? acceptedCommand = null;
+        const string command = "foreach ($i in 1..3) {\r\n    Write-Output $i\r\n}";
+        string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(command));
+
+        parser.OnCommandAccepted += command => acceptedCommand = command;
+        parser.Process($"\x1b]133;C;{encoded}\x07");
+
+        Assert.Equal(command, acceptedCommand);
+    }
+
+    [Fact]
+    public void Osc133C_SplitAcrossProcessCalls_RaisesCommandAcceptedWithoutLeakingPadding()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+        string? acceptedCommand = null;
+
+        parser.OnCommandAccepted += command => acceptedCommand = command;
+        parser.Process("\x1b]133;C;Z2l0IHN0");
+        parser.Process("YXR1cw==\x07");
+
+        Assert.Equal("git status", acceptedCommand);
+        Assert.Equal(string.Empty, GetVisiblePlainText(buffer).Trim());
+    }
+
+    [Fact]
+    public void Osc133A_FollowedImmediatelyByPromptText_DoesNotCorruptPrompt()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        parser.Process("\x1b]133;A\x07PS C:\\repo> ");
+
+        Assert.Equal("PS C:\\repo>", GetVisiblePlainText(buffer).Trim());
+    }
+
+    [Fact]
     public void Osc133D_WithExitCodeAndDuration_RaisesDetailedCommandFinished()
     {
         var buffer = new TerminalBuffer(80, 24);
@@ -88,5 +131,18 @@ public sealed class OscShellIntegrationTests
 
         Assert.Equal(17, result.ExitCode);
         Assert.Equal(2450, result.DurationMs);
+    }
+
+    private static string GetVisiblePlainText(TerminalBuffer buffer)
+    {
+        var field = typeof(TerminalBuffer).GetField("_viewport", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var viewport = (TerminalRow[])field!.GetValue(buffer)!;
+        return string.Join("\n", viewport.Select(GetRowText)).TrimEnd();
+    }
+
+    private static string GetRowText(TerminalRow row)
+    {
+        var chars = row.Cells.Select(c => c.Character == '\0' ? ' ' : c.Character).ToArray();
+        return new string(chars).TrimEnd();
     }
 }
