@@ -3,5 +3,8 @@ namespace NovaTerminal.CommandAssist.Models;
 public enum AssistSuggestionType
 {
     History,
-    Snippet
+    Snippet,
+    Recipe,
+    Doc,
+    Fix
 }

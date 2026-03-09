@@ -37,6 +37,7 @@ public sealed class HistorySuggestionEngine : ISuggestionEngine
                 Type: AssistSuggestionType.History,
                 DisplayText: x.Latest.CommandText,
                 InsertText: x.Latest.CommandText,
+                Description: null,
                 Badges: BuildBadges(x.Latest, context, x.Frequency),
                 Score: x.Score,
                 WorkingDirectory: x.Latest.WorkingDirectory,

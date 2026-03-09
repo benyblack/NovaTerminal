@@ -6,6 +6,50 @@ namespace NovaTerminal.Tests.CommandAssist;
 public sealed class CommandAssistSuggestionEngineTests
 {
     [Fact]
+    public void AssistSuggestion_CanCarryHelperDescriptionAndBadges()
+    {
+        var suggestion = new AssistSuggestion(
+            Id: "doc-1",
+            Type: AssistSuggestionType.Doc,
+            DisplayText: "git checkout",
+            InsertText: "git checkout <branch>",
+            Description: "Switch branches or restore files.",
+            Badges: ["Doc", "Git"],
+            Score: 42,
+            WorkingDirectory: @"C:\repo",
+            LastUsedAt: null,
+            ExitCode: null,
+            CanExecuteDirectly: false);
+
+        Assert.Equal("Switch branches or restore files.", suggestion.Description);
+        Assert.Contains("Doc", suggestion.Badges);
+        Assert.Equal(AssistSuggestionType.Doc, suggestion.Type);
+    }
+
+    [Theory]
+    [InlineData(AssistSuggestionType.Recipe)]
+    [InlineData(AssistSuggestionType.Doc)]
+    [InlineData(AssistSuggestionType.Fix)]
+    public void AssistSuggestionType_DefinesHelperRowKinds(AssistSuggestionType type)
+    {
+        var suggestion = new AssistSuggestion(
+            Id: Guid.NewGuid().ToString("N"),
+            Type: type,
+            DisplayText: "helper row",
+            InsertText: "helper row",
+            Description: "Helper detail",
+            Badges: ["Helper"],
+            Score: 1,
+            WorkingDirectory: null,
+            LastUsedAt: null,
+            ExitCode: null,
+            CanExecuteDirectly: false);
+
+        Assert.Equal(type, suggestion.Type);
+        Assert.Equal("Helper detail", suggestion.Description);
+    }
+
+    [Fact]
     public void GetSuggestions_PinnedSnippetRanksAboveHistoryWithSimilarMatch()
     {
         var engine = new CommandAssistSuggestionEngine();
@@ -28,6 +72,7 @@ public sealed class CommandAssistSuggestionEngineTests
         IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, snippets, context, maxResults: 5);
 
         Assert.Equal(AssistSuggestionType.Snippet, results[0].Type);
+        Assert.Null(results[0].Description);
         Assert.Contains("Pinned", results[0].Badges);
     }
 

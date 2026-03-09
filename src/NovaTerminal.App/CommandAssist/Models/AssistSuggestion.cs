@@ -8,6 +8,7 @@ public sealed record AssistSuggestion(
     AssistSuggestionType Type,
     string DisplayText,
     string InsertText,
+    string? Description,
     IReadOnlyList<string> Badges,
     double Score,
     string? WorkingDirectory,
