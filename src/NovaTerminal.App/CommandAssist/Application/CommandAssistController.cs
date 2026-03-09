@@ -21,6 +21,7 @@ public sealed class CommandAssistController
     private bool _isRemote;
     private bool _isShellIntegrationEnabled;
     private bool _hasObservedShellIntegrationMarker;
+    private bool _hasObservedStructuredCommandCaptureMarker;
     private bool _ignoreCurrentSubmission;
     private int _refreshVersion;
     private string? _pendingHistoryEntryId;
@@ -180,6 +181,7 @@ public sealed class CommandAssistController
         _isRemote = isRemote;
         _isShellIntegrationEnabled = isShellIntegrated;
         _hasObservedShellIntegrationMarker = _hasObservedShellIntegrationMarker && isShellIntegrated;
+        _hasObservedStructuredCommandCaptureMarker = _hasObservedStructuredCommandCaptureMarker && isShellIntegrated;
     }
 
     public void SetShellIntegrationEnabled(bool isEnabled)
@@ -188,6 +190,7 @@ public sealed class CommandAssistController
         if (!isEnabled)
         {
             _hasObservedShellIntegrationMarker = false;
+            _hasObservedStructuredCommandCaptureMarker = false;
         }
     }
 
@@ -301,6 +304,11 @@ public sealed class CommandAssistController
             ShellIntegrationEventType.CommandFinished)
         {
             _hasObservedShellIntegrationMarker = true;
+        }
+
+        if (shellEvent.Type is ShellIntegrationEventType.CommandAccepted)
+        {
+            _hasObservedStructuredCommandCaptureMarker = true;
         }
 
         switch (shellEvent.Type)
@@ -600,7 +608,7 @@ public sealed class CommandAssistController
 
     private bool IsStructuredShellIntegrationActive()
     {
-        return _isShellIntegrationEnabled && _hasObservedShellIntegrationMarker;
+        return _isShellIntegrationEnabled && _hasObservedStructuredCommandCaptureMarker;
     }
 
     private static string NormalizeCommandText(string commandText)

@@ -20,7 +20,7 @@
     </UserControl.Styles>
 
     <Border Padding="0">
-        <Grid x:Name="RootGrid" Background="Transparent" RowDefinitions="*,Auto,Auto">
+        <Grid x:Name="RootGrid" Background="Transparent" RowDefinitions="*,Auto">
             <!-- Context Menu for SFTP Actions -->
             <Grid.ContextMenu>
                 <ContextMenu Name="PaneContextMenu">
@@ -114,11 +114,13 @@
             </Border>
 
             <assist:CommandAssistBarView x:Name="CommandAssistBar"
-                                         Grid.Row="1" />
+                                         Grid.Row="0"
+                                         VerticalAlignment="Bottom"
+                                         ZIndex="150" />
 
             <!-- Port Forwarding Status Bar -->
             <Border Name="StatusBar" VerticalAlignment="Bottom" Height="22" Background="#CC1A1A1A" 
-                    BorderBrush="#333" BorderThickness="0,1,0,0" IsVisible="False" ZIndex="100" Grid.Row="2">
+                    BorderBrush="#333" BorderThickness="0,1,0,0" IsVisible="False" ZIndex="100" Grid.Row="1">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0" Spacing="10">
                     <TextBlock Name="StatusBarLabel" Foreground="#AAA" FontSize="10" VerticalAlignment="Center"/>
                     <StackPanel Name="StatusBarRules" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"/>
@@ -132,7 +134,7 @@
 
 
             <!-- Focus Indicator Border -->
-            <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" ZIndex="300" Grid.RowSpan="3" />
+            <Border Name="FocusBorder" BorderThickness="1" BorderBrush="Transparent" IsHitTestVisible="False" ZIndex="300" Grid.RowSpan="2" />
         </Grid>
     </Border>
 </UserControl>

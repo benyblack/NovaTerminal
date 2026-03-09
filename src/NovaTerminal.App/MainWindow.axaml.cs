@@ -1810,6 +1810,12 @@ namespace NovaTerminal
 
                 if (IsShortcut(e, "command_palette", "Ctrl+Shift+P"))
                 {
+                    if (_currentPane?.TryToggleCommandAssistPinShortcut() == true)
+                    {
+                        e.Handled = true;
+                        return;
+                    }
+
                     ToggleCommandPalette();
                     e.Handled = true;
                     return;

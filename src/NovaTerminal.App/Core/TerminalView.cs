@@ -93,47 +93,62 @@ namespace NovaTerminal.Core
         protected override void OnKeyDown(KeyEventArgs e)
         {
             base.OnKeyDown(e);
-            if (e.Handled || _session == null) return;
+            if (e.Handled) return;
+
+            if (HandleKeyDownCore(e.Key, e.KeyModifiers))
+            {
+                e.Handled = true;
+            }
+        }
+
+        internal Func<Key, KeyModifiers, bool>? KeyDownInterceptor { get; set; }
+
+        internal bool HandleKeyDownCore(Key key, KeyModifiers keyModifiers)
+        {
+            if (KeyDownInterceptor?.Invoke(key, keyModifiers) == true)
+            {
+                return true;
+            }
+
+            if (_session == null)
+            {
+                return false;
+            }
 
             ResetCursorBlink();
 
             // Handle keys that don't generate text input (Control codes, arrows, etc.)
             // Logic copied from MainWindow
             string? sequence = null;
-            bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
+            bool isCtrl = (keyModifiers & KeyModifiers.Control) != 0;
 
-            switch (e.Key)
+            switch (key)
             {
                 case Key.Enter:
                     _session.SendInput("\r");
                     EnterObserved?.Invoke();
-                    e.Handled = true;
-                    return;
+                    return true;
                 case Key.Back:
                     _session.SendInput("\x7f");
                     BackspaceObserved?.Invoke();
-                    e.Handled = true;
-                    return;
+                    return true;
                 case Key.Tab:
                     _session.SendInput("\t");
-                    e.Handled = true;
-                    return;
+                    return true;
                 case Key.Escape:
                     _session.SendInput("\x1b");
-                    e.Handled = true;
-                    return;
+                    return true;
 
                 default:
-                    if (isCtrl && !e.KeyModifiers.HasFlag(KeyModifiers.Shift) && !e.KeyModifiers.HasFlag(KeyModifiers.Alt))
+                    if (isCtrl && !keyModifiers.HasFlag(KeyModifiers.Shift) && !keyModifiers.HasFlag(KeyModifiers.Alt))
                     {
-                        if (e.Key >= Key.A && e.Key <= Key.Z)
+                        if (key >= Key.A && key <= Key.Z)
                         {
                             // Ctrl+A = 1, Ctrl+Z = 26
                             // ASCII Control Characters
-                            char ctrlChar = (char)(e.Key - Key.A + 1);
+                            char ctrlChar = (char)(key - Key.A + 1);
                             _session.SendInput(ctrlChar.ToString());
-                            e.Handled = true;
-                            return;
+                            return true;
                         }
                     }
                     break;
@@ -150,8 +165,7 @@ namespace NovaTerminal.Core
                         {
                             _session.SendInput("\x03");
                         }
-                        e.Handled = true;
-                        return;
+                        return true;
                     }
                     break;
                 case Key.V:
@@ -208,8 +222,10 @@ namespace NovaTerminal.Core
             if (sequence != null)
             {
                 _session.SendInput(sequence);
-                e.Handled = true;
+                return true;
             }
+
+            return false;
         }
 
         private TerminalBuffer? _buffer;
