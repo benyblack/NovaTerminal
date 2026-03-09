@@ -314,6 +314,35 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
+    public async Task UpdateSessionContext_WhenStructuredMarkersWereObserved_KeepsStructuredCaptureActive()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.PromptReady,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T11:59:59+00:00"),
+            CommandText: null,
+            WorkingDirectory: @"C:\repo-a",
+            ExitCode: null,
+            Duration: null));
+
+        controller.UpdateSessionContext(
+            shellKind: "pwsh",
+            workingDirectory: @"C:\repo-b",
+            profileId: "profile-1",
+            sessionId: "session-1",
+            hostId: null,
+            isRemote: false,
+            isShellIntegrated: true);
+        controller.HandleTextInput("git status");
+
+        await controller.HandleEnterAsync();
+
+        Assert.Empty(historyStore.Entries);
+    }
+
+    [Fact]
     public async Task HandleTextInput_WhenPinnedSnippetMatches_ShowsSnippetAsTopSuggestion()
     {
         var historyStore = new InMemoryHistoryStore();

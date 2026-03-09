@@ -20,6 +20,15 @@ public sealed class PowerShellShellIntegrationProvider : IShellIntegrationProvid
 
     public ShellIntegrationLaunchPlan CreateLaunchPlan(string shellCommand, string? shellArguments, string? workingDirectory)
     {
+        if (ContainsUserScriptFile(shellArguments))
+        {
+            return new ShellIntegrationLaunchPlan(
+                IsIntegrated: false,
+                ShellCommand: shellCommand,
+                ShellArguments: shellArguments,
+                BootstrapScriptPath: null);
+        }
+
         string bootstrapScriptPath = PowerShellBootstrapBuilder.WriteScript(AppPaths.CommandAssistDirectory);
         string mergedArguments = BuildPowerShellArguments(shellArguments, bootstrapScriptPath);
         return new ShellIntegrationLaunchPlan(
@@ -56,5 +65,11 @@ public sealed class PowerShellShellIntegrationProvider : IShellIntegrationProvid
         }
 
         return original.Trim();
+    }
+
+    private static bool ContainsUserScriptFile(string? shellArguments)
+    {
+        return !string.IsNullOrWhiteSpace(shellArguments) &&
+               shellArguments.Contains("-File", StringComparison.OrdinalIgnoreCase);
     }
 }

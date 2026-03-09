@@ -64,6 +64,7 @@ namespace NovaTerminal.Controls
         private CommandAssistController? _commandAssistController;
         private ShellLifecycleTracker? _shellLifecycleTracker;
         private bool _isShellIntegrationActive;
+        private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -1253,7 +1254,7 @@ namespace NovaTerminal.Controls
 
         private void OnShellIntegrationEventObserved(ShellIntegrationEvent shellEvent)
         {
-            _ = HandleShellIntegrationEventAsync(shellEvent);
+            _ = _shellIntegrationEventDispatcher.EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent));
         }
 
         private async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)

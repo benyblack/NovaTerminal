@@ -33,4 +33,20 @@ public sealed class PowerShellShellIntegrationProviderTests
 
         Assert.True(supported);
     }
+
+    [Fact]
+    public void CreateLaunchPlan_WhenUserAlreadySuppliesFileScript_DoesNotClaimIntegration()
+    {
+        var provider = new PowerShellShellIntegrationProvider();
+
+        ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan(
+            shellCommand: "pwsh.exe",
+            shellArguments: "-File .\\user-script.ps1",
+            workingDirectory: @"C:\repo");
+
+        Assert.False(plan.IsIntegrated);
+        Assert.Equal("pwsh.exe", plan.ShellCommand);
+        Assert.Equal("-File .\\user-script.ps1", plan.ShellArguments);
+        Assert.Null(plan.BootstrapScriptPath);
+    }
 }

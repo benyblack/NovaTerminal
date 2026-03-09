@@ -179,7 +179,7 @@ public sealed class CommandAssistController
         _hostId = hostId;
         _isRemote = isRemote;
         _isShellIntegrationEnabled = isShellIntegrated;
-        _hasObservedShellIntegrationMarker = false;
+        _hasObservedShellIntegrationMarker = _hasObservedShellIntegrationMarker && isShellIntegrated;
     }
 
     public void SetShellIntegrationEnabled(bool isEnabled)
