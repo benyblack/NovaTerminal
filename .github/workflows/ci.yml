@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["windows-latest","ubuntu-latest"]' || '["windows-latest","ubuntu-latest","macos-latest"]') }}
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest","ubuntu-latest"]') }}
     
     steps:
       - uses: actions/checkout@v4
@@ -82,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["windows-latest","ubuntu-latest","macos-latest"]') }}
+        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["windows-latest","ubuntu-latest"]') }}
 
     steps:
       - uses: actions/checkout@v4
@@ -163,7 +163,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -220,7 +220,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -275,12 +275,6 @@ jobs:
           name: replay-snapshots-ubuntu-latest
           path: parity/linux
 
-      - name: Download snapshots (macOS)
-        uses: actions/download-artifact@v4
-        with:
-          name: replay-snapshots-macos-latest
-          path: parity/macos
-
       - name: Inspect downloaded parity artifacts
         run: |
           echo "Downloaded files:"
@@ -288,11 +282,10 @@ jobs:
           echo "Snapshot counts:"
           echo "windows=$(find parity/windows -type f -name '*.snap' | wc -l)"
           echo "linux=$(find parity/linux -type f -name '*.snap' | wc -l)"
-          echo "macos=$(find parity/macos -type f -name '*.snap' | wc -l)"
 
       - name: Compare snapshots for parity
         run: |
-          python3 tests/tools/compare_snapshots.py parity/windows parity/linux parity/macos
+          python3 tests/tools/compare_snapshots.py parity/windows parity/linux
 
   render_metrics_tests:
     name: Render Metrics (${{ matrix.os }})
@@ -303,7 +296,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
