@@ -94,4 +94,22 @@ public sealed class HeuristicErrorInsightServiceTests
 
         Assert.DoesNotContain(result, item => item.Confidence >= 0.8);
     }
+
+    [Fact]
+    public async Task AnalyzeAsync_WhenCommandAlreadyMatchesKnownToken_DoesNotReturnTypoFix()
+    {
+        var service = new HeuristicErrorInsightService();
+        var context = new CommandFailureContext(
+            CommandText: "git commit",
+            ExitCode: 1,
+            ShellKind: "bash",
+            WorkingDirectory: "/repo",
+            ErrorOutput: null,
+            IsRemote: false,
+            SelectedText: null);
+
+        IReadOnlyList<CommandFixSuggestion> result = await service.AnalyzeAsync(context, CancellationToken.None);
+
+        Assert.DoesNotContain(result, item => item.Badges?.Contains("Typo", StringComparer.Ordinal) == true);
+    }
 }

@@ -68,6 +68,21 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     }
 
     [AvaloniaFact]
+    public async Task HandleCommandAssistCompletionAsync_WhenKnownCommandFails_DoesNotOpenTypoFixMode()
+    {
+        var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.NotifyCommandAssistPaste("git commit");
+
+        await pane.HandleCommandAssistCompletionAsync(1);
+        await Task.Delay(50);
+
+        CommandAssistBarViewModel vm = AssertViewModel(pane);
+        Assert.NotEqual("Fix", vm.ModeLabel);
+        Assert.False(vm.IsVisible && vm.ShowEmptyState);
+    }
+
+    [AvaloniaFact]
     public void CanExplainSelection_WhenSelectionIsEmpty_ReturnsFalse()
     {
         var pane = new TerminalPane();

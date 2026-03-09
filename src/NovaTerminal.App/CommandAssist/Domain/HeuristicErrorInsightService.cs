@@ -126,7 +126,9 @@ public sealed class HeuristicErrorInsightService : IErrorInsightService
             }
         }
 
-        if (bestMatch == null || bestDistance > GetMaxAllowedDistance(commandToken, bestMatch))
+        if (bestMatch == null ||
+            bestDistance == 0 ||
+            bestDistance > GetMaxAllowedDistance(commandToken, bestMatch))
         {
             return null;
         }
