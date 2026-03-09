@@ -9,6 +9,73 @@ namespace NovaTerminal.Tests.CommandAssist;
 public sealed class CommandAssistControllerTests
 {
     [Fact]
+    public void ResultBuilder_WhenGivenDocItems_BuildsDocSuggestions()
+    {
+        var builder = new CommandAssistResultBuilder();
+
+        IReadOnlyList<AssistSuggestion> results = builder.BuildHelpSuggestions(
+            [new CommandHelpItem("git checkout", "git checkout <branch>", "Switch branches.", "bash", ["Doc", "Git"])],
+            AssistSuggestionType.Doc);
+
+        Assert.Single(results);
+        Assert.Equal(AssistSuggestionType.Doc, results[0].Type);
+        Assert.Equal("Switch branches.", results[0].Description);
+        Assert.Contains("Doc", results[0].Badges);
+    }
+
+    [Fact]
+    public void ResultBuilder_WhenGivenRecipeItems_BuildsRecipeSuggestions()
+    {
+        var builder = new CommandAssistResultBuilder();
+
+        IReadOnlyList<AssistSuggestion> results = builder.BuildHelpSuggestions(
+            [new CommandHelpItem("git recipe", "git status --short", "Show concise status.", "bash", ["Recipe"])],
+            AssistSuggestionType.Recipe);
+
+        Assert.Single(results);
+        Assert.Equal(AssistSuggestionType.Recipe, results[0].Type);
+        Assert.Equal("Show concise status.", results[0].Description);
+    }
+
+    [Fact]
+    public void ResultBuilder_WhenGivenFixItems_BuildsFixSuggestions()
+    {
+        var builder = new CommandAssistResultBuilder();
+
+        IReadOnlyList<AssistSuggestion> results = builder.BuildFixSuggestions(
+            [new CommandFixSuggestion("Did you mean git?", "git status", "Closest local match.", 0.95, ["Fix", "Typo"])]);
+
+        Assert.Single(results);
+        Assert.Equal(AssistSuggestionType.Fix, results[0].Type);
+        Assert.Equal("Closest local match.", results[0].Description);
+        Assert.True(results[0].CanExecuteDirectly);
+    }
+
+    [Fact]
+    public void ResultBuilder_WhenGivenExistingSuggestions_PreservesSharedRowShape()
+    {
+        var builder = new CommandAssistResultBuilder();
+        AssistSuggestion existing = new(
+            Id: "history-1",
+            Type: AssistSuggestionType.History,
+            DisplayText: "git status",
+            InsertText: "git status",
+            Description: null,
+            Badges: ["Worked"],
+            Score: 10,
+            WorkingDirectory: @"C:\repo",
+            LastUsedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"),
+            ExitCode: 0,
+            CanExecuteDirectly: false);
+
+        IReadOnlyList<AssistSuggestion> results = builder.BuildCombined([existing], Array.Empty<CommandHelpItem>(), Array.Empty<CommandHelpItem>(), Array.Empty<CommandFixSuggestion>());
+
+        Assert.Single(results);
+        Assert.Equal(AssistSuggestionType.History, results[0].Type);
+        Assert.Contains("Worked", results[0].Badges);
+    }
+
+    [Fact]
     public void ToggleAssist_WhenNotInAltScreen_ShowsAssistBar()
     {
         var controller = CreateController();
