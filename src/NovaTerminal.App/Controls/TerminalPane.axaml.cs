@@ -15,6 +15,9 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
 using Avalonia.Platform.Storage;
 using NovaTerminal.CommandAssist.Application;
+using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
+using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Sessions;
 
@@ -59,6 +62,9 @@ namespace NovaTerminal.Controls
         private string? _pendingPasteFilePath;
         private string? _pendingEscapedPath;
         private CommandAssistController? _commandAssistController;
+        private ShellLifecycleTracker? _shellLifecycleTracker;
+        private bool _isShellIntegrationActive;
+        private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -447,7 +453,8 @@ namespace NovaTerminal.Controls
                 profileId: Profile?.Id.ToString(),
                 sessionId: Session?.Id.ToString(),
                 hostId: Profile?.Type == ConnectionType.SSH ? Profile.SshHost : null,
-                isRemote: Profile?.Type == ConnectionType.SSH);
+                isRemote: Profile?.Type == ConnectionType.SSH,
+                isShellIntegrated: _isShellIntegrationActive);
         }
 
         private bool TryInsertSelectedCommandAssistSuggestion()
@@ -520,6 +527,7 @@ namespace NovaTerminal.Controls
             };
             Parser.OnWorkingDirectoryChanged += cwd =>
             {
+                _shellLifecycleTracker?.HandleWorkingDirectoryChanged(cwd);
                 Dispatcher.UIThread.Post(() =>
                 {
                     CurrentWorkingDirectory = cwd;
@@ -535,8 +543,17 @@ namespace NovaTerminal.Controls
                     TitleChanged?.Invoke(this, title);
                 });
             };
+            Parser.OnPromptReady += () =>
+            {
+                _shellLifecycleTracker?.HandlePromptReady();
+            };
+            Parser.OnCommandAccepted += commandText =>
+            {
+                _shellLifecycleTracker?.HandleCommandAccepted(commandText);
+            };
             Parser.OnCommandStarted += () =>
             {
+                _shellLifecycleTracker?.HandleCommandStarted();
                 Dispatcher.UIThread.Post(() =>
                 {
                     LastExitCode = null;
@@ -553,8 +570,15 @@ namespace NovaTerminal.Controls
                     }
 
                     CommandFinished?.Invoke(this, exitCode);
-                    _ = _commandAssistController?.HandleCommandFinishedAsync(exitCode);
+                    if (!_isShellIntegrationActive)
+                    {
+                        _ = _commandAssistController?.HandleCommandFinishedAsync(exitCode);
+                    }
                 });
+            };
+            Parser.OnCommandFinishedDetailed += (exitCode, durationMs) =>
+            {
+                _shellLifecycleTracker?.HandleCommandFinished(exitCode, durationMs);
             };
 
             // Sync initial metrics
@@ -566,6 +590,8 @@ namespace NovaTerminal.Controls
             // Setup Session
             string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
             string args = explicitArgs ?? profile?.Arguments ?? "";
+            _shellLifecycleTracker = null;
+            _isShellIntegrationActive = false;
 
             // Update SFTP Menu Visibility
             // If it's not an SSH session, detach the context menu entirely to avoid "tiny empty box" artifacts
@@ -591,6 +617,13 @@ namespace NovaTerminal.Controls
 
                 ShellCommand = effectiveShell;
                 ShellArgs = args;
+
+                if (profile == null || profile.Type != ConnectionType.SSH)
+                {
+                    ApplyShellIntegrationLaunchPlan(profile, ref effectiveShell, ref args, startingDir);
+                    ShellCommand = effectiveShell;
+                    ShellArgs = args;
+                }
 
                 if (profile != null && profile.Type == ConnectionType.SSH)
                 {
@@ -618,7 +651,13 @@ namespace NovaTerminal.Controls
                     }
                 }
 
-                Session ??= new RustPtySession(effectiveShell, cols, rows, args, startingDir);
+                Session ??= new RustPtySession(
+                    effectiveShell,
+                    cols,
+                    rows,
+                    args,
+                    startingDir,
+                    skipPowerShellPostLaunchInit: _isShellIntegrationActive);
                 Session.AttachBuffer(Buffer);
 
                 TermView.SetSession(Session);
@@ -708,6 +747,8 @@ namespace NovaTerminal.Controls
                 BellAudioEnabled = settings.BellAudioEnabled,
                 BellVisualEnabled = settings.BellVisualEnabled,
                 SmoothScrolling = settings.SmoothScrolling,
+                CommandAssistShellIntegrationEnabled = settings.CommandAssistShellIntegrationEnabled,
+                CommandAssistPowerShellIntegrationEnabled = settings.CommandAssistPowerShellIntegrationEnabled,
                 Profiles = settings.Profiles,
                 DefaultProfileId = settings.DefaultProfileId
             };
@@ -1162,6 +1203,75 @@ namespace NovaTerminal.Controls
                 return listeners.Any(l => l.Port == port);
             }
             catch { return false; }
+        }
+
+        private void ApplyShellIntegrationLaunchPlan(
+            TerminalProfile? profile,
+            ref string effectiveShell,
+            ref string args,
+            string startingDirectory)
+        {
+            if (_settings == null || !_settings.CommandAssistShellIntegrationEnabled)
+            {
+                return;
+            }
+
+            string shellKind = DetermineShellKind(effectiveShell);
+            var registry = CommandAssistInfrastructure.GetShellIntegrationRegistry();
+            IShellIntegrationProvider? provider = registry.GetProvider(shellKind, profile);
+            if (provider == null)
+            {
+                return;
+            }
+
+            if (!_settings.CommandAssistPowerShellIntegrationEnabled &&
+                provider is PowerShellShellIntegrationProvider)
+            {
+                return;
+            }
+
+            ShellIntegrationLaunchPlan plan;
+            try
+            {
+                plan = provider.CreateLaunchPlan(effectiveShell, args, startingDirectory);
+            }
+            catch
+            {
+                return;
+            }
+
+            if (!plan.IsIntegrated)
+            {
+                return;
+            }
+
+            effectiveShell = plan.ShellCommand;
+            args = plan.ShellArguments ?? string.Empty;
+            _isShellIntegrationActive = true;
+            _shellLifecycleTracker = new ShellLifecycleTracker();
+            _shellLifecycleTracker.EventObserved += OnShellIntegrationEventObserved;
+        }
+
+        private void OnShellIntegrationEventObserved(ShellIntegrationEvent shellEvent)
+        {
+            _ = _shellIntegrationEventDispatcher.EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent));
+        }
+
+        private async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
+        {
+            if (_commandAssistController == null)
+            {
+                return;
+            }
+
+            try
+            {
+                await _commandAssistController.HandleShellIntegrationEventAsync(shellEvent);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TerminalPane] Shell integration event handling failed: {ex.Message}");
+            }
         }
     }
 }

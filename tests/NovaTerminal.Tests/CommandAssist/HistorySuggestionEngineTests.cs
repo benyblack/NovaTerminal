@@ -107,6 +107,7 @@ public sealed class HistorySuggestionEngineTests
             ExitCode: 0,
             IsRemote: false,
             IsRedacted: false,
-            Source: CommandCaptureSource.Heuristic);
+            Source: CommandCaptureSource.Heuristic,
+            DurationMs: null);
     }
 }

@@ -1,5 +1,8 @@
 using System;
 using NovaTerminal.CommandAssist.Domain;
+using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
+using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 using NovaTerminal.CommandAssist.Storage;
 using NovaTerminal.Core;
 
@@ -13,6 +16,10 @@ public static class CommandAssistInfrastructure
     private static int _historyMaxEntries = -1;
     private static readonly ISecretsFilter SecretsFilterInstance = new SecretsFilter();
     private static readonly ISuggestionEngine SuggestionEngineInstance = new CommandAssistSuggestionEngine();
+    private static readonly ShellIntegrationRegistry ShellIntegrationRegistryInstance = new(new IShellIntegrationProvider[]
+    {
+        new PowerShellShellIntegrationProvider()
+    });
 
     public static IHistoryStore GetHistoryStore(TerminalSettings settings)
     {
@@ -42,4 +49,6 @@ public static class CommandAssistInfrastructure
     public static ISecretsFilter GetSecretsFilter() => SecretsFilterInstance;
 
     public static ISuggestionEngine GetSuggestionEngine() => SuggestionEngineInstance;
+
+    public static ShellIntegrationRegistry GetShellIntegrationRegistry() => ShellIntegrationRegistryInstance;
 }

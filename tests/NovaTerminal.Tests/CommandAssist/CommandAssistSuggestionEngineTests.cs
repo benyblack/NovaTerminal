@@ -116,7 +116,8 @@ public sealed class CommandAssistSuggestionEngineTests
             ExitCode: exitCode,
             IsRemote: false,
             IsRedacted: false,
-            Source: CommandCaptureSource.Heuristic);
+            Source: CommandCaptureSource.Heuristic,
+            DurationMs: null);
     }
 
     private static CommandSnippet CreateSnippet(string name, string commandText, bool isPinned)

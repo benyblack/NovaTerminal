@@ -101,7 +101,12 @@ public sealed class JsonHistoryStore : IHistoryStore
         }
     }
 
-    public async Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
+    public Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
+    {
+        return TryUpdateExecutionResultAsync(entryId, exitCode, durationMs: null, cancellationToken);
+    }
+
+    public async Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -113,7 +118,11 @@ public sealed class JsonHistoryStore : IHistoryStore
                 return false;
             }
 
-            entries[index] = entries[index] with { ExitCode = exitCode };
+            entries[index] = entries[index] with
+            {
+                ExitCode = exitCode,
+                DurationMs = durationMs ?? entries[index].DurationMs
+            };
             await SaveEntriesUnsafeAsync(entries, cancellationToken);
             return true;
         }

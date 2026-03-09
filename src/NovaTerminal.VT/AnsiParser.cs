@@ -3,6 +3,7 @@ using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 
 namespace NovaTerminal.Core
 {
@@ -45,8 +46,11 @@ namespace NovaTerminal.Core
         public Action? OnBell { get; set; }
         public Action<string>? OnWorkingDirectoryChanged { get; set; }
         public Action<string>? OnTitleChanged { get; set; }
+        public Action? OnPromptReady { get; set; }
+        public Action<string>? OnCommandAccepted { get; set; }
         public Action? OnCommandStarted { get; set; }
         public Action<int?>? OnCommandFinished { get; set; }
+        public Action<int?, long?>? OnCommandFinishedDetailed { get; set; }
 
         public AnsiParser(TerminalBuffer buffer, bool? forceConPtyFiltering = null)
         {
@@ -1187,28 +1191,61 @@ namespace NovaTerminal.Core
 
             // OSC 133: shell integration markers.
             // Common terminals/shell integrations emit:
+            //   OSC 133;A     -> prompt ready
             //   OSC 133;B   -> command started
-            //   OSC 133;D;N -> command finished with exit code N
+            //   OSC 133;C;X -> command accepted with base64-encoded command X
+            //   OSC 133;D;N[;M] -> command finished with exit code N and optional duration M
             if (code == "133")
             {
                 if (string.IsNullOrWhiteSpace(data)) return;
 
                 string[] parts = data.Split(';', StringSplitOptions.None);
                 string marker = parts[0];
-                if (string.Equals(marker, "B", StringComparison.Ordinal))
+                if (string.Equals(marker, "A", StringComparison.Ordinal))
+                {
+                    OnPromptReady?.Invoke();
+                }
+                else if (string.Equals(marker, "B", StringComparison.Ordinal))
                 {
                     OnCommandStarted?.Invoke();
+                }
+                else if (string.Equals(marker, "C", StringComparison.Ordinal))
+                {
+                    if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
+                    {
+                        try
+                        {
+                            byte[] bytes = Convert.FromBase64String(parts[1]);
+                            string commandText = Encoding.UTF8.GetString(bytes);
+                            if (!string.IsNullOrWhiteSpace(commandText))
+                            {
+                                OnCommandAccepted?.Invoke(commandText);
+                            }
+                        }
+                        catch
+                        {
+                            // Ignore malformed command payloads and preserve terminal behavior.
+                        }
+                    }
                 }
                 else if (string.Equals(marker, "D", StringComparison.Ordinal))
                 {
                     int? exitCode = null;
+                    long? durationMs = null;
                     if (parts.Length > 1 &&
                         int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
                     {
                         exitCode = parsed;
                     }
 
+                    if (parts.Length > 2 &&
+                        long.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsedDuration))
+                    {
+                        durationMs = parsedDuration;
+                    }
+
                     OnCommandFinished?.Invoke(exitCode);
+                    OnCommandFinishedDetailed?.Invoke(exitCode, durationMs);
                 }
 
                 return;
