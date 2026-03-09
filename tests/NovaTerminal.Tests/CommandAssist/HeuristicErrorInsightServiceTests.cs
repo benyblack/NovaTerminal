@@ -1,3 +1,4 @@
+using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
 
 namespace NovaTerminal.Tests.CommandAssist;
