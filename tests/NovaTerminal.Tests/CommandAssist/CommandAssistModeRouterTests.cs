@@ -1,3 +1,4 @@
+using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Models;
 
 namespace NovaTerminal.Tests.CommandAssist;
@@ -29,5 +30,54 @@ public sealed class CommandAssistModeRouterTests
 
         Assert.Equal("git", snapshot.RecognizedCommand);
         Assert.Equal("fatal: not a git repository", snapshot.SelectedText);
+    }
+
+    [Fact]
+    public void ChooseModeForHelpRequest_ReturnsHelp()
+    {
+        var router = new CommandAssistModeRouter();
+
+        CommandAssistMode mode = router.ChooseModeForHelpRequest();
+
+        Assert.Equal(CommandAssistMode.Help, mode);
+    }
+
+    [Fact]
+    public void ChooseMode_WhenFailureHasHighConfidence_ReturnsFix()
+    {
+        var router = new CommandAssistModeRouter();
+
+        CommandAssistMode mode = router.ChooseModeForFailure(0.81);
+
+        Assert.Equal(CommandAssistMode.Fix, mode);
+    }
+
+    [Fact]
+    public void ChooseMode_WhenFailureHasLowConfidence_RemainsSuggest()
+    {
+        var router = new CommandAssistModeRouter();
+
+        CommandAssistMode mode = router.ChooseModeForFailure(0.2);
+
+        Assert.Equal(CommandAssistMode.Suggest, mode);
+    }
+
+    [Theory]
+    [InlineData("git status", "git")]
+    [InlineData("Get-ChildItem -Force", "Get-ChildItem")]
+    [InlineData("\"C:/Program Files/Git/bin/git.exe\" status", "C:/Program Files/Git/bin/git.exe")]
+    public void ParsePrimaryCommand_WhenCommandIsSimple_ReturnsLeadingToken(string input, string expected)
+    {
+        string? token = RecognizedCommandParser.ParsePrimaryCommand(input);
+
+        Assert.Equal(expected, token);
+    }
+
+    [Fact]
+    public void ParsePrimaryCommand_WhenInputIsBlank_ReturnsNull()
+    {
+        string? token = RecognizedCommandParser.ParsePrimaryCommand("   ");
+
+        Assert.Null(token);
     }
 }
