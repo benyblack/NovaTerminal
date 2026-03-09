@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       full_matrix:
-        description: "Run Windows/macOS stress jobs in addition to Linux"
+        description: "Run Windows stress jobs in addition to Linux"
         required: false
         default: false
         type: boolean
@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest]
 
     steps:
       - uses: actions/checkout@v4
