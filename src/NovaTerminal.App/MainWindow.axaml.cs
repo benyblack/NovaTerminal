@@ -225,6 +225,18 @@ namespace NovaTerminal
                    e.Key == wantKey.Value;
         }
 
+        internal static bool TryHandleCommandAssistHelpShortcut(TerminalPane? pane, Key key, KeyModifiers modifiers)
+        {
+            bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
+            bool isShift = (modifiers & KeyModifiers.Shift) != 0;
+            if (!isCtrl || !isShift || key != Key.H)
+            {
+                return false;
+            }
+
+            return pane?.OpenCommandAssistHelp() == true;
+        }
+
         private bool TryGetSelectedTab(out TabItem tabItem)
         {
             tabItem = null!;
@@ -1835,6 +1847,12 @@ namespace NovaTerminal
                 if (IsShortcut(e, "command_assist_toggle", "Ctrl+Space"))
                 {
                     _currentPane?.ToggleCommandAssist();
+                    e.Handled = true;
+                    return;
+                }
+
+                if (TryHandleCommandAssistHelpShortcut(_currentPane, e.Key, modifiers))
+                {
                     e.Handled = true;
                     return;
                 }

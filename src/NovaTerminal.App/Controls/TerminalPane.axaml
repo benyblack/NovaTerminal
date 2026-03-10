@@ -40,6 +40,7 @@
                         <MenuItem Header="Download File..." Name="MenuDownloadFile" />
                         <MenuItem Header="Download Folder..." Name="MenuDownloadFolder" />
                     </MenuItem>
+                    <MenuItem Header="Explain Selection" Name="MenuExplainSelection" IsVisible="False" />
                 </ContextMenu>
             </Grid.ContextMenu>
 
