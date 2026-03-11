@@ -127,8 +127,27 @@ public sealed class CommandAssistControllerTests
         bool opened = await controller.HandleCommandFailureAsync(CreateFailureContext("gti status", 1, "command failed"));
 
         Assert.False(opened);
-        Assert.False(controller.ViewModel.IsVisible);
-        Assert.DoesNotContain(controller.Suggestions, item => item.Type == AssistSuggestionType.Fix);
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.Equal("Fix", controller.ViewModel.ModeLabel);
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.False(controller.ViewModel.Popup.IsVisible);
+        Assert.Contains(controller.Suggestions, item => item.Type == AssistSuggestionType.Fix);
+    }
+
+    [Fact]
+    public async Task MoveSelectionDown_WhenLowConfidenceFixAffordanceIsVisible_OpensPopup()
+    {
+        var controller = CreateController(
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion("Maybe try git status", "git status", "Low confidence.", 0.2, ["Fix"])]));
+
+        await controller.HandleCommandFailureAsync(CreateFailureContext("gti status", 1, "command failed"));
+
+        bool moved = controller.MoveSelectionDown();
+
+        Assert.True(moved);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.Popup.IsVisible);
     }
 
     [Fact]

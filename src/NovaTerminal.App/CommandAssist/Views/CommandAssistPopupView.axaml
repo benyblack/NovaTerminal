@@ -27,7 +27,8 @@
 
             <Grid Grid.Row="1"
                   ColumnDefinitions="3*,2*"
-                  ColumnSpacing="12">
+                  ColumnSpacing="12"
+                  IsVisible="{Binding UseExpandedLayout}">
                 <Border Background="#22101010"
                         CornerRadius="6"
                         Padding="8">
@@ -80,10 +81,12 @@
                     </Grid>
                 </Border>
 
-                <Border Grid.Column="1"
+                <Border x:Name="PopupDetailPanel"
+                        Grid.Column="1"
                         Background="#1C151515"
                         CornerRadius="6"
-                        Padding="8">
+                        Padding="8"
+                        IsVisible="{Binding UseExpandedLayout}">
                     <StackPanel Spacing="4">
                         <TextBlock Text="{Binding TopSuggestionText}"
                                    Foreground="White"
@@ -105,6 +108,82 @@
                     </StackPanel>
                 </Border>
             </Grid>
+
+            <Border Grid.Row="1"
+                    x:Name="PopupCompactPanel"
+                    Background="#22101010"
+                    CornerRadius="6"
+                    Padding="8"
+                    IsVisible="{Binding UseCompactLayout}">
+                <Grid RowDefinitions="Auto,Auto"
+                      RowSpacing="8">
+                    <StackPanel Spacing="4"
+                                IsVisible="{Binding HasSuggestions}">
+                        <TextBlock Text="{Binding TopSuggestionText}"
+                                   Foreground="White"
+                                   FontFamily="Consolas"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding SelectedDescriptionText}"
+                                   Foreground="#C8E1FF"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding SelectedBadgesText}"
+                                   Foreground="#C8E1FF"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding SelectedMetadataText}"
+                                   Foreground="#9CA3AF"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+
+                    <Grid Grid.Row="1">
+                        <ItemsControl ItemsSource="{Binding Suggestions}"
+                                      IsVisible="{Binding HasSuggestions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="Auto,*,Auto"
+                                          Margin="0,2">
+                                        <TextBlock Text="{Binding SelectionGlyph}"
+                                                   Foreground="#8EC5FF"
+                                                   Width="12"
+                                                   VerticalAlignment="Top"/>
+                                        <StackPanel Grid.Column="1"
+                                                    Spacing="1">
+                                            <TextBlock Text="{Binding DisplayText}"
+                                                       Foreground="White"
+                                                       FontFamily="Consolas"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding DescriptionText}"
+                                                       Foreground="#C8E1FF"
+                                                       FontSize="11"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding MetadataText}"
+                                                       Foreground="#9CA3AF"
+                                                       FontSize="11"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding BadgesText}"
+                                                   Foreground="#C8E1FF"
+                                                   FontSize="11"
+                                                   HorizontalAlignment="Right"
+                                                   Margin="8,0,0,0"
+                                                   TextWrapping="Wrap"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Text="{Binding EmptyStateText}"
+                                   Foreground="#9CA3AF"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   IsVisible="{Binding ShowEmptyState}"
+                                   TextWrapping="Wrap"/>
+                    </Grid>
+                </Grid>
+            </Border>
         </Grid>
     </Border>
 </UserControl>

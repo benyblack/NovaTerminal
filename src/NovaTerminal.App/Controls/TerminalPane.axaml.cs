@@ -76,6 +76,8 @@ namespace NovaTerminal.Controls
         private const double CommandAssistBubbleHeight = 36;
         private const double CommandAssistPopupWidth = 520;
         private const double CommandAssistPopupHeight = 220;
+        private const double CompactPopupWidthThreshold = 420;
+        private const double CompactPopupHeightThreshold = 180;
         internal CommandAssistBarViewModel? CommandAssistViewModel => _commandAssistController?.ViewModel;
 
         public bool IsRecording => Session?.IsRecording ?? false;
@@ -490,6 +492,7 @@ namespace NovaTerminal.Controls
             CommandAssistPromptHint? promptHint = TermView.GetCommandAssistPromptHint();
             float fallbackCellHeight = TermView.Metrics.CellHeight > 0 ? TermView.Metrics.CellHeight : 18;
             int fallbackVisibleRows = TermView.Rows > 0 ? TermView.Rows : 1;
+            CommandAssistSurfaceSizing sizing = CalculateCommandAssistSurfaceSizing(paneWidth, paneHeight);
 
             return _commandAssistAnchorCalculator.Calculate(new CommandAssistAnchorRequest(
                 PaneWidth: paneWidth,
@@ -497,11 +500,24 @@ namespace NovaTerminal.Controls
                 CellHeight: promptHint?.CellHeight ?? fallbackCellHeight,
                 CursorVisualRow: promptHint?.VisibleCursorVisualRow ?? 0,
                 VisibleRows: promptHint?.VisibleRows ?? fallbackVisibleRows,
-                BubbleWidth: CommandAssistBubbleWidth,
-                BubbleHeight: CommandAssistBubbleHeight,
-                PopupWidth: CommandAssistPopupWidth,
-                PopupHeight: CommandAssistPopupHeight,
+                BubbleWidth: sizing.BubbleWidth,
+                BubbleHeight: sizing.BubbleHeight,
+                PopupWidth: sizing.PopupWidth,
+                PopupHeight: sizing.PopupHeight,
                 HasReliablePromptAnchor: promptHint.HasValue));
+        }
+
+        private static CommandAssistSurfaceSizing CalculateCommandAssistSurfaceSizing(double paneWidth, double paneHeight)
+        {
+            double bubbleWidth = Math.Clamp(paneWidth * 0.44, 280, CommandAssistBubbleWidth);
+            double popupWidth = Math.Clamp(paneWidth * 0.58, 360, CommandAssistPopupWidth);
+            double popupHeight = Math.Clamp(paneHeight * 0.45, 160, CommandAssistPopupHeight);
+
+            return new CommandAssistSurfaceSizing(
+                BubbleWidth: bubbleWidth,
+                BubbleHeight: CommandAssistBubbleHeight,
+                PopupWidth: popupWidth,
+                PopupHeight: popupHeight);
         }
 
         private void UpdateCommandAssistOverlayPlacement()
@@ -532,6 +548,13 @@ namespace NovaTerminal.Controls
 
             if (CommandAssistPopup != null)
             {
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.Popup.UseCompactLayout =
+                        layout.PopupRect.Width <= CompactPopupWidthThreshold ||
+                        layout.PopupRect.Height <= CompactPopupHeightThreshold;
+                }
+
                 CommandAssistPopup.Width = layout.PopupRect.Width;
                 CommandAssistPopup.MaxWidth = layout.PopupRect.Width;
                 CommandAssistPopup.MaxHeight = layout.PopupRect.Height;
@@ -1553,5 +1576,11 @@ namespace NovaTerminal.Controls
                 System.Diagnostics.Debug.WriteLine($"[TerminalPane] Shell integration event handling failed: {ex.Message}");
             }
         }
+
+        private readonly record struct CommandAssistSurfaceSizing(
+            double BubbleWidth,
+            double BubbleHeight,
+            double PopupWidth,
+            double PopupHeight);
     }
 }

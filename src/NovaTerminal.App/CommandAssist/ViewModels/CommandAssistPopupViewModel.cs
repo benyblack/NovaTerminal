@@ -16,6 +16,7 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
     private string _emptyStateText = string.Empty;
     private bool _hasSuggestions;
     private bool _showEmptyState;
+    private bool _useCompactLayout;
 
     public CommandAssistPopupViewModel(ObservableCollection<CommandAssistSuggestionItemViewModel> suggestions)
     {
@@ -81,6 +82,24 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
         get => _showEmptyState;
         set => SetField(ref _showEmptyState, value);
     }
+
+    public bool UseCompactLayout
+    {
+        get => _useCompactLayout;
+        set
+        {
+            if (_useCompactLayout == value)
+            {
+                return;
+            }
+
+            _useCompactLayout = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UseCompactLayout)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UseExpandedLayout)));
+        }
+    }
+
+    public bool UseExpandedLayout => !UseCompactLayout;
 
     public ObservableCollection<CommandAssistSuggestionItemViewModel> Suggestions { get; }
 

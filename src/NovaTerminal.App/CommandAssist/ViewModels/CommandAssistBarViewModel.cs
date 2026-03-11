@@ -1,4 +1,3 @@
-using System;
 using System.ComponentModel;
 using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
@@ -233,7 +232,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
             ? TopSuggestionText
             : EmptyStateText;
 
-        Popup.IsVisible = IsVisible && (IsPopupOpen || !string.Equals(ModeLabel, "Suggest", StringComparison.OrdinalIgnoreCase));
+        Popup.IsVisible = IsVisible && IsPopupOpen;
         Popup.ModeLabel = ModeLabel;
         Popup.QueryText = QueryText;
         Popup.TopSuggestionText = TopSuggestionText;

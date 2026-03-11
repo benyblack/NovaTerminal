@@ -402,7 +402,8 @@ public sealed class CommandAssistController
             _modeRouter.ChooseModeForHelpRequest(),
             queryText ?? ViewModel.QueryText,
             suggestions,
-            "No local help found."));
+            "No local help found.",
+            openPopup: true));
 
         return true;
     }
@@ -428,14 +429,31 @@ public sealed class CommandAssistController
         IReadOnlyList<CommandFixSuggestion> fixes = await _errorInsightService.AnalyzeAsync(context);
         double highestConfidence = fixes.Count == 0 ? 0 : fixes.Max(item => item.Confidence);
         CommandAssistMode mode = _modeRouter.ChooseModeForFailure(highestConfidence);
-        if (mode != CommandAssistMode.Fix)
+        IReadOnlyList<AssistSuggestion> suggestions = _resultBuilder.BuildFixSuggestions(fixes);
+
+        if (mode == CommandAssistMode.Fix)
+        {
+            _dispatch(() => ApplyHelperSuggestions(
+                CommandAssistMode.Fix,
+                context.CommandText,
+                suggestions,
+                "No likely local fix found.",
+                openPopup: true));
+            return true;
+        }
+
+        if (suggestions.Count == 0)
         {
             return false;
         }
 
-        IReadOnlyList<AssistSuggestion> suggestions = _resultBuilder.BuildFixSuggestions(fixes);
-        _dispatch(() => ApplyHelperSuggestions(mode, context.CommandText, suggestions, "No likely local fix found."));
-        return true;
+        _dispatch(() => ApplyHelperSuggestions(
+            CommandAssistMode.Fix,
+            context.CommandText,
+            suggestions,
+            "No likely local fix found.",
+            openPopup: false));
+        return false;
     }
 
     public async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
@@ -652,7 +670,7 @@ public sealed class CommandAssistController
         }
 
         ViewModel.SelectedIndex = index;
-        if (_currentMode == CommandAssistMode.Suggest)
+        if (!ViewModel.IsPopupOpen)
         {
             ViewModel.IsPopupOpen = true;
         }
@@ -734,13 +752,14 @@ public sealed class CommandAssistController
         CommandAssistMode mode,
         string? queryText,
         IReadOnlyList<AssistSuggestion> suggestions,
-        string emptyStateText)
+        string emptyStateText,
+        bool openPopup)
     {
         CancelPendingRefreshes();
         _currentMode = mode;
         ViewModel.ModeLabel = mode.ToString();
         ViewModel.QueryText = queryText ?? string.Empty;
-        ViewModel.IsPopupOpen = true;
+        ViewModel.IsPopupOpen = openPopup;
         ViewModel.IsVisible = true;
         ViewModel.EmptyStateText = suggestions.Count == 0 ? emptyStateText : string.Empty;
         ViewModel.ShowEmptyState = suggestions.Count == 0;

@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using System.Collections.ObjectModel;
+using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.Controls;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ViewModels;
@@ -27,6 +28,23 @@ public sealed class CommandAssistLayoutTests
         Assert.Equal("Suggest", vm.Bubble.ModeLabel);
         Assert.Equal("git ", vm.Bubble.QueryText);
         Assert.Equal("git status", vm.Bubble.SummaryText);
+    }
+
+    [Fact]
+    public void CommandAssistBarViewModel_WhenPopupIsClosed_DoesNotForceHelperPopupVisible()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            ModeLabel = "Fix",
+            QueryText = "gti status",
+            TopSuggestionText = "git status",
+            HasSuggestions = true,
+            IsPopupOpen = false
+        };
+
+        Assert.True(vm.Bubble.IsVisible);
+        Assert.False(vm.Popup.IsVisible);
     }
 
     [AvaloniaFact]
@@ -135,6 +153,24 @@ public sealed class CommandAssistLayoutTests
     }
 
     [AvaloniaFact]
+    public void TerminalPane_WhenPaneIsMediumWidth_UsesReducedOverlayWidths()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 700,
+            Height = 420
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(700, 420));
+        pane.Arrange(new Rect(0, 0, 700, 420));
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.True(layout.BubbleRect.Width < 420);
+        Assert.True(layout.PopupRect.Width < 520);
+    }
+
+    [AvaloniaFact]
     public async Task TerminalPane_WhenPaneIsShort_ConstrainsPopupHeight()
     {
         var pane = new TerminalPane
@@ -155,6 +191,31 @@ public sealed class CommandAssistLayoutTests
 
         Assert.True(popupView.MaxHeight > 0);
         Assert.True(popupView.MaxHeight < 220);
+    }
+
+    [AvaloniaFact]
+    public async Task TerminalPane_WhenPopupIsNarrow_UsesCompactPopupLayout()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 420,
+            Height = 420
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(420, 420));
+        pane.Arrange(new Rect(0, 0, 420, 420));
+        pane.NotifyCommandAssistPaste("Get-ChildItem");
+        pane.OpenCommandAssistHelp();
+        await Task.Delay(50);
+        pane.Measure(new Size(420, 420));
+        pane.Arrange(new Rect(0, 0, 420, 420));
+
+        CommandAssistPopupView popupView = Assert.IsType<CommandAssistPopupView>(pane.FindControl<CommandAssistPopupView>("CommandAssistPopup"));
+        CommandAssistPopupViewModel vm = Assert.IsType<CommandAssistPopupViewModel>(popupView.DataContext);
+        Border detailPanel = Assert.IsType<Border>(popupView.FindControl<Border>("PopupDetailPanel"));
+
+        Assert.True(vm.UseCompactLayout);
+        Assert.False(detailPanel.IsVisible);
     }
 
     [AvaloniaFact]
@@ -245,6 +306,39 @@ public sealed class CommandAssistLayoutTests
         Assert.Equal("Help", modeLabel.Text);
         Assert.Equal("Show working tree state.", description.Text);
         Assert.Single(vm.Suggestions);
+    }
+
+    [AvaloniaFact]
+    public void CommandAssistPopupView_WhenCompactLayout_HidesDetailPane()
+    {
+        var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>
+        {
+            new(
+                SelectionGlyph: ">",
+                DisplayText: "git status",
+                DescriptionText: "Show working tree state.",
+                BadgesText: "History",
+                MetadataText: @"C:\repo",
+                IsSelected: true,
+                Type: AssistSuggestionType.History)
+        };
+        var vm = new CommandAssistPopupViewModel(suggestions)
+        {
+            IsVisible = true,
+            ModeLabel = "Help",
+            TopSuggestionText = "git status",
+            SelectedDescriptionText = "Show working tree state.",
+            HasSuggestions = true,
+            UseCompactLayout = true
+        };
+        var view = new CommandAssistPopupView
+        {
+            DataContext = vm
+        };
+
+        Border detailPanel = Assert.IsType<Border>(view.FindControl<Border>("PopupDetailPanel"));
+
+        Assert.False(detailPanel.IsVisible);
     }
 
     [AvaloniaFact]

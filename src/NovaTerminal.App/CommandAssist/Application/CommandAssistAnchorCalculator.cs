@@ -7,7 +7,10 @@ public sealed class CommandAssistAnchorCalculator
 {
     private const double PanePadding = 12;
     private const double VerticalGap = 8;
+    private const double HorizontalGap = 12;
     private const double MinimumPromptWidth = 120;
+    private const double CompactBubbleWidthThreshold = 320;
+    private const double CompactPaneWidthThreshold = 560;
 
     public CommandAssistAnchorLayout Calculate(CommandAssistAnchorRequest request)
     {
@@ -20,7 +23,9 @@ public sealed class CommandAssistAnchorCalculator
         double bubbleHeight = Math.Min(Math.Max(1, request.BubbleHeight), availableHeight);
         double popupWidth = Math.Min(Math.Max(1, request.PopupWidth), availableWidth);
         double popupHeight = Math.Min(Math.Max(1, request.PopupHeight), availableHeight);
-        bool useCompactBubbleLayout = paneWidth <= 480 || request.BubbleWidth > availableWidth;
+        bool useCompactBubbleLayout = paneWidth <= CompactPaneWidthThreshold ||
+                                      request.BubbleWidth > availableWidth ||
+                                      bubbleWidth <= CompactBubbleWidthThreshold;
         bool usesPromptAnchor = request.HasReliablePromptAnchor &&
                                 request.VisibleRows > 0 &&
                                 request.CursorVisualRow >= 0 &&
@@ -34,16 +39,55 @@ public sealed class CommandAssistAnchorCalculator
             ? CreateBubbleAbovePrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight)
             : CreateFallbackBubbleRect(bubbleWidth, bubbleHeight, paneWidth, paneHeight);
 
+        double spaceAbove = Math.Max(0, bubbleRect.Top - VerticalGap - PanePadding);
+        double spaceBelow = Math.Max(0, paneHeight - PanePadding - (bubbleRect.Bottom + VerticalGap));
         double upwardTop = bubbleRect.Top - VerticalGap - popupHeight;
+        double downwardTop = bubbleRect.Bottom + VerticalGap;
         bool canPlacePopupUpward = upwardTop >= PanePadding;
-        CommandAssistPopupDirection popupDirection = canPlacePopupUpward
-            ? CommandAssistPopupDirection.Upward
-            : CommandAssistPopupDirection.Downward;
+        bool canPlacePopupDownward = downwardTop + popupHeight <= paneHeight - PanePadding;
+        bool canPlacePopupRight = bubbleRect.Right + HorizontalGap + popupWidth <= paneWidth - PanePadding;
+        bool canPlacePopupLeft = bubbleRect.Left - HorizontalGap - popupWidth >= PanePadding;
+        bool hasMeaningfulVerticalRoom = Math.Max(spaceAbove, spaceBelow) >= popupHeight * 0.75;
 
-        double popupY = popupDirection == CommandAssistPopupDirection.Upward
-            ? upwardTop
-            : bubbleRect.Bottom + VerticalGap;
-        double popupX = bubbleRect.X;
+        CommandAssistPopupDirection popupDirection;
+        double popupX;
+        double popupY;
+
+        if (canPlacePopupUpward)
+        {
+            popupDirection = CommandAssistPopupDirection.Upward;
+            popupX = bubbleRect.X;
+            popupY = upwardTop;
+        }
+        else if (canPlacePopupDownward)
+        {
+            popupDirection = CommandAssistPopupDirection.Downward;
+            popupX = bubbleRect.X;
+            popupY = downwardTop;
+        }
+        else if (!hasMeaningfulVerticalRoom && canPlacePopupRight)
+        {
+            popupDirection = CommandAssistPopupDirection.RightSide;
+            popupX = bubbleRect.Right + HorizontalGap;
+            popupY = bubbleRect.Top;
+        }
+        else if (!hasMeaningfulVerticalRoom && canPlacePopupLeft)
+        {
+            popupDirection = CommandAssistPopupDirection.LeftSide;
+            popupX = bubbleRect.Left - HorizontalGap - popupWidth;
+            popupY = bubbleRect.Top;
+        }
+        else
+        {
+            popupDirection = upwardTop >= PanePadding * 2
+                ? CommandAssistPopupDirection.Upward
+                : CommandAssistPopupDirection.Downward;
+            popupX = bubbleRect.X;
+            popupY = popupDirection == CommandAssistPopupDirection.Upward
+                ? upwardTop
+                : downwardTop;
+        }
+
         Rect popupRect = ClampRect(new Rect(popupX, popupY, popupWidth, popupHeight), paneWidth, paneHeight);
 
         return new CommandAssistAnchorLayout(promptRect, bubbleRect, popupRect, popupDirection, usesPromptAnchor, useCompactBubbleLayout);
@@ -127,4 +171,6 @@ public enum CommandAssistPopupDirection
 {
     Upward,
     Downward,
+    RightSide,
+    LeftSide,
 }

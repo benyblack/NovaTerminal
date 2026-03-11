@@ -47,6 +47,26 @@ public sealed class CommandAssistAnchorCalculatorTests
     }
 
     [Fact]
+    public void Calculate_WhenPaneIsShortButWide_UsesSideFloatingPopup()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 960,
+            PaneHeight: 220,
+            CellHeight: 18,
+            CursorVisualRow: 8,
+            VisibleRows: 12,
+            BubbleWidth: 320,
+            BubbleHeight: 36,
+            PopupWidth: 360,
+            PopupHeight: 180));
+
+        Assert.Equal(CommandAssistPopupDirection.RightSide, layout.PopupDirection);
+        Assert.True(layout.PopupRect.Left >= layout.BubbleRect.Right);
+    }
+
+    [Fact]
     public void Calculate_WhenRectsWouldOverflow_ClampsInsidePaneBounds()
     {
         var calculator = new CommandAssistAnchorCalculator();
@@ -136,6 +156,25 @@ public sealed class CommandAssistAnchorCalculatorTests
             BubbleWidth: 420,
             BubbleHeight: 36,
             PopupWidth: 520,
+            PopupHeight: 180));
+
+        Assert.True(layout.UseCompactBubbleLayout);
+    }
+
+    [Fact]
+    public void Calculate_WhenBubbleWidthIsTight_UsesCompactBubbleLayout()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 700,
+            PaneHeight: 420,
+            CellHeight: 18,
+            CursorVisualRow: 12,
+            VisibleRows: 20,
+            BubbleWidth: 300,
+            BubbleHeight: 36,
+            PopupWidth: 380,
             PopupHeight: 180));
 
         Assert.True(layout.UseCompactBubbleLayout);
