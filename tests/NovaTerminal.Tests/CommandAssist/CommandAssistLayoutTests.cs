@@ -287,6 +287,38 @@ public sealed class CommandAssistLayoutTests
     }
 
     [AvaloniaFact]
+    public void TerminalPane_WhenSshStartupHasTransientTermViewBounds_UsesPaneBoundsForFallbackLayout()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 120));
+        termView.Arrange(new Rect(0, 0, 900, 120));
+        pane.Buffer.SetCursorPosition(0, 1);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.True(layout.BubbleRect.Bottom > 500 * 0.5,
+            $"Expected startup SSH fallback bubble to stay in the lower safe zone despite transient term bounds, but bottom was {layout.BubbleRect.Bottom}.");
+    }
+
+    [AvaloniaFact]
     public async Task TerminalPane_WhenPopupIsVisible_AnchorsPopupTopToCalculatedRect()
     {
         var pane = new TerminalPane

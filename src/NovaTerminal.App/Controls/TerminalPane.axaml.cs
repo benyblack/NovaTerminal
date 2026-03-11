@@ -507,8 +507,10 @@ namespace NovaTerminal.Controls
 
         private CommandAssistAnchorLayout? TryCalculateCommandAssistAnchorLayout()
         {
-            double paneWidth = TermView.Bounds.Width > 0 ? TermView.Bounds.Width : Bounds.Width;
-            double paneHeight = TermView.Bounds.Height > 0 ? TermView.Bounds.Height : Bounds.Height;
+            // During startup (especially SSH), TermView bounds can briefly report a partial height.
+            // Anchor against the host pane bounds first so overlays don't jump to the top band.
+            double paneWidth = Bounds.Width > 0 ? Bounds.Width : TermView.Bounds.Width;
+            double paneHeight = Bounds.Height > 0 ? Bounds.Height : TermView.Bounds.Height;
             if (paneWidth <= 0 || paneHeight <= 0)
             {
                 return null;
