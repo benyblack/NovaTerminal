@@ -13,6 +13,7 @@ public sealed class CommandAssistAnchorCalculator
     private const double CompactBubbleWidthThreshold = 320;
     private const double CompactPaneWidthThreshold = 560;
     private const double UnreliableCursorBandStartRatio = 0.55;
+    private const double PromptUpperBandRatio = 0.45;
 
     public CommandAssistAnchorLayout Calculate(CommandAssistAnchorRequest request)
     {
@@ -138,7 +139,7 @@ public sealed class CommandAssistAnchorCalculator
         double bubbleX = promptRect.X;
         double desiredAboveY = promptRect.Top - PromptBubbleGap - bubbleHeight;
         double clampedAboveY = Math.Max(PanePadding, desiredAboveY);
-        bool isPromptInUpperStartupBand = desiredAboveY < PanePadding;
+        bool isPromptInUpperStartupBand = promptRect.Top <= paneHeight * PromptUpperBandRatio;
         double bubbleY = isPromptInUpperStartupBand
             ? promptRect.Bottom + PromptBubbleGap
             : clampedAboveY;
