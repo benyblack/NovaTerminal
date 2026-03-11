@@ -13,6 +13,7 @@ public sealed class CommandAssistAnchorCalculator
     private const double CompactBubbleWidthThreshold = 320;
     private const double CompactPaneWidthThreshold = 560;
     private const double UnreliableCursorBandStartRatio = 0.55;
+    private const int UnreliableCursorBandMinVisibleRows = 8;
     private const double PromptUpperBandRatio = 0.45;
 
     public CommandAssistAnchorLayout Calculate(CommandAssistAnchorRequest request)
@@ -206,7 +207,7 @@ public sealed class CommandAssistAnchorCalculator
 
     private static bool ShouldUseUnreliableCursorBandFallback(CommandAssistAnchorRequest request)
     {
-        if (request.VisibleRows <= 1 || request.CursorVisualRow < 0 || request.CellHeight <= 0)
+        if (request.VisibleRows < UnreliableCursorBandMinVisibleRows || request.CursorVisualRow < 0 || request.CellHeight <= 0)
         {
             return false;
         }

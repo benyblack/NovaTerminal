@@ -182,6 +182,28 @@ public sealed class CommandAssistAnchorCalculatorTests
     }
 
     [Fact]
+    public void Calculate_WhenPromptAnchorIsUnreliableAndVisibleRowsAreTiny_UsesLowerSafeZoneFallback()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 900,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: 2,
+            VisibleRows: 4,
+            BubbleWidth: 380,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasReliablePromptAnchor: false));
+
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.True(layout.BubbleRect.Bottom > 540 * 0.5,
+            $"Expected tiny-row startup fallback bubble to stay in the lower safe zone, but bottom was {layout.BubbleRect.Bottom}.");
+    }
+
+    [Fact]
     public void Calculate_WhenCursorVisualRowChanges_MovesBubbleWithPrompt()
     {
         var calculator = new CommandAssistAnchorCalculator();
