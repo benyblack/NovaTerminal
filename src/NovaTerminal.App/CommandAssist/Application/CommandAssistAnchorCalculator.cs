@@ -67,13 +67,13 @@ public sealed class CommandAssistAnchorCalculator
             popupX = bubbleRect.X;
             popupY = downwardTop;
         }
-        else if (!hasMeaningfulVerticalRoom && canPlacePopupRight)
+        else if (!hasMeaningfulVerticalRoom && canPlacePopupRight && bubbleRect.Top < promptRect.Top)
         {
             popupDirection = CommandAssistPopupDirection.RightSide;
             popupX = bubbleRect.Right + HorizontalGap;
             popupY = bubbleRect.Top;
         }
-        else if (!hasMeaningfulVerticalRoom && canPlacePopupLeft)
+        else if (!hasMeaningfulVerticalRoom && canPlacePopupLeft && bubbleRect.Top < promptRect.Top)
         {
             popupDirection = CommandAssistPopupDirection.LeftSide;
             popupX = bubbleRect.Left - HorizontalGap - popupWidth;
@@ -90,7 +90,15 @@ public sealed class CommandAssistAnchorCalculator
                 : downwardTop;
         }
 
-        Rect popupRect = ClampRect(new Rect(popupX, popupY, popupWidth, popupHeight), paneWidth, paneHeight);
+        Rect popupRect = CreatePopupRect(
+            popupDirection,
+            popupX,
+            popupY,
+            popupWidth,
+            popupHeight,
+            bubbleRect,
+            paneWidth,
+            paneHeight);
 
         return new CommandAssistAnchorLayout(promptRect, bubbleRect, popupRect, popupDirection, usesPromptAnchor, useCompactBubbleLayout);
     }
@@ -130,8 +138,8 @@ public sealed class CommandAssistAnchorCalculator
         double bubbleX = promptRect.X;
         double desiredAboveY = promptRect.Top - PromptBubbleGap - bubbleHeight;
         double clampedAboveY = Math.Max(PanePadding, desiredAboveY);
-        bool clampedAbovePlacementOverlapsPrompt = clampedAboveY + bubbleHeight > promptRect.Top;
-        double bubbleY = clampedAbovePlacementOverlapsPrompt
+        bool isPromptInUpperStartupBand = desiredAboveY < PanePadding;
+        double bubbleY = isPromptInUpperStartupBand
             ? promptRect.Bottom + PromptBubbleGap
             : clampedAboveY;
 
@@ -153,6 +161,35 @@ public sealed class CommandAssistAnchorCalculator
         double bubbleX = promptRect.X;
         double bubbleY = promptRect.Top - PromptBubbleGap - bubbleHeight;
         return ClampRect(new Rect(bubbleX, bubbleY, bubbleWidth, bubbleHeight), paneWidth, paneHeight);
+    }
+
+    private static Rect CreatePopupRect(
+        CommandAssistPopupDirection popupDirection,
+        double popupX,
+        double popupY,
+        double popupWidth,
+        double popupHeight,
+        Rect bubbleRect,
+        double paneWidth,
+        double paneHeight)
+    {
+        if (popupDirection == CommandAssistPopupDirection.Downward)
+        {
+            double minTop = bubbleRect.Bottom + BubblePopupGap;
+            double maxBottom = paneHeight - PanePadding;
+            double height = Math.Max(1, Math.Min(popupHeight, maxBottom - minTop));
+            return ClampRect(new Rect(popupX, minTop, popupWidth, height), paneWidth, paneHeight);
+        }
+
+        if (popupDirection == CommandAssistPopupDirection.Upward)
+        {
+            double maxBottom = bubbleRect.Top - BubblePopupGap;
+            double top = Math.Max(PanePadding, maxBottom - popupHeight);
+            double height = Math.Max(1, maxBottom - top);
+            return ClampRect(new Rect(popupX, top, popupWidth, height), paneWidth, paneHeight);
+        }
+
+        return ClampRect(new Rect(popupX, popupY, popupWidth, popupHeight), paneWidth, paneHeight);
     }
 
     private static Rect ClampRect(Rect rect, double paneWidth, double paneHeight)
