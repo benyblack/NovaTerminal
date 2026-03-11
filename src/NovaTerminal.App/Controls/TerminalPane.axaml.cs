@@ -538,12 +538,15 @@ namespace NovaTerminal.Controls
                 }
 
                 CommandAssistBubble.Width = layout.BubbleRect.Width;
+                CommandAssistBubble.Height = layout.BubbleRect.Height;
+                CommandAssistBubble.MinHeight = layout.BubbleRect.Height;
                 CommandAssistBubble.MaxWidth = layout.BubbleRect.Width;
+                CommandAssistBubble.MaxHeight = layout.BubbleRect.Height;
                 CommandAssistBubble.Margin = new Thickness(
                     layout.BubbleRect.X,
+                    layout.BubbleRect.Y,
                     0,
-                    0,
-                    Math.Max(0, paneHeight - layout.BubbleRect.Bottom));
+                    0);
             }
 
             if (CommandAssistPopup != null)
@@ -556,13 +559,15 @@ namespace NovaTerminal.Controls
                 }
 
                 CommandAssistPopup.Width = layout.PopupRect.Width;
+                CommandAssistPopup.Height = layout.PopupRect.Height;
+                CommandAssistPopup.MinHeight = layout.PopupRect.Height;
                 CommandAssistPopup.MaxWidth = layout.PopupRect.Width;
                 CommandAssistPopup.MaxHeight = layout.PopupRect.Height;
                 CommandAssistPopup.Margin = new Thickness(
                     layout.PopupRect.X,
+                    layout.PopupRect.Y,
                     0,
-                    0,
-                    Math.Max(0, paneHeight - layout.PopupRect.Bottom));
+                    0);
             }
         }
 

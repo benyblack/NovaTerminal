@@ -254,6 +254,36 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
+    public void HandleTextInput_WhenNoSuggestionsExist_HidesSuggestBubble()
+    {
+        var controller = CreateController(new InMemoryHistoryStore());
+
+        controller.HandleTextInput("zzzz");
+
+        Assert.Equal("zzzz", controller.ViewModel.QueryText);
+        Assert.False(controller.ViewModel.HasSuggestions);
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.False(controller.ViewModel.Bubble.IsVisible);
+        Assert.False(controller.ViewModel.Popup.IsVisible);
+    }
+
+    [Fact]
+    public async Task HandleTextInput_WhenNoSuggestionsExist_DoesNotFlashVisibleBeforeRefreshCompletes()
+    {
+        var historyStore = new DelayedHistoryStore(TimeSpan.FromMilliseconds(250));
+        var controller = CreateController(historyStore);
+
+        controller.HandleTextInput("zzzz");
+
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.False(controller.ViewModel.Bubble.IsVisible);
+
+        await historyStore.WaitForLastSearchAsync();
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.False(controller.ViewModel.Bubble.IsVisible);
+    }
+
+    [Fact]
     public async Task HandleEnterAsync_PersistsSingleLineRedactedCommand()
     {
         var historyStore = new InMemoryHistoryStore();

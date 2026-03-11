@@ -194,6 +194,56 @@ public sealed class CommandAssistLayoutTests
     }
 
     [AvaloniaFact]
+    public async Task TerminalPane_WhenBubbleIsVisible_KeepsBubbleAbovePromptAnchor()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+        pane.NotifyCommandAssistPaste("git st");
+        await Task.Delay(50);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        CommandAssistBubbleView bubbleView = Assert.IsType<CommandAssistBubbleView>(pane.FindControl<CommandAssistBubbleView>("CommandAssistBubble"));
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.True(layout.BubbleRect.Bottom <= layout.PromptRect.Top,
+            $"Expected layout bubble bottom {layout.BubbleRect.Bottom} to clear prompt top {layout.PromptRect.Top}.");
+        Assert.Equal(layout.BubbleRect.Top, bubbleView.Margin.Top, precision: 1);
+        double bubbleBottom = bubbleView.Margin.Top + bubbleView.Height;
+        Assert.True(bubbleBottom <= layout.PromptRect.Top,
+            $"Expected bubble bottom {bubbleBottom} to clear prompt top {layout.PromptRect.Top}.");
+    }
+
+    [AvaloniaFact]
+    public async Task TerminalPane_WhenPopupIsVisible_AnchorsPopupTopToCalculatedRect()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+        pane.NotifyCommandAssistPaste("Get-ChildItem");
+        pane.OpenCommandAssistHelp();
+        await Task.Delay(50);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        CommandAssistPopupView popupView = Assert.IsType<CommandAssistPopupView>(pane.FindControl<CommandAssistPopupView>("CommandAssistPopup"));
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.Equal(layout.PopupRect.Top, popupView.Margin.Top, precision: 1);
+    }
+
+    [AvaloniaFact]
     public async Task TerminalPane_WhenPopupIsNarrow_UsesCompactPopupLayout()
     {
         var pane = new TerminalPane

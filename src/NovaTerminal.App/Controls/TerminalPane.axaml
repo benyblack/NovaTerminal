@@ -120,11 +120,11 @@
                   IsHitTestVisible="False">
                 <assist:CommandAssistPopupView x:Name="CommandAssistPopup"
                                                HorizontalAlignment="Left"
-                                               VerticalAlignment="Bottom"
+                                               VerticalAlignment="Top"
                                                Margin="16,16,16,84" />
                 <assist:CommandAssistBubbleView x:Name="CommandAssistBubble"
                                                 HorizontalAlignment="Left"
-                                                VerticalAlignment="Bottom"
+                                                VerticalAlignment="Top"
                                                 Margin="16,16,16,24" />
             </Grid>
 

@@ -160,7 +160,7 @@ public sealed class CommandAssistController
         ViewModel.QueryText += text;
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
-        ViewModel.IsVisible = true;
+        ViewModel.IsVisible = ViewModel.HasSuggestions;
         QueueRefreshSuggestions();
     }
 
@@ -182,7 +182,7 @@ public sealed class CommandAssistController
         ViewModel.QueryText = text ?? string.Empty;
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
-        ViewModel.IsVisible = !_isAltScreenActive;
+        ViewModel.IsVisible = !_isAltScreenActive && ViewModel.HasSuggestions;
         QueueRefreshSuggestions();
     }
 
@@ -613,6 +613,11 @@ public sealed class CommandAssistController
                 ViewModel.EmptyStateText = string.Empty;
                 ViewModel.ShowEmptyState = false;
                 SyncSuggestionViewModel();
+                if (requestedMode == CommandAssistMode.Suggest)
+                {
+                    ViewModel.IsPopupOpen = false;
+                    ViewModel.IsVisible = suggestions.Count > 0;
+                }
             });
         }
         catch
@@ -634,6 +639,11 @@ public sealed class CommandAssistController
                 ViewModel.ShowEmptyState = false;
                 ViewModel.HasSuggestions = false;
                 ViewModel.Suggestions.Clear();
+                if (requestedMode == CommandAssistMode.Suggest)
+                {
+                    ViewModel.IsPopupOpen = false;
+                    ViewModel.IsVisible = false;
+                }
             });
         }
     }

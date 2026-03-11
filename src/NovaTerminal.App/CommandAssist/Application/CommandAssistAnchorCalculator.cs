@@ -6,7 +6,8 @@ namespace NovaTerminal.CommandAssist.Application;
 public sealed class CommandAssistAnchorCalculator
 {
     private const double PanePadding = 12;
-    private const double VerticalGap = 8;
+    private const double PromptBubbleGap = 4;
+    private const double BubblePopupGap = 8;
     private const double HorizontalGap = 12;
     private const double MinimumPromptWidth = 120;
     private const double CompactBubbleWidthThreshold = 320;
@@ -36,13 +37,13 @@ public sealed class CommandAssistAnchorCalculator
             : CreateFallbackPromptRect(paneWidth, paneHeight, promptHeight);
 
         Rect bubbleRect = usesPromptAnchor
-            ? CreateBubbleAbovePrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight)
-            : CreateFallbackBubbleRect(bubbleWidth, bubbleHeight, paneWidth, paneHeight);
+            ? CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight)
+            : CreateFallbackBubbleRect(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight);
 
-        double spaceAbove = Math.Max(0, bubbleRect.Top - VerticalGap - PanePadding);
-        double spaceBelow = Math.Max(0, paneHeight - PanePadding - (bubbleRect.Bottom + VerticalGap));
-        double upwardTop = bubbleRect.Top - VerticalGap - popupHeight;
-        double downwardTop = bubbleRect.Bottom + VerticalGap;
+        double spaceAbove = Math.Max(0, bubbleRect.Top - BubblePopupGap - PanePadding);
+        double spaceBelow = Math.Max(0, paneHeight - PanePadding - (bubbleRect.Bottom + BubblePopupGap));
+        double upwardTop = bubbleRect.Top - BubblePopupGap - popupHeight;
+        double downwardTop = bubbleRect.Bottom + BubblePopupGap;
         bool canPlacePopupUpward = upwardTop >= PanePadding;
         bool canPlacePopupDownward = downwardTop + popupHeight <= paneHeight - PanePadding;
         bool canPlacePopupRight = bubbleRect.Right + HorizontalGap + popupWidth <= paneWidth - PanePadding;
@@ -112,7 +113,7 @@ public sealed class CommandAssistAnchorCalculator
         return ClampRect(new Rect(PanePadding, promptY, promptWidth, promptHeight), paneWidth, paneHeight);
     }
 
-    private static Rect CreateBubbleAbovePrompt(
+    private static Rect CreateBubbleAdjacentToPrompt(
         Rect promptRect,
         double bubbleWidth,
         double bubbleHeight,
@@ -120,18 +121,30 @@ public sealed class CommandAssistAnchorCalculator
         double paneHeight)
     {
         double bubbleX = promptRect.X;
-        double bubbleY = promptRect.Top - VerticalGap - bubbleHeight;
+        double desiredAboveY = promptRect.Top - PromptBubbleGap - bubbleHeight;
+        double clampedAboveY = Math.Max(PanePadding, desiredAboveY);
+        bool clampedAbovePlacementOverlapsPrompt = clampedAboveY + bubbleHeight > promptRect.Top;
+        double bubbleY = clampedAbovePlacementOverlapsPrompt
+            ? promptRect.Bottom + PromptBubbleGap
+            : clampedAboveY;
+
+        if (bubbleY + bubbleHeight > paneHeight - PanePadding)
+        {
+            bubbleY = clampedAboveY;
+        }
+
         return ClampRect(new Rect(bubbleX, bubbleY, bubbleWidth, bubbleHeight), paneWidth, paneHeight);
     }
 
     private static Rect CreateFallbackBubbleRect(
+        Rect promptRect,
         double bubbleWidth,
         double bubbleHeight,
         double paneWidth,
         double paneHeight)
     {
-        double bubbleX = paneWidth - PanePadding - bubbleWidth;
-        double bubbleY = paneHeight - PanePadding - bubbleHeight;
+        double bubbleX = promptRect.X;
+        double bubbleY = promptRect.Top - PromptBubbleGap - bubbleHeight;
         return ClampRect(new Rect(bubbleX, bubbleY, bubbleWidth, bubbleHeight), paneWidth, paneHeight);
     }
 

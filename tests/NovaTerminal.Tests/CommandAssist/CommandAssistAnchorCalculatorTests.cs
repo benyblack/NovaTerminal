@@ -22,6 +22,7 @@ public sealed class CommandAssistAnchorCalculatorTests
             PopupHeight: 220));
 
         Assert.True(layout.BubbleRect.Bottom < layout.PromptRect.Top);
+        Assert.Equal(4, layout.PromptRect.Top - layout.BubbleRect.Bottom, precision: 1);
         Assert.Equal(CommandAssistPopupDirection.Upward, layout.PopupDirection);
         Assert.True(layout.PopupRect.Bottom <= layout.BubbleRect.Top);
     }
@@ -44,6 +45,29 @@ public sealed class CommandAssistAnchorCalculatorTests
 
         Assert.Equal(CommandAssistPopupDirection.Downward, layout.PopupDirection);
         Assert.True(layout.PopupRect.Top >= layout.BubbleRect.Bottom);
+    }
+
+    [Fact]
+    public void Calculate_WhenPromptIsOnTopVisibleRow_PlacesBubbleBelowPrompt()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 960,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: 0,
+            VisibleRows: 24,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180));
+
+        Assert.True(layout.BubbleRect.Top >= layout.PromptRect.Bottom,
+            $"Expected bubble top {layout.BubbleRect.Top} to be below prompt bottom {layout.PromptRect.Bottom}.");
+        Assert.Equal(4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
+        Assert.True(layout.BubbleRect.Bottom <= layout.PopupRect.Top,
+            $"Expected upward popup to clear bubble bottom {layout.BubbleRect.Bottom}, but popup top was {layout.PopupRect.Top}.");
     }
 
     [Fact]
