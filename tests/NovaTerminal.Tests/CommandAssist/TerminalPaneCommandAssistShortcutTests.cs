@@ -138,9 +138,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
 
     private static CommandAssistBarViewModel AssertViewModel(TerminalPane pane)
     {
-        var commandAssistBar = pane.FindControl<Control>("CommandAssistBar");
-        Assert.NotNull(commandAssistBar);
-        return Assert.IsType<CommandAssistBarViewModel>(commandAssistBar.DataContext);
+        return Assert.IsType<CommandAssistBarViewModel>(pane.CommandAssistViewModel);
     }
 
     private static void ConfigureCommandAssist(TerminalPane pane)
