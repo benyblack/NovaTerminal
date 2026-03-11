@@ -1,0 +1,33 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:CompileBindings="False"
+             x:Class="NovaTerminal.CommandAssist.Views.CommandAssistBubbleView"
+             IsVisible="{Binding IsVisible}">
+    <Border Background="#CC202020"
+            BorderBrush="#404040"
+            BorderThickness="1"
+            CornerRadius="8"
+            Padding="10,6">
+        <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+            <TextBlock x:Name="BubbleModeLabelText"
+                       Text="{Binding ModeLabel}"
+                       Foreground="#8EC5FF"
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"/>
+            <TextBlock Grid.Column="1"
+                       x:Name="BubbleQueryText"
+                       Text="{Binding QueryText}"
+                       IsVisible="{Binding ShowQueryText}"
+                       Foreground="White"
+                       FontFamily="Consolas"
+                       VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"/>
+            <TextBlock x:Name="BubbleSummaryText"
+                       Grid.Column="2"
+                       Text="{Binding SummaryText}"
+                       Foreground="#D7E8FF"
+                       VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"/>
+        </Grid>
+    </Border>
+</UserControl>

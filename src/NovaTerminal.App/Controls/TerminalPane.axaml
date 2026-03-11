@@ -114,10 +114,19 @@
                 </Grid>
             </Border>
 
-            <assist:CommandAssistBarView x:Name="CommandAssistBar"
-                                         Grid.Row="0"
-                                         VerticalAlignment="Bottom"
-                                         ZIndex="150" />
+            <Grid x:Name="CommandAssistOverlayHost"
+                  Grid.Row="0"
+                  ZIndex="150"
+                  IsHitTestVisible="False">
+                <assist:CommandAssistPopupView x:Name="CommandAssistPopup"
+                                               HorizontalAlignment="Left"
+                                               VerticalAlignment="Bottom"
+                                               Margin="16,16,16,84" />
+                <assist:CommandAssistBubbleView x:Name="CommandAssistBubble"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Bottom"
+                                                Margin="16,16,16,24" />
+            </Grid>
 
             <!-- Port Forwarding Status Bar -->
             <Border Name="StatusBar" VerticalAlignment="Bottom" Height="22" Background="#CC1A1A1A" 

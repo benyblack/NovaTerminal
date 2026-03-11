@@ -93,6 +93,8 @@ public sealed class CommandAssistControllerTests
         Assert.True(opened);
         Assert.True(controller.ViewModel.IsVisible);
         Assert.Equal("Help", controller.ViewModel.ModeLabel);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.Popup.IsVisible);
         Assert.Contains(controller.Suggestions, item => item.Type == AssistSuggestionType.Doc);
         Assert.Contains(controller.Suggestions, item => item.Type == AssistSuggestionType.Recipe);
         Assert.Equal("git", docsProvider.LastQuery?.CommandToken);
@@ -110,6 +112,8 @@ public sealed class CommandAssistControllerTests
         Assert.True(opened);
         Assert.Equal("Fix", controller.ViewModel.ModeLabel);
         Assert.True(controller.ViewModel.IsVisible);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.Popup.IsVisible);
         Assert.Equal(AssistSuggestionType.Fix, controller.Suggestions[0].Type);
     }
 
@@ -226,6 +230,8 @@ public sealed class CommandAssistControllerTests
 
         Assert.Equal("git ", controller.ViewModel.QueryText);
         Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.False(controller.ViewModel.Popup.IsVisible);
     }
 
     [Fact]
@@ -301,6 +307,8 @@ public sealed class CommandAssistControllerTests
 
         Assert.True(moved);
         Assert.Equal(1, controller.ViewModel.SelectedIndex);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.Popup.IsVisible);
     }
 
     [Fact]

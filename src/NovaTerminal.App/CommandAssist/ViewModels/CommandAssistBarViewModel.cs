@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel;
 using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
@@ -17,8 +18,18 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     private string _emptyStateText = string.Empty;
     private bool _hasSuggestions;
     private bool _showEmptyState;
+    private bool _isPopupOpen;
+
+    public CommandAssistBarViewModel()
+    {
+        Bubble = new CommandAssistBubbleViewModel();
+        Popup = new CommandAssistPopupViewModel(Suggestions);
+        SyncPresentationState();
+    }
 
     public ObservableCollection<CommandAssistSuggestionItemViewModel> Suggestions { get; } = new();
+    public CommandAssistBubbleViewModel Bubble { get; }
+    public CommandAssistPopupViewModel Popup { get; }
 
     public bool IsVisible
     {
@@ -32,6 +43,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _isVisible = value;
             OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
@@ -47,6 +59,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _modeLabel = value;
             OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
@@ -62,6 +75,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _queryText = value;
             OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
@@ -77,6 +91,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _topSuggestionText = value;
             OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
@@ -107,6 +122,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _selectedBadgesText = value;
             OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
@@ -122,6 +138,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _selectedMetadataText = value;
             OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
@@ -137,6 +154,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _selectedDescriptionText = value;
             OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
@@ -152,6 +170,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _emptyStateText = value;
             OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
@@ -167,6 +186,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _hasSuggestions = value;
             OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
@@ -182,10 +202,48 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
             _showEmptyState = value;
             OnPropertyChanged();
+            SyncPresentationState();
+        }
+    }
+
+    public bool IsPopupOpen
+    {
+        get => _isPopupOpen;
+        set
+        {
+            if (_isPopupOpen == value)
+            {
+                return;
+            }
+
+            _isPopupOpen = value;
+            OnPropertyChanged();
+            SyncPresentationState();
         }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void SyncPresentationState()
+    {
+        Bubble.IsVisible = IsVisible;
+        Bubble.ModeLabel = ModeLabel;
+        Bubble.QueryText = QueryText;
+        Bubble.SummaryText = !string.IsNullOrWhiteSpace(TopSuggestionText)
+            ? TopSuggestionText
+            : EmptyStateText;
+
+        Popup.IsVisible = IsVisible && (IsPopupOpen || !string.Equals(ModeLabel, "Suggest", StringComparison.OrdinalIgnoreCase));
+        Popup.ModeLabel = ModeLabel;
+        Popup.QueryText = QueryText;
+        Popup.TopSuggestionText = TopSuggestionText;
+        Popup.SelectedBadgesText = SelectedBadgesText;
+        Popup.SelectedMetadataText = SelectedMetadataText;
+        Popup.SelectedDescriptionText = SelectedDescriptionText;
+        Popup.EmptyStateText = EmptyStateText;
+        Popup.HasSuggestions = HasSuggestions;
+        Popup.ShowEmptyState = ShowEmptyState;
+    }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {

@@ -15,8 +15,10 @@ using System.Linq;
 using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
 using Avalonia.Platform.Storage;
+using System.ComponentModel;
 using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.ViewModels;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
@@ -67,7 +69,14 @@ namespace NovaTerminal.Controls
         private ShellLifecycleTracker? _shellLifecycleTracker;
         private bool _isShellIntegrationActive;
         private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
+        private readonly CommandAssistAnchorCalculator _commandAssistAnchorCalculator = new();
         private string? _lastRelevantCommandText;
+        private CommandAssistBarViewModel? _boundCommandAssistViewModel;
+        private const double CommandAssistBubbleWidth = 420;
+        private const double CommandAssistBubbleHeight = 36;
+        private const double CommandAssistPopupWidth = 520;
+        private const double CommandAssistPopupHeight = 220;
+        internal CommandAssistBarViewModel? CommandAssistViewModel => _commandAssistController?.ViewModel;
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -256,7 +265,13 @@ namespace NovaTerminal.Controls
             // Wire up focus syncing
             TermView.GotFocus += (s, e) => UpdateFocusVisuals(true);
             TermView.LostFocus += (s, e) => UpdateFocusVisuals(false);
-            TermView.MetricsChanged += (cw, ch) => UpdateMinimumSizeConstraints();
+            TermView.MetricsChanged += (cw, ch) =>
+            {
+                UpdateMinimumSizeConstraints();
+                UpdateCommandAssistOverlayPlacement();
+            };
+            TermView.CommandAssistAnchorHintChanged += () => UpdateCommandAssistOverlayPlacement();
+            SizeChanged += (_, _) => UpdateCommandAssistOverlayPlacement();
 
             // Load Settings
             ApplySettings(TerminalSettings.Load());
@@ -358,21 +373,14 @@ namespace NovaTerminal.Controls
         {
             if (_settings == null || !_settings.CommandAssistEnabled || !_settings.CommandAssistHistoryEnabled)
             {
-                if (CommandAssistBar != null)
-                {
-                    CommandAssistBar.DataContext = null;
-                    CommandAssistBar.IsVisible = false;
-                }
+                ClearCommandAssistBindings();
 
                 return;
             }
 
             if (_commandAssistController != null)
             {
-                if (CommandAssistBar != null)
-                {
-                    CommandAssistBar.DataContext = _commandAssistController.ViewModel;
-                }
+                BindCommandAssistViews(_commandAssistController.ViewModel);
 
                 _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
                 UpdateCommandAssistContext();
@@ -391,10 +399,7 @@ namespace NovaTerminal.Controls
                 resultBuilder: null,
                 action => Dispatcher.UIThread.Post(action));
 
-            if (CommandAssistBar != null)
-            {
-                CommandAssistBar.DataContext = _commandAssistController.ViewModel;
-            }
+            BindCommandAssistViews(_commandAssistController.ViewModel);
 
             _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
             UpdateCommandAssistContext();
@@ -407,6 +412,134 @@ namespace NovaTerminal.Controls
             if (Buffer != null)
             {
                 Buffer.OnScreenSwitched += OnBufferScreenSwitched;
+            }
+        }
+
+        private void BindCommandAssistViews(CommandAssistBarViewModel? viewModel)
+        {
+            if (!ReferenceEquals(_boundCommandAssistViewModel, viewModel))
+            {
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.PropertyChanged -= OnCommandAssistViewModelPropertyChanged;
+                }
+
+                _boundCommandAssistViewModel = viewModel;
+
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.PropertyChanged += OnCommandAssistViewModelPropertyChanged;
+                }
+            }
+
+            if (CommandAssistBubble != null)
+            {
+                CommandAssistBubble.DataContext = viewModel?.Bubble;
+                CommandAssistBubble.IsVisible = viewModel?.Bubble.IsVisible ?? false;
+            }
+
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.DataContext = viewModel?.Popup;
+                CommandAssistPopup.IsVisible = viewModel?.Popup.IsVisible ?? false;
+            }
+
+            UpdateCommandAssistOverlayPlacement();
+        }
+
+        private void ClearCommandAssistBindings()
+        {
+            if (_boundCommandAssistViewModel != null)
+            {
+                _boundCommandAssistViewModel.PropertyChanged -= OnCommandAssistViewModelPropertyChanged;
+                _boundCommandAssistViewModel = null;
+            }
+
+            if (CommandAssistBubble != null)
+            {
+                CommandAssistBubble.DataContext = null;
+                CommandAssistBubble.IsVisible = false;
+            }
+
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.DataContext = null;
+                CommandAssistPopup.IsVisible = false;
+            }
+        }
+
+        private void OnCommandAssistViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            UpdateCommandAssistOverlayPlacement();
+        }
+
+        internal CommandAssistAnchorLayout? CalculateCommandAssistAnchorLayoutForTest()
+        {
+            return TryCalculateCommandAssistAnchorLayout();
+        }
+
+        private CommandAssistAnchorLayout? TryCalculateCommandAssistAnchorLayout()
+        {
+            double paneWidth = TermView.Bounds.Width > 0 ? TermView.Bounds.Width : Bounds.Width;
+            double paneHeight = TermView.Bounds.Height > 0 ? TermView.Bounds.Height : Bounds.Height;
+            if (paneWidth <= 0 || paneHeight <= 0)
+            {
+                return null;
+            }
+
+            CommandAssistPromptHint? promptHint = TermView.GetCommandAssistPromptHint();
+            float fallbackCellHeight = TermView.Metrics.CellHeight > 0 ? TermView.Metrics.CellHeight : 18;
+            int fallbackVisibleRows = TermView.Rows > 0 ? TermView.Rows : 1;
+
+            return _commandAssistAnchorCalculator.Calculate(new CommandAssistAnchorRequest(
+                PaneWidth: paneWidth,
+                PaneHeight: paneHeight,
+                CellHeight: promptHint?.CellHeight ?? fallbackCellHeight,
+                CursorVisualRow: promptHint?.VisibleCursorVisualRow ?? 0,
+                VisibleRows: promptHint?.VisibleRows ?? fallbackVisibleRows,
+                BubbleWidth: CommandAssistBubbleWidth,
+                BubbleHeight: CommandAssistBubbleHeight,
+                PopupWidth: CommandAssistPopupWidth,
+                PopupHeight: CommandAssistPopupHeight,
+                HasReliablePromptAnchor: promptHint.HasValue));
+        }
+
+        private void UpdateCommandAssistOverlayPlacement()
+        {
+            CommandAssistAnchorLayout? layout = TryCalculateCommandAssistAnchorLayout();
+            if (layout == null)
+            {
+                return;
+            }
+
+            double paneHeight = TermView.Bounds.Height > 0 ? TermView.Bounds.Height : Bounds.Height;
+
+            if (CommandAssistBubble != null)
+            {
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.Bubble.ShowQueryText = !layout.UseCompactBubbleLayout;
+                }
+
+                CommandAssistBubble.Width = layout.BubbleRect.Width;
+                CommandAssistBubble.MaxWidth = layout.BubbleRect.Width;
+                CommandAssistBubble.Margin = new Thickness(
+                    layout.BubbleRect.X,
+                    0,
+                    0,
+                    Math.Max(0, paneHeight - layout.BubbleRect.Bottom));
+            }
+
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.Width = layout.PopupRect.Width;
+                CommandAssistPopup.MaxWidth = layout.PopupRect.Width;
+                CommandAssistPopup.MaxHeight = layout.PopupRect.Height;
+                CommandAssistPopup.Margin = new Thickness(
+                    layout.PopupRect.X,
+                    0,
+                    0,
+                    Math.Max(0, paneHeight - layout.PopupRect.Bottom));
             }
         }
 

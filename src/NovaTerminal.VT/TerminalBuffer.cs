@@ -24,9 +24,33 @@ namespace NovaTerminal.Core
         // Scrollback buffer - historical lines that scrolled off the top
         private ScrollbackPages _scrollback;
         private static readonly TerminalPagePool _sharedPagePool = new();
+        private int _maxHistory = 10000;
+        private long _maxScrollbackBytes;
 
-        public int MaxHistory { get; set; } = 10000;
-        public long MaxScrollbackBytes { get; set; } = 128L * 1024 * 1024;
+        public int MaxHistory
+        {
+            get => _maxHistory;
+            set
+            {
+                _maxHistory = Math.Max(1, value);
+                long computedBudget = ComputeScrollbackBudgetBytes(Cols, _maxHistory);
+                MaxScrollbackBytes = computedBudget;
+            }
+        }
+
+        public long MaxScrollbackBytes
+        {
+            get => _maxScrollbackBytes;
+            set
+            {
+                _maxScrollbackBytes = Math.Max(ComputeScrollbackBudgetBytes(Cols, 1), value);
+                if (_scrollback != null)
+                {
+                    _scrollback.MaxScrollbackBytes = _maxScrollbackBytes;
+                    _scrollback.TryEvictUntilWithinBudget();
+                }
+            }
+        }
 
         // Graphics support
         private readonly List<TerminalImage> _images = new();
@@ -111,6 +135,7 @@ namespace NovaTerminal.Core
             Cols = cols;
             Rows = rows;
             ScrollBottom = rows - 1;  // Initialize scrolling region to full screen
+            _maxScrollbackBytes = ComputeScrollbackBudgetBytes(cols, _maxHistory);
 
             CurrentForeground = Theme.Foreground;
             CurrentBackground = Theme.Background;
@@ -140,6 +165,11 @@ namespace NovaTerminal.Core
             _cursorCol = 0;
             ScrollTop = 0;
             ScrollBottom = rows - 1;
+        }
+
+        private static long ComputeScrollbackBudgetBytes(int cols, int maxHistory)
+        {
+            return Math.Max(1, cols) * (long)Math.Max(1, maxHistory) * TerminalPageConstants.CellBytes;
         }
 
     }

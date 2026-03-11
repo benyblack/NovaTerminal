@@ -1,0 +1,110 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:CompileBindings="False"
+             x:Class="NovaTerminal.CommandAssist.Views.CommandAssistPopupView"
+             IsVisible="{Binding IsVisible}">
+    <Border Background="#F01B1B1B"
+            BorderBrush="#404040"
+            BorderThickness="1"
+            CornerRadius="10"
+            Padding="12"
+            MinWidth="360">
+        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*"
+              RowSpacing="10">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
+                <TextBlock x:Name="PopupModeLabelText"
+                           Text="{Binding ModeLabel}"
+                           Foreground="#8EC5FF"
+                           FontWeight="SemiBold"
+                           VerticalAlignment="Center"/>
+                <TextBlock Grid.Column="1"
+                           Text="{Binding QueryText}"
+                           Foreground="White"
+                           FontFamily="Consolas"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"/>
+            </Grid>
+
+            <Grid Grid.Row="1"
+                  ColumnDefinitions="3*,2*"
+                  ColumnSpacing="12">
+                <Border Background="#22101010"
+                        CornerRadius="6"
+                        Padding="8">
+                    <Grid>
+                        <ItemsControl x:Name="PopupSuggestionsList"
+                                      ItemsSource="{Binding Suggestions}"
+                                      IsVisible="{Binding HasSuggestions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid ColumnDefinitions="Auto,*,Auto"
+                                          Margin="0,2">
+                                        <TextBlock Text="{Binding SelectionGlyph}"
+                                                   Foreground="#8EC5FF"
+                                                   Width="12"
+                                                   VerticalAlignment="Top"/>
+                                        <StackPanel Grid.Column="1"
+                                                    Spacing="1">
+                                            <TextBlock Text="{Binding DisplayText}"
+                                                       Foreground="White"
+                                                       FontFamily="Consolas"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Text="{Binding DescriptionText}"
+                                                       Foreground="#C8E1FF"
+                                                       FontSize="11"
+                                                       TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding MetadataText}"
+                                                       Foreground="#9CA3AF"
+                                                       FontSize="11"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2"
+                                                   Text="{Binding BadgesText}"
+                                                   Foreground="#C8E1FF"
+                                                   FontSize="11"
+                                                   HorizontalAlignment="Right"
+                                                   Margin="8,0,0,0"
+                                                   TextWrapping="Wrap"/>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock x:Name="PopupEmptyStateTextBlock"
+                                   Text="{Binding EmptyStateText}"
+                                   Foreground="#9CA3AF"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   IsVisible="{Binding ShowEmptyState}"
+                                   TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Column="1"
+                        Background="#1C151515"
+                        CornerRadius="6"
+                        Padding="8">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="{Binding TopSuggestionText}"
+                                   Foreground="White"
+                                   FontFamily="Consolas"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock x:Name="PopupSelectedDescriptionTextBlock"
+                                   Text="{Binding SelectedDescriptionText}"
+                                   Foreground="#C8E1FF"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding SelectedBadgesText}"
+                                   Foreground="#C8E1FF"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding SelectedMetadataText}"
+                                   Foreground="#9CA3AF"
+                                   FontSize="11"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Grid>
+    </Border>
+</UserControl>
