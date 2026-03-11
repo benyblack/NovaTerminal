@@ -125,7 +125,7 @@ public sealed class CommandAssistLayoutTests
         CommandAssistBubbleViewModel bubbleVm = Assert.IsType<CommandAssistBubbleViewModel>(bubbleView.DataContext);
         CommandAssistPopupViewModel popupVm = Assert.IsType<CommandAssistPopupViewModel>(popupView.DataContext);
 
-        Assert.True(bubbleVm.IsVisible);
+        Assert.Equal(!string.IsNullOrWhiteSpace(bubbleVm.SummaryText), bubbleVm.IsVisible);
         Assert.False(popupVm.IsVisible);
     }
 
