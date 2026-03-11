@@ -557,8 +557,8 @@ namespace NovaTerminal.Core
         private static readonly string[] PreferredMonospaceFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
 
         private static readonly string[] FallbackChainNames = {
-            "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", // Emojis
             "Segoe UI Symbol", "Symbola",                              // Symbols
+            "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", // Emojis
             "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", // Monospace-first
             "Cascadia Code", "Fira Code", "MesloLGS NF",                        // Alternate symbol sources
             "Courier New", "Monospace"                                 // Last Resort

@@ -137,6 +137,30 @@ public sealed class CommandAssistAnchorCalculatorTests
     }
 
     [Fact]
+    public void Calculate_WhenPromptAnchorIsUnreliableButCursorIsSettledLow_PlacesBubbleNearCursorBand()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 900,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: 18,
+            VisibleRows: 24,
+            BubbleWidth: 380,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasReliablePromptAnchor: false));
+
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.True(layout.BubbleRect.Bottom < 540 * 0.8,
+            $"Expected settled SSH fallback bubble to sit near the cursor band instead of the lower safe zone, but bottom was {layout.BubbleRect.Bottom}.");
+        Assert.True(layout.BubbleRect.Bottom <= layout.PromptRect.Top,
+            $"Expected settled fallback bubble bottom {layout.BubbleRect.Bottom} to clear heuristic prompt top {layout.PromptRect.Top}.");
+    }
+
+    [Fact]
     public void Calculate_WhenCursorVisualRowChanges_MovesBubbleWithPrompt()
     {
         var calculator = new CommandAssistAnchorCalculator();

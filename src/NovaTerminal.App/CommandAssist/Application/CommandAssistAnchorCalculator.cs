@@ -12,6 +12,7 @@ public sealed class CommandAssistAnchorCalculator
     private const double MinimumPromptWidth = 120;
     private const double CompactBubbleWidthThreshold = 320;
     private const double CompactPaneWidthThreshold = 560;
+    private const double UnreliableCursorBandStartRatio = 0.55;
 
     public CommandAssistAnchorLayout Calculate(CommandAssistAnchorRequest request)
     {
@@ -34,7 +35,7 @@ public sealed class CommandAssistAnchorCalculator
 
         Rect promptRect = usesPromptAnchor
             ? CreatePromptRect(request, paneWidth, paneHeight, promptHeight)
-            : CreateFallbackPromptRect(paneWidth, paneHeight, promptHeight);
+            : CreateFallbackPromptRect(request, paneWidth, paneHeight, promptHeight);
 
         Rect bubbleRect = usesPromptAnchor
             ? CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight)
@@ -106,10 +107,16 @@ public sealed class CommandAssistAnchorCalculator
         return ClampRect(promptRect, paneWidth, paneHeight);
     }
 
-    private static Rect CreateFallbackPromptRect(double paneWidth, double paneHeight, double promptHeight)
+    private static Rect CreateFallbackPromptRect(
+        CommandAssistAnchorRequest request,
+        double paneWidth,
+        double paneHeight,
+        double promptHeight)
     {
-        double promptWidth = Math.Min(Math.Max(MinimumPromptWidth, paneWidth * 0.35), paneWidth - (PanePadding * 2));
-        double promptY = paneHeight - PanePadding - promptHeight;
+        double promptWidth = Math.Min(Math.Max(MinimumPromptWidth, request.BubbleWidth * 0.5), paneWidth - (PanePadding * 2));
+        double promptY = ShouldUseUnreliableCursorBandFallback(request)
+            ? PanePadding + (request.CursorVisualRow * request.CellHeight)
+            : paneHeight - PanePadding - promptHeight;
         return ClampRect(new Rect(PanePadding, promptY, promptWidth, promptHeight), paneWidth, paneHeight);
     }
 
@@ -157,6 +164,17 @@ public sealed class CommandAssistAnchorCalculator
         double x = Math.Clamp(rect.X, PanePadding, Math.Max(PanePadding, paneWidth - PanePadding - width));
         double y = Math.Clamp(rect.Y, PanePadding, Math.Max(PanePadding, paneHeight - PanePadding - height));
         return new Rect(x, y, width, height);
+    }
+
+    private static bool ShouldUseUnreliableCursorBandFallback(CommandAssistAnchorRequest request)
+    {
+        if (request.VisibleRows <= 1 || request.CursorVisualRow < 0 || request.CellHeight <= 0)
+        {
+            return false;
+        }
+
+        double normalizedCursorRow = request.CursorVisualRow / (double)(request.VisibleRows - 1);
+        return normalizedCursorRow >= UnreliableCursorBandStartRatio;
     }
 }
 

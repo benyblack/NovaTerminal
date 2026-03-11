@@ -493,6 +493,7 @@ namespace NovaTerminal.Controls
             float fallbackCellHeight = TermView.Metrics.CellHeight > 0 ? TermView.Metrics.CellHeight : 18;
             int fallbackVisibleRows = TermView.Rows > 0 ? TermView.Rows : 1;
             CommandAssistSurfaceSizing sizing = CalculateCommandAssistSurfaceSizing(paneWidth, paneHeight);
+            bool hasReliablePromptAnchor = IsCommandAssistPromptAnchorReliable(promptHint);
 
             return _commandAssistAnchorCalculator.Calculate(new CommandAssistAnchorRequest(
                 PaneWidth: paneWidth,
@@ -504,7 +505,24 @@ namespace NovaTerminal.Controls
                 BubbleHeight: sizing.BubbleHeight,
                 PopupWidth: sizing.PopupWidth,
                 PopupHeight: sizing.PopupHeight,
-                HasReliablePromptAnchor: promptHint.HasValue));
+                HasReliablePromptAnchor: hasReliablePromptAnchor));
+        }
+
+        private bool IsCommandAssistPromptAnchorReliable(CommandAssistPromptHint? promptHint)
+        {
+            if (!promptHint.HasValue)
+            {
+                return false;
+            }
+
+            // SSH sessions currently stay on the heuristic path, so cursor-row hints are not
+            // trustworthy enough for prompt-adjacent anchoring.
+            if (Profile?.Type == ConnectionType.SSH)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static CommandAssistSurfaceSizing CalculateCommandAssistSurfaceSizing(double paneWidth, double paneHeight)

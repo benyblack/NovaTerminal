@@ -188,6 +188,11 @@ namespace NovaTerminal.Core
                                 _verticalOffset = 0;
                                 _state = State.Normal;
                             }
+                            else if (c == '=' || c == '>') // DECKPAM / DECKPNM
+                            {
+                                // Keypad application/numeric mode does not render visible text.
+                                _state = State.Normal;
+                            }
                             else if (c == '(' || c == ')' || c == '*' || c == '+' || c == '-')
                             {
                                 // G0/G1 charset selection - wait for the next char but don't print

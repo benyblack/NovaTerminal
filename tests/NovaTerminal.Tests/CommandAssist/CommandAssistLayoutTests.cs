@@ -221,6 +221,72 @@ public sealed class CommandAssistLayoutTests
     }
 
     [AvaloniaFact]
+    public void TerminalPane_WhenRemoteShellIsNotIntegrated_UsesFallbackAnchorInsteadOfPromptAnchor()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        termView.SetMetricsForTest(10, 18);
+        pane.Buffer.SetCursorPosition(0, 1);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.True(layout.BubbleRect.Bottom > 500 * 0.5,
+            $"Expected fallback bubble to stay in the lower safe zone, but bottom was {layout.BubbleRect.Bottom}.");
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenRemoteShellCursorIsSettledLow_UsesCursorBandFallbackNearInput()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        termView.SetMetricsForTest(10, 18);
+        pane.Buffer.SetCursorPosition(0, 18);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.True(layout.BubbleRect.Bottom < 500 * 0.8,
+            $"Expected settled SSH fallback bubble to move near the input band, but bottom was {layout.BubbleRect.Bottom}.");
+        Assert.True(layout.BubbleRect.Bottom <= layout.PromptRect.Top,
+            $"Expected settled SSH fallback bubble bottom {layout.BubbleRect.Bottom} to clear prompt top {layout.PromptRect.Top}.");
+    }
+
+    [AvaloniaFact]
     public async Task TerminalPane_WhenPopupIsVisible_AnchorsPopupTopToCalculatedRect()
     {
         var pane = new TerminalPane
