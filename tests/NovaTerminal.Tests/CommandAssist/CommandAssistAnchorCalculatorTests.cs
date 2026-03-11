@@ -204,6 +204,31 @@ public sealed class CommandAssistAnchorCalculatorTests
     }
 
     [Fact]
+    public void Calculate_WhenPromptAnchorIsUnreliableAndCursorBandFallsInUpperArea_PlacesBubbleBelowPrompt()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 900,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: 4,
+            VisibleRows: 8,
+            BubbleWidth: 380,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasReliablePromptAnchor: false));
+
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.True(layout.PromptRect.Top <= 540 * 0.45,
+            $"Expected fallback prompt to be in the upper area, but top was {layout.PromptRect.Top}.");
+        Assert.True(layout.BubbleRect.Top >= layout.PromptRect.Bottom,
+            $"Expected fallback bubble top {layout.BubbleRect.Top} to sit below prompt bottom {layout.PromptRect.Bottom}.");
+        Assert.Equal(4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
+    }
+
+    [Fact]
     public void Calculate_WhenCursorVisualRowChanges_MovesBubbleWithPrompt()
     {
         var calculator = new CommandAssistAnchorCalculator();

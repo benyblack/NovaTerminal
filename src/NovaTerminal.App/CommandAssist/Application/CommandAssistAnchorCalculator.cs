@@ -160,9 +160,9 @@ public sealed class CommandAssistAnchorCalculator
         double paneWidth,
         double paneHeight)
     {
-        double bubbleX = promptRect.X;
-        double bubbleY = promptRect.Top - PromptBubbleGap - bubbleHeight;
-        return ClampRect(new Rect(bubbleX, bubbleY, bubbleWidth, bubbleHeight), paneWidth, paneHeight);
+        // Keep fallback behavior aligned with prompt-anchored behavior:
+        // if the prompt sits in the upper startup band, place the bubble below it.
+        return CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight);
     }
 
     private static Rect CreatePopupRect(
