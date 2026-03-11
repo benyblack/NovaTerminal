@@ -7,8 +7,7 @@
             BorderBrush="#404040"
             BorderThickness="1"
             CornerRadius="10"
-            Padding="12"
-            MinWidth="360">
+            Padding="12">
         <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*"
               RowSpacing="10">
             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">

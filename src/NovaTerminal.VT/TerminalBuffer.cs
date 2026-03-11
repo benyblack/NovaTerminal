@@ -33,8 +33,7 @@ namespace NovaTerminal.Core
             set
             {
                 _maxHistory = Math.Max(1, value);
-                long computedBudget = ComputeScrollbackBudgetBytes(Cols, _maxHistory);
-                MaxScrollbackBytes = computedBudget;
+                RecomputeScrollbackBudgetForCurrentWidth();
             }
         }
 
@@ -170,6 +169,16 @@ namespace NovaTerminal.Core
         private static long ComputeScrollbackBudgetBytes(int cols, int maxHistory)
         {
             return Math.Max(1, cols) * (long)Math.Max(1, maxHistory) * TerminalPageConstants.CellBytes;
+        }
+
+        private void RecomputeScrollbackBudgetForCurrentWidth()
+        {
+            _maxScrollbackBytes = ComputeScrollbackBudgetBytes(Cols, _maxHistory);
+            if (_scrollback != null)
+            {
+                _scrollback.MaxScrollbackBytes = _maxScrollbackBytes;
+                _scrollback.TryEvictUntilWithinBudget();
+            }
         }
 
     }

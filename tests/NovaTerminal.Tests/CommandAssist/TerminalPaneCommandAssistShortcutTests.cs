@@ -22,6 +22,21 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     }
 
     [AvaloniaFact]
+    public void OpenCommandAssistHelp_WhenDisabledInSettings_ReturnsFalse()
+    {
+        var pane = new TerminalPane();
+        var settings = TerminalSettings.Load();
+        settings.CommandAssistEnabled = false;
+        settings.CommandAssistHistoryEnabled = true;
+        pane.ApplySettings(settings);
+
+        bool handled = pane.OpenCommandAssistHelp();
+
+        Assert.False(handled);
+        Assert.False(pane.CommandAssistViewModel?.IsVisible ?? false);
+    }
+
+    [AvaloniaFact]
     public async Task OpenCommandAssistHelp_WhenQueryPresent_UsesPaneInfrastructure()
     {
         var pane = new TerminalPane();

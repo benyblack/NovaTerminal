@@ -1107,6 +1107,7 @@ namespace NovaTerminal
             var bgOpacityDisplay = this.FindControl<TextBlock>("BgImageOpacityDisplay");
             var bgStretchList = this.FindControl<ComboBox>("BgImageStretchList");
             var complexShapingToggle = this.FindControl<CheckBox>("ComplexShapingToggle");
+            var commandAssistToggle = this.FindControl<CheckBox>("CommandAssistToggle");
 
             if (fontSizeInput != null) fontSizeInput.Value = (decimal)_settings.FontSize;
             if (scrollbackInput != null) scrollbackInput.Value = (decimal)_settings.MaxHistory;
@@ -1119,6 +1120,7 @@ namespace NovaTerminal
 
             if (ligatureToggle != null) ligatureToggle.IsChecked = _settings.EnableLigatures;
             if (complexShapingToggle != null) complexShapingToggle.IsChecked = _settings.EnableComplexShaping;
+            if (commandAssistToggle != null) commandAssistToggle.IsChecked = _settings.CommandAssistEnabled;
 
             if (bgPathInput != null) bgPathInput.Text = _settings.BackgroundImagePath;
             if (bgOpacitySlider != null)
@@ -1315,6 +1317,7 @@ namespace NovaTerminal
             var opacitySlider = this.FindControl<Slider>("WindowOpacitySlider");
             var ligatureToggle = this.FindControl<CheckBox>("LigatureToggle");
             var complexShapingToggle = this.FindControl<CheckBox>("ComplexShapingToggle");
+            var commandAssistToggle = this.FindControl<CheckBox>("CommandAssistToggle");
 
             // Bg Image inputs
             var bgPathInput = this.FindControl<TextBox>("BgImagePathInput");
@@ -1327,6 +1330,7 @@ namespace NovaTerminal
             if (opacitySlider != null) _settings.WindowOpacity = opacitySlider.Value;
             if (ligatureToggle != null) _settings.EnableLigatures = ligatureToggle.IsChecked == true;
             if (complexShapingToggle != null) _settings.EnableComplexShaping = complexShapingToggle.IsChecked == true;
+            if (commandAssistToggle != null) _settings.CommandAssistEnabled = commandAssistToggle.IsChecked == true;
 
             if (fontList?.SelectedItem is ComboBoxItem fontItem)
                 _settings.FontFamily = fontItem.Content?.ToString() ?? "Consolas";

@@ -9,6 +9,7 @@ using NovaTerminal.Core;
 using Avalonia.Controls.Presenters;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using System.Net.NetworkInformation;
 using System.Linq;
@@ -72,6 +73,8 @@ namespace NovaTerminal.Controls
         private readonly CommandAssistAnchorCalculator _commandAssistAnchorCalculator = new();
         private string? _lastRelevantCommandText;
         private CommandAssistBarViewModel? _boundCommandAssistViewModel;
+        private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
+        private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
         private const double CommandAssistBubbleWidth = 420;
         private const double CommandAssistBubbleHeight = 36;
         private const double CommandAssistPopupWidth = 520;
@@ -373,8 +376,9 @@ namespace NovaTerminal.Controls
 
         private void InitializeCommandAssist()
         {
-            if (_settings == null || !_settings.CommandAssistEnabled || !_settings.CommandAssistHistoryEnabled)
+            if (!IsCommandAssistFeatureEnabled())
             {
+                _commandAssistController?.Dismiss();
                 ClearCommandAssistBindings();
 
                 return;
@@ -389,8 +393,9 @@ namespace NovaTerminal.Controls
                 return;
             }
 
+            TerminalSettings settings = _settings!;
             _commandAssistController = new CommandAssistController(
-                CommandAssistInfrastructure.GetHistoryStore(_settings),
+                CommandAssistInfrastructure.GetHistoryStore(settings),
                 CommandAssistInfrastructure.GetSecretsFilter(),
                 CommandAssistInfrastructure.GetSuggestionEngine(),
                 CommandAssistInfrastructure.GetSnippetStore(),
@@ -406,10 +411,28 @@ namespace NovaTerminal.Controls
             _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
             UpdateCommandAssistContext();
 
-            TermView.TextInputObserved += text => _commandAssistController?.HandleTextInput(text);
-            TermView.BackspaceObserved += () => _commandAssistController?.HandleBackspace();
+            TermView.TextInputObserved += text =>
+            {
+                if (IsCommandAssistFeatureEnabled())
+                {
+                    _commandAssistController?.HandleTextInput(text);
+                }
+            };
+            TermView.BackspaceObserved += () =>
+            {
+                if (IsCommandAssistFeatureEnabled())
+                {
+                    _commandAssistController?.HandleBackspace();
+                }
+            };
             TermView.EnterObserved += OnCommandAssistEnterObserved;
-            TermView.PasteObserved += text => _commandAssistController?.HandlePastedText(text);
+            TermView.PasteObserved += text =>
+            {
+                if (IsCommandAssistFeatureEnabled())
+                {
+                    _commandAssistController?.HandlePastedText(text);
+                }
+            };
 
             if (Buffer != null)
             {
@@ -437,13 +460,11 @@ namespace NovaTerminal.Controls
             if (CommandAssistBubble != null)
             {
                 CommandAssistBubble.DataContext = viewModel?.Bubble;
-                CommandAssistBubble.IsVisible = viewModel?.Bubble.IsVisible ?? false;
             }
 
             if (CommandAssistPopup != null)
             {
                 CommandAssistPopup.DataContext = viewModel?.Popup;
-                CommandAssistPopup.IsVisible = viewModel?.Popup.IsVisible ?? false;
             }
 
             UpdateCommandAssistOverlayPlacement();
@@ -459,15 +480,19 @@ namespace NovaTerminal.Controls
 
             if (CommandAssistBubble != null)
             {
-                CommandAssistBubble.DataContext = null;
-                CommandAssistBubble.IsVisible = false;
+                CommandAssistBubble.DataContext = _hiddenCommandAssistBubbleViewModel;
             }
 
             if (CommandAssistPopup != null)
             {
-                CommandAssistPopup.DataContext = null;
-                CommandAssistPopup.IsVisible = false;
+                CommandAssistPopup.DataContext = _hiddenCommandAssistPopupViewModel;
             }
+        }
+
+        private bool IsCommandAssistFeatureEnabled()
+        {
+            return _settings?.CommandAssistEnabled == true &&
+                   _settings.CommandAssistHistoryEnabled;
         }
 
         private void OnCommandAssistViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -601,7 +626,7 @@ namespace NovaTerminal.Controls
 
         private async Task HandleCommandAssistEnterObservedAsync()
         {
-            if (_commandAssistController == null)
+            if (!IsCommandAssistFeatureEnabled() || _commandAssistController == null)
             {
                 return;
             }
@@ -652,6 +677,11 @@ namespace NovaTerminal.Controls
 
         internal bool TryHandleCommandAssistKey(Key key, KeyModifiers modifiers)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             CommandAssistController? controller = _commandAssistController;
             bool isAssistVisible = controller?.ViewModel.IsVisible == true;
             if (!CommandAssistKeyRouter.IsAssistOwnedKey(isAssistVisible, key, modifiers))
@@ -1136,21 +1166,41 @@ namespace NovaTerminal.Controls
 
         public void ToggleCommandAssist()
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return;
+            }
+
             _commandAssistController?.ToggleAssist();
         }
 
         public bool OpenCommandAssistHelp()
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             return _commandAssistController?.OpenHelp() ?? false;
         }
 
         public bool OpenCommandAssistHistorySearch()
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             return _commandAssistController?.OpenHistorySearch() ?? false;
         }
 
         public void NotifyCommandAssistPaste(string text)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return;
+            }
+
             if (!string.IsNullOrWhiteSpace(text))
             {
                 _lastRelevantCommandText = text.Trim();
@@ -1161,12 +1211,22 @@ namespace NovaTerminal.Controls
 
         internal bool CanExplainSelection(string? selectedTextOverride = null)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             string? selectedText = selectedTextOverride ?? TermView.GetSelectedText();
             return _commandAssistController != null && !string.IsNullOrWhiteSpace(selectedText);
         }
 
         internal async Task<bool> ExplainSelectionAsync(string? selectedTextOverride = null)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             if (_commandAssistController == null)
             {
                 return false;
@@ -1550,6 +1610,11 @@ namespace NovaTerminal.Controls
 
         internal async Task HandleCommandAssistCompletionAsync(int? exitCode)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return;
+            }
+
             if (_commandAssistController == null)
             {
                 return;
@@ -1585,7 +1650,7 @@ namespace NovaTerminal.Controls
 
         private async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
         {
-            if (_commandAssistController == null)
+            if (!IsCommandAssistFeatureEnabled() || _commandAssistController == null)
             {
                 return;
             }

@@ -37,4 +37,20 @@ public sealed class TerminalBufferScrollbackBudgetTests
         Assert.True(buffer.Scrollback.Count <= 1000, $"Expected <= 1000 scrollback rows, got {buffer.Scrollback.Count}.");
         Assert.True(metrics.ScrollbackBytes <= expectedBudget + (80L * 64 * 12), $"Expected scrollback bytes near budget, got {metrics.ScrollbackBytes}.");
     }
+
+    [Fact]
+    public void Resize_WhenWidthChanges_RecomputesScrollbackBudget()
+    {
+        var buffer = new TerminalBuffer(80, 24)
+        {
+            MaxHistory = 1000
+        };
+
+        buffer.Resize(120, 24);
+
+        long expectedBytes = 120L * 1000 * 12;
+
+        Assert.Equal(expectedBytes, buffer.MaxScrollbackBytes);
+        Assert.Equal(expectedBytes, buffer.Scrollback.MaxScrollbackBytes);
+    }
 }

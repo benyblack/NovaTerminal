@@ -44,6 +44,9 @@
 
                         <!-- Enable Complex Shaping -->
                         <CheckBox Name="ComplexShapingToggle" Content="Enable Complex Shaping (Run-level HarfBuzz)" Margin="0,5,0,0"/>
+
+                        <!-- Command Assist -->
+                        <CheckBox Name="CommandAssistToggle" Content="Enable Command Assistant" Margin="0,5,0,0"/>
                         
                         <!-- Font Size -->
                         <StackPanel>
