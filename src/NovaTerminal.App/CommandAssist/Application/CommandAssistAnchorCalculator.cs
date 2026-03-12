@@ -139,7 +139,10 @@ public sealed class CommandAssistAnchorCalculator
         double paneWidth,
         double paneHeight)
     {
-        return CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight, PromptUpperBandRatio);
+        double upperBandRatio = paneHeight <= FallbackShortPaneHeightThreshold
+            ? FallbackShortPanePromptUpperBandRatio
+            : PromptUpperBandRatio;
+        return CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight, upperBandRatio);
     }
 
     private static Rect CreateBubbleAdjacentToPrompt(

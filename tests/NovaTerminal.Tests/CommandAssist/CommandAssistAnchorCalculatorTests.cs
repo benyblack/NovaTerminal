@@ -92,6 +92,28 @@ public sealed class CommandAssistAnchorCalculatorTests
     }
 
     [Fact]
+    public void Calculate_WhenPromptAnchorIsReliableAndPaneIsShort_PlacesBubbleBelowPromptConservatively()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 900,
+            PaneHeight: 220,
+            CellHeight: 18,
+            CursorVisualRow: 5,
+            VisibleRows: 9,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180));
+
+        Assert.True(layout.UsesPromptAnchor);
+        Assert.True(layout.BubbleRect.Top >= layout.PromptRect.Bottom,
+            $"Expected reliable short-pane bubble top {layout.BubbleRect.Top} to be below prompt bottom {layout.PromptRect.Bottom}.");
+        Assert.Equal(4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
+    }
+
+    [Fact]
     public void Calculate_WhenPaneIsShortButWide_UsesSideFloatingPopup()
     {
         var calculator = new CommandAssistAnchorCalculator();
