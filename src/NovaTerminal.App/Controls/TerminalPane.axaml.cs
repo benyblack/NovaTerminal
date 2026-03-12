@@ -524,6 +524,17 @@ namespace NovaTerminal.Controls
             int fallbackVisibleRows = TermView.Rows > 0 ? TermView.Rows : 1;
             CommandAssistSurfaceSizing sizing = CalculateCommandAssistSurfaceSizing(paneWidth, paneHeight);
             bool hasReliablePromptAnchor = IsCommandAssistPromptAnchorReliable(promptHint);
+            float anchorCellHeight = promptHint?.CellHeight ?? fallbackCellHeight;
+            int hintCursorRow = promptHint?.VisibleCursorVisualRow ?? 0;
+            int hintVisibleRows = promptHint?.VisibleRows ?? fallbackVisibleRows;
+            int paneEstimatedVisibleRows = anchorCellHeight > 0
+                ? Math.Max(1, (int)Math.Floor(paneHeight / anchorCellHeight))
+                : hintVisibleRows;
+            bool shouldUsePaneEstimatedRows = Profile?.Type == ConnectionType.SSH &&
+                                              !hasReliablePromptAnchor &&
+                                              paneEstimatedVisibleRows > hintVisibleRows;
+            int anchorVisibleRows = shouldUsePaneEstimatedRows ? paneEstimatedVisibleRows : hintVisibleRows;
+            int anchorCursorRow = Math.Clamp(hintCursorRow, 0, Math.Max(0, anchorVisibleRows - 1));
             if (ShouldSuppressConservativeRemoteAssist(promptHint, hasReliablePromptAnchor, paneHeight))
             {
                 return null;
@@ -532,9 +543,9 @@ namespace NovaTerminal.Controls
             return _commandAssistAnchorCalculator.Calculate(new CommandAssistAnchorRequest(
                 PaneWidth: paneWidth,
                 PaneHeight: paneHeight,
-                CellHeight: promptHint?.CellHeight ?? fallbackCellHeight,
-                CursorVisualRow: promptHint?.VisibleCursorVisualRow ?? 0,
-                VisibleRows: promptHint?.VisibleRows ?? fallbackVisibleRows,
+                CellHeight: anchorCellHeight,
+                CursorVisualRow: anchorCursorRow,
+                VisibleRows: anchorVisibleRows,
                 BubbleWidth: sizing.BubbleWidth,
                 BubbleHeight: sizing.BubbleHeight,
                 PopupWidth: sizing.PopupWidth,

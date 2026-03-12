@@ -379,6 +379,38 @@ public sealed class CommandAssistLayoutTests
     }
 
     [AvaloniaFact]
+    public void TerminalPane_WhenRemotePromptHintRowsLagPaneHeight_UsesPaneEstimatedRowsForConservativeFallback()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 160));
+        termView.Arrange(new Rect(0, 0, 900, 160));
+        pane.Buffer.SetCursorPosition(0, 5);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.True(layout.BubbleRect.Bottom > 500 * 0.5,
+            $"Expected conservative fallback to stay in lower safe zone when prompt hint rows lag pane height, but bottom was {layout.BubbleRect.Bottom}.");
+    }
+
+    [AvaloniaFact]
     public async Task TerminalPane_WhenPopupIsVisible_AnchorsPopupTopToCalculatedRect()
     {
         var pane = new TerminalPane
