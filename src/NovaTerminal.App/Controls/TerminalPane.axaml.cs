@@ -9,14 +9,17 @@ using NovaTerminal.Core;
 using Avalonia.Controls.Presenters;
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading.Tasks;
 using System.Net.NetworkInformation;
 using System.Linq;
 using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
 using Avalonia.Platform.Storage;
+using System.ComponentModel;
 using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.ViewModels;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
@@ -67,7 +70,27 @@ namespace NovaTerminal.Controls
         private ShellLifecycleTracker? _shellLifecycleTracker;
         private bool _isShellIntegrationActive;
         private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
+        private readonly CommandAssistAnchorCalculator _commandAssistAnchorCalculator = new();
         private string? _lastRelevantCommandText;
+        private CommandAssistBarViewModel? _boundCommandAssistViewModel;
+        private string? _lastCommandAssistAnchorDiagnosticSignature;
+        private string? _lastCommandAssistAnchorAppliedSignature;
+        private string? _lastCommandAssistAnchorCorrectionSignature;
+        private bool _suppressSshAssistOverlayUntilSettled;
+        private int _sshAssistCorrectionPassCount;
+        private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
+        private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
+        private const double CommandAssistBubbleWidth = 420;
+        private const double CommandAssistBubbleHeight = 36;
+        private const double CommandAssistPopupWidth = 520;
+        private const double CommandAssistPopupHeight = 220;
+        private const double CompactPopupWidthThreshold = 420;
+        private const double CompactPopupHeightThreshold = 180;
+        private const double ConservativeRemotePromptBandStartRatio = 0.55;
+        private const int ConservativeRemoteMinVisibleRows = 8;
+        private const double ConservativeRemoteShortPaneHeightThreshold = 300;
+        private const int MaxSshAssistCorrectionPasses = 6;
+        internal CommandAssistBarViewModel? CommandAssistViewModel => _commandAssistController?.ViewModel;
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -256,7 +279,13 @@ namespace NovaTerminal.Controls
             // Wire up focus syncing
             TermView.GotFocus += (s, e) => UpdateFocusVisuals(true);
             TermView.LostFocus += (s, e) => UpdateFocusVisuals(false);
-            TermView.MetricsChanged += (cw, ch) => UpdateMinimumSizeConstraints();
+            TermView.MetricsChanged += (cw, ch) =>
+            {
+                UpdateMinimumSizeConstraints();
+                UpdateCommandAssistOverlayPlacement();
+            };
+            TermView.CommandAssistAnchorHintChanged += () => UpdateCommandAssistOverlayPlacement();
+            SizeChanged += (_, _) => UpdateCommandAssistOverlayPlacement();
 
             // Load Settings
             ApplySettings(TerminalSettings.Load());
@@ -356,31 +385,26 @@ namespace NovaTerminal.Controls
 
         private void InitializeCommandAssist()
         {
-            if (_settings == null || !_settings.CommandAssistEnabled || !_settings.CommandAssistHistoryEnabled)
+            if (!IsCommandAssistFeatureEnabled())
             {
-                if (CommandAssistBar != null)
-                {
-                    CommandAssistBar.DataContext = null;
-                    CommandAssistBar.IsVisible = false;
-                }
+                _commandAssistController?.Dismiss();
+                ClearCommandAssistBindings();
 
                 return;
             }
 
             if (_commandAssistController != null)
             {
-                if (CommandAssistBar != null)
-                {
-                    CommandAssistBar.DataContext = _commandAssistController.ViewModel;
-                }
+                BindCommandAssistViews(_commandAssistController.ViewModel);
 
                 _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
                 UpdateCommandAssistContext();
                 return;
             }
 
+            TerminalSettings settings = _settings!;
             _commandAssistController = new CommandAssistController(
-                CommandAssistInfrastructure.GetHistoryStore(_settings),
+                CommandAssistInfrastructure.GetHistoryStore(settings),
                 CommandAssistInfrastructure.GetSecretsFilter(),
                 CommandAssistInfrastructure.GetSuggestionEngine(),
                 CommandAssistInfrastructure.GetSnippetStore(),
@@ -391,23 +415,420 @@ namespace NovaTerminal.Controls
                 resultBuilder: null,
                 action => Dispatcher.UIThread.Post(action));
 
-            if (CommandAssistBar != null)
-            {
-                CommandAssistBar.DataContext = _commandAssistController.ViewModel;
-            }
+            BindCommandAssistViews(_commandAssistController.ViewModel);
 
             _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
             UpdateCommandAssistContext();
 
-            TermView.TextInputObserved += text => _commandAssistController?.HandleTextInput(text);
-            TermView.BackspaceObserved += () => _commandAssistController?.HandleBackspace();
+            TermView.TextInputObserved += text =>
+            {
+                if (IsCommandAssistFeatureEnabled())
+                {
+                    _commandAssistController?.HandleTextInput(text);
+                }
+            };
+            TermView.BackspaceObserved += () =>
+            {
+                if (IsCommandAssistFeatureEnabled())
+                {
+                    _commandAssistController?.HandleBackspace();
+                }
+            };
             TermView.EnterObserved += OnCommandAssistEnterObserved;
-            TermView.PasteObserved += text => _commandAssistController?.HandlePastedText(text);
+            TermView.PasteObserved += text =>
+            {
+                if (IsCommandAssistFeatureEnabled())
+                {
+                    _commandAssistController?.HandlePastedText(text);
+                }
+            };
 
             if (Buffer != null)
             {
                 Buffer.OnScreenSwitched += OnBufferScreenSwitched;
             }
+        }
+
+        private void BindCommandAssistViews(CommandAssistBarViewModel? viewModel)
+        {
+            if (!ReferenceEquals(_boundCommandAssistViewModel, viewModel))
+            {
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.PropertyChanged -= OnCommandAssistViewModelPropertyChanged;
+                }
+
+                _boundCommandAssistViewModel = viewModel;
+
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.PropertyChanged += OnCommandAssistViewModelPropertyChanged;
+                }
+            }
+
+            if (CommandAssistBubble != null)
+            {
+                CommandAssistBubble.DataContext = viewModel?.Bubble;
+            }
+
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.DataContext = viewModel?.Popup;
+            }
+
+            UpdateCommandAssistOverlayPlacement();
+        }
+
+        private void ClearCommandAssistBindings()
+        {
+            if (_boundCommandAssistViewModel != null)
+            {
+                _boundCommandAssistViewModel.PropertyChanged -= OnCommandAssistViewModelPropertyChanged;
+                _boundCommandAssistViewModel = null;
+            }
+
+            if (CommandAssistBubble != null)
+            {
+                CommandAssistBubble.DataContext = _hiddenCommandAssistBubbleViewModel;
+            }
+
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.DataContext = _hiddenCommandAssistPopupViewModel;
+            }
+        }
+
+        private bool IsCommandAssistFeatureEnabled()
+        {
+            return _settings?.CommandAssistEnabled == true &&
+                   _settings.CommandAssistHistoryEnabled;
+        }
+
+        private void OnCommandAssistViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            UpdateCommandAssistOverlayPlacement();
+        }
+
+        internal CommandAssistAnchorLayout? CalculateCommandAssistAnchorLayoutForTest()
+        {
+            return TryCalculateCommandAssistAnchorLayout();
+        }
+
+        private CommandAssistAnchorLayout? TryCalculateCommandAssistAnchorLayout()
+        {
+            // During startup (especially SSH), TermView bounds can briefly report a partial height.
+            // Anchor against the host pane bounds first so overlays don't jump to the top band.
+            double paneWidth = Bounds.Width > 0 ? Bounds.Width : TermView.Bounds.Width;
+            double paneHeight = Bounds.Height > 0 ? Bounds.Height : TermView.Bounds.Height;
+            if (paneWidth <= 0 || paneHeight <= 0)
+            {
+                return null;
+            }
+
+            CommandAssistPromptHint? promptHint = TermView.GetCommandAssistPromptHint();
+            float fallbackCellHeight = TermView.Metrics.CellHeight > 0 ? TermView.Metrics.CellHeight : 18;
+            int fallbackVisibleRows = TermView.Rows > 0 ? TermView.Rows : 1;
+            CommandAssistSurfaceSizing sizing = CalculateCommandAssistSurfaceSizing(paneWidth, paneHeight);
+            bool hasReliablePromptAnchor = IsCommandAssistPromptAnchorReliable(promptHint);
+            float anchorCellHeight = promptHint?.CellHeight ?? fallbackCellHeight;
+            int hintCursorRow = promptHint?.VisibleCursorVisualRow ?? 0;
+            int hintVisibleRows = promptHint?.VisibleRows ?? fallbackVisibleRows;
+            int paneEstimatedVisibleRows = anchorCellHeight > 0
+                ? Math.Max(1, (int)Math.Floor(paneHeight / anchorCellHeight))
+                : hintVisibleRows;
+            bool shouldUsePaneEstimatedRows = Profile?.Type == ConnectionType.SSH &&
+                                              !hasReliablePromptAnchor &&
+                                              paneEstimatedVisibleRows > hintVisibleRows;
+            int anchorVisibleRows = shouldUsePaneEstimatedRows ? paneEstimatedVisibleRows : hintVisibleRows;
+            int anchorCursorRow = Math.Clamp(hintCursorRow, 0, Math.Max(0, anchorVisibleRows - 1));
+            bool shouldSuppress = ShouldSuppressConservativeRemoteAssist(promptHint, hasReliablePromptAnchor, paneHeight);
+            if (shouldSuppress)
+            {
+                LogCommandAssistAnchorDiagnostics(
+                    paneWidth,
+                    paneHeight,
+                    hasReliablePromptAnchor,
+                    promptHint,
+                    anchorCellHeight,
+                    anchorCursorRow,
+                    anchorVisibleRows,
+                    shouldSuppress,
+                    layout: null);
+                return null;
+            }
+
+            CommandAssistAnchorLayout layout = _commandAssistAnchorCalculator.Calculate(new CommandAssistAnchorRequest(
+                PaneWidth: paneWidth,
+                PaneHeight: paneHeight,
+                CellHeight: anchorCellHeight,
+                CursorVisualRow: anchorCursorRow,
+                VisibleRows: anchorVisibleRows,
+                BubbleWidth: sizing.BubbleWidth,
+                BubbleHeight: sizing.BubbleHeight,
+                PopupWidth: sizing.PopupWidth,
+                PopupHeight: sizing.PopupHeight,
+                HasReliablePromptAnchor: hasReliablePromptAnchor));
+            LogCommandAssistAnchorDiagnostics(
+                paneWidth,
+                paneHeight,
+                hasReliablePromptAnchor,
+                promptHint,
+                anchorCellHeight,
+                anchorCursorRow,
+                anchorVisibleRows,
+                shouldSuppress,
+                layout);
+            return layout;
+        }
+
+        private void LogCommandAssistAnchorDiagnostics(
+            double paneWidth,
+            double paneHeight,
+            bool hasReliablePromptAnchor,
+            CommandAssistPromptHint? promptHint,
+            float anchorCellHeight,
+            int anchorCursorRow,
+            int anchorVisibleRows,
+            bool shouldSuppress,
+            CommandAssistAnchorLayout? layout)
+        {
+            if (Profile?.Type != ConnectionType.SSH)
+            {
+                return;
+            }
+
+            int hintCursorRow = promptHint?.VisibleCursorVisualRow ?? -1;
+            int hintVisibleRows = promptHint?.VisibleRows ?? -1;
+            string layoutState = layout == null
+                ? "none"
+                : $"bubbleY={layout.BubbleRect.Y:F0},bubbleBottom={layout.BubbleRect.Bottom:F0},promptY={layout.PromptRect.Y:F0},usesPrompt={layout.UsesPromptAnchor}";
+            string signature =
+                $"pw={paneWidth:F0},ph={paneHeight:F0},tw={TermView.Bounds.Width:F0},th={TermView.Bounds.Height:F0},rel={hasReliablePromptAnchor},sup={shouldSuppress},hintRow={hintCursorRow},hintRows={hintVisibleRows},cell={anchorCellHeight:F1},anchorRow={anchorCursorRow},anchorRows={anchorVisibleRows},vmVis={_boundCommandAssistViewModel?.IsVisible == true},{layoutState}";
+            if (string.Equals(signature, _lastCommandAssistAnchorDiagnosticSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastCommandAssistAnchorDiagnosticSignature = signature;
+            TerminalLogger.Log($"[AssistAnchor][SSH] {signature}");
+        }
+
+        private bool ShouldSuppressConservativeRemoteAssist(
+            CommandAssistPromptHint? promptHint,
+            bool hasReliablePromptAnchor,
+            double paneHeight)
+        {
+            if (Profile?.Type != ConnectionType.SSH || hasReliablePromptAnchor || paneHeight > ConservativeRemoteShortPaneHeightThreshold)
+            {
+                return false;
+            }
+
+            if (!promptHint.HasValue)
+            {
+                return true;
+            }
+
+            if (promptHint.Value.VisibleRows < ConservativeRemoteMinVisibleRows)
+            {
+                return true;
+            }
+
+            double normalizedCursorRow = promptHint.Value.VisibleCursorVisualRow / (double)Math.Max(1, promptHint.Value.VisibleRows - 1);
+            return normalizedCursorRow < ConservativeRemotePromptBandStartRatio;
+        }
+
+        private bool IsCommandAssistPromptAnchorReliable(CommandAssistPromptHint? promptHint)
+        {
+            if (!promptHint.HasValue)
+            {
+                return false;
+            }
+
+            // SSH sessions currently stay on the heuristic path, so cursor-row hints are not
+            // trustworthy enough for prompt-adjacent anchoring.
+            if (Profile?.Type == ConnectionType.SSH)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private static CommandAssistSurfaceSizing CalculateCommandAssistSurfaceSizing(double paneWidth, double paneHeight)
+        {
+            double bubbleWidth = Math.Clamp(paneWidth * 0.44, 280, CommandAssistBubbleWidth);
+            double popupWidth = Math.Clamp(paneWidth * 0.58, 360, CommandAssistPopupWidth);
+            double popupHeight = Math.Clamp(paneHeight * 0.45, 160, CommandAssistPopupHeight);
+
+            return new CommandAssistSurfaceSizing(
+                BubbleWidth: bubbleWidth,
+                BubbleHeight: CommandAssistBubbleHeight,
+                PopupWidth: popupWidth,
+                PopupHeight: popupHeight);
+        }
+
+        private void UpdateCommandAssistOverlayPlacement()
+        {
+            CommandAssistAnchorLayout? layout = TryCalculateCommandAssistAnchorLayout();
+            bool shouldShowOverlayHost = layout != null && (_boundCommandAssistViewModel?.IsVisible == true);
+            if (!shouldShowOverlayHost)
+            {
+                _suppressSshAssistOverlayUntilSettled = false;
+                _sshAssistCorrectionPassCount = 0;
+            }
+
+            if (CommandAssistOverlayHost != null)
+            {
+                CommandAssistOverlayHost.IsVisible = shouldShowOverlayHost;
+                CommandAssistOverlayHost.Opacity = shouldShowOverlayHost && !_suppressSshAssistOverlayUntilSettled ? 1.0 : 0.0;
+            }
+
+            if (layout == null)
+            {
+                return;
+            }
+
+            if (CommandAssistBubble != null)
+            {
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.Bubble.ShowQueryText = !layout.UseCompactBubbleLayout;
+                }
+
+                CommandAssistBubble.Width = layout.BubbleRect.Width;
+                CommandAssistBubble.Height = layout.BubbleRect.Height;
+                CommandAssistBubble.MinHeight = layout.BubbleRect.Height;
+                CommandAssistBubble.MaxWidth = layout.BubbleRect.Width;
+                CommandAssistBubble.MaxHeight = layout.BubbleRect.Height;
+                CommandAssistBubble.Margin = new Thickness(
+                    layout.BubbleRect.X,
+                    layout.BubbleRect.Y,
+                    0,
+                    0);
+            }
+
+            if (CommandAssistPopup != null)
+            {
+                if (_boundCommandAssistViewModel != null)
+                {
+                    _boundCommandAssistViewModel.Popup.UseCompactLayout =
+                        layout.PopupRect.Width <= CompactPopupWidthThreshold ||
+                        layout.PopupRect.Height <= CompactPopupHeightThreshold;
+                }
+
+                CommandAssistPopup.Width = layout.PopupRect.Width;
+                CommandAssistPopup.Height = layout.PopupRect.Height;
+                CommandAssistPopup.MinHeight = layout.PopupRect.Height;
+                CommandAssistPopup.MaxWidth = layout.PopupRect.Width;
+                CommandAssistPopup.MaxHeight = layout.PopupRect.Height;
+                CommandAssistPopup.Margin = new Thickness(
+                    layout.PopupRect.X,
+                    layout.PopupRect.Y,
+                    0,
+                    0);
+            }
+
+            LogCommandAssistAnchorAppliedDiagnostics(layout);
+            ScheduleCommandAssistPlacementCorrection(layout);
+        }
+
+        private void LogCommandAssistAnchorAppliedDiagnostics(CommandAssistAnchorLayout layout)
+        {
+            if (Profile?.Type != ConnectionType.SSH || CommandAssistBubble == null)
+            {
+                return;
+            }
+
+            string signature =
+                $"layoutY={layout.BubbleRect.Y:F0},layoutPromptY={layout.PromptRect.Y:F0},appliedBubbleTop={CommandAssistBubble.Margin.Top:F0},appliedBubbleVis={CommandAssistBubble.IsVisible},hostVis={CommandAssistOverlayHost?.IsVisible == true},vmVis={_boundCommandAssistViewModel?.IsVisible == true},popupVm={_boundCommandAssistViewModel?.IsPopupOpen == true}";
+            if (string.Equals(signature, _lastCommandAssistAnchorAppliedSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastCommandAssistAnchorAppliedSignature = signature;
+            TerminalLogger.Log($"[AssistAnchor][SSH][Applied] {signature}");
+        }
+
+        private void ScheduleCommandAssistPlacementCorrection(CommandAssistAnchorLayout layout)
+        {
+            if (Profile?.Type != ConnectionType.SSH || _boundCommandAssistViewModel?.IsVisible != true)
+            {
+                return;
+            }
+
+            void CorrectPlacement()
+            {
+                if (CommandAssistBubble == null || CommandAssistOverlayHost == null || !CommandAssistOverlayHost.IsVisible)
+                {
+                    return;
+                }
+
+                Control? anchorControl = CommandAssistBubble.IsVisible
+                    ? CommandAssistBubble
+                    : CommandAssistPopup != null && CommandAssistPopup.IsVisible
+                        ? CommandAssistPopup
+                        : null;
+                if (anchorControl == null)
+                {
+                    return;
+                }
+
+                Point? anchorTopLeft = anchorControl.TranslatePoint(new Point(0, 0), this);
+                if (!anchorTopLeft.HasValue)
+                {
+                    return;
+                }
+
+                bool anchoredToBubble = ReferenceEquals(anchorControl, CommandAssistBubble);
+                double expectedTop = anchoredToBubble ? layout.BubbleRect.Y : layout.PopupRect.Y;
+                double actualTop = anchorTopLeft.Value.Y;
+                double drift = Math.Abs(actualTop - expectedTop);
+                if (drift <= 2)
+                {
+                    _sshAssistCorrectionPassCount = 0;
+                    if (_suppressSshAssistOverlayUntilSettled)
+                    {
+                        _suppressSshAssistOverlayUntilSettled = false;
+                        CommandAssistOverlayHost.Opacity = 1.0;
+                    }
+
+                    return;
+                }
+
+                _suppressSshAssistOverlayUntilSettled = true;
+                CommandAssistOverlayHost.Opacity = 0.0;
+
+                // Re-apply anchored margins if the rendered position drifted from expected.
+                CommandAssistBubble.Margin = new Thickness(layout.BubbleRect.X, layout.BubbleRect.Y, 0, 0);
+                if (CommandAssistPopup != null)
+                {
+                    CommandAssistPopup.Margin = new Thickness(layout.PopupRect.X, layout.PopupRect.Y, 0, 0);
+                }
+
+                string signature = $"anchor={(anchoredToBubble ? "bubble" : "popup")},expected={expectedTop:F0},actual={actualTop:F0},drift={drift:F0},pass={_sshAssistCorrectionPassCount}";
+                if (!string.Equals(signature, _lastCommandAssistAnchorCorrectionSignature, StringComparison.Ordinal))
+                {
+                    _lastCommandAssistAnchorCorrectionSignature = signature;
+                    TerminalLogger.Log($"[AssistAnchor][SSH][Corrected] {signature}");
+                }
+
+                if (_sshAssistCorrectionPassCount >= MaxSshAssistCorrectionPasses)
+                {
+                    _suppressSshAssistOverlayUntilSettled = false;
+                    _sshAssistCorrectionPassCount = 0;
+                    CommandAssistOverlayHost.Opacity = 1.0;
+                    TerminalLogger.Log("[AssistAnchor][SSH][Corrected] max-pass reached; showing overlay with best-known anchor.");
+                    return;
+                }
+
+                _sshAssistCorrectionPassCount++;
+
+                // Re-evaluate on the next render pass; keep host hidden until settled.
+                Dispatcher.UIThread.Post(UpdateCommandAssistOverlayPlacement, DispatcherPriority.Render);
+            }
+
+            Dispatcher.UIThread.Post(CorrectPlacement, DispatcherPriority.Render);
         }
 
         private void OnBufferScreenSwitched(bool isAltScreen)
@@ -422,7 +843,7 @@ namespace NovaTerminal.Controls
 
         private async Task HandleCommandAssistEnterObservedAsync()
         {
-            if (_commandAssistController == null)
+            if (!IsCommandAssistFeatureEnabled() || _commandAssistController == null)
             {
                 return;
             }
@@ -473,6 +894,11 @@ namespace NovaTerminal.Controls
 
         internal bool TryHandleCommandAssistKey(Key key, KeyModifiers modifiers)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             CommandAssistController? controller = _commandAssistController;
             bool isAssistVisible = controller?.ViewModel.IsVisible == true;
             if (!CommandAssistKeyRouter.IsAssistOwnedKey(isAssistVisible, key, modifiers))
@@ -957,21 +1383,41 @@ namespace NovaTerminal.Controls
 
         public void ToggleCommandAssist()
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return;
+            }
+
             _commandAssistController?.ToggleAssist();
         }
 
         public bool OpenCommandAssistHelp()
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             return _commandAssistController?.OpenHelp() ?? false;
         }
 
         public bool OpenCommandAssistHistorySearch()
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             return _commandAssistController?.OpenHistorySearch() ?? false;
         }
 
         public void NotifyCommandAssistPaste(string text)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return;
+            }
+
             if (!string.IsNullOrWhiteSpace(text))
             {
                 _lastRelevantCommandText = text.Trim();
@@ -982,12 +1428,22 @@ namespace NovaTerminal.Controls
 
         internal bool CanExplainSelection(string? selectedTextOverride = null)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             string? selectedText = selectedTextOverride ?? TermView.GetSelectedText();
             return _commandAssistController != null && !string.IsNullOrWhiteSpace(selectedText);
         }
 
         internal async Task<bool> ExplainSelectionAsync(string? selectedTextOverride = null)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
             if (_commandAssistController == null)
             {
                 return false;
@@ -1107,6 +1563,7 @@ namespace NovaTerminal.Controls
             {
                 UpdateFocusVisuals(IsKeyboardFocusWithin);
                 TermView.InvalidateVisual();
+                UpdateCommandAssistOverlayPlacement();
             }, DispatcherPriority.Loaded);
         }
 
@@ -1371,6 +1828,11 @@ namespace NovaTerminal.Controls
 
         internal async Task HandleCommandAssistCompletionAsync(int? exitCode)
         {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return;
+            }
+
             if (_commandAssistController == null)
             {
                 return;
@@ -1406,7 +1868,7 @@ namespace NovaTerminal.Controls
 
         private async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
         {
-            if (_commandAssistController == null)
+            if (!IsCommandAssistFeatureEnabled() || _commandAssistController == null)
             {
                 return;
             }
@@ -1420,5 +1882,11 @@ namespace NovaTerminal.Controls
                 System.Diagnostics.Debug.WriteLine($"[TerminalPane] Shell integration event handling failed: {ex.Message}");
             }
         }
+
+        private readonly record struct CommandAssistSurfaceSizing(
+            double BubbleWidth,
+            double BubbleHeight,
+            double PopupWidth,
+            double PopupHeight);
     }
 }

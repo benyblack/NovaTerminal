@@ -70,6 +70,21 @@ namespace NovaTerminal.Tests
         }
 
         [Fact]
+        public void KeypadModeEscapes_DoNotRenderLiteralCharacters()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("Prompt");
+            parser.Process("\x1b=");
+            parser.Process("\x1b>");
+
+            Assert.Equal("Prompt", GetVisiblePlainText(buffer).Trim());
+            Assert.Equal(6, buffer.CursorCol);
+            Assert.Equal(0, buffer.CursorRow);
+        }
+
+        [Fact]
         public void CursorVisibility_HideAndShowInSeparateChunks_DoesNotArmTransientSuppression()
         {
             var buffer = new TerminalBuffer(80, 24);
@@ -223,6 +238,19 @@ namespace NovaTerminal.Tests
             Assert.True(buffer.Modes.IsFocusEventReporting);
             parser.Process("\x1b[?1004l");
             Assert.False(buffer.Modes.IsFocusEventReporting);
+        }
+
+        private static string GetVisiblePlainText(TerminalBuffer buffer)
+        {
+            var field = typeof(TerminalBuffer).GetField("_viewport", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var viewport = (TerminalRow[])field!.GetValue(buffer)!;
+            return string.Join("\n", viewport.Select(GetRowText)).TrimEnd();
+        }
+
+        private static string GetRowText(TerminalRow row)
+        {
+            var chars = row.Cells.Select(c => c.Character == '\0' ? ' ' : c.Character).ToArray();
+            return new string(chars).TrimEnd();
         }
     }
 }

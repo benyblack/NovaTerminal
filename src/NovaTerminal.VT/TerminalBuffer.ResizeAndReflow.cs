@@ -123,6 +123,7 @@ namespace NovaTerminal.Core
 
                 Cols = newCols;
                 Rows = newRows;
+                RecomputeScrollbackBudgetForCurrentWidth();
 
                 if (_isAltScreen)
                 {

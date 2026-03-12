@@ -93,6 +93,8 @@ public sealed class CommandAssistControllerTests
         Assert.True(opened);
         Assert.True(controller.ViewModel.IsVisible);
         Assert.Equal("Help", controller.ViewModel.ModeLabel);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.Popup.IsVisible);
         Assert.Contains(controller.Suggestions, item => item.Type == AssistSuggestionType.Doc);
         Assert.Contains(controller.Suggestions, item => item.Type == AssistSuggestionType.Recipe);
         Assert.Equal("git", docsProvider.LastQuery?.CommandToken);
@@ -110,6 +112,8 @@ public sealed class CommandAssistControllerTests
         Assert.True(opened);
         Assert.Equal("Fix", controller.ViewModel.ModeLabel);
         Assert.True(controller.ViewModel.IsVisible);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.Popup.IsVisible);
         Assert.Equal(AssistSuggestionType.Fix, controller.Suggestions[0].Type);
     }
 
@@ -123,8 +127,27 @@ public sealed class CommandAssistControllerTests
         bool opened = await controller.HandleCommandFailureAsync(CreateFailureContext("gti status", 1, "command failed"));
 
         Assert.False(opened);
-        Assert.False(controller.ViewModel.IsVisible);
-        Assert.DoesNotContain(controller.Suggestions, item => item.Type == AssistSuggestionType.Fix);
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.Equal("Fix", controller.ViewModel.ModeLabel);
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.False(controller.ViewModel.Popup.IsVisible);
+        Assert.Contains(controller.Suggestions, item => item.Type == AssistSuggestionType.Fix);
+    }
+
+    [Fact]
+    public async Task MoveSelectionDown_WhenLowConfidenceFixAffordanceIsVisible_OpensPopup()
+    {
+        var controller = CreateController(
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion("Maybe try git status", "git status", "Low confidence.", 0.2, ["Fix"])]));
+
+        await controller.HandleCommandFailureAsync(CreateFailureContext("gti status", 1, "command failed"));
+
+        bool moved = controller.MoveSelectionDown();
+
+        Assert.True(moved);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.Popup.IsVisible);
     }
 
     [Fact]
@@ -226,6 +249,38 @@ public sealed class CommandAssistControllerTests
 
         Assert.Equal("git ", controller.ViewModel.QueryText);
         Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.False(controller.ViewModel.Popup.IsVisible);
+    }
+
+    [Fact]
+    public void HandleTextInput_WhenNoSuggestionsExist_HidesSuggestBubble()
+    {
+        var controller = CreateController(new InMemoryHistoryStore());
+
+        controller.HandleTextInput("zzzz");
+
+        Assert.Equal("zzzz", controller.ViewModel.QueryText);
+        Assert.False(controller.ViewModel.HasSuggestions);
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.False(controller.ViewModel.Bubble.IsVisible);
+        Assert.False(controller.ViewModel.Popup.IsVisible);
+    }
+
+    [Fact]
+    public async Task HandleTextInput_WhenNoSuggestionsExist_DoesNotFlashVisibleBeforeRefreshCompletes()
+    {
+        var historyStore = new DelayedHistoryStore(TimeSpan.FromMilliseconds(250));
+        var controller = CreateController(historyStore);
+
+        controller.HandleTextInput("zzzz");
+
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.False(controller.ViewModel.Bubble.IsVisible);
+
+        await historyStore.WaitForLastSearchAsync();
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.False(controller.ViewModel.Bubble.IsVisible);
     }
 
     [Fact]
@@ -301,6 +356,8 @@ public sealed class CommandAssistControllerTests
 
         Assert.True(moved);
         Assert.Equal(1, controller.ViewModel.SelectedIndex);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.Popup.IsVisible);
     }
 
     [Fact]

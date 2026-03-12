@@ -1881,6 +1881,15 @@ namespace NovaTerminal.Core
         private static bool IsRegionalIndicatorRune(int codePoint)
             => codePoint >= 0x1F1E6 && codePoint <= 0x1F1FF;
 
+        private static bool IsAmbiguousSymbolCodePoint(int codePoint)
+            => codePoint >= 0x2600 && codePoint <= 0x27BF;
+
+        private static bool IsEmojiTypefaceFamily(SKTypeface? typeface)
+        {
+            string family = typeface?.FamilyName ?? string.Empty;
+            return family.IndexOf("Emoji", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private void LogBoxRunDiagnostics(string runText, int runCells, SKFont runFont, float measuredWidth)
         {
             if (!GlyphDiagnosticsEnabled || !ContainsBoxDrawing(runText)) return;
@@ -2141,11 +2150,23 @@ namespace NovaTerminal.Core
             {
                 SKTypeface? found = null;
                 if ((codePoint >= 0x1F300 && codePoint <= 0x1FAFF) ||
-                    IsRegionalIndicatorRune(codePoint) ||
-                    (codePoint >= 0x2600 && codePoint <= 0x27BF))
+                    IsRegionalIndicatorRune(codePoint))
                 {
                     found = SKTypeface.FromFamilyName("Segoe UI Emoji");
                 }
+
+                if (found == null && IsAmbiguousSymbolCodePoint(codePoint))
+                {
+                    foreach (var tfChain in _fallbackChain)
+                    {
+                        if (!IsEmojiTypefaceFamily(tfChain) && tfChain.ContainsGlyph(codePoint))
+                        {
+                            found = tfChain;
+                            break;
+                        }
+                    }
+                }
+
                 if (found == null)
                 {
                     foreach (var tfChain in _fallbackChain)

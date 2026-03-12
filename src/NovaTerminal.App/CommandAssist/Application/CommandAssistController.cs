@@ -116,6 +116,7 @@ public sealed class CommandAssistController
 
         _currentMode = CommandAssistMode.Suggest;
         ViewModel.ModeLabel = "Suggest";
+        ViewModel.IsPopupOpen = false;
         ViewModel.IsVisible = !ViewModel.IsVisible;
     }
 
@@ -129,6 +130,7 @@ public sealed class CommandAssistController
 
         _currentMode = CommandAssistMode.Search;
         ViewModel.ModeLabel = "History";
+        ViewModel.IsPopupOpen = true;
         ViewModel.IsVisible = true;
         QueueRefreshSuggestions();
         return true;
@@ -157,7 +159,8 @@ public sealed class CommandAssistController
         _currentMode = CommandAssistMode.Suggest;
         ViewModel.QueryText += text;
         ViewModel.ModeLabel = "Suggest";
-        ViewModel.IsVisible = true;
+        ViewModel.IsPopupOpen = false;
+        ViewModel.IsVisible = ViewModel.HasSuggestions;
         QueueRefreshSuggestions();
     }
 
@@ -178,7 +181,8 @@ public sealed class CommandAssistController
         _currentMode = CommandAssistMode.Suggest;
         ViewModel.QueryText = text ?? string.Empty;
         ViewModel.ModeLabel = "Suggest";
-        ViewModel.IsVisible = !_isAltScreenActive;
+        ViewModel.IsPopupOpen = false;
+        ViewModel.IsVisible = !_isAltScreenActive && ViewModel.HasSuggestions;
         QueueRefreshSuggestions();
     }
 
@@ -262,6 +266,7 @@ public sealed class CommandAssistController
         CancelPendingRefreshes();
         _currentMode = CommandAssistMode.Suggest;
         ViewModel.IsVisible = false;
+        ViewModel.IsPopupOpen = false;
         ViewModel.TopSuggestionText = string.Empty;
         ViewModel.SelectedIndex = -1;
         ViewModel.SelectedBadgesText = string.Empty;
@@ -336,6 +341,7 @@ public sealed class CommandAssistController
         ViewModel.QueryText = insertionText;
         _currentMode = CommandAssistMode.Suggest;
         ViewModel.ModeLabel = "Suggest";
+        ViewModel.IsPopupOpen = false;
         Dismiss();
         return true;
     }
@@ -396,7 +402,8 @@ public sealed class CommandAssistController
             _modeRouter.ChooseModeForHelpRequest(),
             queryText ?? ViewModel.QueryText,
             suggestions,
-            "No local help found."));
+            "No local help found.",
+            openPopup: true));
 
         return true;
     }
@@ -422,14 +429,31 @@ public sealed class CommandAssistController
         IReadOnlyList<CommandFixSuggestion> fixes = await _errorInsightService.AnalyzeAsync(context);
         double highestConfidence = fixes.Count == 0 ? 0 : fixes.Max(item => item.Confidence);
         CommandAssistMode mode = _modeRouter.ChooseModeForFailure(highestConfidence);
-        if (mode != CommandAssistMode.Fix)
+        IReadOnlyList<AssistSuggestion> suggestions = _resultBuilder.BuildFixSuggestions(fixes);
+
+        if (mode == CommandAssistMode.Fix)
+        {
+            _dispatch(() => ApplyHelperSuggestions(
+                CommandAssistMode.Fix,
+                context.CommandText,
+                suggestions,
+                "No likely local fix found.",
+                openPopup: true));
+            return true;
+        }
+
+        if (suggestions.Count == 0)
         {
             return false;
         }
 
-        IReadOnlyList<AssistSuggestion> suggestions = _resultBuilder.BuildFixSuggestions(fixes);
-        _dispatch(() => ApplyHelperSuggestions(mode, context.CommandText, suggestions, "No likely local fix found."));
-        return true;
+        _dispatch(() => ApplyHelperSuggestions(
+            CommandAssistMode.Fix,
+            context.CommandText,
+            suggestions,
+            "No likely local fix found.",
+            openPopup: false));
+        return false;
     }
 
     public async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
@@ -532,6 +556,7 @@ public sealed class CommandAssistController
             CancelPendingRefreshes();
             _currentMode = CommandAssistMode.Suggest;
             ViewModel.IsVisible = false;
+            ViewModel.IsPopupOpen = false;
             ViewModel.TopSuggestionText = string.Empty;
             ViewModel.SelectedIndex = -1;
             ViewModel.SelectedBadgesText = string.Empty;
@@ -588,6 +613,11 @@ public sealed class CommandAssistController
                 ViewModel.EmptyStateText = string.Empty;
                 ViewModel.ShowEmptyState = false;
                 SyncSuggestionViewModel();
+                if (requestedMode == CommandAssistMode.Suggest)
+                {
+                    ViewModel.IsPopupOpen = false;
+                    ViewModel.IsVisible = suggestions.Count > 0;
+                }
             });
         }
         catch
@@ -609,6 +639,11 @@ public sealed class CommandAssistController
                 ViewModel.ShowEmptyState = false;
                 ViewModel.HasSuggestions = false;
                 ViewModel.Suggestions.Clear();
+                if (requestedMode == CommandAssistMode.Suggest)
+                {
+                    ViewModel.IsPopupOpen = false;
+                    ViewModel.IsVisible = false;
+                }
             });
         }
     }
@@ -623,6 +658,7 @@ public sealed class CommandAssistController
         CancelPendingRefreshes();
         _ignoreCurrentSubmission = false;
         ViewModel.QueryText = string.Empty;
+        ViewModel.IsPopupOpen = false;
         ViewModel.TopSuggestionText = string.Empty;
         ViewModel.SelectedIndex = -1;
         ViewModel.SelectedBadgesText = string.Empty;
@@ -644,6 +680,11 @@ public sealed class CommandAssistController
         }
 
         ViewModel.SelectedIndex = index;
+        if (!ViewModel.IsPopupOpen)
+        {
+            ViewModel.IsPopupOpen = true;
+        }
+
         SyncSuggestionViewModel();
         return true;
     }
@@ -721,12 +762,14 @@ public sealed class CommandAssistController
         CommandAssistMode mode,
         string? queryText,
         IReadOnlyList<AssistSuggestion> suggestions,
-        string emptyStateText)
+        string emptyStateText,
+        bool openPopup)
     {
         CancelPendingRefreshes();
         _currentMode = mode;
         ViewModel.ModeLabel = mode.ToString();
         ViewModel.QueryText = queryText ?? string.Empty;
+        ViewModel.IsPopupOpen = openPopup;
         ViewModel.IsVisible = true;
         ViewModel.EmptyStateText = suggestions.Count == 0 ? emptyStateText : string.Empty;
         ViewModel.ShowEmptyState = suggestions.Count == 0;

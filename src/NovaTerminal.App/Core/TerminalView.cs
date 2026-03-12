@@ -27,6 +27,12 @@ namespace NovaTerminal.Core
         public float Leading;
     }
 
+    public readonly record struct CommandAssistPromptHint(
+        int VisibleCursorVisualRow,
+        int VisibleRows,
+        float CellWidth,
+        float CellHeight);
+
     public class TerminalView : Control
     {
         private readonly RowImageCache _rowCache = new();
@@ -36,6 +42,7 @@ namespace NovaTerminal.Core
         /// Fired when font metrics (cell width/height) change.
         /// </summary>
         public event Action<float, float>? MetricsChanged;
+        public event Action? CommandAssistAnchorHintChanged;
 
         private bool _showRenderHud;
         public bool ShowRenderHud
@@ -294,6 +301,7 @@ namespace NovaTerminal.Core
                     {
                         _lastCursorRow = cursorRow;
                         _lastCursorCol = cursorCol;
+                        CommandAssistAnchorHintChanged?.Invoke();
                         
                         // Reset blink timer on VT cursor movement (like in Vim)
                         // Ensure we don't override the transient cursor suppression (used by AnsiParser for animated text)
@@ -549,8 +557,8 @@ namespace NovaTerminal.Core
         private static readonly string[] PreferredMonospaceFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
 
         private static readonly string[] FallbackChainNames = {
-            "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", // Emojis
             "Segoe UI Symbol", "Symbola",                              // Symbols
+            "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", // Emojis
             "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", // Monospace-first
             "Cascadia Code", "Fira Code", "MesloLGS NF",                        // Alternate symbol sources
             "Courier New", "Monospace"                                 // Last Resort
@@ -607,6 +615,43 @@ namespace NovaTerminal.Core
 
         public int Cols => (_metrics.CellWidth > 0) ? (int)(Math.Max(0, Bounds.Width - 4) / _metrics.CellWidth) : 0;
         public int Rows => (_metrics.CellHeight > 0) ? (int)(Bounds.Height / _metrics.CellHeight) : 0;
+
+        internal CommandAssistPromptHint? GetCommandAssistPromptHint()
+        {
+            if (_buffer == null || _metrics.CellHeight <= 0 || Rows <= 0)
+            {
+                return null;
+            }
+
+            int visualCursorRow;
+            int visibleRows = Rows;
+            _buffer.Lock.EnterReadLock();
+            try
+            {
+                visualCursorRow = _buffer.GetVisualCursorRow(_scrollOffset);
+            }
+            finally
+            {
+                _buffer.Lock.ExitReadLock();
+            }
+
+            if (visibleRows <= 0 || visualCursorRow < 0 || visualCursorRow >= visibleRows)
+            {
+                return null;
+            }
+
+            return new CommandAssistPromptHint(
+                VisibleCursorVisualRow: visualCursorRow,
+                VisibleRows: visibleRows,
+                CellWidth: _metrics.CellWidth,
+                CellHeight: _metrics.CellHeight);
+        }
+
+        internal void SetMetricsForTest(float cellWidth, float cellHeight)
+        {
+            _metrics.CellWidth = cellWidth;
+            _metrics.CellHeight = cellHeight;
+        }
 
         public void ApplySettings(TerminalSettings settings)
         {
@@ -1028,6 +1073,7 @@ namespace NovaTerminal.Core
                     _scrollOffset = newValue;
                     _targetScrollOffset = newValue;
                     ScrollStateChanged?.Invoke(_scrollOffset, maxScroll);
+                    CommandAssistAnchorHintChanged?.Invoke();
                     InvalidateBuffer();
                 }
             }
