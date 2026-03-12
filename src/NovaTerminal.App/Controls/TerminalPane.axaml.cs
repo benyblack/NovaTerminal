@@ -75,6 +75,7 @@ namespace NovaTerminal.Controls
         private CommandAssistBarViewModel? _boundCommandAssistViewModel;
         private string? _lastCommandAssistAnchorDiagnosticSignature;
         private string? _lastCommandAssistAnchorAppliedSignature;
+        private string? _lastCommandAssistAnchorCorrectionSignature;
         private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
         private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
         private const double CommandAssistBubbleWidth = 420;
@@ -719,6 +720,7 @@ namespace NovaTerminal.Controls
             }
 
             LogCommandAssistAnchorAppliedDiagnostics(layout);
+            ScheduleCommandAssistPlacementCorrection(layout);
         }
 
         private void LogCommandAssistAnchorAppliedDiagnostics(CommandAssistAnchorLayout layout)
@@ -737,6 +739,61 @@ namespace NovaTerminal.Controls
 
             _lastCommandAssistAnchorAppliedSignature = signature;
             TerminalLogger.Log($"[AssistAnchor][SSH][Applied] {signature}");
+        }
+
+        private void ScheduleCommandAssistPlacementCorrection(CommandAssistAnchorLayout layout)
+        {
+            if (Profile?.Type != ConnectionType.SSH || _boundCommandAssistViewModel?.IsVisible != true)
+            {
+                return;
+            }
+
+            void CorrectPlacement()
+            {
+                if (CommandAssistBubble == null || CommandAssistOverlayHost == null || !CommandAssistOverlayHost.IsVisible)
+                {
+                    return;
+                }
+
+                Point? bubbleTopLeft = CommandAssistBubble.TranslatePoint(new Point(0, 0), this);
+                if (!bubbleTopLeft.HasValue)
+                {
+                    return;
+                }
+
+                double expectedTop = layout.BubbleRect.Y;
+                double actualTop = bubbleTopLeft.Value.Y;
+                double drift = Math.Abs(actualTop - expectedTop);
+                if (drift <= 2)
+                {
+                    return;
+                }
+
+                // Re-apply anchored margins if the rendered position drifted from expected.
+                CommandAssistBubble.Margin = new Thickness(layout.BubbleRect.X, layout.BubbleRect.Y, 0, 0);
+                if (CommandAssistPopup != null)
+                {
+                    CommandAssistPopup.Margin = new Thickness(layout.PopupRect.X, layout.PopupRect.Y, 0, 0);
+                }
+
+                string signature = $"expected={expectedTop:F0},actual={actualTop:F0},drift={drift:F0}";
+                if (string.Equals(signature, _lastCommandAssistAnchorCorrectionSignature, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _lastCommandAssistAnchorCorrectionSignature = signature;
+                TerminalLogger.Log($"[AssistAnchor][SSH][Corrected] {signature}");
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                CorrectPlacement();
+            }
+            else
+            {
+                Dispatcher.UIThread.Post(CorrectPlacement, DispatcherPriority.Render);
+            }
         }
 
         private void OnBufferScreenSwitched(bool isAltScreen)
