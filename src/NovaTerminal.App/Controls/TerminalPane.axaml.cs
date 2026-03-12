@@ -670,6 +670,7 @@ namespace NovaTerminal.Controls
             if (CommandAssistOverlayHost != null)
             {
                 CommandAssistOverlayHost.IsVisible = shouldShowOverlayHost;
+                CommandAssistOverlayHost.Opacity = shouldShowOverlayHost ? 1.0 : 0.0;
             }
 
             if (layout == null)
