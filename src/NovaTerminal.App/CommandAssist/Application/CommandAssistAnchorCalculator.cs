@@ -15,6 +15,8 @@ public sealed class CommandAssistAnchorCalculator
     private const double UnreliableCursorBandStartRatio = 0.55;
     private const int UnreliableCursorBandMinVisibleRows = 8;
     private const double PromptUpperBandRatio = 0.45;
+    private const double FallbackShortPanePromptUpperBandRatio = 0.70;
+    private const double FallbackShortPaneHeightThreshold = 300;
 
     public CommandAssistAnchorLayout Calculate(CommandAssistAnchorRequest request)
     {
@@ -137,10 +139,21 @@ public sealed class CommandAssistAnchorCalculator
         double paneWidth,
         double paneHeight)
     {
+        return CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight, PromptUpperBandRatio);
+    }
+
+    private static Rect CreateBubbleAdjacentToPrompt(
+        Rect promptRect,
+        double bubbleWidth,
+        double bubbleHeight,
+        double paneWidth,
+        double paneHeight,
+        double upperBandRatio)
+    {
         double bubbleX = promptRect.X;
         double desiredAboveY = promptRect.Top - PromptBubbleGap - bubbleHeight;
         double clampedAboveY = Math.Max(PanePadding, desiredAboveY);
-        bool isPromptInUpperStartupBand = promptRect.Top <= paneHeight * PromptUpperBandRatio;
+        bool isPromptInUpperStartupBand = promptRect.Top <= paneHeight * upperBandRatio;
         double bubbleY = isPromptInUpperStartupBand
             ? promptRect.Bottom + PromptBubbleGap
             : clampedAboveY;
@@ -160,9 +173,12 @@ public sealed class CommandAssistAnchorCalculator
         double paneWidth,
         double paneHeight)
     {
-        // Keep fallback behavior aligned with prompt-anchored behavior:
-        // if the prompt sits in the upper startup band, place the bubble below it.
-        return CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight);
+        // Unreliable prompt anchors (for conservative SSH mode) should prefer below-placement
+        // more aggressively on short panes to avoid covering startup/login text.
+        double upperBandRatio = paneHeight <= FallbackShortPaneHeightThreshold
+            ? FallbackShortPanePromptUpperBandRatio
+            : PromptUpperBandRatio;
+        return CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight, upperBandRatio);
     }
 
     private static Rect CreatePopupRect(

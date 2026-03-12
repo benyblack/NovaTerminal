@@ -229,6 +229,29 @@ public sealed class CommandAssistAnchorCalculatorTests
     }
 
     [Fact]
+    public void Calculate_WhenFallbackPromptIsNearMidOnShortPane_PlacesBubbleBelowPromptConservatively()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 900,
+            PaneHeight: 220,
+            CellHeight: 18,
+            CursorVisualRow: 5,
+            VisibleRows: 9,
+            BubbleWidth: 380,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasReliablePromptAnchor: false));
+
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.True(layout.BubbleRect.Top >= layout.PromptRect.Bottom,
+            $"Expected conservative fallback bubble top {layout.BubbleRect.Top} to be below prompt bottom {layout.PromptRect.Bottom} on short panes.");
+        Assert.Equal(4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
+    }
+
+    [Fact]
     public void Calculate_WhenCursorVisualRowChanges_MovesBubbleWithPrompt()
     {
         var calculator = new CommandAssistAnchorCalculator();
