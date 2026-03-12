@@ -81,6 +81,9 @@ namespace NovaTerminal.Controls
         private const double CommandAssistPopupHeight = 220;
         private const double CompactPopupWidthThreshold = 420;
         private const double CompactPopupHeightThreshold = 180;
+        private const double ConservativeRemotePromptBandStartRatio = 0.55;
+        private const int ConservativeRemoteMinVisibleRows = 8;
+        private const double ConservativeRemoteShortPaneHeightThreshold = 300;
         internal CommandAssistBarViewModel? CommandAssistViewModel => _commandAssistController?.ViewModel;
 
         public bool IsRecording => Session?.IsRecording ?? false;
@@ -521,6 +524,10 @@ namespace NovaTerminal.Controls
             int fallbackVisibleRows = TermView.Rows > 0 ? TermView.Rows : 1;
             CommandAssistSurfaceSizing sizing = CalculateCommandAssistSurfaceSizing(paneWidth, paneHeight);
             bool hasReliablePromptAnchor = IsCommandAssistPromptAnchorReliable(promptHint);
+            if (ShouldSuppressConservativeRemoteAssist(promptHint, hasReliablePromptAnchor, paneHeight))
+            {
+                return null;
+            }
 
             return _commandAssistAnchorCalculator.Calculate(new CommandAssistAnchorRequest(
                 PaneWidth: paneWidth,
@@ -533,6 +540,30 @@ namespace NovaTerminal.Controls
                 PopupWidth: sizing.PopupWidth,
                 PopupHeight: sizing.PopupHeight,
                 HasReliablePromptAnchor: hasReliablePromptAnchor));
+        }
+
+        private bool ShouldSuppressConservativeRemoteAssist(
+            CommandAssistPromptHint? promptHint,
+            bool hasReliablePromptAnchor,
+            double paneHeight)
+        {
+            if (Profile?.Type != ConnectionType.SSH || hasReliablePromptAnchor || paneHeight > ConservativeRemoteShortPaneHeightThreshold)
+            {
+                return false;
+            }
+
+            if (!promptHint.HasValue)
+            {
+                return true;
+            }
+
+            if (promptHint.Value.VisibleRows < ConservativeRemoteMinVisibleRows)
+            {
+                return true;
+            }
+
+            double normalizedCursorRow = promptHint.Value.VisibleCursorVisualRow / (double)Math.Max(1, promptHint.Value.VisibleRows - 1);
+            return normalizedCursorRow < ConservativeRemotePromptBandStartRatio;
         }
 
         private bool IsCommandAssistPromptAnchorReliable(CommandAssistPromptHint? promptHint)
@@ -568,12 +599,15 @@ namespace NovaTerminal.Controls
         private void UpdateCommandAssistOverlayPlacement()
         {
             CommandAssistAnchorLayout? layout = TryCalculateCommandAssistAnchorLayout();
+            if (CommandAssistOverlayHost != null)
+            {
+                CommandAssistOverlayHost.IsVisible = layout != null;
+            }
+
             if (layout == null)
             {
                 return;
             }
-
-            double paneHeight = TermView.Bounds.Height > 0 ? TermView.Bounds.Height : Bounds.Height;
 
             if (CommandAssistBubble != null)
             {

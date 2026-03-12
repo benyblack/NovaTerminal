@@ -319,6 +319,66 @@ public sealed class CommandAssistLayoutTests
     }
 
     [AvaloniaFact]
+    public void TerminalPane_WhenRemotePromptIsInUpperBandOnShortPane_SuppressesConservativeAssistLayout()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 220
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 220));
+        pane.Arrange(new Rect(0, 0, 900, 220));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.Measure(new Size(900, 220));
+        termView.Arrange(new Rect(0, 0, 900, 220));
+        termView.SetMetricsForTest(10, 18);
+        pane.Buffer.SetCursorPosition(0, 1);
+
+        CommandAssistAnchorLayout? layout = pane.CalculateCommandAssistAnchorLayoutForTest();
+
+        Assert.Null(layout);
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenRemotePromptSettlesLowOnShortPane_ResumesConservativeAssistLayout()
+    {
+        var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 220
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 220));
+        pane.Arrange(new Rect(0, 0, 900, 220));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.Measure(new Size(900, 220));
+        termView.Arrange(new Rect(0, 0, 900, 220));
+        termView.SetMetricsForTest(10, 18);
+        pane.Buffer.SetCursorPosition(0, 7);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.False(layout.UsesPromptAnchor);
+    }
+
+    [AvaloniaFact]
     public async Task TerminalPane_WhenPopupIsVisible_AnchorsPopupTopToCalculatedRect()
     {
         var pane = new TerminalPane
