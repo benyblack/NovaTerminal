@@ -65,7 +65,7 @@ public sealed class CommandAssistAnchorCalculatorTests
 
         Assert.True(layout.BubbleRect.Top >= layout.PromptRect.Bottom,
             $"Expected bubble top {layout.BubbleRect.Top} to be below prompt bottom {layout.PromptRect.Bottom}.");
-        Assert.Equal(4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
+        Assert.Equal(layout.PromptRect.Height + 4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
         Assert.True(layout.BubbleRect.Bottom <= layout.PopupRect.Top,
             $"Expected upward popup to clear bubble bottom {layout.BubbleRect.Bottom}, but popup top was {layout.PopupRect.Top}.");
     }
@@ -88,7 +88,74 @@ public sealed class CommandAssistAnchorCalculatorTests
 
         Assert.True(layout.BubbleRect.Top >= layout.PromptRect.Bottom,
             $"Expected startup-band bubble top {layout.BubbleRect.Top} to be below prompt bottom {layout.PromptRect.Bottom}.");
-        Assert.Equal(4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
+        Assert.Equal(layout.PromptRect.Height + 4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
+    }
+
+    [Fact]
+    public void Calculate_WhenPromptIsInUpperStartupBand_LeavesInputRowClearanceBelowPrompt()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 960,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: 1,
+            VisibleRows: 24,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180));
+
+        double expectedMinimumTop = layout.PromptRect.Bottom + layout.PromptRect.Height + 4;
+        Assert.True(layout.BubbleRect.Top >= expectedMinimumTop,
+            $"Expected startup-band bubble top {layout.BubbleRect.Top} to clear one input row below prompt bottom {layout.PromptRect.Bottom}, but expected at least {expectedMinimumTop}.");
+    }
+
+    [Fact]
+    public void Calculate_WhenPromptAnchorIsReliable_AlignsPromptTopToCursorRowWithoutExtraTopPadding()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        const int cursorRow = 2;
+        const double cellHeight = 18;
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 960,
+            PaneHeight: 540,
+            CellHeight: cellHeight,
+            CursorVisualRow: cursorRow,
+            VisibleRows: 24,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasReliablePromptAnchor: true));
+
+        double expectedPromptTop = cursorRow * cellHeight;
+        Assert.Equal(expectedPromptTop, layout.PromptRect.Top, precision: 1);
+    }
+
+    [Fact]
+    public void Calculate_WhenPromptAnchorIsUnreliableAndCursorBandFallbackIsUsed_AlignsPromptTopToCursorRowWithoutExtraTopPadding()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        const int cursorRow = 18;
+        const double cellHeight = 18;
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 900,
+            PaneHeight: 540,
+            CellHeight: cellHeight,
+            CursorVisualRow: cursorRow,
+            VisibleRows: 24,
+            BubbleWidth: 380,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasReliablePromptAnchor: false));
+
+        double expectedPromptTop = cursorRow * cellHeight;
+        Assert.Equal(expectedPromptTop, layout.PromptRect.Top, precision: 1);
     }
 
     [Fact]
@@ -110,7 +177,7 @@ public sealed class CommandAssistAnchorCalculatorTests
         Assert.True(layout.UsesPromptAnchor);
         Assert.True(layout.BubbleRect.Top >= layout.PromptRect.Bottom,
             $"Expected reliable short-pane bubble top {layout.BubbleRect.Top} to be below prompt bottom {layout.PromptRect.Bottom}.");
-        Assert.Equal(4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
+        Assert.Equal(layout.PromptRect.Height + 4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
     }
 
     [Fact]

@@ -77,6 +77,7 @@ namespace NovaTerminal.Controls
         private string? _lastCommandAssistAnchorAppliedSignature;
         private string? _lastCommandAssistAnchorCorrectionSignature;
         private bool _suppressSshAssistOverlayUntilSettled;
+        private int _sshAssistCorrectionPassCount;
         private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
         private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
         private const double CommandAssistBubbleWidth = 420;
@@ -88,6 +89,7 @@ namespace NovaTerminal.Controls
         private const double ConservativeRemotePromptBandStartRatio = 0.55;
         private const int ConservativeRemoteMinVisibleRows = 8;
         private const double ConservativeRemoteShortPaneHeightThreshold = 300;
+        private const int MaxSshAssistCorrectionPasses = 6;
         internal CommandAssistBarViewModel? CommandAssistViewModel => _commandAssistController?.ViewModel;
 
         public bool IsRecording => Session?.IsRecording ?? false;
@@ -672,6 +674,7 @@ namespace NovaTerminal.Controls
             if (!shouldShowOverlayHost)
             {
                 _suppressSshAssistOverlayUntilSettled = false;
+                _sshAssistCorrectionPassCount = 0;
             }
 
             if (CommandAssistOverlayHost != null)
@@ -761,17 +764,29 @@ namespace NovaTerminal.Controls
                     return;
                 }
 
-                Point? bubbleTopLeft = CommandAssistBubble.TranslatePoint(new Point(0, 0), this);
-                if (!bubbleTopLeft.HasValue)
+                Control? anchorControl = CommandAssistBubble.IsVisible
+                    ? CommandAssistBubble
+                    : CommandAssistPopup != null && CommandAssistPopup.IsVisible
+                        ? CommandAssistPopup
+                        : null;
+                if (anchorControl == null)
                 {
                     return;
                 }
 
-                double expectedTop = layout.BubbleRect.Y;
-                double actualTop = bubbleTopLeft.Value.Y;
+                Point? anchorTopLeft = anchorControl.TranslatePoint(new Point(0, 0), this);
+                if (!anchorTopLeft.HasValue)
+                {
+                    return;
+                }
+
+                bool anchoredToBubble = ReferenceEquals(anchorControl, CommandAssistBubble);
+                double expectedTop = anchoredToBubble ? layout.BubbleRect.Y : layout.PopupRect.Y;
+                double actualTop = anchorTopLeft.Value.Y;
                 double drift = Math.Abs(actualTop - expectedTop);
                 if (drift <= 2)
                 {
+                    _sshAssistCorrectionPassCount = 0;
                     if (_suppressSshAssistOverlayUntilSettled)
                     {
                         _suppressSshAssistOverlayUntilSettled = false;
@@ -791,29 +806,29 @@ namespace NovaTerminal.Controls
                     CommandAssistPopup.Margin = new Thickness(layout.PopupRect.X, layout.PopupRect.Y, 0, 0);
                 }
 
-                string signature = $"expected={expectedTop:F0},actual={actualTop:F0},drift={drift:F0}";
+                string signature = $"anchor={(anchoredToBubble ? "bubble" : "popup")},expected={expectedTop:F0},actual={actualTop:F0},drift={drift:F0},pass={_sshAssistCorrectionPassCount}";
                 if (!string.Equals(signature, _lastCommandAssistAnchorCorrectionSignature, StringComparison.Ordinal))
                 {
                     _lastCommandAssistAnchorCorrectionSignature = signature;
                     TerminalLogger.Log($"[AssistAnchor][SSH][Corrected] {signature}");
                 }
 
-                // Re-evaluate on the next render pass; keep host hidden until settled.
-                Dispatcher.UIThread.Post(() =>
+                if (_sshAssistCorrectionPassCount >= MaxSshAssistCorrectionPasses)
                 {
                     _suppressSshAssistOverlayUntilSettled = false;
-                    UpdateCommandAssistOverlayPlacement();
-                }, DispatcherPriority.Render);
+                    _sshAssistCorrectionPassCount = 0;
+                    CommandAssistOverlayHost.Opacity = 1.0;
+                    TerminalLogger.Log("[AssistAnchor][SSH][Corrected] max-pass reached; showing overlay with best-known anchor.");
+                    return;
+                }
+
+                _sshAssistCorrectionPassCount++;
+
+                // Re-evaluate on the next render pass; keep host hidden until settled.
+                Dispatcher.UIThread.Post(UpdateCommandAssistOverlayPlacement, DispatcherPriority.Render);
             }
 
-            if (Dispatcher.UIThread.CheckAccess())
-            {
-                CorrectPlacement();
-            }
-            else
-            {
-                Dispatcher.UIThread.Post(CorrectPlacement, DispatcherPriority.Render);
-            }
+            Dispatcher.UIThread.Post(CorrectPlacement, DispatcherPriority.Render);
         }
 
         private void OnBufferScreenSwitched(bool isAltScreen)

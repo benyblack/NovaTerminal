@@ -15,8 +15,11 @@ public sealed class CommandAssistAnchorCalculator
     private const double UnreliableCursorBandStartRatio = 0.55;
     private const int UnreliableCursorBandMinVisibleRows = 8;
     private const double PromptUpperBandRatio = 0.45;
+    private const double ReliableShortPanePromptUpperBandRatio = 0.60;
     private const double FallbackShortPanePromptUpperBandRatio = 0.70;
     private const double FallbackShortPaneHeightThreshold = 300;
+    private const int StartupBandInputRowClearanceRows = 1;
+    private const double PromptVerticalOffset = 0;
 
     public CommandAssistAnchorLayout Calculate(CommandAssistAnchorRequest request)
     {
@@ -114,7 +117,7 @@ public sealed class CommandAssistAnchorCalculator
         double promptHeight)
     {
         double promptWidth = Math.Min(Math.Max(MinimumPromptWidth, request.BubbleWidth * 0.5), paneWidth - (PanePadding * 2));
-        double promptY = PanePadding + (request.CursorVisualRow * request.CellHeight);
+        double promptY = PromptVerticalOffset + (request.CursorVisualRow * request.CellHeight);
         Rect promptRect = new(PanePadding, promptY, promptWidth, promptHeight);
         return ClampRect(promptRect, paneWidth, paneHeight);
     }
@@ -127,7 +130,7 @@ public sealed class CommandAssistAnchorCalculator
     {
         double promptWidth = Math.Min(Math.Max(MinimumPromptWidth, request.BubbleWidth * 0.5), paneWidth - (PanePadding * 2));
         double promptY = ShouldUseUnreliableCursorBandFallback(request)
-            ? PanePadding + (request.CursorVisualRow * request.CellHeight)
+            ? PromptVerticalOffset + (request.CursorVisualRow * request.CellHeight)
             : paneHeight - PanePadding - promptHeight;
         return ClampRect(new Rect(PanePadding, promptY, promptWidth, promptHeight), paneWidth, paneHeight);
     }
@@ -140,9 +143,16 @@ public sealed class CommandAssistAnchorCalculator
         double paneHeight)
     {
         double upperBandRatio = paneHeight <= FallbackShortPaneHeightThreshold
-            ? FallbackShortPanePromptUpperBandRatio
+            ? ReliableShortPanePromptUpperBandRatio
             : PromptUpperBandRatio;
-        return CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight, upperBandRatio);
+        return CreateBubbleAdjacentToPrompt(
+            promptRect,
+            bubbleWidth,
+            bubbleHeight,
+            paneWidth,
+            paneHeight,
+            upperBandRatio,
+            reserveInputRowClearance: true);
     }
 
     private static Rect CreateBubbleAdjacentToPrompt(
@@ -151,15 +161,26 @@ public sealed class CommandAssistAnchorCalculator
         double bubbleHeight,
         double paneWidth,
         double paneHeight,
-        double upperBandRatio)
+        double upperBandRatio,
+        bool reserveInputRowClearance)
     {
         double bubbleX = promptRect.X;
         double desiredAboveY = promptRect.Top - PromptBubbleGap - bubbleHeight;
         double clampedAboveY = Math.Max(PanePadding, desiredAboveY);
         bool isPromptInUpperStartupBand = promptRect.Top <= paneHeight * upperBandRatio;
+
+        double belowPromptY = promptRect.Bottom + PromptBubbleGap;
+        double guardedBelowPromptY = belowPromptY + (promptRect.Height * StartupBandInputRowClearanceRows);
         double bubbleY = isPromptInUpperStartupBand
-            ? promptRect.Bottom + PromptBubbleGap
+            ? (reserveInputRowClearance ? guardedBelowPromptY : belowPromptY)
             : clampedAboveY;
+
+        if (isPromptInUpperStartupBand &&
+            reserveInputRowClearance &&
+            bubbleY + bubbleHeight > paneHeight - PanePadding)
+        {
+            bubbleY = belowPromptY;
+        }
 
         if (bubbleY + bubbleHeight > paneHeight - PanePadding)
         {
@@ -181,7 +202,14 @@ public sealed class CommandAssistAnchorCalculator
         double upperBandRatio = paneHeight <= FallbackShortPaneHeightThreshold
             ? FallbackShortPanePromptUpperBandRatio
             : PromptUpperBandRatio;
-        return CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight, upperBandRatio);
+        return CreateBubbleAdjacentToPrompt(
+            promptRect,
+            bubbleWidth,
+            bubbleHeight,
+            paneWidth,
+            paneHeight,
+            upperBandRatio,
+            reserveInputRowClearance: false);
     }
 
     private static Rect CreatePopupRect(
