@@ -76,6 +76,7 @@ namespace NovaTerminal.Controls
         private string? _lastCommandAssistAnchorDiagnosticSignature;
         private string? _lastCommandAssistAnchorAppliedSignature;
         private string? _lastCommandAssistAnchorCorrectionSignature;
+        private bool _suppressSshAssistOverlayUntilSettled;
         private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
         private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
         private const double CommandAssistBubbleWidth = 420;
@@ -668,10 +669,15 @@ namespace NovaTerminal.Controls
         {
             CommandAssistAnchorLayout? layout = TryCalculateCommandAssistAnchorLayout();
             bool shouldShowOverlayHost = layout != null && (_boundCommandAssistViewModel?.IsVisible == true);
+            if (!shouldShowOverlayHost)
+            {
+                _suppressSshAssistOverlayUntilSettled = false;
+            }
+
             if (CommandAssistOverlayHost != null)
             {
                 CommandAssistOverlayHost.IsVisible = shouldShowOverlayHost;
-                CommandAssistOverlayHost.Opacity = shouldShowOverlayHost ? 1.0 : 0.0;
+                CommandAssistOverlayHost.Opacity = shouldShowOverlayHost && !_suppressSshAssistOverlayUntilSettled ? 1.0 : 0.0;
             }
 
             if (layout == null)
@@ -766,8 +772,17 @@ namespace NovaTerminal.Controls
                 double drift = Math.Abs(actualTop - expectedTop);
                 if (drift <= 2)
                 {
+                    if (_suppressSshAssistOverlayUntilSettled)
+                    {
+                        _suppressSshAssistOverlayUntilSettled = false;
+                        CommandAssistOverlayHost.Opacity = 1.0;
+                    }
+
                     return;
                 }
+
+                _suppressSshAssistOverlayUntilSettled = true;
+                CommandAssistOverlayHost.Opacity = 0.0;
 
                 // Re-apply anchored margins if the rendered position drifted from expected.
                 CommandAssistBubble.Margin = new Thickness(layout.BubbleRect.X, layout.BubbleRect.Y, 0, 0);
@@ -777,13 +792,18 @@ namespace NovaTerminal.Controls
                 }
 
                 string signature = $"expected={expectedTop:F0},actual={actualTop:F0},drift={drift:F0}";
-                if (string.Equals(signature, _lastCommandAssistAnchorCorrectionSignature, StringComparison.Ordinal))
+                if (!string.Equals(signature, _lastCommandAssistAnchorCorrectionSignature, StringComparison.Ordinal))
                 {
-                    return;
+                    _lastCommandAssistAnchorCorrectionSignature = signature;
+                    TerminalLogger.Log($"[AssistAnchor][SSH][Corrected] {signature}");
                 }
 
-                _lastCommandAssistAnchorCorrectionSignature = signature;
-                TerminalLogger.Log($"[AssistAnchor][SSH][Corrected] {signature}");
+                // Re-evaluate on the next render pass; keep host hidden until settled.
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _suppressSshAssistOverlayUntilSettled = false;
+                    UpdateCommandAssistOverlayPlacement();
+                }, DispatcherPriority.Render);
             }
 
             if (Dispatcher.UIThread.CheckAccess())
