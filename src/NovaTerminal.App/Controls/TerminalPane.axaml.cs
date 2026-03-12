@@ -73,6 +73,7 @@ namespace NovaTerminal.Controls
         private readonly CommandAssistAnchorCalculator _commandAssistAnchorCalculator = new();
         private string? _lastRelevantCommandText;
         private CommandAssistBarViewModel? _boundCommandAssistViewModel;
+        private string? _lastCommandAssistAnchorDiagnosticSignature;
         private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
         private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
         private const double CommandAssistBubbleWidth = 420;
@@ -535,12 +536,23 @@ namespace NovaTerminal.Controls
                                               paneEstimatedVisibleRows > hintVisibleRows;
             int anchorVisibleRows = shouldUsePaneEstimatedRows ? paneEstimatedVisibleRows : hintVisibleRows;
             int anchorCursorRow = Math.Clamp(hintCursorRow, 0, Math.Max(0, anchorVisibleRows - 1));
-            if (ShouldSuppressConservativeRemoteAssist(promptHint, hasReliablePromptAnchor, paneHeight))
+            bool shouldSuppress = ShouldSuppressConservativeRemoteAssist(promptHint, hasReliablePromptAnchor, paneHeight);
+            if (shouldSuppress)
             {
+                LogCommandAssistAnchorDiagnostics(
+                    paneWidth,
+                    paneHeight,
+                    hasReliablePromptAnchor,
+                    promptHint,
+                    anchorCellHeight,
+                    anchorCursorRow,
+                    anchorVisibleRows,
+                    shouldSuppress,
+                    layout: null);
                 return null;
             }
 
-            return _commandAssistAnchorCalculator.Calculate(new CommandAssistAnchorRequest(
+            CommandAssistAnchorLayout layout = _commandAssistAnchorCalculator.Calculate(new CommandAssistAnchorRequest(
                 PaneWidth: paneWidth,
                 PaneHeight: paneHeight,
                 CellHeight: anchorCellHeight,
@@ -551,6 +563,49 @@ namespace NovaTerminal.Controls
                 PopupWidth: sizing.PopupWidth,
                 PopupHeight: sizing.PopupHeight,
                 HasReliablePromptAnchor: hasReliablePromptAnchor));
+            LogCommandAssistAnchorDiagnostics(
+                paneWidth,
+                paneHeight,
+                hasReliablePromptAnchor,
+                promptHint,
+                anchorCellHeight,
+                anchorCursorRow,
+                anchorVisibleRows,
+                shouldSuppress,
+                layout);
+            return layout;
+        }
+
+        private void LogCommandAssistAnchorDiagnostics(
+            double paneWidth,
+            double paneHeight,
+            bool hasReliablePromptAnchor,
+            CommandAssistPromptHint? promptHint,
+            float anchorCellHeight,
+            int anchorCursorRow,
+            int anchorVisibleRows,
+            bool shouldSuppress,
+            CommandAssistAnchorLayout? layout)
+        {
+            if (Profile?.Type != ConnectionType.SSH)
+            {
+                return;
+            }
+
+            int hintCursorRow = promptHint?.VisibleCursorVisualRow ?? -1;
+            int hintVisibleRows = promptHint?.VisibleRows ?? -1;
+            string layoutState = layout == null
+                ? "none"
+                : $"bubbleY={layout.BubbleRect.Y:F0},bubbleBottom={layout.BubbleRect.Bottom:F0},promptY={layout.PromptRect.Y:F0},usesPrompt={layout.UsesPromptAnchor}";
+            string signature =
+                $"pw={paneWidth:F0},ph={paneHeight:F0},tw={TermView.Bounds.Width:F0},th={TermView.Bounds.Height:F0},rel={hasReliablePromptAnchor},sup={shouldSuppress},hintRow={hintCursorRow},hintRows={hintVisibleRows},cell={anchorCellHeight:F1},anchorRow={anchorCursorRow},anchorRows={anchorVisibleRows},vmVis={_boundCommandAssistViewModel?.IsVisible == true},{layoutState}";
+            if (string.Equals(signature, _lastCommandAssistAnchorDiagnosticSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastCommandAssistAnchorDiagnosticSignature = signature;
+            TerminalLogger.Log($"[AssistAnchor][SSH] {signature}");
         }
 
         private bool ShouldSuppressConservativeRemoteAssist(
