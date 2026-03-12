@@ -74,6 +74,7 @@ namespace NovaTerminal.Controls
         private string? _lastRelevantCommandText;
         private CommandAssistBarViewModel? _boundCommandAssistViewModel;
         private string? _lastCommandAssistAnchorDiagnosticSignature;
+        private string? _lastCommandAssistAnchorAppliedSignature;
         private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
         private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
         private const double CommandAssistBubbleWidth = 420;
@@ -714,6 +715,26 @@ namespace NovaTerminal.Controls
                     0,
                     0);
             }
+
+            LogCommandAssistAnchorAppliedDiagnostics(layout);
+        }
+
+        private void LogCommandAssistAnchorAppliedDiagnostics(CommandAssistAnchorLayout layout)
+        {
+            if (Profile?.Type != ConnectionType.SSH || CommandAssistBubble == null)
+            {
+                return;
+            }
+
+            string signature =
+                $"layoutY={layout.BubbleRect.Y:F0},layoutPromptY={layout.PromptRect.Y:F0},appliedBubbleTop={CommandAssistBubble.Margin.Top:F0},appliedBubbleVis={CommandAssistBubble.IsVisible},hostVis={CommandAssistOverlayHost?.IsVisible == true},vmVis={_boundCommandAssistViewModel?.IsVisible == true}";
+            if (string.Equals(signature, _lastCommandAssistAnchorAppliedSignature, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _lastCommandAssistAnchorAppliedSignature = signature;
+            TerminalLogger.Log($"[AssistAnchor][SSH][Applied] {signature}");
         }
 
         private void OnBufferScreenSwitched(bool isAltScreen)
@@ -1448,6 +1469,7 @@ namespace NovaTerminal.Controls
             {
                 UpdateFocusVisuals(IsKeyboardFocusWithin);
                 TermView.InvalidateVisual();
+                UpdateCommandAssistOverlayPlacement();
             }, DispatcherPriority.Loaded);
         }
 

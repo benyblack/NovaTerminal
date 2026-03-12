@@ -117,6 +117,7 @@
             <Grid x:Name="CommandAssistOverlayHost"
                   Grid.Row="0"
                   ZIndex="150"
+                  IsVisible="False"
                   IsHitTestVisible="False">
                 <assist:CommandAssistPopupView x:Name="CommandAssistPopup"
                                                HorizontalAlignment="Left"
