@@ -666,9 +666,10 @@ namespace NovaTerminal.Controls
         private void UpdateCommandAssistOverlayPlacement()
         {
             CommandAssistAnchorLayout? layout = TryCalculateCommandAssistAnchorLayout();
+            bool shouldShowOverlayHost = layout != null && (_boundCommandAssistViewModel?.IsVisible == true);
             if (CommandAssistOverlayHost != null)
             {
-                CommandAssistOverlayHost.IsVisible = layout != null;
+                CommandAssistOverlayHost.IsVisible = shouldShowOverlayHost;
             }
 
             if (layout == null)
@@ -727,7 +728,7 @@ namespace NovaTerminal.Controls
             }
 
             string signature =
-                $"layoutY={layout.BubbleRect.Y:F0},layoutPromptY={layout.PromptRect.Y:F0},appliedBubbleTop={CommandAssistBubble.Margin.Top:F0},appliedBubbleVis={CommandAssistBubble.IsVisible},hostVis={CommandAssistOverlayHost?.IsVisible == true},vmVis={_boundCommandAssistViewModel?.IsVisible == true}";
+                $"layoutY={layout.BubbleRect.Y:F0},layoutPromptY={layout.PromptRect.Y:F0},appliedBubbleTop={CommandAssistBubble.Margin.Top:F0},appliedBubbleVis={CommandAssistBubble.IsVisible},hostVis={CommandAssistOverlayHost?.IsVisible == true},vmVis={_boundCommandAssistViewModel?.IsVisible == true},popupVm={_boundCommandAssistViewModel?.IsPopupOpen == true}";
             if (string.Equals(signature, _lastCommandAssistAnchorAppliedSignature, StringComparison.Ordinal))
             {
                 return;
