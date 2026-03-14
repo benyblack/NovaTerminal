@@ -57,12 +57,23 @@ public sealed class CommandAssistAnchorCalculator
         bool canPlacePopupRight = bubbleRect.Right + HorizontalGap + popupWidth <= paneWidth - PanePadding;
         bool canPlacePopupLeft = bubbleRect.Left - HorizontalGap - popupWidth >= PanePadding;
         bool hasMeaningfulVerticalRoom = Math.Max(spaceAbove, spaceBelow) >= popupHeight * 0.75;
+        bool bubbleSitsBelowPrompt = bubbleRect.Top >= promptRect.Bottom;
 
         CommandAssistPopupDirection popupDirection;
         double popupX;
         double popupY;
 
-        if (canPlacePopupUpward)
+        if (canPlacePopupUpward && canPlacePopupDownward)
+        {
+            popupDirection = bubbleSitsBelowPrompt
+                ? CommandAssistPopupDirection.Downward
+                : CommandAssistPopupDirection.Upward;
+            popupX = bubbleRect.X;
+            popupY = popupDirection == CommandAssistPopupDirection.Downward
+                ? downwardTop
+                : upwardTop;
+        }
+        else if (canPlacePopupUpward)
         {
             popupDirection = CommandAssistPopupDirection.Upward;
             popupX = bubbleRect.X;

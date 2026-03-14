@@ -1,6 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             x:CompileBindings="False"
+             xmlns:viewModels="clr-namespace:NovaTerminal.CommandAssist.ViewModels"
+             x:CompileBindings="True"
+             x:DataType="viewModels:CommandAssistPopupViewModel"
              x:Class="NovaTerminal.CommandAssist.Views.CommandAssistPopupView"
              IsVisible="{Binding IsVisible}">
     <Border Background="#F01B1B1B"
@@ -36,7 +38,7 @@
                                       ItemsSource="{Binding Suggestions}"
                                       IsVisible="{Binding HasSuggestions}">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate x:DataType="viewModels:CommandAssistSuggestionItemViewModel">
                                     <Grid ColumnDefinitions="Auto,*,Auto"
                                           Margin="0,2">
                                         <TextBlock Text="{Binding SelectionGlyph}"
@@ -140,7 +142,7 @@
                         <ItemsControl ItemsSource="{Binding Suggestions}"
                                       IsVisible="{Binding HasSuggestions}">
                             <ItemsControl.ItemTemplate>
-                                <DataTemplate>
+                                <DataTemplate x:DataType="viewModels:CommandAssistSuggestionItemViewModel">
                                     <Grid ColumnDefinitions="Auto,*,Auto"
                                           Margin="0,2">
                                         <TextBlock Text="{Binding SelectionGlyph}"

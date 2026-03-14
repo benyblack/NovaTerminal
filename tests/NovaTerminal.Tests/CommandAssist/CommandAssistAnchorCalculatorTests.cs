@@ -113,6 +113,29 @@ public sealed class CommandAssistAnchorCalculatorTests
     }
 
     [Fact]
+    public void Calculate_WhenBubbleIsBelowPromptAndBothVerticalDirectionsFit_PrefersDownwardPopup()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 900,
+            PaneHeight: 700,
+            CellHeight: 18,
+            CursorVisualRow: 14,
+            VisibleRows: 30,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 220));
+
+        Assert.True(layout.BubbleRect.Top >= layout.PromptRect.Bottom,
+            $"Expected bubble to sit below prompt, but bubble top {layout.BubbleRect.Top} was above prompt bottom {layout.PromptRect.Bottom}.");
+        Assert.Equal(CommandAssistPopupDirection.Downward, layout.PopupDirection);
+        Assert.True(layout.PopupRect.Top >= layout.BubbleRect.Bottom,
+            $"Expected downward popup top {layout.PopupRect.Top} to be below bubble bottom {layout.BubbleRect.Bottom}.");
+    }
+
+    [Fact]
     public void Calculate_WhenPromptAnchorIsReliable_AlignsPromptTopToCursorRowWithoutExtraTopPadding()
     {
         var calculator = new CommandAssistAnchorCalculator();
