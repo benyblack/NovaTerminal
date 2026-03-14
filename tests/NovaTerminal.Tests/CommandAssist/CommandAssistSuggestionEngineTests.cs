@@ -1,3 +1,4 @@
+using System.Linq;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
 
@@ -143,6 +144,42 @@ public sealed class CommandAssistSuggestionEngineTests
         Assert.Empty(results);
     }
 
+    [Fact]
+    public void GetSuggestions_WhenPathProviderReturnsMatches_IncludesPathRows()
+    {
+        var engine = new CommandAssistSuggestionEngine(
+            pathSuggestionProvider: new FakePathSuggestionProvider(
+                new[]
+                {
+                    new AssistSuggestion(
+                        Id: "path-1",
+                        Type: AssistSuggestionType.Path,
+                        DisplayText: "docs/",
+                        InsertText: "cd ./docs/",
+                        Description: "Directory",
+                        Badges: ["Path", "Directory"],
+                        Score: 500,
+                        WorkingDirectory: @"C:\repo",
+                        LastUsedAt: null,
+                        ExitCode: null,
+                        CanExecuteDirectly: false)
+                }));
+        var context = new CommandAssistQueryContext(
+            Input: "cd ./d",
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(
+            Array.Empty<CommandHistoryEntry>(),
+            Array.Empty<CommandSnippet>(),
+            context,
+            maxResults: 5);
+
+        Assert.NotEmpty(results);
+        Assert.Equal(AssistSuggestionType.Path, results[0].Type);
+    }
+
     private static CommandHistoryEntry CreateEntry(
         string commandText,
         string? profileId = "profile-1",
@@ -177,5 +214,20 @@ public sealed class CommandAssistSuggestionEngineTests
             IsPinned: isPinned,
             CreatedAt: DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"),
             LastUsedAt: DateTimeOffset.Parse("2026-03-01T09:30:00+00:00"));
+    }
+
+    private sealed class FakePathSuggestionProvider : IPathSuggestionProvider
+    {
+        private readonly IReadOnlyList<AssistSuggestion> _suggestions;
+
+        public FakePathSuggestionProvider(IReadOnlyList<AssistSuggestion> suggestions)
+        {
+            _suggestions = suggestions;
+        }
+
+        public IReadOnlyList<AssistSuggestion> GetSuggestions(CommandAssistQueryContext context, int maxResults)
+        {
+            return _suggestions.Take(maxResults).ToArray();
+        }
     }
 }

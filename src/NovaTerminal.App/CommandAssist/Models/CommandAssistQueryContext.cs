@@ -4,4 +4,5 @@ public sealed record CommandAssistQueryContext(
     string Input,
     string? WorkingDirectory,
     string? ShellKind,
-    string? ProfileId);
+    string? ProfileId,
+    bool IsRemote = false);

@@ -7,6 +7,13 @@ namespace NovaTerminal.CommandAssist.Domain;
 
 public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
 {
+    private readonly IPathSuggestionProvider _pathSuggestionProvider;
+
+    public CommandAssistSuggestionEngine(IPathSuggestionProvider? pathSuggestionProvider = null)
+    {
+        _pathSuggestionProvider = pathSuggestionProvider ?? new FileSystemPathSuggestionProvider();
+    }
+
     public IReadOnlyList<AssistSuggestion> GetSuggestions(
         IReadOnlyList<CommandHistoryEntry> historyEntries,
         CommandAssistQueryContext context,
@@ -28,6 +35,7 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
 
         string query = context.Input?.Trim() ?? string.Empty;
         List<AssistSuggestion> results = new();
+        results.AddRange(_pathSuggestionProvider.GetSuggestions(context, maxResults));
         results.AddRange(BuildHistorySuggestions(historyEntries, context, query));
         results.AddRange(BuildSnippetSuggestions(snippets, context, query));
 

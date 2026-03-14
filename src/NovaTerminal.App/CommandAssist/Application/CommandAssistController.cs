@@ -580,7 +580,7 @@ public sealed class CommandAssistController
         int refreshVersion = Interlocked.Increment(ref _refreshVersion);
         CommandAssistMode requestedMode = _currentMode;
         string query = ViewModel.QueryText;
-        var context = new CommandAssistQueryContext(query, _workingDirectory, _shellKind, _profileId);
+        var context = new CommandAssistQueryContext(query, _workingDirectory, _shellKind, _profileId, _isRemote);
         _ = RefreshSuggestionsAsync(query, context, refreshVersion, requestedMode);
     }
 
