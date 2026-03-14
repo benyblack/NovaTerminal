@@ -908,6 +908,7 @@ namespace NovaTerminal.Controls
 
             bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
             bool isShift = (modifiers & KeyModifiers.Shift) != 0;
+            bool isAlt = (modifiers & KeyModifiers.Alt) != 0;
 
             if (key == Key.Escape)
             {
@@ -927,7 +928,7 @@ namespace NovaTerminal.Controls
                 return true;
             }
 
-            if (key == Key.Tab)
+            if (isCtrl && !isShift && !isAlt && key == Key.Enter)
             {
                 TryInsertSelectedCommandAssistSuggestion();
                 return true;
