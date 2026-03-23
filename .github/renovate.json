@@ -3,7 +3,6 @@
   "extends": [
     "config:base"
   ],
-  "automerge": true,
   "automergeType": "pr",
   "automergeStrategy": "squash",
   "minor": {
@@ -11,8 +10,5 @@
   },
   "patch": {
     "automerge": true
-  },
-  "major": {
-    "automerge": false
   }
 }
