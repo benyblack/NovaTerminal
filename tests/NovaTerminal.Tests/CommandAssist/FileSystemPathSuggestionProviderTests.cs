@@ -56,6 +56,27 @@ public sealed class FileSystemPathSuggestionProviderTests : IDisposable
     }
 
     [Fact]
+    public void GetSuggestions_WhenPathSuggestionsDisabledInContext_ReturnsNoSuggestions()
+    {
+        Directory.CreateDirectory(Path.Combine(_tempRoot, "docs"));
+
+        var provider = new FileSystemPathSuggestionProvider(homeDirectoryOverride: _homeRoot);
+        var context = new CommandAssistQueryContext(
+            Input: "cd d",
+            WorkingDirectory: _tempRoot,
+            ShellKind: "pwsh",
+            ProfileId: "profile-1",
+            IsRemote: false,
+            IncludeHistorySuggestions: true,
+            IncludeSnippetSuggestions: true,
+            IncludePathSuggestions: false);
+
+        IReadOnlyList<AssistSuggestion> suggestions = provider.GetSuggestions(context, maxResults: 10);
+
+        Assert.Empty(suggestions);
+    }
+
+    [Fact]
     public void GetSuggestions_WhenUsingTildePrefix_ExtendsExistingQuery()
     {
         Directory.CreateDirectory(Path.Combine(_homeRoot, "docs"));

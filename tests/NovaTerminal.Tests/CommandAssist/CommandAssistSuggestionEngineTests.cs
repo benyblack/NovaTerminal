@@ -180,6 +180,129 @@ public sealed class CommandAssistSuggestionEngineTests
         Assert.Equal(AssistSuggestionType.Path, results[0].Type);
     }
 
+    [Fact]
+    public void GetSuggestions_WhenPathRowsExist_PrioritizesPathOverHighScoreHistory()
+    {
+        var engine = new CommandAssistSuggestionEngine(
+            pathSuggestionProvider: new FakePathSuggestionProvider(
+                new[]
+                {
+                    new AssistSuggestion(
+                        Id: "path-1",
+                        Type: AssistSuggestionType.Path,
+                        DisplayText: "docs/",
+                        InsertText: "cd ./docs/",
+                        Description: "Directory",
+                        Badges: ["Path", "Directory"],
+                        Score: 5,
+                        WorkingDirectory: @"C:\repo",
+                        LastUsedAt: null,
+                        ExitCode: null,
+                        CanExecuteDirectly: false)
+                }));
+
+        var context = new CommandAssistQueryContext(
+            Input: "cd ",
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
+
+        var history = Enumerable.Range(0, 20)
+            .Select(i => CreateEntry("cd C:\\repo", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00").AddMinutes(i)))
+            .ToArray();
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(
+            history,
+            Array.Empty<CommandSnippet>(),
+            context,
+            maxResults: 5);
+
+        Assert.NotEmpty(results);
+        Assert.Equal(AssistSuggestionType.Path, results[0].Type);
+    }
+
+    [Fact]
+    public void GetSuggestions_WhenContextDisablesHistoryAndSnippets_ReturnsOnlyPathRows()
+    {
+        var engine = new CommandAssistSuggestionEngine(
+            pathSuggestionProvider: new FakePathSuggestionProvider(
+                new[]
+                {
+                    new AssistSuggestion(
+                        Id: "path-1",
+                        Type: AssistSuggestionType.Path,
+                        DisplayText: "docs/",
+                        InsertText: "cd ./docs/",
+                        Description: "Directory",
+                        Badges: ["Path", "Directory"],
+                        Score: 100,
+                        WorkingDirectory: @"C:\repo",
+                        LastUsedAt: null,
+                        ExitCode: null,
+                        CanExecuteDirectly: false)
+                }));
+
+        var context = new CommandAssistQueryContext(
+            Input: "git st",
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1",
+            IsRemote: false,
+            IncludeHistorySuggestions: false,
+            IncludeSnippetSuggestions: false,
+            IncludePathSuggestions: true);
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(
+            new[] { CreateEntry("git status") },
+            new[] { CreateSnippet("Git Status", "git status", isPinned: true) },
+            context,
+            maxResults: 5);
+
+        Assert.Single(results);
+        Assert.Equal(AssistSuggestionType.Path, results[0].Type);
+    }
+
+    [Fact]
+    public void GetSuggestions_WhenContextDisablesPathRows_DoesNotReturnPathSuggestions()
+    {
+        var engine = new CommandAssistSuggestionEngine(
+            pathSuggestionProvider: new FakePathSuggestionProvider(
+                new[]
+                {
+                    new AssistSuggestion(
+                        Id: "path-1",
+                        Type: AssistSuggestionType.Path,
+                        DisplayText: "docs/",
+                        InsertText: "cd ./docs/",
+                        Description: "Directory",
+                        Badges: ["Path", "Directory"],
+                        Score: 100,
+                        WorkingDirectory: @"C:\repo",
+                        LastUsedAt: null,
+                        ExitCode: null,
+                        CanExecuteDirectly: false)
+                }));
+
+        var context = new CommandAssistQueryContext(
+            Input: "git st",
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1",
+            IsRemote: false,
+            IncludeHistorySuggestions: true,
+            IncludeSnippetSuggestions: false,
+            IncludePathSuggestions: false);
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(
+            new[] { CreateEntry("git status") },
+            Array.Empty<CommandSnippet>(),
+            context,
+            maxResults: 5);
+
+        Assert.NotEmpty(results);
+        Assert.All(results, suggestion => Assert.NotEqual(AssistSuggestionType.Path, suggestion.Type));
+    }
+
     private static CommandHistoryEntry CreateEntry(
         string commandText,
         string? profileId = "profile-1",

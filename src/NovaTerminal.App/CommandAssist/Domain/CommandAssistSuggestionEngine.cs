@@ -35,16 +35,38 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
 
         string query = context.Input?.Trim() ?? string.Empty;
         List<AssistSuggestion> results = new();
-        results.AddRange(_pathSuggestionProvider.GetSuggestions(context, maxResults));
-        results.AddRange(BuildHistorySuggestions(historyEntries, context, query));
-        results.AddRange(BuildSnippetSuggestions(snippets, context, query));
+        if (context.IncludePathSuggestions)
+        {
+            results.AddRange(_pathSuggestionProvider.GetSuggestions(context, maxResults));
+        }
+
+        if (context.IncludeHistorySuggestions)
+        {
+            results.AddRange(BuildHistorySuggestions(historyEntries, context, query));
+        }
+
+        if (context.IncludeSnippetSuggestions)
+        {
+            results.AddRange(BuildSnippetSuggestions(snippets, context, query));
+        }
+        bool hasPathSuggestions = results.Any(x => x.Type == AssistSuggestionType.Path);
 
         return results
-            .OrderByDescending(x => x.Score)
+            .OrderByDescending(x => ComputeEffectiveScore(x, hasPathSuggestions))
             .ThenByDescending(x => x.LastUsedAt ?? DateTimeOffset.MinValue)
             .ThenBy(x => x.DisplayText, StringComparer.OrdinalIgnoreCase)
             .Take(maxResults)
             .ToList();
+    }
+
+    private static double ComputeEffectiveScore(AssistSuggestion suggestion, bool hasPathSuggestions)
+    {
+        if (hasPathSuggestions && suggestion.Type == AssistSuggestionType.Path)
+        {
+            return suggestion.Score + 1000;
+        }
+
+        return suggestion.Score;
     }
 
     private static IEnumerable<AssistSuggestion> BuildHistorySuggestions(
