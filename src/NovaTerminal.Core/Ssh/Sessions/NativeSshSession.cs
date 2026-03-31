@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using NovaTerminal.Core.Replay;
 using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Launch;
@@ -294,7 +293,7 @@ public sealed class NativeSshSession : ITerminalSession
             _metrics.MarkAuthenticationPromptStarted();
         }
 
-        SshInteractionRequest request = CreateInteractionRequest(nextEvent);
+        SshInteractionRequest request = NativeSshInteractionJson.ParseRequest(nextEvent.Kind, nextEvent.Payload);
         SshInteractionResponse response = _interactionHandler == null
             ? SshInteractionResponse.Cancel()
             : await _interactionHandler.HandleAsync(request, _pollCts.Token).ConfigureAwait(false);
@@ -308,7 +307,7 @@ public sealed class NativeSshSession : ITerminalSession
             _ => throw new InvalidOperationException($"Unsupported interaction event '{nextEvent.Kind}'.")
         };
 
-        byte[] payload = BuildInteractionPayload(responseKind, response);
+        byte[] payload = NativeSshInteractionJson.BuildResponsePayload(responseKind, response);
         _interop.SubmitResponse(_sessionHandle, responseKind, payload);
 
         if (nextEvent.Kind == NativeSshEventKind.HostKeyPrompt)
@@ -339,104 +338,4 @@ public sealed class NativeSshSession : ITerminalSession
         }
     }
 
-    private static SshInteractionRequest CreateInteractionRequest(NativeSshEvent nextEvent)
-    {
-        return nextEvent.Kind switch
-        {
-            NativeSshEventKind.HostKeyPrompt => CreateHostKeyRequest(nextEvent.Payload),
-            NativeSshEventKind.PasswordPrompt => CreateTextPromptRequest(SshInteractionKind.Password, nextEvent.Payload),
-            NativeSshEventKind.PassphrasePrompt => CreateTextPromptRequest(SshInteractionKind.Passphrase, nextEvent.Payload),
-            NativeSshEventKind.KeyboardInteractivePrompt => CreateKeyboardRequest(nextEvent.Payload),
-            _ => throw new InvalidOperationException($"Unsupported interaction event '{nextEvent.Kind}'.")
-        };
-    }
-
-    private static SshInteractionRequest CreateHostKeyRequest(byte[] payload)
-    {
-        HostKeyPromptPayload? model = JsonSerializer.Deserialize<HostKeyPromptPayload>(payload);
-        if (model == null)
-        {
-            throw new InvalidOperationException("Failed to parse host key prompt payload.");
-        }
-
-        return new SshInteractionRequest
-        {
-            Kind = SshInteractionKind.UnknownHostKey,
-            Host = model.Host,
-            Port = model.Port,
-            Algorithm = model.Algorithm,
-            Fingerprint = model.Fingerprint
-        };
-    }
-
-    private static SshInteractionRequest CreateTextPromptRequest(SshInteractionKind kind, byte[] payload)
-    {
-        TextPromptPayload? model = JsonSerializer.Deserialize<TextPromptPayload>(payload);
-        if (model == null)
-        {
-            throw new InvalidOperationException("Failed to parse authentication prompt payload.");
-        }
-
-        return new SshInteractionRequest
-        {
-            Kind = kind,
-            Prompt = model.Prompt
-        };
-    }
-
-    private static SshInteractionRequest CreateKeyboardRequest(byte[] payload)
-    {
-        KeyboardInteractivePromptPayload? model = JsonSerializer.Deserialize<KeyboardInteractivePromptPayload>(payload);
-        if (model == null)
-        {
-            throw new InvalidOperationException("Failed to parse keyboard-interactive payload.");
-        }
-
-        return new SshInteractionRequest
-        {
-            Kind = SshInteractionKind.KeyboardInteractive,
-            Name = model.Name,
-            Instructions = model.Instructions,
-            KeyboardPrompts = model.Prompts.Select(prompt => new SshKeyboardPrompt(prompt.Prompt, prompt.Echo)).ToArray()
-        };
-    }
-
-    private static byte[] BuildInteractionPayload(NativeSshResponseKind responseKind, SshInteractionResponse response)
-    {
-        object body = responseKind switch
-        {
-            NativeSshResponseKind.HostKeyDecision => new { accept = response.IsAccepted && !response.IsCanceled },
-            NativeSshResponseKind.Password or NativeSshResponseKind.Passphrase => new { text = response.IsCanceled ? string.Empty : response.Secret ?? string.Empty },
-            NativeSshResponseKind.KeyboardInteractive => new { responses = response.IsCanceled ? Array.Empty<string>() : response.KeyboardResponses.ToArray() },
-            _ => throw new InvalidOperationException($"Unsupported native SSH response kind '{responseKind}'.")
-        };
-
-        return Encoding.UTF8.GetBytes(JsonSerializer.Serialize(body));
-    }
-
-    private sealed class HostKeyPromptPayload
-    {
-        public string Host { get; set; } = string.Empty;
-        public int Port { get; set; }
-        public string Algorithm { get; set; } = string.Empty;
-        public string Fingerprint { get; set; } = string.Empty;
-    }
-
-    private sealed class TextPromptPayload
-    {
-        public string Prompt { get; set; } = string.Empty;
-    }
-
-    private sealed class KeyboardInteractivePromptPayload
-    {
-        public string Name { get; set; } = string.Empty;
-        public string Instructions { get; set; } = string.Empty;
-        public List<KeyboardInteractivePromptItem> Prompts { get; set; } = new();
-    }
-
-    private sealed class KeyboardInteractivePromptItem
-    {
-        public string Prompt { get; set; } = string.Empty;
-        public bool Echo { get; set; }
-    }
 }

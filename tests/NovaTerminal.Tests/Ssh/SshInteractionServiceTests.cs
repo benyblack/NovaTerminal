@@ -1,3 +1,6 @@
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Services.Ssh;
@@ -7,6 +10,58 @@ namespace NovaTerminal.Tests.Ssh;
 
 public sealed class SshInteractionServiceTests
 {
+    [AvaloniaFact]
+    public async Task BackgroundThreadRequests_AreMarshalledToUiThread()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            var owner = new Window();
+            var knownHosts = new NativeKnownHostsStore(Path.Combine(tempRoot, "native_known_hosts.json"));
+            int presenterThreadId = -1;
+            int ownerThreadId = -1;
+
+            var service = new SshInteractionService(
+                ownerProvider: () =>
+                {
+                    Assert.True(Dispatcher.UIThread.CheckAccess());
+                    ownerThreadId = Environment.CurrentManagedThreadId;
+                    return owner;
+                },
+                hostKeyPresenter: (_, _, _) =>
+                {
+                    Assert.True(Dispatcher.UIThread.CheckAccess());
+                    presenterThreadId = Environment.CurrentManagedThreadId;
+                    return Task.FromResult(SshInteractionResponse.AcceptHostKey());
+                },
+                knownHostsStore: knownHosts);
+
+            int workerThreadId = -1;
+            var response = await Task.Run(async () =>
+            {
+                workerThreadId = Environment.CurrentManagedThreadId;
+                return await service.HandleAsync(new SshInteractionRequest
+                {
+                    Kind = SshInteractionKind.UnknownHostKey,
+                    Host = "example.internal",
+                    Port = 22,
+                    Algorithm = "ssh-ed25519",
+                    Fingerprint = "SHA256:test"
+                }, CancellationToken.None);
+            });
+
+            Assert.True(response.IsAccepted);
+            Assert.NotEqual(-1, ownerThreadId);
+            Assert.NotEqual(-1, presenterThreadId);
+            Assert.NotEqual(workerThreadId, ownerThreadId);
+            Assert.NotEqual(workerThreadId, presenterThreadId);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task HostKeyRequestsMapToHostKeyPromptViewModel()
     {
