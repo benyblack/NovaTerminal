@@ -140,6 +140,34 @@ Deliverable: release-ready SSH management feature set.
 
 * * * * *
 
+Native SSH Status (2026-03-31)
+==============================
+
+The native SSH initiative is now implemented behind conservative rollout controls.
+
+Completed native SSH capabilities:
+
+- backend split between OpenSSH and native SSH
+- native Rust SSH crate with poll-based ABI
+- Avalonia host-key and auth dialogs for native SSH
+- app-managed native known-host trust store
+- local port forwarding for the native backend
+- one-hop native jump-host support
+- rollout controls, backend selector, and stable failure classification
+
+Rollout guidance:
+
+- `OpenSsh` remains the default backend.
+- `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`.
+- Native SSH does not silently fall back to OpenSSH on failure.
+- Multi-hop jump chains remain unsupported in the native backend.
+
+Verification references:
+
+- See `docs/native-ssh/Native_SSH_Test_Matrix.md` for the automated verification set and the remaining manual checks.
+
+* * * * *
+
 Suggested "Pro" gating later 💸 (optional)
 ==========================================
 
