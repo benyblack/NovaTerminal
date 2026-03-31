@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Threading;
 using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Native;
@@ -36,6 +37,23 @@ public sealed class SshInteractionService : ISshInteractionService
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return await Task.FromCanceled<SshInteractionResponse>(cancellationToken);
+        }
+
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            return await Dispatcher.UIThread.InvokeAsync(
+                () => HandleOnUiThreadAsync(request, cancellationToken),
+                DispatcherPriority.Send);
+        }
+
+        return await HandleOnUiThreadAsync(request, cancellationToken);
+    }
+
+    private async Task<SshInteractionResponse> HandleOnUiThreadAsync(SshInteractionRequest request, CancellationToken cancellationToken)
+    {
         Window? owner = _ownerProvider();
         return request.Kind switch
         {
