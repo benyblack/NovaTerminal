@@ -323,6 +323,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
             Port = profile.Port,
             AuthMode = profile.AuthMode,
             IdentityFilePath = profile.IdentityFilePath,
+            RememberPasswordInVault = profile.RememberPasswordInVault,
             JumpHops = profile.JumpHops.Select(CloneJumpHop).ToList(),
             Forwards = profile.Forwards.Select(CloneForward).ToList(),
             MuxOptions = CloneMuxOptions(profile.MuxOptions),
