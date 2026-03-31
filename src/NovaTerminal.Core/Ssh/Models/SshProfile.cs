@@ -12,6 +12,7 @@ public enum SshAuthMode
 public sealed class SshProfile
 {
     public Guid Id { get; set; } = Guid.NewGuid();
+    public SshBackendKind BackendKind { get; set; } = SshBackendKind.OpenSsh;
     public string Name { get; set; } = "New SSH Profile";
     public string GroupPath { get; set; } = "General";
     public string Notes { get; set; } = string.Empty;

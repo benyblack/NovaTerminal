@@ -104,6 +104,53 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
+    public void SaveProfile_UpdatesExistingStoreProfile_PreservesBackendKind()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+            var existingId = Guid.Parse("1183d7c5-e82f-45ce-b8ad-1c343392f822");
+
+            var existing = new SshProfile
+            {
+                Id = existingId,
+                Name = "Native",
+                Host = "native.internal",
+                Port = 22
+            };
+
+            var backendProperty = typeof(SshProfile).GetProperty("BackendKind");
+            Assert.NotNull(backendProperty);
+            backendProperty!.SetValue(existing, Enum.Parse(backendProperty.PropertyType, "Native"));
+            store.SaveProfile(existing);
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = existingId,
+                Name = "Native Updated",
+                HostName = "updated.internal",
+                UserName = "ops",
+                Port = 2201
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.Equal("Native", backendProperty.GetValue(saved)?.ToString());
+
+            SshProfile? persisted = store.GetProfile(existingId);
+            Assert.NotNull(persisted);
+            Assert.Equal("Native", backendProperty.GetValue(persisted!)?.ToString());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SaveProfile_PersistsAdvancedSshOptionsAndFavoriteMetadata()
     {
         string tempRoot = CreateTempDirectory();
@@ -219,5 +266,38 @@ public sealed class SshConnectionServiceTests
         string path = Path.Combine(Path.GetTempPath(), $"nova_ssh_service_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    [Fact]
+    public void GetConnectionProfiles_ProjectsBackendKindIntoRuntimeProfile()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("5f3d3cab-3cda-442a-aec1-a983b3eb8d1b"),
+                Name = "Native",
+                Host = "native.internal"
+            };
+
+            var backendProperty = typeof(SshProfile).GetProperty("BackendKind");
+            Assert.NotNull(backendProperty);
+            backendProperty!.SetValue(profile, Enum.Parse(backendProperty.PropertyType, "Native"));
+            store.SaveProfile(profile);
+
+            TerminalProfile runtime = service.GetConnectionProfiles().Single();
+            var runtimeBackendProperty = typeof(TerminalProfile).GetProperty("SshBackendKind");
+
+            Assert.NotNull(runtimeBackendProperty);
+            Assert.Equal("Native", runtimeBackendProperty!.GetValue(runtime)?.ToString());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
     }
 }

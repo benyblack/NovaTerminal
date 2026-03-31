@@ -1,4 +1,5 @@
 using System;
+using NovaTerminal.Core.Ssh.Models;
 
 namespace NovaTerminal.Core
 {
@@ -62,6 +63,7 @@ namespace NovaTerminal.Core
         public int SshPort { get; set; } = 22;
         public string SshUser { get; set; } = "";
         public string SshKeyPath { get; set; } = "";
+        public SshBackendKind SshBackendKind { get; set; } = SshBackendKind.OpenSsh;
 
         public ShellOverride ShellOverride { get; set; } = ShellOverride.Auto;
 

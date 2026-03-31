@@ -7,6 +7,7 @@ namespace NovaTerminal.Core.Ssh.Storage;
 [JsonSourceGenerationOptions(WriteIndented = true)]
 [JsonSerializable(typeof(SshStoreDocument))]
 [JsonSerializable(typeof(SshProfileStoreSnapshot))]
+[JsonSerializable(typeof(SshBackendKind))]
 [JsonSerializable(typeof(SshProfile))]
 [JsonSerializable(typeof(List<SshProfile>))]
 [JsonSerializable(typeof(SshJumpHop))]

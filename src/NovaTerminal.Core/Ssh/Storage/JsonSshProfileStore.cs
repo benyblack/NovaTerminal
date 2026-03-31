@@ -236,6 +236,9 @@ public sealed class JsonSshProfileStore : ISshProfileStore
     private static SshProfile NormalizeProfile(SshProfile profile)
     {
         var normalized = CloneProfile(profile);
+        normalized.BackendKind = Enum.IsDefined(normalized.BackendKind)
+            ? normalized.BackendKind
+            : SshBackendKind.OpenSsh;
         normalized.Name = normalized.Name?.Trim() ?? string.Empty;
         normalized.GroupPath = normalized.GroupPath?.Trim() ?? string.Empty;
         normalized.Notes = normalized.Notes?.Trim() ?? string.Empty;
@@ -309,6 +312,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         return new SshProfile
         {
             Id = profile.Id,
+            BackendKind = profile.BackendKind,
             Name = profile.Name,
             GroupPath = profile.GroupPath,
             Notes = profile.Notes,
