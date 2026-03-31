@@ -42,6 +42,9 @@ fn main() {
         rows: 30,
         term: term.as_ptr(),
         identity_file: identity.as_ref().map_or(std::ptr::null(), |value| value.as_ptr()),
+        jump_host: std::ptr::null(),
+        jump_user: std::ptr::null(),
+        jump_port: 0,
     };
 
     let session = nova_ssh_connect(&connect_args);

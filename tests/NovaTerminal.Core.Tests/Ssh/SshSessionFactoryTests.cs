@@ -27,6 +27,32 @@ public sealed class SshSessionFactoryTests
         Assert.IsType<NativeSshSession>(session);
     }
 
+    [Fact]
+    public void Create_ForNativeJumpHostProfile_LogsSelectedPath()
+    {
+        var profileId = Guid.Parse("d786b616-6b8a-4f57-b095-2e8f8b0d6907");
+        var store = new InMemorySshProfileStore(new SshProfile
+        {
+            Id = profileId,
+            Name = "native-jump",
+            Host = "target.internal",
+            User = "nova",
+            BackendKind = SshBackendKind.Native,
+            JumpHops =
+            [
+                new SshJumpHop { Host = "jump.internal" }
+            ]
+        });
+        var logs = new List<string>();
+
+        var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop());
+        using ITerminalSession session = factory.Create(profileId, log: logs.Add);
+
+        Assert.IsType<NativeSshSession>(session);
+        Assert.Contains(logs, message => message.Contains("backend=native", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(logs, message => message.Contains("path=jump-host", StringComparison.OrdinalIgnoreCase));
+    }
+
     private sealed class InMemorySshProfileStore : ISshProfileStore
     {
         public InMemorySshProfileStore(SshProfile profile)

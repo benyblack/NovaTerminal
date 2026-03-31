@@ -51,8 +51,27 @@ public sealed class SshSessionFactory : ISshSessionFactory
 
         return profile.BackendKind switch
         {
-            SshBackendKind.Native => new NativeSshSession(profile, cols, rows, diagnosticsLevel, extraArgs, log, _nativeInterop, _nativeInteractionHandler),
+            SshBackendKind.Native => CreateNativeSession(profile, cols, rows, diagnosticsLevel, extraArgs, log),
             _ => new OpenSshSession(profile.Id, _profileStore, cols, rows, diagnosticsLevel, extraArgs, _launcher, log)
         };
+    }
+
+    private NativeSshSession CreateNativeSession(
+        SshProfile profile,
+        int cols,
+        int rows,
+        SshDiagnosticsLevel diagnosticsLevel,
+        IReadOnlyList<string>? extraArgs,
+        Action<string>? log)
+    {
+        string path = profile.JumpHops.Count switch
+        {
+            0 => "direct",
+            1 => "jump-host",
+            _ => "jump-host-unsupported"
+        };
+
+        log?.Invoke($"[SshSessionFactory] backend=native path={path} profile={profile.Name}");
+        return new NativeSshSession(profile, cols, rows, diagnosticsLevel, extraArgs, log, _nativeInterop, _nativeInteractionHandler);
     }
 }

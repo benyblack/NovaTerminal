@@ -30,24 +30,47 @@ public sealed class NativeSshInterop : INativeSshInterop
                 identityPtr = Marshal.StringToCoTaskMemUTF8(options.IdentityFilePath);
             }
 
-            NativeConnectArgs args = new()
-            {
-                Host = hostPtr,
-                User = userPtr,
-                Port = checked((ushort)options.Port),
-                Cols = checked((ushort)options.Cols),
-                Rows = checked((ushort)options.Rows),
-                Term = termPtr,
-                IdentityFile = identityPtr
-            };
+            IntPtr jumpHostPtr = IntPtr.Zero;
+            IntPtr jumpUserPtr = IntPtr.Zero;
 
-            IntPtr handle = NativeMethods.nova_ssh_connect(in args);
-            if (handle == IntPtr.Zero)
+            try
             {
-                throw new InvalidOperationException("Failed to create native SSH session.");
+                if (options.JumpHost != null)
+                {
+                    jumpHostPtr = Marshal.StringToCoTaskMemUTF8(options.JumpHost.Host);
+                    if (!string.IsNullOrWhiteSpace(options.JumpHost.User))
+                    {
+                        jumpUserPtr = Marshal.StringToCoTaskMemUTF8(options.JumpHost.User);
+                    }
+                }
+
+                NativeConnectArgs args = new()
+                {
+                    Host = hostPtr,
+                    User = userPtr,
+                    Port = checked((ushort)options.Port),
+                    Cols = checked((ushort)options.Cols),
+                    Rows = checked((ushort)options.Rows),
+                    Term = termPtr,
+                    IdentityFile = identityPtr,
+                    JumpHost = jumpHostPtr,
+                    JumpUser = jumpUserPtr,
+                    JumpPort = checked((ushort)(options.JumpHost?.Port ?? 0))
+                };
+
+                IntPtr handle = NativeMethods.nova_ssh_connect(in args);
+                if (handle == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException("Failed to create native SSH session.");
+                }
+
+                return handle;
             }
-
-            return handle;
+            finally
+            {
+                FreeUtf8(jumpHostPtr);
+                FreeUtf8(jumpUserPtr);
+            }
         }
         finally
         {
@@ -268,6 +291,9 @@ public sealed class NativeSshInterop : INativeSshInterop
         public ushort Rows;
         public IntPtr Term;
         public IntPtr IdentityFile;
+        public IntPtr JumpHost;
+        public IntPtr JumpUser;
+        public ushort JumpPort;
     }
 
     [StructLayout(LayoutKind.Sequential)]
