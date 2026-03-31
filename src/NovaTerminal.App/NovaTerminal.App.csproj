@@ -70,6 +70,33 @@
       Text="[RustNative] Build complete." />
   </Target>
 
+  <Target Name="BuildRustSshNative"
+    BeforeTargets="PrepareForBuild"
+    Condition="'$(DesignTimeBuild)' != 'true'
+      and '$(IsCrossTargetingBuild)' != 'true'
+      and '$(SKIP_RUST_NATIVE_BUILD)' != '1'
+      and (
+        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and !Exists('$(NativeProjectDir)rusty_ssh\target\release\rusty_ssh.dll'))
+        or
+        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and !Exists('$(NativeProjectDir)rusty_ssh\target\release\librusty_ssh.so'))
+        or
+        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and !Exists('$(NativeProjectDir)rusty_ssh\target\release\librusty_ssh.dylib'))
+      )">
+
+    <Message Importance="high"
+      Text="[RustNative] Building Rust SSH native library in: $(NativeProjectDir)rusty_ssh" />
+
+    <Exec WorkingDirectory="$(NativeProjectDir)rusty_ssh"
+      Command="cargo build --release"
+      EchoOff="false"
+      ConsoleToMSBuild="true"
+      StandardOutputImportance="High"
+      StandardErrorImportance="High" />
+
+    <Message Importance="high"
+      Text="[RustNative] Rust SSH build complete." />
+  </Target>
+
   <ItemGroup>
     <Content Include="native\target\release\rusty_pty.dll"
       Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
@@ -84,6 +111,21 @@
     <Content Include="native\target\release\librusty_pty.dylib"
       Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">
       <Link>librusty_pty.dylib</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="native\rusty_ssh\target\release\rusty_ssh.dll"
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
+      <Link>rusty_ssh.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="native\rusty_ssh\target\release\librusty_ssh.so"
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
+      <Link>librusty_ssh.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="native\rusty_ssh\target\release\librusty_ssh.dylib"
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">
+      <Link>librusty_ssh.dylib</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="themes\**">
