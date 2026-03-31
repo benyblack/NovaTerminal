@@ -78,8 +78,10 @@ public sealed class SshConnectionService
         if (existing != null && viewModel.BackendKind is null)
         {
             incoming.BackendKind = existing.BackendKind;
-            incoming.RememberPasswordInVault = NormalizeRememberPasswordPreference(existing.BackendKind, existing.RememberPasswordInVault);
+            incoming.RememberPasswordInVault = existing.RememberPasswordInVault;
         }
+
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(incoming);
 
         SshProfile merged = MergeProfile(existing, incoming, viewModel.IsFavorite);
 
@@ -122,7 +124,7 @@ public sealed class SshConnectionService
         bool useIdentity = !profile.UseSshAgent && !string.IsNullOrWhiteSpace(identityPath);
         candidate.AuthMode = useIdentity ? SshAuthMode.IdentityFile : SshAuthMode.Agent;
         candidate.IdentityFilePath = useIdentity ? identityPath : string.Empty;
-        candidate.RememberPasswordInVault = NormalizeRememberPasswordPreference(candidate.BackendKind, candidate.RememberPasswordInVault);
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(candidate);
 
         _profileStore.SaveProfile(candidate);
     }
@@ -271,7 +273,7 @@ public sealed class SshConnectionService
         merged.Port = incoming.Port;
         merged.AuthMode = incoming.AuthMode;
         merged.IdentityFilePath = incoming.IdentityFilePath;
-        merged.RememberPasswordInVault = NormalizeRememberPasswordPreference(incoming.BackendKind, incoming.RememberPasswordInVault);
+        merged.RememberPasswordInVault = incoming.RememberPasswordInVault;
         merged.JumpHops = incoming.JumpHops.Select(CloneJumpHop).ToList();
         merged.Forwards = incoming.Forwards.Select(CloneForward).ToList();
         merged.MuxOptions = CloneMuxOptions(incoming.MuxOptions);
@@ -290,6 +292,7 @@ public sealed class SshConnectionService
 
         IEnumerable<string> sourceTags = (IEnumerable<string>?)existing?.Tags ?? Array.Empty<string>();
         merged.Tags = NormalizeTags(sourceTags, favorite);
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(merged);
         return merged;
     }
 
@@ -581,11 +584,6 @@ public sealed class SshConnectionService
             ExtraSshArgs = profile.ExtraSshArgs,
             WorkingDirectory = profile.WorkingDirectory
         };
-    }
-
-    private static bool NormalizeRememberPasswordPreference(SshBackendKind backendKind, bool rememberPasswordInVault)
-    {
-        return backendKind == SshBackendKind.Native && rememberPasswordInVault;
     }
 
     private static SshJumpHop CloneJumpHop(SshJumpHop hop)

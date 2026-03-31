@@ -152,6 +152,38 @@ public sealed class JsonSshProfileStoreTests
     }
 
     [Fact]
+    public void NormalizeRememberPasswordPreference_PreservesNativeProfiles()
+    {
+        var profile = new SshProfile
+        {
+            Name = "native",
+            Host = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            RememberPasswordInVault = true
+        };
+
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(profile);
+
+        Assert.True(profile.RememberPasswordInVault);
+    }
+
+    [Fact]
+    public void NormalizeRememberPasswordPreference_ClearsOpenSshProfiles()
+    {
+        var profile = new SshProfile
+        {
+            Name = "openssh",
+            Host = "openssh.internal",
+            BackendKind = SshBackendKind.OpenSsh,
+            RememberPasswordInVault = true
+        };
+
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(profile);
+
+        Assert.False(profile.RememberPasswordInVault);
+    }
+
+    [Fact]
     public void SaveProfile_DoesNotPersistPasswordOrPassphraseFields()
     {
         string tempRoot = CreateTempDirectory();
