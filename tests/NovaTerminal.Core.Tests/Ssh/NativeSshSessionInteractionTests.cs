@@ -136,6 +136,20 @@ public sealed class NativeSshSessionInteractionTests
         {
         }
 
+        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options) => 1;
+
+        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        {
+        }
+
+        public void SendChannelEof(IntPtr sessionHandle, int channelId)
+        {
+        }
+
+        public void CloseChannel(IntPtr sessionHandle, int channelId)
+        {
+        }
+
         public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
         {
             Submissions.Add((responseKind, Encoding.UTF8.GetString(data)));

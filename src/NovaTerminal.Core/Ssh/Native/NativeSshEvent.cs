@@ -19,7 +19,10 @@ public enum NativeSshEventKind
     KeyboardInteractivePrompt = 6,
     ExitStatus = 7,
     Error = 8,
-    Closed = 9
+    Closed = 9,
+    ForwardChannelData = 10,
+    ForwardChannelEof = 11,
+    ForwardChannelClosed = 12
 }
 
 public enum NativeSshResponseKind
@@ -57,4 +60,13 @@ public sealed class NativeSshEvent
 
     public static NativeSshEvent Closed(byte[]? payload = null) =>
         new(NativeSshEventKind.Closed, payload ?? Array.Empty<byte>(), flags: NativeSshEventFlags.Json);
+
+    public static NativeSshEvent ForwardChannelData(int channelId, byte[] payload) =>
+        new(NativeSshEventKind.ForwardChannelData, payload, channelId, NativeSshEventFlags.Binary);
+
+    public static NativeSshEvent ForwardChannelEof(int channelId) =>
+        new(NativeSshEventKind.ForwardChannelEof, Array.Empty<byte>(), channelId, NativeSshEventFlags.Json);
+
+    public static NativeSshEvent ForwardChannelClosed(int channelId) =>
+        new(NativeSshEventKind.ForwardChannelClosed, Array.Empty<byte>(), channelId, NativeSshEventFlags.Json);
 }

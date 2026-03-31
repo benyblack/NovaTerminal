@@ -3,12 +3,13 @@ use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
 use russh::keys::{load_secret_key, ssh_key, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, Disconnect};
 use serde::Serialize;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::CStr;
 use std::future::Future;
+use std::io::Cursor;
 use std::path::Path;
 use std::ptr;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, mpsc as std_mpsc};
 use std::thread;
 use std::time::Duration;
 use tokio::runtime::Builder;
@@ -35,6 +36,15 @@ pub struct NovaSshConnectArgs {
     pub identity_file: *const c_char,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NovaSshDirectTcpIpArgs {
+    pub host_to_connect: *const c_char,
+    pub port_to_connect: u16,
+    pub originator_address: *const c_char,
+    pub originator_port: u16,
+}
+
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NovaSshEventKind {
@@ -48,6 +58,9 @@ pub enum NovaSshEventKind {
     ExitStatus = 7,
     Error = 8,
     Closed = 9,
+    ForwardChannelData = 10,
+    ForwardChannelEof = 11,
+    ForwardChannelClosed = 12,
 }
 
 #[repr(u32)]
@@ -64,6 +77,7 @@ pub const NOVA_SSH_RESULT_EVENT_READY: c_int = 1;
 pub const NOVA_SSH_RESULT_INVALID_ARGUMENT: c_int = -1;
 pub const NOVA_SSH_RESULT_BUFFER_TOO_SMALL: c_int = -2;
 pub const NOVA_SSH_RESULT_CLOSED: c_int = -3;
+pub const NOVA_SSH_RESULT_CHANNEL_OPEN_FAILED: c_int = -4;
 
 const NOVA_SSH_EVENT_FLAG_JSON: u32 = 1;
 const NOVA_SSH_EVENT_FLAG_BINARY: u32 = 2;
@@ -96,6 +110,23 @@ struct QueuedResponse {
 enum WorkerCommand {
     Write(Vec<u8>),
     Resize { cols: u16, rows: u16 },
+    OpenDirectTcpIp {
+        host_to_connect: String,
+        port_to_connect: u32,
+        originator_address: String,
+        originator_port: u32,
+        reply: std_mpsc::Sender<anyhow::Result<u32>>,
+    },
+    WriteForwardChannel {
+        channel_id: u32,
+        data: Vec<u8>,
+    },
+    ForwardChannelEof {
+        channel_id: u32,
+    },
+    CloseForwardChannel {
+        channel_id: u32,
+    },
     Close,
 }
 
@@ -420,6 +451,118 @@ pub extern "C" fn nova_ssh_resize(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_open_direct_tcpip(
+    session: *mut NovaSshSession,
+    args: *const NovaSshDirectTcpIpArgs,
+) -> c_int {
+    if session.is_null() || args.is_null() {
+        return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+    }
+
+    let args = unsafe { args.as_ref() }.expect("validated non-null args");
+    let host_to_connect = match read_c_string(args.host_to_connect) {
+        Some(value) => value,
+        None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+    };
+    let originator_address =
+        read_c_string(args.originator_address).unwrap_or_else(|| "127.0.0.1".to_owned());
+
+    let session = unsafe { &mut *session };
+    let tx = match &session.command_tx {
+        Some(sender) => sender,
+        None => return NOVA_SSH_RESULT_CLOSED,
+    };
+
+    let (reply_tx, reply_rx) = std_mpsc::channel();
+    let command = WorkerCommand::OpenDirectTcpIp {
+        host_to_connect,
+        port_to_connect: if args.port_to_connect == 0 {
+            0
+        } else {
+            args.port_to_connect as u32
+        },
+        originator_address,
+        originator_port: args.originator_port as u32,
+        reply: reply_tx,
+    };
+
+    if tx.send(command).is_err() {
+        return NOVA_SSH_RESULT_CLOSED;
+    }
+
+    match reply_rx.recv() {
+        Ok(Ok(channel_id)) => channel_id as c_int,
+        Ok(Err(_)) => NOVA_SSH_RESULT_CHANNEL_OPEN_FAILED,
+        Err(_) => NOVA_SSH_RESULT_CLOSED,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_channel_write(
+    session: *mut NovaSshSession,
+    channel_id: u32,
+    data: *const u8,
+    data_len: usize,
+) -> c_int {
+    if session.is_null() || (data.is_null() && data_len != 0) {
+        return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+    }
+
+    let session = unsafe { &mut *session };
+    let tx = match &session.command_tx {
+        Some(sender) => sender,
+        None => return NOVA_SSH_RESULT_CLOSED,
+    };
+
+    let bytes = if data_len == 0 {
+        Vec::new()
+    } else {
+        unsafe { std::slice::from_raw_parts(data, data_len) }.to_vec()
+    };
+
+    tx.send(WorkerCommand::WriteForwardChannel {
+        channel_id,
+        data: bytes,
+    })
+    .map(|_| NOVA_SSH_RESULT_OK)
+    .unwrap_or(NOVA_SSH_RESULT_CLOSED)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_channel_eof(session: *mut NovaSshSession, channel_id: u32) -> c_int {
+    if session.is_null() {
+        return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+    }
+
+    let session = unsafe { &mut *session };
+    let tx = match &session.command_tx {
+        Some(sender) => sender,
+        None => return NOVA_SSH_RESULT_CLOSED,
+    };
+
+    tx.send(WorkerCommand::ForwardChannelEof { channel_id })
+        .map(|_| NOVA_SSH_RESULT_OK)
+        .unwrap_or(NOVA_SSH_RESULT_CLOSED)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_channel_close(session: *mut NovaSshSession, channel_id: u32) -> c_int {
+    if session.is_null() {
+        return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+    }
+
+    let session = unsafe { &mut *session };
+    let tx = match &session.command_tx {
+        Some(sender) => sender,
+        None => return NOVA_SSH_RESULT_CLOSED,
+    };
+
+    tx.send(WorkerCommand::CloseForwardChannel { channel_id })
+        .map(|_| NOVA_SSH_RESULT_OK)
+        .unwrap_or(NOVA_SSH_RESULT_CLOSED)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_submit_response(
     session: *mut NovaSshSession,
     response_kind: u32,
@@ -514,6 +657,7 @@ fn run_session(
 ) -> anyhow::Result<()> {
     let runtime = Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(async move {
+        let forward_channels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
         let client_config = Arc::new(client::Config {
             inactivity_timeout: Some(Duration::from_secs(30)),
             ..<_>::default()
@@ -565,7 +709,36 @@ fn run_session(
                         Some(WorkerCommand::Resize { cols, rows }) => {
                             channel.window_change(cols as u32, rows as u32, 0, 0).await?;
                         }
+                        Some(WorkerCommand::OpenDirectTcpIp {
+                            host_to_connect,
+                            port_to_connect,
+                            originator_address,
+                            originator_port,
+                            reply,
+                        }) => {
+                            let result = open_direct_tcpip_channel(
+                                &session,
+                                forward_channels.clone(),
+                                shared.clone(),
+                                host_to_connect,
+                                port_to_connect,
+                                originator_address,
+                                originator_port,
+                            )
+                            .await;
+                            let _ = reply.send(result);
+                        }
+                        Some(WorkerCommand::WriteForwardChannel { channel_id, data }) => {
+                            write_forward_channel(forward_channels.clone(), channel_id, data).await?;
+                        }
+                        Some(WorkerCommand::ForwardChannelEof { channel_id }) => {
+                            send_forward_channel_eof(forward_channels.clone(), channel_id).await?;
+                        }
+                        Some(WorkerCommand::CloseForwardChannel { channel_id }) => {
+                            close_forward_channel(forward_channels.clone(), channel_id).await?;
+                        }
                         Some(WorkerCommand::Close) | None => {
+                            close_all_forward_channels(forward_channels.clone()).await;
                             let _ = channel.eof().await;
                             let _ = channel.close().await;
                             break;
@@ -612,6 +785,136 @@ fn run_session(
             .await;
         Ok(())
     })
+}
+
+async fn open_direct_tcpip_channel(
+    session: &client::Handle<NovaClientHandler>,
+    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+    shared: Arc<SharedState>,
+    host_to_connect: String,
+    port_to_connect: u32,
+    originator_address: String,
+    originator_port: u32,
+) -> anyhow::Result<u32> {
+    let channel = session
+        .channel_open_direct_tcpip(
+            host_to_connect,
+            port_to_connect,
+            originator_address,
+            originator_port,
+        )
+        .await?;
+
+    let channel_id = u32::from(channel.id());
+    let (mut read_half, write_half) = channel.split();
+    forward_channels
+        .lock()
+        .await
+        .insert(channel_id, Arc::new(write_half));
+
+    let reader_shared = shared.clone();
+    let reader_channels = forward_channels.clone();
+    tokio::spawn(async move {
+        loop {
+            match read_half.wait().await {
+                Some(ChannelMsg::Data { data }) => {
+                    reader_shared.queue_event(QueuedEvent {
+                        kind: NovaSshEventKind::ForwardChannelData,
+                        payload: data.to_vec(),
+                        status_code: channel_id as i32,
+                        flags: NOVA_SSH_EVENT_FLAG_BINARY,
+                    });
+                }
+                Some(ChannelMsg::ExtendedData { data, .. }) => {
+                    reader_shared.queue_event(QueuedEvent {
+                        kind: NovaSshEventKind::ForwardChannelData,
+                        payload: data.to_vec(),
+                        status_code: channel_id as i32,
+                        flags: NOVA_SSH_EVENT_FLAG_BINARY,
+                    });
+                }
+                Some(ChannelMsg::Eof) => {
+                    reader_shared.queue_event(QueuedEvent {
+                        kind: NovaSshEventKind::ForwardChannelEof,
+                        payload: Vec::new(),
+                        status_code: channel_id as i32,
+                        flags: NOVA_SSH_EVENT_FLAG_JSON,
+                    });
+                }
+                Some(ChannelMsg::Close) | None => {
+                    reader_channels.lock().await.remove(&channel_id);
+                    reader_shared.queue_event(QueuedEvent {
+                        kind: NovaSshEventKind::ForwardChannelClosed,
+                        payload: Vec::new(),
+                        status_code: channel_id as i32,
+                        flags: NOVA_SSH_EVENT_FLAG_JSON,
+                    });
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+
+    Ok(channel_id)
+}
+
+async fn write_forward_channel(
+    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+    channel_id: u32,
+    data: Vec<u8>,
+) -> anyhow::Result<()> {
+    let writer = {
+        let channels = forward_channels.lock().await;
+        channels.get(&channel_id).cloned()
+    };
+
+    if let Some(writer) = writer {
+        writer.data(Cursor::new(data)).await?;
+    }
+
+    Ok(())
+}
+
+async fn send_forward_channel_eof(
+    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+    channel_id: u32,
+) -> anyhow::Result<()> {
+    let writer = {
+        let channels = forward_channels.lock().await;
+        channels.get(&channel_id).cloned()
+    };
+
+    if let Some(writer) = writer {
+        writer.eof().await?;
+    }
+
+    Ok(())
+}
+
+async fn close_forward_channel(
+    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+    channel_id: u32,
+) -> anyhow::Result<()> {
+    let writer = forward_channels.lock().await.remove(&channel_id);
+    if let Some(writer) = writer {
+        writer.close().await?;
+    }
+
+    Ok(())
+}
+
+async fn close_all_forward_channels(
+    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+) {
+    let writers = {
+        let mut channels = forward_channels.lock().await;
+        channels.drain().map(|(_, writer)| writer).collect::<Vec<_>>()
+    };
+
+    for writer in writers {
+        let _ = writer.close().await;
+    }
 }
 
 async fn authenticate(
@@ -769,11 +1072,25 @@ mod tests {
     fn null_handle_operations_return_invalid_argument() {
         let resize = nova_ssh_resize(ptr::null_mut(), 120, 30);
         let write = nova_ssh_write(ptr::null_mut(), [1u8, 2, 3].as_ptr(), 3);
+        let forward_args = NovaSshDirectTcpIpArgs {
+            host_to_connect: ptr::null(),
+            port_to_connect: 80,
+            originator_address: ptr::null(),
+            originator_port: 1000,
+        };
+        let open = nova_ssh_open_direct_tcpip(ptr::null_mut(), &forward_args);
+        let channel_write = nova_ssh_channel_write(ptr::null_mut(), 1, [1u8, 2, 3].as_ptr(), 3);
+        let channel_eof = nova_ssh_channel_eof(ptr::null_mut(), 1);
+        let channel_close = nova_ssh_channel_close(ptr::null_mut(), 1);
         let respond = nova_ssh_submit_response(ptr::null_mut(), 1, br#"{}"#.as_ptr(), 2);
         let close = nova_ssh_close(ptr::null_mut());
 
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, resize);
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, write);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, open);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, channel_write);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, channel_eof);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, channel_close);
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, respond);
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, close);
     }

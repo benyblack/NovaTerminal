@@ -21,6 +21,7 @@ public sealed class NativeSshSession : ITerminalSession
 
     private ReplayWriter? _recorder;
     private TerminalBuffer? _buffer;
+    private NativePortForwardSession? _portForwardSession;
     private IntPtr _sessionHandle;
     private int _cols;
     private int _rows;
@@ -40,9 +41,14 @@ public sealed class NativeSshSession : ITerminalSession
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        if (profile.JumpHops.Count != 0 || profile.Forwards.Count != 0)
+        if (profile.JumpHops.Count != 0)
         {
-            throw new NotSupportedException("Native SSH backend does not support jump hops or port forwards yet.");
+            throw new NotSupportedException("Native SSH backend does not support jump hops yet.");
+        }
+
+        if (profile.Forwards.Any(forward => forward.Kind != PortForwardKind.Local))
+        {
+            throw new NotSupportedException("Native SSH backend currently supports local port forwards only.");
         }
 
         _ = diagnosticsLevel;
@@ -53,9 +59,24 @@ public sealed class NativeSshSession : ITerminalSession
         _interop = interop ?? new NativeSshInterop();
         _interactionHandler = interactionHandler;
         _sessionHandle = _interop.Connect(NativeSshConnectionOptions.FromProfile(profile, cols, rows));
-        _isRunning = 1;
-        ShellArguments = $"{profile.User}@{profile.Host}:{profile.Port}";
-        _pollTask = Task.Run(PollLoopAsync);
+
+        try
+        {
+            if (profile.Forwards.Count != 0)
+            {
+                _portForwardSession = new NativePortForwardSession(_sessionHandle, profile.Forwards, _interop, _log);
+            }
+
+            _isRunning = 1;
+            ShellArguments = $"{profile.User}@{profile.Host}:{profile.Port}";
+            _pollTask = Task.Run(PollLoopAsync);
+        }
+        catch
+        {
+            CloseNativeHandle();
+            _pollCts.Dispose();
+            throw;
+        }
     }
 
     public Guid Id { get; } = Guid.NewGuid();
@@ -145,6 +166,7 @@ public sealed class NativeSshSession : ITerminalSession
     {
         StopRecording();
         _pollCts.Cancel();
+        _portForwardSession?.Dispose();
         CloseNativeHandle();
         try
         {
@@ -176,6 +198,11 @@ public sealed class NativeSshSession : ITerminalSession
                 {
                     case NativeSshEventKind.Data:
                         EmitOutput(nextEvent.Payload);
+                        break;
+                    case NativeSshEventKind.ForwardChannelData:
+                    case NativeSshEventKind.ForwardChannelEof:
+                    case NativeSshEventKind.ForwardChannelClosed:
+                        _portForwardSession?.HandleEvent(nextEvent);
                         break;
                     case NativeSshEventKind.ExitStatus:
                         TryNotifyExit(nextEvent.StatusCode);

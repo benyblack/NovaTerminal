@@ -9,6 +9,7 @@ public sealed class NativeSshInterop : INativeSshInterop
     private const int ResultEventReady = 1;
     private const int ResultInvalidArgument = -1;
     private const int ResultBufferTooSmall = -2;
+    private const int ResultClosed = -3;
 
     public IntPtr Connect(NativeSshConnectionOptions options)
     {
@@ -127,6 +128,95 @@ public sealed class NativeSshInterop : INativeSshInterop
         throw new InvalidOperationException($"Native SSH resize failed with result {rc}.");
     }
 
+    public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        if (sessionHandle == IntPtr.Zero)
+        {
+            throw new InvalidOperationException("Cannot open a native port-forward channel without a session handle.");
+        }
+
+        IntPtr hostPtr = IntPtr.Zero;
+        IntPtr originatorPtr = IntPtr.Zero;
+
+        try
+        {
+            hostPtr = Marshal.StringToCoTaskMemUTF8(options.HostToConnect);
+            originatorPtr = Marshal.StringToCoTaskMemUTF8(options.OriginatorAddress);
+
+            NativeDirectTcpIpOpenArgs args = new()
+            {
+                HostToConnect = hostPtr,
+                PortToConnect = checked((ushort)options.PortToConnect),
+                OriginatorAddress = originatorPtr,
+                OriginatorPort = checked((ushort)options.OriginatorPort)
+            };
+
+            int channelId = NativeMethods.nova_ssh_open_direct_tcpip(sessionHandle, in args);
+            if (channelId >= 0)
+            {
+                return channelId;
+            }
+
+            throw new InvalidOperationException($"Native SSH direct-tcpip open failed with result {channelId}.");
+        }
+        finally
+        {
+            FreeUtf8(hostPtr);
+            FreeUtf8(originatorPtr);
+        }
+    }
+
+    public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data)
+    {
+        if (sessionHandle == IntPtr.Zero || channelId < 0)
+        {
+            return;
+        }
+
+        byte[] payload = data.ToArray();
+        int rc = NativeMethods.nova_ssh_channel_write(sessionHandle, checked((uint)channelId), payload, (nuint)payload.Length);
+        if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Native SSH channel write failed with result {rc}.");
+    }
+
+    public void SendChannelEof(IntPtr sessionHandle, int channelId)
+    {
+        if (sessionHandle == IntPtr.Zero || channelId < 0)
+        {
+            return;
+        }
+
+        int rc = NativeMethods.nova_ssh_channel_eof(sessionHandle, checked((uint)channelId));
+        if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Native SSH channel EOF failed with result {rc}.");
+    }
+
+    public void CloseChannel(IntPtr sessionHandle, int channelId)
+    {
+        if (sessionHandle == IntPtr.Zero || channelId < 0)
+        {
+            return;
+        }
+
+        int rc = NativeMethods.nova_ssh_channel_close(sessionHandle, checked((uint)channelId));
+        if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Native SSH channel close failed with result {rc}.");
+    }
+
     public void Close(IntPtr sessionHandle)
     {
         if (sessionHandle == IntPtr.Zero)
@@ -189,6 +279,15 @@ public sealed class NativeSshInterop : INativeSshInterop
         public uint Flags;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeDirectTcpIpOpenArgs
+    {
+        public IntPtr HostToConnect;
+        public ushort PortToConnect;
+        public IntPtr OriginatorAddress;
+        public ushort OriginatorPort;
+    }
+
     private static class NativeMethods
     {
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_connect")]
@@ -202,6 +301,18 @@ public sealed class NativeSshInterop : INativeSshInterop
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_resize")]
         public static extern int nova_ssh_resize(IntPtr session, ushort cols, ushort rows);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_open_direct_tcpip")]
+        public static extern int nova_ssh_open_direct_tcpip(IntPtr session, in NativeDirectTcpIpOpenArgs args);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_write")]
+        public static extern int nova_ssh_channel_write(IntPtr session, uint channelId, byte[] data, nuint dataLength);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_eof")]
+        public static extern int nova_ssh_channel_eof(IntPtr session, uint channelId);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_close")]
+        public static extern int nova_ssh_channel_close(IntPtr session, uint channelId);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_close")]
         public static extern int nova_ssh_close(IntPtr session);
