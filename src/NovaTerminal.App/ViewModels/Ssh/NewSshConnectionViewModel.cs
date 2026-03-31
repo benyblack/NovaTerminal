@@ -37,6 +37,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     private int _controlPersistSeconds = 90;
     private string _extraSshArgs = string.Empty;
     private bool _connectAfterSave;
+    private bool _experimentalNativeSshEnabled;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -132,7 +133,13 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     public SshBackendKind? BackendKind
     {
         get => _backendKind;
-        set => SetField(ref _backendKind, value);
+        set
+        {
+            if (SetField(ref _backendKind, value))
+            {
+                OnPropertyChanged(nameof(BackendWarning));
+            }
+        }
     }
 
     public int KeepAliveIntervalSeconds
@@ -170,6 +177,23 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         get => _connectAfterSave;
         set => SetField(ref _connectAfterSave, value);
     }
+
+    public bool ExperimentalNativeSshEnabled
+    {
+        get => _experimentalNativeSshEnabled;
+        set
+        {
+            if (SetField(ref _experimentalNativeSshEnabled, value))
+            {
+                OnPropertyChanged(nameof(BackendWarning));
+            }
+        }
+    }
+
+    public string BackendWarning =>
+        BackendKind == SshBackendKind.Native && !ExperimentalNativeSshEnabled
+            ? "Native SSH is disabled globally. Enable ExperimentalNativeSshEnabled in settings or switch this profile back to OpenSSH."
+            : string.Empty;
 
     public bool Validate()
     {

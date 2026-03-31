@@ -15,6 +15,7 @@ public partial class NewSshConnectionView : Window
     {
         InitializeComponent();
         ConfigureAuthModeCombo();
+        ConfigureBackendKindCombo();
         ConfigureForwardKindCombo();
     }
 
@@ -36,6 +37,15 @@ public partial class NewSshConnectionView : Window
         if (combo != null)
         {
             combo.ItemsSource = Enum.GetValues<NewSshAuthMode>();
+        }
+    }
+
+    private void ConfigureBackendKindCombo()
+    {
+        var combo = this.FindControl<ComboBox>("BackendKindCombo");
+        if (combo != null)
+        {
+            combo.ItemsSource = Enum.GetValues<SshBackendKind>();
         }
     }
 

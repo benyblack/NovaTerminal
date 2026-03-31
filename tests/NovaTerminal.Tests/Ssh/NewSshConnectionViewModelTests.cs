@@ -173,4 +173,30 @@ public sealed class NewSshConnectionViewModelTests
         SshProfile roundTripped = vm.ToSshProfile();
         Assert.Equal("Native", backendProperty.GetValue(roundTripped)?.ToString());
     }
+
+    [Fact]
+    public void BackendWarning_WhenNativeSelectedAndExperimentalToggleDisabled_IsVisible()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            ExperimentalNativeSshEnabled = false,
+            BackendKind = SshBackendKind.Native
+        };
+
+        Assert.Contains("disabled globally", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BackendWarning_WhenNativeSelectedAndExperimentalToggleEnabled_IsCleared()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            ExperimentalNativeSshEnabled = true,
+            BackendKind = SshBackendKind.Native
+        };
+
+        Assert.Equal(string.Empty, vm.BackendWarning);
+    }
 }

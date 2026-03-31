@@ -19,6 +19,7 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly Task _pollTask;
     private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
     private readonly Action<string> _log;
+    private readonly NativeSshMetrics _metrics = new();
 
     private ReplayWriter? _recorder;
     private TerminalBuffer? _buffer;
@@ -64,6 +65,10 @@ public sealed class NativeSshSession : ITerminalSession
             if (profile.Forwards.Count != 0)
             {
                 _portForwardSession = new NativePortForwardSession(_sessionHandle, profile.Forwards, _interop, _log);
+                foreach (PortForward forward in profile.Forwards)
+                {
+                    _metrics.RecordForwardSetup(forward.ToString());
+                }
             }
 
             _isRunning = 1;
@@ -165,6 +170,7 @@ public sealed class NativeSshSession : ITerminalSession
     {
         StopRecording();
         _pollCts.Cancel();
+        _metrics.MarkDisconnected("Disposed");
         _portForwardSession?.Dispose();
         CloseNativeHandle();
         try
@@ -195,6 +201,9 @@ public sealed class NativeSshSession : ITerminalSession
 
                 switch (nextEvent.Kind)
                 {
+                    case NativeSshEventKind.Connected:
+                        _metrics.MarkConnected();
+                        break;
                     case NativeSshEventKind.Data:
                         EmitOutput(nextEvent.Payload);
                         break;
@@ -216,6 +225,7 @@ public sealed class NativeSshSession : ITerminalSession
                         await HandleInteractionAsync(nextEvent).ConfigureAwait(false);
                         break;
                     case NativeSshEventKind.Closed:
+                        _metrics.MarkDisconnected("Closed");
                         TryNotifyExit(_exitCode ?? 0);
                         return;
                 }
@@ -228,7 +238,10 @@ public sealed class NativeSshSession : ITerminalSession
         {
             if (!_pollCts.IsCancellationRequested)
             {
+                NativeSshFailure failure = NativeSshFailureClassifier.Classify(ex.Message);
+                _metrics.MarkDisconnected(failure.Kind.ToString());
                 _log($"[NativeSshSession] Poll loop failed: {ex.Message}");
+                _log($"[NativeSshSession] failure={failure.Kind}");
                 OnOutputReceived?.Invoke($"Native SSH session failed: {ex.Message}{Environment.NewLine}");
                 TryNotifyExit(-1);
             }
@@ -242,6 +255,7 @@ public sealed class NativeSshSession : ITerminalSession
 
     private void EmitOutput(byte[] payload)
     {
+        _metrics.MarkFirstOutput();
         _recorder?.RecordChunk(payload, payload.Length);
 
         char[] chars = new char[Encoding.UTF8.GetMaxCharCount(payload.Length)];
@@ -254,9 +268,16 @@ public sealed class NativeSshSession : ITerminalSession
 
     private void EmitErrorAndExit(NativeSshEvent nextEvent)
     {
+        string message = nextEvent.Payload.Length > 0
+            ? Encoding.UTF8.GetString(nextEvent.Payload)
+            : "Native SSH error";
+        NativeSshFailure failure = NativeSshFailureClassifier.Classify(message);
+        _metrics.MarkDisconnected(failure.Kind.ToString());
+        _log($"[NativeSshSession] failure={failure.Kind}");
+
         if (nextEvent.Payload.Length > 0)
         {
-            OnOutputReceived?.Invoke($"{Encoding.UTF8.GetString(nextEvent.Payload)}{Environment.NewLine}");
+            OnOutputReceived?.Invoke($"{message}{Environment.NewLine}");
         }
 
         TryNotifyExit(nextEvent.StatusCode == 0 ? -1 : nextEvent.StatusCode);
@@ -264,6 +285,15 @@ public sealed class NativeSshSession : ITerminalSession
 
     private async Task HandleInteractionAsync(NativeSshEvent nextEvent)
     {
+        if (nextEvent.Kind == NativeSshEventKind.HostKeyPrompt)
+        {
+            _metrics.MarkHostKeyPromptStarted();
+        }
+        else
+        {
+            _metrics.MarkAuthenticationPromptStarted();
+        }
+
         SshInteractionRequest request = CreateInteractionRequest(nextEvent);
         SshInteractionResponse response = _interactionHandler == null
             ? SshInteractionResponse.Cancel()
@@ -280,6 +310,15 @@ public sealed class NativeSshSession : ITerminalSession
 
         byte[] payload = BuildInteractionPayload(responseKind, response);
         _interop.SubmitResponse(_sessionHandle, responseKind, payload);
+
+        if (nextEvent.Kind == NativeSshEventKind.HostKeyPrompt)
+        {
+            _metrics.MarkHostKeyPromptCompleted();
+        }
+        else
+        {
+            _metrics.MarkAuthenticationPromptCompleted();
+        }
     }
 
     private void TryNotifyExit(int exitCode)

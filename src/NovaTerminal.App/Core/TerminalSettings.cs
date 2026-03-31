@@ -39,6 +39,7 @@ namespace NovaTerminal.Core
         public bool CommandAssistAutoHideInAltScreen { get; set; } = true;
         public bool CommandAssistShellIntegrationEnabled { get; set; } = true;
         public bool CommandAssistPowerShellIntegrationEnabled { get; set; } = true;
+        public bool ExperimentalNativeSshEnabled { get; set; } = false;
 
         public System.Collections.Generic.List<TerminalProfile> Profiles { get; set; } = new();
         public Guid DefaultProfileId { get; set; }
