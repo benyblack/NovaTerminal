@@ -151,6 +151,23 @@ public sealed class NativeSshSessionTests
             Resizes.Add((cols, rows));
         }
 
+        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options)
+        {
+            return 1;
+        }
+
+        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        {
+        }
+
+        public void SendChannelEof(IntPtr sessionHandle, int channelId)
+        {
+        }
+
+        public void CloseChannel(IntPtr sessionHandle, int channelId)
+        {
+        }
+
         public void Close(IntPtr sessionHandle)
         {
             CloseCallCount++;
