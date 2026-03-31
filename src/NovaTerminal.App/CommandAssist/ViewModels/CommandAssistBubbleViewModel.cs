@@ -9,7 +9,7 @@ public sealed class CommandAssistBubbleViewModel : INotifyPropertyChanged
     private string _modeLabel = "Suggest";
     private string _queryText = string.Empty;
     private string _summaryText = string.Empty;
-    private string _shortcutHintText = "Tab insert  |  Ctrl+Shift+H help  |  Ctrl+R history";
+    private string _shortcutHintText = "Ctrl+Enter insert  |  Ctrl+Shift+H help  |  Ctrl+R history";
     private bool _showQueryText = true;
 
     public bool IsVisible

@@ -908,6 +908,7 @@ namespace NovaTerminal.Controls
 
             bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
             bool isShift = (modifiers & KeyModifiers.Shift) != 0;
+            bool isAlt = (modifiers & KeyModifiers.Alt) != 0;
 
             if (key == Key.Escape)
             {
@@ -927,7 +928,7 @@ namespace NovaTerminal.Controls
                 return true;
             }
 
-            if (key == Key.Tab)
+            if (isCtrl && !isShift && !isAlt && key == Key.Enter)
             {
                 TryInsertSelectedCommandAssistSuggestion();
                 return true;
@@ -1541,11 +1542,35 @@ namespace NovaTerminal.Controls
             // Copy/Paste (Ctrl+Shift+C/V) - TBD
             // Font Zoom - TBD
 
+            // Reconnect if dead
+            if ((Session == null || LastExitCode.HasValue) && e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                Reconnect();
+                return;
+            }
+
             // Forward to PTY common handler
             // For now, we rely on Window forwarding, OR we implement it here.
             // PLAN: We will implement full OnKeyDown here in Phase 2.
 
             base.OnKeyDown(e);
+        }
+
+        public void Reconnect()
+        {
+            if (Session != null)
+            {
+                Session.Dispose();
+                Session = null;
+            }
+
+            LastExitCode = null;
+            if (Buffer != null)
+            {
+                Buffer.WriteContent("\r\n\x1b[90m[Reconnecting...]\x1b[0m\r\n", false);
+            }
+            InitializeSession(ShellCommand, Profile, TermView.Cols, TermView.Rows, ShellArgs);
         }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)

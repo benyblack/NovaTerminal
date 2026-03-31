@@ -3424,6 +3424,15 @@ namespace NovaTerminal
                 }
             }
 
+            if (_sshConnectionService != null)
+            {
+                foreach (var profile in _sshConnectionService.GetConnectionProfiles())
+                {
+                    var capturedProfile = profile;
+                    CommandRegistry.Register($"New Connection (SSH): {profile.Name}", "SSH", () => AddTab(capturedProfile), "");
+                }
+            }
+
             var tabs = this.FindControl<TabControl>("Tabs");
             if (tabs != null)
             {
@@ -3484,6 +3493,7 @@ namespace NovaTerminal
             CommandRegistry.Register("Equalize Panes", "View", () => EqualizeCurrentSplit(), "Ctrl+Shift+G");
             CommandRegistry.Register("Pane: Toggle Zoom", "View", () => TogglePaneZoomForCurrentTab(), "Ctrl+Shift+Z");
             CommandRegistry.Register("Pane: Toggle Broadcast Input (Tab)", "View", () => ToggleBroadcastForCurrentTab(), "Ctrl+Shift+B");
+            CommandRegistry.Register("Pane: Reconnect", "View", () => _currentPane?.Reconnect(), "");
             CommandRegistry.Register("Focus Pane Left", "View", () => NavigatePane(MoveDirection.Left), "Alt+Left");
             CommandRegistry.Register("Focus Pane Right", "View", () => NavigatePane(MoveDirection.Right), "Alt+Right");
             CommandRegistry.Register("Focus Pane Up", "View", () => NavigatePane(MoveDirection.Up), "Alt+Up");

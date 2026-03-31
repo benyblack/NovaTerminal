@@ -22,6 +22,18 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     }
 
     [AvaloniaFact]
+    public void TryHandleCommandAssistKey_WhenAssistVisible_DoesNotConsumeTab()
+    {
+        var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.ToggleCommandAssist();
+
+        bool handled = pane.TryHandleCommandAssistKey(Key.Tab, KeyModifiers.None);
+
+        Assert.False(handled);
+    }
+
+    [AvaloniaFact]
     public void OpenCommandAssistHelp_WhenDisabledInSettings_ReturnsFalse()
     {
         var pane = new TerminalPane();
