@@ -78,6 +78,7 @@ public sealed class SshConnectionService
         if (existing != null && viewModel.BackendKind is null)
         {
             incoming.BackendKind = existing.BackendKind;
+            incoming.RememberPasswordInVault = NormalizeRememberPasswordPreference(existing.BackendKind, existing.RememberPasswordInVault);
         }
 
         SshProfile merged = MergeProfile(existing, incoming, viewModel.IsFavorite);

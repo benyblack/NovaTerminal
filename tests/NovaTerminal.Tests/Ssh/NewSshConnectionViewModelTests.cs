@@ -208,6 +208,20 @@ public sealed class NewSshConnectionViewModelTests
     }
 
     [Fact]
+    public void BackendKind_WhenChangedAwayFromNative_ClearsRememberPasswordPreference()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            BackendKind = SshBackendKind.Native,
+            RememberPasswordInVault = true
+        };
+
+        vm.BackendKind = SshBackendKind.OpenSsh;
+
+        Assert.False(vm.RememberPasswordInVault);
+    }
+
+    [Fact]
     public void ToSshProfile_PreservesRememberPasswordPreferenceForNativeProfiles()
     {
         var vm = new NewSshConnectionViewModel

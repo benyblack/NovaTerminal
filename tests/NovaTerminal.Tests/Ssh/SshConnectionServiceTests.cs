@@ -266,6 +266,46 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
+    public void SaveProfile_WithNullBackendPreservesNativeRememberPasswordPreference()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+
+            var existing = new SshProfile
+            {
+                Id = Guid.Parse("b8f6f5c4-1f52-4cc6-8b8b-f8964ad2f1b3"),
+                Name = "Native",
+                Host = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            };
+            store.SaveProfile(existing);
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = existing.Id,
+                Name = "Native Updated",
+                HostName = "updated.internal",
+                UserName = "ops"
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.Equal(SshBackendKind.Native, saved.BackendKind);
+            Assert.True(saved.RememberPasswordInVault);
+            Assert.True(store.GetProfile(saved.Id)!.RememberPasswordInVault);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CreateEditorViewModel_LoadsRememberPasswordPreferenceForNativeProfiles()
     {
         string tempRoot = CreateTempDirectory();
