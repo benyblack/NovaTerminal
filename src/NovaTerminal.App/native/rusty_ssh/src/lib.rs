@@ -34,6 +34,9 @@ pub struct NovaSshConnectArgs {
     pub rows: u16,
     pub term: *const c_char,
     pub identity_file: *const c_char,
+    pub jump_host: *const c_char,
+    pub jump_user: *const c_char,
+    pub jump_port: u16,
 }
 
 #[repr(C)]
@@ -139,6 +142,14 @@ struct ConnectConfig {
     rows: u16,
     term: String,
     identity_file: Option<String>,
+    jump_host: Option<JumpHostConfig>,
+}
+
+#[derive(Clone)]
+struct JumpHostConfig {
+    host: String,
+    user: String,
+    port: u16,
 }
 
 #[derive(Clone)]
@@ -624,6 +635,13 @@ impl ConnectConfig {
         let user = read_c_string(args.user)?;
         let term = read_c_string(args.term).unwrap_or_else(|| "xterm-256color".to_owned());
         let identity_file = read_c_string(args.identity_file);
+        let jump_host = read_c_string(args.jump_host);
+        let jump_user = read_c_string(args.jump_user);
+        let effective_jump_host = jump_host.map(|host| JumpHostConfig {
+            host,
+            user: jump_user.unwrap_or_else(|| user.clone()),
+            port: if args.jump_port == 0 { 22 } else { args.jump_port },
+        });
 
         Some(Self {
             host,
@@ -633,6 +651,7 @@ impl ConnectConfig {
             rows: if args.rows == 0 { 30 } else { args.rows },
             term,
             identity_file,
+            jump_host: effective_jump_host,
         })
     }
 }
@@ -663,16 +682,56 @@ fn run_session(
             ..<_>::default()
         });
 
+        let jump_session = if let Some(jump_host) = &config.jump_host {
+            let jump_handler = NovaClientHandler {
+                shared: shared.clone(),
+                host: jump_host.host.clone(),
+                port: jump_host.port,
+            };
+
+            let mut jump = client::connect(
+                client_config.clone(),
+                (jump_host.host.as_str(), jump_host.port),
+                jump_handler,
+            )
+            .await?;
+
+            authenticate(
+                &jump_host.user,
+                config.identity_file.as_deref(),
+                &shared,
+                &mut jump,
+            )
+            .await?;
+            Some(jump)
+        } else {
+            None
+        };
+
         let handler = NovaClientHandler {
             shared: shared.clone(),
             host: config.host.clone(),
             port: config.port,
         };
 
-        let mut session =
-            client::connect(client_config, (config.host.as_str(), config.port), handler).await?;
+        let mut session = if let Some(jump) = &jump_session {
+            let stream = jump
+                .channel_open_direct_tcpip(config.host.clone(), config.port as u32, "127.0.0.1", 0)
+                .await?
+                .into_stream();
 
-        authenticate(&config, &shared, &mut session).await?;
+            client::connect_stream(client_config.clone(), stream, handler).await?
+        } else {
+            client::connect(client_config.clone(), (config.host.as_str(), config.port), handler).await?
+        };
+
+        authenticate(
+            &config.user,
+            config.identity_file.as_deref(),
+            &shared,
+            &mut session,
+        )
+        .await?;
 
         let mut channel = session.channel_open_session().await?;
         channel
@@ -783,6 +842,11 @@ fn run_session(
         let _ = session
             .disconnect(Disconnect::ByApplication, "Closed by NovaTerminal", "en")
             .await;
+        if let Some(jump) = jump_session {
+            let _ = jump
+                .disconnect(Disconnect::ByApplication, "Closed by NovaTerminal", "en")
+                .await;
+        }
         Ok(())
     })
 }
@@ -918,12 +982,13 @@ async fn close_all_forward_channels(
 }
 
 async fn authenticate(
-    config: &ConnectConfig,
+    user: &str,
+    identity_file: Option<&str>,
     shared: &Arc<SharedState>,
     session: &mut client::Handle<NovaClientHandler>,
 ) -> anyhow::Result<()> {
-    if let Some(identity_file) = &config.identity_file {
-        if let Some(auth_result) = try_public_key_auth(config, shared, session, identity_file).await? {
+    if let Some(identity_file) = identity_file {
+        if let Some(auth_result) = try_public_key_auth(user, shared, session, identity_file).await? {
             if auth_result.success() {
                 return Ok(());
             }
@@ -932,13 +997,13 @@ async fn authenticate(
 
     let password = prompt_text(shared, NovaSshEventKind::PasswordPrompt, "Password:", NovaSshResponseKind::Password)?;
     let password_auth = session
-        .authenticate_password(config.user.clone(), password)
+        .authenticate_password(user.to_owned(), password)
         .await?;
     if password_auth.success() {
         return Ok(());
     }
 
-    let keyboard_auth = authenticate_keyboard_interactive(config, shared, session).await?;
+    let keyboard_auth = authenticate_keyboard_interactive(user, shared, session).await?;
     if keyboard_auth {
         return Ok(());
     }
@@ -947,7 +1012,7 @@ async fn authenticate(
 }
 
 async fn try_public_key_auth(
-    config: &ConnectConfig,
+    user: &str,
     shared: &Arc<SharedState>,
     session: &mut client::Handle<NovaClientHandler>,
     identity_file: &str,
@@ -968,7 +1033,7 @@ async fn try_public_key_auth(
     let hash_alg = session.best_supported_rsa_hash().await?.flatten();
     let auth = session
         .authenticate_publickey(
-            config.user.clone(),
+            user.to_owned(),
             PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
         )
         .await?;
@@ -976,12 +1041,12 @@ async fn try_public_key_auth(
 }
 
 async fn authenticate_keyboard_interactive(
-    config: &ConnectConfig,
+    user: &str,
     shared: &Arc<SharedState>,
     session: &mut client::Handle<NovaClientHandler>,
 ) -> anyhow::Result<bool> {
     let mut response = session
-        .authenticate_keyboard_interactive_start(config.user.clone(), None::<String>)
+        .authenticate_keyboard_interactive_start(user.to_owned(), None::<String>)
         .await?;
 
     loop {

@@ -14,6 +14,7 @@ public sealed class NativeSshSession : ITerminalSession
 
     private readonly INativeSshInterop _interop;
     private readonly ISshInteractionHandler? _interactionHandler;
+    private readonly NativeJumpHostConnector _jumpHostConnector = new();
     private readonly CancellationTokenSource _pollCts = new();
     private readonly Task _pollTask;
     private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
@@ -41,11 +42,6 @@ public sealed class NativeSshSession : ITerminalSession
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        if (profile.JumpHops.Count != 0)
-        {
-            throw new NotSupportedException("Native SSH backend does not support jump hops yet.");
-        }
-
         if (profile.Forwards.Any(forward => forward.Kind != PortForwardKind.Local))
         {
             throw new NotSupportedException("Native SSH backend currently supports local port forwards only.");
@@ -58,7 +54,10 @@ public sealed class NativeSshSession : ITerminalSession
         _log = log ?? Console.WriteLine;
         _interop = interop ?? new NativeSshInterop();
         _interactionHandler = interactionHandler;
-        _sessionHandle = _interop.Connect(NativeSshConnectionOptions.FromProfile(profile, cols, rows));
+        JumpHostConnectPlan connectPlan = JumpHostConnectPlan.Create(profile);
+        NativeSshConnectionOptions connectionOptions = _jumpHostConnector.CreateConnectionOptions(connectPlan, profile, cols, rows);
+        _log($"[NativeSshSession] backend=native path={_jumpHostConnector.DescribePath(connectPlan)} target={connectionOptions.User}@{connectionOptions.Host}:{connectionOptions.Port}");
+        _sessionHandle = _interop.Connect(connectionOptions);
 
         try
         {

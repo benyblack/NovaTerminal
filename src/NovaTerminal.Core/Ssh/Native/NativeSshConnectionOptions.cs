@@ -11,6 +11,7 @@ public sealed class NativeSshConnectionOptions
     public int Rows { get; init; } = 30;
     public string Term { get; init; } = "xterm-256color";
     public string? IdentityFilePath { get; init; }
+    public SshJumpHop? JumpHost { get; init; }
 
     public static NativeSshConnectionOptions FromProfile(SshProfile profile, int cols, int rows)
     {
