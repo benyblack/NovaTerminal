@@ -2,7 +2,9 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Interactions;
+using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.ViewModels.Ssh;
 using NovaTerminal.Views.Ssh;
 
@@ -14,32 +16,65 @@ public sealed class SshInteractionService : ISshInteractionService
     private readonly Action<Window>? _prepareDialog;
     private readonly Func<Window?, HostKeyPromptViewModel, CancellationToken, Task<SshInteractionResponse>> _hostKeyPresenter;
     private readonly Func<Window?, AuthPromptViewModel, CancellationToken, Task<SshInteractionResponse>> _authPresenter;
+    private readonly NativeKnownHostsStore _knownHostsStore;
 
     public SshInteractionService(
         Func<Window?>? ownerProvider = null,
         Action<Window>? prepareDialog = null,
         Func<Window?, HostKeyPromptViewModel, CancellationToken, Task<SshInteractionResponse>>? hostKeyPresenter = null,
-        Func<Window?, AuthPromptViewModel, CancellationToken, Task<SshInteractionResponse>>? authPresenter = null)
+        Func<Window?, AuthPromptViewModel, CancellationToken, Task<SshInteractionResponse>>? authPresenter = null,
+        NativeKnownHostsStore? knownHostsStore = null)
     {
         _ownerProvider = ownerProvider ?? (() => null);
         _prepareDialog = prepareDialog;
         _hostKeyPresenter = hostKeyPresenter ?? PresentHostKeyAsync;
         _authPresenter = authPresenter ?? PresentAuthAsync;
+        _knownHostsStore = knownHostsStore ?? new NativeKnownHostsStore(AppPaths.NativeKnownHostsFilePath);
     }
 
-    public Task<SshInteractionResponse> HandleAsync(SshInteractionRequest request, CancellationToken cancellationToken)
+    public async Task<SshInteractionResponse> HandleAsync(SshInteractionRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         Window? owner = _ownerProvider();
         return request.Kind switch
         {
-            SshInteractionKind.UnknownHostKey or SshInteractionKind.ChangedHostKey => _hostKeyPresenter(owner, CreateHostKeyViewModel(request), cancellationToken),
-            SshInteractionKind.Password => _authPresenter(owner, CreatePasswordViewModel(request), cancellationToken),
-            SshInteractionKind.Passphrase => _authPresenter(owner, CreatePassphraseViewModel(request), cancellationToken),
-            SshInteractionKind.KeyboardInteractive => _authPresenter(owner, CreateKeyboardViewModel(request), cancellationToken),
-            _ => Task.FromResult(SshInteractionResponse.Cancel())
+            SshInteractionKind.UnknownHostKey or SshInteractionKind.ChangedHostKey => await HandleHostKeyAsync(owner, request, cancellationToken),
+            SshInteractionKind.Password => await _authPresenter(owner, CreatePasswordViewModel(request), cancellationToken),
+            SshInteractionKind.Passphrase => await _authPresenter(owner, CreatePassphraseViewModel(request), cancellationToken),
+            SshInteractionKind.KeyboardInteractive => await _authPresenter(owner, CreateKeyboardViewModel(request), cancellationToken),
+            _ => SshInteractionResponse.Cancel()
         };
+    }
+
+    private async Task<SshInteractionResponse> HandleHostKeyAsync(Window? owner, SshInteractionRequest request, CancellationToken cancellationToken)
+    {
+        NativeKnownHostMatch match = _knownHostsStore.CheckHost(request.Host, request.Port, request.Algorithm, request.Fingerprint);
+        if (match == NativeKnownHostMatch.Trusted)
+        {
+            return SshInteractionResponse.AcceptHostKey();
+        }
+
+        SshInteractionRequest requestToPresent = request;
+        if (match == NativeKnownHostMatch.Mismatch)
+        {
+            requestToPresent = new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.ChangedHostKey,
+                Host = request.Host,
+                Port = request.Port,
+                Algorithm = request.Algorithm,
+                Fingerprint = request.Fingerprint
+            };
+        }
+
+        SshInteractionResponse response = await _hostKeyPresenter(owner, CreateHostKeyViewModel(requestToPresent), cancellationToken);
+        if (response.IsAccepted && !response.IsCanceled)
+        {
+            _knownHostsStore.TrustHost(request.Host, request.Port, request.Algorithm, request.Fingerprint);
+        }
+
+        return response;
     }
 
     private async Task<SshInteractionResponse> PresentHostKeyAsync(Window? owner, HostKeyPromptViewModel viewModel, CancellationToken cancellationToken)

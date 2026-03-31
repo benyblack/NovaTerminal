@@ -35,6 +35,8 @@ namespace NovaTerminal.Core
         public static string CommandAssistDirectory => Path.Combine(RootDirectory, "command-assist");
         public static string CommandHistoryFilePath => Path.Combine(CommandAssistDirectory, "history.json");
         public static string CommandSnippetsFilePath => Path.Combine(CommandAssistDirectory, "snippets.json");
+        public static string SshDirectory => Path.Combine(RootDirectory, "ssh");
+        public static string NativeKnownHostsFilePath => Path.Combine(SshDirectory, "native_known_hosts.json");
 
         public static void EnsureInitialized()
         {
@@ -55,6 +57,7 @@ namespace NovaTerminal.Core
                     Directory.CreateDirectory(PolicyDirectory);
                     Directory.CreateDirectory(RecordingsDirectory);
                     Directory.CreateDirectory(CommandAssistDirectory);
+                    Directory.CreateDirectory(SshDirectory);
 
                     string legacyBaseDir = AppDomain.CurrentDomain.BaseDirectory;
                     string legacyRoamingRoot = Path.Combine(

@@ -1,4 +1,5 @@
 using NovaTerminal.Core.Ssh.Interactions;
+using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.ViewModels.Ssh;
 
@@ -9,30 +10,112 @@ public sealed class SshInteractionServiceTests
     [Fact]
     public async Task HostKeyRequestsMapToHostKeyPromptViewModel()
     {
-        HostKeyPromptViewModel? capturedVm = null;
-        var service = new SshInteractionService(
-            hostKeyPresenter: (_, vm, _) =>
-            {
-                capturedVm = vm;
-                return Task.FromResult(SshInteractionResponse.AcceptHostKey());
-            });
-
-        var response = await service.HandleAsync(new SshInteractionRequest
+        string tempRoot = CreateTempDirectory();
+        try
         {
-            Kind = SshInteractionKind.UnknownHostKey,
-            Host = "example.internal",
-            Port = 2222,
-            Algorithm = "ssh-ed25519",
-            Fingerprint = "SHA256:test"
-        }, CancellationToken.None);
+            HostKeyPromptViewModel? capturedVm = null;
+            var knownHosts = new NativeKnownHostsStore(Path.Combine(tempRoot, "native_known_hosts.json"));
+            var service = new SshInteractionService(
+                hostKeyPresenter: (_, vm, _) =>
+                {
+                    capturedVm = vm;
+                    return Task.FromResult(SshInteractionResponse.AcceptHostKey());
+                },
+                knownHostsStore: knownHosts);
 
-        Assert.NotNull(capturedVm);
-        Assert.Equal("example.internal", capturedVm!.Host);
-        Assert.Equal(2222, capturedVm.Port);
-        Assert.Equal("ssh-ed25519", capturedVm.Algorithm);
-        Assert.Equal("SHA256:test", capturedVm.Fingerprint);
-        Assert.False(capturedVm.IsChangedHostKey);
-        Assert.True(response.IsAccepted);
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.UnknownHostKey,
+                Host = "example.internal",
+                Port = 2222,
+                Algorithm = "ssh-ed25519",
+                Fingerprint = "SHA256:test"
+            }, CancellationToken.None);
+
+            Assert.NotNull(capturedVm);
+            Assert.Equal("example.internal", capturedVm!.Host);
+            Assert.Equal(2222, capturedVm.Port);
+            Assert.Equal("ssh-ed25519", capturedVm.Algorithm);
+            Assert.Equal("SHA256:test", capturedVm.Fingerprint);
+            Assert.False(capturedVm.IsChangedHostKey);
+            Assert.True(response.IsAccepted);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task TrustedHostKey_SkipsDialogAndAcceptsImmediately()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            var knownHosts = new NativeKnownHostsStore(Path.Combine(tempRoot, "native_known_hosts.json"));
+            knownHosts.TrustHost("example.internal", 22, "ssh-ed25519", "SHA256:test");
+            int promptCount = 0;
+            var service = new SshInteractionService(
+                hostKeyPresenter: (_, _, _) =>
+                {
+                    promptCount++;
+                    return Task.FromResult(SshInteractionResponse.Cancel());
+                },
+                knownHostsStore: knownHosts);
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.UnknownHostKey,
+                Host = "example.internal",
+                Port = 22,
+                Algorithm = "ssh-ed25519",
+                Fingerprint = "SHA256:test"
+            }, CancellationToken.None);
+
+            Assert.True(response.IsAccepted);
+            Assert.Equal(0, promptCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task ChangedHostKey_MapsToChangedPromptViewModel()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            var knownHosts = new NativeKnownHostsStore(Path.Combine(tempRoot, "native_known_hosts.json"));
+            knownHosts.TrustHost("example.internal", 22, "ssh-ed25519", "SHA256:old");
+            HostKeyPromptViewModel? capturedVm = null;
+            var service = new SshInteractionService(
+                hostKeyPresenter: (_, vm, _) =>
+                {
+                    capturedVm = vm;
+                    return Task.FromResult(SshInteractionResponse.AcceptHostKey());
+                },
+                knownHostsStore: knownHosts);
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.UnknownHostKey,
+                Host = "example.internal",
+                Port = 22,
+                Algorithm = "ssh-ed25519",
+                Fingerprint = "SHA256:new"
+            }, CancellationToken.None);
+
+            Assert.NotNull(capturedVm);
+            Assert.True(capturedVm!.IsChangedHostKey);
+            Assert.True(response.IsAccepted);
+            Assert.Equal(NativeKnownHostMatch.Trusted, knownHosts.CheckHost("example.internal", 22, "ssh-ed25519", "SHA256:new"));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     [Fact]
@@ -114,5 +197,12 @@ public sealed class SshInteractionServiceTests
         Assert.Equal("Passcode:", capturedVm.Prompts[0].Prompt);
         Assert.True(capturedVm.Prompts[0].IsSecret);
         Assert.Equal(["code", "otp"], response.KeyboardResponses);
+    }
+
+    private static string CreateTempDirectory()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"nova_ssh_interaction_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        return path;
     }
 }
