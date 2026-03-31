@@ -1,5 +1,6 @@
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Storage;
 
 namespace NovaTerminal.Core.Ssh.Sessions;
@@ -8,20 +9,25 @@ public sealed class SshSessionFactory : ISshSessionFactory
 {
     private readonly ISshProfileStore _profileStore;
     private readonly ISshProcessLauncher? _launcher;
+    private readonly INativeSshInterop? _nativeInterop;
 
     public SshSessionFactory(ISshProfileStore profileStore)
-        : this(profileStore, null)
+        : this(profileStore, null, null)
     {
     }
 
-    public SshSessionFactory(ISshProfileStore profileStore, ISshProcessLauncher? launcher = null)
+    public SshSessionFactory(
+        ISshProfileStore profileStore,
+        ISshProcessLauncher? launcher = null,
+        INativeSshInterop? nativeInterop = null)
     {
         _profileStore = profileStore ?? throw new ArgumentNullException(nameof(profileStore));
         _launcher = launcher;
+        _nativeInterop = nativeInterop;
     }
 
     public SshSessionFactory(ISshProcessLauncher? launcher = null)
-        : this(new JsonSshProfileStore(), launcher)
+        : this(new JsonSshProfileStore(), launcher, null)
     {
     }
 
@@ -38,7 +44,7 @@ public sealed class SshSessionFactory : ISshSessionFactory
 
         return profile.BackendKind switch
         {
-            SshBackendKind.Native => new NativeSshSession(profile, cols, rows, diagnosticsLevel, extraArgs, log),
+            SshBackendKind.Native => new NativeSshSession(profile, cols, rows, diagnosticsLevel, extraArgs, log, _nativeInterop),
             _ => new OpenSshSession(profile.Id, _profileStore, cols, rows, diagnosticsLevel, extraArgs, _launcher, log)
         };
     }
