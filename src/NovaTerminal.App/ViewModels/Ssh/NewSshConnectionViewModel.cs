@@ -144,6 +144,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
                 }
 
                 OnPropertyChanged(nameof(BackendWarning));
+                OnPropertyChanged(nameof(IsRememberPasswordVisible));
             }
         }
     }
@@ -153,6 +154,8 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         get => _rememberPasswordInVault;
         set => SetField(ref _rememberPasswordInVault, value);
     }
+
+    public bool IsRememberPasswordVisible => BackendKind == SshBackendKind.Native;
 
     public int KeepAliveIntervalSeconds
     {
