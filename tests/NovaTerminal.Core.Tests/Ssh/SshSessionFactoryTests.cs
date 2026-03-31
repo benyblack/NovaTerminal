@@ -53,6 +53,27 @@ public sealed class SshSessionFactoryTests
         Assert.Contains(logs, message => message.Contains("path=jump-host", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Create_ForNativeProfileWhenExperimentalToggleDisabled_ThrowsClearError()
+    {
+        var profileId = Guid.Parse("76b0d0aa-cdde-4eb5-835d-f94df74485b6");
+        var store = new InMemorySshProfileStore(new SshProfile
+        {
+            Id = profileId,
+            Name = "native-disabled",
+            Host = "native.internal",
+            User = "nova",
+            BackendKind = SshBackendKind.Native
+        });
+
+        var factory = new SshSessionFactory(store, launcher: null, nativeInterop: new StubNativeSshInterop(), nativeSshEnabled: false);
+
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() => factory.Create(profileId));
+
+        Assert.Contains("disabled", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("OpenSSH", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private sealed class InMemorySshProfileStore : ISshProfileStore
     {
         public InMemorySshProfileStore(SshProfile profile)

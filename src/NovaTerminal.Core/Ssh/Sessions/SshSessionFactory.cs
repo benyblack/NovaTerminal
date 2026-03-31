@@ -12,6 +12,7 @@ public sealed class SshSessionFactory : ISshSessionFactory
     private readonly ISshProcessLauncher? _launcher;
     private readonly INativeSshInterop? _nativeInterop;
     private readonly ISshInteractionHandler? _nativeInteractionHandler;
+    private readonly bool _nativeSshEnabled;
 
     public SshSessionFactory(ISshProfileStore profileStore)
         : this(profileStore, null, null)
@@ -22,19 +23,22 @@ public sealed class SshSessionFactory : ISshSessionFactory
         ISshProfileStore profileStore,
         ISshProcessLauncher? launcher = null,
         INativeSshInterop? nativeInterop = null,
-        ISshInteractionHandler? nativeInteractionHandler = null)
+        ISshInteractionHandler? nativeInteractionHandler = null,
+        bool nativeSshEnabled = true)
     {
         _profileStore = profileStore ?? throw new ArgumentNullException(nameof(profileStore));
         _launcher = launcher;
         _nativeInterop = nativeInterop;
         _nativeInteractionHandler = nativeInteractionHandler;
+        _nativeSshEnabled = nativeSshEnabled;
     }
 
     public SshSessionFactory(
         ISshProcessLauncher? launcher = null,
         INativeSshInterop? nativeInterop = null,
-        ISshInteractionHandler? nativeInteractionHandler = null)
-        : this(new JsonSshProfileStore(), launcher, nativeInterop, nativeInteractionHandler)
+        ISshInteractionHandler? nativeInteractionHandler = null,
+        bool nativeSshEnabled = true)
+        : this(new JsonSshProfileStore(), launcher, nativeInterop, nativeInteractionHandler, nativeSshEnabled)
     {
     }
 
@@ -64,6 +68,12 @@ public sealed class SshSessionFactory : ISshSessionFactory
         IReadOnlyList<string>? extraArgs,
         Action<string>? log)
     {
+        if (!_nativeSshEnabled)
+        {
+            throw new InvalidOperationException(
+                "Native SSH is disabled globally. Switch this profile back to OpenSSH or enable ExperimentalNativeSshEnabled.");
+        }
+
         string path = profile.JumpHops.Count switch
         {
             0 => "direct",

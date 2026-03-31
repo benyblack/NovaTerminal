@@ -1127,7 +1127,9 @@ namespace NovaTerminal.Controls
                 {
                     try
                     {
-                        var sessionFactory = new SshSessionFactory(nativeInteractionHandler: SshInteractionHandler);
+                        var sessionFactory = new SshSessionFactory(
+                            nativeInteractionHandler: SshInteractionHandler,
+                            nativeSshEnabled: _settings?.ExperimentalNativeSshEnabled ?? false);
                         Session = sessionFactory.Create(
                             profile.Id,
                             cols,

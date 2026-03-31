@@ -3870,6 +3870,8 @@ namespace NovaTerminal
         private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
         {
             var vm = _sshConnectionService.CreateEditorViewModel(existingProfile);
+            vm.BackendKind ??= NovaTerminal.Core.Ssh.Models.SshBackendKind.OpenSsh;
+            vm.ExperimentalNativeSshEnabled = _settings.ExperimentalNativeSshEnabled;
             var dialog = new NewSshConnectionView(vm);
             ApplyThemeToDialogWindow(dialog);
             bool saved = await dialog.ShowDialog<bool>(this);
@@ -3888,6 +3890,15 @@ namespace NovaTerminal
 
                 if (vm.ConnectAfterSave)
                 {
+                    if (profile.SshBackendKind == NovaTerminal.Core.Ssh.Models.SshBackendKind.Native &&
+                        !_settings.ExperimentalNativeSshEnabled)
+                    {
+                        await ShowSimpleMessageDialogAsync(
+                            "Native SSH disabled",
+                            "This profile was saved with the Native backend, but native SSH is disabled globally. Enable ExperimentalNativeSshEnabled in settings or switch the profile back to OpenSSH.");
+                        return;
+                    }
+
                     AddTab(profile, SshDiagnosticsLevel.None);
                 }
             }
