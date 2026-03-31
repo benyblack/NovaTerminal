@@ -143,6 +143,23 @@ public sealed class NativeSshInterop : INativeSshInterop
         throw new InvalidOperationException($"Native SSH close failed with result {rc}.");
     }
 
+    public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
+    {
+        if (sessionHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        byte[] payload = data.ToArray();
+        int rc = NativeMethods.nova_ssh_submit_response(sessionHandle, (uint)responseKind, payload, (nuint)payload.Length);
+        if (rc is ResultOk or ResultInvalidArgument)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException($"Native SSH submit response failed with result {rc}.");
+    }
+
     private static void FreeUtf8(IntPtr pointer)
     {
         if (pointer != IntPtr.Zero)
@@ -188,5 +205,8 @@ public sealed class NativeSshInterop : INativeSshInterop
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_close")]
         public static extern int nova_ssh_close(IntPtr session);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_submit_response")]
+        public static extern int nova_ssh_submit_response(IntPtr session, uint responseKind, byte[] data, nuint dataLength);
     }
 }

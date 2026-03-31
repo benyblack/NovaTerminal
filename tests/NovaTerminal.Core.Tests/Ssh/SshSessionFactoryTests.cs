@@ -60,5 +60,9 @@ public sealed class SshSessionFactoryTests
         public void Close(IntPtr sessionHandle)
         {
         }
+
+        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
+        {
+        }
     }
 }

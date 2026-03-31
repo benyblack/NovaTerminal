@@ -60,6 +60,7 @@ namespace NovaTerminal
         private bool _closePaneInProgress;
         private bool _closeTabInProgress;
         private readonly SshConnectionService _sshConnectionService;
+        private readonly ISshInteractionService _sshInteractionService;
         private readonly SshLegacyProfileMigrationService _sshLegacyMigrationService;
         private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
 
@@ -1589,6 +1590,7 @@ namespace NovaTerminal
             InitializeComponent();
             _settings = TerminalSettings.Load();
             _sshConnectionService = new SshConnectionService();
+            _sshInteractionService = new SshInteractionService(() => this, ApplyThemeToDialogWindow);
             _sshLegacyMigrationService = new SshLegacyProfileMigrationService();
 
             if (_sshLegacyMigrationService.MigrateLegacyProfiles(_settings))
@@ -2160,6 +2162,7 @@ namespace NovaTerminal
 
         private void WirePane(TerminalPane pane)
         {
+            pane.SshInteractionHandler = _sshInteractionService;
             pane.RequestSftpTransfer -= OnPaneRequestSftpTransfer;
             pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
             pane.TitleChanged -= OnPaneTitleChanged;

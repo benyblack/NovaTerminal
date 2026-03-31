@@ -1,4 +1,5 @@
 using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Storage;
@@ -10,6 +11,7 @@ public sealed class SshSessionFactory : ISshSessionFactory
     private readonly ISshProfileStore _profileStore;
     private readonly ISshProcessLauncher? _launcher;
     private readonly INativeSshInterop? _nativeInterop;
+    private readonly ISshInteractionHandler? _nativeInteractionHandler;
 
     public SshSessionFactory(ISshProfileStore profileStore)
         : this(profileStore, null, null)
@@ -19,15 +21,20 @@ public sealed class SshSessionFactory : ISshSessionFactory
     public SshSessionFactory(
         ISshProfileStore profileStore,
         ISshProcessLauncher? launcher = null,
-        INativeSshInterop? nativeInterop = null)
+        INativeSshInterop? nativeInterop = null,
+        ISshInteractionHandler? nativeInteractionHandler = null)
     {
         _profileStore = profileStore ?? throw new ArgumentNullException(nameof(profileStore));
         _launcher = launcher;
         _nativeInterop = nativeInterop;
+        _nativeInteractionHandler = nativeInteractionHandler;
     }
 
-    public SshSessionFactory(ISshProcessLauncher? launcher = null)
-        : this(new JsonSshProfileStore(), launcher, null)
+    public SshSessionFactory(
+        ISshProcessLauncher? launcher = null,
+        INativeSshInterop? nativeInterop = null,
+        ISshInteractionHandler? nativeInteractionHandler = null)
+        : this(new JsonSshProfileStore(), launcher, nativeInterop, nativeInteractionHandler)
     {
     }
 
@@ -44,7 +51,7 @@ public sealed class SshSessionFactory : ISshSessionFactory
 
         return profile.BackendKind switch
         {
-            SshBackendKind.Native => new NativeSshSession(profile, cols, rows, diagnosticsLevel, extraArgs, log, _nativeInterop),
+            SshBackendKind.Native => new NativeSshSession(profile, cols, rows, diagnosticsLevel, extraArgs, log, _nativeInterop, _nativeInteractionHandler),
             _ => new OpenSshSession(profile.Id, _profileStore, cols, rows, diagnosticsLevel, extraArgs, _launcher, log)
         };
     }

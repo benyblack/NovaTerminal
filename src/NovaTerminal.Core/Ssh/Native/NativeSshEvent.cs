@@ -22,6 +22,14 @@ public enum NativeSshEventKind
     Closed = 9
 }
 
+public enum NativeSshResponseKind
+{
+    HostKeyDecision = 1,
+    Password = 2,
+    Passphrase = 3,
+    KeyboardInteractive = 4
+}
+
 public sealed class NativeSshEvent
 {
     public NativeSshEvent(

@@ -24,6 +24,7 @@ using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Sessions;
 
 namespace NovaTerminal.Controls
@@ -173,6 +174,7 @@ namespace NovaTerminal.Controls
         }
 
         public Control ActiveControl => TermView;
+        public ISshInteractionHandler? SshInteractionHandler { get; set; }
 
         public TerminalPane()
         {
@@ -1125,7 +1127,7 @@ namespace NovaTerminal.Controls
                 {
                     try
                     {
-                        var sessionFactory = new SshSessionFactory();
+                        var sessionFactory = new SshSessionFactory(nativeInteractionHandler: SshInteractionHandler);
                         Session = sessionFactory.Create(
                             profile.Id,
                             cols,

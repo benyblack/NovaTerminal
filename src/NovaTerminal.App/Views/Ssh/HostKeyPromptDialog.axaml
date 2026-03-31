@@ -1,0 +1,30 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:NovaTerminal.ViewModels.Ssh"
+        x:Class="NovaTerminal.Views.Ssh.HostKeyPromptDialog"
+        x:DataType="vm:HostKeyPromptViewModel"
+        Width="560"
+        Height="280"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+    <Border Padding="16">
+        <StackPanel Spacing="12">
+            <TextBlock Text="{Binding Title}" FontSize="18" FontWeight="SemiBold" />
+            <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="140,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="8">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Host" />
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Host}" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Port" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding Port}" />
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Algorithm" />
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Algorithm}" />
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Fingerprint" />
+                <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding Fingerprint}" TextWrapping="Wrap" />
+            </Grid>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button Content="Cancel" Width="96" Click="OnCancelClick" />
+                <Button Content="Trust" Width="96" Click="OnAcceptClick" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>
