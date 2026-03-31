@@ -6,5 +6,6 @@ public interface INativeSshInterop
     NativeSshEvent? PollEvent(IntPtr sessionHandle);
     void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data);
     void Resize(IntPtr sessionHandle, int cols, int rows);
+    void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data);
     void Close(IntPtr sessionHandle);
 }

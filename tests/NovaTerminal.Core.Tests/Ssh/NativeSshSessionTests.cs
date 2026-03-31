@@ -156,6 +156,10 @@ public sealed class NativeSshSessionTests
             CloseCallCount++;
         }
 
+        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
+        {
+        }
+
         public void Enqueue(NativeSshEvent nextEvent)
         {
             _events.Enqueue(nextEvent);
