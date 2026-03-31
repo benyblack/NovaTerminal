@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Core.Ssh.Native;
 
 namespace NovaTerminal.Core.Ssh.Storage;
 
@@ -15,6 +16,8 @@ namespace NovaTerminal.Core.Ssh.Storage;
 [JsonSerializable(typeof(PortForward))]
 [JsonSerializable(typeof(List<PortForward>))]
 [JsonSerializable(typeof(SshMuxOptions))]
+[JsonSerializable(typeof(KnownHostEntry))]
+[JsonSerializable(typeof(List<KnownHostEntry>))]
 internal partial class SshJsonContext : JsonSerializerContext
 {
 }

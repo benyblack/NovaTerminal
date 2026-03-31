@@ -91,6 +91,24 @@ public sealed class AppPathsTests
         }
     }
 
+    [Fact]
+    public void NativeKnownHostsFilePath_IsStableUnderRootDirectory()
+    {
+        string fullPath = Path.GetFullPath(AppPaths.NativeKnownHostsFilePath);
+        string root = Path.GetFullPath(AppPaths.RootDirectory);
+
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.StartsWith(root, fullPath, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            Assert.StartsWith(root, fullPath, StringComparison.Ordinal);
+        }
+
+        Assert.EndsWith(Path.Combine("ssh", "native_known_hosts.json"), fullPath);
+    }
+
     private static string CreateTempDirectory()
     {
         string path = Path.Combine(Path.GetTempPath(), $"nova_paths_test_{Guid.NewGuid():N}");
