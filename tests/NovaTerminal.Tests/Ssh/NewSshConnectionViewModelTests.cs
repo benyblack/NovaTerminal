@@ -175,6 +175,70 @@ public sealed class NewSshConnectionViewModelTests
     }
 
     [Fact]
+    public void ApplySshProfile_PreservesRememberPasswordPreferenceForNativeProfiles()
+    {
+        var vm = new NewSshConnectionViewModel();
+        var profile = new SshProfile
+        {
+            Name = "Native",
+            Host = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            RememberPasswordInVault = true
+        };
+
+        vm.ApplySshProfile(profile);
+
+        Assert.True(vm.RememberPasswordInVault);
+    }
+
+    [Fact]
+    public void ApplySshProfile_DoesNotExposeRememberPasswordPreferenceForOpenSshProfiles()
+    {
+        var vm = new NewSshConnectionViewModel();
+        var profile = new SshProfile
+        {
+            Name = "OpenSSH",
+            Host = "openssh.internal",
+            RememberPasswordInVault = true
+        };
+
+        vm.ApplySshProfile(profile);
+
+        Assert.False(vm.RememberPasswordInVault);
+    }
+
+    [Fact]
+    public void ToSshProfile_PreservesRememberPasswordPreferenceForNativeProfiles()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "Native",
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            RememberPasswordInVault = true
+        };
+
+        SshProfile profile = vm.ToSshProfile();
+
+        Assert.True(profile.RememberPasswordInVault);
+    }
+
+    [Fact]
+    public void ToSshProfile_DoesNotPersistRememberPasswordPreferenceForOpenSshProfiles()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "OpenSSH",
+            HostName = "openssh.internal",
+            RememberPasswordInVault = true
+        };
+
+        SshProfile profile = vm.ToSshProfile();
+
+        Assert.False(profile.RememberPasswordInVault);
+    }
+
+    [Fact]
     public void BackendWarning_WhenNativeSelectedAndExperimentalToggleDisabled_IsVisible()
     {
         var vm = new NewSshConnectionViewModel

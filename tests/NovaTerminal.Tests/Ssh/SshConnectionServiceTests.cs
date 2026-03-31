@@ -207,6 +207,49 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
+    public void SaveProfile_PersistsRememberPasswordPreferenceForNativeProfiles()
+    {
+        var store = new InMemorySshProfileStore();
+        var service = new SshConnectionService(store);
+
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "Native",
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            RememberPasswordInVault = true
+        };
+
+        SshProfile saved = service.SaveProfile(vm);
+        SshProfile? persisted = store.GetProfile(saved.Id);
+
+        Assert.NotNull(persisted);
+        Assert.True(persisted!.RememberPasswordInVault);
+        Assert.True(saved.RememberPasswordInVault);
+    }
+
+    [Fact]
+    public void SaveProfile_DropsRememberPasswordPreferenceForOpenSshProfiles()
+    {
+        var store = new InMemorySshProfileStore();
+        var service = new SshConnectionService(store);
+
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "OpenSSH",
+            HostName = "openssh.internal",
+            RememberPasswordInVault = true
+        };
+
+        SshProfile saved = service.SaveProfile(vm);
+        SshProfile? persisted = store.GetProfile(saved.Id);
+
+        Assert.NotNull(persisted);
+        Assert.False(persisted!.RememberPasswordInVault);
+        Assert.False(saved.RememberPasswordInVault);
+    }
+
+    [Fact]
     public void GetConnectionProfiles_ProjectsStoredProfilesIntoRuntimeRows()
     {
         string tempRoot = CreateTempDirectory();
@@ -266,6 +309,76 @@ public sealed class SshConnectionServiceTests
         string path = Path.Combine(Path.GetTempPath(), $"nova_ssh_service_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private sealed class InMemorySshProfileStore : ISshProfileStore
+    {
+        private readonly Dictionary<Guid, SshProfile> _profiles = new();
+
+        public IReadOnlyList<SshProfile> GetProfiles()
+        {
+            return _profiles.Values.Select(CloneProfile).ToArray();
+        }
+
+        public SshProfile? GetProfile(Guid profileId)
+        {
+            return _profiles.TryGetValue(profileId, out SshProfile? profile) ? CloneProfile(profile) : null;
+        }
+
+        public void SaveProfile(SshProfile profile)
+        {
+            _profiles[profile.Id] = CloneProfile(profile);
+        }
+
+        public bool DeleteProfile(Guid profileId)
+        {
+            return _profiles.Remove(profileId);
+        }
+
+        private static SshProfile CloneProfile(SshProfile profile)
+        {
+            return new SshProfile
+            {
+                Id = profile.Id,
+                BackendKind = profile.BackendKind,
+                Name = profile.Name,
+                GroupPath = profile.GroupPath,
+                Notes = profile.Notes,
+                AccentColor = profile.AccentColor,
+                Tags = profile.Tags.ToList(),
+                Host = profile.Host,
+                User = profile.User,
+                Port = profile.Port,
+                AuthMode = profile.AuthMode,
+                IdentityFilePath = profile.IdentityFilePath,
+                RememberPasswordInVault = profile.RememberPasswordInVault,
+                JumpHops = profile.JumpHops.Select(h => new SshJumpHop
+                {
+                    Host = h.Host,
+                    User = h.User,
+                    Port = h.Port
+                }).ToList(),
+                Forwards = profile.Forwards.Select(f => new PortForward
+                {
+                    Kind = f.Kind,
+                    BindAddress = f.BindAddress,
+                    SourcePort = f.SourcePort,
+                    DestinationHost = f.DestinationHost,
+                    DestinationPort = f.DestinationPort
+                }).ToList(),
+                MuxOptions = new SshMuxOptions
+                {
+                    Enabled = profile.MuxOptions.Enabled,
+                    ControlMasterAuto = profile.MuxOptions.ControlMasterAuto,
+                    ControlPath = profile.MuxOptions.ControlPath,
+                    ControlPersistSeconds = profile.MuxOptions.ControlPersistSeconds
+                },
+                ServerAliveIntervalSeconds = profile.ServerAliveIntervalSeconds,
+                ServerAliveCountMax = profile.ServerAliveCountMax,
+                ExtraSshArgs = profile.ExtraSshArgs,
+                WorkingDirectory = profile.WorkingDirectory
+            };
+        }
     }
 
     [Fact]

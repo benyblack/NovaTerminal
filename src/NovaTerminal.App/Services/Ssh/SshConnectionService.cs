@@ -269,6 +269,7 @@ public sealed class SshConnectionService
         merged.Port = incoming.Port;
         merged.AuthMode = incoming.AuthMode;
         merged.IdentityFilePath = incoming.IdentityFilePath;
+        merged.RememberPasswordInVault = incoming.RememberPasswordInVault;
         merged.JumpHops = incoming.JumpHops.Select(CloneJumpHop).ToList();
         merged.Forwards = incoming.Forwards.Select(CloneForward).ToList();
         merged.MuxOptions = CloneMuxOptions(incoming.MuxOptions);
@@ -569,6 +570,7 @@ public sealed class SshConnectionService
             Port = profile.Port,
             AuthMode = profile.AuthMode,
             IdentityFilePath = profile.IdentityFilePath,
+            RememberPasswordInVault = profile.RememberPasswordInVault,
             JumpHops = profile.JumpHops.Select(CloneJumpHop).ToList(),
             Forwards = profile.Forwards.Select(CloneForward).ToList(),
             MuxOptions = CloneMuxOptions(profile.MuxOptions),

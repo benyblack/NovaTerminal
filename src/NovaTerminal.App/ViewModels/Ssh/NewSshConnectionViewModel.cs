@@ -31,6 +31,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     private string _validationError = string.Empty;
     private string _validationWarning = string.Empty;
     private SshBackendKind? _backendKind;
+    private bool _rememberPasswordInVault;
     private int _keepAliveIntervalSeconds = 30;
     private int _keepAliveCountMax = 3;
     private bool _enableMux;
@@ -137,9 +138,20 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _backendKind, value))
             {
+                if (value != SshBackendKind.Native)
+                {
+                    RememberPasswordInVault = false;
+                }
+
                 OnPropertyChanged(nameof(BackendWarning));
             }
         }
+    }
+
+    public bool RememberPasswordInVault
+    {
+        get => _rememberPasswordInVault;
+        set => SetField(ref _rememberPasswordInVault, value);
     }
 
     public int KeepAliveIntervalSeconds
@@ -260,6 +272,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         int keepAliveInterval = KeepAliveIntervalSeconds > 0 ? KeepAliveIntervalSeconds : 30;
         int keepAliveCountMax = KeepAliveCountMax > 0 ? KeepAliveCountMax : 3;
         int controlPersistSeconds = ControlPersistSeconds >= 0 ? ControlPersistSeconds : 90;
+        bool rememberPassword = BackendKind == SshBackendKind.Native && RememberPasswordInVault;
 
         return new SshProfile
         {
@@ -274,6 +287,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
             Port = port,
             AuthMode = IsIdentityFileAuth ? SshAuthMode.IdentityFile : SshAuthMode.Agent,
             IdentityFilePath = identityPath,
+            RememberPasswordInVault = rememberPassword,
             JumpHops = JumpHops.Select(h => new SshJumpHop
             {
                 Host = h.Host?.Trim() ?? string.Empty,
@@ -357,6 +371,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         IsFavorite = sshProfile.Tags.Any(tag => string.Equals(tag, "favorite", StringComparison.OrdinalIgnoreCase));
         AuthMode = sshProfile.AuthMode == SshAuthMode.IdentityFile ? NewSshAuthMode.IdentityFile : NewSshAuthMode.Agent;
         IdentityFilePath = sshProfile.IdentityFilePath ?? string.Empty;
+        RememberPasswordInVault = sshProfile.BackendKind == SshBackendKind.Native && sshProfile.RememberPasswordInVault;
 
         JumpHops.Clear();
         foreach (SshJumpHop hop in sshProfile.JumpHops)
