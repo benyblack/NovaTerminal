@@ -121,6 +121,7 @@ public sealed class SshConnectionService
         bool useIdentity = !profile.UseSshAgent && !string.IsNullOrWhiteSpace(identityPath);
         candidate.AuthMode = useIdentity ? SshAuthMode.IdentityFile : SshAuthMode.Agent;
         candidate.IdentityFilePath = useIdentity ? identityPath : string.Empty;
+        candidate.RememberPasswordInVault = NormalizeRememberPasswordPreference(candidate.BackendKind, candidate.RememberPasswordInVault);
 
         _profileStore.SaveProfile(candidate);
     }
@@ -269,7 +270,7 @@ public sealed class SshConnectionService
         merged.Port = incoming.Port;
         merged.AuthMode = incoming.AuthMode;
         merged.IdentityFilePath = incoming.IdentityFilePath;
-        merged.RememberPasswordInVault = incoming.RememberPasswordInVault;
+        merged.RememberPasswordInVault = NormalizeRememberPasswordPreference(incoming.BackendKind, incoming.RememberPasswordInVault);
         merged.JumpHops = incoming.JumpHops.Select(CloneJumpHop).ToList();
         merged.Forwards = incoming.Forwards.Select(CloneForward).ToList();
         merged.MuxOptions = CloneMuxOptions(incoming.MuxOptions);
@@ -579,6 +580,11 @@ public sealed class SshConnectionService
             ExtraSshArgs = profile.ExtraSshArgs,
             WorkingDirectory = profile.WorkingDirectory
         };
+    }
+
+    private static bool NormalizeRememberPasswordPreference(SshBackendKind backendKind, bool rememberPasswordInVault)
+    {
+        return backendKind == SshBackendKind.Native && rememberPasswordInVault;
     }
 
     private static SshJumpHop CloneJumpHop(SshJumpHop hop)

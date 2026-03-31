@@ -296,6 +296,47 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
+    public void SaveConnectionProfile_ClearsRememberPasswordPreferenceForOpenSshProfiles()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+            var existing = new SshProfile
+            {
+                Id = Guid.Parse("e5e221a0-77bf-4f50-a0c3-3136d1f90f9e"),
+                Name = "Native",
+                Host = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            };
+
+            store.SaveProfile(existing);
+
+            var runtimeProfile = new TerminalProfile
+            {
+                Id = existing.Id,
+                Name = "OpenSSH",
+                Type = ConnectionType.SSH,
+                SshHost = "openssh.internal",
+                SshBackendKind = SshBackendKind.OpenSsh,
+                UseSshAgent = true
+            };
+
+            service.SaveConnectionProfile(runtimeProfile);
+
+            Assert.False(store.GetProfile(existing.Id)!.RememberPasswordInVault);
+            Assert.False(new JsonSshProfileStore(path).GetProfile(existing.Id)!.RememberPasswordInVault);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void GetConnectionProfiles_ProjectsStoredProfilesIntoRuntimeRows()
     {
         string tempRoot = CreateTempDirectory();
