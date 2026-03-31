@@ -75,6 +75,11 @@ public sealed class SshConnectionService
 
         SshProfile incoming = viewModel.ToSshProfile();
         SshProfile? existing = _profileStore.GetProfile(incoming.Id);
+        if (existing != null && viewModel.BackendKind is null)
+        {
+            incoming.BackendKind = existing.BackendKind;
+        }
+
         SshProfile merged = MergeProfile(existing, incoming, viewModel.IsFavorite);
 
         _profileStore.SaveProfile(merged);
@@ -105,6 +110,7 @@ public sealed class SshConnectionService
         candidate.Notes = profile.Notes?.Trim() ?? string.Empty;
         candidate.AccentColor = profile.AccentColor?.Trim() ?? string.Empty;
         candidate.GroupPath = profile.Group?.Trim() ?? candidate.GroupPath;
+        candidate.BackendKind = profile.SshBackendKind;
 
         bool favorite = profile.Tags?.Any(IsFavoriteTag) == true;
         candidate.Tags = NormalizeTags(profile.Tags, favorite);
@@ -256,6 +262,7 @@ public sealed class SshConnectionService
             : CloneProfile(existing);
 
         merged.Id = incoming.Id;
+        merged.BackendKind = incoming.BackendKind;
         merged.Name = incoming.Name;
         merged.Host = incoming.Host;
         merged.User = incoming.User;
@@ -299,6 +306,7 @@ public sealed class SshConnectionService
             SshHost = profile.Host,
             SshUser = profile.User,
             SshPort = profile.Port > 0 ? profile.Port : 22,
+            SshBackendKind = profile.BackendKind,
             UseSshAgent = !useIdentityFile,
             IdentityFilePath = useIdentityFile ? profile.IdentityFilePath : string.Empty,
             SshKeyPath = useIdentityFile ? profile.IdentityFilePath : string.Empty,
@@ -315,6 +323,7 @@ public sealed class SshConnectionService
         var mapped = new SshProfile
         {
             Id = profile.Id,
+            BackendKind = profile.SshBackendKind,
             Name = (profile.Name ?? string.Empty).Trim(),
             Host = profile.SshHost?.Trim() ?? string.Empty,
             User = profile.SshUser?.Trim() ?? string.Empty,
@@ -549,6 +558,7 @@ public sealed class SshConnectionService
         return new SshProfile
         {
             Id = profile.Id,
+            BackendKind = profile.BackendKind,
             Name = profile.Name,
             GroupPath = profile.GroupPath,
             Notes = profile.Notes,

@@ -1125,14 +1125,13 @@ namespace NovaTerminal.Controls
                 {
                     try
                     {
-                        var connectionService = new NovaTerminal.Services.Ssh.SshConnectionService();
-                        var launchDetails = connectionService.BuildLaunchDetails(profile, _sshDiagnosticsLevel);
-                        
-                        Session = SshSession.FromDefaultStore(
+                        var sessionFactory = new SshSessionFactory();
+                        Session = sessionFactory.Create(
                             profile.Id,
                             cols,
                             rows,
                             _sshDiagnosticsLevel,
+                            null,
                             log: TerminalLogger.Log);
                         ShellCommand = Session.ShellCommand;
                         ShellArgs = string.Empty;

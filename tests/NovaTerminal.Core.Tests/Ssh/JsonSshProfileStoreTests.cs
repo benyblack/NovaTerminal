@@ -6,6 +6,21 @@ namespace NovaTerminal.Core.Tests.Ssh;
 public sealed class JsonSshProfileStoreTests
 {
     [Fact]
+    public void SshProfile_DefaultsBackendKindToOpenSsh()
+    {
+        var profile = new SshProfile
+        {
+            Name = "default-backend",
+            Host = "default.internal"
+        };
+
+        var backendProperty = typeof(SshProfile).GetProperty("BackendKind");
+
+        Assert.NotNull(backendProperty);
+        Assert.Equal("OpenSsh", backendProperty!.GetValue(profile)?.ToString());
+    }
+
+    [Fact]
     public void SaveAndLoad_RoundTripsProfile()
     {
         string tempRoot = CreateTempDirectory();
@@ -67,6 +82,38 @@ public sealed class JsonSshProfileStoreTests
             Assert.Equal(45, loaded.ServerAliveIntervalSeconds);
             Assert.Equal(5, loaded.ServerAliveCountMax);
             Assert.Equal("-o StrictHostKeyChecking=no", loaded.ExtraSshArgs);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveAndLoad_RoundTripsBackendKind()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string storePath = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(storePath);
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("16a0f721-b7dd-4870-9628-18f11e9d45d6"),
+                Name = "native",
+                Host = "native.internal"
+            };
+
+            var backendProperty = typeof(SshProfile).GetProperty("BackendKind");
+            Assert.NotNull(backendProperty);
+            backendProperty!.SetValue(profile, Enum.Parse(backendProperty.PropertyType, "Native"));
+
+            store.SaveProfile(profile);
+
+            SshProfile? loaded = store.GetProfile(profile.Id);
+
+            Assert.NotNull(loaded);
+            Assert.Equal("Native", backendProperty.GetValue(loaded!)?.ToString());
         }
         finally
         {

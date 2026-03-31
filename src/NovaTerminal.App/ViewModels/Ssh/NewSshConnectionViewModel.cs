@@ -30,6 +30,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     private string _identityFilePath = string.Empty;
     private string _validationError = string.Empty;
     private string _validationWarning = string.Empty;
+    private SshBackendKind? _backendKind;
     private int _keepAliveIntervalSeconds = 30;
     private int _keepAliveCountMax = 3;
     private bool _enableMux;
@@ -127,6 +128,12 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
 
     public ObservableCollection<SshJumpHop> JumpHops { get; }
     public ObservableCollection<PortForward> Forwards { get; }
+
+    public SshBackendKind? BackendKind
+    {
+        get => _backendKind;
+        set => SetField(ref _backendKind, value);
+    }
 
     public int KeepAliveIntervalSeconds
     {
@@ -233,6 +240,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         return new SshProfile
         {
             Id = id,
+            BackendKind = BackendKind ?? SshBackendKind.OpenSsh,
             Name = name,
             Notes = Notes?.Trim() ?? string.Empty,
             AccentColor = AccentColor?.Trim() ?? string.Empty,
@@ -288,6 +296,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
             AccentColor = profile.AccentColor ?? string.Empty,
             IsFavorite = profile.Tags.Any(tag => string.Equals(tag, "favorite", StringComparison.OrdinalIgnoreCase)),
             Notes = profile.Notes ?? string.Empty,
+            BackendKind = profile.SshBackendKind,
             AuthMode = hasIdentityFile ? NewSshAuthMode.IdentityFile : NewSshAuthMode.Agent,
             IdentityFilePath = !string.IsNullOrWhiteSpace(profile.IdentityFilePath)
                 ? profile.IdentityFilePath!
@@ -314,6 +323,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         ArgumentNullException.ThrowIfNull(sshProfile);
 
         ProfileId = sshProfile.Id;
+        BackendKind = sshProfile.BackendKind;
         Name = sshProfile.Name;
         HostName = sshProfile.Host;
         UserName = sshProfile.User;

@@ -32,7 +32,7 @@ public sealed class FileSystemPathSuggestionProvider : IPathSuggestionProvider
 
     public IReadOnlyList<AssistSuggestion> GetSuggestions(CommandAssistQueryContext context, int maxResults)
     {
-        if (maxResults <= 0 || context.IsRemote)
+        if (maxResults <= 0 || context.IsRemote || !context.IncludePathSuggestions)
         {
             return Array.Empty<AssistSuggestion>();
         }

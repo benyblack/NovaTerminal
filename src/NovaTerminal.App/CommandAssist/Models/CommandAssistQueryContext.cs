@@ -5,4 +5,7 @@ public sealed record CommandAssistQueryContext(
     string? WorkingDirectory,
     string? ShellKind,
     string? ProfileId,
-    bool IsRemote = false);
+    bool IsRemote = false,
+    bool IncludeHistorySuggestions = true,
+    bool IncludeSnippetSuggestions = true,
+    bool IncludePathSuggestions = true);

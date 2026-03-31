@@ -148,4 +148,29 @@ public sealed class NewSshConnectionViewModelTests
 
         Assert.Equal(0, vm.ControlPersistSeconds);
     }
+
+    [Fact]
+    public void ApplySshProfile_RoundTripsBackendKind()
+    {
+        var vm = new NewSshConnectionViewModel();
+        var profile = new SshProfile
+        {
+            Name = "Native",
+            Host = "native.internal"
+        };
+
+        var backendProperty = typeof(SshProfile).GetProperty("BackendKind");
+        Assert.NotNull(backendProperty);
+        backendProperty!.SetValue(profile, Enum.Parse(backendProperty.PropertyType, "Native"));
+
+        var viewModelBackendProperty = typeof(NewSshConnectionViewModel).GetProperty("BackendKind");
+        Assert.NotNull(viewModelBackendProperty);
+
+        vm.ApplySshProfile(profile);
+
+        Assert.Equal("Native", viewModelBackendProperty!.GetValue(vm)?.ToString());
+
+        SshProfile roundTripped = vm.ToSshProfile();
+        Assert.Equal("Native", backendProperty.GetValue(roundTripped)?.ToString());
+    }
 }
