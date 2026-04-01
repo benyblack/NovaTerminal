@@ -216,14 +216,22 @@ public sealed class NewSshConnectionViewModelTests
             RememberPasswordInVault = true
         };
 
-        var rememberPasswordVisibleProperty = typeof(NewSshConnectionViewModel).GetProperty("IsRememberPasswordVisible");
-        Assert.NotNull(rememberPasswordVisibleProperty);
-        Assert.True((bool?)rememberPasswordVisibleProperty!.GetValue(vm));
+        Assert.True(vm.IsRememberPasswordVisible);
+
+        bool propertyChangedRaised = false;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(NewSshConnectionViewModel.IsRememberPasswordVisible))
+            {
+                propertyChangedRaised = true;
+            }
+        };
 
         vm.BackendKind = SshBackendKind.OpenSsh;
 
         Assert.False(vm.RememberPasswordInVault);
-        Assert.False((bool?)rememberPasswordVisibleProperty.GetValue(vm));
+        Assert.False(vm.IsRememberPasswordVisible);
+        Assert.True(propertyChangedRaised);
     }
 
     [Fact]
@@ -234,9 +242,7 @@ public sealed class NewSshConnectionViewModelTests
             BackendKind = SshBackendKind.Native
         };
 
-        var rememberPasswordVisibleProperty = typeof(NewSshConnectionViewModel).GetProperty("IsRememberPasswordVisible");
-        Assert.NotNull(rememberPasswordVisibleProperty);
-        Assert.True((bool?)rememberPasswordVisibleProperty!.GetValue(vm));
+        Assert.True(vm.IsRememberPasswordVisible);
     }
 
     [Fact]
