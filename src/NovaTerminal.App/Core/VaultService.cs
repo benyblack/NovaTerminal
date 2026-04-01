@@ -222,6 +222,8 @@ namespace NovaTerminal.Core
 
         public void SetSecret(string key, string value)
         {
+            ReloadIfFileBacked();
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 // Native Windows Credential Manager
@@ -265,6 +267,8 @@ namespace NovaTerminal.Core
 
         public string? GetSecret(string key)
         {
+            ReloadIfFileBacked();
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 string target = key.StartsWith("NovaTerminal:") ? key : $"NovaTerminal:{key}";
@@ -281,6 +285,8 @@ namespace NovaTerminal.Core
 
         public bool RemoveSecret(string key)
         {
+            ReloadIfFileBacked();
+
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 string target = key.StartsWith("NovaTerminal:") ? key : $"NovaTerminal:{key}";
@@ -297,7 +303,19 @@ namespace NovaTerminal.Core
 
         public IEnumerable<string> ListKeys()
         {
+            ReloadIfFileBacked();
             return _secrets.Keys;
+        }
+
+        private void ReloadIfFileBacked()
+        {
+            if (string.IsNullOrEmpty(_vaultPath) || RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                return;
+            }
+
+            _secrets = new Dictionary<string, string>();
+            Load();
         }
 
         private void Save()

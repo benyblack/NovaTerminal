@@ -69,6 +69,33 @@ public class VaultServiceSshKeyTests
     }
 
     [Fact]
+    public void FileBackedVaultInstances_SeeAndRemoveEachOthersSecrets()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            TerminalProfile profile = CreateProfile();
+
+            var writer = new VaultService(vaultPath);
+            var remover = new VaultService(vaultPath);
+
+            writer.SetSshPasswordForProfile(profile, "shared-secret");
+
+            Assert.Equal("shared-secret", remover.GetSshPasswordForProfile(profile));
+
+            remover.ApplyRememberPasswordPreference(profile, rememberPasswordInVault: false);
+
+            Assert.Null(writer.GetSshPasswordForProfile(profile));
+            Assert.Null(remover.GetSshPasswordForProfile(profile));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ApplyRememberPasswordPreference_LeavesCanonicalProfileSecretUntouched_WhenEnabledWithoutPassword()
     {
         TerminalProfile profile = CreateProfile();
@@ -176,5 +203,12 @@ public class VaultServiceSshKeyTests
             SshUser = "alice",
             SshHost = "example.internal"
         };
+    }
+
+    private static string CreateTempDirectory()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"nova_vault_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        return path;
     }
 }
