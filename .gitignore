@@ -500,3 +500,11 @@ test_repro*.txt
 # temporary output
 _temp_out/
 .act-artifacts/
+
+#novaindex
+.novaindex/
+
+# Embedded Rust native build outputs
+src/NovaTerminal.App/native/target/
+src/NovaTerminal.App/native/target_linux/
+src/NovaTerminal.App/native/rusty_ssh/target/
