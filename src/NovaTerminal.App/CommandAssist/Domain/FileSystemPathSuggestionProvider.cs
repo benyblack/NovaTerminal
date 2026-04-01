@@ -159,8 +159,9 @@ public sealed class FileSystemPathSuggestionProvider : IPathSuggestionProvider
 
         string tokenForFilesystem = StripLeadingQuote(activeToken, out string quotePrefix);
 
-        preferredSeparator = tokenForFilesystem.Contains('/')
-            ? '/'
+        int lastSeparatorIndex = tokenForFilesystem.LastIndexOfAny(['/', '\\']);
+        preferredSeparator = lastSeparatorIndex >= 0
+            ? tokenForFilesystem[lastSeparatorIndex]
             : Path.DirectorySeparatorChar;
 
         string? homeDirectory = ResolveHomeDirectory();

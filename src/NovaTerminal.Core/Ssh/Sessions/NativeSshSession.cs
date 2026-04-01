@@ -25,6 +25,8 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly string _profileHost;
     private readonly bool _rememberPasswordInVault;
     private bool _allowVaultPasswordReuse;
+    private readonly object _exitHandlerGate = new();
+    private readonly object _outputHandlerGate = new();
 
     private ReplayWriter? _recorder;
     private TerminalBuffer? _buffer;
@@ -35,6 +37,10 @@ public sealed class NativeSshSession : ITerminalSession
     private int _isRunning;
     private int _exitNotified;
     private int? _exitCode;
+    private Action<int>? _onExit;
+    private Action<string>? _onOutputReceived;
+    private List<string>? _pendingOutputReplay;
+    private bool _hasOutputSubscriberEver;
 
     public NativeSshSession(
         SshProfile profile,
@@ -102,8 +108,88 @@ public sealed class NativeSshSession : ITerminalSession
     public int? ExitCode => _exitCode;
     public bool IsRecording => _recorder != null;
 
-    public event Action<string>? OnOutputReceived;
-    public event Action<int>? OnExit;
+    public event Action<string>? OnOutputReceived
+    {
+        add
+        {
+            if (value == null)
+            {
+                return;
+            }
+
+            List<string>? replay = null;
+            lock (_outputHandlerGate)
+            {
+                _onOutputReceived += value;
+                if (!_hasOutputSubscriberEver)
+                {
+                    _hasOutputSubscriberEver = true;
+                    replay = _pendingOutputReplay;
+                    _pendingOutputReplay = null;
+                }
+            }
+
+            if (replay != null)
+            {
+                foreach (string text in replay)
+                {
+                    value(text);
+                }
+            }
+        }
+        remove
+        {
+            if (value == null)
+            {
+                return;
+            }
+
+            lock (_outputHandlerGate)
+            {
+                _onOutputReceived -= value;
+            }
+        }
+    }
+    public event Action<int>? OnExit
+    {
+        add
+        {
+            if (value == null)
+            {
+                return;
+            }
+
+            int? replayExitCode = null;
+            lock (_exitHandlerGate)
+            {
+                if (Volatile.Read(ref _exitNotified) == 0)
+                {
+                    _onExit += value;
+                }
+                else
+                {
+                    replayExitCode = _exitCode;
+                }
+            }
+
+            if (replayExitCode.HasValue)
+            {
+                value(replayExitCode.Value);
+            }
+        }
+        remove
+        {
+            if (value == null)
+            {
+                return;
+            }
+
+            lock (_exitHandlerGate)
+            {
+                _onExit -= value;
+            }
+        }
+    }
 
     public void SendInput(string input)
     {
@@ -253,7 +339,7 @@ public sealed class NativeSshSession : ITerminalSession
                 _metrics.MarkDisconnected(failure.Kind.ToString());
                 _log($"[NativeSshSession] Poll loop failed: {ex.Message}");
                 _log($"[NativeSshSession] failure={failure.Kind}");
-                OnOutputReceived?.Invoke($"Native SSH session failed: {ex.Message}{Environment.NewLine}");
+                EmitText($"Native SSH session failed: {ex.Message}{Environment.NewLine}");
                 TryNotifyExit(-1);
             }
         }
@@ -273,7 +359,7 @@ public sealed class NativeSshSession : ITerminalSession
         int charCount = _utf8Decoder.GetChars(payload, 0, payload.Length, chars, 0, flush: false);
         if (charCount > 0)
         {
-            OnOutputReceived?.Invoke(new string(chars, 0, charCount));
+            EmitText(new string(chars, 0, charCount));
         }
     }
 
@@ -288,7 +374,7 @@ public sealed class NativeSshSession : ITerminalSession
 
         if (nextEvent.Payload.Length > 0)
         {
-            OnOutputReceived?.Invoke($"{message}{Environment.NewLine}");
+            EmitText($"{message}{Environment.NewLine}");
         }
 
         TryNotifyExit(nextEvent.StatusCode == 0 ? -1 : nextEvent.StatusCode);
@@ -371,8 +457,31 @@ public sealed class NativeSshSession : ITerminalSession
         _exitCode ??= exitCode;
         if (Interlocked.Exchange(ref _exitNotified, 1) == 0)
         {
-            OnExit?.Invoke(_exitCode.Value);
+            Action<int>? handler;
+            lock (_exitHandlerGate)
+            {
+                handler = _onExit;
+            }
+
+            handler?.Invoke(_exitCode.Value);
         }
+    }
+
+    private void EmitText(string text)
+    {
+        Action<string>? handler;
+        lock (_outputHandlerGate)
+        {
+            handler = _onOutputReceived;
+            if (!_hasOutputSubscriberEver && handler == null)
+            {
+                _pendingOutputReplay ??= new List<string>();
+                _pendingOutputReplay.Add(text);
+                return;
+            }
+        }
+
+        handler?.Invoke(text);
     }
 
     private void CloseNativeHandle()

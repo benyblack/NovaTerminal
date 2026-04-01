@@ -296,6 +296,7 @@ public sealed class CommandAssistControllerTests
 
         controller.HandleTextInput("git ");
         await historyStore.WaitForSearchSettledAsync();
+        await WaitForConditionAsync(() => controller.ViewModel.TopSuggestionText == "git status");
 
         Assert.Equal("git ", controller.ViewModel.QueryText);
         Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
@@ -438,6 +439,8 @@ public sealed class CommandAssistControllerTests
         controller.OpenHistorySearch();
         controller.HandleTextInput("git st");
         await historyStore.WaitForSearchSettledAsync();
+        await WaitForConditionAsync(() => controller.Suggestions.Count > 1 &&
+                                          controller.ViewModel.TopSuggestionText == "git status");
 
         bool moved = controller.MoveSelectionDown();
 
@@ -471,6 +474,8 @@ public sealed class CommandAssistControllerTests
         controller.ToggleAssist();
         controller.HandleTextInput("git st");
         await historyStore.WaitForSearchSettledAsync();
+        await WaitForConditionAsync(() => controller.Suggestions.Count > 1 &&
+                                          controller.ViewModel.TopSuggestionText == "git status");
         controller.MoveSelectionDown();
 
         bool inserted = controller.TryGetInsertionText(out string? insertionText);
@@ -727,6 +732,14 @@ public sealed class CommandAssistControllerTests
         controller.ToggleAssist();
         controller.HandleTextInput("git st");
 
+        await historyStore.WaitForSearchSettledAsync();
+        await snippetStore.WaitForReadAsync();
+        await WaitForConditionAsync(() => controller.ViewModel.TopSuggestionText == "git status" &&
+                                          controller.Suggestions.Count > 0);
+
+        Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
+        Assert.Equal(AssistSuggestionType.History, controller.Suggestions[0].Type);
+
         bool toggled = await controller.TogglePinSelectionAsync();
         IReadOnlyList<CommandSnippet> snippets = await snippetStore.GetAllAsync();
 
@@ -772,6 +785,8 @@ public sealed class CommandAssistControllerTests
         controller.HandleTextInput("git st");
         await historyStore.WaitForSearchSettledAsync();
         await snippetStore.WaitForReadAsync();
+        await WaitForConditionAsync(() => controller.ViewModel.TopSuggestionText == "Git Status" &&
+                                          controller.Suggestions.Count > 0);
 
         bool toggled = await controller.TogglePinSelectionAsync();
         IReadOnlyList<CommandSnippet> snippets = await snippetStore.GetAllAsync();
@@ -833,6 +848,21 @@ public sealed class CommandAssistControllerTests
             IsRedacted: false,
             Source: CommandCaptureSource.Heuristic,
             DurationMs: null);
+    }
+
+    private static async Task WaitForConditionAsync(Func<bool> predicate, int timeoutMs = 1000)
+    {
+        int elapsed = 0;
+        while (!predicate())
+        {
+            if (elapsed >= timeoutMs)
+            {
+                throw new TimeoutException("Timed out waiting for test condition.");
+            }
+
+            await Task.Delay(10);
+            elapsed += 10;
+        }
     }
 
     private sealed class InMemoryHistoryStore : IHistoryStore
