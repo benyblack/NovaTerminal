@@ -19,6 +19,7 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
     private readonly Action<string> _log;
     private readonly NativeSshMetrics _metrics = new();
+    private readonly object _exitHandlerGate = new();
 
     private ReplayWriter? _recorder;
     private TerminalBuffer? _buffer;
@@ -29,6 +30,7 @@ public sealed class NativeSshSession : ITerminalSession
     private int _isRunning;
     private int _exitNotified;
     private int? _exitCode;
+    private Action<int>? _onExit;
 
     public NativeSshSession(
         SshProfile profile,
@@ -91,7 +93,46 @@ public sealed class NativeSshSession : ITerminalSession
     public bool IsRecording => _recorder != null;
 
     public event Action<string>? OnOutputReceived;
-    public event Action<int>? OnExit;
+    public event Action<int>? OnExit
+    {
+        add
+        {
+            if (value == null)
+            {
+                return;
+            }
+
+            int? replayExitCode = null;
+            lock (_exitHandlerGate)
+            {
+                if (Volatile.Read(ref _exitNotified) == 0)
+                {
+                    _onExit += value;
+                }
+                else
+                {
+                    replayExitCode = _exitCode;
+                }
+            }
+
+            if (replayExitCode.HasValue)
+            {
+                value(replayExitCode.Value);
+            }
+        }
+        remove
+        {
+            if (value == null)
+            {
+                return;
+            }
+
+            lock (_exitHandlerGate)
+            {
+                _onExit -= value;
+            }
+        }
+    }
 
     public void SendInput(string input)
     {
@@ -325,7 +366,13 @@ public sealed class NativeSshSession : ITerminalSession
         _exitCode ??= exitCode;
         if (Interlocked.Exchange(ref _exitNotified, 1) == 0)
         {
-            OnExit?.Invoke(_exitCode.Value);
+            Action<int>? handler;
+            lock (_exitHandlerGate)
+            {
+                handler = _onExit;
+            }
+
+            handler?.Invoke(_exitCode.Value);
         }
     }
 

@@ -75,6 +75,22 @@ public sealed class NativeSshSessionTests
     }
 
     [Fact]
+    public async Task LateOnExitSubscriberReceivesRecordedExitCode()
+    {
+        var interop = new FakeNativeSshInterop();
+        interop.Enqueue(NativeSshEvent.ExitStatus(17));
+        interop.Enqueue(NativeSshEvent.Closed(Array.Empty<byte>()));
+        var exit = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var session = new NativeSshSession(CreateProfile(), interop: interop);
+        await WaitUntilAsync(() => interop.CloseCallCount > 0);
+
+        session.OnExit += code => exit.TrySetResult(code);
+
+        Assert.Equal(17, await exit.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+    }
+
+    [Fact]
     public async Task DisposeClosesNativeHandleAndStopsPollLoop()
     {
         var interop = new FakeNativeSshInterop();
