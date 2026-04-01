@@ -15,6 +15,51 @@ public class VaultServiceSshKeyTests
     }
 
     [Fact]
+    public void ApplyRememberPasswordPreference_RemovesCanonicalProfileSecret_WhenDisabled()
+    {
+        TerminalProfile profile = CreateProfile();
+        string canonical = VaultService.GetCanonicalSshProfileKey(profile.Id);
+        string legacy = $"SSH:{profile.Name}:{profile.SshUser}@{profile.SshHost}";
+
+        var store = new Dictionary<string, string>
+        {
+            [canonical] = "canonical-secret",
+            [legacy] = "legacy-secret"
+        };
+
+        VaultService.ApplyRememberPasswordPreference(
+            profile.Id,
+            rememberPasswordInVault: false,
+            password: null,
+            removeSecret: key => store.Remove(key),
+            writeSecret: (key, value) => store[key] = value);
+
+        Assert.False(store.ContainsKey(canonical));
+        Assert.True(store.ContainsKey(legacy));
+    }
+
+    [Fact]
+    public void ApplyRememberPasswordPreference_LeavesCanonicalProfileSecretUntouched_WhenEnabledWithoutPassword()
+    {
+        TerminalProfile profile = CreateProfile();
+        string canonical = VaultService.GetCanonicalSshProfileKey(profile.Id);
+
+        var store = new Dictionary<string, string>
+        {
+            [canonical] = "canonical-secret"
+        };
+
+        VaultService.ApplyRememberPasswordPreference(
+            profile.Id,
+            rememberPasswordInVault: true,
+            password: null,
+            removeSecret: key => store.Remove(key),
+            writeSecret: (key, value) => store[key] = value);
+
+        Assert.Equal("canonical-secret", store[canonical]);
+    }
+
+    [Fact]
     public void Resolve_PrefersCanonicalAndDoesNotMigrate()
     {
         TerminalProfile profile = CreateProfile();

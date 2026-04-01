@@ -8,7 +8,13 @@ using System.Runtime.InteropServices;
 
 namespace NovaTerminal.Core
 {
+    public interface ISshPasswordVault
+    {
+        void ApplyRememberPasswordPreference(Guid profileId, bool rememberPasswordInVault, string? password = null);
+    }
+
     public class VaultService
+        : ISshPasswordVault
     {
         private const string AppName = "NovaTerminal";
         private const string VaultFileName = "vault.dat";
@@ -43,6 +49,41 @@ namespace NovaTerminal.Core
         public static string GetCanonicalSshProfileKey(Guid profileId)
         {
             return $"SSH:PROFILE:{profileId:D}";
+        }
+
+        public static void ApplyRememberPasswordPreference(
+            Guid profileId,
+            bool rememberPasswordInVault,
+            string? password,
+            Action<string> removeSecret,
+            Action<string, string> writeSecret)
+        {
+            ArgumentNullException.ThrowIfNull(removeSecret);
+            ArgumentNullException.ThrowIfNull(writeSecret);
+
+            string canonicalKey = GetCanonicalSshProfileKey(profileId);
+            if (!rememberPasswordInVault)
+            {
+                removeSecret(canonicalKey);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(password))
+            {
+                return;
+            }
+
+            writeSecret(canonicalKey, password);
+        }
+
+        public void ApplyRememberPasswordPreference(Guid profileId, bool rememberPasswordInVault, string? password = null)
+        {
+            ApplyRememberPasswordPreference(
+                profileId,
+                rememberPasswordInVault,
+                password,
+                key => _ = RemoveSecret(key),
+                SetSecret);
         }
 
         public static IEnumerable<string> GetLegacySshKeys(TerminalProfile profile)

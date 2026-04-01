@@ -18,16 +18,23 @@ public sealed class SshLaunchDetails
     public required string CommandLine { get; init; }
 }
 
-public sealed class SshConnectionService
-{
-    private const string FavoriteTag = "favorite";
-
-    private readonly ISshProfileStore _profileStore;
-
-    public SshConnectionService(ISshProfileStore? profileStore = null)
+    public sealed class SshConnectionService
     {
-        _profileStore = profileStore ?? new JsonSshProfileStore();
-    }
+        private const string FavoriteTag = "favorite";
+
+        private readonly ISshProfileStore _profileStore;
+        private readonly ISshPasswordVault? _passwordVault;
+
+        public SshConnectionService(ISshProfileStore? profileStore = null)
+            : this(profileStore, null)
+        {
+        }
+
+        public SshConnectionService(ISshProfileStore? profileStore, ISshPasswordVault? passwordVault)
+        {
+            _profileStore = profileStore ?? new JsonSshProfileStore();
+            _passwordVault = passwordVault ?? new VaultService();
+        }
 
     public IReadOnlyList<TerminalProfile> GetConnectionProfiles()
     {
@@ -86,6 +93,7 @@ public sealed class SshConnectionService
         SshProfile merged = MergeProfile(existing, incoming, viewModel.IsFavorite);
 
         _profileStore.SaveProfile(merged);
+        _passwordVault?.ApplyRememberPasswordPreference(merged.Id, merged.RememberPasswordInVault);
         return _profileStore.GetProfile(merged.Id) ?? merged;
     }
 
@@ -127,6 +135,7 @@ public sealed class SshConnectionService
         SshProfileNormalizer.NormalizeRememberPasswordPreference(candidate);
 
         _profileStore.SaveProfile(candidate);
+        _passwordVault?.ApplyRememberPasswordPreference(candidate.Id, candidate.RememberPasswordInVault);
     }
 
     public void SaveConnectionProfiles(IEnumerable<TerminalProfile> profiles)

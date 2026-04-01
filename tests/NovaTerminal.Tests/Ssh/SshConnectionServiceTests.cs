@@ -377,6 +377,80 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
+    public void SaveProfile_RemovesStoredPasswordWhenRememberPasswordIsDisabled()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var vault = new RecordingSshPasswordVault();
+            var service = new SshConnectionService(store, vault);
+            var profileId = Guid.Parse("9d2c0bc4-2d0b-4f66-8d50-66c74d1bc7a8");
+            string canonical = VaultService.GetCanonicalSshProfileKey(profileId);
+
+            vault.Seed(canonical, "stored-secret");
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = profileId,
+                Name = "Native",
+                HostName = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = false
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.False(saved.RememberPasswordInVault);
+            Assert.DoesNotContain(canonical, vault.Secrets.Keys);
+            Assert.Equal(canonical, vault.RemovedKeys.Single());
+            Assert.Empty(vault.WrittenSecrets);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_LeavesStoredPasswordUntouchedWhenRememberPasswordIsEnabled()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var vault = new RecordingSshPasswordVault();
+            var service = new SshConnectionService(store, vault);
+            var profileId = Guid.Parse("c8e0c8f1-197b-47cf-a4c8-413fb1e1fb77");
+            string canonical = VaultService.GetCanonicalSshProfileKey(profileId);
+
+            vault.Seed(canonical, "stored-secret");
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = profileId,
+                Name = "Native",
+                HostName = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.True(saved.RememberPasswordInVault);
+            Assert.Equal("stored-secret", vault.Secrets[canonical]);
+            Assert.Empty(vault.RemovedKeys);
+            Assert.Empty(vault.WrittenSecrets);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void GetConnectionProfiles_ProjectsStoredProfilesIntoRuntimeRows()
     {
         string tempRoot = CreateTempDirectory();
@@ -468,6 +542,36 @@ public sealed class SshConnectionServiceTests
         finally
         {
             Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class RecordingSshPasswordVault : ISshPasswordVault
+    {
+        public Dictionary<string, string> Secrets { get; } = new(StringComparer.Ordinal);
+        public List<string> RemovedKeys { get; } = new();
+        public List<(string Key, string Value)> WrittenSecrets { get; } = new();
+
+        public void Seed(string key, string value)
+        {
+            Secrets[key] = value;
+        }
+
+        public void ApplyRememberPasswordPreference(Guid profileId, bool rememberPasswordInVault, string? password = null)
+        {
+            VaultService.ApplyRememberPasswordPreference(
+                profileId,
+                rememberPasswordInVault,
+                password,
+                removeSecret: key =>
+                {
+                    RemovedKeys.Add(key);
+                    Secrets.Remove(key);
+                },
+                writeSecret: (key, value) =>
+                {
+                    WrittenSecrets.Add((key, value));
+                    Secrets[key] = value;
+                });
         }
     }
 }
