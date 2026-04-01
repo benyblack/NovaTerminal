@@ -447,12 +447,12 @@ public sealed class SshConnectionServiceTests
 
             Assert.DoesNotContain(canonical, vault.Secrets.Keys);
             Assert.DoesNotContain(namedLegacy, vault.Secrets.Keys);
-            Assert.DoesNotContain(unnamedLegacy, vault.Secrets.Keys);
             Assert.DoesNotContain(idLegacy, vault.Secrets.Keys);
             Assert.Contains(canonical, vault.RemovedKeys);
             Assert.Contains(namedLegacy, vault.RemovedKeys);
-            Assert.Contains(unnamedLegacy, vault.RemovedKeys);
             Assert.Contains(idLegacy, vault.RemovedKeys);
+            Assert.Equal("unnamed-legacy-secret", vault.Secrets[unnamedLegacy]);
+            Assert.DoesNotContain(unnamedLegacy, vault.RemovedKeys);
             Assert.Empty(vault.WrittenSecrets);
         }
         finally
@@ -502,11 +502,11 @@ public sealed class SshConnectionServiceTests
             _ = service.SaveProfile(vm);
 
             Assert.DoesNotContain("SSH:OldName:alice@old.internal", vault.Secrets.Keys);
-            Assert.DoesNotContain("SSH:alice@old.internal", vault.Secrets.Keys);
             Assert.DoesNotContain($"profile_{profileId}_password", vault.Secrets.Keys);
             Assert.DoesNotContain(VaultService.GetCanonicalSshProfileKey(profileId), vault.Secrets.Keys);
             Assert.DoesNotContain("SSH:NewName:bob@new.internal", vault.Secrets.Keys);
-            Assert.DoesNotContain("SSH:bob@new.internal", vault.Secrets.Keys);
+            Assert.Equal("old-unnamed-secret", vault.Secrets["SSH:alice@old.internal"]);
+            Assert.Equal("new-unnamed-secret", vault.Secrets["SSH:bob@new.internal"]);
         }
         finally
         {
