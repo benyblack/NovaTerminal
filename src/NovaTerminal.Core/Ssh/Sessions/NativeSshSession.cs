@@ -24,6 +24,7 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly string _profileUser;
     private readonly string _profileHost;
     private readonly bool _rememberPasswordInVault;
+    private bool _allowVaultPasswordReuse;
 
     private ReplayWriter? _recorder;
     private TerminalBuffer? _buffer;
@@ -64,6 +65,7 @@ public sealed class NativeSshSession : ITerminalSession
         _profileUser = profile.User;
         _profileHost = profile.Host;
         _rememberPasswordInVault = profile.RememberPasswordInVault;
+        _allowVaultPasswordReuse = profile.RememberPasswordInVault;
         JumpHostConnectPlan connectPlan = JumpHostConnectPlan.Create(profile);
         NativeSshConnectionOptions connectionOptions = _jumpHostConnector.CreateConnectionOptions(connectPlan, profile, cols, rows);
         _log($"[NativeSshSession] backend=native path={_jumpHostConnector.DescribePath(connectPlan)} target={connectionOptions.User}@{connectionOptions.Host}:{connectionOptions.Port}");
@@ -337,14 +339,14 @@ public sealed class NativeSshSession : ITerminalSession
             return request;
         }
 
-        return new SshInteractionRequest
+        SshInteractionRequest requestWithContext = new()
         {
             Kind = request.Kind,
             ProfileId = _profileId,
             ProfileName = _profileName,
             ProfileUser = _profileUser,
             ProfileHost = _profileHost,
-            SessionId = Id,
+            AllowVaultPasswordReuse = request.Kind == SshInteractionKind.Password && _allowVaultPasswordReuse,
             RememberPasswordInVault = _rememberPasswordInVault,
             Host = request.Host,
             Port = request.Port,
@@ -355,6 +357,13 @@ public sealed class NativeSshSession : ITerminalSession
             Instructions = request.Instructions,
             KeyboardPrompts = request.KeyboardPrompts
         };
+
+        if (request.Kind == SshInteractionKind.Password)
+        {
+            _allowVaultPasswordReuse = false;
+        }
+
+        return requestWithContext;
     }
 
     private void TryNotifyExit(int exitCode)

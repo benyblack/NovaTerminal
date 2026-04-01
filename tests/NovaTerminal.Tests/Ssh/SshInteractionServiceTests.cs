@@ -234,6 +234,7 @@ public sealed class SshInteractionServiceTests
                 ProfileName = profile.Name,
                 ProfileUser = profile.SshUser,
                 ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = true,
                 RememberPasswordInVault = true
             }, CancellationToken.None);
 
@@ -283,6 +284,7 @@ public sealed class SshInteractionServiceTests
                 ProfileName = profile.Name,
                 ProfileUser = profile.SshUser,
                 ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = true,
                 RememberPasswordInVault = true
             }, CancellationToken.None);
 
@@ -296,7 +298,7 @@ public sealed class SshInteractionServiceTests
     }
 
     [Fact]
-    public async Task PasswordRequests_UseVaultOnlyOncePerNativeSession()
+    public async Task PasswordRequests_FallBackToDialog_WhenVaultReuseIsNotAllowed()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -322,9 +324,7 @@ public sealed class SshInteractionServiceTests
                     return Task.FromResult(SshInteractionResponse.FromSecret("manual-secret"));
                 });
 
-            Guid sessionId = Guid.Parse("7b936c2e-7c4f-4f75-bcb2-0b8b8ccbe6f5");
-
-            SshInteractionResponse first = await service.HandleAsync(new SshInteractionRequest
+            SshInteractionResponse response = await service.HandleAsync(new SshInteractionRequest
             {
                 Kind = SshInteractionKind.Password,
                 Prompt = "Password:",
@@ -332,24 +332,11 @@ public sealed class SshInteractionServiceTests
                 ProfileName = profile.Name,
                 ProfileUser = profile.SshUser,
                 ProfileHost = profile.SshHost,
-                SessionId = sessionId,
+                AllowVaultPasswordReuse = false,
                 RememberPasswordInVault = true
             }, CancellationToken.None);
 
-            SshInteractionResponse second = await service.HandleAsync(new SshInteractionRequest
-            {
-                Kind = SshInteractionKind.Password,
-                Prompt = "Password:",
-                ProfileId = profile.Id,
-                ProfileName = profile.Name,
-                ProfileUser = profile.SshUser,
-                ProfileHost = profile.SshHost,
-                SessionId = sessionId,
-                RememberPasswordInVault = true
-            }, CancellationToken.None);
-
-            Assert.Equal("vault-secret", first.Secret);
-            Assert.Equal("manual-secret", second.Secret);
+            Assert.Equal("manual-secret", response.Secret);
             Assert.Equal(1, promptCount);
         }
         finally
@@ -391,6 +378,9 @@ public sealed class SshInteractionServiceTests
                 Kind = SshInteractionKind.Passphrase,
                 Prompt = "Key passphrase:",
                 ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
                 RememberPasswordInVault = true
             }, CancellationToken.None);
 

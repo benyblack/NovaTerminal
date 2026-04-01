@@ -7,7 +7,7 @@ public sealed class SshInteractionRequest
     public string ProfileName { get; init; } = string.Empty;
     public string ProfileUser { get; init; } = string.Empty;
     public string ProfileHost { get; init; } = string.Empty;
-    public Guid? SessionId { get; init; }
+    public bool AllowVaultPasswordReuse { get; init; }
     public bool RememberPasswordInVault { get; init; }
     public string Host { get; init; } = string.Empty;
     public int Port { get; init; }

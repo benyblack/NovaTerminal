@@ -72,23 +72,28 @@ public sealed class NativeSshSessionInteractionTests
             NativeSshEventKind.PasswordPrompt,
             Encoding.UTF8.GetBytes("""{"prompt":"Password:"}"""),
             flags: NativeSshEventFlags.Json));
+        interop.Enqueue(new NativeSshEvent(
+            NativeSshEventKind.PasswordPrompt,
+            Encoding.UTF8.GetBytes("""{"prompt":"Password:"}"""),
+            flags: NativeSshEventFlags.Json));
 
-        var handler = new PendingInteractionHandler();
+        var requests = new List<SshInteractionRequest>();
+        var handler = new RecordingInteractionHandler(requests);
         var profile = CreateProfile();
         profile.RememberPasswordInVault = true;
 
         using var session = new NativeSshSession(profile, interop: interop, interactionHandler: handler);
 
-        SshInteractionRequest request = await handler.WaitForRequestAsync();
+        await WaitUntilAsync(() => requests.Count >= 2);
 
-        Assert.Equal(profile.Id, request.ProfileId);
-        Assert.Equal(profile.Name, request.ProfileName);
-        Assert.Equal(profile.User, request.ProfileUser);
-        Assert.Equal(profile.Host, request.ProfileHost);
-        Assert.Equal(session.Id, request.SessionId);
-        Assert.True(request.RememberPasswordInVault);
+        Assert.Equal(profile.Id, requests[0].ProfileId);
+        Assert.Equal(profile.Name, requests[0].ProfileName);
+        Assert.Equal(profile.User, requests[0].ProfileUser);
+        Assert.Equal(profile.Host, requests[0].ProfileHost);
+        Assert.True(requests[0].RememberPasswordInVault);
+        Assert.True(requests[0].AllowVaultPasswordReuse);
 
-        handler.Complete(SshInteractionResponse.Cancel());
+        Assert.False(requests[1].AllowVaultPasswordReuse);
     }
 
     private static SshProfile CreateProfile()
@@ -135,6 +140,26 @@ public sealed class NativeSshSessionInteractionTests
         public void Complete(SshInteractionResponse response)
         {
             _response.TrySetResult(response);
+        }
+    }
+
+    private sealed class RecordingInteractionHandler : ISshInteractionHandler
+    {
+        private readonly List<SshInteractionRequest> _requests;
+
+        public RecordingInteractionHandler(List<SshInteractionRequest> requests)
+        {
+            _requests = requests;
+        }
+
+        public Task<SshInteractionResponse> HandleAsync(SshInteractionRequest request, CancellationToken cancellationToken)
+        {
+            lock (_requests)
+            {
+                _requests.Add(request);
+            }
+
+            return Task.FromResult(SshInteractionResponse.Cancel());
         }
     }
 

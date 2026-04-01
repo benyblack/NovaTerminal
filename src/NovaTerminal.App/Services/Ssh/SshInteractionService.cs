@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -20,7 +19,6 @@ public sealed class SshInteractionService : ISshInteractionService
     private readonly Func<Window?, AuthPromptViewModel, CancellationToken, Task<SshInteractionResponse>> _authPresenter;
     private readonly NativeKnownHostsStore _knownHostsStore;
     private readonly VaultService _vaultService;
-    private readonly ConcurrentDictionary<Guid, byte> _usedVaultPasswordsBySession = new();
 
     public SshInteractionService(
         Func<Window?>? ownerProvider = null,
@@ -79,14 +77,8 @@ public sealed class SshInteractionService : ISshInteractionService
     {
         if (request.Kind != SshInteractionKind.Password ||
             !request.RememberPasswordInVault ||
-            !request.ProfileId.HasValue)
-        {
-            response = SshInteractionResponse.Cancel();
-            return false;
-        }
-
-        if (request.SessionId.HasValue &&
-            _usedVaultPasswordsBySession.ContainsKey(request.SessionId.Value))
+            !request.ProfileId.HasValue ||
+            !request.AllowVaultPasswordReuse)
         {
             response = SshInteractionResponse.Cancel();
             return false;
@@ -97,11 +89,6 @@ public sealed class SshInteractionService : ISshInteractionService
         {
             response = SshInteractionResponse.Cancel();
             return false;
-        }
-
-        if (request.SessionId.HasValue)
-        {
-            _ = _usedVaultPasswordsBySession.TryAdd(request.SessionId.Value, 0);
         }
 
         response = SshInteractionResponse.FromSecret(password);
