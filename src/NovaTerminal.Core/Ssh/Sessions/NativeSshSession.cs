@@ -20,6 +20,9 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly Action<string> _log;
     private readonly NativeSshMetrics _metrics = new();
     private readonly Guid _profileId;
+    private readonly string _profileName;
+    private readonly string _profileUser;
+    private readonly string _profileHost;
     private readonly bool _rememberPasswordInVault;
 
     private ReplayWriter? _recorder;
@@ -57,6 +60,9 @@ public sealed class NativeSshSession : ITerminalSession
         _interop = interop ?? new NativeSshInterop();
         _interactionHandler = interactionHandler;
         _profileId = profile.Id;
+        _profileName = profile.Name;
+        _profileUser = profile.User;
+        _profileHost = profile.Host;
         _rememberPasswordInVault = profile.RememberPasswordInVault;
         JumpHostConnectPlan connectPlan = JumpHostConnectPlan.Create(profile);
         NativeSshConnectionOptions connectionOptions = _jumpHostConnector.CreateConnectionOptions(connectPlan, profile, cols, rows);
@@ -335,6 +341,10 @@ public sealed class NativeSshSession : ITerminalSession
         {
             Kind = request.Kind,
             ProfileId = _profileId,
+            ProfileName = _profileName,
+            ProfileUser = _profileUser,
+            ProfileHost = _profileHost,
+            SessionId = Id,
             RememberPasswordInVault = _rememberPasswordInVault,
             Host = request.Host,
             Port = request.Port,

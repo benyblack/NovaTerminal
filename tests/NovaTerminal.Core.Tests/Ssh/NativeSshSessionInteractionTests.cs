@@ -82,6 +82,10 @@ public sealed class NativeSshSessionInteractionTests
         SshInteractionRequest request = await handler.WaitForRequestAsync();
 
         Assert.Equal(profile.Id, request.ProfileId);
+        Assert.Equal(profile.Name, request.ProfileName);
+        Assert.Equal(profile.User, request.ProfileUser);
+        Assert.Equal(profile.Host, request.ProfileHost);
+        Assert.Equal(session.Id, request.SessionId);
         Assert.True(request.RememberPasswordInVault);
 
         handler.Complete(SshInteractionResponse.Cancel());

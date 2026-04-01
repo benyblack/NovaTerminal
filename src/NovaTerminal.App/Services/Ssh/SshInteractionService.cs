@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -19,6 +20,7 @@ public sealed class SshInteractionService : ISshInteractionService
     private readonly Func<Window?, AuthPromptViewModel, CancellationToken, Task<SshInteractionResponse>> _authPresenter;
     private readonly NativeKnownHostsStore _knownHostsStore;
     private readonly VaultService _vaultService;
+    private readonly ConcurrentDictionary<Guid, byte> _usedVaultPasswordsBySession = new();
 
     public SshInteractionService(
         Func<Window?>? ownerProvider = null,
@@ -83,15 +85,38 @@ public sealed class SshInteractionService : ISshInteractionService
             return false;
         }
 
-        string? password = _vaultService.GetSshPasswordForProfile(new TerminalProfile { Id = request.ProfileId.Value });
+        if (request.SessionId.HasValue &&
+            _usedVaultPasswordsBySession.ContainsKey(request.SessionId.Value))
+        {
+            response = SshInteractionResponse.Cancel();
+            return false;
+        }
+
+        string? password = _vaultService.GetSshPasswordForProfile(CreateVaultProfile(request));
         if (string.IsNullOrEmpty(password))
         {
             response = SshInteractionResponse.Cancel();
             return false;
         }
 
+        if (request.SessionId.HasValue)
+        {
+            _ = _usedVaultPasswordsBySession.TryAdd(request.SessionId.Value, 0);
+        }
+
         response = SshInteractionResponse.FromSecret(password);
         return true;
+    }
+
+    private static TerminalProfile CreateVaultProfile(SshInteractionRequest request)
+    {
+        return new TerminalProfile
+        {
+            Id = request.ProfileId!.Value,
+            Name = request.ProfileName,
+            SshUser = request.ProfileUser,
+            SshHost = request.ProfileHost
+        };
     }
 
     private async Task<SshInteractionResponse> HandleHostKeyAsync(Window? owner, SshInteractionRequest request, CancellationToken cancellationToken)
