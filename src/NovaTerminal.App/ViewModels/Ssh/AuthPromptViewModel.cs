@@ -10,13 +10,15 @@ public sealed class AuthPromptViewModel
 {
     public string Title { get; init; } = string.Empty;
     public string Message { get; init; } = string.Empty;
+    public bool CanRememberPassword { get; init; }
+    public bool RememberPassword { get; set; }
     public ObservableCollection<AuthPromptEntryViewModel> Prompts { get; } = new();
 
     public SshInteractionResponse BuildResponse()
     {
         if (Prompts.Count == 1)
         {
-            return SshInteractionResponse.FromSecret(Prompts[0].Value);
+            return SshInteractionResponse.FromSecret(Prompts[0].Value, RememberPassword);
         }
 
         return SshInteractionResponse.FromKeyboardResponses(Prompts.Select(prompt => prompt.Value).ToArray());

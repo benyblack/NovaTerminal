@@ -200,6 +200,116 @@ public sealed class SshInteractionServiceTests
     }
 
     [Fact]
+    public async Task NativePasswordRequests_ExposeRememberPasswordOption()
+    {
+        AuthPromptViewModel? capturedVm = null;
+        var service = new SshInteractionService(
+            authPresenter: (_, vm, _) =>
+            {
+                capturedVm = vm;
+                return Task.FromResult(SshInteractionResponse.Cancel());
+            });
+
+        await service.HandleAsync(new SshInteractionRequest
+        {
+            Kind = SshInteractionKind.Password,
+            Prompt = "Password:",
+            RememberPasswordInVault = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(capturedVm);
+        Assert.True(capturedVm!.CanRememberPassword);
+    }
+
+    [Fact]
+    public async Task NativePasswordRequests_StoreSubmittedPassword_WhenRememberPasswordIsChecked()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            var profile = new TerminalProfile
+            {
+                Id = Guid.Parse("0c25f4e2-2c2d-4f16-9d70-4d01e7c8fdb1"),
+                Type = ConnectionType.SSH,
+                Name = "Native Prod",
+                SshHost = "example.internal",
+                SshUser = "alice"
+            };
+
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, _, _) =>
+                {
+                    return Task.FromResult(SshInteractionResponse.FromSecret("manual-secret", rememberPasswordInVault: true));
+                });
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Password,
+                Prompt = "Password:",
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = false,
+                RememberPasswordInVault = true
+            }, CancellationToken.None);
+
+            Assert.Equal("manual-secret", response.Secret);
+            Assert.Equal("manual-secret", vault.GetSshPasswordForProfile(profile));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NativePasswordRequests_DoNotStoreSubmittedPassword_WhenRememberPasswordIsUnchecked()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            var profile = new TerminalProfile
+            {
+                Id = Guid.Parse("f0dbb9df-8e7e-4e11-9e0a-91de4a2f84be"),
+                Type = ConnectionType.SSH,
+                Name = "Native Prod",
+                SshHost = "example.internal",
+                SshUser = "alice"
+            };
+
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, _, _) =>
+                    Task.FromResult(SshInteractionResponse.FromSecret("manual-secret")));
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Password,
+                Prompt = "Password:",
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = false,
+                RememberPasswordInVault = true
+            }, CancellationToken.None);
+
+            Assert.Equal("manual-secret", response.Secret);
+            Assert.Null(vault.GetSshPasswordForProfile(profile));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task PasswordRequests_AreAnsweredFromVaultWithoutShowingDialog_WhenRememberPasswordIsEnabled()
     {
         string tempRoot = CreateTempDirectory();
