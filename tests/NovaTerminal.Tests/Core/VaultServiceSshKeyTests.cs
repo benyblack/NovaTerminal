@@ -39,6 +39,36 @@ public class VaultServiceSshKeyTests
     }
 
     [Fact]
+    public void ApplyRememberPasswordPreference_RemovesAllProfileSecrets_WhenDisabled()
+    {
+        TerminalProfile profile = CreateProfile();
+        string canonical = VaultService.GetCanonicalSshProfileKey(profile.Id);
+        string namedLegacy = $"SSH:{profile.Name}:{profile.SshUser}@{profile.SshHost}";
+        string unnamedLegacy = $"SSH:{profile.SshUser}@{profile.SshHost}";
+        string idLegacy = $"profile_{profile.Id}_password";
+
+        var store = new Dictionary<string, string>
+        {
+            [canonical] = "canonical-secret",
+            [namedLegacy] = "named-legacy-secret",
+            [unnamedLegacy] = "unnamed-legacy-secret",
+            [idLegacy] = "id-legacy-secret"
+        };
+
+        VaultService.ApplyRememberPasswordPreference(
+            profile,
+            rememberPasswordInVault: false,
+            password: null,
+            removeSecret: key => store.Remove(key),
+            writeSecret: (key, value) => store[key] = value);
+
+        Assert.DoesNotContain(canonical, store.Keys);
+        Assert.DoesNotContain(namedLegacy, store.Keys);
+        Assert.DoesNotContain(unnamedLegacy, store.Keys);
+        Assert.DoesNotContain(idLegacy, store.Keys);
+    }
+
+    [Fact]
     public void ApplyRememberPasswordPreference_LeavesCanonicalProfileSecretUntouched_WhenEnabledWithoutPassword()
     {
         TerminalProfile profile = CreateProfile();

@@ -404,7 +404,55 @@ public sealed class SshConnectionServiceTests
 
             Assert.False(saved.RememberPasswordInVault);
             Assert.DoesNotContain(canonical, vault.Secrets.Keys);
-            Assert.Equal(canonical, vault.RemovedKeys.Single());
+            Assert.Contains(canonical, vault.RemovedKeys);
+            Assert.Empty(vault.WrittenSecrets);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_RemovesLegacyStoredPasswordsWhenRememberPasswordIsDisabled()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var vault = new RecordingSshPasswordVault();
+            var service = new SshConnectionService(store, vault);
+            var profileId = Guid.Parse("1fcb9d03-0d6f-4ed1-8c1d-9e8b2d865c6d");
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = profileId,
+                Name = "Prod",
+                HostName = "example.internal",
+                UserName = "alice",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = false
+            };
+
+            string canonical = VaultService.GetCanonicalSshProfileKey(profileId);
+            string namedLegacy = "SSH:Prod:alice@example.internal";
+            string unnamedLegacy = "SSH:alice@example.internal";
+            string idLegacy = $"profile_{profileId}_password";
+            vault.Seed(canonical, "canonical-secret");
+            vault.Seed(namedLegacy, "named-legacy-secret");
+            vault.Seed(unnamedLegacy, "unnamed-legacy-secret");
+            vault.Seed(idLegacy, "id-legacy-secret");
+
+            _ = service.SaveProfile(vm);
+
+            Assert.DoesNotContain(canonical, vault.Secrets.Keys);
+            Assert.DoesNotContain(namedLegacy, vault.Secrets.Keys);
+            Assert.DoesNotContain(unnamedLegacy, vault.Secrets.Keys);
+            Assert.DoesNotContain(idLegacy, vault.Secrets.Keys);
+            Assert.Contains(canonical, vault.RemovedKeys);
+            Assert.Contains(namedLegacy, vault.RemovedKeys);
+            Assert.Contains(unnamedLegacy, vault.RemovedKeys);
+            Assert.Contains(idLegacy, vault.RemovedKeys);
             Assert.Empty(vault.WrittenSecrets);
         }
         finally
@@ -558,20 +606,24 @@ public sealed class SshConnectionServiceTests
 
         public void ApplyRememberPasswordPreference(Guid profileId, bool rememberPasswordInVault, string? password = null)
         {
-            VaultService.ApplyRememberPasswordPreference(
-                profileId,
-                rememberPasswordInVault,
-                password,
-                removeSecret: key =>
-                {
-                    RemovedKeys.Add(key);
-                    Secrets.Remove(key);
-                },
-                writeSecret: (key, value) =>
-                {
-                    WrittenSecrets.Add((key, value));
-                    Secrets[key] = value;
-                });
+            VaultService.ApplyRememberPasswordPreference(profileId, rememberPasswordInVault, password, RemoveSecret, WriteSecret);
+        }
+
+        public void ApplyRememberPasswordPreference(TerminalProfile profile, bool rememberPasswordInVault, string? password = null)
+        {
+            VaultService.ApplyRememberPasswordPreference(profile, rememberPasswordInVault, password, RemoveSecret, WriteSecret);
+        }
+
+        private void RemoveSecret(string key)
+        {
+            RemovedKeys.Add(key);
+            Secrets.Remove(key);
+        }
+
+        private void WriteSecret(string key, string value)
+        {
+            WrittenSecrets.Add((key, value));
+            Secrets[key] = value;
         }
     }
 }

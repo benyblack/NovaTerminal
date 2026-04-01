@@ -11,6 +11,7 @@ namespace NovaTerminal.Core
     public interface ISshPasswordVault
     {
         void ApplyRememberPasswordPreference(Guid profileId, bool rememberPasswordInVault, string? password = null);
+        void ApplyRememberPasswordPreference(TerminalProfile profile, bool rememberPasswordInVault, string? password = null);
     }
 
     public class VaultService
@@ -76,10 +77,49 @@ namespace NovaTerminal.Core
             writeSecret(canonicalKey, password);
         }
 
+        public static void ApplyRememberPasswordPreference(
+            TerminalProfile profile,
+            bool rememberPasswordInVault,
+            string? password,
+            Action<string> removeSecret,
+            Action<string, string> writeSecret)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+            ArgumentNullException.ThrowIfNull(removeSecret);
+            ArgumentNullException.ThrowIfNull(writeSecret);
+
+            if (!rememberPasswordInVault)
+            {
+                foreach (string key in GetSshPasswordKeysForProfile(profile))
+                {
+                    removeSecret(key);
+                }
+
+                return;
+            }
+
+            if (string.IsNullOrEmpty(password))
+            {
+                return;
+            }
+
+            writeSecret(GetCanonicalSshProfileKey(profile.Id), password);
+        }
+
         public void ApplyRememberPasswordPreference(Guid profileId, bool rememberPasswordInVault, string? password = null)
         {
             ApplyRememberPasswordPreference(
                 profileId,
+                rememberPasswordInVault,
+                password,
+                key => _ = RemoveSecret(key),
+                SetSecret);
+        }
+
+        public void ApplyRememberPasswordPreference(TerminalProfile profile, bool rememberPasswordInVault, string? password = null)
+        {
+            ApplyRememberPasswordPreference(
+                profile,
                 rememberPasswordInVault,
                 password,
                 key => _ = RemoveSecret(key),
@@ -105,6 +145,17 @@ namespace NovaTerminal.Core
             }
 
             yield return $"profile_{profile.Id}_password";
+        }
+
+        public static IEnumerable<string> GetSshPasswordKeysForProfile(TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            yield return GetCanonicalSshProfileKey(profile.Id);
+            foreach (string legacyKey in GetLegacySshKeys(profile))
+            {
+                yield return legacyKey;
+            }
         }
 
         public static string? ResolveSshPasswordForProfile(
