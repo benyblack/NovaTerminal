@@ -24,10 +24,24 @@ namespace NovaTerminal.Core
 
 #pragma warning disable CA1416 // Validate platform compatibility
 
-        public VaultService()
+        public VaultService(string? vaultPath = null)
         {
             try
             {
+                if (!string.IsNullOrWhiteSpace(vaultPath))
+                {
+                    _vaultPath = vaultPath;
+                    string? vaultDirectory = Path.GetDirectoryName(_vaultPath);
+                    if (!string.IsNullOrEmpty(vaultDirectory) && !Directory.Exists(vaultDirectory))
+                    {
+                        Directory.CreateDirectory(vaultDirectory);
+                    }
+
+                    _secrets = new Dictionary<string, string>();
+                    Load();
+                    return;
+                }
+
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 string directory = Path.Combine(appData, AppName);
                 if (!Directory.Exists(directory))

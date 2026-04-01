@@ -64,6 +64,29 @@ public sealed class NativeSshSessionInteractionTests
         Assert.Equal("""{"accept":false}""", submission.PayloadJson);
     }
 
+    [Fact]
+    public async Task PasswordPromptCarriesNativeProfileContext()
+    {
+        var interop = new FakeNativeSshInterop();
+        interop.Enqueue(new NativeSshEvent(
+            NativeSshEventKind.PasswordPrompt,
+            Encoding.UTF8.GetBytes("""{"prompt":"Password:"}"""),
+            flags: NativeSshEventFlags.Json));
+
+        var handler = new PendingInteractionHandler();
+        var profile = CreateProfile();
+        profile.RememberPasswordInVault = true;
+
+        using var session = new NativeSshSession(profile, interop: interop, interactionHandler: handler);
+
+        SshInteractionRequest request = await handler.WaitForRequestAsync();
+
+        Assert.Equal(profile.Id, request.ProfileId);
+        Assert.True(request.RememberPasswordInVault);
+
+        handler.Complete(SshInteractionResponse.Cancel());
+    }
+
     private static SshProfile CreateProfile()
     {
         return new SshProfile
@@ -103,7 +126,7 @@ public sealed class NativeSshSessionInteractionTests
             return _response.Task.WaitAsync(cancellationToken);
         }
 
-        public Task WaitForRequestAsync() => _request.Task;
+        public Task<SshInteractionRequest> WaitForRequestAsync() => _request.Task;
 
         public void Complete(SshInteractionResponse response)
         {

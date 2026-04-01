@@ -19,6 +19,8 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
     private readonly Action<string> _log;
     private readonly NativeSshMetrics _metrics = new();
+    private readonly Guid _profileId;
+    private readonly bool _rememberPasswordInVault;
 
     private ReplayWriter? _recorder;
     private TerminalBuffer? _buffer;
@@ -54,6 +56,8 @@ public sealed class NativeSshSession : ITerminalSession
         _log = log ?? Console.WriteLine;
         _interop = interop ?? new NativeSshInterop();
         _interactionHandler = interactionHandler;
+        _profileId = profile.Id;
+        _rememberPasswordInVault = profile.RememberPasswordInVault;
         JumpHostConnectPlan connectPlan = JumpHostConnectPlan.Create(profile);
         NativeSshConnectionOptions connectionOptions = _jumpHostConnector.CreateConnectionOptions(connectPlan, profile, cols, rows);
         _log($"[NativeSshSession] backend=native path={_jumpHostConnector.DescribePath(connectPlan)} target={connectionOptions.User}@{connectionOptions.Host}:{connectionOptions.Port}");
@@ -293,7 +297,7 @@ public sealed class NativeSshSession : ITerminalSession
             _metrics.MarkAuthenticationPromptStarted();
         }
 
-        SshInteractionRequest request = NativeSshInteractionJson.ParseRequest(nextEvent.Kind, nextEvent.Payload);
+        SshInteractionRequest request = WithProfileContext(NativeSshInteractionJson.ParseRequest(nextEvent.Kind, nextEvent.Payload));
         SshInteractionResponse response = _interactionHandler == null
             ? SshInteractionResponse.Cancel()
             : await _interactionHandler.HandleAsync(request, _pollCts.Token).ConfigureAwait(false);
@@ -318,6 +322,29 @@ public sealed class NativeSshSession : ITerminalSession
         {
             _metrics.MarkAuthenticationPromptCompleted();
         }
+    }
+
+    private SshInteractionRequest WithProfileContext(SshInteractionRequest request)
+    {
+        if (_profileId == Guid.Empty)
+        {
+            return request;
+        }
+
+        return new SshInteractionRequest
+        {
+            Kind = request.Kind,
+            ProfileId = _profileId,
+            RememberPasswordInVault = _rememberPasswordInVault,
+            Host = request.Host,
+            Port = request.Port,
+            Algorithm = request.Algorithm,
+            Fingerprint = request.Fingerprint,
+            Prompt = request.Prompt,
+            Name = request.Name,
+            Instructions = request.Instructions,
+            KeyboardPrompts = request.KeyboardPrompts
+        };
     }
 
     private void TryNotifyExit(int exitCode)
