@@ -462,6 +462,59 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
+    public void SaveProfile_RemovesStaleLegacyPasswordsFromPreviousProfileIdentityWhenDisabled()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var vault = new RecordingSshPasswordVault();
+            var service = new SshConnectionService(store, vault);
+            var profileId = Guid.Parse("8a5d3e1c-1d5f-4a2b-8c90-0d4f21a0d7b1");
+
+            store.SaveProfile(new SshProfile
+            {
+                Id = profileId,
+                Name = "OldName",
+                Host = "old.internal",
+                User = "alice",
+                BackendKind = SshBackendKind.Native
+            });
+
+            vault.Seed(VaultService.GetCanonicalSshProfileKey(profileId), "canonical-secret");
+            vault.Seed("SSH:OldName:alice@old.internal", "old-named-secret");
+            vault.Seed("SSH:alice@old.internal", "old-unnamed-secret");
+            vault.Seed($"profile_{profileId}_password", "old-id-secret");
+            vault.Seed("SSH:NewName:bob@new.internal", "new-named-secret");
+            vault.Seed("SSH:bob@new.internal", "new-unnamed-secret");
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = profileId,
+                Name = "NewName",
+                HostName = "new.internal",
+                UserName = "bob",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = false
+            };
+
+            _ = service.SaveProfile(vm);
+
+            Assert.DoesNotContain("SSH:OldName:alice@old.internal", vault.Secrets.Keys);
+            Assert.DoesNotContain("SSH:alice@old.internal", vault.Secrets.Keys);
+            Assert.DoesNotContain($"profile_{profileId}_password", vault.Secrets.Keys);
+            Assert.DoesNotContain(VaultService.GetCanonicalSshProfileKey(profileId), vault.Secrets.Keys);
+            Assert.DoesNotContain("SSH:NewName:bob@new.internal", vault.Secrets.Keys);
+            Assert.DoesNotContain("SSH:bob@new.internal", vault.Secrets.Keys);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SaveProfile_LeavesStoredPasswordUntouchedWhenRememberPasswordIsEnabled()
     {
         string tempRoot = CreateTempDirectory();

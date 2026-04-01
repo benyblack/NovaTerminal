@@ -93,7 +93,7 @@ public sealed class SshLaunchDetails
         SshProfile merged = MergeProfile(existing, incoming, viewModel.IsFavorite);
 
         _profileStore.SaveProfile(merged);
-        _passwordVault?.ApplyRememberPasswordPreference(ToRuntimeProfile(merged), merged.RememberPasswordInVault);
+        ApplyRememberPasswordPreference(ToRuntimeProfile(merged), existing, merged.RememberPasswordInVault);
         return _profileStore.GetProfile(merged.Id) ?? merged;
     }
 
@@ -135,7 +135,7 @@ public sealed class SshLaunchDetails
         SshProfileNormalizer.NormalizeRememberPasswordPreference(candidate);
 
         _profileStore.SaveProfile(candidate);
-        _passwordVault?.ApplyRememberPasswordPreference(profile, candidate.RememberPasswordInVault);
+        ApplyRememberPasswordPreference(profile, existing, candidate.RememberPasswordInVault);
     }
 
     public void SaveConnectionProfiles(IEnumerable<TerminalProfile> profiles)
@@ -146,6 +146,21 @@ public sealed class SshLaunchDetails
         {
             SaveConnectionProfile(profile);
         }
+    }
+
+    private void ApplyRememberPasswordPreference(TerminalProfile currentProfile, SshProfile? previousProfile, bool rememberPasswordInVault)
+    {
+        if (_passwordVault == null)
+        {
+            return;
+        }
+
+        if (previousProfile != null)
+        {
+            _passwordVault.ApplyRememberPasswordPreference(ToRuntimeProfile(previousProfile), rememberPasswordInVault);
+        }
+
+        _passwordVault.ApplyRememberPasswordPreference(currentProfile, rememberPasswordInVault);
     }
 
     public bool DeleteProfile(Guid profileId)
