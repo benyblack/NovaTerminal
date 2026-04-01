@@ -253,6 +253,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         normalized.User = normalized.User?.Trim() ?? string.Empty;
         normalized.Port = normalized.Port > 0 ? normalized.Port : 22;
         normalized.IdentityFilePath = normalized.IdentityFilePath?.Trim() ?? string.Empty;
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(normalized);
         normalized.WorkingDirectory = normalized.WorkingDirectory?.Trim() ?? string.Empty;
         normalized.ServerAliveIntervalSeconds = normalized.ServerAliveIntervalSeconds > 0
             ? normalized.ServerAliveIntervalSeconds
@@ -323,6 +324,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
             Port = profile.Port,
             AuthMode = profile.AuthMode,
             IdentityFilePath = profile.IdentityFilePath,
+            RememberPasswordInVault = profile.RememberPasswordInVault,
             JumpHops = profile.JumpHops.Select(CloneJumpHop).ToList(),
             Forwards = profile.Forwards.Select(CloneForward).ToList(),
             MuxOptions = CloneMuxOptions(profile.MuxOptions),

@@ -122,6 +122,68 @@ public sealed class JsonSshProfileStoreTests
     }
 
     [Fact]
+    public void SaveAndLoad_RoundTripsRememberPasswordPreference()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string storePath = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(storePath);
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("9f59e8e2-7a3f-4c02-9a69-8d6a4b37716f"),
+                Name = "native",
+                Host = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            };
+
+            store.SaveProfile(profile);
+
+            SshProfile? loaded = store.GetProfile(profile.Id);
+
+            Assert.NotNull(loaded);
+            Assert.True(loaded!.RememberPasswordInVault);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void NormalizeRememberPasswordPreference_PreservesNativeProfiles()
+    {
+        var profile = new SshProfile
+        {
+            Name = "native",
+            Host = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            RememberPasswordInVault = true
+        };
+
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(profile);
+
+        Assert.True(profile.RememberPasswordInVault);
+    }
+
+    [Fact]
+    public void NormalizeRememberPasswordPreference_ClearsOpenSshProfiles()
+    {
+        var profile = new SshProfile
+        {
+            Name = "openssh",
+            Host = "openssh.internal",
+            BackendKind = SshBackendKind.OpenSsh,
+            RememberPasswordInVault = true
+        };
+
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(profile);
+
+        Assert.False(profile.RememberPasswordInVault);
+    }
+
+    [Fact]
     public void SaveProfile_DoesNotPersistPasswordOrPassphraseFields()
     {
         string tempRoot = CreateTempDirectory();
@@ -137,8 +199,8 @@ public sealed class JsonSshProfileStoreTests
             });
 
             string json = File.ReadAllText(storePath);
-            Assert.DoesNotContain("password", json, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("passphrase", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("\"Password\":", json, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("\"Passphrase\":", json, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

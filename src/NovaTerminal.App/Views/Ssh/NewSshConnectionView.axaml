@@ -77,6 +77,12 @@
                         <TextBox Grid.Column="0" Text="{Binding IdentityFilePath}" Watermark="Path to private key" />
                         <Button Grid.Column="1" Content="Browse..." Click="OnBrowseIdentityFileClick" />
                     </Grid>
+
+                    <CheckBox Grid.Row="2"
+                              Grid.Column="1"
+                              Content="Remember password in vault"
+                              IsChecked="{Binding RememberPasswordInVault}"
+                              IsVisible="{Binding IsRememberPasswordVisible}" />
                 </Grid>
             </TabItem>
 

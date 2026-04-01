@@ -207,6 +207,351 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
+    public void SaveProfile_PersistsRememberPasswordPreferenceForNativeProfiles()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+
+            var vm = new NewSshConnectionViewModel
+            {
+                Name = "Native",
+                HostName = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.True(saved.RememberPasswordInVault);
+            Assert.True(store.GetProfile(saved.Id)!.RememberPasswordInVault);
+            Assert.True(new JsonSshProfileStore(path).GetProfile(saved.Id)!.RememberPasswordInVault);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_DropsRememberPasswordPreferenceForOpenSshProfiles()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+
+            var vm = new NewSshConnectionViewModel
+            {
+                Name = "OpenSSH",
+                HostName = "openssh.internal",
+                RememberPasswordInVault = true
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.False(saved.RememberPasswordInVault);
+            Assert.False(store.GetProfile(saved.Id)!.RememberPasswordInVault);
+            Assert.False(new JsonSshProfileStore(path).GetProfile(saved.Id)!.RememberPasswordInVault);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_WithNullBackendPreservesNativeRememberPasswordPreference()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+
+            var existing = new SshProfile
+            {
+                Id = Guid.Parse("b8f6f5c4-1f52-4cc6-8b8b-f8964ad2f1b3"),
+                Name = "Native",
+                Host = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            };
+            store.SaveProfile(existing);
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = existing.Id,
+                Name = "Native Updated",
+                HostName = "updated.internal",
+                UserName = "ops"
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.Equal(SshBackendKind.Native, saved.BackendKind);
+            Assert.True(saved.RememberPasswordInVault);
+            Assert.True(store.GetProfile(saved.Id)!.RememberPasswordInVault);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CreateEditorViewModel_LoadsRememberPasswordPreferenceForNativeProfiles()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+
+            var vm = new NewSshConnectionViewModel
+            {
+                Name = "Native",
+                HostName = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+            TerminalProfile runtimeProfile = service.GetConnectionProfile(saved.Id)!;
+            NewSshConnectionViewModel editorVm = service.CreateEditorViewModel(runtimeProfile);
+
+            Assert.True(editorVm.RememberPasswordInVault);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveConnectionProfile_ClearsRememberPasswordPreferenceForOpenSshProfiles()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+            var existing = new SshProfile
+            {
+                Id = Guid.Parse("e5e221a0-77bf-4f50-a0c3-3136d1f90f9e"),
+                Name = "Native",
+                Host = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            };
+
+            store.SaveProfile(existing);
+
+            var runtimeProfile = new TerminalProfile
+            {
+                Id = existing.Id,
+                Name = "OpenSSH",
+                Type = ConnectionType.SSH,
+                SshHost = "openssh.internal",
+                SshBackendKind = SshBackendKind.OpenSsh,
+                UseSshAgent = true
+            };
+
+            service.SaveConnectionProfile(runtimeProfile);
+
+            Assert.False(store.GetProfile(existing.Id)!.RememberPasswordInVault);
+            Assert.False(new JsonSshProfileStore(path).GetProfile(existing.Id)!.RememberPasswordInVault);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_RemovesStoredPasswordWhenRememberPasswordIsDisabled()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var vault = new RecordingSshPasswordVault();
+            var service = new SshConnectionService(store, vault);
+            var profileId = Guid.Parse("9d2c0bc4-2d0b-4f66-8d50-66c74d1bc7a8");
+            string canonical = VaultService.GetCanonicalSshProfileKey(profileId);
+
+            vault.Seed(canonical, "stored-secret");
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = profileId,
+                Name = "Native",
+                HostName = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = false
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.False(saved.RememberPasswordInVault);
+            Assert.DoesNotContain(canonical, vault.Secrets.Keys);
+            Assert.Contains(canonical, vault.RemovedKeys);
+            Assert.Empty(vault.WrittenSecrets);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_RemovesLegacyStoredPasswordsWhenRememberPasswordIsDisabled()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var vault = new RecordingSshPasswordVault();
+            var service = new SshConnectionService(store, vault);
+            var profileId = Guid.Parse("1fcb9d03-0d6f-4ed1-8c1d-9e8b2d865c6d");
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = profileId,
+                Name = "Prod",
+                HostName = "example.internal",
+                UserName = "alice",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = false
+            };
+
+            string canonical = VaultService.GetCanonicalSshProfileKey(profileId);
+            string namedLegacy = "SSH:Prod:alice@example.internal";
+            string unnamedLegacy = "SSH:alice@example.internal";
+            string idLegacy = $"profile_{profileId}_password";
+            vault.Seed(canonical, "canonical-secret");
+            vault.Seed(namedLegacy, "named-legacy-secret");
+            vault.Seed(unnamedLegacy, "unnamed-legacy-secret");
+            vault.Seed(idLegacy, "id-legacy-secret");
+
+            _ = service.SaveProfile(vm);
+
+            Assert.DoesNotContain(canonical, vault.Secrets.Keys);
+            Assert.DoesNotContain(namedLegacy, vault.Secrets.Keys);
+            Assert.DoesNotContain(idLegacy, vault.Secrets.Keys);
+            Assert.Contains(canonical, vault.RemovedKeys);
+            Assert.Contains(namedLegacy, vault.RemovedKeys);
+            Assert.Contains(idLegacy, vault.RemovedKeys);
+            Assert.Equal("unnamed-legacy-secret", vault.Secrets[unnamedLegacy]);
+            Assert.DoesNotContain(unnamedLegacy, vault.RemovedKeys);
+            Assert.Empty(vault.WrittenSecrets);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_RemovesStaleLegacyPasswordsFromPreviousProfileIdentityWhenDisabled()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var vault = new RecordingSshPasswordVault();
+            var service = new SshConnectionService(store, vault);
+            var profileId = Guid.Parse("8a5d3e1c-1d5f-4a2b-8c90-0d4f21a0d7b1");
+
+            store.SaveProfile(new SshProfile
+            {
+                Id = profileId,
+                Name = "OldName",
+                Host = "old.internal",
+                User = "alice",
+                BackendKind = SshBackendKind.Native
+            });
+
+            vault.Seed(VaultService.GetCanonicalSshProfileKey(profileId), "canonical-secret");
+            vault.Seed("SSH:OldName:alice@old.internal", "old-named-secret");
+            vault.Seed("SSH:alice@old.internal", "old-unnamed-secret");
+            vault.Seed($"profile_{profileId}_password", "old-id-secret");
+            vault.Seed("SSH:NewName:bob@new.internal", "new-named-secret");
+            vault.Seed("SSH:bob@new.internal", "new-unnamed-secret");
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = profileId,
+                Name = "NewName",
+                HostName = "new.internal",
+                UserName = "bob",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = false
+            };
+
+            _ = service.SaveProfile(vm);
+
+            Assert.DoesNotContain("SSH:OldName:alice@old.internal", vault.Secrets.Keys);
+            Assert.DoesNotContain($"profile_{profileId}_password", vault.Secrets.Keys);
+            Assert.DoesNotContain(VaultService.GetCanonicalSshProfileKey(profileId), vault.Secrets.Keys);
+            Assert.DoesNotContain("SSH:NewName:bob@new.internal", vault.Secrets.Keys);
+            Assert.Equal("old-unnamed-secret", vault.Secrets["SSH:alice@old.internal"]);
+            Assert.Equal("new-unnamed-secret", vault.Secrets["SSH:bob@new.internal"]);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SaveProfile_LeavesStoredPasswordUntouchedWhenRememberPasswordIsEnabled()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var vault = new RecordingSshPasswordVault();
+            var service = new SshConnectionService(store, vault);
+            var profileId = Guid.Parse("c8e0c8f1-197b-47cf-a4c8-413fb1e1fb77");
+            string canonical = VaultService.GetCanonicalSshProfileKey(profileId);
+
+            vault.Seed(canonical, "stored-secret");
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = profileId,
+                Name = "Native",
+                HostName = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.True(saved.RememberPasswordInVault);
+            Assert.Equal("stored-secret", vault.Secrets[canonical]);
+            Assert.Empty(vault.RemovedKeys);
+            Assert.Empty(vault.WrittenSecrets);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void GetConnectionProfiles_ProjectsStoredProfilesIntoRuntimeRows()
     {
         string tempRoot = CreateTempDirectory();
@@ -298,6 +643,40 @@ public sealed class SshConnectionServiceTests
         finally
         {
             Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private sealed class RecordingSshPasswordVault : ISshPasswordVault
+    {
+        public Dictionary<string, string> Secrets { get; } = new(StringComparer.Ordinal);
+        public List<string> RemovedKeys { get; } = new();
+        public List<(string Key, string Value)> WrittenSecrets { get; } = new();
+
+        public void Seed(string key, string value)
+        {
+            Secrets[key] = value;
+        }
+
+        public void ApplyRememberPasswordPreference(Guid profileId, bool rememberPasswordInVault, string? password = null)
+        {
+            VaultService.ApplyRememberPasswordPreference(profileId, rememberPasswordInVault, password, RemoveSecret, WriteSecret);
+        }
+
+        public void ApplyRememberPasswordPreference(TerminalProfile profile, bool rememberPasswordInVault, string? password = null)
+        {
+            VaultService.ApplyRememberPasswordPreference(profile, rememberPasswordInVault, password, RemoveSecret, WriteSecret);
+        }
+
+        private void RemoveSecret(string key)
+        {
+            RemovedKeys.Add(key);
+            Secrets.Remove(key);
+        }
+
+        private void WriteSecret(string key, string value)
+        {
+            WrittenSecrets.Add((key, value));
+            Secrets[key] = value;
         }
     }
 }

@@ -19,6 +19,12 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
     private readonly Action<string> _log;
     private readonly NativeSshMetrics _metrics = new();
+    private readonly Guid _profileId;
+    private readonly string _profileName;
+    private readonly string _profileUser;
+    private readonly string _profileHost;
+    private readonly bool _rememberPasswordInVault;
+    private bool _allowVaultPasswordReuse;
     private readonly object _exitHandlerGate = new();
     private readonly object _outputHandlerGate = new();
 
@@ -60,6 +66,12 @@ public sealed class NativeSshSession : ITerminalSession
         _log = log ?? Console.WriteLine;
         _interop = interop ?? new NativeSshInterop();
         _interactionHandler = interactionHandler;
+        _profileId = profile.Id;
+        _profileName = profile.Name;
+        _profileUser = profile.User;
+        _profileHost = profile.Host;
+        _rememberPasswordInVault = profile.RememberPasswordInVault;
+        _allowVaultPasswordReuse = profile.RememberPasswordInVault;
         JumpHostConnectPlan connectPlan = JumpHostConnectPlan.Create(profile);
         NativeSshConnectionOptions connectionOptions = _jumpHostConnector.CreateConnectionOptions(connectPlan, profile, cols, rows);
         _log($"[NativeSshSession] backend=native path={_jumpHostConnector.DescribePath(connectPlan)} target={connectionOptions.User}@{connectionOptions.Host}:{connectionOptions.Port}");
@@ -379,7 +391,7 @@ public sealed class NativeSshSession : ITerminalSession
             _metrics.MarkAuthenticationPromptStarted();
         }
 
-        SshInteractionRequest request = NativeSshInteractionJson.ParseRequest(nextEvent.Kind, nextEvent.Payload);
+        SshInteractionRequest request = WithProfileContext(NativeSshInteractionJson.ParseRequest(nextEvent.Kind, nextEvent.Payload));
         SshInteractionResponse response = _interactionHandler == null
             ? SshInteractionResponse.Cancel()
             : await _interactionHandler.HandleAsync(request, _pollCts.Token).ConfigureAwait(false);
@@ -404,6 +416,40 @@ public sealed class NativeSshSession : ITerminalSession
         {
             _metrics.MarkAuthenticationPromptCompleted();
         }
+    }
+
+    private SshInteractionRequest WithProfileContext(SshInteractionRequest request)
+    {
+        if (_profileId == Guid.Empty)
+        {
+            return request;
+        }
+
+        SshInteractionRequest requestWithContext = new()
+        {
+            Kind = request.Kind,
+            ProfileId = _profileId,
+            ProfileName = _profileName,
+            ProfileUser = _profileUser,
+            ProfileHost = _profileHost,
+            AllowVaultPasswordReuse = request.Kind == SshInteractionKind.Password && _allowVaultPasswordReuse,
+            RememberPasswordInVault = _rememberPasswordInVault,
+            Host = request.Host,
+            Port = request.Port,
+            Algorithm = request.Algorithm,
+            Fingerprint = request.Fingerprint,
+            Prompt = request.Prompt,
+            Name = request.Name,
+            Instructions = request.Instructions,
+            KeyboardPrompts = request.KeyboardPrompts
+        };
+
+        if (request.Kind == SshInteractionKind.Password)
+        {
+            _allowVaultPasswordReuse = false;
+        }
+
+        return requestWithContext;
     }
 
     private void TryNotifyExit(int exitCode)

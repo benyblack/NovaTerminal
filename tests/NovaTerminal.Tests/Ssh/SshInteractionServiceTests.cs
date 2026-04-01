@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Services.Ssh;
@@ -196,6 +197,310 @@ public sealed class SshInteractionServiceTests
         Assert.True(capturedVm.Prompts[0].IsSecret);
         Assert.Equal("Password:", capturedVm.Prompts[0].Prompt);
         Assert.Equal("password", response.Secret);
+    }
+
+    [Fact]
+    public async Task NativePasswordRequests_ExposeRememberPasswordOption()
+    {
+        AuthPromptViewModel? capturedVm = null;
+        var service = new SshInteractionService(
+            authPresenter: (_, vm, _) =>
+            {
+                capturedVm = vm;
+                return Task.FromResult(SshInteractionResponse.Cancel());
+            });
+
+        await service.HandleAsync(new SshInteractionRequest
+        {
+            Kind = SshInteractionKind.Password,
+            Prompt = "Password:",
+            RememberPasswordInVault = true
+        }, CancellationToken.None);
+
+        Assert.NotNull(capturedVm);
+        Assert.True(capturedVm!.CanRememberPassword);
+    }
+
+    [Fact]
+    public async Task NativePasswordRequests_StoreSubmittedPassword_WhenRememberPasswordIsChecked()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            var profile = new TerminalProfile
+            {
+                Id = Guid.Parse("0c25f4e2-2c2d-4f16-9d70-4d01e7c8fdb1"),
+                Type = ConnectionType.SSH,
+                Name = "Native Prod",
+                SshHost = "example.internal",
+                SshUser = "alice"
+            };
+
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, _, _) =>
+                {
+                    return Task.FromResult(SshInteractionResponse.FromSecret("manual-secret", rememberPasswordInVault: true));
+                });
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Password,
+                Prompt = "Password:",
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = false,
+                RememberPasswordInVault = true
+            }, CancellationToken.None);
+
+            Assert.Equal("manual-secret", response.Secret);
+            Assert.Equal("manual-secret", vault.GetSshPasswordForProfile(profile));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task NativePasswordRequests_DoNotStoreSubmittedPassword_WhenRememberPasswordIsUnchecked()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            var profile = new TerminalProfile
+            {
+                Id = Guid.Parse("f0dbb9df-8e7e-4e11-9e0a-91de4a2f84be"),
+                Type = ConnectionType.SSH,
+                Name = "Native Prod",
+                SshHost = "example.internal",
+                SshUser = "alice"
+            };
+
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, _, _) =>
+                    Task.FromResult(SshInteractionResponse.FromSecret("manual-secret")));
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Password,
+                Prompt = "Password:",
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = false,
+                RememberPasswordInVault = true
+            }, CancellationToken.None);
+
+            Assert.Equal("manual-secret", response.Secret);
+            Assert.Null(vault.GetSshPasswordForProfile(profile));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PasswordRequests_AreAnsweredFromVaultWithoutShowingDialog_WhenRememberPasswordIsEnabled()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            var profile = new TerminalProfile
+            {
+                Id = Guid.Parse("3b0a5c25-9b4d-4d6b-80b4-5cf8c2ef8e6a"),
+                Type = ConnectionType.SSH,
+                Name = "Native Prod",
+                SshHost = "example.internal",
+                SshUser = "alice"
+            };
+            vault.SetSshPasswordForProfile(profile, "vault-secret");
+
+            int promptCount = 0;
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, _, _) =>
+                {
+                    promptCount++;
+                    return Task.FromResult(SshInteractionResponse.Cancel());
+                });
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Password,
+                Prompt = "Password:",
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = true,
+                RememberPasswordInVault = true
+            }, CancellationToken.None);
+
+            Assert.Equal(0, promptCount);
+            Assert.Equal("vault-secret", response.Secret);
+            Assert.False(response.IsCanceled);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PasswordRequests_UseLegacyVaultSecret_WhenFullProfileIdentityIsProvided()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            var profile = new TerminalProfile
+            {
+                Id = Guid.Parse("19c4e5f0-62ed-4d56-90b1-1d53e4c90d19"),
+                Type = ConnectionType.SSH,
+                Name = "Legacy Prod",
+                SshHost = "legacy.internal",
+                SshUser = "alice"
+            };
+            string legacyKey = $"SSH:{profile.Name}:{profile.SshUser}@{profile.SshHost}";
+            vault.SetSecret(legacyKey, "legacy-secret");
+
+            int promptCount = 0;
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, _, _) =>
+                {
+                    promptCount++;
+                    return Task.FromResult(SshInteractionResponse.Cancel());
+                });
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Password,
+                Prompt = "Password:",
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = true,
+                RememberPasswordInVault = true
+            }, CancellationToken.None);
+
+            Assert.Equal(0, promptCount);
+            Assert.Equal("legacy-secret", response.Secret);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PasswordRequests_FallBackToDialog_WhenVaultReuseIsNotAllowed()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            var profile = new TerminalProfile
+            {
+                Id = Guid.Parse("52e5e0a7-51c6-4c9e-8d1a-7f74e9e6d7b8"),
+                Type = ConnectionType.SSH,
+                Name = "Native Prod",
+                SshHost = "example.internal",
+                SshUser = "alice"
+            };
+            vault.SetSshPasswordForProfile(profile, "vault-secret");
+
+            int promptCount = 0;
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, _, _) =>
+                {
+                    promptCount++;
+                    return Task.FromResult(SshInteractionResponse.FromSecret("manual-secret"));
+                });
+
+            SshInteractionResponse response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Password,
+                Prompt = "Password:",
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = false,
+                RememberPasswordInVault = true
+            }, CancellationToken.None);
+
+            Assert.Equal("manual-secret", response.Secret);
+            Assert.Equal(1, promptCount);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PassphraseRequests_ShowDialogEvenWhenVaultHasPassword()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            var profile = new TerminalProfile
+            {
+                Id = Guid.Parse("6e1df53b-5b8f-4d5c-bfd7-9ad6f4d3d5d5"),
+                Type = ConnectionType.SSH,
+                Name = "Native Prod",
+                SshHost = "example.internal",
+                SshUser = "alice"
+            };
+            vault.SetSshPasswordForProfile(profile, "vault-secret");
+
+            int promptCount = 0;
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, vm, _) =>
+                {
+                    promptCount++;
+                    Assert.Equal("Passphrase", vm.Title);
+                    return Task.FromResult(SshInteractionResponse.FromSecret("entered-passphrase"));
+                });
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Passphrase,
+                Prompt = "Key passphrase:",
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
+                RememberPasswordInVault = true
+            }, CancellationToken.None);
+
+            Assert.Equal(1, promptCount);
+            Assert.Equal("entered-passphrase", response.Secret);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
     }
 
     [Fact]

@@ -23,6 +23,7 @@ public sealed class SshProfile
     public int Port { get; set; } = 22;
     public SshAuthMode AuthMode { get; set; } = SshAuthMode.Default;
     public string IdentityFilePath { get; set; } = string.Empty;
+    public bool RememberPasswordInVault { get; set; }
     public List<SshJumpHop> JumpHops { get; set; } = new();
     public List<PortForward> Forwards { get; set; } = new();
     public SshMuxOptions MuxOptions { get; set; } = new();

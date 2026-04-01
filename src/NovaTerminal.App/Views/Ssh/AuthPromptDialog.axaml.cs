@@ -31,6 +31,10 @@ public partial class AuthPromptDialog : Window
     {
         this.FindControl<TextBlock>("DialogTitle")!.Text = viewModel.Title;
         this.FindControl<TextBlock>("DialogMessage")!.Text = viewModel.Message;
+        var rememberPasswordToggle = this.FindControl<CheckBox>("RememberPasswordToggle")!;
+        rememberPasswordToggle.IsVisible = viewModel.CanRememberPassword;
+        rememberPasswordToggle.IsChecked = viewModel.RememberPassword;
+        rememberPasswordToggle.IsCheckedChanged += (_, __) => viewModel.RememberPassword = rememberPasswordToggle.IsChecked == true;
 
         var host = this.FindControl<StackPanel>("PromptHost")!;
         host.Children.Clear();

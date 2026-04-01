@@ -8,19 +8,43 @@ using System.Runtime.InteropServices;
 
 namespace NovaTerminal.Core
 {
+    public interface ISshPasswordVault
+    {
+        void ApplyRememberPasswordPreference(Guid profileId, bool rememberPasswordInVault, string? password = null);
+        void ApplyRememberPasswordPreference(TerminalProfile profile, bool rememberPasswordInVault, string? password = null);
+    }
+
     public class VaultService
+        : ISshPasswordVault
     {
         private const string AppName = "NovaTerminal";
         private const string VaultFileName = "vault.dat";
         private readonly string _vaultPath;
+        private readonly bool _useFileBackedStore;
         private Dictionary<string, string> _secrets;
 
 #pragma warning disable CA1416 // Validate platform compatibility
 
-        public VaultService()
+        public VaultService(string? vaultPath = null)
         {
             try
             {
+                _useFileBackedStore = !RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+                    || !string.IsNullOrWhiteSpace(vaultPath);
+
+                if (!string.IsNullOrWhiteSpace(vaultPath))
+                {
+                    _vaultPath = vaultPath;
+                    string? vaultDirectory = Path.GetDirectoryName(_vaultPath);
+                    if (!string.IsNullOrEmpty(vaultDirectory) && !Directory.Exists(vaultDirectory))
+                    {
+                        Directory.CreateDirectory(vaultDirectory);
+                    }
+
+                    _secrets = LoadSecretsOrEmpty();
+                    return;
+                }
+
                 string appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 string directory = Path.Combine(appData, AppName);
                 if (!Directory.Exists(directory))
@@ -28,14 +52,13 @@ namespace NovaTerminal.Core
                     Directory.CreateDirectory(directory);
                 }
                 _vaultPath = Path.Combine(directory, VaultFileName);
-                _secrets = new Dictionary<string, string>();
-
-                Load();
+                _secrets = LoadSecretsOrEmpty();
             }
             catch
             {
                 // Fallback if filesystem access fails
                 _vaultPath = string.Empty;
+                _useFileBackedStore = true;
                 _secrets = new Dictionary<string, string>();
             }
         }
@@ -45,7 +68,81 @@ namespace NovaTerminal.Core
             return $"SSH:PROFILE:{profileId:D}";
         }
 
-        public static IEnumerable<string> GetLegacySshKeys(TerminalProfile profile)
+        public static void ApplyRememberPasswordPreference(
+            Guid profileId,
+            bool rememberPasswordInVault,
+            string? password,
+            Action<string> removeSecret,
+            Action<string, string> writeSecret)
+        {
+            ArgumentNullException.ThrowIfNull(removeSecret);
+            ArgumentNullException.ThrowIfNull(writeSecret);
+
+            string canonicalKey = GetCanonicalSshProfileKey(profileId);
+            if (!rememberPasswordInVault)
+            {
+                removeSecret(canonicalKey);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(password))
+            {
+                return;
+            }
+
+            writeSecret(canonicalKey, password);
+        }
+
+        public static void ApplyRememberPasswordPreference(
+            TerminalProfile profile,
+            bool rememberPasswordInVault,
+            string? password,
+            Action<string> removeSecret,
+            Action<string, string> writeSecret)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+            ArgumentNullException.ThrowIfNull(removeSecret);
+            ArgumentNullException.ThrowIfNull(writeSecret);
+
+            if (!rememberPasswordInVault)
+            {
+                foreach (string key in GetProfileScopedSshPasswordKeysForProfile(profile))
+                {
+                    removeSecret(key);
+                }
+
+                return;
+            }
+
+            if (string.IsNullOrEmpty(password))
+            {
+                return;
+            }
+
+            writeSecret(GetCanonicalSshProfileKey(profile.Id), password);
+        }
+
+        public void ApplyRememberPasswordPreference(Guid profileId, bool rememberPasswordInVault, string? password = null)
+        {
+            ApplyRememberPasswordPreference(
+                profileId,
+                rememberPasswordInVault,
+                password,
+                key => _ = RemoveSecret(key),
+                SetSecret);
+        }
+
+        public void ApplyRememberPasswordPreference(TerminalProfile profile, bool rememberPasswordInVault, string? password = null)
+        {
+            ApplyRememberPasswordPreference(
+                profile,
+                rememberPasswordInVault,
+                password,
+                key => _ = RemoveSecret(key),
+                SetSecret);
+        }
+
+        public static IEnumerable<string> GetLegacySshKeys(TerminalProfile profile, bool includeSharedAlias = true)
         {
             ArgumentNullException.ThrowIfNull(profile);
 
@@ -60,10 +157,35 @@ namespace NovaTerminal.Core
                     yield return $"SSH:{name}:{user}@{host}";
                 }
 
-                yield return $"SSH:{user}@{host}";
+                if (includeSharedAlias)
+                {
+                    yield return $"SSH:{user}@{host}";
+                }
             }
 
             yield return $"profile_{profile.Id}_password";
+        }
+
+        public static IEnumerable<string> GetSshPasswordKeysForProfile(TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            yield return GetCanonicalSshProfileKey(profile.Id);
+            foreach (string legacyKey in GetLegacySshKeys(profile))
+            {
+                yield return legacyKey;
+            }
+        }
+
+        public static IEnumerable<string> GetProfileScopedSshPasswordKeysForProfile(TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            yield return GetCanonicalSshProfileKey(profile.Id);
+            foreach (string legacyKey in GetLegacySshKeys(profile, includeSharedAlias: false))
+            {
+                yield return legacyKey;
+            }
         }
 
         public static string? ResolveSshPasswordForProfile(
@@ -116,7 +238,9 @@ namespace NovaTerminal.Core
 
         public void SetSecret(string key, string value)
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            ReloadIfFileBacked();
+
+            if (UsesWindowsCredentialManager)
             {
                 // Native Windows Credential Manager
                 // Key format usually: "NovaTerminal:SSH:User@Host"
@@ -159,7 +283,9 @@ namespace NovaTerminal.Core
 
         public string? GetSecret(string key)
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            ReloadIfFileBacked();
+
+            if (UsesWindowsCredentialManager)
             {
                 string target = key.StartsWith("NovaTerminal:") ? key : $"NovaTerminal:{key}";
                 var cred = Native.Win32CredentialManager.Read(target);
@@ -175,7 +301,9 @@ namespace NovaTerminal.Core
 
         public bool RemoveSecret(string key)
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            ReloadIfFileBacked();
+
+            if (UsesWindowsCredentialManager)
             {
                 string target = key.StartsWith("NovaTerminal:") ? key : $"NovaTerminal:{key}";
                 return Native.Win32CredentialManager.Delete(target);
@@ -191,7 +319,21 @@ namespace NovaTerminal.Core
 
         public IEnumerable<string> ListKeys()
         {
+            ReloadIfFileBacked();
             return _secrets.Keys;
+        }
+
+        private void ReloadIfFileBacked()
+        {
+            if (!_useFileBackedStore)
+            {
+                return;
+            }
+
+            if (TryLoadSecrets(out Dictionary<string, string> secrets))
+            {
+                _secrets = secrets;
+            }
         }
 
         private void Save()
@@ -223,9 +365,20 @@ namespace NovaTerminal.Core
             }
         }
 
-        private void Load()
+        private Dictionary<string, string> LoadSecretsOrEmpty()
         {
-            if (string.IsNullOrEmpty(_vaultPath) || !File.Exists(_vaultPath)) return;
+            return TryLoadSecrets(out Dictionary<string, string> secrets)
+                ? secrets
+                : new Dictionary<string, string>();
+        }
+
+        private bool TryLoadSecrets(out Dictionary<string, string> secrets)
+        {
+            secrets = new Dictionary<string, string>();
+            if (string.IsNullOrEmpty(_vaultPath) || !File.Exists(_vaultPath))
+            {
+                return true;
+            }
 
             try
             {
@@ -247,14 +400,20 @@ namespace NovaTerminal.Core
                 var loaded = JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringString);
                 if (loaded != null)
                 {
-                    _secrets = loaded;
+                    secrets = loaded;
                 }
+
+                return true;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[Vault] Load failed: {ex.Message}");
+                return false;
             }
         }
+
+        private bool UsesWindowsCredentialManager =>
+            RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !_useFileBackedStore;
 
         private byte[] EncryptFallback(byte[] data)
         {

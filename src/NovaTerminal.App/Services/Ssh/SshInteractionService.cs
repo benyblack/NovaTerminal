@@ -18,19 +18,22 @@ public sealed class SshInteractionService : ISshInteractionService
     private readonly Func<Window?, HostKeyPromptViewModel, CancellationToken, Task<SshInteractionResponse>> _hostKeyPresenter;
     private readonly Func<Window?, AuthPromptViewModel, CancellationToken, Task<SshInteractionResponse>> _authPresenter;
     private readonly NativeKnownHostsStore _knownHostsStore;
+    private readonly VaultService _vaultService;
 
     public SshInteractionService(
         Func<Window?>? ownerProvider = null,
         Action<Window>? prepareDialog = null,
         Func<Window?, HostKeyPromptViewModel, CancellationToken, Task<SshInteractionResponse>>? hostKeyPresenter = null,
         Func<Window?, AuthPromptViewModel, CancellationToken, Task<SshInteractionResponse>>? authPresenter = null,
-        NativeKnownHostsStore? knownHostsStore = null)
+        NativeKnownHostsStore? knownHostsStore = null,
+        VaultService? vaultService = null)
     {
         _ownerProvider = ownerProvider ?? (() => null);
         _prepareDialog = prepareDialog;
         _hostKeyPresenter = hostKeyPresenter ?? PresentHostKeyAsync;
         _authPresenter = authPresenter ?? PresentAuthAsync;
         _knownHostsStore = knownHostsStore ?? new NativeKnownHostsStore(AppPaths.NativeKnownHostsFilePath);
+        _vaultService = vaultService ?? new VaultService();
     }
 
     public async Task<SshInteractionResponse> HandleAsync(SshInteractionRequest request, CancellationToken cancellationToken)
@@ -54,14 +57,63 @@ public sealed class SshInteractionService : ISshInteractionService
 
     private async Task<SshInteractionResponse> HandleOnUiThreadAsync(SshInteractionRequest request, CancellationToken cancellationToken)
     {
+        if (TryHandlePasswordFromVault(request, out SshInteractionResponse response))
+        {
+            return response;
+        }
+
         Window? owner = _ownerProvider();
         return request.Kind switch
         {
             SshInteractionKind.UnknownHostKey or SshInteractionKind.ChangedHostKey => await HandleHostKeyAsync(owner, request, cancellationToken),
-            SshInteractionKind.Password => await _authPresenter(owner, CreatePasswordViewModel(request), cancellationToken),
+            SshInteractionKind.Password => await HandlePasswordAsync(owner, request, cancellationToken),
             SshInteractionKind.Passphrase => await _authPresenter(owner, CreatePassphraseViewModel(request), cancellationToken),
             SshInteractionKind.KeyboardInteractive => await _authPresenter(owner, CreateKeyboardViewModel(request), cancellationToken),
             _ => SshInteractionResponse.Cancel()
+        };
+    }
+
+    private async Task<SshInteractionResponse> HandlePasswordAsync(Window? owner, SshInteractionRequest request, CancellationToken cancellationToken)
+    {
+        SshInteractionResponse response = await _authPresenter(owner, CreatePasswordViewModel(request), cancellationToken);
+        if (ShouldStorePasswordInVault(request, response))
+        {
+            _vaultService.SetSshPasswordForProfile(CreateVaultProfile(request), response.Secret);
+        }
+
+        return response;
+    }
+
+    private bool TryHandlePasswordFromVault(SshInteractionRequest request, out SshInteractionResponse response)
+    {
+        if (request.Kind != SshInteractionKind.Password ||
+            !request.RememberPasswordInVault ||
+            !request.ProfileId.HasValue ||
+            !request.AllowVaultPasswordReuse)
+        {
+            response = SshInteractionResponse.Cancel();
+            return false;
+        }
+
+        string? password = _vaultService.GetSshPasswordForProfile(CreateVaultProfile(request));
+        if (string.IsNullOrEmpty(password))
+        {
+            response = SshInteractionResponse.Cancel();
+            return false;
+        }
+
+        response = SshInteractionResponse.FromSecret(password);
+        return true;
+    }
+
+    private static TerminalProfile CreateVaultProfile(SshInteractionRequest request)
+    {
+        return new TerminalProfile
+        {
+            Id = request.ProfileId!.Value,
+            Name = request.ProfileName,
+            SshUser = request.ProfileUser,
+            SshHost = request.ProfileHost
         };
     }
 
@@ -136,7 +188,8 @@ public sealed class SshInteractionService : ISshInteractionService
         var viewModel = new AuthPromptViewModel
         {
             Title = "Password",
-            Message = "Enter the SSH password to continue."
+            Message = "Enter the SSH password to continue.",
+            CanRememberPassword = request.RememberPasswordInVault
         };
         viewModel.Prompts.Add(new AuthPromptEntryViewModel
         {
@@ -144,6 +197,16 @@ public sealed class SshInteractionService : ISshInteractionService
             IsSecret = true
         });
         return viewModel;
+    }
+
+    private static bool ShouldStorePasswordInVault(SshInteractionRequest request, SshInteractionResponse response)
+    {
+        return request.Kind == SshInteractionKind.Password &&
+            request.RememberPasswordInVault &&
+            request.ProfileId.HasValue &&
+            !response.IsCanceled &&
+            response.RememberPasswordInVault &&
+            !string.IsNullOrEmpty(response.Secret);
     }
 
     private static AuthPromptViewModel CreatePassphraseViewModel(SshInteractionRequest request)

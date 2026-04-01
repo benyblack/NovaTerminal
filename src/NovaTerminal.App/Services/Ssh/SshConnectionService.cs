@@ -18,16 +18,23 @@ public sealed class SshLaunchDetails
     public required string CommandLine { get; init; }
 }
 
-public sealed class SshConnectionService
-{
-    private const string FavoriteTag = "favorite";
-
-    private readonly ISshProfileStore _profileStore;
-
-    public SshConnectionService(ISshProfileStore? profileStore = null)
+    public sealed class SshConnectionService
     {
-        _profileStore = profileStore ?? new JsonSshProfileStore();
-    }
+        private const string FavoriteTag = "favorite";
+
+        private readonly ISshProfileStore _profileStore;
+        private readonly ISshPasswordVault? _passwordVault;
+
+        public SshConnectionService(ISshProfileStore? profileStore = null)
+            : this(profileStore, null)
+        {
+        }
+
+        public SshConnectionService(ISshProfileStore? profileStore, ISshPasswordVault? passwordVault)
+        {
+            _profileStore = profileStore ?? new JsonSshProfileStore();
+            _passwordVault = passwordVault ?? new VaultService();
+        }
 
     public IReadOnlyList<TerminalProfile> GetConnectionProfiles()
     {
@@ -78,11 +85,15 @@ public sealed class SshConnectionService
         if (existing != null && viewModel.BackendKind is null)
         {
             incoming.BackendKind = existing.BackendKind;
+            incoming.RememberPasswordInVault = existing.RememberPasswordInVault;
         }
+
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(incoming);
 
         SshProfile merged = MergeProfile(existing, incoming, viewModel.IsFavorite);
 
         _profileStore.SaveProfile(merged);
+        ApplyRememberPasswordPreference(ToRuntimeProfile(merged), existing, merged.RememberPasswordInVault);
         return _profileStore.GetProfile(merged.Id) ?? merged;
     }
 
@@ -121,8 +132,10 @@ public sealed class SshConnectionService
         bool useIdentity = !profile.UseSshAgent && !string.IsNullOrWhiteSpace(identityPath);
         candidate.AuthMode = useIdentity ? SshAuthMode.IdentityFile : SshAuthMode.Agent;
         candidate.IdentityFilePath = useIdentity ? identityPath : string.Empty;
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(candidate);
 
         _profileStore.SaveProfile(candidate);
+        ApplyRememberPasswordPreference(profile, existing, candidate.RememberPasswordInVault);
     }
 
     public void SaveConnectionProfiles(IEnumerable<TerminalProfile> profiles)
@@ -133,6 +146,21 @@ public sealed class SshConnectionService
         {
             SaveConnectionProfile(profile);
         }
+    }
+
+    private void ApplyRememberPasswordPreference(TerminalProfile currentProfile, SshProfile? previousProfile, bool rememberPasswordInVault)
+    {
+        if (_passwordVault == null)
+        {
+            return;
+        }
+
+        if (previousProfile != null)
+        {
+            _passwordVault.ApplyRememberPasswordPreference(ToRuntimeProfile(previousProfile), rememberPasswordInVault);
+        }
+
+        _passwordVault.ApplyRememberPasswordPreference(currentProfile, rememberPasswordInVault);
     }
 
     public bool DeleteProfile(Guid profileId)
@@ -269,6 +297,7 @@ public sealed class SshConnectionService
         merged.Port = incoming.Port;
         merged.AuthMode = incoming.AuthMode;
         merged.IdentityFilePath = incoming.IdentityFilePath;
+        merged.RememberPasswordInVault = incoming.RememberPasswordInVault;
         merged.JumpHops = incoming.JumpHops.Select(CloneJumpHop).ToList();
         merged.Forwards = incoming.Forwards.Select(CloneForward).ToList();
         merged.MuxOptions = CloneMuxOptions(incoming.MuxOptions);
@@ -287,6 +316,7 @@ public sealed class SshConnectionService
 
         IEnumerable<string> sourceTags = (IEnumerable<string>?)existing?.Tags ?? Array.Empty<string>();
         merged.Tags = NormalizeTags(sourceTags, favorite);
+        SshProfileNormalizer.NormalizeRememberPasswordPreference(merged);
         return merged;
     }
 
@@ -569,6 +599,7 @@ public sealed class SshConnectionService
             Port = profile.Port,
             AuthMode = profile.AuthMode,
             IdentityFilePath = profile.IdentityFilePath,
+            RememberPasswordInVault = profile.RememberPasswordInVault,
             JumpHops = profile.JumpHops.Select(CloneJumpHop).ToList(),
             Forwards = profile.Forwards.Select(CloneForward).ToList(),
             MuxOptions = CloneMuxOptions(profile.MuxOptions),
