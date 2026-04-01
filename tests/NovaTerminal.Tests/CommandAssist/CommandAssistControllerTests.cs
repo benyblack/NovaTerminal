@@ -727,6 +727,12 @@ public sealed class CommandAssistControllerTests
         controller.ToggleAssist();
         controller.HandleTextInput("git st");
 
+        await historyStore.WaitForSearchSettledAsync();
+        await snippetStore.WaitForReadAsync();
+
+        Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
+        Assert.Equal(AssistSuggestionType.History, controller.Suggestions[0].Type);
+
         bool toggled = await controller.TogglePinSelectionAsync();
         IReadOnlyList<CommandSnippet> snippets = await snippetStore.GetAllAsync();
 
