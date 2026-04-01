@@ -39,7 +39,7 @@ public class VaultServiceSshKeyTests
     }
 
     [Fact]
-    public void ApplyRememberPasswordPreference_RemovesAllProfileSecrets_WhenDisabled()
+    public void ApplyRememberPasswordPreference_RemovesProfileScopedSecrets_WhenDisabled()
     {
         TerminalProfile profile = CreateProfile();
         string canonical = VaultService.GetCanonicalSshProfileKey(profile.Id);
@@ -64,8 +64,44 @@ public class VaultServiceSshKeyTests
 
         Assert.DoesNotContain(canonical, store.Keys);
         Assert.DoesNotContain(namedLegacy, store.Keys);
-        Assert.DoesNotContain(unnamedLegacy, store.Keys);
         Assert.DoesNotContain(idLegacy, store.Keys);
+        Assert.Contains(unnamedLegacy, store.Keys);
+    }
+
+    [Fact]
+    public void ApplyRememberPasswordPreference_PreservesSharedLegacyAlias_ForOtherProfiles()
+    {
+        TerminalProfile profile = CreateProfile();
+        TerminalProfile siblingProfile = new()
+        {
+            Id = Guid.Parse("15edb0b0-7d62-4e7a-977f-fd36403f48bd"),
+            Name = "Prod 2",
+            Type = ConnectionType.SSH,
+            SshUser = profile.SshUser,
+            SshHost = profile.SshHost
+        };
+        string sharedLegacy = $"SSH:{profile.SshUser}@{profile.SshHost}";
+
+        var store = new Dictionary<string, string>
+        {
+            [sharedLegacy] = "shared-secret"
+        };
+
+        VaultService.ApplyRememberPasswordPreference(
+            profile,
+            rememberPasswordInVault: false,
+            password: null,
+            removeSecret: key => store.Remove(key),
+            writeSecret: (key, value) => store[key] = value);
+
+        Assert.Equal("shared-secret", store[sharedLegacy]);
+
+        string? siblingSecret = VaultService.ResolveSshPasswordForProfile(
+            siblingProfile,
+            key => store.TryGetValue(key, out var value) ? value : null,
+            (key, value) => store[key] = value);
+
+        Assert.Equal("shared-secret", siblingSecret);
     }
 
     [Fact]
@@ -88,6 +124,30 @@ public class VaultServiceSshKeyTests
 
             Assert.Null(writer.GetSshPasswordForProfile(profile));
             Assert.Null(remover.GetSshPasswordForProfile(profile));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FileBackedReload_PreservesCachedSecrets_WhenLoadFails()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+
+            vault.SetSecret("alpha", "one");
+            File.WriteAllBytes(vaultPath, [0x01, 0x02, 0x03, 0x04]);
+
+            vault.SetSecret("beta", "two");
+
+            var reloaded = new VaultService(vaultPath);
+            Assert.Equal("one", reloaded.GetSecret("alpha"));
+            Assert.Equal("two", reloaded.GetSecret("beta"));
         }
         finally
         {
