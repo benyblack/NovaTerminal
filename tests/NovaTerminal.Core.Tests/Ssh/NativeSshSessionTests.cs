@@ -91,6 +91,23 @@ public sealed class NativeSshSessionTests
     }
 
     [Fact]
+    public async Task LateOutputSubscriberReceivesBufferedOutput()
+    {
+        var interop = new FakeNativeSshInterop();
+        interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes("hello")));
+        interop.Enqueue(NativeSshEvent.ExitStatus(0));
+        interop.Enqueue(NativeSshEvent.Closed(Array.Empty<byte>()));
+        var outputs = new List<string>();
+
+        using var session = new NativeSshSession(CreateProfile(), interop: interop);
+        await WaitUntilAsync(() => interop.CloseCallCount > 0);
+
+        session.OnOutputReceived += outputs.Add;
+
+        Assert.Equal(new[] { "hello" }, outputs);
+    }
+
+    [Fact]
     public async Task DisposeClosesNativeHandleAndStopsPollLoop()
     {
         var interop = new FakeNativeSshInterop();
