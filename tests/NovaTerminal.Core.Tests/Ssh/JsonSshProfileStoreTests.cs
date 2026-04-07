@@ -168,7 +168,7 @@ public sealed class JsonSshProfileStoreTests
     }
 
     [Fact]
-    public void NormalizeRememberPasswordPreference_ClearsOpenSshProfiles()
+    public void NormalizeRememberPasswordPreference_PreservesLegacyOpenSshState()
     {
         var profile = new SshProfile
         {
@@ -180,7 +180,7 @@ public sealed class JsonSshProfileStoreTests
 
         SshProfileNormalizer.NormalizeRememberPasswordPreference(profile);
 
-        Assert.False(profile.RememberPasswordInVault);
+        Assert.True(profile.RememberPasswordInVault);
     }
 
     [Fact]

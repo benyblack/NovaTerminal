@@ -23,7 +23,6 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly string _profileName;
     private readonly string _profileUser;
     private readonly string _profileHost;
-    private readonly bool _rememberPasswordInVault;
     private bool _allowVaultPasswordReuse;
     private readonly object _exitHandlerGate = new();
     private readonly object _outputHandlerGate = new();
@@ -70,8 +69,7 @@ public sealed class NativeSshSession : ITerminalSession
         _profileName = profile.Name;
         _profileUser = profile.User;
         _profileHost = profile.Host;
-        _rememberPasswordInVault = profile.RememberPasswordInVault;
-        _allowVaultPasswordReuse = profile.RememberPasswordInVault;
+        _allowVaultPasswordReuse = profile.Id != Guid.Empty;
         JumpHostConnectPlan connectPlan = JumpHostConnectPlan.Create(profile);
         NativeSshConnectionOptions connectionOptions = _jumpHostConnector.CreateConnectionOptions(connectPlan, profile, cols, rows);
         _log($"[NativeSshSession] backend=native path={_jumpHostConnector.DescribePath(connectPlan)} target={connectionOptions.User}@{connectionOptions.Host}:{connectionOptions.Port}");
@@ -432,8 +430,8 @@ public sealed class NativeSshSession : ITerminalSession
             ProfileName = _profileName,
             ProfileUser = _profileUser,
             ProfileHost = _profileHost,
-            AllowVaultPasswordReuse = request.Kind == SshInteractionKind.Password && _allowVaultPasswordReuse,
-            RememberPasswordInVault = _rememberPasswordInVault,
+            AllowVaultPasswordReuse = request.Kind == SshInteractionKind.Password && _allowVaultPasswordReuse && _profileId != Guid.Empty,
+            RememberPasswordInVault = request.Kind == SshInteractionKind.Password && _profileId != Guid.Empty,
             Host = request.Host,
             Port = request.Port,
             Algorithm = request.Algorithm,
@@ -494,3 +492,4 @@ public sealed class NativeSshSession : ITerminalSession
     }
 
 }
+

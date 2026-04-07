@@ -138,13 +138,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         {
             if (SetField(ref _backendKind, value))
             {
-                if (value != SshBackendKind.Native)
-                {
-                    RememberPasswordInVault = false;
-                }
-
                 OnPropertyChanged(nameof(BackendWarning));
-                OnPropertyChanged(nameof(IsRememberPasswordVisible));
             }
         }
     }
@@ -275,8 +269,6 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         int keepAliveInterval = KeepAliveIntervalSeconds > 0 ? KeepAliveIntervalSeconds : 30;
         int keepAliveCountMax = KeepAliveCountMax > 0 ? KeepAliveCountMax : 3;
         int controlPersistSeconds = ControlPersistSeconds >= 0 ? ControlPersistSeconds : 90;
-        bool rememberPassword = BackendKind == SshBackendKind.Native && RememberPasswordInVault;
-
         return new SshProfile
         {
             Id = id,
@@ -290,7 +282,6 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
             Port = port,
             AuthMode = IsIdentityFileAuth ? SshAuthMode.IdentityFile : SshAuthMode.Agent,
             IdentityFilePath = identityPath,
-            RememberPasswordInVault = rememberPassword,
             JumpHops = JumpHops.Select(h => new SshJumpHop
             {
                 Host = h.Host?.Trim() ?? string.Empty,
@@ -374,7 +365,6 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         IsFavorite = sshProfile.Tags.Any(tag => string.Equals(tag, "favorite", StringComparison.OrdinalIgnoreCase));
         AuthMode = sshProfile.AuthMode == SshAuthMode.IdentityFile ? NewSshAuthMode.IdentityFile : NewSshAuthMode.Agent;
         IdentityFilePath = sshProfile.IdentityFilePath ?? string.Empty;
-        RememberPasswordInVault = sshProfile.BackendKind == SshBackendKind.Native && sshProfile.RememberPasswordInVault;
 
         JumpHops.Clear();
         foreach (SshJumpHop hop in sshProfile.JumpHops)
@@ -533,3 +523,4 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 }
+

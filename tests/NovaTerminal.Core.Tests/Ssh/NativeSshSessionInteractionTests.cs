@@ -80,7 +80,6 @@ public sealed class NativeSshSessionInteractionTests
         var requests = new List<SshInteractionRequest>();
         var handler = new RecordingInteractionHandler(requests);
         var profile = CreateProfile();
-        profile.RememberPasswordInVault = true;
 
         using var session = new NativeSshSession(profile, interop: interop, interactionHandler: handler);
 
@@ -93,6 +92,7 @@ public sealed class NativeSshSessionInteractionTests
         Assert.True(requests[0].RememberPasswordInVault);
         Assert.True(requests[0].AllowVaultPasswordReuse);
 
+        Assert.True(requests[1].RememberPasswordInVault);
         Assert.False(requests[1].AllowVaultPasswordReuse);
     }
 
