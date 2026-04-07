@@ -55,7 +55,9 @@ public sealed class NativeSshInterop : INativeSshInterop
                     IdentityFile = identityPtr,
                     JumpHost = jumpHostPtr,
                     JumpUser = jumpUserPtr,
-                    JumpPort = checked((ushort)(options.JumpHost?.Port ?? 0))
+                    JumpPort = checked((ushort)(options.JumpHost?.Port ?? 0)),
+                    KeepAliveIntervalSeconds = checked((uint)Math.Max(0, options.KeepAliveIntervalSeconds)),
+                    KeepAliveCountMax = checked((uint)Math.Max(0, options.KeepAliveCountMax))
                 };
 
                 IntPtr handle = NativeMethods.nova_ssh_connect(in args);
@@ -294,6 +296,8 @@ public sealed class NativeSshInterop : INativeSshInterop
         public IntPtr JumpHost;
         public IntPtr JumpUser;
         public ushort JumpPort;
+        public uint KeepAliveIntervalSeconds;
+        public uint KeepAliveCountMax;
     }
 
     [StructLayout(LayoutKind.Sequential)]

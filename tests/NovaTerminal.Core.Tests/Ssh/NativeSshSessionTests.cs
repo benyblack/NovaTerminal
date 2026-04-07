@@ -119,6 +119,23 @@ public sealed class NativeSshSessionTests
         Assert.Equal(1, interop.CloseCallCount);
     }
 
+    [Fact]
+    public async Task Connect_UsesProfileKeepAliveSettingsForNativeSession()
+    {
+        var interop = new FakeNativeSshInterop();
+        SshProfile profile = CreateProfile();
+        profile.ServerAliveIntervalSeconds = 15;
+        profile.ServerAliveCountMax = 7;
+
+        using var session = new NativeSshSession(profile, interop: interop);
+
+        await WaitUntilAsync(() => interop.LastConnectOptions != null);
+
+        Assert.NotNull(interop.LastConnectOptions);
+        Assert.Equal(15, interop.LastConnectOptions!.KeepAliveIntervalSeconds);
+        Assert.Equal(7, interop.LastConnectOptions.KeepAliveCountMax);
+    }
+
     private static SshProfile CreateProfile()
     {
         return new SshProfile
@@ -155,10 +172,12 @@ public sealed class NativeSshSessionTests
         public List<byte[]> Writes { get; } = new();
         public List<(int Cols, int Rows)> Resizes { get; } = new();
         public int CloseCallCount { get; private set; }
+        public NativeSshConnectionOptions? LastConnectOptions { get; private set; }
 
         public IntPtr Connect(NativeSshConnectionOptions options)
         {
             ArgumentNullException.ThrowIfNull(options);
+            LastConnectOptions = options;
             return new IntPtr(_nextHandle++);
         }
 

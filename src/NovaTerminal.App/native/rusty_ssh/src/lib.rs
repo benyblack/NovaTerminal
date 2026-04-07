@@ -37,6 +37,8 @@ pub struct NovaSshConnectArgs {
     pub jump_host: *const c_char,
     pub jump_user: *const c_char,
     pub jump_port: u16,
+    pub keepalive_interval_seconds: u32,
+    pub keepalive_count_max: u32,
 }
 
 #[repr(C)]
@@ -143,6 +145,8 @@ struct ConnectConfig {
     term: String,
     identity_file: Option<String>,
     jump_host: Option<JumpHostConfig>,
+    keepalive_interval_seconds: u32,
+    keepalive_count_max: u32,
 }
 
 #[derive(Clone)]
@@ -652,6 +656,16 @@ impl ConnectConfig {
             term,
             identity_file,
             jump_host: effective_jump_host,
+            keepalive_interval_seconds: if args.keepalive_interval_seconds == 0 {
+                30
+            } else {
+                args.keepalive_interval_seconds
+            },
+            keepalive_count_max: if args.keepalive_count_max == 0 {
+                3
+            } else {
+                args.keepalive_count_max
+            },
         })
     }
 }
@@ -677,10 +691,7 @@ fn run_session(
     let runtime = Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(async move {
         let forward_channels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
-        let client_config = Arc::new(client::Config {
-            inactivity_timeout: Some(Duration::from_secs(30)),
-            ..<_>::default()
-        });
+        let client_config = Arc::new(build_client_config(&config));
 
         let jump_session = if let Some(jump_host) = &config.jump_host {
             let jump_handler = NovaClientHandler {
@@ -1132,6 +1143,7 @@ fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> *mu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
 
     #[test]
     fn null_handle_operations_return_invalid_argument() {
@@ -1221,5 +1233,63 @@ mod tests {
 
         let close = nova_ssh_close(session);
         assert_eq!(NOVA_SSH_RESULT_OK, close);
+    }
+
+    #[test]
+    fn connect_config_reads_keepalive_settings_from_ffi_args() {
+        let host = CString::new("native.example").unwrap();
+        let user = CString::new("nova").unwrap();
+        let term = CString::new("xterm-256color").unwrap();
+
+        let args = NovaSshConnectArgs {
+            host: host.as_ptr(),
+            user: user.as_ptr(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: term.as_ptr(),
+            identity_file: ptr::null(),
+            jump_host: ptr::null(),
+            jump_user: ptr::null(),
+            jump_port: 0,
+            keepalive_interval_seconds: 15,
+            keepalive_count_max: 7,
+        };
+
+        let config = ConnectConfig::from_args(&args).expect("config should parse");
+
+        assert_eq!(15, config.keepalive_interval_seconds);
+        assert_eq!(7, config.keepalive_count_max);
+    }
+
+    #[test]
+    fn client_config_uses_keepalive_without_forcing_inactivity_timeout() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            jump_host: None,
+            keepalive_interval_seconds: 15,
+            keepalive_count_max: 7,
+        };
+
+        let client_config = build_client_config(&config);
+
+        assert_eq!(None, client_config.inactivity_timeout);
+        assert_eq!(Some(Duration::from_secs(15)), client_config.keepalive_interval);
+        assert_eq!(7, client_config.keepalive_max);
+    }
+}
+
+fn build_client_config(config: &ConnectConfig) -> client::Config {
+    client::Config {
+        inactivity_timeout: None,
+        keepalive_interval: Some(Duration::from_secs(config.keepalive_interval_seconds as u64)),
+        keepalive_max: config.keepalive_count_max as usize,
+        ..<_>::default()
     }
 }
