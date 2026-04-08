@@ -1141,6 +1141,18 @@ fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> *mu
 }
 
 #[cfg(test)]
+fn replay_resize_commands_for_test(
+    commands: &[WorkerCommand],
+    mut on_resize: impl FnMut(u16, u16),
+) {
+    for command in commands {
+        if let WorkerCommand::Resize { cols, rows } = command {
+            on_resize(*cols, *rows);
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::ffi::CString;
@@ -1282,6 +1294,22 @@ mod tests {
         assert_eq!(None, client_config.inactivity_timeout);
         assert_eq!(Some(Duration::from_secs(15)), client_config.keepalive_interval);
         assert_eq!(7, client_config.keepalive_max);
+    }
+
+    #[test]
+    fn worker_resize_burst_should_only_apply_latest_dimensions() {
+        let commands = vec![
+            WorkerCommand::Resize { cols: 120, rows: 30 },
+            WorkerCommand::Resize { cols: 140, rows: 40 },
+            WorkerCommand::Resize { cols: 160, rows: 50 },
+        ];
+
+        let mut applied = Vec::new();
+        replay_resize_commands_for_test(&commands, |cols, rows| {
+            applied.push((cols, rows));
+        });
+
+        assert_eq!(vec![(160, 50)], applied);
     }
 }
 
