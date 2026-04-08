@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Native;
 
@@ -104,6 +106,74 @@ public sealed class NativePortForwardSessionTests
         probe.Start();
     }
 
+    [Fact]
+    public async Task DynamicForward_SocksConnectOpensRequestedTargetChannel()
+    {
+        var interop = new FakeNativeSshInterop();
+        int listenPort = GetFreePort();
+
+        using var session = new NativePortForwardSession(
+            new IntPtr(15),
+            [CreateDynamicForward(listenPort)],
+            interop);
+
+        using TcpClient client = await ConnectLoopbackAsync(listenPort);
+        NetworkStream stream = client.GetStream();
+
+        await SendSocksGreetingAsync(stream);
+        await ReadExactlyAsync(stream, 2, TimeSpan.FromSeconds(2));
+
+        await SendSocksConnectRequestAsync(stream, "svc.internal", 443);
+        byte[] reply = await ReadExactlyAsync(stream, 10, TimeSpan.FromSeconds(2));
+
+        await WaitUntilAsync(() => interop.OpenRequests.Count == 1);
+
+        Assert.Equal(new byte[] { 0x05, 0x00 }, reply[..2]);
+        Assert.Single(interop.OpenRequests);
+        Assert.Equal("svc.internal", interop.OpenRequests[0].HostToConnect);
+        Assert.Equal(443, interop.OpenRequests[0].PortToConnect);
+    }
+
+    [Fact]
+    public async Task LocalAndDynamicForwardsCanStartTogether()
+    {
+        var interop = new FakeNativeSshInterop();
+        int localPort = GetFreePort();
+        int dynamicPort = GetFreePort();
+
+        using var session = new NativePortForwardSession(
+            new IntPtr(17),
+            [
+                CreateForward(localPort, "svc-one.internal", 8080),
+                CreateDynamicForward(dynamicPort)
+            ],
+            interop);
+
+        using TcpClient localClient = await ConnectLoopbackAsync(localPort);
+        await WaitUntilAsync(() => interop.OpenRequests.Count == 1);
+
+        Assert.Single(interop.OpenRequests);
+        Assert.Equal("svc-one.internal", interop.OpenRequests[0].HostToConnect);
+        Assert.Equal(8080, interop.OpenRequests[0].PortToConnect);
+
+        using TcpClient dynamicClient = await ConnectLoopbackAsync(dynamicPort);
+        NetworkStream stream = dynamicClient.GetStream();
+
+        await SendSocksGreetingAsync(stream);
+        await ReadExactlyAsync(stream, 2, TimeSpan.FromSeconds(2));
+
+        await SendSocksConnectRequestAsync(stream, "svc-dynamic.internal", 8443);
+        byte[] reply = await ReadExactlyAsync(stream, 10, TimeSpan.FromSeconds(2));
+
+        await WaitUntilAsync(() => interop.OpenRequests.Count == 2);
+
+        Assert.Equal(new byte[] { 0x05, 0x00 }, reply[..2]);
+        Assert.Equal(2, interop.OpenRequests.Count);
+        Assert.Contains(interop.OpenRequests, request =>
+            request.HostToConnect == "svc-dynamic.internal" &&
+            request.PortToConnect == 8443);
+    }
+
     private static PortForward CreateForward(int sourcePort, string destinationHost, int destinationPort)
     {
         return new PortForward
@@ -116,11 +186,64 @@ public sealed class NativePortForwardSessionTests
         };
     }
 
+    private static PortForward CreateDynamicForward(int sourcePort)
+    {
+        return new PortForward
+        {
+            Kind = PortForwardKind.Dynamic,
+            BindAddress = "127.0.0.1",
+            SourcePort = sourcePort
+        };
+    }
+
     private static async Task<TcpClient> ConnectLoopbackAsync(int port)
     {
         var client = new TcpClient();
         await client.ConnectAsync(IPAddress.Loopback, port);
         return client;
+    }
+
+    private static async Task SendSocksGreetingAsync(NetworkStream stream)
+    {
+        byte[] greeting = [0x05, 0x01, 0x00];
+        await stream.WriteAsync(greeting);
+        await stream.FlushAsync();
+    }
+
+    private static async Task SendSocksConnectRequestAsync(NetworkStream stream, string host, int port)
+    {
+        byte[] hostBytes = Encoding.ASCII.GetBytes(host);
+        byte[] request = new byte[7 + hostBytes.Length];
+        request[0] = 0x05;
+        request[1] = 0x01;
+        request[2] = 0x00;
+        request[3] = 0x03;
+        request[4] = (byte)hostBytes.Length;
+        Buffer.BlockCopy(hostBytes, 0, request, 5, hostBytes.Length);
+        request[5 + hostBytes.Length] = (byte)((port >> 8) & 0xFF);
+        request[6 + hostBytes.Length] = (byte)(port & 0xFF);
+
+        await stream.WriteAsync(request);
+        await stream.FlushAsync();
+    }
+
+    private static async Task<byte[]> ReadExactlyAsync(NetworkStream stream, int length, TimeSpan timeout)
+    {
+        using var cts = new CancellationTokenSource(timeout);
+        byte[] buffer = new byte[length];
+        int offset = 0;
+        while (offset < length)
+        {
+            int read = await stream.ReadAsync(buffer.AsMemory(offset, length - offset), cts.Token);
+            if (read == 0)
+            {
+                throw new EndOfStreamException("Socket closed before expected bytes were read.");
+            }
+
+            offset += read;
+        }
+
+        return buffer;
     }
 
     private static int GetFreePort()

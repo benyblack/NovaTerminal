@@ -29,6 +29,22 @@ public sealed class NativeSshSessionTests
     }
 
     [Fact]
+    public void Constructor_AllowsDynamicForwardProfiles()
+    {
+        SshProfile profile = CreateProfile();
+        profile.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Dynamic,
+            BindAddress = "127.0.0.1",
+            SourcePort = 1080
+        });
+
+        using var session = new NativeSshSession(profile, interop: new FakeNativeSshInterop());
+
+        Assert.NotNull(session);
+    }
+
+    [Fact]
     public async Task SendInputForwardsUtf8BytesThroughInterop()
     {
         var interop = new FakeNativeSshInterop();
