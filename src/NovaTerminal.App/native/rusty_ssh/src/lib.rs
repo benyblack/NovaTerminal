@@ -135,6 +135,14 @@ enum WorkerCommand {
     Close,
 }
 
+#[cfg(test)]
+#[derive(Debug, PartialEq, Eq)]
+enum RecordedWorkerEffect {
+    Resize(u16, u16),
+    Write,
+    Other,
+}
+
 #[derive(Clone)]
 struct ConnectConfig {
     host: String,
@@ -769,14 +777,22 @@ fn run_session(
             flags: NOVA_SSH_EVENT_FLAG_JSON,
         });
 
+        let mut pending_command: Option<WorkerCommand> = None;
         loop {
             tokio::select! {
-                command = command_rx.recv() => {
+                command = next_worker_command(&mut pending_command, &mut command_rx) => {
                     match command {
                         Some(WorkerCommand::Write(data)) => {
                             channel.data(&data[..]).await?;
                         }
                         Some(WorkerCommand::Resize { cols, rows }) => {
+                            let (cols, rows, pending_resize_command) = coalesce_pending_resize_commands(
+                                &mut command_rx,
+                                cols,
+                                rows,
+                            );
+                            pending_command = pending_resize_command;
+
                             channel.window_change(cols as u32, rows as u32, 0, 0).await?;
                         }
                         Some(WorkerCommand::OpenDirectTcpIp {
@@ -860,6 +876,43 @@ fn run_session(
         }
         Ok(())
     })
+}
+
+async fn next_worker_command(
+    pending_command: &mut Option<WorkerCommand>,
+    command_rx: &mut mpsc::UnboundedReceiver<WorkerCommand>,
+) -> Option<WorkerCommand> {
+    if let Some(command) = pending_command.take() {
+        return Some(command);
+    }
+
+    command_rx.recv().await
+}
+
+fn coalesce_pending_resize_commands(
+    command_rx: &mut mpsc::UnboundedReceiver<WorkerCommand>,
+    mut cols: u16,
+    mut rows: u16,
+) -> (u16, u16, Option<WorkerCommand>) {
+    let mut pending_command = None;
+
+    loop {
+        match command_rx.try_recv() {
+            Ok(WorkerCommand::Resize { cols: next_cols, rows: next_rows }) => {
+                cols = next_cols;
+                rows = next_rows;
+            }
+            Ok(command) => {
+                pending_command = Some(command);
+                break;
+            }
+            Err(mpsc::error::TryRecvError::Empty) | Err(mpsc::error::TryRecvError::Disconnected) => {
+                break;
+            }
+        }
+    }
+
+    (cols, rows, pending_command)
 }
 
 async fn open_direct_tcpip_channel(
@@ -1141,15 +1194,49 @@ fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> *mu
 }
 
 #[cfg(test)]
-fn replay_resize_commands_for_test(
-    commands: &[WorkerCommand],
-    mut on_resize: impl FnMut(u16, u16),
-) {
+fn replay_resize_commands_for_test(commands: &[WorkerCommand], mut on_resize: impl FnMut(u16, u16)) {
+    let mut latest_resize = None;
     for command in commands {
         if let WorkerCommand::Resize { cols, rows } = command {
-            on_resize(*cols, *rows);
+            latest_resize = Some((*cols, *rows));
         }
     }
+
+    if let Some((cols, rows)) = latest_resize {
+        on_resize(cols, rows);
+    }
+}
+
+#[cfg(test)]
+fn record_worker_effects_for_test(commands: &[WorkerCommand]) -> Vec<RecordedWorkerEffect> {
+    let mut effects = Vec::new();
+    let mut latest_resize = None;
+
+    for command in commands {
+        match command {
+            WorkerCommand::Resize { cols, rows } => {
+                latest_resize = Some((*cols, *rows));
+            }
+            WorkerCommand::Write(_) => {
+                if let Some((cols, rows)) = latest_resize.take() {
+                    effects.push(RecordedWorkerEffect::Resize(cols, rows));
+                }
+                effects.push(RecordedWorkerEffect::Write);
+            }
+            _ => {
+                if let Some((cols, rows)) = latest_resize.take() {
+                    effects.push(RecordedWorkerEffect::Resize(cols, rows));
+                }
+                effects.push(RecordedWorkerEffect::Other);
+            }
+        }
+    }
+
+    if let Some((cols, rows)) = latest_resize {
+        effects.push(RecordedWorkerEffect::Resize(cols, rows));
+    }
+
+    effects
 }
 
 #[cfg(test)]
@@ -1305,11 +1392,30 @@ mod tests {
         ];
 
         let mut applied = Vec::new();
-        replay_resize_commands_for_test(&commands, |cols, rows| {
-            applied.push((cols, rows));
-        });
+        replay_resize_commands_for_test(&commands, |cols, rows| applied.push((cols, rows)));
 
         assert_eq!(vec![(160, 50)], applied);
+    }
+
+    #[test]
+    fn worker_resize_burst_preserves_intervening_non_resize_command_order() {
+        let commands = vec![
+            WorkerCommand::Resize { cols: 120, rows: 30 },
+            WorkerCommand::Resize { cols: 140, rows: 40 },
+            WorkerCommand::Write(vec![1, 2, 3]),
+            WorkerCommand::Resize { cols: 160, rows: 50 },
+        ];
+
+        let effects = record_worker_effects_for_test(&commands);
+
+        assert_eq!(
+            vec![
+                RecordedWorkerEffect::Resize(140, 40),
+                RecordedWorkerEffect::Write,
+                RecordedWorkerEffect::Resize(160, 50),
+            ],
+            effects
+        );
     }
 }
 
