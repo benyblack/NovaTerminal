@@ -135,14 +135,6 @@ enum WorkerCommand {
     Close,
 }
 
-#[cfg(test)]
-#[derive(Debug, PartialEq, Eq)]
-enum RecordedWorkerEffect {
-    Resize(u16, u16),
-    Write,
-    Other,
-}
-
 #[derive(Clone)]
 struct ConnectConfig {
     host: String,
@@ -1194,52 +1186,6 @@ fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> *mu
 }
 
 #[cfg(test)]
-fn replay_resize_commands_for_test(commands: &[WorkerCommand], mut on_resize: impl FnMut(u16, u16)) {
-    let mut latest_resize = None;
-    for command in commands {
-        if let WorkerCommand::Resize { cols, rows } = command {
-            latest_resize = Some((*cols, *rows));
-        }
-    }
-
-    if let Some((cols, rows)) = latest_resize {
-        on_resize(cols, rows);
-    }
-}
-
-#[cfg(test)]
-fn record_worker_effects_for_test(commands: &[WorkerCommand]) -> Vec<RecordedWorkerEffect> {
-    let mut effects = Vec::new();
-    let mut latest_resize = None;
-
-    for command in commands {
-        match command {
-            WorkerCommand::Resize { cols, rows } => {
-                latest_resize = Some((*cols, *rows));
-            }
-            WorkerCommand::Write(_) => {
-                if let Some((cols, rows)) = latest_resize.take() {
-                    effects.push(RecordedWorkerEffect::Resize(cols, rows));
-                }
-                effects.push(RecordedWorkerEffect::Write);
-            }
-            _ => {
-                if let Some((cols, rows)) = latest_resize.take() {
-                    effects.push(RecordedWorkerEffect::Resize(cols, rows));
-                }
-                effects.push(RecordedWorkerEffect::Other);
-            }
-        }
-    }
-
-    if let Some((cols, rows)) = latest_resize {
-        effects.push(RecordedWorkerEffect::Resize(cols, rows));
-    }
-
-    effects
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use std::ffi::CString;
@@ -1385,37 +1331,99 @@ mod tests {
 
     #[test]
     fn worker_resize_burst_should_only_apply_latest_dimensions() {
-        let commands = vec![
-            WorkerCommand::Resize { cols: 120, rows: 30 },
-            WorkerCommand::Resize { cols: 140, rows: 40 },
-            WorkerCommand::Resize { cols: 160, rows: 50 },
-        ];
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
-        let mut applied = Vec::new();
-        replay_resize_commands_for_test(&commands, |cols, rows| applied.push((cols, rows)));
+        runtime.block_on(async {
+            let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 120, rows: 30 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 140, rows: 40 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 160, rows: 50 })
+                .unwrap();
+            drop(command_tx);
 
-        assert_eq!(vec![(160, 50)], applied);
+            let mut pending_command = None;
+            let first_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("first resize command should be available");
+
+            let (cols, rows, pending_resize_command) = match first_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected first worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+
+            assert_eq!((160, 50), (cols, rows));
+            assert!(pending_command.is_none());
+            assert!(command_rx.recv().await.is_none());
+        });
     }
 
     #[test]
     fn worker_resize_burst_preserves_intervening_non_resize_command_order() {
-        let commands = vec![
-            WorkerCommand::Resize { cols: 120, rows: 30 },
-            WorkerCommand::Resize { cols: 140, rows: 40 },
-            WorkerCommand::Write(vec![1, 2, 3]),
-            WorkerCommand::Resize { cols: 160, rows: 50 },
-        ];
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
 
-        let effects = record_worker_effects_for_test(&commands);
+        runtime.block_on(async {
+            let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 120, rows: 30 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 140, rows: 40 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Write(vec![1, 2, 3]))
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 160, rows: 50 })
+                .unwrap();
+            drop(command_tx);
 
-        assert_eq!(
-            vec![
-                RecordedWorkerEffect::Resize(140, 40),
-                RecordedWorkerEffect::Write,
-                RecordedWorkerEffect::Resize(160, 50),
-            ],
-            effects
-        );
+            let mut pending_command = None;
+
+            let first_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("first resize command should be available");
+            let (cols, rows, pending_resize_command) = match first_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected first worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+            assert_eq!((140, 40), (cols, rows));
+
+            match next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("pending write command should be preserved")
+            {
+                WorkerCommand::Write(data) => assert_eq!(vec![1, 2, 3], data),
+                _ => panic!("expected pending worker command to be write"),
+            }
+
+            let second_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("second resize command should still be queued");
+            let (cols, rows, pending_resize_command) = match second_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected second worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+            assert_eq!((160, 50), (cols, rows));
+            assert!(pending_command.is_none());
+            assert!(command_rx.recv().await.is_none());
+        });
     }
 }
 
