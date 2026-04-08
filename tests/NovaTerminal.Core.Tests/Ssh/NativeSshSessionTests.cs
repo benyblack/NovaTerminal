@@ -53,6 +53,22 @@ public sealed class NativeSshSessionTests
     }
 
     [Fact]
+    public async Task ResizeBurst_RecordsLatestDimensionsAsEffectiveInteropIntent()
+    {
+        var interop = new FakeNativeSshInterop();
+        using var session = new NativeSshSession(CreateProfile(), interop: interop);
+
+        session.Resize(120, 30);
+        session.Resize(140, 40);
+        session.Resize(160, 50);
+
+        await WaitUntilAsync(() => interop.Resizes.Count >= 3);
+
+        Assert.Equal(3, interop.Resizes.Count);
+        Assert.Equal((160, 50), interop.Resizes[^1]);
+    }
+
+    [Fact]
     public async Task ExitAndClosedEventsOnlyRaiseOnExitOnce()
     {
         var interop = new FakeNativeSshInterop();

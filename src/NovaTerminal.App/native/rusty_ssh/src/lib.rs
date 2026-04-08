@@ -769,14 +769,22 @@ fn run_session(
             flags: NOVA_SSH_EVENT_FLAG_JSON,
         });
 
+        let mut pending_command: Option<WorkerCommand> = None;
         loop {
             tokio::select! {
-                command = command_rx.recv() => {
+                command = next_worker_command(&mut pending_command, &mut command_rx) => {
                     match command {
                         Some(WorkerCommand::Write(data)) => {
                             channel.data(&data[..]).await?;
                         }
                         Some(WorkerCommand::Resize { cols, rows }) => {
+                            let (cols, rows, pending_resize_command) = coalesce_pending_resize_commands(
+                                &mut command_rx,
+                                cols,
+                                rows,
+                            );
+                            pending_command = pending_resize_command;
+
                             channel.window_change(cols as u32, rows as u32, 0, 0).await?;
                         }
                         Some(WorkerCommand::OpenDirectTcpIp {
@@ -860,6 +868,43 @@ fn run_session(
         }
         Ok(())
     })
+}
+
+async fn next_worker_command(
+    pending_command: &mut Option<WorkerCommand>,
+    command_rx: &mut mpsc::UnboundedReceiver<WorkerCommand>,
+) -> Option<WorkerCommand> {
+    if let Some(command) = pending_command.take() {
+        return Some(command);
+    }
+
+    command_rx.recv().await
+}
+
+fn coalesce_pending_resize_commands(
+    command_rx: &mut mpsc::UnboundedReceiver<WorkerCommand>,
+    mut cols: u16,
+    mut rows: u16,
+) -> (u16, u16, Option<WorkerCommand>) {
+    let mut pending_command = None;
+
+    loop {
+        match command_rx.try_recv() {
+            Ok(WorkerCommand::Resize { cols: next_cols, rows: next_rows }) => {
+                cols = next_cols;
+                rows = next_rows;
+            }
+            Ok(command) => {
+                pending_command = Some(command);
+                break;
+            }
+            Err(mpsc::error::TryRecvError::Empty) | Err(mpsc::error::TryRecvError::Disconnected) => {
+                break;
+            }
+        }
+    }
+
+    (cols, rows, pending_command)
 }
 
 async fn open_direct_tcpip_channel(
@@ -1282,6 +1327,103 @@ mod tests {
         assert_eq!(None, client_config.inactivity_timeout);
         assert_eq!(Some(Duration::from_secs(15)), client_config.keepalive_interval);
         assert_eq!(7, client_config.keepalive_max);
+    }
+
+    #[test]
+    fn worker_resize_burst_should_only_apply_latest_dimensions() {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+
+        runtime.block_on(async {
+            let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 120, rows: 30 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 140, rows: 40 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 160, rows: 50 })
+                .unwrap();
+            drop(command_tx);
+
+            let mut pending_command = None;
+            let first_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("first resize command should be available");
+
+            let (cols, rows, pending_resize_command) = match first_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected first worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+
+            assert_eq!((160, 50), (cols, rows));
+            assert!(pending_command.is_none());
+            assert!(command_rx.recv().await.is_none());
+        });
+    }
+
+    #[test]
+    fn worker_resize_burst_preserves_intervening_non_resize_command_order() {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+
+        runtime.block_on(async {
+            let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 120, rows: 30 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 140, rows: 40 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Write(vec![1, 2, 3]))
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 160, rows: 50 })
+                .unwrap();
+            drop(command_tx);
+
+            let mut pending_command = None;
+
+            let first_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("first resize command should be available");
+            let (cols, rows, pending_resize_command) = match first_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected first worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+            assert_eq!((140, 40), (cols, rows));
+
+            match next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("pending write command should be preserved")
+            {
+                WorkerCommand::Write(data) => assert_eq!(vec![1, 2, 3], data),
+                _ => panic!("expected pending worker command to be write"),
+            }
+
+            let second_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("second resize command should still be queued");
+            let (cols, rows, pending_resize_command) = match second_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected second worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+            assert_eq!((160, 50), (cols, rows));
+            assert!(pending_command.is_none());
+            assert!(command_rx.recv().await.is_none());
+        });
     }
 }
 
