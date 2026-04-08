@@ -77,25 +77,13 @@ public sealed class NativeSshSession : ITerminalSession
 
         try
         {
-            PortForward[] localForwards = profile.Forwards
-                .Where(forward => forward.Kind == PortForwardKind.Local)
-                .ToArray();
-            PortForward[] dynamicForwards = profile.Forwards
-                .Where(forward => forward.Kind == PortForwardKind.Dynamic)
-                .ToArray();
-
-            if (localForwards.Length != 0)
+            if (profile.Forwards.Count != 0)
             {
-                _portForwardSession = new NativePortForwardSession(_sessionHandle, localForwards, _interop, _log);
-                foreach (PortForward forward in localForwards)
+                _portForwardSession = new NativePortForwardSession(_sessionHandle, profile.Forwards, _interop, _log);
+                foreach (PortForward forward in profile.Forwards)
                 {
                     _metrics.RecordForwardSetup(forward.ToString());
                 }
-            }
-
-            if (dynamicForwards.Length != 0)
-            {
-                _log($"[NativeSshSession] dynamic forwards are accepted by profile validation but deferred until native SOCKS support lands; count={dynamicForwards.Length}");
             }
 
             _isRunning = 1;
