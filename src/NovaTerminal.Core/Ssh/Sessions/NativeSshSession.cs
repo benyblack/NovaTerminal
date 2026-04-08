@@ -53,9 +53,9 @@ public sealed class NativeSshSession : ITerminalSession
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        if (profile.Forwards.Any(forward => forward.Kind != PortForwardKind.Local))
+        if (profile.Forwards.Any(forward => forward.Kind is not PortForwardKind.Local and not PortForwardKind.Dynamic))
         {
-            throw new NotSupportedException("Native SSH backend currently supports local port forwards only.");
+            throw new NotSupportedException("Native SSH backend currently supports local and dynamic port forwards only.");
         }
 
         _ = diagnosticsLevel;
@@ -77,13 +77,25 @@ public sealed class NativeSshSession : ITerminalSession
 
         try
         {
-            if (profile.Forwards.Count != 0)
+            PortForward[] localForwards = profile.Forwards
+                .Where(forward => forward.Kind == PortForwardKind.Local)
+                .ToArray();
+            PortForward[] dynamicForwards = profile.Forwards
+                .Where(forward => forward.Kind == PortForwardKind.Dynamic)
+                .ToArray();
+
+            if (localForwards.Length != 0)
             {
-                _portForwardSession = new NativePortForwardSession(_sessionHandle, profile.Forwards, _interop, _log);
-                foreach (PortForward forward in profile.Forwards)
+                _portForwardSession = new NativePortForwardSession(_sessionHandle, localForwards, _interop, _log);
+                foreach (PortForward forward in localForwards)
                 {
                     _metrics.RecordForwardSetup(forward.ToString());
                 }
+            }
+
+            if (dynamicForwards.Length != 0)
+            {
+                _log($"[NativeSshSession] dynamic forwards are accepted by profile validation but deferred until native SOCKS support lands; count={dynamicForwards.Length}");
             }
 
             _isRunning = 1;
