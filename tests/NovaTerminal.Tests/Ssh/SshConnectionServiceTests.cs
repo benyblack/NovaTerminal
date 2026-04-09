@@ -207,7 +207,7 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void SaveProfile_PersistsRememberPasswordPreferenceForNativeProfiles()
+    public void SaveProfile_DoesNotPersistRememberPasswordPreferenceForNewProfiles()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -226,9 +226,9 @@ public sealed class SshConnectionServiceTests
 
             SshProfile saved = service.SaveProfile(vm);
 
-            Assert.True(saved.RememberPasswordInVault);
-            Assert.True(store.GetProfile(saved.Id)!.RememberPasswordInVault);
-            Assert.True(new JsonSshProfileStore(path).GetProfile(saved.Id)!.RememberPasswordInVault);
+            Assert.False(saved.RememberPasswordInVault);
+            Assert.False(store.GetProfile(saved.Id)!.RememberPasswordInVault);
+            Assert.False(new JsonSshProfileStore(path).GetProfile(saved.Id)!.RememberPasswordInVault);
         }
         finally
         {
@@ -237,7 +237,7 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void SaveProfile_DropsRememberPasswordPreferenceForOpenSshProfiles()
+    public void SaveProfile_PreservesLegacyRememberPasswordPreferenceForExistingProfiles()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -245,19 +245,31 @@ public sealed class SshConnectionServiceTests
             string path = Path.Combine(tempRoot, "profiles.json");
             var store = new JsonSshProfileStore(path);
             var service = new SshConnectionService(store);
+            var existingId = Guid.Parse("b3eaf7fe-75c8-4c37-9d9a-4fe08eaf5f65");
+
+            store.SaveProfile(new SshProfile
+            {
+                Id = existingId,
+                Name = "Native",
+                Host = "native.internal",
+                BackendKind = SshBackendKind.Native,
+                RememberPasswordInVault = true
+            });
 
             var vm = new NewSshConnectionViewModel
             {
-                Name = "OpenSSH",
-                HostName = "openssh.internal",
-                RememberPasswordInVault = true
+                ProfileId = existingId,
+                Name = "Native Updated",
+                HostName = "updated.internal",
+                UserName = "ops",
+                BackendKind = SshBackendKind.Native
             };
 
             SshProfile saved = service.SaveProfile(vm);
 
-            Assert.False(saved.RememberPasswordInVault);
-            Assert.False(store.GetProfile(saved.Id)!.RememberPasswordInVault);
-            Assert.False(new JsonSshProfileStore(path).GetProfile(saved.Id)!.RememberPasswordInVault);
+            Assert.True(saved.RememberPasswordInVault);
+            Assert.True(store.GetProfile(saved.Id)!.RememberPasswordInVault);
+            Assert.True(new JsonSshProfileStore(path).GetProfile(saved.Id)!.RememberPasswordInVault);
         }
         finally
         {
@@ -306,7 +318,7 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void CreateEditorViewModel_LoadsRememberPasswordPreferenceForNativeProfiles()
+    public void CreateEditorViewModel_DoesNotLoadRememberPasswordPreferenceForNativeProfiles()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -327,7 +339,7 @@ public sealed class SshConnectionServiceTests
             TerminalProfile runtimeProfile = service.GetConnectionProfile(saved.Id)!;
             NewSshConnectionViewModel editorVm = service.CreateEditorViewModel(runtimeProfile);
 
-            Assert.True(editorVm.RememberPasswordInVault);
+            Assert.False(editorVm.RememberPasswordInVault);
         }
         finally
         {
@@ -336,7 +348,7 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void SaveConnectionProfile_ClearsRememberPasswordPreferenceForOpenSshProfiles()
+    public void SaveConnectionProfile_PreservesLegacyRememberPasswordPreferenceForExistingProfiles()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -367,8 +379,8 @@ public sealed class SshConnectionServiceTests
 
             service.SaveConnectionProfile(runtimeProfile);
 
-            Assert.False(store.GetProfile(existing.Id)!.RememberPasswordInVault);
-            Assert.False(new JsonSshProfileStore(path).GetProfile(existing.Id)!.RememberPasswordInVault);
+            Assert.True(store.GetProfile(existing.Id)!.RememberPasswordInVault);
+            Assert.True(new JsonSshProfileStore(path).GetProfile(existing.Id)!.RememberPasswordInVault);
         }
         finally
         {
@@ -377,7 +389,7 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void SaveProfile_RemovesStoredPasswordWhenRememberPasswordIsDisabled()
+    public void SaveProfile_DoesNotTouchStoredPasswordWhenSavingProfiles()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -403,8 +415,8 @@ public sealed class SshConnectionServiceTests
             SshProfile saved = service.SaveProfile(vm);
 
             Assert.False(saved.RememberPasswordInVault);
-            Assert.DoesNotContain(canonical, vault.Secrets.Keys);
-            Assert.Contains(canonical, vault.RemovedKeys);
+            Assert.Equal("stored-secret", vault.Secrets[canonical]);
+            Assert.Empty(vault.RemovedKeys);
             Assert.Empty(vault.WrittenSecrets);
         }
         finally
@@ -414,7 +426,7 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void SaveProfile_RemovesLegacyStoredPasswordsWhenRememberPasswordIsDisabled()
+    public void SaveProfile_DoesNotTouchLegacyStoredPasswordsWhenRenamingProfiles()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -445,14 +457,11 @@ public sealed class SshConnectionServiceTests
 
             _ = service.SaveProfile(vm);
 
-            Assert.DoesNotContain(canonical, vault.Secrets.Keys);
-            Assert.DoesNotContain(namedLegacy, vault.Secrets.Keys);
-            Assert.DoesNotContain(idLegacy, vault.Secrets.Keys);
-            Assert.Contains(canonical, vault.RemovedKeys);
-            Assert.Contains(namedLegacy, vault.RemovedKeys);
-            Assert.Contains(idLegacy, vault.RemovedKeys);
+            Assert.Equal("canonical-secret", vault.Secrets[canonical]);
+            Assert.Equal("named-legacy-secret", vault.Secrets[namedLegacy]);
+            Assert.Equal("id-legacy-secret", vault.Secrets[idLegacy]);
             Assert.Equal("unnamed-legacy-secret", vault.Secrets[unnamedLegacy]);
-            Assert.DoesNotContain(unnamedLegacy, vault.RemovedKeys);
+            Assert.Empty(vault.RemovedKeys);
             Assert.Empty(vault.WrittenSecrets);
         }
         finally
@@ -462,7 +471,7 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void SaveProfile_RemovesStaleLegacyPasswordsFromPreviousProfileIdentityWhenDisabled()
+    public void SaveProfile_DoesNotTouchLegacyStoredPasswordsFromPreviousProfileIdentity()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -501,12 +510,13 @@ public sealed class SshConnectionServiceTests
 
             _ = service.SaveProfile(vm);
 
-            Assert.DoesNotContain("SSH:OldName:alice@old.internal", vault.Secrets.Keys);
-            Assert.DoesNotContain($"profile_{profileId}_password", vault.Secrets.Keys);
-            Assert.DoesNotContain(VaultService.GetCanonicalSshProfileKey(profileId), vault.Secrets.Keys);
-            Assert.DoesNotContain("SSH:NewName:bob@new.internal", vault.Secrets.Keys);
+            Assert.Equal("old-named-secret", vault.Secrets["SSH:OldName:alice@old.internal"]);
+            Assert.Equal("old-id-secret", vault.Secrets[$"profile_{profileId}_password"]);
+            Assert.Equal("canonical-secret", vault.Secrets[VaultService.GetCanonicalSshProfileKey(profileId)]);
+            Assert.Equal("new-named-secret", vault.Secrets["SSH:NewName:bob@new.internal"]);
             Assert.Equal("old-unnamed-secret", vault.Secrets["SSH:alice@old.internal"]);
             Assert.Equal("new-unnamed-secret", vault.Secrets["SSH:bob@new.internal"]);
+            Assert.Empty(vault.RemovedKeys);
         }
         finally
         {
@@ -515,7 +525,7 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void SaveProfile_LeavesStoredPasswordUntouchedWhenRememberPasswordIsEnabled()
+    public void SaveProfile_LeavesStoredPasswordUntouchedWhenEditorStillSetsRememberPassword()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -540,7 +550,7 @@ public sealed class SshConnectionServiceTests
 
             SshProfile saved = service.SaveProfile(vm);
 
-            Assert.True(saved.RememberPasswordInVault);
+            Assert.False(saved.RememberPasswordInVault);
             Assert.Equal("stored-secret", vault.Secrets[canonical]);
             Assert.Empty(vault.RemovedKeys);
             Assert.Empty(vault.WrittenSecrets);

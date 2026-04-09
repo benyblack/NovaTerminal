@@ -23,6 +23,12 @@ public sealed class NativeJumpHostConnector
             Port = plan.TargetPort,
             Cols = cols,
             Rows = rows,
+            KeepAliveIntervalSeconds = profile.ServerAliveIntervalSeconds > 0
+                ? profile.ServerAliveIntervalSeconds
+                : 30,
+            KeepAliveCountMax = profile.ServerAliveCountMax > 0
+                ? profile.ServerAliveCountMax
+                : 3,
             IdentityFilePath = string.IsNullOrWhiteSpace(profile.IdentityFilePath)
                 ? null
                 : profile.IdentityFilePath,

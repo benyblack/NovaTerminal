@@ -200,7 +200,7 @@ public sealed class SshInteractionServiceTests
     }
 
     [Fact]
-    public async Task NativePasswordRequests_ExposeRememberPasswordOption()
+    public async Task NativePasswordRequests_WithProfileIdentity_ExposeRememberPasswordOption()
     {
         AuthPromptViewModel? capturedVm = null;
         var service = new SshInteractionService(
@@ -214,11 +214,35 @@ public sealed class SshInteractionServiceTests
         {
             Kind = SshInteractionKind.Password,
             Prompt = "Password:",
-            RememberPasswordInVault = true
+            ProfileId = Guid.Parse("531365f9-b488-4475-ab7d-7221e5056cae"),
+            ProfileName = "Native Prod",
+            ProfileUser = "alice",
+            ProfileHost = "example.internal"
         }, CancellationToken.None);
 
         Assert.NotNull(capturedVm);
         Assert.True(capturedVm!.CanRememberPassword);
+    }
+
+    [Fact]
+    public async Task PasswordRequests_WithoutProfileIdentity_DoNotExposeRememberPasswordOption()
+    {
+        AuthPromptViewModel? capturedVm = null;
+        var service = new SshInteractionService(
+            authPresenter: (_, vm, _) =>
+            {
+                capturedVm = vm;
+                return Task.FromResult(SshInteractionResponse.Cancel());
+            });
+
+        await service.HandleAsync(new SshInteractionRequest
+        {
+            Kind = SshInteractionKind.Password,
+            Prompt = "Password:"
+        }, CancellationToken.None);
+
+        Assert.NotNull(capturedVm);
+        Assert.False(capturedVm!.CanRememberPassword);
     }
 
     [Fact]
@@ -253,8 +277,7 @@ public sealed class SshInteractionServiceTests
                 ProfileName = profile.Name,
                 ProfileUser = profile.SshUser,
                 ProfileHost = profile.SshHost,
-                AllowVaultPasswordReuse = false,
-                RememberPasswordInVault = true
+                AllowVaultPasswordReuse = false
             }, CancellationToken.None);
 
             Assert.Equal("manual-secret", response.Secret);
@@ -296,8 +319,7 @@ public sealed class SshInteractionServiceTests
                 ProfileName = profile.Name,
                 ProfileUser = profile.SshUser,
                 ProfileHost = profile.SshHost,
-                AllowVaultPasswordReuse = false,
-                RememberPasswordInVault = true
+                AllowVaultPasswordReuse = false
             }, CancellationToken.None);
 
             Assert.Equal("manual-secret", response.Secret);
@@ -310,7 +332,50 @@ public sealed class SshInteractionServiceTests
     }
 
     [Fact]
-    public async Task PasswordRequests_AreAnsweredFromVaultWithoutShowingDialog_WhenRememberPasswordIsEnabled()
+    public async Task NativePasswordRequests_LeavingRememberUnchecked_PreservesExistingVaultSecret()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            var profile = new TerminalProfile
+            {
+                Id = Guid.Parse("6752a7e9-6fcb-4108-813a-45411cba6a6c"),
+                Type = ConnectionType.SSH,
+                Name = "Native Prod",
+                SshHost = "example.internal",
+                SshUser = "alice"
+            };
+            vault.SetSshPasswordForProfile(profile, "vault-secret");
+
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, _, _) =>
+                    Task.FromResult(SshInteractionResponse.FromSecret("manual-secret")));
+
+            var response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Password,
+                Prompt = "Password:",
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                ProfileUser = profile.SshUser,
+                ProfileHost = profile.SshHost,
+                AllowVaultPasswordReuse = false
+            }, CancellationToken.None);
+
+            Assert.Equal("manual-secret", response.Secret);
+            Assert.Equal("vault-secret", vault.GetSshPasswordForProfile(profile));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task PasswordRequests_AreAnsweredFromVaultWithoutShowingDialog_WhenProfileIdentityIsProvided()
     {
         string tempRoot = CreateTempDirectory();
         try
@@ -344,8 +409,7 @@ public sealed class SshInteractionServiceTests
                 ProfileName = profile.Name,
                 ProfileUser = profile.SshUser,
                 ProfileHost = profile.SshHost,
-                AllowVaultPasswordReuse = true,
-                RememberPasswordInVault = true
+                AllowVaultPasswordReuse = true
             }, CancellationToken.None);
 
             Assert.Equal(0, promptCount);
@@ -394,8 +458,7 @@ public sealed class SshInteractionServiceTests
                 ProfileName = profile.Name,
                 ProfileUser = profile.SshUser,
                 ProfileHost = profile.SshHost,
-                AllowVaultPasswordReuse = true,
-                RememberPasswordInVault = true
+                AllowVaultPasswordReuse = true
             }, CancellationToken.None);
 
             Assert.Equal(0, promptCount);
@@ -442,8 +505,7 @@ public sealed class SshInteractionServiceTests
                 ProfileName = profile.Name,
                 ProfileUser = profile.SshUser,
                 ProfileHost = profile.SshHost,
-                AllowVaultPasswordReuse = false,
-                RememberPasswordInVault = true
+                AllowVaultPasswordReuse = false
             }, CancellationToken.None);
 
             Assert.Equal("manual-secret", response.Secret);
@@ -490,8 +552,7 @@ public sealed class SshInteractionServiceTests
                 ProfileId = profile.Id,
                 ProfileName = profile.Name,
                 ProfileUser = profile.SshUser,
-                ProfileHost = profile.SshHost,
-                RememberPasswordInVault = true
+                ProfileHost = profile.SshHost
             }, CancellationToken.None);
 
             Assert.Equal(1, promptCount);

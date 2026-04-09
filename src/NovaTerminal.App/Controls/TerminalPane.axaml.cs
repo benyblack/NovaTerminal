@@ -1160,12 +1160,12 @@ namespace NovaTerminal.Controls
                 Session.AttachBuffer(Buffer);
 
                 TermView.SetSession(Session);
-                Session.OnExit += code =>
+                ITerminalSession session = Session;
+                session.OnExit += code =>
                 {
                     Dispatcher.UIThread.Post(() =>
                     {
-                        LastExitCode = code;
-                        ProcessExited?.Invoke(this, code);
+                        HandleSessionExit(session, code);
                     });
                 };
                 UpdateCommandAssistContext();
@@ -1546,7 +1546,7 @@ namespace NovaTerminal.Controls
             // Font Zoom - TBD
 
             // Reconnect if dead
-            if ((Session == null || LastExitCode.HasValue) && e.Key == Key.Enter)
+            if (ShouldReconnectOnEnter(Session) && e.Key == Key.Enter)
             {
                 e.Handled = true;
                 Reconnect();
@@ -1564,8 +1564,9 @@ namespace NovaTerminal.Controls
         {
             if (Session != null)
             {
-                Session.Dispose();
+                ITerminalSession session = Session;
                 Session = null;
+                session.Dispose();
             }
 
             LastExitCode = null;
@@ -1574,6 +1575,48 @@ namespace NovaTerminal.Controls
                 Buffer.WriteContent("\r\n\x1b[90m[Reconnecting...]\x1b[0m\r\n", false);
             }
             InitializeSession(ShellCommand, Profile, TermView.Cols, TermView.Rows, ShellArgs);
+        }
+
+        internal static bool ShouldReconnectOnEnter(ITerminalSession? session)
+        {
+            return session == null || !session.IsProcessRunning;
+        }
+
+        internal void HandleSessionExitForTesting(int code)
+        {
+            HandleSessionExit(Session, code);
+        }
+
+        private void HandleSessionExit(ITerminalSession? session, int code)
+        {
+            if (session != null && !ReferenceEquals(Session, session))
+            {
+                return;
+            }
+
+            LastExitCode = code;
+
+            if (Profile?.Type == ConnectionType.SSH)
+            {
+                WriteSshDisconnectedBanner(code);
+            }
+
+            ProcessExited?.Invoke(this, code);
+        }
+
+        private void WriteSshDisconnectedBanner(int code)
+        {
+            if (Buffer == null)
+            {
+                return;
+            }
+
+            string exitCodeLine = code == 0
+                ? string.Empty
+                : $"[Exit code: {code}]\r\n";
+            Buffer.WriteContent(
+                $"\r\n[SSH session disconnected]\r\n{exitCodeLine}[Press Enter to reconnect]\r\n",
+                false);
         }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -1604,7 +1647,12 @@ namespace NovaTerminal.Controls
             _statusTimer?.Stop();
             _statusTimer = null;
             SftpService.Instance.JobUpdated -= Sftp_JobUpdated;
-            Session?.Dispose();
+            if (Session != null)
+            {
+                ITerminalSession session = Session;
+                Session = null;
+                session.Dispose();
+            }
         }
 
         private void Sftp_JobUpdated(object? sender, TransferJob job)

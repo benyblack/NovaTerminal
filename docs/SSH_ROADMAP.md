@@ -140,7 +140,7 @@ Deliverable: release-ready SSH management feature set.
 
 * * * * *
 
-Native SSH Status (2026-03-31)
+Native SSH Status (2026-04-08)
 ==============================
 
 The native SSH initiative is now implemented behind conservative rollout controls.
@@ -152,6 +152,7 @@ Completed native SSH capabilities:
 - Avalonia host-key and auth dialogs for native SSH
 - app-managed native known-host trust store
 - local port forwarding for the native backend
+- direct-host dynamic port forwarding for the native backend
 - one-hop native jump-host support
 - rollout controls, backend selector, and stable failure classification
 
@@ -160,6 +161,9 @@ Rollout guidance:
 - `OpenSsh` remains the default backend.
 - `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`.
 - Native SSH does not silently fall back to OpenSSH on failure.
+- Native SSH supports local forwards and direct-host dynamic forwards.
+- Native SSH does not yet support dynamic forwarding through a one-hop jump host.
+- Remote forwarding remains unsupported in the native backend.
 - Multi-hop jump chains remain unsupported in the native backend.
 
 Verification references:

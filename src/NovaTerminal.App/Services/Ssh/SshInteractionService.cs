@@ -87,7 +87,6 @@ public sealed class SshInteractionService : ISshInteractionService
     private bool TryHandlePasswordFromVault(SshInteractionRequest request, out SshInteractionResponse response)
     {
         if (request.Kind != SshInteractionKind.Password ||
-            !request.RememberPasswordInVault ||
             !request.ProfileId.HasValue ||
             !request.AllowVaultPasswordReuse)
         {
@@ -189,7 +188,7 @@ public sealed class SshInteractionService : ISshInteractionService
         {
             Title = "Password",
             Message = "Enter the SSH password to continue.",
-            CanRememberPassword = request.RememberPasswordInVault
+            CanRememberPassword = request.ProfileId.HasValue
         };
         viewModel.Prompts.Add(new AuthPromptEntryViewModel
         {
@@ -202,7 +201,6 @@ public sealed class SshInteractionService : ISshInteractionService
     private static bool ShouldStorePasswordInVault(SshInteractionRequest request, SshInteractionResponse response)
     {
         return request.Kind == SshInteractionKind.Password &&
-            request.RememberPasswordInVault &&
             request.ProfileId.HasValue &&
             !response.IsCanceled &&
             response.RememberPasswordInVault &&
@@ -244,3 +242,4 @@ public sealed class SshInteractionService : ISshInteractionService
         return viewModel;
     }
 }
+

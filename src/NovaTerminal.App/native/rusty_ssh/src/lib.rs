@@ -37,6 +37,8 @@ pub struct NovaSshConnectArgs {
     pub jump_host: *const c_char,
     pub jump_user: *const c_char,
     pub jump_port: u16,
+    pub keepalive_interval_seconds: u32,
+    pub keepalive_count_max: u32,
 }
 
 #[repr(C)]
@@ -143,6 +145,8 @@ struct ConnectConfig {
     term: String,
     identity_file: Option<String>,
     jump_host: Option<JumpHostConfig>,
+    keepalive_interval_seconds: u32,
+    keepalive_count_max: u32,
 }
 
 #[derive(Clone)]
@@ -652,6 +656,16 @@ impl ConnectConfig {
             term,
             identity_file,
             jump_host: effective_jump_host,
+            keepalive_interval_seconds: if args.keepalive_interval_seconds == 0 {
+                30
+            } else {
+                args.keepalive_interval_seconds
+            },
+            keepalive_count_max: if args.keepalive_count_max == 0 {
+                3
+            } else {
+                args.keepalive_count_max
+            },
         })
     }
 }
@@ -677,10 +691,7 @@ fn run_session(
     let runtime = Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(async move {
         let forward_channels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
-        let client_config = Arc::new(client::Config {
-            inactivity_timeout: Some(Duration::from_secs(30)),
-            ..<_>::default()
-        });
+        let client_config = Arc::new(build_client_config(&config));
 
         let jump_session = if let Some(jump_host) = &config.jump_host {
             let jump_handler = NovaClientHandler {
@@ -758,14 +769,22 @@ fn run_session(
             flags: NOVA_SSH_EVENT_FLAG_JSON,
         });
 
+        let mut pending_command: Option<WorkerCommand> = None;
         loop {
             tokio::select! {
-                command = command_rx.recv() => {
+                command = next_worker_command(&mut pending_command, &mut command_rx) => {
                     match command {
                         Some(WorkerCommand::Write(data)) => {
                             channel.data(&data[..]).await?;
                         }
                         Some(WorkerCommand::Resize { cols, rows }) => {
+                            let (cols, rows, pending_resize_command) = coalesce_pending_resize_commands(
+                                &mut command_rx,
+                                cols,
+                                rows,
+                            );
+                            pending_command = pending_resize_command;
+
                             channel.window_change(cols as u32, rows as u32, 0, 0).await?;
                         }
                         Some(WorkerCommand::OpenDirectTcpIp {
@@ -849,6 +868,43 @@ fn run_session(
         }
         Ok(())
     })
+}
+
+async fn next_worker_command(
+    pending_command: &mut Option<WorkerCommand>,
+    command_rx: &mut mpsc::UnboundedReceiver<WorkerCommand>,
+) -> Option<WorkerCommand> {
+    if let Some(command) = pending_command.take() {
+        return Some(command);
+    }
+
+    command_rx.recv().await
+}
+
+fn coalesce_pending_resize_commands(
+    command_rx: &mut mpsc::UnboundedReceiver<WorkerCommand>,
+    mut cols: u16,
+    mut rows: u16,
+) -> (u16, u16, Option<WorkerCommand>) {
+    let mut pending_command = None;
+
+    loop {
+        match command_rx.try_recv() {
+            Ok(WorkerCommand::Resize { cols: next_cols, rows: next_rows }) => {
+                cols = next_cols;
+                rows = next_rows;
+            }
+            Ok(command) => {
+                pending_command = Some(command);
+                break;
+            }
+            Err(mpsc::error::TryRecvError::Empty) | Err(mpsc::error::TryRecvError::Disconnected) => {
+                break;
+            }
+        }
+    }
+
+    (cols, rows, pending_command)
 }
 
 async fn open_direct_tcpip_channel(
@@ -1132,6 +1188,7 @@ fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> *mu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
 
     #[test]
     fn null_handle_operations_return_invalid_argument() {
@@ -1221,5 +1278,160 @@ mod tests {
 
         let close = nova_ssh_close(session);
         assert_eq!(NOVA_SSH_RESULT_OK, close);
+    }
+
+    #[test]
+    fn connect_config_reads_keepalive_settings_from_ffi_args() {
+        let host = CString::new("native.example").unwrap();
+        let user = CString::new("nova").unwrap();
+        let term = CString::new("xterm-256color").unwrap();
+
+        let args = NovaSshConnectArgs {
+            host: host.as_ptr(),
+            user: user.as_ptr(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: term.as_ptr(),
+            identity_file: ptr::null(),
+            jump_host: ptr::null(),
+            jump_user: ptr::null(),
+            jump_port: 0,
+            keepalive_interval_seconds: 15,
+            keepalive_count_max: 7,
+        };
+
+        let config = ConnectConfig::from_args(&args).expect("config should parse");
+
+        assert_eq!(15, config.keepalive_interval_seconds);
+        assert_eq!(7, config.keepalive_count_max);
+    }
+
+    #[test]
+    fn client_config_uses_keepalive_without_forcing_inactivity_timeout() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            jump_host: None,
+            keepalive_interval_seconds: 15,
+            keepalive_count_max: 7,
+        };
+
+        let client_config = build_client_config(&config);
+
+        assert_eq!(None, client_config.inactivity_timeout);
+        assert_eq!(Some(Duration::from_secs(15)), client_config.keepalive_interval);
+        assert_eq!(7, client_config.keepalive_max);
+    }
+
+    #[test]
+    fn worker_resize_burst_should_only_apply_latest_dimensions() {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+
+        runtime.block_on(async {
+            let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 120, rows: 30 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 140, rows: 40 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 160, rows: 50 })
+                .unwrap();
+            drop(command_tx);
+
+            let mut pending_command = None;
+            let first_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("first resize command should be available");
+
+            let (cols, rows, pending_resize_command) = match first_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected first worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+
+            assert_eq!((160, 50), (cols, rows));
+            assert!(pending_command.is_none());
+            assert!(command_rx.recv().await.is_none());
+        });
+    }
+
+    #[test]
+    fn worker_resize_burst_preserves_intervening_non_resize_command_order() {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+
+        runtime.block_on(async {
+            let (command_tx, mut command_rx) = mpsc::unbounded_channel();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 120, rows: 30 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 140, rows: 40 })
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Write(vec![1, 2, 3]))
+                .unwrap();
+            command_tx
+                .send(WorkerCommand::Resize { cols: 160, rows: 50 })
+                .unwrap();
+            drop(command_tx);
+
+            let mut pending_command = None;
+
+            let first_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("first resize command should be available");
+            let (cols, rows, pending_resize_command) = match first_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected first worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+            assert_eq!((140, 40), (cols, rows));
+
+            match next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("pending write command should be preserved")
+            {
+                WorkerCommand::Write(data) => assert_eq!(vec![1, 2, 3], data),
+                _ => panic!("expected pending worker command to be write"),
+            }
+
+            let second_command = next_worker_command(&mut pending_command, &mut command_rx)
+                .await
+                .expect("second resize command should still be queued");
+            let (cols, rows, pending_resize_command) = match second_command {
+                WorkerCommand::Resize { cols, rows } => {
+                    coalesce_pending_resize_commands(&mut command_rx, cols, rows)
+                }
+                _ => panic!("expected second worker command to be resize"),
+            };
+
+            pending_command = pending_resize_command;
+            assert_eq!((160, 50), (cols, rows));
+            assert!(pending_command.is_none());
+            assert!(command_rx.recv().await.is_none());
+        });
+    }
+}
+
+fn build_client_config(config: &ConnectConfig) -> client::Config {
+    client::Config {
+        inactivity_timeout: None,
+        keepalive_interval: Some(Duration::from_secs(config.keepalive_interval_seconds as u64)),
+        keepalive_max: config.keepalive_count_max as usize,
+        ..<_>::default()
     }
 }

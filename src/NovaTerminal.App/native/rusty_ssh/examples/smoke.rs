@@ -45,6 +45,8 @@ fn main() {
         jump_host: std::ptr::null(),
         jump_user: std::ptr::null(),
         jump_port: 0,
+        keepalive_interval_seconds: 30,
+        keepalive_count_max: 3,
     };
 
     let session = nova_ssh_connect(&connect_args);
