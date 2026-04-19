@@ -19,6 +19,7 @@ namespace NovaTerminal.ExternalSuites.Vttest
 
         public Guid Id { get; } = Guid.NewGuid();
         public string ShellCommand { get; }
+        public string? ShellArguments => null;
         public bool IsRecording => false;
         public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && _ptyState != IntPtr.Zero;
         public bool HasActiveChildProcesses => false;

@@ -209,8 +209,15 @@ public sealed class NativeSshSession : ITerminalSession
 
         _cols = cols;
         _rows = rows;
-        _interop.Resize(_sessionHandle, cols, rows);
-        _recorder?.RecordResize(cols, rows);
+        try
+        {
+            _interop.Resize(_sessionHandle, cols, rows);
+            _recorder?.RecordResize(cols, rows);
+        }
+        catch (Exception ex)
+        {
+            _log($"[NativeSshSession] Resize failed: {ex.Message}");
+        }
     }
 
     public void StartRecording(string filePath)

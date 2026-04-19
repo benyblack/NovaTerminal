@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Native;
@@ -31,12 +33,13 @@ public sealed class NativeSshSessionTests
     [Fact]
     public void Constructor_AllowsDynamicForwardProfiles()
     {
+        int dynamicPort = GetFreePort();
         SshProfile profile = CreateProfile();
         profile.Forwards.Add(new PortForward
         {
             Kind = PortForwardKind.Dynamic,
             BindAddress = "127.0.0.1",
-            SourcePort = 1080
+            SourcePort = dynamicPort
         });
 
         using var session = new NativeSshSession(profile, interop: new FakeNativeSshInterop());
@@ -196,7 +199,16 @@ public sealed class NativeSshSessionTests
         Assert.True(predicate(), "Condition was not met before timeout.");
     }
 
-    private sealed class FakeNativeSshInterop : INativeSshInterop
+    private static int GetFreePort()
+    {
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
+    internal sealed class FakeNativeSshInterop : INativeSshInterop
     {
         private readonly ConcurrentQueue<NativeSshEvent> _events = new();
         private int _nextHandle = 1;
@@ -205,6 +217,7 @@ public sealed class NativeSshSessionTests
         public List<(int Cols, int Rows)> Resizes { get; } = new();
         public int CloseCallCount { get; private set; }
         public NativeSshConnectionOptions? LastConnectOptions { get; private set; }
+        public Exception? ResizeException { get; set; }
 
         public IntPtr Connect(NativeSshConnectionOptions options)
         {
@@ -232,6 +245,11 @@ public sealed class NativeSshSessionTests
 
         public void Resize(IntPtr sessionHandle, int cols, int rows)
         {
+            if (ResizeException != null)
+            {
+                throw ResizeException;
+            }
+
             Resizes.Add((cols, rows));
         }
 
