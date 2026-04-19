@@ -188,6 +188,22 @@ namespace NovaTerminal.Core
                                 _verticalOffset = 0;
                                 _state = State.Normal;
                             }
+                            else if (c == 'D') // IND - Index
+                            {
+                                Index();
+                                _state = State.Normal;
+                            }
+                            else if (c == 'E') // NEL - Next Line
+                            {
+                                _buffer.CursorCol = 0;
+                                Index();
+                                _state = State.Normal;
+                            }
+                            else if (c == 'M') // RI - Reverse Index
+                            {
+                                ReverseIndex();
+                                _state = State.Normal;
+                            }
                             else if (c == '=' || c == '>') // DECKPAM / DECKPNM
                             {
                                 // Keypad application/numeric mode does not render visible text.
@@ -705,6 +721,28 @@ namespace NovaTerminal.Core
 
             Array.Resize(ref _paramBuffer, next);
             return true;
+        }
+
+        private void Index()
+        {
+            if (_buffer.CursorRow == _buffer.ScrollBottom)
+            {
+                _buffer.ScrollUp();
+                return;
+            }
+
+            _buffer.CursorRow = Math.Min(_buffer.CursorRow + 1, _buffer.Rows - 1);
+        }
+
+        private void ReverseIndex()
+        {
+            if (_buffer.CursorRow == _buffer.ScrollTop)
+            {
+                _buffer.ScrollDown();
+                return;
+            }
+
+            _buffer.CursorRow = Math.Max(_buffer.CursorRow - 1, 0);
         }
 
         private void ApplyCursorStyle(int value)

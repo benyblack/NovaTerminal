@@ -145,6 +145,79 @@ public sealed class NativeSshDockerE2eTests
         Assert.Contains(snapshot.Lines, line => line == "nova$");
     }
 
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
+    public async Task NativeSsh_VimDownwardScroll_UpdatesVisibleWindowWithoutCtrlL()
+    {
+        await using var fixture = await DockerSshFixture.StartAsync();
+
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+        var handler = new NativeSshTestInteractionHandler(fixture.Password);
+        var logs = new List<string>();
+        var scrollOutput = new List<string>();
+        bool captureScrollOutput = false;
+
+        using var session = new NativeSshSession(
+            CreateProfile(fixture),
+            cols: 80,
+            rows: 24,
+            log: logs.Add,
+            interactionHandler: handler);
+
+        session.AttachBuffer(buffer);
+        session.OnOutputReceived += text =>
+        {
+            if (captureScrollOutput)
+            {
+                scrollOutput.Add(text);
+            }
+
+            parser.Process(text);
+        };
+
+        await WaitUntilAsync(() => SnapshotContainsExactLine(buffer, "nova$"), TimeSpan.FromSeconds(20), "initial prompt");
+
+        session.SendInput("for i in $(seq -w 1 40); do echo \"line $i\"; done >/tmp/vim-scroll.txt\n");
+        await WaitUntilAsync(() => SnapshotContainsExactLine(buffer, "nova$"), TimeSpan.FromSeconds(20), "prompt after creating vim test file");
+
+        session.SendInput("vim.tiny -u NONE -N -n +'set scrolloff=5' /tmp/vim-scroll.txt\n");
+
+        await WaitUntilAsync(
+            () =>
+            {
+                BufferSnapshot snapshot = BufferSnapshot.Capture(buffer);
+                return snapshot.IsAltScreen && snapshot.Lines.Any(line => line.Contains("line 01", StringComparison.Ordinal));
+            },
+            TimeSpan.FromSeconds(20),
+            "vim initial screen");
+
+        BufferSnapshot initial = BufferSnapshot.Capture(buffer);
+
+        captureScrollOutput = true;
+        session.SendInput(new string('j', 35));
+
+        await WaitUntilAsync(
+            () =>
+            {
+                BufferSnapshot snapshot = BufferSnapshot.Capture(buffer);
+                return snapshot.IsAltScreen && snapshot.Lines.Any(line => line.Contains("line 40", StringComparison.Ordinal));
+            },
+            TimeSpan.FromSeconds(20),
+            "vim downward scroll to later file content");
+
+        BufferSnapshot after = BufferSnapshot.Capture(buffer);
+        captureScrollOutput = false;
+        int changedEditingRows = CountChangedRows(initial, after, editingRows: 20);
+
+        Assert.True(
+            changedEditingRows >= 5,
+            $"Expected vim downward scroll to update multiple editing rows, but only {changedEditingRows} rows changed.{Environment.NewLine}Before:{Environment.NewLine}{FormatLines(initial)}{Environment.NewLine}After:{Environment.NewLine}{FormatLines(after)}{Environment.NewLine}Raw:{Environment.NewLine}{EscapeControlText(string.Concat(scrollOutput))}");
+        Assert.Contains(after.Lines, line => line.Contains("line 40", StringComparison.Ordinal));
+        Assert.DoesNotContain(after.Lines.Take(20), line => line.Contains("line 01", StringComparison.Ordinal));
+    }
+
     private static SshProfile CreateProfile(DockerSshFixture fixture)
     {
         return new SshProfile
@@ -172,6 +245,83 @@ public sealed class NativeSshDockerE2eTests
     {
         buffer.Resize(cols, rows);
         session.Resize(cols, rows);
+    }
+
+    private static int CountChangedRows(BufferSnapshot before, BufferSnapshot after, int editingRows)
+    {
+        IReadOnlyList<string> beforeLines = before.Lines.ToArray();
+        IReadOnlyList<string> afterLines = after.Lines.ToArray();
+        int rowCount = Math.Min(Math.Min(beforeLines.Count, afterLines.Count), editingRows);
+        int changed = 0;
+        for (int i = 0; i < rowCount; i++)
+        {
+            if (!string.Equals(beforeLines[i], afterLines[i], StringComparison.Ordinal))
+            {
+                changed++;
+            }
+        }
+
+        return changed;
+    }
+
+    private static bool SnapshotsEqual(BufferSnapshot before, BufferSnapshot after)
+    {
+        IReadOnlyList<string> beforeLines = before.Lines.ToArray();
+        IReadOnlyList<string> afterLines = after.Lines.ToArray();
+        if (before.IsAltScreen != after.IsAltScreen || beforeLines.Count != afterLines.Count)
+        {
+            return false;
+        }
+
+        for (int i = 0; i < beforeLines.Count; i++)
+        {
+            if (!string.Equals(beforeLines[i], afterLines[i], StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string FormatLines(BufferSnapshot snapshot)
+    {
+        return string.Join(
+            Environment.NewLine,
+            snapshot.Lines.Select((line, index) => $"{index:D2}: {line}"));
+    }
+
+    private static string EscapeControlText(string text)
+    {
+        var builder = new StringBuilder();
+        foreach (char c in text)
+        {
+            switch (c)
+            {
+                case '\u001b':
+                    builder.Append("\\e");
+                    break;
+                case '\r':
+                    builder.Append("\\r");
+                    break;
+                case '\n':
+                    builder.Append("\\n");
+                    break;
+                default:
+                    if (char.IsControl(c))
+                    {
+                        builder.Append("\\x");
+                        builder.Append(((int)c).ToString("X2"));
+                    }
+                    else
+                    {
+                        builder.Append(c);
+                    }
+                    break;
+            }
+        }
+
+        return builder.ToString();
     }
 
     private static string BuildAltScreenPayload(string text)

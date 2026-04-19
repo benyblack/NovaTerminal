@@ -27,6 +27,7 @@ Verified by automated tests:
 - one-hop jump-host planning and explicit multi-hop rejection
 - native rollout gating and failure classification
 - native session input, resize, output decoding, and exit behavior
+- Dockerized native SSH connect/auth, command execution, alternate-screen recovery, resize-burst recovery, and `vim` downward-scroll behavior
 
 ## Manual Matrix
 
@@ -43,7 +44,7 @@ The following checks still require manual validation against real SSH endpoints.
 | Host keys | Trusted reconnect | Pending manual | Confirm no dialog after trust is recorded |
 | Host keys | Changed key path | Pending manual | Confirm changed-host-key warning copy and replacement trust |
 | Terminal behavior | Resize handling | Pending manual | Verify shell survives repeated resize |
-| Terminal behavior | Fullscreen/alt-screen TUI | Pending manual | Validate with a real TUI workload |
+| Terminal behavior | Fullscreen/alt-screen TUI | Automated + pending manual | Dockerized native SSH validates alternate-screen recovery and `vim` downward scrolling; still validate against a real host |
 | Forwarding | One local forward | Pending manual | Validate actual traffic through the forwarded port |
 | Forwarding | One direct-host dynamic forward | Pending manual | Validate actual SOCKS5 traffic through the forwarded port |
 | Forwarding | One-hop jump-host dynamic forward | Follow-up | Not implemented in the native backend yet |

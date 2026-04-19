@@ -278,10 +278,10 @@ namespace NovaTerminal.Core
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
-                if (_cursorRow < 0 || _cursorRow >= Rows) return;
+                if (_cursorRow < ScrollTop || _cursorRow > ScrollBottom) return;
 
                 int top = _cursorRow;
-                int bottom = Rows - 1;
+                int bottom = ScrollBottom;
                 // Clip count to available space
                 int n = Math.Min(count, bottom - top + 1);
 
@@ -317,6 +317,8 @@ namespace NovaTerminal.Core
                 {
                     _viewport[top + i] = new TerminalRow(Cols, CurrentForeground, CurrentBackground);
                 }
+
+                for (int i = top; i <= bottom; i++) _viewport[i].TouchRevision();
             }
             finally
             {
@@ -331,10 +333,10 @@ namespace NovaTerminal.Core
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
-                if (_cursorRow < 0 || _cursorRow >= Rows) return;
+                if (_cursorRow < ScrollTop || _cursorRow > ScrollBottom) return;
 
                 int top = _cursorRow;
-                int bottom = Rows - 1;
+                int bottom = ScrollBottom;
                 // Clip count to available space
                 int n = Math.Min(count, bottom - top + 1);
 
@@ -377,6 +379,8 @@ namespace NovaTerminal.Core
                 {
                     _viewport[bottom - n + 1 + i] = new TerminalRow(Cols, CurrentForeground, CurrentBackground);
                 }
+
+                for (int i = top; i <= bottom; i++) _viewport[i].TouchRevision();
             }
             finally
             {

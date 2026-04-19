@@ -1,4 +1,5 @@
 using System.Text;
+using NovaTerminal.Core.Replay;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Sessions;
@@ -96,6 +97,80 @@ public sealed class NativeSshTerminalParityTests
         Assert.Equal(new[] { "echo hi", "hi", "nova$" }, GetVisibleNonEmptyLines(buffer));
     }
 
+    [Fact]
+    public async Task VimStyleDownwardScroll_RespectsScrollRegion_AndAdvancesVisibleWindow()
+    {
+        var interop = new NativeSshSessionTests.FakeNativeSshInterop();
+        var buffer = new TerminalBuffer(20, 10);
+        var parser = new AnsiParser(buffer);
+        var exit = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var session = new NativeSshSession(CreateProfile(), interop: interop);
+        session.OnOutputReceived += parser.Process;
+        session.OnExit += code => exit.TrySetResult(code);
+
+        interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes(BuildVimScrollSequence())));
+        interop.Enqueue(NativeSshEvent.ExitStatus(0));
+        interop.Enqueue(NativeSshEvent.Closed(Array.Empty<byte>()));
+
+        Assert.Equal(0, await exit.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        BufferSnapshot snapshot = BufferSnapshot.Capture(buffer);
+        Assert.Equal("line-02", snapshot.Lines[0]);
+        Assert.Equal("line-09", snapshot.Lines[7]);
+        Assert.Equal("line-10", snapshot.Lines[8]);
+        Assert.Equal("status: stable", snapshot.Lines[9]);
+    }
+
+    [Fact]
+    public async Task VimStyleDownwardScrollInAltScreen_AdvancesVisibleEditingRows()
+    {
+        var interop = new NativeSshSessionTests.FakeNativeSshInterop();
+        var buffer = new TerminalBuffer(20, 10);
+        var parser = new AnsiParser(buffer);
+        var exit = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var session = new NativeSshSession(CreateProfile(), interop: interop);
+        session.OnOutputReceived += parser.Process;
+        session.OnExit += code => exit.TrySetResult(code);
+
+        interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes("\u001b[?104")));
+        interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes("9h\u001b[2J\u001b[H")));
+        interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes(
+            "\u001b[1;9r" +
+            "\u001b[1;1Hfile 01" +
+            "\u001b[2;1Hfile 02" +
+            "\u001b[3;1Hfile 03" +
+            "\u001b[4;1Hfile 04" +
+            "\u001b[5;1Hfile 05" +
+            "\u001b[6;1Hfile 06" +
+            "\u001b[7;1Hfile 07" +
+            "\u001b[8;1Hfile 08" +
+            "\u001b[9;1Hfile 09")));
+        interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes(
+            "\u001b[10;1Hstatus 09" +
+            "\u001b[1;1H\u001b[M" +
+            "\u001b[9;1Hfile 10\u001b[K" +
+            "\u001b[10;1Hstatus 10\u001b[K")));
+        interop.Enqueue(NativeSshEvent.ExitStatus(0));
+        interop.Enqueue(NativeSshEvent.Closed(Array.Empty<byte>()));
+
+        Assert.Equal(0, await exit.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+
+        string[] visibleLines = buffer.ViewportRows.Select(GetRowText).ToArray();
+
+        Assert.Equal("file 02", visibleLines[0]);
+        Assert.Equal("file 03", visibleLines[1]);
+        Assert.Equal("file 04", visibleLines[2]);
+        Assert.Equal("file 05", visibleLines[3]);
+        Assert.Equal("file 06", visibleLines[4]);
+        Assert.Equal("file 07", visibleLines[5]);
+        Assert.Equal("file 08", visibleLines[6]);
+        Assert.Equal("file 09", visibleLines[7]);
+        Assert.Equal("file 10", visibleLines[8]);
+        Assert.Equal("status 10", visibleLines[9]);
+    }
+
     private static SshProfile CreateProfile()
     {
         return new SshProfile
@@ -153,5 +228,25 @@ public sealed class NativeSshTerminalParityTests
         }
 
         return new string(chars).TrimEnd();
+    }
+
+    private static string BuildVimScrollSequence()
+    {
+        var sb = new StringBuilder();
+        sb.Append("\u001b[?1049h");
+        for (int row = 1; row <= 9; row++)
+        {
+            sb.Append($"\u001b[{row};1Hline-{row:00}");
+        }
+
+        sb.Append("\u001b[10;1Hstatus: stable");
+
+        // Vim keeps the status row outside the scrolling region and scrolls the editing
+        // window before the cursor reaches the bottom when scrolloff is nonzero.
+        sb.Append("\u001b[1;9r");
+        sb.Append("\u001b[9;1H");
+        sb.Append("\r\n");
+        sb.Append("line-10\u001b[K");
+        return sb.ToString();
     }
 }

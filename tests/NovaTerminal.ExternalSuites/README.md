@@ -159,6 +159,7 @@ Current live coverage:
 -   command execution and prompt return
 -   alternate-screen exit and prompt recovery
 -   resize burst during alternate-screen use with final PTY size verification
+-   `vim.tiny` downward scrolling with `scrolloff=5` over native SSH
 
 Deterministic VT parity coverage remains in:
 

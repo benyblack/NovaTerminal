@@ -1,7 +1,7 @@
 FROM debian:12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-server bash ca-certificates \
+    && apt-get install -y --no-install-recommends openssh-server bash ca-certificates vim-tiny \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -s /bin/bash nova \
