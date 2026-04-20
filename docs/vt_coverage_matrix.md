@@ -67,12 +67,12 @@ It is designed to be:
 | Feature / CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
 | CUU/CUD/CUF/CUB (A/B/C/D) | Cursor up/down/forward/back | ✅ Supported | Replay: `...` | Parser+Buffer | |
-| CUP / HVP (H/f) | Positioning, default params | ⚠ Partial | VTTEST: cursor scenario | Parser+Buffer | Default param edge cases |
+| CUP / HVP (H/f) | Positioning, default params | ✅ Supported | Unit + Replay: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs`, `tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs` | Parser+Buffer | |
 | CHA/CPL/CNL (G/F/E) | Horizontal absolute / prev/next line | ⚠ Partial | Replay | Parser+Buffer | |
 | CHT (I) | Cursor forward tabulation | ❌ Not supported | — | Parser+Buffer | |
 | CBT (Z) | Cursor backward tabulation | ❌ Not supported | — | Parser+Buffer | |
-| VPA/HPA (d/G) | Absolute row/col | ⚠ Partial | Unit | Parser+Buffer | |
-| HPR/VPR (a/e) | Relative row/col | ⚠ Partial | Unit | Parser+Buffer | |
+| VPA/HPA (d/G/`) | Absolute row/col | ✅ Supported | Unit: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
+| HPR/VPR (a/e) | Relative row/col | ✅ Supported | Unit: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
 
 ---
 
