@@ -54,11 +54,11 @@ It is designed to be:
 | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
 |---|---|---:|---|---|---|
 | C0 controls (BEL, BS, HT, LF, CR) | Basic control chars | ⚠ Partial | Replay: `tests/Replays/...` | `Core/AnsiParser.cs`, `Core/TerminalBuffer.cs` | (fill) |
-| C1 via 7-bit ESC (ESC @.._) | “7-bit C1” translation | ❌ Not supported | — | `Core/AnsiParser.cs` | (fill) |
+| C1 via 7-bit ESC (ESC @.._) | “7-bit C1” translation | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Recognizes CSI/OSC/DCS/APC plus IND/NEL/RI; unsupported `ESC @.._` controls are ignored with recovery rather than fully implemented |
 | 8-bit C1 bytes (0x80–0x9F) | If supported, must be explicit | ❌ Not supported | — | `Core/AnsiParser.cs` | (fill) |
-| String terminators (ST = ESC \\, BEL) | OSC/APC termination rules | ⚠ Partial | Unit/Replay | `Core/AnsiParser.cs` | (fill) |
-| Unknown sequence handling | Ignore/print/strict? | ⚠ Partial | Unit | `Core/AnsiParser.cs` | (fill) |
-| Error recovery on malformed sequences | Robustness | ⚠ Partial | Fuzz/Unit | `Core/AnsiParser.cs` | (fill) |
+| String terminators (ST = ESC \\, BEL) | OSC/APC termination rules | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | OSC accepts BEL and ST; DCS/APC also accept BEL as permissive recovery behavior, not strict spec compliance |
+| Unknown sequence handling | Ignore/print/strict? | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Unknown `ESC @.._` sequences are ignored and parser resumes on the next valid escape or printable content |
+| Error recovery on malformed sequences | Robustness | ⚠ Partial | Fuzz/Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.Tests/AnsiCorpusReplayTests.cs` | `Core/AnsiParser.cs` | Malformed OSC/CSI/DCS/APC recover across chunk boundaries and nested ESC, but this is a best-effort parser policy rather than full conformance coverage |
 
 ---
 
@@ -82,10 +82,10 @@ It is designed to be:
 |---|---|---:|---|---|---|
 | ED (J) | 0/1/2 erase display | ✅ Supported | Replay | Parser+Buffer | |
 | EL (K) | 0/1/2 erase line | ✅ Supported | Replay | Parser+Buffer | |
-| ICH ( @ ) | Insert chars | ❌ Not supported | — | Buffer | |
-| DCH (P) | Delete chars | ❌ Not supported | — | Buffer | |
+| ICH ( @ ) | Insert chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
+| DCH (P) | Delete chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 | IL (L) / DL (M) | Insert/delete lines | ⚠ Partial | Replay | Buffer | Scroll region interactions |
-| ECH (X) | Erase chars | ❌ Not supported | — | Buffer | |
+| ECH (X) | Erase chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 
 ---
 
@@ -95,7 +95,7 @@ It is designed to be:
 |---|---|---:|---|---|---|
 | DECSTBM (CSI t;b r) | Set top/bottom margins | ⚠ Partial | VTTEST: scroll scenario | Parser+Buffer | |
 | IND (ESC D) / RI (ESC M) | Index / Reverse index | ⚠ Partial | Replay | Parser+Buffer | |
-| DECOM (origin mode) | Cursor relative to margins | ❌ Not supported | — | Buffer | |
+| DECOM (origin mode) | Cursor relative to margins | ✅ Supported | Unit: `tests/NovaTerminal.Tests/DecModeTests.cs` | Parser+Buffer | |
 | Wraparound DECAWM | Auto wrap | ⚠ Partial | Replay | Buffer | Wide glyph edge cases |
 | Smooth scroll | Not required for correctness | 🚫 Won’t support | — | — | Renderer concern |
 
@@ -107,9 +107,11 @@ It is designed to be:
 |---|---|---|---:|---|---|---|
 | Alternate screen | ?1049 / ?47 / ?1047 | Switch + save/restore cursor | ⚠ Partial | Replay: `AlternateScreenTests` | Buffer | |
 | Show cursor | ?25 | | ✅ Supported | Unit/Replay | Buffer+Renderer | |
-| Application cursor keys | ?1 | Impacts input mapping | ❌ Not supported | — | Input layer | |
+| Application cursor keys | ?1 | Impacts input mapping | ⚠ Partial | Unit/Code: `ReplayV2Tests`, app input paths | Parser+Input | Parser/UI wiring exists; needs targeted key-mapping tests |
+| Focus event reporting | ?1004 | Emits `CSI I` / `CSI O` on focus transitions | ⚠ Partial | Unit/Code: `DecModeTests`, `TerminalView` | Parser+Input | Mode flag tested; focus emission covered by app path, not headless UI test |
 | Bracketed paste | ?2004 | Input feature | ⚠ Partial | Unit | Input layer | |
 | Mouse reporting | ?1000/1002/1003/1006 etc | | ⚠ Partial | Manual/Unit | Input layer | |
+| Cursor style | CSI Ps SP q | DECSCUSR block/beam/underline + blink state | ✅ Supported | Unit: `tests/NovaTerminal.Tests/OscUxTests.cs` | Parser+Renderer | |
 
 ---
 
@@ -117,7 +119,7 @@ It is designed to be:
 
 | Feature | CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| Basic SGR (0,1,2,4,7,22,24,27) | | Bold/dim/underline/reverse | ⚠ Partial | VTTEST: sgr scenario | Parser+Buffer | |
+| Basic SGR (0,1,2,3,4,5,7,9,22,23,24,25,27,29) | | Bold/dim/italic/underline/blink/reverse/strike | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/SgrAttributeTests.cs`; VTTEST: sgr scenario | Parser+Buffer+Renderer | Underline style/color tracked separately |
 | 8/16 colors | 30–37/90–97, 40–47/100–107 | | ⚠ Partial | Replay | Parser+Buffer | |
 | 256-color | 38;5;N / 48;5;N | | ⚠ Partial | Replay | Parser+Buffer | |
 | Truecolor | 38;2;r;g;b / 48;2;r;g;b | | ⚠ Partial | Replay | Parser+Buffer | |
@@ -139,9 +141,10 @@ It is designed to be:
 | OSC | Purpose | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
 | OSC 0/2 | Set title | ⚠ Partial | Manual/Unit | App/UI | |
-| OSC 7 | CWD reporting | ❌ Not supported | — | App/UI | |
+| OSC 7 | CWD reporting | ✅ Supported | Unit: `tests/NovaTerminal.Tests/OscUxTests.cs` | Parser+App | |
 | OSC 52 | Clipboard | ❌ Not supported | — | App/UI | |
-| OSC 8 | Hyperlinks | ❌ Not supported | — | Renderer/UI | |
+| OSC 8 | Hyperlinks | ✅ Supported | Unit: `tests/NovaTerminal.Tests/OscUxTests.cs` | Parser+Renderer+UI | Ctrl-click open path is app-level |
+| OSC 133 | Shell integration lifecycle | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs` | Parser+Command Assist | Supports A/B/C/D markers; broader semantic prompt extensions not audited |
 | OSC 1337 | iTerm2 inline images | ✅ Supported | Replay/Manual | Parser+Renderer | |
 | OSC 1339 | Windows conpty tunnel | 🧪 Experimental | Manual | Parser+Win | |
 
@@ -171,7 +174,7 @@ It is designed to be:
 |---|---|---:|---|---|---|
 | Selection model | UI behavior | ⚠ Partial | Manual | UI | |
 | Copy on select | Configurable | ❌ Not supported | — | UI | |
-| Hyperlinks | OSC 8 | ❌ Not supported | — | UI | |
+| Hyperlinks | OSC 8 | ✅ Supported | Unit: `tests/NovaTerminal.Tests/OscUxTests.cs` | Parser+UI | Ctrl-click open path is app-level |
 
 ---
 
@@ -180,8 +183,8 @@ It is designed to be:
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
 | wcwidth-like width | CJK/emoji width | ⚠ Partial | Replay | Buffer | |
-| Combining marks | Grapheme clusters | ❌ Not supported | — | Buffer | |
-| ZWJ emoji sequences | | ❌ Not supported | — | Buffer | |
+| Combining marks | Grapheme clusters | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.Tests/SurrogateTests.cs` | Buffer+Renderer | Common attachment cases covered; full Unicode conformance not claimed |
+| ZWJ emoji sequences | | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.Tests/WidthTests.cs` | Buffer+Renderer | Family emoji and regional indicators covered; full Unicode conformance not claimed |
 
 ---
 
