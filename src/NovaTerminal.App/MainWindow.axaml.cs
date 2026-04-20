@@ -1488,28 +1488,12 @@ namespace NovaTerminal
                 case Key.Back: sequence = "\x7f"; return true;
                 case Key.Tab: sequence = "\t"; return true;
                 case Key.Escape: sequence = "\x1b"; return true;
-                case Key.Up: sequence = buffer != null && buffer.Modes.IsApplicationCursorKeys ? "\x1bOA" : "\x1b[A"; return true;
-                case Key.Down: sequence = buffer != null && buffer.Modes.IsApplicationCursorKeys ? "\x1bOB" : "\x1b[B"; return true;
-                case Key.Right: sequence = buffer != null && buffer.Modes.IsApplicationCursorKeys ? "\x1bOC" : "\x1b[C"; return true;
-                case Key.Left: sequence = buffer != null && buffer.Modes.IsApplicationCursorKeys ? "\x1bOD" : "\x1b[D"; return true;
-                case Key.Home: sequence = "\x1b[H"; return true;
-                case Key.End: sequence = "\x1b[F"; return true;
-                case Key.Delete: sequence = "\x1b[3~"; return true;
-                case Key.Insert: sequence = "\x1b[2~"; return true;
-                case Key.PageUp: sequence = "\x1b[5~"; return true;
-                case Key.PageDown: sequence = "\x1b[6~"; return true;
-                case Key.F1: sequence = "\x1bOP"; return true;
-                case Key.F2: sequence = "\x1bOQ"; return true;
-                case Key.F3: sequence = "\x1bOR"; return true;
-                case Key.F4: sequence = "\x1bOS"; return true;
-                case Key.F5: sequence = "\x1b[15~"; return true;
-                case Key.F6: sequence = "\x1b[17~"; return true;
-                case Key.F7: sequence = "\x1b[18~"; return true;
-                case Key.F8: sequence = "\x1b[19~"; return true;
-                case Key.F9: sequence = "\x1b[20~"; return true;
-                case Key.F10: sequence = "\x1b[21~"; return true;
-                case Key.F11: sequence = "\x1b[23~"; return true;
-                case Key.F12: sequence = "\x1b[24~"; return true;
+            }
+
+            sequence = TerminalInputModeEncoder.EncodeSpecialKey(e.Key, buffer?.Modes);
+            if (sequence != null)
+            {
+                return true;
             }
 
             if (isCtrl && !isShift && e.Key >= Key.A && e.Key <= Key.Z)
@@ -3301,14 +3285,10 @@ namespace NovaTerminal
                     if (!string.IsNullOrEmpty(text) && _currentPane?.Session != null)
                     {
                         // Normalize line endings to avoid double newlines on paste
-                        text = text.Replace("\r\n", "\r");
                         _currentPane.NotifyCommandAssistPaste(text);
-
-                        // Handle Bracketed Paste Mode
-                        if (_currentPane.Buffer != null && _currentPane.Buffer.Modes.IsBracketedPasteMode)
-                        {
-                            text = $"\x1b[200~{text}\x1b[201~";
-                        }
+                        text = NovaTerminal.Core.Input.TerminalInputSender.PreparePaste(
+                            text,
+                            _currentPane.Buffer?.Modes.IsBracketedPasteMode == true);
 
                         _currentPane.Session.SendInput(text);
                     }
