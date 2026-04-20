@@ -207,10 +207,17 @@ public sealed class NativeSshSession : ITerminalSession
             return;
         }
 
-        _cols = cols;
-        _rows = rows;
-        _interop.Resize(_sessionHandle, cols, rows);
-        _recorder?.RecordResize(cols, rows);
+        try
+        {
+            _interop.Resize(_sessionHandle, cols, rows);
+            _cols = cols;
+            _rows = rows;
+            _recorder?.RecordResize(cols, rows);
+        }
+        catch (Exception ex) when (!IsCriticalException(ex))
+        {
+            _log($"[NativeSshSession] Resize failed: {ex.Message}");
+        }
     }
 
     public void StartRecording(string filePath)
@@ -489,6 +496,13 @@ public sealed class NativeSshSession : ITerminalSession
         {
             _interop.Close(handle);
         }
+    }
+
+    private static bool IsCriticalException(Exception ex)
+    {
+        return ex is OutOfMemoryException
+            or AccessViolationException
+            or AppDomainUnloadedException;
     }
 
 }

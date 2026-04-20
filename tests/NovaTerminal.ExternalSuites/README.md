@@ -1,7 +1,7 @@
-# NovaTerminal VTTEST Capture Adapter
+# NovaTerminal External Capture Adapters
 
-This project provides an automated harness to drive `vttest` and capture
-its raw PTY output into NovaTerminal `.rec` (JSONL) files.
+This project provides automated harnesses that emit NovaTerminal `.rec`
+(JSONL) files for deterministic regression and replay testing.
 
 These recordings are used for deterministic regression testing and
 golden snapshot generation.
@@ -10,13 +10,16 @@ golden snapshot generation.
 
 ## Determinism Guarantees
 
-The capture adapter enforces a controlled execution environment:
+The adapters enforce deterministic recording behavior:
 
 -   `TERM` is forced to `xterm-256color` inside the native PTY layer.
 -   `LC_ALL` and `LANG` are set to `C` to ensure stable locale output.
 -   Terminal size defaults to 80x24 unless overridden.
 -   Output is captured byte-exact from the PTY.
 -   Timestamps are monotonic (Stopwatch-based).
+
+The `native-ssh` adapter is transcript-driven rather than PTY-driven, so
+it remains deterministic without a live SSH endpoint.
 
 This ensures reproducible `.rec` files suitable for snapshot-based
 testing.
@@ -74,6 +77,15 @@ dotnet run --project tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuit
   --out tests/Replays/Vttest/vttest_cursor.rec
 ```
 
+Generate a deterministic native SSH transcript:
+
+``` bash
+dotnet run --project tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.csproj \
+  --suite native-ssh \
+  --scenario fullscreen-exit \
+  --out tests/Replays/NativeSsh/native_ssh_fullscreen_exit.rec
+```
+
 Optional parameters:
 
     --cols <number>
@@ -86,12 +98,73 @@ Default terminal size: `80x24`
 
 ## Available Scenarios
 
+### `vttest`
+
 -   `cursor` -- Cursor movement and navigation tests
 -   `sgr` -- SGR (color/style) tests
 -   `scroll` -- Scroll region tests
 
 These scenarios use deterministic keystroke macros without screen
 parsing.
+
+### `native-ssh`
+
+-   `fullscreen-exit` -- Fullscreen / alternate-screen enter and exit returning to a prompt
+-   `prompt-return` -- Command completion returning to a stable prompt without extra blank lines
+-   `resize-burst` -- Resize events during fullscreen use followed by prompt recovery
+
+These scenarios use scripted transcript output and optional resize
+events. They do not require a live SSH server.
+
+------------------------------------------------------------------------
+
+## Live Native SSH Tests
+
+The transcript scenarios above are deterministic VT fixtures. The live
+native SSH end-to-end tests are separate xUnit tests that run against a
+Dockerized OpenSSH server.
+
+Prerequisites:
+
+-   Docker Desktop or another local Docker engine must be running
+-   Set `NOVATERM_ENABLE_DOCKER_E2E=1` to enable the live lane
+-   Set `NOVATERM_REBUILD_DOCKER_E2E=1` if you want to force a Docker image rebuild
+
+Run the live Docker native SSH VT tests:
+
+``` powershell
+$env:NOVATERM_ENABLE_DOCKER_E2E='1'
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
+```
+
+Force a rebuild of the Docker SSH fixture image before running:
+
+``` powershell
+$env:NOVATERM_ENABLE_DOCKER_E2E='1'
+$env:NOVATERM_REBUILD_DOCKER_E2E='1'
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
+```
+
+Run the broader native SSH core slice, including the live Docker tests
+when enabled:
+
+``` powershell
+$env:NOVATERM_ENABLE_DOCKER_E2E='1'
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
+```
+
+Current live coverage:
+
+-   connect, host-key acceptance, password auth
+-   command execution and prompt return
+-   alternate-screen exit and prompt recovery
+-   resize burst during alternate-screen use with final PTY size verification
+-   `vim.tiny` downward scrolling with `scrolloff=5` over native SSH
+
+Deterministic VT parity coverage remains in:
+
+-   `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
+-   `tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs`
 
 ------------------------------------------------------------------------
 
@@ -151,12 +224,14 @@ Nightly stress lanes should target real categories (`Stress`,
 
 ## Limitations
 
--   Optimized for Linux PTY behavior.
+-   `vttest` is optimized for Linux PTY behavior.
 -   Windows behavior depends on `win32::spawn_with_passthrough`.
 -   Argument parsing in native layer is whitespace-based (no shell
     quoting support).
--   Does not currently parse VTTEST screens; uses activity-based quiet
+-   `vttest` does not currently parse screens; it uses activity-based quiet
     detection.
+-   `native-ssh` is a deterministic verification harness, not a live SSH
+    interoperability test.
 
 ------------------------------------------------------------------------
 

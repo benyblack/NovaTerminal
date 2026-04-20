@@ -92,8 +92,7 @@ namespace NovaTerminal.Core
                     _cursorCol = 0;
                 }
 
-                _cursorRow++;
-                if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
+                AdvanceCursorRowForLineFeed();
                 _isPendingWrap = false;
             }
             else if (c == '\b')
@@ -269,8 +268,7 @@ namespace NovaTerminal.Core
             {
                 if (_cursorRow >= 0 && _cursorRow < Rows) _viewport[_cursorRow].IsWrapped = true;
                 _cursorCol = 0;
-                _cursorRow++;
-                if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
+                AdvanceCursorRowForLineFeed();
                 _isPendingWrap = false;
             }
 
@@ -281,8 +279,7 @@ namespace NovaTerminal.Core
                 {
                     if (_cursorRow >= 0 && _cursorRow < Rows) _viewport[_cursorRow].IsWrapped = true;
                     _cursorCol = 0;
-                    _cursorRow++;
-                    if (_cursorRow >= Rows) { ScrollUpInternal(); _cursorRow = Rows - 1; }
+                    AdvanceCursorRowForLineFeed();
                     _isPendingWrap = false;
                 }
             }
@@ -351,6 +348,18 @@ namespace NovaTerminal.Core
             _prevCursorCol = _cursorCol;
             _prevCursorRow = _cursorRow;
             this._isAfterZwj = IsLastRuneZwj(grapheme);
+        }
+
+        private void AdvanceCursorRowForLineFeed()
+        {
+            if (_cursorRow >= ScrollTop && _cursorRow == ScrollBottom)
+            {
+                ScrollUpInternal();
+                _cursorRow = ScrollBottom;
+                return;
+            }
+
+            _cursorRow = Math.Min(_cursorRow + 1, Rows - 1);
         }
 
         private bool IsLastRuneZwj(string grapheme)
