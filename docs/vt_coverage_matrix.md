@@ -105,7 +105,7 @@ It is designed to be:
 
 | Mode | CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---|---:|---|---|---|
-| Alternate screen | ?1049 / ?47 / ?1047 | Switch + save/restore cursor | ⚠ Partial | Replay: `AlternateScreenTests` | Buffer | |
+| Alternate screen | ?1049 / ?47 / ?1047 | Switch + save/restore cursor | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AlternateScreenTests.cs`; Replay: `tests/NovaTerminal.Tests/ReplayTests/AlternateScreenReplayTests.cs`, `tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs` | Buffer | Main scrollback is preserved and alt-screen output never enters scrollback. `?47` reuses the existing alternate buffer/state without clearing; `?1047` and `?1049` clear and home the alternate buffer on entry. Nested/redundant alt-screen enters are treated as no-op, and a `?1049` save is consumed by the first exit from alt-screen regardless of whether that exit uses `?47l`, `?1047l`, or `?1049l`. |
 | Show cursor | ?25 | | ✅ Supported | Unit/Replay | Buffer+Renderer | |
 | Application cursor keys | ?1 | Impacts input mapping | ⚠ Partial | Unit/Code: `ReplayV2Tests`, app input paths | Parser+Input | Parser/UI wiring exists; needs targeted key-mapping tests |
 | Focus event reporting | ?1004 | Emits `CSI I` / `CSI O` on focus transitions | ⚠ Partial | Unit/Code: `DecModeTests`, `TerminalView` | Parser+Input | Mode flag tested; focus emission covered by app path, not headless UI test |

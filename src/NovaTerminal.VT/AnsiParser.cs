@@ -910,20 +910,21 @@ namespace NovaTerminal.Core
                         _buffer.Invalidate();
                         break;
                     case 47:    // Alternate screen (legacy)
+                        if (enable) _buffer.EnterAltScreen(clearAlt: false, saveCursorForExit: false);
+                        else _buffer.SwitchToMainScreen();
+                        break;
                     case 1047:  // Alternate screen
-                        if (enable) _buffer.SwitchToAltScreen();
+                        if (enable) _buffer.EnterAltScreen(clearAlt: true, saveCursorForExit: false);
                         else _buffer.SwitchToMainScreen();
                         break;
                     case 1049:  // Alternate screen + save cursor
                         if (enable)
                         {
-                            _buffer.SaveCursor();
-                            _buffer.SwitchToAltScreen();
+                            _buffer.EnterAltScreen(clearAlt: true, saveCursorForExit: true);
                         }
                         else
                         {
                             _buffer.SwitchToMainScreen();
-                            _buffer.RestoreCursor();
                         }
                         break;
                     case 2004:  // Bracketed Paste Mode

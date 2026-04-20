@@ -111,6 +111,75 @@ namespace NovaTerminal.Tests
         }
 
         [Fact]
+        public void AltScreen_1047_ShouldRestoreMainLiveCursorState()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            buffer.CursorRow = 6;
+            buffer.CursorCol = 12;
+            buffer.IsBold = true;
+
+            parser.Process("\x1b[?1047h");
+
+            buffer.CursorRow = 1;
+            buffer.CursorCol = 2;
+            buffer.IsBold = false;
+
+            parser.Process("\x1b[?1047l");
+
+            Assert.Equal(6, buffer.CursorRow);
+            Assert.Equal(12, buffer.CursorCol);
+            Assert.True(buffer.IsBold);
+        }
+
+        [Fact]
+        public void AltScreen_1049_ExitVia47_ShouldRestoreSavedMainCursor()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            buffer.CursorRow = 7;
+            buffer.CursorCol = 14;
+            buffer.IsBold = true;
+
+            parser.Process("\x1b[?1049h");
+
+            buffer.CursorRow = 2;
+            buffer.CursorCol = 3;
+            buffer.IsBold = false;
+
+            parser.Process("\x1b[?47l");
+
+            Assert.Equal(7, buffer.CursorRow);
+            Assert.Equal(14, buffer.CursorCol);
+            Assert.True(buffer.IsBold);
+        }
+
+        [Fact]
+        public void AltScreen_47_ExitVia1049_ShouldNotRestoreUnpairedSavedCursor()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            buffer.CursorRow = 4;
+            buffer.CursorCol = 9;
+            buffer.IsBold = true;
+
+            parser.Process("\x1b[?47h");
+
+            buffer.CursorRow = 0;
+            buffer.CursorCol = 0;
+            buffer.IsBold = false;
+
+            parser.Process("\x1b[?1049l");
+
+            Assert.Equal(4, buffer.CursorRow);
+            Assert.Equal(9, buffer.CursorCol);
+            Assert.True(buffer.IsBold);
+        }
+
+        [Fact]
         public void AltScreen_ScrollShouldNotAffectScrollback()
         {
             var buffer = new TerminalBuffer(80, 24);
@@ -137,6 +206,83 @@ namespace NovaTerminal.Tests
 
             // Scrollback still unchanged
             Assert.Equal(scrollbackBeforeAlt, buffer.Scrollback.Count);
+        }
+
+        [Fact]
+        public void AltScreen_1049_ShouldRestoreExtendedSgrState()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            buffer.IsFaint = true;
+            buffer.IsItalic = true;
+            buffer.IsUnderline = true;
+            buffer.IsBlink = true;
+            buffer.IsStrikethrough = true;
+
+            parser.Process("\x1b[?1049h");
+
+            buffer.IsFaint = false;
+            buffer.IsItalic = false;
+            buffer.IsUnderline = false;
+            buffer.IsBlink = false;
+            buffer.IsStrikethrough = false;
+
+            parser.Process("\x1b[?1049l");
+
+            Assert.True(buffer.IsFaint);
+            Assert.True(buffer.IsItalic);
+            Assert.True(buffer.IsUnderline);
+            Assert.True(buffer.IsBlink);
+            Assert.True(buffer.IsStrikethrough);
+        }
+
+        [Fact]
+        public void AltScreen_ExitAfterSameWidthResize_ShouldRestoreMainViewportWithCurrentDimensions()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            buffer.Write("Main screen content\n");
+            parser.Process("\x1b[?1047h");
+
+            buffer.Resize(80, 30);
+
+            parser.Process("\x1b[?1047l");
+
+            Assert.Equal(30, buffer.Rows);
+            Assert.Equal(30, buffer.ViewportRows.Count);
+            Assert.Contains("Main screen", GetViewportText(buffer));
+            Assert.NotNull(buffer.ViewportRows[29]);
+        }
+
+        [Fact]
+        public void AltScreen_47_FirstEntryAfterThemeChange_ShouldUseUpdatedThemeDefaults()
+        {
+            var oldTheme = bufferTheme();
+            var newTheme = new TerminalTheme
+            {
+                Name = "Custom",
+                Foreground = TermColor.FromRgb(10, 20, 30),
+                Background = TermColor.FromRgb(40, 50, 60)
+            };
+
+            var buffer = new TerminalBuffer(80, 24) { Theme = newTheme };
+            var parser = new AnsiParser(buffer);
+
+            buffer.UpdateThemeColors(oldTheme);
+
+            parser.Process("\x1b[?47h");
+
+            Assert.Equal(newTheme.Foreground, buffer.CurrentForeground);
+            Assert.Equal(newTheme.Background, buffer.CurrentBackground);
+            Assert.True(buffer.IsDefaultForeground);
+            Assert.True(buffer.IsDefaultBackground);
+
+            static TerminalTheme bufferTheme()
+            {
+                return new TerminalTheme();
+            }
         }
 
         private string GetTextFromRow(TerminalRow row)

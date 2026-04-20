@@ -129,12 +129,11 @@ namespace NovaTerminal.Core
 
             return CursorRow + scrollOffset;
         }
-        // Saved Cursor State (DEC SC / DEC RC)
-        public void SaveCursor()
+
+        private void CaptureCursorStateNoLock(CursorState target)
         {
-            var target = _isAltScreen ? _savedCursors.Alt : _savedCursors.Main;
-            target.Row = CursorRow;
-            target.Col = CursorCol;
+            target.Row = _cursorRow;
+            target.Col = _cursorCol;
             target.Foreground = CurrentForeground;
             target.Background = CurrentBackground;
             target.FgIndex = CurrentFgIndex;
@@ -143,15 +142,19 @@ namespace NovaTerminal.Core
             target.IsDefaultBackground = IsDefaultBackground;
             target.IsInverse = IsInverse;
             target.IsBold = IsBold;
+            target.IsFaint = IsFaint;
+            target.IsItalic = IsItalic;
+            target.IsUnderline = IsUnderline;
+            target.IsBlink = IsBlink;
+            target.IsStrikethrough = IsStrikethrough;
             target.IsHidden = IsHidden;
             target.IsPendingWrap = _isPendingWrap;
         }
 
-        public void RestoreCursor()
+        private void ApplyCursorStateNoLock(CursorState source)
         {
-            var source = _isAltScreen ? _savedCursors.Alt : _savedCursors.Main;
-            CursorRow = Math.Clamp(source.Row, 0, Rows - 1);
-            CursorCol = Math.Clamp(source.Col, 0, Cols - 1);
+            _cursorRow = Math.Clamp(source.Row, 0, Rows - 1);
+            _cursorCol = Math.Clamp(source.Col, 0, Cols - 1);
             CurrentForeground = source.Foreground;
             CurrentBackground = source.Background;
             CurrentFgIndex = source.FgIndex;
@@ -160,8 +163,128 @@ namespace NovaTerminal.Core
             IsDefaultBackground = source.IsDefaultBackground;
             IsInverse = source.IsInverse;
             IsBold = source.IsBold;
+            IsFaint = source.IsFaint;
+            IsItalic = source.IsItalic;
+            IsUnderline = source.IsUnderline;
+            IsBlink = source.IsBlink;
+            IsStrikethrough = source.IsStrikethrough;
             IsHidden = source.IsHidden;
             _isPendingWrap = source.IsPendingWrap;
+        }
+
+        private void SaveActiveScreenStateNoLock()
+        {
+            var target = _isAltScreen ? _screenCursorStates.Alt : _screenCursorStates.Main;
+            CaptureCursorStateNoLock(target);
+        }
+
+        private void RestoreScreenStateNoLock(bool altScreen)
+        {
+            var source = altScreen ? _screenCursorStates.Alt : _screenCursorStates.Main;
+            ApplyCursorStateNoLock(source);
+        }
+
+        private void ClearAltScreenNoLock()
+        {
+            for (int i = 0; i < Rows; i++)
+            {
+                var row = _viewport[i];
+                row.IsWrapped = false;
+                for (int c = 0; c < Cols; c++)
+                {
+                    row.Cells[c] = TerminalCell.Default;
+                }
+
+                row.ClearExtendedText();
+                row.ClearHyperlinks();
+                row.TouchRevision();
+            }
+        }
+
+        private void ResetCursorStateToDefaultsNoLock()
+        {
+            _cursorRow = 0;
+            _cursorCol = 0;
+            _isPendingWrap = false;
+            CurrentForeground = Theme.Foreground;
+            CurrentBackground = Theme.Background;
+            CurrentFgIndex = -1;
+            CurrentBgIndex = -1;
+            IsDefaultForeground = true;
+            IsDefaultBackground = true;
+            IsInverse = false;
+            IsBold = false;
+            IsFaint = false;
+            IsItalic = false;
+            IsUnderline = false;
+            IsBlink = false;
+            IsStrikethrough = false;
+            IsHidden = false;
+        }
+
+        private void SyncThemeDefaultsInCursorStateNoLock(CursorState state)
+        {
+            if (state.IsDefaultForeground)
+            {
+                state.Foreground = Theme.Foreground;
+            }
+
+            if (state.IsDefaultBackground)
+            {
+                state.Background = Theme.Background;
+            }
+        }
+
+        private TerminalRow[] ResizeDetachedScreenBufferNoLock(TerminalRow[] source)
+        {
+            var resized = new TerminalRow[Rows];
+            for (int i = 0; i < Rows; i++)
+            {
+                resized[i] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+
+                if (i >= source.Length)
+                {
+                    continue;
+                }
+
+                int copyCols = Math.Min(Cols, source[i].Cells.Length);
+                for (int c = 0; c < copyCols; c++)
+                {
+                    resized[i].Cells[c] = source[i].Cells[c];
+                }
+
+                resized[i].IsWrapped = source[i].IsWrapped;
+            }
+
+            return resized;
+        }
+        // Saved Cursor State (DEC SC / DEC RC)
+        public void SaveCursor()
+        {
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                var target = _isAltScreen ? _savedCursors.Alt : _savedCursors.Main;
+                CaptureCursorStateNoLock(target);
+            }
+            finally
+            {
+                ExitWriteLockIfNeeded(Lock, lockTaken);
+            }
+        }
+
+        public void RestoreCursor()
+        {
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                var source = _isAltScreen ? _savedCursors.Alt : _savedCursors.Main;
+                ApplyCursorStateNoLock(source);
+            }
+            finally
+            {
+                ExitWriteLockIfNeeded(Lock, lockTaken);
+            }
         }
 
         public void EraseLineToEnd()
@@ -407,14 +530,21 @@ namespace NovaTerminal.Core
         /// <summary>
         /// Switch to alternate screen buffer (used by vim, htop, less, etc.)
         /// </summary>
-        public void SwitchToAltScreen()
+        public void EnterAltScreen(bool clearAlt, bool saveCursorForExit)
         {
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (_isAltScreen) return;
 
-                _isAltScreen = true;
+                SaveActiveScreenStateNoLock();
+
+                if (saveCursorForExit)
+                {
+                    CaptureCursorStateNoLock(_savedCursors.Main);
+                    _restoreMainCursorOnAltExit = true;
+                }
+
                 _mainScreen = _viewport;  // Save current viewport as main screen
 
                 // Reset scrolling region to full screen when switching screens
@@ -432,24 +562,20 @@ namespace NovaTerminal.Core
                     }
                 }
 
+                _isAltScreen = true;
                 _viewport = _altScreen;    // Switch to alt screen
 
-                // Clear alt screen cells (don't create new rows, reuse if possible)
-                for (int i = 0; i < Rows; i++)
+                if (clearAlt)
                 {
-                    // Ensure the row has the correct columns (in case of uneven resize if reusing objects? no, we recreated above if mismatch)
-                    // If we didn't recreate above, it means dimensions matched.
-
-                    // Reset to default
-                    for (int c = 0; c < Cols; c++)
-                    {
-                        _viewport[i].Cells[c] = TerminalCell.Default;
-                    }
-                    _viewport[i].TouchRevision();
+                    ClearAltScreenNoLock();
+                    ResetCursorStateToDefaultsNoLock();
+                    CaptureCursorStateNoLock(_screenCursorStates.Alt);
+                }
+                else
+                {
+                    RestoreScreenStateNoLock(altScreen: true);
                 }
 
-                _cursorRow = 0;
-                _cursorCol = 0;
                 // Reset row-diff cache so the next CaptureRenderSnapshot compares the alt-screen
                 // rows fresh rather than against stale main-screen row IDs.
                 _hasSnapshotState = false;
@@ -459,27 +585,43 @@ namespace NovaTerminal.Core
             finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
         }
 
+        public void SwitchToAltScreen()
+        {
+            EnterAltScreen(clearAlt: true, saveCursorForExit: false);
+        }
+
         /// <summary>
         /// Switch back to main screen buffer
         /// </summary>
-        public void SwitchToMainScreen()
+        public void SwitchToMainScreen(bool restoreSavedCursorIfArmed = true)
         {
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 if (!_isAltScreen) return;
 
-                _isAltScreen = false;
+                SaveActiveScreenStateNoLock();
                 _altScreen = _viewport;    // Save current viewport as alt screen
+                _isAltScreen = false;
+
+                if (_mainScreen.Length != Rows || (_mainScreen.Length > 0 && _mainScreen[0].Cells.Length != Cols))
+                {
+                    _mainScreen = ResizeDetachedScreenBufferNoLock(_mainScreen);
+                }
+
                 _viewport = _mainScreen;   // Restore main screen
 
                 // Reset scrolling region to full screen when switching back to main screen
                 ScrollTop = 0;
                 ScrollBottom = Rows - 1;
 
-                // Ensure cursor is within bounds after switching back to main screen
-                _cursorRow = Math.Clamp(_cursorRow, 0, Rows - 1);
-                _cursorCol = Math.Clamp(_cursorCol, 0, Cols - 1);
+                RestoreScreenStateNoLock(altScreen: false);
+                if (restoreSavedCursorIfArmed && _restoreMainCursorOnAltExit)
+                {
+                    ApplyCursorStateNoLock(_savedCursors.Main);
+                }
+
+                _restoreMainCursorOnAltExit = false;
 
                 // Reset row-diff cache so the next CaptureRenderSnapshot compares the main-screen
                 // rows fresh rather than against stale alt-screen row IDs.
