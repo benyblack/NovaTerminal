@@ -154,9 +154,11 @@ internal sealed class DockerSshFixture : IAsyncDisposable
 
         using var process = new Process { StartInfo = startInfo };
         process.Start();
-        string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-        string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+        Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> stderrTask = process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync().ConfigureAwait(false);
+        string stdout = await stdoutTask.ConfigureAwait(false);
+        string stderr = await stderrTask.ConfigureAwait(false);
 
         if (throwOnFailure && process.ExitCode != 0)
         {
