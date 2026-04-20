@@ -126,7 +126,6 @@ namespace NovaTerminal.Core
 
             // Handle keys that don't generate text input (Control codes, arrows, etc.)
             // Logic copied from MainWindow
-            string? sequence = null;
             bool isCtrl = (keyModifiers & KeyModifiers.Control) != 0;
 
             switch (key)
@@ -192,40 +191,9 @@ namespace NovaTerminal.Core
                     break;
 
                 // Arrows
-                case Key.Up:
-                    sequence = _buffer != null && _buffer.Modes.IsApplicationCursorKeys ? "\x1bOA" : "\x1b[A";
-                    break;
-                case Key.Down:
-                    sequence = _buffer != null && _buffer.Modes.IsApplicationCursorKeys ? "\x1bOB" : "\x1b[B";
-                    break;
-                case Key.Right:
-                    sequence = _buffer != null && _buffer.Modes.IsApplicationCursorKeys ? "\x1bOC" : "\x1b[C";
-                    break;
-                case Key.Left:
-                    sequence = _buffer != null && _buffer.Modes.IsApplicationCursorKeys ? "\x1bOD" : "\x1b[D";
-                    break;
-                case Key.Home: sequence = "\x1b[H"; break;
-                case Key.End: sequence = "\x1b[F"; break;
-
-                // Function Keys
-                case Key.F1: sequence = "\x1bOP"; break;
-                case Key.F2: sequence = "\x1bOQ"; break;
-                case Key.F3: sequence = "\x1bOR"; break;
-                case Key.F4: sequence = "\x1bOS"; break;
-                case Key.F5: sequence = "\x1b[15~"; break;
-                case Key.F6: sequence = "\x1b[17~"; break;
-                case Key.F7: sequence = "\x1b[18~"; break;
-                case Key.F8: sequence = "\x1b[19~"; break;
-                case Key.F9: sequence = "\x1b[20~"; break;
-                case Key.F10: sequence = "\x1b[21~"; break;
-                case Key.F11: sequence = "\x1b[23~"; break;
-                case Key.F12: sequence = "\x1b[24~"; break;
-                case Key.Delete: sequence = "\x1b[3~"; break;
-                case Key.Insert: sequence = "\x1b[2~"; break;
-                case Key.PageUp: sequence = "\x1b[5~"; break;
-                case Key.PageDown: sequence = "\x1b[6~"; break;
             }
 
+            string? sequence = TerminalInputModeEncoder.EncodeSpecialKey(key, _buffer?.Modes);
             if (sequence != null)
             {
                 _session.SendInput(sequence);
@@ -783,9 +751,10 @@ namespace NovaTerminal.Core
         protected override void OnGotFocus(GotFocusEventArgs e)
         {
             base.OnGotFocus(e);
-            if (_session != null && _buffer != null && _buffer.Modes.IsFocusEventReporting)
+            string? sequence = TerminalInputModeEncoder.EncodeFocusChanged(_buffer?.Modes, isFocused: true);
+            if (_session != null && sequence != null)
             {
-                _session.SendInput("\x1b[I");
+                _session.SendInput(sequence);
             }
             _isDirty = true;
             InvalidateVisual();
@@ -794,9 +763,10 @@ namespace NovaTerminal.Core
         protected override void OnLostFocus(RoutedEventArgs e)
         {
             base.OnLostFocus(e);
-            if (_session != null && _buffer != null && _buffer.Modes.IsFocusEventReporting)
+            string? sequence = TerminalInputModeEncoder.EncodeFocusChanged(_buffer?.Modes, isFocused: false);
+            if (_session != null && sequence != null)
             {
-                _session.SendInput("\x1b[O");
+                _session.SendInput(sequence);
             }
             _isDirty = true;
             InvalidateVisual();
@@ -1546,31 +1516,15 @@ namespace NovaTerminal.Core
             // If mouse reporting is active, send wheel events to the session
             if (_buffer.IsMouseReportingActive())
             {
-                // Wheel Up: button 64, Wheel Down: button 65
-                int button = e.Delta.Y > 0 ? 64 : 65;
-
-                // Add modifiers if needed (not strictly required for basic wheel, 
-                // but SGR supports it. For now, just button + 32 if motion, but wheel isn't motion)
-
                 var point = e.GetCurrentPoint(this);
                 var (row, col) = ScreenToTerminal(point.Position);
-                int x = col + 1;
-                int y = row + 1;
-
-                if (_buffer.Modes.MouseModeSGR)
-                {
-                    string sequence = $"\x1b[<{button};{x};{y}M";
-                    _session?.SendInput(sequence);
-                }
-                else
-                {
-                    // Fallback to legacy X10 if possible, though wheel is mostly an SGR/URXVT extension
-                    char buttonChar = (char)(32 + button);
-                    char xChar = (char)(32 + Math.Clamp(x, 1, 223));
-                    char yChar = (char)(32 + Math.Clamp(y, 1, 223));
-                    string sequence = $"\x1b[M{buttonChar}{xChar}{yChar}";
-                    _session?.SendInput(sequence);
-                }
+                var mouseEvent = new TerminalMouseEvent(
+                    TerminalMouseEventKind.Wheel,
+                    e.Delta.Y > 0 ? TerminalMouseButton.WheelUp : TerminalMouseButton.WheelDown,
+                    col + 1,
+                    row + 1,
+                    e.KeyModifiers);
+                SendMouseEvent(mouseEvent);
                 e.Handled = true;
                 return;
             }
@@ -1599,18 +1553,28 @@ namespace NovaTerminal.Core
             base.OnPointerPressed(e);
 
             var point = e.GetCurrentPoint(this);
+            bool leftPressed = point.Properties.IsLeftButtonPressed;
 
-            if (point.Properties.IsLeftButtonPressed)
+            // Check if application has enabled mouse reporting
+            if (_buffer != null && _buffer.IsMouseReportingActive())
             {
-                // Check if application has enabled mouse reporting
-                if (_buffer != null && _buffer.IsMouseReportingActive())
+                TerminalMouseButton button = GetPressedMouseButton(point.Properties);
+                if (button != TerminalMouseButton.None)
                 {
-                    // Forward mouse event to shell
-                    SendMouseEvent(e, pressed: true);
+                    var (reportRow, reportCol) = ScreenToTerminal(point.Position);
+                    SendMouseEvent(new TerminalMouseEvent(
+                        TerminalMouseEventKind.Press,
+                        button,
+                        reportCol + 1,
+                        reportRow + 1,
+                        e.KeyModifiers));
                     e.Handled = true;
                     return;
                 }
+            }
 
+            if (leftPressed)
+            {
                 // Normal mode: Handle selection
                 var (row, col) = ScreenToTerminal(point.Position);
 
@@ -1672,17 +1636,14 @@ namespace NovaTerminal.Core
             if (_buffer != null && _buffer.IsMouseReportingActive())
             {
                 var point = e.GetCurrentPoint(this);
-
-                // Only send motion when a button is actually pressed (drag)
-                // Mode 1003 should track motion during button press, not on hover
-                bool anyButtonPressed = point.Properties.IsLeftButtonPressed ||
-                                       point.Properties.IsMiddleButtonPressed ||
-                                       point.Properties.IsRightButtonPressed;
-
-                if (anyButtonPressed)
-                {
-                    SendMouseEvent(e, pressed: true, motion: true);
-                }
+                TerminalMouseButton button = GetPressedMouseButton(point.Properties);
+                var (row, col) = ScreenToTerminal(point.Position);
+                SendMouseEvent(new TerminalMouseEvent(
+                    TerminalMouseEventKind.Move,
+                    button,
+                    col + 1,
+                    row + 1,
+                    e.KeyModifiers));
 
                 e.Handled = true;
                 return;
@@ -1724,7 +1685,14 @@ namespace NovaTerminal.Core
             // Forward release events if mouse reporting is active
             if (_buffer != null && _buffer.IsMouseReportingActive())
             {
-                SendMouseEvent(e, pressed: false);
+                var point = e.GetCurrentPoint(this);
+                var (row, col) = ScreenToTerminal(point.Position);
+                SendMouseEvent(new TerminalMouseEvent(
+                    TerminalMouseEventKind.Release,
+                    GetReleasedMouseButton(e),
+                    col + 1,
+                    row + 1,
+                    e.KeyModifiers));
                 e.Handled = true;
                 return;
             }
@@ -1743,67 +1711,34 @@ namespace NovaTerminal.Core
             }
         }
 
-        /// <summary>
-        /// Sends a mouse event to the shell in SGR format when mouse reporting is enabled.
-        /// </summary>
-        private void SendMouseEvent(PointerEventArgs e, bool pressed, bool motion = false)
+        private void SendMouseEvent(TerminalMouseEvent mouseEvent)
         {
             if (_session == null || _buffer == null) return;
 
-            var point = e.GetCurrentPoint(this);
-            var (row, col) = ScreenToTerminal(point.Position);
-
-            // Convert to 1-indexed coordinates
-            int x = col + 1;
-            int y = row + 1;
-
-            // Determine button
-            int button = 0;
-            if (point.Properties.IsLeftButtonPressed) button = 0;
-            else if (point.Properties.IsMiddleButtonPressed) button = 1;
-            else if (point.Properties.IsRightButtonPressed) button = 2;
-
-            // Add motion flag if this is a motion event and AnyEvent mode is active
-            if (motion && _buffer.Modes.MouseModeAnyEvent)
+            string? sequence = TerminalInputModeEncoder.EncodeMouseEvent(_buffer.Modes, mouseEvent);
+            if (sequence != null)
             {
-                button += 32; // Motion indicator
-            }
-
-            // Only send if we have SGR mode enabled
-            if (_buffer.Modes.MouseModeSGR)
-            {
-                // SGR format: CSI < button ; x ; y M/m
-                char finalChar = pressed ? 'M' : 'm';
-                string sequence = $"\x1b[<{button};{x};{y}{finalChar}";
-
                 _session.SendInput(sequence);
             }
-            else if (_buffer.IsMouseReportingActive())
+        }
+
+        private static TerminalMouseButton GetPressedMouseButton(PointerPointProperties properties)
+        {
+            if (properties.IsLeftButtonPressed) return TerminalMouseButton.Left;
+            if (properties.IsMiddleButtonPressed) return TerminalMouseButton.Middle;
+            if (properties.IsRightButtonPressed) return TerminalMouseButton.Right;
+            return TerminalMouseButton.None;
+        }
+
+        private static TerminalMouseButton GetReleasedMouseButton(PointerReleasedEventArgs e)
+        {
+            return e.InitialPressMouseButton switch
             {
-                // X10/Legacy format: CSI M bxy (fallback for WSL)
-                // Only send press events in X10 mode (no release)
-                if (pressed)
-                {
-                    // FALLBACK: If coordinates exceed X10 limits (223), try force-sending SGR
-                    // because X10 cannot represent them. Most modern terminals accept SGR even if not explicitly requested.
-                    if (x >= 223 || y >= 223)
-                    {
-                        char finalChar = pressed ? 'M' : 'm';
-                        string sequence = $"\x1b[<{button};{x};{y}{finalChar}";
-                        _session.SendInput(sequence);
-                        return;
-                    }
-
-                    // X10 format: button and coordinates are sent as single bytes offset by 32
-                    char buttonChar = (char)(32 + button);
-                    char xChar = (char)(32 + x);
-                    char yChar = (char)(32 + y);
-
-                    // Clamp Check (redundant now but safe)
-                    string seqX10 = $"\x1b[M{buttonChar}{xChar}{yChar}";
-                    _session.SendInput(seqX10);
-                }
-            }
+                MouseButton.Left => TerminalMouseButton.Left,
+                MouseButton.Middle => TerminalMouseButton.Middle,
+                MouseButton.Right => TerminalMouseButton.Right,
+                _ => TerminalMouseButton.None
+            };
         }
 
         /// <summary>

@@ -51,5 +51,21 @@ namespace NovaTerminal.Tests.Input
             // The interior \x1b[201~ should be stripped out.
             Assert.Equal("\x1b[200~echo 'hijacked'\nrm -rf /\x1b[201~", sentPayload);
         }
+
+        [Fact]
+        public void PreparePaste_WhenBracketedPasteDisabled_NormalizesLineEndingsWithoutWrapping()
+        {
+            string prepared = TerminalInputSender.PreparePaste("line 1\r\nline 2", bracketedPasteModeEnabled: false);
+
+            Assert.Equal("line 1\rline 2", prepared);
+        }
+
+        [Fact]
+        public void PreparePaste_WhenBracketedPasteEnabled_NormalizesAndWraps()
+        {
+            string prepared = TerminalInputSender.PreparePaste("line 1\r\nline 2", bracketedPasteModeEnabled: true);
+
+            Assert.Equal("\x1b[200~line 1\rline 2\x1b[201~", prepared);
+        }
     }
 }

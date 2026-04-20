@@ -4,6 +4,28 @@ namespace NovaTerminal.Core.Input
 {
     public static class TerminalInputSender
     {
+        private const string BracketedPasteStart = "\x1b[200~";
+        private const string BracketedPasteEnd = "\x1b[201~";
+
+        public static string PreparePaste(string content, bool bracketedPasteModeEnabled)
+        {
+            if (string.IsNullOrEmpty(content))
+            {
+                return string.Empty;
+            }
+
+            string normalizedContent = content.Replace("\r\n", "\r");
+            if (!bracketedPasteModeEnabled)
+            {
+                return normalizedContent;
+            }
+
+            // If the content itself contains the end sequence, it could be a bracketed paste hijacking attack.
+            // A conservative approach is to strip the embedded terminator before wrapping the paste block.
+            string safeContent = normalizedContent.Replace(BracketedPasteEnd, "");
+            return BracketedPasteStart + safeContent + BracketedPasteEnd;
+        }
+
         public static void SendBracketedPaste(ITerminalSession session, string content)
         {
             if (session == null || string.IsNullOrEmpty(content))
@@ -11,18 +33,7 @@ namespace NovaTerminal.Core.Input
                 return;
             }
 
-            // Standard VT sequence for starting a pasted block of text
-            const string bracketedPasteStart = "\x1b[200~";
-            // Standard VT sequence for ending a pasted block of text
-            const string bracketedPasteEnd = "\x1b[201~";
-
-            // If the content itself contains the end sequence, it could be a bracketed paste hijacking attack.
-            // But for a simple terminal emulator where we are reading *local* files that the user dragged in,
-            // the risk is lower (they chose to paste it).
-            // A safest approach: remove or escape trailing the end sequence.
-            string safeContent = content.Replace(bracketedPasteEnd, "");
-            safeContent = safeContent.Replace("\r\n", "\r");
-            session.SendInput(bracketedPasteStart + safeContent + bracketedPasteEnd);
+            session.SendInput(PreparePaste(content, bracketedPasteModeEnabled: true));
         }
     }
 }

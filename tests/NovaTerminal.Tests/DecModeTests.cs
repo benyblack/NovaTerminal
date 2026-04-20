@@ -240,6 +240,40 @@ namespace NovaTerminal.Tests
             Assert.False(buffer.Modes.IsFocusEventReporting);
         }
 
+        [Fact]
+        public void ApplicationCursorKeys_SetsModeFlag()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            Assert.False(buffer.Modes.IsApplicationCursorKeys);
+            parser.Process("\x1b[?1h");
+            Assert.True(buffer.Modes.IsApplicationCursorKeys);
+            parser.Process("\x1b[?1l");
+            Assert.False(buffer.Modes.IsApplicationCursorKeys);
+        }
+
+        [Fact]
+        public void MouseReportingModes_SetModeFlags()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h");
+
+            Assert.True(buffer.Modes.MouseModeX10);
+            Assert.True(buffer.Modes.MouseModeButtonEvent);
+            Assert.True(buffer.Modes.MouseModeAnyEvent);
+            Assert.True(buffer.Modes.MouseModeSGR);
+
+            parser.Process("\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l");
+
+            Assert.False(buffer.Modes.MouseModeX10);
+            Assert.False(buffer.Modes.MouseModeButtonEvent);
+            Assert.False(buffer.Modes.MouseModeAnyEvent);
+            Assert.False(buffer.Modes.MouseModeSGR);
+        }
+
         private static string GetVisiblePlainText(TerminalBuffer buffer)
         {
             var field = typeof(TerminalBuffer).GetField("_viewport", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);

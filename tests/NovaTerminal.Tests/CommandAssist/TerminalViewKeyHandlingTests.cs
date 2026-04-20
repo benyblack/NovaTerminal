@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Moq;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
@@ -9,6 +10,19 @@ namespace NovaTerminal.Tests.CommandAssist;
 
 public sealed class TerminalViewKeyHandlingTests
 {
+    private sealed class TestTerminalView : TerminalView
+    {
+        public void RaiseGotFocusForTest()
+        {
+            OnGotFocus(new GotFocusEventArgs());
+        }
+
+        public void RaiseLostFocusForTest()
+        {
+            OnLostFocus(new RoutedEventArgs());
+        }
+    }
+
     [AvaloniaFact]
     public void HandleKeyDownCore_WhenInterceptorHandlesTab_DoesNotForwardTabToSession()
     {
@@ -34,6 +48,48 @@ public sealed class TerminalViewKeyHandlingTests
 
         Assert.True(handled);
         session.Verify(x => x.SendInput("\t"), Times.Once);
+    }
+
+    [AvaloniaFact]
+    public void HandleKeyDownCore_WhenApplicationCursorKeysEnabled_UsesSs3ForArrowsAndHomeEnd()
+    {
+        var session = new Mock<ITerminalSession>();
+        var view = new TerminalView();
+        var buffer = new TerminalBuffer(80, 24);
+        buffer.Modes.IsApplicationCursorKeys = true;
+        view.SetBuffer(buffer);
+        view.SetSession(session.Object);
+
+        Assert.True(view.HandleKeyDownCore(Key.Up, KeyModifiers.None));
+        Assert.True(view.HandleKeyDownCore(Key.Down, KeyModifiers.None));
+        Assert.True(view.HandleKeyDownCore(Key.Right, KeyModifiers.None));
+        Assert.True(view.HandleKeyDownCore(Key.Left, KeyModifiers.None));
+        Assert.True(view.HandleKeyDownCore(Key.Home, KeyModifiers.None));
+        Assert.True(view.HandleKeyDownCore(Key.End, KeyModifiers.None));
+
+        session.Verify(x => x.SendInput("\x1bOA"), Times.Once);
+        session.Verify(x => x.SendInput("\x1bOB"), Times.Once);
+        session.Verify(x => x.SendInput("\x1bOC"), Times.Once);
+        session.Verify(x => x.SendInput("\x1bOD"), Times.Once);
+        session.Verify(x => x.SendInput("\x1bOH"), Times.Once);
+        session.Verify(x => x.SendInput("\x1bOF"), Times.Once);
+    }
+
+    [AvaloniaFact]
+    public void FocusReporting_WhenEnabled_EmitsFocusInAndFocusOut()
+    {
+        var session = new Mock<ITerminalSession>();
+        var view = new TestTerminalView();
+        var buffer = new TerminalBuffer(80, 24);
+        buffer.Modes.IsFocusEventReporting = true;
+        view.SetBuffer(buffer);
+        view.SetSession(session.Object);
+
+        view.RaiseGotFocusForTest();
+        view.RaiseLostFocusForTest();
+
+        session.Verify(x => x.SendInput("\x1b[I"), Times.Once);
+        session.Verify(x => x.SendInput("\x1b[O"), Times.Once);
     }
 
     [AvaloniaFact]
