@@ -87,6 +87,74 @@ namespace NovaTerminal.Core
             }
         }
 
+        private void BeginCsi()
+        {
+            _state = State.Csi;
+            _paramLen = 0;
+        }
+
+        private void BeginOsc()
+        {
+            _state = State.Osc;
+            _oscStringBuffer.Clear();
+        }
+
+        private void BeginDcs()
+        {
+            _state = State.Dcs;
+            _dcsStringBuffer.Clear();
+        }
+
+        private void BeginApc()
+        {
+            _state = State.Apc;
+            _apcStringBuffer.Clear();
+        }
+
+        private bool TryHandle7BitC1(char c)
+        {
+            switch (c)
+            {
+                case '[':
+                    BeginCsi();
+                    return true;
+                case ']':
+                    BeginOsc();
+                    return true;
+                case 'P':
+                    BeginDcs();
+                    return true;
+                case '_':
+                    BeginApc();
+                    return true;
+                case 'D': // IND
+                    Index();
+                    _state = State.Normal;
+                    return true;
+                case 'E': // NEL
+                    _buffer.CursorCol = 0;
+                    Index();
+                    _state = State.Normal;
+                    return true;
+                case 'M': // RI
+                    ReverseIndex();
+                    _state = State.Normal;
+                    return true;
+                case '\\': // ST outside a string - ignore
+                    _state = State.Normal;
+                    return true;
+            }
+
+            if (c >= '@' && c <= '_')
+            {
+                // Unsupported 7-bit C1 control: ignore rather than leaking a printable byte.
+                _state = State.Normal;
+                return true;
+            }
+
+            return false;
+        }
+
         public void Process(string input)
         {
             if (string.IsNullOrEmpty(input)) return;
@@ -100,249 +168,252 @@ namespace NovaTerminal.Core
             _buffer.EnterBatchWrite();
             try
             {
-                foreach (char c in input)
+                for (int i = 0; i < input.Length; i++)
                 {
-                    switch (_state)
+                    char c = input[i];
+                    bool reprocessCurrent;
+                    do
                     {
-                        case State.Normal:
-                            if (c == '\x1b')
-                            {
-                                FlushText();
-                                _state = State.Esc;
-                            }
-                            else if (c >= 0x80 && c <= 0x9F) // C1 Controls
-                            {
-                                FlushText();
-                                switch (c)
+                        reprocessCurrent = false;
+
+                        switch (_state)
+                        {
+                            case State.Normal:
+                                if (c == '\x1b')
                                 {
-                                    case '\u009B': _state = State.Csi; _paramLen = 0; break;
-                                    case '\u0090': _state = State.Dcs; _dcsStringBuffer.Clear(); break;
-                                    case '\u009D': _state = State.Osc; _oscStringBuffer.Clear(); break;
-                                    case '\u009F': _state = State.Apc; _apcStringBuffer.Clear(); break;
-                                    default: _buffer.WriteChar(c); break;
+                                    FlushText();
+                                    _state = State.Esc;
                                 }
-                            }
-                            else if (c < 0x20 || c == 0x7F) // C0 Controls & DEL
-                            {
-                                FlushText();
-                                if (c == '\a')
+                                else if (c >= 0x80 && c <= 0x9F) // C1 Controls
                                 {
-                                    OnBell?.Invoke();
+                                    FlushText();
+                                    switch (c)
+                                    {
+                                        case '\u009B':
+                                            BeginCsi();
+                                            break;
+                                        case '\u0090':
+                                            BeginDcs();
+                                            break;
+                                        case '\u009D':
+                                            BeginOsc();
+                                            break;
+                                        case '\u009F':
+                                            BeginApc();
+                                            break;
+                                        case '\u009C':
+                                            _state = State.Normal;
+                                            break;
+                                        default:
+                                            _buffer.WriteChar(c);
+                                            break;
+                                    }
+                                }
+                                else if (c < 0x20 || c == 0x7F) // C0 Controls & DEL
+                                {
+                                    FlushText();
+                                    if (c == '\a')
+                                    {
+                                        OnBell?.Invoke();
+                                    }
+                                    else
+                                    {
+                                        if (_swallowNextNewline)
+                                        {
+                                            if (c == '\r' || c == '\n')
+                                            {
+                                                if (c == '\n') _swallowNextNewline = false;
+                                                continue;
+                                            }
+                                            else _swallowNextNewline = false;
+                                        }
+                                        _buffer.WriteChar(c);
+                                    }
                                 }
                                 else
                                 {
-                                    if (_swallowNextNewline)
+                                    // Printable Characters
+                                    _textBuffer.Append(c);
+                                }
+                                break;
+
+                            case State.Esc:
+                                if (TryHandle7BitC1(c))
+                                {
+                                    break;
+                                }
+
+                                if (c == '7') // Save Cursor
+                                {
+                                    _buffer.SaveCursor();
+                                    _state = State.Normal;
+                                }
+                                else if (c == '8') // Restore Cursor
+                                {
+                                    _buffer.RestoreCursor();
+                                    _state = State.Normal;
+                                }
+                                else if (c == 'c') // RIS - Reset to Initial State
+                                {
+                                    _buffer.Reset(); // Ensure TerminalBuffer has a Reset method or use Clear
+                                    _verticalOffset = 0;
+                                    _state = State.Normal;
+                                }
+                                else if (c == '=' || c == '>') // DECKPAM / DECKPNM
+                                {
+                                    // Keypad application/numeric mode does not render visible text.
+                                    _state = State.Normal;
+                                }
+                                else if (c == '(' || c == ')' || c == '*' || c == '+' || c == '-')
+                                {
+                                    // G0/G1 charset selection - wait for the next char but don't print
+                                    _state = State.Charset;
+                                }
+                                else if (c == '#')
+                                {
+                                    _state = State.EscHash;
+                                }
+                                else
+                                {
+                                    // Unknown escape sequence: ignore the introducer and current byte.
+                                    _state = State.Normal;
+                                }
+                                break;
+
+                            case State.Charset:
+                                // Consume the charset designation character (e.g. 'B' in ESC ( B)
+                                _state = State.Normal;
+                                break;
+
+                            case State.EscHash:
+                                if (c == '8') // DECALN - Screen Alignment Pattern
+                                {
+                                    _buffer.ScreenAlignmentPattern();
+                                }
+                                // 3, 4, 5, 6 are for single/double width/height lines.
+                                // We ignore them for now as we don't support per-line rendering attributes yet.
+                                _state = State.Normal;
+                                break;
+
+                            case State.Osc:
+                                if (c == '\a' || c == '\u009C')
+                                {
+                                    HandleOsc(new string(_oscStringBuffer.ToArray()));
+                                    _state = State.Normal;
+                                }
+                                else if (c == '\x1b')
+                                {
+                                    _state = State.OscEsc;
+                                }
+                                else
+                                {
+                                    _oscStringBuffer.Add(c);
+                                }
+                                break;
+
+                            case State.OscEsc:
+                                if (c == '\\')
+                                {
+                                    HandleOsc(new string(_oscStringBuffer.ToArray()));
+                                    _state = State.Normal;
+                                }
+                                else
+                                {
+                                    // Malformed OSC ESC sequence: abandon the string and treat this
+                                    // byte as the start of a fresh ESC sequence continuation.
+                                    _state = State.Esc;
+                                    reprocessCurrent = true;
+                                }
+                                break;
+
+                            case State.Dcs:
+                                if (c == '\x1b')
+                                {
+                                    _state = State.DcsEsc;
+                                }
+                                else if (c == '\a' || c == '\u009C')
+                                {
+                                    HandleDcs(new string(_dcsStringBuffer.ToArray()));
+                                    _state = State.Normal;
+                                }
+                                else
+                                {
+                                    _dcsStringBuffer.Add(c);
+                                }
+                                break;
+
+                            case State.DcsEsc:
+                                if (c == '\\')
+                                {
+                                    HandleDcs(new string(_dcsStringBuffer.ToArray()));
+                                    _state = State.Normal;
+                                }
+                                else
+                                {
+                                    _state = State.Esc;
+                                    reprocessCurrent = true;
+                                }
+                                break;
+
+                            case State.Apc:
+                                if (c == '\x1b')
+                                {
+                                    _state = State.ApcEsc;
+                                }
+                                else if (c == '\a' || c == '\u009C')
+                                {
+                                    HandleApc(new string(_apcStringBuffer.ToArray()));
+                                    _state = State.Normal;
+                                }
+                                else
+                                {
+                                    _apcStringBuffer.Add(c);
+                                }
+                                break;
+
+                            case State.ApcEsc:
+                                if (c == '\\')
+                                {
+                                    HandleApc(new string(_apcStringBuffer.ToArray()));
+                                    _state = State.Normal;
+                                }
+                                else
+                                {
+                                    _state = State.Esc;
+                                    reprocessCurrent = true;
+                                }
+                                break;
+
+                            case State.Csi:
+                                if (c == '\x1b')
+                                {
+                                    // Abort malformed CSI and treat ESC as a fresh introducer.
+                                    _paramLen = 0;
+                                    _state = State.Esc;
+                                }
+                                else if (c >= 0x20 && c <= 0x3F)
+                                {
+                                    // Collect params (grow up to a hard safety cap).
+                                    if (_paramLen < MaxCsiParamChars && EnsureCsiParamCapacity(_paramLen + 1))
                                     {
-                                        if (c == '\r' || c == '\n')
-                                        {
-                                            if (c == '\n') _swallowNextNewline = false;
-                                            continue;
-                                        }
-                                        else _swallowNextNewline = false;
+                                        _paramBuffer[_paramLen++] = c;
                                     }
-                                    _buffer.WriteChar(c);
                                 }
-                            }
-                            else
-                            {
-                                // Printable Characters
-                                _textBuffer.Append(c);
-                            }
-                            break;
-
-                        case State.Esc:
-                            // Log only in non-performance-critical scenarios if needed
-                            if (c == '[')
-                            {
-                                _state = State.Csi;
-                                _paramLen = 0;
-                            }
-                            else if (c == ']') // OSC Start
-                            {
-                                _state = State.Osc;
-                                _oscStringBuffer.Clear();
-                            }
-                            else if (c == 'P') // DCS Start (Device Control String) - Sixel, etc.
-                            {
-                                _state = State.Dcs;
-                                _dcsStringBuffer.Clear();
-                            }
-                            else if (c == '_') // APC Start
-                            {
-                                _state = State.Apc;
-                                _apcStringBuffer.Clear();
-                            }
-                            else if (c == '7') // Save Cursor
-                            {
-                                _buffer.SaveCursor();
-                                _state = State.Normal;
-                            }
-                            else if (c == '8') // Restore Cursor
-                            {
-                                _buffer.RestoreCursor();
-                                _state = State.Normal;
-                            }
-                            else if (c == 'c') // RIS - Reset to Initial State
-                            {
-                                _buffer.Reset(); // Ensure TerminalBuffer has a Reset method or use Clear
-                                _verticalOffset = 0;
-                                _state = State.Normal;
-                            }
-                            else if (c == 'D') // IND - Index
-                            {
-                                Index();
-                                _state = State.Normal;
-                            }
-                            else if (c == 'E') // NEL - Next Line
-                            {
-                                _buffer.CursorCol = 0;
-                                Index();
-                                _state = State.Normal;
-                            }
-                            else if (c == 'M') // RI - Reverse Index
-                            {
-                                ReverseIndex();
-                                _state = State.Normal;
-                            }
-                            else if (c == '=' || c == '>') // DECKPAM / DECKPNM
-                            {
-                                // Keypad application/numeric mode does not render visible text.
-                                _state = State.Normal;
-                            }
-                            else if (c == '(' || c == ')' || c == '*' || c == '+' || c == '-')
-                            {
-                                // G0/G1 charset selection - wait for the next char but don't print
-                                _state = State.Charset;
-                            }
-                            else if (c == '#')
-                            {
-                                _state = State.EscHash;
-                            }
-                            else if (c >= 0x20 && c <= 0x7E)
-                            {
-                                // Unknown escape sequence followed by printable char?
-                                // Treat as literal printable character (fallback)
-                                _buffer.WriteChar(c);
-                                _state = State.Normal;
-                            }
-                            else
-                            {
-                                _state = State.Normal;
-                            }
-                            break;
-
-                        case State.Charset:
-                            // Consume the charset designation character (e.g. 'B' in ESC ( B)
-                            _state = State.Normal;
-                            break;
-
-                        case State.EscHash:
-                            if (c == '8') // DECALN - Screen Alignment Pattern
-                            {
-                                _buffer.ScreenAlignmentPattern();
-                            }
-                            // 3, 4, 5, 6 are for single/double width/height lines.
-                            // We ignore them for now as we don't support per-line rendering attributes yet.
-                            _state = State.Normal;
-                            break;
-
-                        case State.Osc:
-                            if (c == '\a' || c == '\u009C')
-                            {
-                                HandleOsc(new string(_oscStringBuffer.ToArray()));
-                                _state = State.Normal;
-                            }
-                            else if (c == '\x1b')
-                            {
-                                _state = State.OscEsc;
-                            }
-                            else
-                            {
-                                if (_oscStringBuffer.Count < 50) // Only log the beginning of potential images to avoid huge logs
+                                else if (c >= 0x40 && c <= 0x7E)
                                 {
+                                    HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
+                                    _paramLen = 0;
+                                    _state = State.Normal;
                                 }
-                                _oscStringBuffer.Add(c);
-                            }
-                            break;
-
-                        case State.OscEsc:
-                            if (c == '\\')
-                            {
-                                HandleOsc(new string(_oscStringBuffer.ToArray()));
-                                _state = State.Normal;
-                            }
-                            else
-                            {
-                                _state = State.Normal;
-                            }
-                            break;
-
-                        case State.Dcs:
-                            if (c == '\x1b') _state = State.DcsEsc;
-                            else _dcsStringBuffer.Add(c);
-                            break;
-
-                        case State.DcsEsc:
-                            if (c == '\\')
-                            {
-                                HandleDcs(new string(_dcsStringBuffer.ToArray()));
-                                _state = State.Normal;
-                            }
-                            else
-                            {
-                                _dcsStringBuffer.Add('\x1b');
-                                _dcsStringBuffer.Add(c);
-                                _state = State.Dcs;
-                            }
-                            break;
-
-                        case State.Apc:
-                            if (c == '\x1b')
-                            {
-                                _state = State.ApcEsc;
-                            }
-                            else if (c == '\u009C') // C1 ST
-                            {
-                                HandleApc(new string(_apcStringBuffer.ToArray()));
-                                _state = State.Normal;
-                            }
-                            else
-                            {
-                                _apcStringBuffer.Add(c);
-                            }
-                            break;
-
-                        case State.ApcEsc:
-                            if (c == '\\')
-                            {
-                                HandleApc(new string(_apcStringBuffer.ToArray()));
-                                _state = State.Normal;
-                            }
-                            else
-                            {
-                                _apcStringBuffer.Add('\x1b');
-                                _apcStringBuffer.Add(c);
-                                _state = State.Apc;
-                            }
-                            break;
-
-                        case State.Csi:
-                            if (c >= 0x20 && c <= 0x3F)
-                            {
-                                // Collect params (grow up to a hard safety cap).
-                                if (_paramLen < MaxCsiParamChars && EnsureCsiParamCapacity(_paramLen + 1))
+                                else
                                 {
-                                    _paramBuffer[_paramLen++] = c;
+                                    // Malformed/non-final CSI byte: drop the sequence.
+                                    _paramLen = 0;
+                                    _state = State.Normal;
                                 }
-                            }
-                            else
-                            {
-                                // Final byte
-                                HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
-                                _state = State.Normal;
-                            }
-                            break;
-                    }
+                                break;
+                        }
+                    } while (reprocessCurrent);
                 }
                 FlushText();
 

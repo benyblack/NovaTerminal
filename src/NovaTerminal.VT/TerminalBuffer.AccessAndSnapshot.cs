@@ -498,15 +498,18 @@ namespace NovaTerminal.Core
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
-                ScrollTop = Math.Clamp(top, 0, Rows - 1);
-                ScrollBottom = Math.Clamp(bottom, 0, Rows - 1);
+                int newTop = Math.Clamp(top, 0, Rows - 1);
+                int newBottom = Math.Clamp(bottom, 0, Rows - 1);
 
-                // Ensure valid region
-                if (ScrollTop > ScrollBottom)
+                // DECSTBM requires a region spanning at least two lines.
+                // Ignore invalid updates instead of silently resetting to full screen.
+                if (newTop >= newBottom)
                 {
-                    ScrollTop = 0;
-                    ScrollBottom = Rows - 1;
+                    return;
                 }
+
+                ScrollTop = newTop;
+                ScrollBottom = newBottom;
             }
             finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
         }

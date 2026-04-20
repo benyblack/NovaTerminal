@@ -181,7 +181,7 @@ namespace NovaTerminal.Core
                 if (_lastCharCol >= 0 && _cursorCol >= _lastCharCol && _cursorCol <= _lastCharCol + 8)
                 {
                     // Verify if this is a suitable base for skin tones (look back for a non-space)
-                    int searchCol = _cursorCol - 1;
+                    int searchCol = Math.Min(_cursorCol, Cols - 1);
                     while (searchCol >= 0)
                     {
                         var target = _viewport[_cursorRow].Cells[searchCol];
@@ -235,16 +235,18 @@ namespace NovaTerminal.Core
                             {
                                 // Ensure next cell is a continuation
                                 ref var nextCell = ref row.Cells[attachCol + 1];
+                                bool expandedIntoNextCell = false;
                                 if (!nextCell.IsWideContinuation)
                                 {
                                     SyncPackedState();
                                     nextCell = new TerminalCell(' ', _packedFg, _packedBg, (ushort)(_packedFlags | (ushort)TerminalCellFlags.WideContinuation));
                                     row.SetExtendedText(attachCol + 1, null); // Ensure no old text remains
                                     row.SetHyperlink(attachCol + 1, row.GetHyperlink(attachCol));
+                                    expandedIntoNextCell = true;
                                 }
 
                                 // If the cursor was waiting at the next cell, and we just expanded into it, push the cursor forward.
-                                if (_cursorCol == attachCol + 1)
+                                if (expandedIntoNextCell && _cursorCol == attachCol + 1)
                                 {
                                     _cursorCol++;
                                     if (_cursorCol > Cols) _cursorCol = Cols;
