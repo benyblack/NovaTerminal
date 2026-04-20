@@ -596,7 +596,7 @@ namespace NovaTerminal.Core
                         break;
                     case 'd': // VPA - Vertical Position Absolute
                         {
-                            int vpaRow = Math.Max(1, arg0) - 1;
+                            int vpaRow = GetCsiParamOrDefaultOne(validArgs, 0) - 1;
                             if (_buffer.Modes.IsOriginMode) vpaRow += _buffer.ScrollTop;
                             // NOTE: _verticalOffset intentionally NOT applied here — it's a ConPTY
                             // image-rendering artifact that must not affect general cursor positioning.
@@ -605,7 +605,8 @@ namespace NovaTerminal.Core
                         }
                         break;
                     case 'C': // Cursor Forward
-                        _buffer.CursorCol = Math.Min(_buffer.Cols - 1, _buffer.CursorCol + Math.Max(1, arg0));
+                    case 'a': // HPR - Horizontal Position Relative
+                        _buffer.CursorCol = Math.Min(_buffer.Cols - 1, _buffer.CursorCol + GetCsiParamOrDefaultOne(validArgs, 0));
                         _buffer.Invalidate();
                         break;
                     case 'D': // Cursor Back
@@ -614,8 +615,8 @@ namespace NovaTerminal.Core
                         break;
                     case 'H': // Cursor Position (row;col)
                     case 'f':
-                        int row = (argCount > 0 ? validArgs[0] : 1) - 1;
-                        int col = (argCount > 1 ? validArgs[1] : 1) - 1;
+                        int row = GetCsiParamOrDefaultOne(validArgs, 0) - 1;
+                        int col = GetCsiParamOrDefaultOne(validArgs, 1) - 1;
 
                         if (_buffer.Modes.IsOriginMode)
                         {
@@ -630,10 +631,20 @@ namespace NovaTerminal.Core
                         _buffer.Invalidate();
                         break;
                     case 'G': // Cursor Horizontal Absolute (CHA)
-                        int val = (argCount > 0 ? validArgs[0] : 1) - 1;
-                        int oldCol = _buffer.CursorCol;
+                    case '`': // HPA - Horizontal Position Absolute
+                        int val = GetCsiParamOrDefaultOne(validArgs, 0) - 1;
                         _buffer.CursorCol = Math.Clamp(val, 0, _buffer.Cols - 1);
                         _buffer.Invalidate();
+                        break;
+                    case 'e': // VPR - Vertical Position Relative
+                        {
+                            int dist = GetCsiParamOrDefaultOne(validArgs, 0);
+                            if (_buffer.CursorRow >= _buffer.ScrollTop && _buffer.CursorRow <= _buffer.ScrollBottom)
+                                _buffer.CursorRow = Math.Min(_buffer.ScrollBottom, _buffer.CursorRow + dist);
+                            else
+                                _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + dist);
+                            _buffer.Invalidate();
+                        }
                         break;
                     case 'J': // Erase in Display
                         int displayMode = argCount > 0 ? validArgs[0] : 0;
@@ -857,6 +868,16 @@ namespace NovaTerminal.Core
                 return Math.Clamp(row, _buffer.ScrollTop, _buffer.ScrollBottom);
             }
             return Math.Clamp(row, 0, _buffer.Rows - 1);
+        }
+
+        private static int GetCsiParamOrDefaultOne(ReadOnlySpan<int> args, int index)
+        {
+            if (index >= args.Length)
+            {
+                return 1;
+            }
+
+            return args[index] == 0 ? 1 : args[index];
         }
 
         /// <summary>
