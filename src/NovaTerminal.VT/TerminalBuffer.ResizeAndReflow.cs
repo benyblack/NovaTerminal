@@ -136,6 +136,7 @@ namespace NovaTerminal.Core
 
                 Cols = newCols;
                 Rows = newRows;
+                ResizeTabStopsNoLock(oldCols, newCols);
                 RecomputeScrollbackBudgetForCurrentWidth();
 
                 if (_isAltScreen)

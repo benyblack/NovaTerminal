@@ -14,6 +14,7 @@ namespace NovaTerminal.Core
         private readonly SavedCursorStates _savedCursors = new();
         private readonly SavedCursorStates _screenCursorStates = new();
         private bool _restoreMainCursorOnAltExit;
+        private bool[] _tabStops;
         // Active viewport - what ConPTY writes to (fixed size)
         private TerminalRow[] _viewport;
 
@@ -135,6 +136,7 @@ namespace NovaTerminal.Core
         {
             Cols = cols;
             Rows = rows;
+            _tabStops = CreateDefaultTabStops(cols);
             ScrollBottom = rows - 1;  // Initialize scrolling region to full screen
             _maxScrollbackBytes = ComputeScrollbackBudgetBytes(cols, _maxHistory);
 

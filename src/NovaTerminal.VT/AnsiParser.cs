@@ -140,6 +140,10 @@ namespace NovaTerminal.Core
                     ReverseIndex();
                     _state = State.Normal;
                     return true;
+                case 'H': // HTS
+                    _buffer.SetTabStopAtCursor();
+                    _state = State.Normal;
+                    return true;
                 case '\\': // ST outside a string - ignore
                     _state = State.Normal;
                     return true;
@@ -576,6 +580,13 @@ namespace NovaTerminal.Core
                             _buffer.InsertCharacters(ichCount);
                         }
                         break;
+                    case 'I': // CHT - Cursor Forward Tabulation
+                        if (!isPrivate)
+                        {
+                            _buffer.HorizontalTab(GetCsiParamOrDefaultOne(validArgs, 0));
+                            _buffer.Invalidate();
+                        }
+                        break;
                     case 'P': // DCH - Delete Character
                         {
                             int dchCount = Math.Max(1, arg0);
@@ -613,6 +624,13 @@ namespace NovaTerminal.Core
                         _buffer.CursorCol = Math.Max(0, _buffer.CursorCol - Math.Max(1, arg0));
                         _buffer.Invalidate();
                         break;
+                    case 'Z': // CBT - Cursor Backward Tabulation
+                        if (!isPrivate)
+                        {
+                            _buffer.BackwardTab(GetCsiParamOrDefaultOne(validArgs, 0));
+                            _buffer.Invalidate();
+                        }
+                        break;
                     case 'H': // Cursor Position (row;col)
                     case 'f':
                         int row = GetCsiParamOrDefaultOne(validArgs, 0) - 1;
@@ -643,6 +661,21 @@ namespace NovaTerminal.Core
                                 _buffer.CursorRow = Math.Min(_buffer.ScrollBottom, _buffer.CursorRow + dist);
                             else
                                 _buffer.CursorRow = Math.Min(_buffer.Rows - 1, _buffer.CursorRow + dist);
+                            _buffer.Invalidate();
+                        }
+                        break;
+                    case 'g': // TBC - Tab Clear
+                        if (!isPrivate)
+                        {
+                            if (argCount > 0 && validArgs[0] == 3)
+                            {
+                                _buffer.ClearAllTabStops();
+                            }
+                            else
+                            {
+                                _buffer.ClearTabStopAtCursor();
+                            }
+
                             _buffer.Invalidate();
                         }
                         break;

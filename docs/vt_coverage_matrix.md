@@ -53,7 +53,7 @@ It is designed to be:
 
 | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
 |---|---|---:|---|---|---|
-| C0 controls (BEL, BS, HT, LF, CR) | Basic control chars | ⚠ Partial | Replay: `tests/Replays/...` | `Core/AnsiParser.cs`, `Core/TerminalBuffer.cs` | (fill) |
+| C0 controls (BEL, BS, HT, LF, CR) | Basic control chars | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs`; Replay: `tests/Replays/...` | `Core/AnsiParser.cs`, `Core/TerminalBuffer.cs` | HT now follows stored tab stops instead of inserting spaces; broader C0 coverage is still only partially audited |
 | C1 via 7-bit ESC (ESC @.._) | “7-bit C1” translation | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Recognizes CSI/OSC/DCS/APC plus IND/NEL/RI; unsupported `ESC @.._` controls are ignored with recovery rather than fully implemented |
 | 8-bit C1 bytes (0x80–0x9F) | If supported, must be explicit | ❌ Not supported | — | `Core/AnsiParser.cs` | (fill) |
 | String terminators (ST = ESC \\, BEL) | OSC/APC termination rules | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | OSC accepts BEL and ST; DCS/APC also accept BEL as permissive recovery behavior, not strict spec compliance |
@@ -69,8 +69,8 @@ It is designed to be:
 | CUU/CUD/CUF/CUB (A/B/C/D) | Cursor up/down/forward/back | ✅ Supported | Replay: `...` | Parser+Buffer | |
 | CUP / HVP (H/f) | Positioning, default params | ✅ Supported | Unit + Replay: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs`, `tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs` | Parser+Buffer | |
 | CHA/CPL/CNL (G/F/E) | Horizontal absolute / prev/next line | ⚠ Partial | Replay | Parser+Buffer | |
-| CHT (I) | Cursor forward tabulation | ❌ Not supported | — | Parser+Buffer | |
-| CBT (Z) | Cursor backward tabulation | ❌ Not supported | — | Parser+Buffer | |
+| CHT (I) | Cursor forward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs` | Parser+Buffer | |
+| CBT (Z) | Cursor backward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs` | Parser+Buffer | |
 | VPA/HPA (d/G/`) | Absolute row/col | ✅ Supported | Unit: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
 | HPR/VPR (a/e) | Relative row/col | ✅ Supported | Unit: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
 
@@ -131,8 +131,8 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| HT (tab) movement | | ⚠ Partial | Unit | Buffer | |
-| Tab stops set/clear | ESC H, CSI g | ❌ Not supported | — | Buffer | |
+| HT (tab) movement | | ✅ Supported | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs` | Parser+Buffer | Custom tab stops are clipped on width shrink; columns exposed by width growth start with default 8-column tab stops |
+| Tab stops set/clear | ESC H, CSI g | ✅ Supported | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs` | Parser+Buffer | `CSI g` supports current-stop clear (`0`/default) and clear-all (`3`); other parameters are ignored |
 
 ---
 
