@@ -19,6 +19,11 @@ namespace NovaTerminal.Core
         public bool IsDefaultBackground { get; set; } = true;
         public bool IsInverse { get; set; }
         public bool IsBold { get; set; }
+        public bool IsFaint { get; set; }
+        public bool IsItalic { get; set; }
+        public bool IsUnderline { get; set; }
+        public bool IsBlink { get; set; }
+        public bool IsStrikethrough { get; set; }
         public bool IsHidden { get; set; }
         public bool IsPendingWrap { get; set; }
 
@@ -36,6 +41,11 @@ namespace NovaTerminal.Core
                 IsDefaultBackground = this.IsDefaultBackground,
                 IsInverse = this.IsInverse,
                 IsBold = this.IsBold,
+                IsFaint = this.IsFaint,
+                IsItalic = this.IsItalic,
+                IsUnderline = this.IsUnderline,
+                IsBlink = this.IsBlink,
+                IsStrikethrough = this.IsStrikethrough,
                 IsHidden = this.IsHidden,
                 IsPendingWrap = this.IsPendingWrap
             };

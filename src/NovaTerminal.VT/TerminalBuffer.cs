@@ -12,6 +12,8 @@ namespace NovaTerminal.Core
     public partial class TerminalBuffer
     {
         private readonly SavedCursorStates _savedCursors = new();
+        private readonly SavedCursorStates _screenCursorStates = new();
+        private bool _restoreMainCursorOnAltExit;
         // Active viewport - what ConPTY writes to (fixed size)
         private TerminalRow[] _viewport;
 

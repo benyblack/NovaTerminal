@@ -133,7 +133,8 @@ namespace NovaTerminal.Core
                 Modes.MouseModeAnyEvent = false;
                 Modes.MouseModeSGR = false;
 
-                SwitchToMainScreen();
+                _restoreMainCursorOnAltExit = false;
+                SwitchToMainScreen(restoreSavedCursorIfArmed: false);
                 // _tabs.Clear(); // tabs not implemented yet
             }
             finally
