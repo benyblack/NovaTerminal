@@ -67,6 +67,19 @@ namespace NovaTerminal.Core
                             }
                         }
                         _cursorRow = Math.Clamp(_cursorRow, 0, newRows - 1);
+
+                        // Keep the detached main screen in sync with the new height as well.
+                        var activeAlt = _viewport;
+                        _viewport = _mainScreen;
+                        try
+                        {
+                            Reshape(newRows);
+                            _mainScreen = _viewport;
+                        }
+                        finally
+                        {
+                            _viewport = activeAlt;
+                        }
                     }
                     else
                     {

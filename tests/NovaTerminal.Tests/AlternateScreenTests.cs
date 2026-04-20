@@ -237,6 +237,54 @@ namespace NovaTerminal.Tests
             Assert.True(buffer.IsStrikethrough);
         }
 
+        [Fact]
+        public void AltScreen_ExitAfterSameWidthResize_ShouldRestoreMainViewportWithCurrentDimensions()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+
+            buffer.Write("Main screen content\n");
+            parser.Process("\x1b[?1047h");
+
+            buffer.Resize(80, 30);
+
+            parser.Process("\x1b[?1047l");
+
+            Assert.Equal(30, buffer.Rows);
+            Assert.Equal(30, buffer.ViewportRows.Count);
+            Assert.Contains("Main screen", GetViewportText(buffer));
+            Assert.NotNull(buffer.ViewportRows[29]);
+        }
+
+        [Fact]
+        public void AltScreen_47_FirstEntryAfterThemeChange_ShouldUseUpdatedThemeDefaults()
+        {
+            var oldTheme = bufferTheme();
+            var newTheme = new TerminalTheme
+            {
+                Name = "Custom",
+                Foreground = TermColor.FromRgb(10, 20, 30),
+                Background = TermColor.FromRgb(40, 50, 60)
+            };
+
+            var buffer = new TerminalBuffer(80, 24) { Theme = newTheme };
+            var parser = new AnsiParser(buffer);
+
+            buffer.UpdateThemeColors(oldTheme);
+
+            parser.Process("\x1b[?47h");
+
+            Assert.Equal(newTheme.Foreground, buffer.CurrentForeground);
+            Assert.Equal(newTheme.Background, buffer.CurrentBackground);
+            Assert.True(buffer.IsDefaultForeground);
+            Assert.True(buffer.IsDefaultBackground);
+
+            static TerminalTheme bufferTheme()
+            {
+                return new TerminalTheme();
+            }
+        }
+
         private string GetTextFromRow(TerminalRow row)
         {
             if (row.Cells != null)

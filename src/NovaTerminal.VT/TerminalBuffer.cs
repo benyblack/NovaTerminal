@@ -166,6 +166,33 @@ namespace NovaTerminal.Core
             _cursorCol = 0;
             ScrollTop = 0;
             ScrollBottom = rows - 1;
+
+            _savedCursors.Main.Row = _cursorRow;
+            _savedCursors.Main.Col = _cursorCol;
+            _savedCursors.Main.Foreground = CurrentForeground;
+            _savedCursors.Main.Background = CurrentBackground;
+            _savedCursors.Main.IsDefaultForeground = IsDefaultForeground;
+            _savedCursors.Main.IsDefaultBackground = IsDefaultBackground;
+            _savedCursors.Alt.Row = _savedCursors.Main.Row;
+            _savedCursors.Alt.Col = _savedCursors.Main.Col;
+            _savedCursors.Alt.Foreground = _savedCursors.Main.Foreground;
+            _savedCursors.Alt.Background = _savedCursors.Main.Background;
+            _savedCursors.Alt.IsDefaultForeground = _savedCursors.Main.IsDefaultForeground;
+            _savedCursors.Alt.IsDefaultBackground = _savedCursors.Main.IsDefaultBackground;
+
+            _screenCursorStates.Main.Row = _savedCursors.Main.Row;
+            _screenCursorStates.Main.Col = _savedCursors.Main.Col;
+            _screenCursorStates.Main.Foreground = _savedCursors.Main.Foreground;
+            _screenCursorStates.Main.Background = _savedCursors.Main.Background;
+            _screenCursorStates.Main.IsDefaultForeground = _savedCursors.Main.IsDefaultForeground;
+            _screenCursorStates.Main.IsDefaultBackground = _savedCursors.Main.IsDefaultBackground;
+
+            _screenCursorStates.Alt.Row = _savedCursors.Main.Row;
+            _screenCursorStates.Alt.Col = _savedCursors.Main.Col;
+            _screenCursorStates.Alt.Foreground = _savedCursors.Main.Foreground;
+            _screenCursorStates.Alt.Background = _savedCursors.Main.Background;
+            _screenCursorStates.Alt.IsDefaultForeground = _savedCursors.Main.IsDefaultForeground;
+            _screenCursorStates.Alt.IsDefaultBackground = _savedCursors.Main.IsDefaultBackground;
         }
 
         private static long ComputeScrollbackBudgetBytes(int cols, int maxHistory)

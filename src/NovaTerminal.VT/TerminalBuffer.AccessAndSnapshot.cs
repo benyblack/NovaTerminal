@@ -221,6 +221,43 @@ namespace NovaTerminal.Core
             IsStrikethrough = false;
             IsHidden = false;
         }
+
+        private void SyncThemeDefaultsInCursorStateNoLock(CursorState state)
+        {
+            if (state.IsDefaultForeground)
+            {
+                state.Foreground = Theme.Foreground;
+            }
+
+            if (state.IsDefaultBackground)
+            {
+                state.Background = Theme.Background;
+            }
+        }
+
+        private TerminalRow[] ResizeDetachedScreenBufferNoLock(TerminalRow[] source)
+        {
+            var resized = new TerminalRow[Rows];
+            for (int i = 0; i < Rows; i++)
+            {
+                resized[i] = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
+
+                if (i >= source.Length)
+                {
+                    continue;
+                }
+
+                int copyCols = Math.Min(Cols, source[i].Cells.Length);
+                for (int c = 0; c < copyCols; c++)
+                {
+                    resized[i].Cells[c] = source[i].Cells[c];
+                }
+
+                resized[i].IsWrapped = source[i].IsWrapped;
+            }
+
+            return resized;
+        }
         // Saved Cursor State (DEC SC / DEC RC)
         public void SaveCursor()
         {
@@ -566,6 +603,12 @@ namespace NovaTerminal.Core
                 SaveActiveScreenStateNoLock();
                 _altScreen = _viewport;    // Save current viewport as alt screen
                 _isAltScreen = false;
+
+                if (_mainScreen.Length != Rows || (_mainScreen.Length > 0 && _mainScreen[0].Cells.Length != Cols))
+                {
+                    _mainScreen = ResizeDetachedScreenBufferNoLock(_mainScreen);
+                }
+
                 _viewport = _mainScreen;   // Restore main screen
 
                 // Reset scrolling region to full screen when switching back to main screen

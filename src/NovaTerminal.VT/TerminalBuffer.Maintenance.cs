@@ -152,6 +152,10 @@ namespace NovaTerminal.Core
                 // Sync current buffer defaults to new theme
                 if (IsDefaultForeground) CurrentForeground = Theme.Foreground;
                 if (IsDefaultBackground) CurrentBackground = Theme.Background;
+                SyncThemeDefaultsInCursorStateNoLock(_savedCursors.Main);
+                SyncThemeDefaultsInCursorStateNoLock(_savedCursors.Alt);
+                SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Main);
+                SyncThemeDefaultsInCursorStateNoLock(_screenCursorStates.Alt);
 
                 void UpdateCell(ref TerminalCell cell)
                 {
