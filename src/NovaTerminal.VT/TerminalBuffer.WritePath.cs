@@ -109,9 +109,7 @@ namespace NovaTerminal.Core
             }
             else if (c == '\t')
             {
-                _isPendingWrap = false;
-                int spaces = 4 - (_cursorCol % 4);
-                for (int i = 0; i < spaces; i++) WriteContentCore(" ");
+                HorizontalTab();
             }
         }
 

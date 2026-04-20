@@ -135,7 +135,7 @@ namespace NovaTerminal.Core
 
                 _restoreMainCursorOnAltExit = false;
                 SwitchToMainScreen(restoreSavedCursorIfArmed: false);
-                // _tabs.Clear(); // tabs not implemented yet
+                ResetTabStopsToDefaultsNoLock();
             }
             finally
             {
