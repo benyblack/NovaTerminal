@@ -1,4 +1,3 @@
 using System.Runtime.CompilerServices;
 
 [assembly: InternalsVisibleTo("NovaTerminal.Tests")]
-[assembly: InternalsVisibleTo("NovaTerminal")]

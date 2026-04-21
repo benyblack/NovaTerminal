@@ -8,6 +8,7 @@ namespace NovaTerminal.Conformance;
 public static class VtConformanceReportTool
 {
     private static readonly Regex InlineCodeRegex = new("`([^`]+)`", RegexOptions.Compiled);
+    private const string EmbeddedReportRegenerationCommand = "dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -- --report src/NovaTerminal.App/Resources/vt-conformance-report.json";
 
     public static VtConformanceReport Generate(string repositoryRoot, string matrixPath)
     {
@@ -62,6 +63,36 @@ public static class VtConformanceReportTool
         }
 
         File.WriteAllText(absoluteOutputPath, Serialize(report));
+    }
+
+    public static VtConformanceReportComparison CompareReport(VtConformanceReport report, string reportPath)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reportPath);
+
+        string absoluteReportPath = Path.GetFullPath(reportPath);
+        if (!File.Exists(absoluteReportPath))
+        {
+            return new VtConformanceReportComparison(
+                Matches: false,
+                ReportPath: absoluteReportPath,
+                Message: $"VT conformance report '{absoluteReportPath}' does not exist. Regenerate it with: {EmbeddedReportRegenerationCommand}");
+        }
+
+        string expected = Serialize(report);
+        string actual = File.ReadAllText(absoluteReportPath);
+        if (string.Equals(expected, actual, StringComparison.Ordinal))
+        {
+            return new VtConformanceReportComparison(
+                Matches: true,
+                ReportPath: absoluteReportPath,
+                Message: $"VT conformance report matches '{absoluteReportPath}'.");
+        }
+
+        return new VtConformanceReportComparison(
+            Matches: false,
+            ReportPath: absoluteReportPath,
+            Message: $"VT conformance report '{absoluteReportPath}' is out of date. Regenerate it with: {EmbeddedReportRegenerationCommand}");
     }
 
     public static JsonSerializerOptions JsonOptions { get; } = new()
@@ -494,6 +525,7 @@ public static class VtConformanceCli
             string repoRoot = Directory.GetCurrentDirectory();
             string matrixPath = Path.Combine("docs", "vt_coverage_matrix.md");
             string? reportPath = null;
+            string? checkReportPath = null;
             bool validate = false;
 
             for (int index = 0; index < args.Length; index++)
@@ -510,6 +542,9 @@ public static class VtConformanceCli
                     case "--report":
                         reportPath = RequireValue(args, ref index, arg);
                         break;
+                    case "--check-report":
+                        checkReportPath = RequireValue(args, ref index, arg);
+                        break;
                     case "--validate":
                         validate = true;
                         break;
@@ -523,18 +558,36 @@ public static class VtConformanceCli
             }
 
             VtConformanceReport report = VtConformanceReportTool.Generate(repoRoot, matrixPath);
+            VtConformanceReportComparison? reportComparison = null;
+
+            if (!string.IsNullOrWhiteSpace(checkReportPath))
+            {
+                reportComparison = VtConformanceReportTool.CompareReport(report, checkReportPath);
+            }
 
             if (!string.IsNullOrWhiteSpace(reportPath))
             {
                 VtConformanceReportTool.WriteReport(report, reportPath);
                 Console.WriteLine($"Wrote VT conformance report to '{Path.GetFullPath(reportPath)}'.");
             }
-            else
+            else if (string.IsNullOrWhiteSpace(checkReportPath))
             {
                 Console.WriteLine(VtConformanceReportTool.Serialize(report));
             }
 
             Console.WriteLine($"Rows: {report.Summary.TotalRows}; errors: {report.Summary.ErrorCount}; warnings: {report.Summary.WarningCount}.");
+
+            if (reportComparison is not null)
+            {
+                if (reportComparison.Matches)
+                {
+                    Console.WriteLine(reportComparison.Message);
+                }
+                else
+                {
+                    Console.Error.WriteLine(reportComparison.Message);
+                }
+            }
 
             foreach (VtConformanceIssue issue in report.Errors)
             {
@@ -546,7 +599,9 @@ public static class VtConformanceCli
                 Console.WriteLine($"WARN {issue.Code} (line {issue.LineNumber}): {issue.Message}");
             }
 
-            return Task.FromResult(validate && report.Errors.Count > 0 ? 1 : 0);
+            bool hasValidationErrors = validate && report.Errors.Count > 0;
+            bool hasReportDrift = reportComparison is { Matches: false };
+            return Task.FromResult(hasValidationErrors || hasReportDrift ? 1 : 0);
         }
         catch (Exception ex)
         {
@@ -569,7 +624,7 @@ public static class VtConformanceCli
 
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage: dotnet run --project src/NovaTerminal.Conformance -- [--repo-root <path>] [--matrix <path>] [--report <path>] [--validate]");
+        Console.WriteLine("Usage: dotnet run --project src/NovaTerminal.Conformance -- [--repo-root <path>] [--matrix <path>] [--report <path>] [--check-report <path>] [--validate]");
     }
 }
 
@@ -628,6 +683,11 @@ public sealed record VtConformanceIssue(
     string? MatrixPath,
     int LineNumber,
     string? Feature);
+
+public sealed record VtConformanceReportComparison(
+    bool Matches,
+    string ReportPath,
+    string Message);
 
 public enum IssueSeverity
 {

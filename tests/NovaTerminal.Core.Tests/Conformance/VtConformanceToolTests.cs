@@ -95,6 +95,58 @@ public sealed class VtConformanceToolTests
     }
 
     [Fact]
+    public void CompareReport_ReturnsMatch_WhenEmbeddedArtifactIsCurrent()
+    {
+        using var repo = new TemporaryRepo();
+        repo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
+        repo.WriteFile("docs/vt_coverage_matrix.md", """
+# VT Conformance Matrix
+
+## 1) Parsing
+
+| Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
+|---|---|---:|---|---|---|
+| CSI parser | Basic | ✅ Supported | Unit: `tests/NovaTerminal.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
+""");
+
+        string reportPath = Path.Combine(repo.RootPath, "src", "NovaTerminal.App", "Resources", "vt-conformance-report.json");
+        VtConformanceReport report = VtConformanceReportTool.Generate(repo.RootPath, Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+        VtConformanceReportTool.WriteReport(report, reportPath);
+
+        VtConformanceReportComparison comparison = VtConformanceReportTool.CompareReport(report, reportPath);
+
+        Assert.True(comparison.Matches);
+        Assert.Equal(reportPath, comparison.ReportPath);
+        Assert.Contains("matches", comparison.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CompareReport_ReturnsMismatch_WhenEmbeddedArtifactDrifts()
+    {
+        using var repo = new TemporaryRepo();
+        repo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
+        repo.WriteFile("docs/vt_coverage_matrix.md", """
+# VT Conformance Matrix
+
+## 1) Parsing
+
+| Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
+|---|---|---:|---|---|---|
+| CSI parser | Basic | ✅ Supported | Unit: `tests/NovaTerminal.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
+""");
+
+        string reportPath = Path.Combine(repo.RootPath, "src", "NovaTerminal.App", "Resources", "vt-conformance-report.json");
+        repo.WriteFile("src/NovaTerminal.App/Resources/vt-conformance-report.json", "{}");
+        VtConformanceReport report = VtConformanceReportTool.Generate(repo.RootPath, Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
+
+        VtConformanceReportComparison comparison = VtConformanceReportTool.CompareReport(report, reportPath);
+
+        Assert.False(comparison.Matches);
+        Assert.Equal(reportPath, comparison.ReportPath);
+        Assert.Contains("out of date", comparison.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Generate_CurrentRepositoryMatrix_HasNoValidationErrors()
     {
         string repoRoot = FindRepositoryRoot();

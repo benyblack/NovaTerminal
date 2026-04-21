@@ -10,6 +10,12 @@ Generate a deterministic JSON report and fail on validation errors:
 dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -- --validate --report artifacts/vt-conformance/vt-conformance-report.json
 ```
 
+Validate that the shipped embedded app artifact is still current:
+
+```powershell
+dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -- --validate --check-report src/NovaTerminal.App/Resources/vt-conformance-report.json
+```
+
 Defaults:
 
 - repo root: current working directory
@@ -81,6 +87,12 @@ Regenerate it from the canonical matrix with:
 dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c Release -- --report src/NovaTerminal.App/Resources/vt-conformance-report.json
 ```
 
+Verify that it has not drifted with:
+
+```powershell
+dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c Release -- --validate --check-report src/NovaTerminal.App/Resources/vt-conformance-report.json
+```
+
 This keeps the main app lightweight:
 
 - the app does not parse `docs/vt_coverage_matrix.md` at runtime
@@ -89,6 +101,8 @@ This keeps the main app lightweight:
 - `--vt-report` prints a concise summary derived from the embedded artifact
 
 When `docs/vt_coverage_matrix.md` changes, regenerate and ship the embedded JSON in the same change.
+
+The CI workflow also runs the `--check-report` command, so a stale embedded artifact fails the VT conformance job.
 
 ## Public CLI
 
@@ -107,6 +121,13 @@ Default output is a short summary:
 - validation counts
 
 `--json` prints the full machine-readable report.
+
+Implementation note:
+
+- `NovaTerminal.exe` remains the public entry point
+- `NovaTerminal.exe` is a small console launcher that handles VT-report modes directly
+- normal GUI startup is delegated to a sibling `NovaTerminal.Gui.exe` built from `NovaTerminal.App`
+- this split keeps `NovaTerminal --vt-report` shell-friendly without changing terminal runtime behavior
 
 ## Intentional Limitations
 

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using NovaTerminal.Conformance;
 
@@ -5,6 +6,55 @@ namespace NovaTerminal.Tests;
 
 public sealed class VtReportCliTests
 {
+    [Fact]
+    public void IsSupportedCliMode_ReturnsFalse_WhenFlagIsMissing()
+    {
+        Assert.False(VtReportCommand.IsSupportedCliMode(["--help"]));
+    }
+
+    [Fact]
+    public void IsSupportedCliMode_ReturnsTrue_ForVtReport()
+    {
+        Assert.True(VtReportCommand.IsSupportedCliMode(["--vt-report"]));
+    }
+
+    [Fact]
+    public void Execute_PrintsHumanReadableSummary_ByDefault()
+    {
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+
+        int exitCode = VtReportCommand.Execute(["--vt-report"], stdout, stderr);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, stderr.ToString());
+
+        string output = stdout.ToString();
+        Assert.Contains("NovaTerminal VT Report", output);
+        Assert.Contains("Matrix:", output);
+        Assert.Contains("Supported:", output);
+        Assert.Contains("Validation:", output);
+        Assert.Contains("--vt-report --json", output);
+    }
+
+    [Fact]
+    public void Execute_PrintsEmbeddedJson_WhenJsonFlagIsPresent()
+    {
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+
+        int exitCode = VtReportCommand.Execute(["--vt-report", "--json"], stdout, stderr);
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, stderr.ToString());
+
+        string output = stdout.ToString().Trim();
+        using JsonDocument document = JsonDocument.Parse(output);
+        Assert.True(document.RootElement.TryGetProperty("summary", out _));
+        Assert.True(document.RootElement.TryGetProperty("rows", out _));
+        Assert.True(document.RootElement.TryGetProperty("warnings", out _));
+    }
+
     [Fact]
     public void TryRun_ReturnsFalse_WhenFlagIsMissing()
     {
@@ -20,42 +70,79 @@ public sealed class VtReportCliTests
     }
 
     [Fact]
-    public void TryRun_PrintsHumanReadableSummary_ByDefault()
+    public void CliShim_PrintsHumanReadableSummary()
     {
-        using var stdout = new StringWriter();
-        using var stderr = new StringWriter();
+        string repoRoot = FindRepositoryRoot();
+        string cliProjectPath = Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "NovaTerminal.Cli.csproj");
+        string cliExecutablePath = Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "bin", "Release", "net10.0", "NovaTerminal.exe");
+        (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
+            repoRoot,
+            "dotnet",
+            $"build \"{cliProjectPath}\" -c Release --no-restore -p:BuildProjectReferences=false");
+        (int exitCode, string stdout, string stderr) = RunProcessFromRepository(
+            repoRoot,
+            cliExecutablePath,
+            "--vt-report");
 
-        bool handled = VtReportCli.TryRun(["--vt-report"], stdout, stderr, out int exitCode);
-
-        Assert.True(handled);
+        Assert.Equal(0, buildExitCode);
+        Assert.Equal(string.Empty, buildStdErr);
         Assert.Equal(0, exitCode);
-        Assert.Equal(string.Empty, stderr.ToString());
-
-        string output = stdout.ToString();
-        Assert.Contains("NovaTerminal VT Report", output);
-        Assert.Contains("Matrix:", output);
-        Assert.Contains("Supported:", output);
-        Assert.Contains("Validation:", output);
-        Assert.Contains("--vt-report --json", output);
+        Assert.Equal(string.Empty, stderr);
+        Assert.Contains("NovaTerminal VT Report", stdout);
+        Assert.Contains("Matrix:", stdout);
+        Assert.Contains("Validation:", stdout);
     }
 
     [Fact]
-    public void TryRun_PrintsEmbeddedJson_WhenJsonFlagIsPresent()
+    public void GuiAppLauncher_Launch_UsesSiblingGuiPath()
     {
-        using var stdout = new StringWriter();
-        using var stderr = new StringWriter();
+        var starter = new FakeGuiAppProcessStarter(shouldStart: true);
 
-        bool handled = VtReportCli.TryRun(["--vt-report", "--json"], stdout, stderr, out int exitCode);
+        int exitCode = GuiAppLauncher.Launch(
+            ["--help"],
+            @"D:\projects\nova2\src\NovaTerminal.App\bin\Debug\net10.0",
+            starter,
+            TextWriter.Null);
 
-        Assert.True(handled);
         Assert.Equal(0, exitCode);
-        Assert.Equal(string.Empty, stderr.ToString());
+        Assert.Equal(
+            Path.Combine(@"D:\projects\nova2\src\NovaTerminal.App\bin\Debug\net10.0", "NovaTerminal.Gui.exe"),
+            starter.FilePath);
+        Assert.NotNull(starter.Args);
+        Assert.Equal(["--help"], starter.Args);
+    }
 
-        string output = stdout.ToString().Trim();
-        using JsonDocument document = JsonDocument.Parse(output);
-        Assert.True(document.RootElement.TryGetProperty("summary", out _));
-        Assert.True(document.RootElement.TryGetProperty("rows", out _));
-        Assert.True(document.RootElement.TryGetProperty("warnings", out _));
+    [Fact]
+    public void GuiAppLauncher_Launch_ReturnsError_WhenGuiStartFails()
+    {
+        using var stderr = new StringWriter();
+        var starter = new FakeGuiAppProcessStarter(shouldStart: false);
+
+        int exitCode = GuiAppLauncher.Launch(
+            ["--help"],
+            @"D:\projects\nova2\src\NovaTerminal.App\bin\Debug\net10.0",
+            starter,
+            stderr);
+
+        Assert.Equal(2, exitCode);
+        Assert.Contains("Failed to launch GUI application", stderr.ToString());
+    }
+
+    [Fact]
+    public void AppBinary_PrintsHumanReadableSummary_ViaCliShim()
+    {
+        string repoRoot = FindRepositoryRoot();
+        string appExecutablePath = Path.Combine(repoRoot, "src", "NovaTerminal.App", "bin", "Release", "net10.0", "NovaTerminal.exe");
+        (int exitCode, string stdout, string stderr) = RunProcessFromRepository(
+            repoRoot,
+            appExecutablePath,
+            "--vt-report");
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(string.Empty, stderr);
+        Assert.Contains("NovaTerminal VT Report", stdout);
+        Assert.Contains("Matrix:", stdout);
+        Assert.Contains("Validation:", stdout);
     }
 
     [Fact]
@@ -84,5 +171,51 @@ public sealed class VtReportCliTests
         }
 
         throw new DirectoryNotFoundException("Could not locate repository root from test output path.");
+    }
+
+    private static (int ExitCode, string StdOut, string StdErr) RunProcessFromRepository(
+        string repoRoot,
+        string fileName,
+        string arguments)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = fileName,
+            Arguments = arguments,
+            WorkingDirectory = repoRoot,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+
+        using var process = Process.Start(startInfo);
+        Assert.NotNull(process);
+
+        string stdout = process!.StandardOutput.ReadToEnd();
+        string stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        return (process.ExitCode, stdout, stderr);
+    }
+
+    private sealed class FakeGuiAppProcessStarter : IGuiAppProcessStarter
+    {
+        public FakeGuiAppProcessStarter(bool shouldStart)
+        {
+            ShouldStart = shouldStart;
+        }
+
+        public bool ShouldStart { get; }
+
+        public string? FilePath { get; private set; }
+
+        public string[]? Args { get; private set; }
+
+        public bool TryStart(string filePath, string[] args)
+        {
+            FilePath = filePath;
+            Args = [.. args];
+            return ShouldStart;
+        }
     }
 }
