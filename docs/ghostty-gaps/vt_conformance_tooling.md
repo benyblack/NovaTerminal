@@ -69,6 +69,45 @@ Warnings are included in the report but do not fail CI.
 
 It uploads the JSON report as an artifact for PR review and push runs.
 
+## Shipped App Artifact
+
+NovaTerminal ships an embedded copy of the generated report at:
+
+- `src/NovaTerminal.App/Resources/vt-conformance-report.json`
+
+Regenerate it from the canonical matrix with:
+
+```powershell
+dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c Release -- --report src/NovaTerminal.App/Resources/vt-conformance-report.json
+```
+
+This keeps the main app lightweight:
+
+- the app does not parse `docs/vt_coverage_matrix.md` at runtime
+- the app does not probe terminal behavior at runtime
+- `--vt-report --json` emits the embedded artifact bytes
+- `--vt-report` prints a concise summary derived from the embedded artifact
+
+When `docs/vt_coverage_matrix.md` changes, regenerate and ship the embedded JSON in the same change.
+
+## Public CLI
+
+User-facing commands:
+
+```powershell
+NovaTerminal --vt-report
+NovaTerminal --vt-report --json
+```
+
+Default output is a short summary:
+
+- matrix path
+- support-status counts
+- linked-evidence counts
+- validation counts
+
+`--json` prints the full machine-readable report.
+
 ## Intentional Limitations
 
 - The parser only reads markdown tables that include both `Status` and `Evidence` columns.

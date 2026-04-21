@@ -1,0 +1,1237 @@
+{
+  "schemaVersion": 1,
+  "matrixPath": "docs/vt_coverage_matrix.md",
+  "matrixSha256": "4f2db6647b19739fa7ee9d79ffe27aec2ad66c4476e9fe8e0cb91d4ee962e743",
+  "summary": {
+    "totalRows": 55,
+    "supportedCount": 16,
+    "partialCount": 32,
+    "experimentalCount": 1,
+    "notSupportedCount": 5,
+    "wontSupportCount": 1,
+    "rowsWithLinkedEvidence": 29,
+    "supportedRowsWithLinkedEvidence": 16,
+    "errorCount": 0,
+    "warningCount": 0
+  },
+  "sections": [
+    {
+      "order": 0,
+      "title": "1) Input parsing \u0026 state machine",
+      "startLine": 54,
+      "endLine": 61,
+      "rowCount": 6
+    },
+    {
+      "order": 1,
+      "title": "2) Cursor movement \u0026 positioning (CSI)",
+      "startLine": 67,
+      "endLine": 75,
+      "rowCount": 7
+    },
+    {
+      "order": 2,
+      "title": "3) Erase \u0026 insert/delete (CSI)",
+      "startLine": 81,
+      "endLine": 88,
+      "rowCount": 6
+    },
+    {
+      "order": 3,
+      "title": "4) Scrolling, margins, and origin mode",
+      "startLine": 94,
+      "endLine": 100,
+      "rowCount": 5
+    },
+    {
+      "order": 4,
+      "title": "5) Screen buffers \u0026 modes (DEC private modes)",
+      "startLine": 106,
+      "endLine": 114,
+      "rowCount": 7
+    },
+    {
+      "order": 5,
+      "title": "6) SGR attributes \u0026 colors",
+      "startLine": 120,
+      "endLine": 126,
+      "rowCount": 5
+    },
+    {
+      "order": 6,
+      "title": "7) Tabs",
+      "startLine": 132,
+      "endLine": 135,
+      "rowCount": 2
+    },
+    {
+      "order": 7,
+      "title": "8) OSC sequences",
+      "startLine": 141,
+      "endLine": 149,
+      "rowCount": 7
+    },
+    {
+      "order": 8,
+      "title": "9) Kitty graphics / APC",
+      "startLine": 155,
+      "endLine": 158,
+      "rowCount": 2
+    },
+    {
+      "order": 9,
+      "title": "10) SIXEL",
+      "startLine": 164,
+      "endLine": 167,
+      "rowCount": 2
+    },
+    {
+      "order": 10,
+      "title": "11) Clipboard, selection, and hyperlinking",
+      "startLine": 173,
+      "endLine": 177,
+      "rowCount": 3
+    },
+    {
+      "order": 11,
+      "title": "12) Unicode width, graphemes, and font behavior",
+      "startLine": 183,
+      "endLine": 187,
+      "rowCount": 3
+    }
+  ],
+  "rows": [
+    {
+      "section": "1) Input parsing \u0026 state machine",
+      "feature": "C0 controls (BEL, BS, HT, LF, CR)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Basic control chars",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060; Replay: \u0060tests/Replays/...\u0060",
+      "evidenceKinds": [
+        "replay",
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "\u0060Core/AnsiParser.cs\u0060, \u0060Core/TerminalBuffer.cs\u0060",
+      "knownDeviations": "HT now follows stored tab stops instead of inserting spaces; broader C0 coverage is still only partially audited",
+      "sourceLine": 56
+    },
+    {
+      "section": "1) Input parsing \u0026 state machine",
+      "feature": "C1 via 7-bit ESC (ESC @.._)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "\u201C7-bit C1\u201D translation",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "\u0060Core/AnsiParser.cs\u0060",
+      "knownDeviations": "Recognizes CSI/OSC/DCS/APC plus IND/NEL/RI; unsupported \u0060ESC @.._\u0060 controls are ignored with recovery rather than fully implemented",
+      "sourceLine": 57
+    },
+    {
+      "section": "1) Input parsing \u0026 state machine",
+      "feature": "8-bit C1 bytes (0x80\u20130x9F)",
+      "status": "\u274C Not supported",
+      "specOrNotes": "If supported, must be explicit",
+      "evidenceText": "\u2014",
+      "evidenceKinds": [],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "\u0060Core/AnsiParser.cs\u0060",
+      "knownDeviations": "(fill)",
+      "sourceLine": 58
+    },
+    {
+      "section": "1) Input parsing \u0026 state machine",
+      "feature": "String terminators (ST = ESC \\\\, BEL)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "OSC/APC termination rules",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "\u0060Core/AnsiParser.cs\u0060",
+      "knownDeviations": "OSC accepts BEL and ST; DCS/APC also accept BEL as permissive recovery behavior, not strict spec compliance",
+      "sourceLine": 59
+    },
+    {
+      "section": "1) Input parsing \u0026 state machine",
+      "feature": "Unknown sequence handling",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Ignore/print/strict?",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "\u0060Core/AnsiParser.cs\u0060",
+      "knownDeviations": "Unknown \u0060ESC @.._\u0060 sequences are ignored and parser resumes on the next valid escape or printable content",
+      "sourceLine": 60
+    },
+    {
+      "section": "1) Input parsing \u0026 state machine",
+      "feature": "Error recovery on malformed sequences",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Robustness",
+      "evidenceText": "Fuzz/Unit: \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.Tests/AnsiCorpusReplayTests.cs\u0060",
+      "evidenceKinds": [
+        "fuzz",
+        "replay",
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/AnsiCorpusReplayTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiCorpusReplayTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "\u0060Core/AnsiParser.cs\u0060",
+      "knownDeviations": "Malformed OSC/CSI/DCS/APC recover across chunk boundaries and nested ESC, but this is a best-effort parser policy rather than full conformance coverage",
+      "sourceLine": 61
+    },
+    {
+      "section": "2) Cursor movement \u0026 positioning (CSI)",
+      "feature": "CUU/CUD/CUF/CUB (A/B/C/D)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Cursor up/down/forward/back",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/PendingWrapTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/PendingWrapTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\PendingWrapTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "Explicit CUF movement is covered via pending-wrap reset; dedicated CUU/CUD/CUB targeted coverage is still missing",
+      "sourceLine": 69
+    },
+    {
+      "section": "2) Cursor movement \u0026 positioning (CSI)",
+      "feature": "CUP / HVP (H/f)",
+      "status": "\u2705 Supported",
+      "specOrNotes": "Positioning, default params",
+      "evidenceText": "Unit \u002B Replay: \u0060tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs\u0060, \u0060tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs\u0060",
+      "evidenceKinds": [
+        "replay",
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\CursorPositioningCompletionTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\RegressionTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 70
+    },
+    {
+      "section": "2) Cursor movement \u0026 positioning (CSI)",
+      "feature": "CHA/CPL/CNL (G/F/E)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Horizontal absolute / prev/next line",
+      "evidenceText": "Replay",
+      "evidenceKinds": [
+        "replay"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 71
+    },
+    {
+      "section": "2) Cursor movement \u0026 positioning (CSI)",
+      "feature": "CHT (I)",
+      "status": "\u2705 Supported",
+      "specOrNotes": "Cursor forward tabulation",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 72
+    },
+    {
+      "section": "2) Cursor movement \u0026 positioning (CSI)",
+      "feature": "CBT (Z)",
+      "status": "\u2705 Supported",
+      "specOrNotes": "Cursor backward tabulation",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 73
+    },
+    {
+      "section": "2) Cursor movement \u0026 positioning (CSI)",
+      "feature": "VPA/HPA (d/G/\u0060)",
+      "status": "\u2705 Supported",
+      "specOrNotes": "Absolute row/col",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\CursorPositioningCompletionTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 74
+    },
+    {
+      "section": "2) Cursor movement \u0026 positioning (CSI)",
+      "feature": "HPR/VPR (a/e)",
+      "status": "\u2705 Supported",
+      "specOrNotes": "Relative row/col",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\CursorPositioningCompletionTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 75
+    },
+    {
+      "section": "3) Erase \u0026 insert/delete (CSI)",
+      "feature": "ED (J)",
+      "status": "\u2705 Supported",
+      "specOrNotes": "0/1/2 erase display",
+      "evidenceText": "Replay: \u0060tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs\u0060, \u0060tests/NovaTerminal.Tests/Fixtures/Replay/vttest_cursor.rec\u0060; Unit: \u0060tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
+      "evidenceKinds": [
+        "external",
+        "replay",
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Core.Tests\\Ssh\\NativeSshTerminalParityTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/Fixtures/Replay/vttest_cursor.rec",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\Fixtures\\Replay\\vttest_cursor.rec"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\RegressionTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 83
+    },
+    {
+      "section": "3) Erase \u0026 insert/delete (CSI)",
+      "feature": "EL (K)",
+      "status": "\u2705 Supported",
+      "specOrNotes": "0/1/2 erase line",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Core.Tests\\Ssh\\NativeSshTerminalParityTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 84
+    },
+    {
+      "section": "3) Erase \u0026 insert/delete (CSI)",
+      "feature": "ICH ( @ )",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Insert chars",
+      "evidenceText": "Code path",
+      "evidenceKinds": [
+        "code-path"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "Implemented in parser/buffer; needs targeted unit coverage",
+      "sourceLine": 85
+    },
+    {
+      "section": "3) Erase \u0026 insert/delete (CSI)",
+      "feature": "DCH (P)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Delete chars",
+      "evidenceText": "Code path",
+      "evidenceKinds": [
+        "code-path"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "Implemented in parser/buffer; needs targeted unit coverage",
+      "sourceLine": 86
+    },
+    {
+      "section": "3) Erase \u0026 insert/delete (CSI)",
+      "feature": "IL (L) / DL (M)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Insert/delete lines",
+      "evidenceText": "Replay",
+      "evidenceKinds": [
+        "replay"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Buffer",
+      "knownDeviations": "Scroll region interactions",
+      "sourceLine": 87
+    },
+    {
+      "section": "3) Erase \u0026 insert/delete (CSI)",
+      "feature": "ECH (X)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Erase chars",
+      "evidenceText": "Code path",
+      "evidenceKinds": [
+        "code-path"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "Implemented in parser/buffer; needs targeted unit coverage",
+      "sourceLine": 88
+    },
+    {
+      "section": "4) Scrolling, margins, and origin mode",
+      "feature": "DECSTBM (CSI t;b r)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Set top/bottom margins",
+      "evidenceText": "VTTEST: scroll scenario",
+      "evidenceKinds": [
+        "external"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 96
+    },
+    {
+      "section": "4) Scrolling, margins, and origin mode",
+      "feature": "IND (ESC D) / RI (ESC M)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Index / Reverse index",
+      "evidenceText": "Replay",
+      "evidenceKinds": [
+        "replay"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 97
+    },
+    {
+      "section": "4) Scrolling, margins, and origin mode",
+      "feature": "DECOM (origin mode)",
+      "status": "\u2705 Supported",
+      "specOrNotes": "Cursor relative to margins",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/DecModeTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/DecModeTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\DecModeTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 98
+    },
+    {
+      "section": "4) Scrolling, margins, and origin mode",
+      "feature": "Wraparound DECAWM",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Auto wrap",
+      "evidenceText": "Replay",
+      "evidenceKinds": [
+        "replay"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Buffer",
+      "knownDeviations": "Wide glyph edge cases",
+      "sourceLine": 99
+    },
+    {
+      "section": "4) Scrolling, margins, and origin mode",
+      "feature": "Smooth scroll",
+      "status": "\uD83D\uDEAB Won\u2019t support",
+      "specOrNotes": "Not required for correctness",
+      "evidenceText": "\u2014",
+      "evidenceKinds": [],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "\u2014",
+      "knownDeviations": "Renderer concern",
+      "sourceLine": 100
+    },
+    {
+      "section": "5) Screen buffers \u0026 modes (DEC private modes)",
+      "feature": "Alternate screen",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Switch \u002B save/restore cursor",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/AlternateScreenTests.cs\u0060; Replay: \u0060tests/NovaTerminal.Tests/ReplayTests/AlternateScreenReplayTests.cs\u0060, \u0060tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs\u0060",
+      "evidenceKinds": [
+        "replay",
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/AlternateScreenTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AlternateScreenTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/ReplayTests/AlternateScreenReplayTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\AlternateScreenReplayTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\NativeSshReplayParityTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Buffer",
+      "knownDeviations": "Main scrollback is preserved and alt-screen output never enters scrollback. \u0060?47\u0060 reuses the existing alternate buffer/state without clearing; \u0060?1047\u0060 and \u0060?1049\u0060 clear and home the alternate buffer on entry. Nested/redundant alt-screen enters are treated as no-op, and a \u0060?1049\u0060 save is consumed by the first exit from alt-screen regardless of whether that exit uses \u0060?47l\u0060, \u0060?1047l\u0060, or \u0060?1049l\u0060.",
+      "sourceLine": 108
+    },
+    {
+      "section": "5) Screen buffers \u0026 modes (DEC private modes)",
+      "feature": "Show cursor",
+      "status": "\u2705 Supported",
+      "specOrNotes": "",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/DecModeTests.cs\u0060; Replay: \u0060tests/NovaTerminal.Tests/ReplayTests/ReplayV2Tests.cs\u0060",
+      "evidenceKinds": [
+        "replay",
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/DecModeTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\DecModeTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/ReplayTests/ReplayV2Tests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\ReplayV2Tests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Buffer\u002BRenderer",
+      "knownDeviations": "",
+      "sourceLine": 109
+    },
+    {
+      "section": "5) Screen buffers \u0026 modes (DEC private modes)",
+      "feature": "Application cursor keys",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Impacts input mapping",
+      "evidenceText": "Unit/Code: \u0060ReplayV2Tests\u0060, app input paths",
+      "evidenceKinds": [
+        "replay",
+        "unit"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BInput",
+      "knownDeviations": "Parser/UI wiring exists; needs targeted key-mapping tests",
+      "sourceLine": 110
+    },
+    {
+      "section": "5) Screen buffers \u0026 modes (DEC private modes)",
+      "feature": "Focus event reporting",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Emits \u0060CSI I\u0060 / \u0060CSI O\u0060 on focus transitions",
+      "evidenceText": "Unit/Code: \u0060DecModeTests\u0060, \u0060TerminalView\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BInput",
+      "knownDeviations": "Mode flag tested; focus emission covered by app path, not headless UI test",
+      "sourceLine": 111
+    },
+    {
+      "section": "5) Screen buffers \u0026 modes (DEC private modes)",
+      "feature": "Bracketed paste",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Input feature",
+      "evidenceText": "Unit",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Input layer",
+      "knownDeviations": "",
+      "sourceLine": 112
+    },
+    {
+      "section": "5) Screen buffers \u0026 modes (DEC private modes)",
+      "feature": "Mouse reporting",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "",
+      "evidenceText": "Manual/Unit",
+      "evidenceKinds": [
+        "manual",
+        "unit"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Input layer",
+      "knownDeviations": "",
+      "sourceLine": 113
+    },
+    {
+      "section": "5) Screen buffers \u0026 modes (DEC private modes)",
+      "feature": "Cursor style",
+      "status": "\u2705 Supported",
+      "specOrNotes": "DECSCUSR block/beam/underline \u002B blink state",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscUxTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscUxTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BRenderer",
+      "knownDeviations": "",
+      "sourceLine": 114
+    },
+    {
+      "section": "6) SGR attributes \u0026 colors",
+      "feature": "Basic SGR (0,1,2,3,4,5,7,9,22,23,24,25,27,29)",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Bold/dim/italic/underline/blink/reverse/strike",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/SgrAttributeTests.cs\u0060; VTTEST: sgr scenario",
+      "evidenceKinds": [
+        "external",
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/SgrAttributeTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\SgrAttributeTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer\u002BRenderer",
+      "knownDeviations": "Underline style/color tracked separately",
+      "sourceLine": 122
+    },
+    {
+      "section": "6) SGR attributes \u0026 colors",
+      "feature": "8/16 colors",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "",
+      "evidenceText": "Replay",
+      "evidenceKinds": [
+        "replay"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 123
+    },
+    {
+      "section": "6) SGR attributes \u0026 colors",
+      "feature": "256-color",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "",
+      "evidenceText": "Replay",
+      "evidenceKinds": [
+        "replay"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 124
+    },
+    {
+      "section": "6) SGR attributes \u0026 colors",
+      "feature": "Truecolor",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "",
+      "evidenceText": "Replay",
+      "evidenceKinds": [
+        "replay"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "",
+      "sourceLine": 125
+    },
+    {
+      "section": "6) SGR attributes \u0026 colors",
+      "feature": "Underline styles",
+      "status": "\u274C Not supported",
+      "specOrNotes": "xterm",
+      "evidenceText": "\u2014",
+      "evidenceKinds": [],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "Buffer",
+      "knownDeviations": "",
+      "sourceLine": 126
+    },
+    {
+      "section": "7) Tabs",
+      "feature": "HT (tab) movement",
+      "status": "\u2705 Supported",
+      "specOrNotes": "",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "Custom tab stops are clipped on width shrink; columns exposed by width growth start with default 8-column tab stops",
+      "sourceLine": 134
+    },
+    {
+      "section": "7) Tabs",
+      "feature": "Tab stops set/clear",
+      "status": "\u2705 Supported",
+      "specOrNotes": "ESC H, CSI g",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BBuffer",
+      "knownDeviations": "\u0060CSI g\u0060 supports current-stop clear (\u00600\u0060/default) and clear-all (\u00603\u0060); other parameters are ignored",
+      "sourceLine": 135
+    },
+    {
+      "section": "8) OSC sequences",
+      "feature": "OSC 0/2",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "",
+      "evidenceText": "Manual/Unit",
+      "evidenceKinds": [
+        "manual",
+        "unit"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": false,
+      "ownership": "App/UI",
+      "knownDeviations": "",
+      "sourceLine": 143
+    },
+    {
+      "section": "8) OSC sequences",
+      "feature": "OSC 7",
+      "status": "\u2705 Supported",
+      "specOrNotes": "",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscUxTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscUxTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BApp",
+      "knownDeviations": "",
+      "sourceLine": 144
+    },
+    {
+      "section": "8) OSC sequences",
+      "feature": "OSC 52",
+      "status": "\u274C Not supported",
+      "specOrNotes": "",
+      "evidenceText": "\u2014",
+      "evidenceKinds": [],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "App/UI",
+      "knownDeviations": "",
+      "sourceLine": 145
+    },
+    {
+      "section": "8) OSC sequences",
+      "feature": "OSC 8",
+      "status": "\u2705 Supported",
+      "specOrNotes": "",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscUxTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscUxTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BRenderer\u002BUI",
+      "knownDeviations": "Ctrl-click open path is app-level",
+      "sourceLine": 146
+    },
+    {
+      "section": "8) OSC sequences",
+      "feature": "OSC 133",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscShellIntegrationTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/OscShellIntegrationTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscShellIntegrationTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BCommand Assist",
+      "knownDeviations": "Supports A/B/C/D markers; broader semantic prompt extensions not audited",
+      "sourceLine": 147
+    },
+    {
+      "section": "8) OSC sequences",
+      "feature": "OSC 1337",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "",
+      "evidenceText": "Manual: \u0060docs/qa/QA_GRAPHICS.md\u0060",
+      "evidenceKinds": [
+        "manual"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "docs/qa/QA_GRAPHICS.md",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\docs\\qa\\QA_GRAPHICS.md"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BRenderer",
+      "knownDeviations": "Parser support exists, but targeted automated replay/unit coverage for OSC 1337 is still missing",
+      "sourceLine": 148
+    },
+    {
+      "section": "8) OSC sequences",
+      "feature": "OSC 1339",
+      "status": "\uD83E\uDDEA Experimental",
+      "specOrNotes": "",
+      "evidenceText": "Manual",
+      "evidenceKinds": [
+        "manual"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "Parser\u002BWin",
+      "knownDeviations": "",
+      "sourceLine": 149
+    },
+    {
+      "section": "9) Kitty graphics / APC",
+      "feature": "Kitty graphics protocol",
+      "status": "\u2705 Supported",
+      "specOrNotes": "APC / OSC forms",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/GraphicsTests.cs\u0060, \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/GraphicsTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\GraphicsTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BRenderer",
+      "knownDeviations": "",
+      "sourceLine": 157
+    },
+    {
+      "section": "9) Kitty graphics / APC",
+      "feature": "Placement, z-index, scrolling",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Complex interactions",
+      "evidenceText": "Manual",
+      "evidenceKinds": [
+        "manual"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "Buffer\u002BRenderer",
+      "knownDeviations": "",
+      "sourceLine": 158
+    },
+    {
+      "section": "10) SIXEL",
+      "feature": "SIXEL decode/render",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "",
+      "evidenceText": "Manual",
+      "evidenceKinds": [
+        "manual"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "Decoder\u002BRenderer",
+      "knownDeviations": "",
+      "sourceLine": 166
+    },
+    {
+      "section": "10) SIXEL",
+      "feature": "SIXEL scrolling behavior",
+      "status": "\u274C Not supported",
+      "specOrNotes": "",
+      "evidenceText": "\u2014",
+      "evidenceKinds": [],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "Buffer\u002BRenderer",
+      "knownDeviations": "",
+      "sourceLine": 167
+    },
+    {
+      "section": "11) Clipboard, selection, and hyperlinking",
+      "feature": "Selection model",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "UI behavior",
+      "evidenceText": "Manual",
+      "evidenceKinds": [
+        "manual"
+      ],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "UI",
+      "knownDeviations": "",
+      "sourceLine": 175
+    },
+    {
+      "section": "11) Clipboard, selection, and hyperlinking",
+      "feature": "Copy on select",
+      "status": "\u274C Not supported",
+      "specOrNotes": "Configurable",
+      "evidenceText": "\u2014",
+      "evidenceKinds": [],
+      "evidenceLinks": [],
+      "hasAutomatedEvidenceSignal": false,
+      "hasLinkedEvidence": false,
+      "ownership": "UI",
+      "knownDeviations": "",
+      "sourceLine": 176
+    },
+    {
+      "section": "11) Clipboard, selection, and hyperlinking",
+      "feature": "Hyperlinks",
+      "status": "\u2705 Supported",
+      "specOrNotes": "OSC 8",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscUxTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscUxTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BUI",
+      "knownDeviations": "Ctrl-click open path is app-level",
+      "sourceLine": 177
+    },
+    {
+      "section": "12) Unicode width, graphemes, and font behavior",
+      "feature": "wcwidth-like width",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "CJK/emoji width",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/WidthTests.cs\u0060, \u0060tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs\u0060; Replay: \u0060tests/NovaTerminal.Tests/Fixtures/Replay/mixed_unicode.rec\u0060",
+      "evidenceKinds": [
+        "replay",
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/Fixtures/Replay/mixed_unicode.rec",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\Fixtures\\Replay\\mixed_unicode.rec"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\UnicodeWidthModelV2Tests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/WidthTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\WidthTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Buffer\u002BRenderer",
+      "knownDeviations": "Deterministic 0/1/2-cell model for combining marks, emoji modifiers, ZWJ emoji, variation selectors, and regional-indicator flags. No Unicode-version pin or full UAX #11 conformance table is documented yet.",
+      "sourceLine": 185
+    },
+    {
+      "section": "12) Unicode width, graphemes, and font behavior",
+      "feature": "Combining marks",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "Grapheme clusters",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/NovaTerminal.Tests/SurrogateTests.cs\u0060, \u0060tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs\u0060, \u0060tests/NovaTerminal.Tests/ScrollAndWrapCorrectnessTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\GraphemeAttachmentTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/ScrollAndWrapCorrectnessTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ScrollAndWrapCorrectnessTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/SurrogateTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\SurrogateTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\UnicodeWidthModelV2Tests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Buffer\u002BRenderer",
+      "knownDeviations": "Combining/variation attachment is covered for common terminal cases, including pending-wrap boundaries. Full extended-grapheme-cluster conformance is not claimed.",
+      "sourceLine": 186
+    },
+    {
+      "section": "12) Unicode width, graphemes, and font behavior",
+      "feature": "ZWJ emoji sequences",
+      "status": "\u26A0 Partial",
+      "specOrNotes": "",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/NovaTerminal.Tests/WidthTests.cs\u0060, \u0060tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\GraphemeAttachmentTests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\UnicodeWidthModelV2Tests.cs"
+        },
+        {
+          "path": "tests/NovaTerminal.Tests/WidthTests.cs",
+          "exists": true,
+          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\WidthTests.cs"
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Buffer\u002BRenderer",
+      "knownDeviations": "Chunked ZWJ families, emoji modifiers, VS15/VS16, and chunked regional-indicator flag pairs are covered. Remaining gaps: cursor-addressing CSI remains cell-oriented, and width-changing selectors that arrive after a base glyph already placed at the last column are not guaranteed to retroactively reflow.",
+      "sourceLine": 187
+    }
+  ],
+  "errors": [],
+  "warnings": []
+}
