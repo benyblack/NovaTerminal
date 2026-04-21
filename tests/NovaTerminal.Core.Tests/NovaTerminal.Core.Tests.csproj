@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NovaTerminal.Core\NovaTerminal.Core.csproj" />
+    <ProjectReference Include="..\..\src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj" />
   </ItemGroup>
 
   <Target Name="BuildRustSshNativeForTests"
