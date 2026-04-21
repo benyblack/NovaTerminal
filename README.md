@@ -1,6 +1,6 @@
 # NovaTerminal
 
-**NovaTerminal** is a modern, cross-platform terminal emulator focused on  
+**NovaTerminal** is a modern, cross-platform terminal emulator focused on
 **correctness, performance, and predictability**.
 
 Built with:
@@ -16,214 +16,152 @@ Supported platforms: **Windows · Linux · macOS**
 
 ## Why NovaTerminal?
 
-Terminal emulators tend to fail quietly:
-a small bug in resize, wrapping, or alternate screen handling can break
-`vim`, `htop`, `tmux`, or SSH workflows.
+Terminal emulators tend to fail quietly: a small bug in resize, wrapping, or
+alternate screen handling can break `vim`, `htop`, `tmux`, or SSH workflows.
 
 NovaTerminal is built around one core principle:
 
 > **Terminal correctness is enforced by automated tests, not guesswork.**
 
----
-
-## What Makes NovaTerminal Different
-
-### ✔ High-Performance Skia Engine
-- **Lock-Free Snapshot Pipeline**: Decouples terminal state from the UI thread for jitter-free performance during high-frequency output.
-- **GPU-Accelerated Glyph Atlas**: Pre-caches shaped glyphs into a high-speed GPU texture for pixel-perfect text at high FPS.
-- **Micro-Batching**: Optimizes redraws by grouping similar rendering operations (backgrounds, text, overlays).
-
-### ✔ Correctness & Stability
-- Deterministic VT / ANSI parsing
-- Lossless resize & reflow
-- Strict alternate screen isolation
-- **Resource Hardening**: Defensive buffer management ensures stability even under extreme stress (e.g., rapid resizing).
-- **Auth Hardening**: No terminal-output-triggered password injection; SSH password auth is manual interactive entry only.
-- **Secret Migration Safety**: SSH secrets use canonical keying with backward-compatible legacy lookup migration.
+That principle shows up everywhere: VT behavior is measured against a
+conformance matrix, the renderer is gated by performance contracts, and
+replay parity prevents silent behavioral drift.
 
 ---
 
-### ✔ Truly Cross-Platform
-NovaTerminal guarantees **identical terminal behavior** across operating systems:
+## Install
 
-- VT interpretation
-- buffer state
-- wrapping & reflow
-- search semantics
+Pre-built binaries are not yet published. NovaTerminal currently ships as
+**build-from-source**; installers and GitHub Releases are planned for an
+upcoming milestone.
 
-Platform-specific differences are limited to:
-- window chrome
-- blur/transparency
-- global hotkeys
-- credential storage backends
+For build steps, jump to [Build & test](#build--test) below.
 
 ---
 
-### ✔ Test-Gated Development
-NovaTerminal treats automated testing as a first-class feature:
+## Features
 
-- deterministic replay of real terminal sessions
-- cross-platform parity checks from **runtime-generated artifacts** (not checked-in fixture snapshots)
-- renderer performance & flicker guards
-- nightly stress/performance/latency regression lanes
+### Terminal core
 
-If a change cannot be tested, it does not ship.
-
----
-
-## Architecture & Directory Structure
-
-NovaTerminal is organized into focused class libraries under the `src/` directory to enforce a strict dependency Directed Acyclic Graph (DAG):
-
-- **`src/NovaTerminal.App`**: The main Avalonia/UI layer. Orchestrates windows, themes, and settings.
-- **`src/NovaTerminal.VT`**: The core Virtual Terminal engine. Frame-agnostic, parser-logic, and buffer state.
-- **`src/NovaTerminal.Rendering`**: SkiaSharp-based rendering logic. Framework-agnostic text shaping and GPU glyph caching.
-- **`src/NovaTerminal.Pty`**: Native OS integration and PTY session management.
-- **`src/NovaTerminal.Replay`**: Deterministic session recording and playback logic.
-
-### Validation
-- **`tests/NovaTerminal.Tests`**: Primary unit and integration test suite (Headless UI).
-- **`tests/NovaTerminal.Benchmarks`**: Performance and throughput benchmarks.
-
-```mermaid
-graph TD
-    App[NovaTerminal.App] --> Rendering[NovaTerminal.Rendering]
-    App --> VT[NovaTerminal.VT]
-    App --> Pty[NovaTerminal.Pty]
-    App --> Replay[NovaTerminal.Replay]
-    Rendering --> VT
-    Replay --> VT
-```
-
----
-
-## Current Features
-
-### Terminal
-- VT / ANSI parsing
+- VT / ANSI parsing measured against a conformance matrix
 - Alternate screen support (`vim`, `less`, `htop`)
 - Scrollback buffer
 - Stable resize & reflow
 - Cell-based buffer model
 - Thread-safe, crash-resistant PTY backend
 
-### Graphics & Protocol Support
-- **Sixel Graphics** (Verified with `libsixel`, `lsix`, `gnuplot`)
-- **iTerm2 Inline Images** (Verified with `imgcat`, `test_iterm2.py`)
-- **Kitty Graphics Protocol** (native on Linux/macOS; tunneled mode on Windows)
-- **Proper ConPTY Synchronization** (Images render inline with prompts)
-
-See `docs/IMAGE_PROTOCOL_SUPPORT.md` for platform-specific protocol behavior and fallback rules.
-
 ### UI
-- Tabs
-- Split panes
+
+- Tabs and split panes
 - Command palette
 - Search overlay
 - Profiles (local & SSH)
 - Themes and fonts
 - Live settings (no restart)
 
-See `docs/TABS_USER_MANUAL.md` for tabs behavior, shortcuts, workspace flows, and troubleshooting.
+### Graphics & inline images
 
-### Remote
-- SSH profiles
-- Cross-platform PTY abstraction
-- Secure credential handling via platform vault backends with canonical SSH key schema migration
+- **Sixel Graphics** (verified with `libsixel`, `lsix`, `gnuplot`)
+- **iTerm2 Inline Images** (verified with `imgcat`, `test_iterm2.py`)
+- **Kitty Graphics Protocol** (native on Linux/macOS; tunneled mode on Windows)
+- **Proper ConPTY synchronization** — images render inline with prompts
 
-### Runtime Storage Model
-NovaTerminal stores writable runtime data in user-scoped app data paths:
+### Native SSH
 
-- settings
-- themes
-- logs
-- session restore state
-- recordings
+- SSH profiles with platform-vault credential storage
+- Keepalive and dynamic port forwarding
+- Coalesced resize handling for fullscreen TUIs (vim, htop, tmux)
+- Disconnect state surfaced in the terminal pane
+- Runtime password memory (opt-in, session-scoped)
 
-This avoids requiring write access to the install directory and supports one-time migration from legacy locations.
-
----
-
-## Project Status
-
-NovaTerminal is under **active development**.
-
-Recently completed:
-- M1 VT completeness
-- M2 core performance/stability
-- M3 replay product core
-- M4 cross-platform polish
-- M4.5 production hardening (auth, vault keys, LocalAppData runtime paths, CI parity/nightly corrections)
-- **vNext Phase 1**: Render Performance HUD, Terminal Snapshot Export, and ReplayIndex + Seek API
-
-Current focus:
-- M5 ship readiness (beta workflow, release motion, launch docs/site)
+### Cross-platform parity
+NovaTerminal guarantees identical terminal behavior across operating systems
+for VT interpretation, buffer state, wrapping & reflow, and search semantics.
+Platform-specific differences are limited to window chrome, blur/transparency,
+global hotkeys, and credential storage backends.
 
 ---
 
-## GPU Hardening Program
+## User documentation
 
-NovaTerminal is running a focused GPU hardening workstream to improve rendering throughput while preserving deterministic behavior.
+- [User manual](docs/USER_MANUAL.md)
+- [Tabs user manual](docs/TABS_USER_MANUAL.md)
+- [Image protocol support](docs/IMAGE_PROTOCOL_SUPPORT.md)
+- [SSH roadmap](docs/SSH_ROADMAP.md)
 
-Authoritative docs:
-- `docs/NovaTerminal_GPU_Hardening_Engineering_Spec.md`
-- `docs/NovaTerminal_GPU_Hardening_8_Week_Sprint_Plan.md`
-- `docs/RENDERING_PERF_CONTRACT.md`
+---
 
-Core guardrails:
-- **Snapshot-only rendering boundary**: renderer consumes immutable snapshots and avoids mutable buffer reads during draw.
-- **Replay parity first**: no optimization is accepted if replay behavior regresses.
-- **Seam safety under fractional DPI**: block/box rendering must stay stable at 125% and 150% scaling.
-- **Conservative perf contract**: allocations and draw calls are gated with warmup-aware p95/average checks.
+## For contributors & developers
 
-### GPU Hardening Validation Matrix
+### Architecture
 
-Run these commands before declaring rendering changes complete:
+NovaTerminal is organized into focused class libraries under `src/` with an
+acyclic dependency graph.
 
-```bash
-dotnet test -c Release
-dotnet test -c Release --filter Category=Replay
-dotnet test -c Release --filter Category=Performance
-dotnet test -c Release --filter FullyQualifiedName~BlockSeamRegressionTests
-```
+- **[`src/NovaTerminal.App`](src/NovaTerminal.App/)** — Avalonia/UI layer: windows, themes, settings, orchestration.
+- **[`src/NovaTerminal.Core`](src/NovaTerminal.Core/)** — Shared runtime primitives: input, paths, process, SSH.
+- **[`src/NovaTerminal.VT`](src/NovaTerminal.VT/)** — Virtual Terminal engine: frame-agnostic parser logic and buffer state.
+- **[`src/NovaTerminal.Rendering`](src/NovaTerminal.Rendering/)** — SkiaSharp rendering: framework-agnostic text shaping and GPU glyph caching.
+- **[`src/NovaTerminal.Pty`](src/NovaTerminal.Pty/)** — Native OS integration and PTY session management.
+- **[`src/NovaTerminal.Replay`](src/NovaTerminal.Replay/)** — Deterministic session recording and playback.
+- **[`src/NovaTerminal.Conformance`](src/NovaTerminal.Conformance/)** — VT conformance matrix tooling and report generation.
+- **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — Command-line shim (e.g. `vt-report`) for headless tooling.
 
-### Rendering Metrics Flags
+Validation:
 
-Use these runtime flags when capturing renderer metrics:
+- **[`tests/NovaTerminal.Tests`](tests/NovaTerminal.Tests/)** — primary unit and integration suite (Headless UI).
+- **[`tests/NovaTerminal.Benchmarks`](tests/NovaTerminal.Benchmarks/)** — performance and throughput benchmarks.
 
-- `NOVATERM_RENDER_METRICS=1`
-- `NOVATERM_RENDER_METRICS_OUT=<path-to-render_metrics.jsonl>`
-
-Useful diagnostics flags:
-- `NOVATERM_DIAG_GLYPH=1`
-- `NOVATERM_DIAG_GRID=1`
-- `NOVATERM_FORCE_BOX_FONT=1`
-- `NOVATERM_BOX_PRIMITIVES=1`
-- `NOVATERM_BLOCK_PRIMITIVES=1`
-
-### Golden PNG Baselines
-
-- CI-required shared goldens: `tests/NovaTerminal.Tests/Baselines/Golden/shared/`
-- Optional OS-scoped font goldens:
-  - Windows: `tests/NovaTerminal.Tests/Baselines/Golden/win/`
-  - Linux: `tests/NovaTerminal.Tests/Baselines/Golden/linux/`
-  - macOS: `tests/NovaTerminal.Tests/Baselines/Golden/osx/`
-
-Commands:
-
-```bash
-# Shared (CI-safe) golden contracts
-UPDATE_SNAPSHOTS=1 dotnet test -c Release --filter GoldenSharedPng
-
-# Optional font-dependent contracts
-ENABLE_FONT_GOLDENS=1 UPDATE_SNAPSHOTS=1 dotnet test -c Release --filter GoldenFontPng
+```mermaid
+graph TD
+    Cli[NovaTerminal.Cli] --> App[NovaTerminal.App]
+    App --> Core[NovaTerminal.Core]
+    App --> VT[NovaTerminal.VT]
+    App --> Rendering[NovaTerminal.Rendering]
+    App --> Pty[NovaTerminal.Pty]
+    App --> Replay[NovaTerminal.Replay]
+    Core --> Pty
+    Pty --> VT
+    Pty --> Replay
+    Rendering --> VT
+    Replay --> VT
+    Conformance[NovaTerminal.Conformance]
 ```
 
 ---
 
-## Build & Test Locally
+### Engineering programs
+
+#### Active work
+
+- **VT conformance program** — every supported VT/ANSI feature is tracked in a
+  matrix; a dedicated CI lane regenerates the report and fails on regressions.
+  See [`docs/vt_coverage_matrix.md`](docs/vt_coverage_matrix.md) and
+  [`docs/ghostty-gaps/vt_conformance_tooling.md`](docs/ghostty-gaps/vt_conformance_tooling.md).
+- **Ghostty gap closure** — systematic comparison against Ghostty's behavior
+  with a roadmap for closing remaining gaps. See
+  [`docs/ghostty-gaps/`](docs/ghostty-gaps/) and
+  [`docs/vt_ghostty_gap_matrix.md`](docs/vt_ghostty_gap_matrix.md).
+- **Native SSH** — cross-platform SSH client (experimental, opt-in) with VT
+  correctness, resize coalescing, dynamic forwarding, keepalive, and runtime
+  password memory. See [`docs/SSH_ROADMAP.md`](docs/SSH_ROADMAP.md) and
+  [`docs/native-ssh/`](docs/native-ssh/).
+
+#### Ongoing guardrails
+
+- **Rendering performance contract** — snapshot-only rendering boundary,
+  replay parity, seam safety under fractional DPI, and conservative perf
+  ceilings enforced by CI. See
+  [`docs/RENDERING_PERF_CONTRACT.md`](docs/RENDERING_PERF_CONTRACT.md).
+  Historical design context:
+  [`docs/gpu-hardening/`](docs/gpu-hardening/).
+
+---
+
+### Build & test
 
 Prerequisites:
+
 - .NET 10 SDK
 - Rust toolchain (`rustup`, `cargo`) for native PTY builds
 
@@ -240,14 +178,16 @@ Run tests (same main filter used by CI unit lane):
 dotnet test -c Release --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke"
 ```
 
-Use `ci/run.sh` (Linux/macOS) or `ci/run.ps1` (Windows) for the full local CI-style sequence.
+Use `ci/run.sh` (Linux/macOS) or `ci/run.ps1` (Windows) for the full local
+CI-style sequence.
 
 ---
 
-## Run GitHub CI Locally with `act`
+### Running GitHub CI locally with `act`
 
-NovaTerminal workflows exchange artifacts between jobs (native binaries and test results).  
-When running via `act`, enable its artifact server or artifact upload/download steps will fail.
+NovaTerminal workflows exchange artifacts between jobs (native binaries and
+test results). When running via `act`, enable its artifact server or
+artifact upload/download steps will fail.
 
 Recommended command:
 
@@ -256,21 +196,24 @@ act pull_request -P ubuntu-latest=catthehacker/ubuntu:act-latest --artifact-serv
 ```
 
 Notes:
+
 - `--artifact-server-path` is required for `actions/upload-artifact` / `actions/download-artifact`.
-- If you ever need to bypass Rust rebuild inside downstream .NET jobs, you can set:
-  `--env SKIP_RUST_NATIVE_BUILD=1`
+- To bypass Rust rebuild inside downstream .NET jobs, set `--env SKIP_RUST_NATIVE_BUILD=1`.
 
 ---
 
-## Contributing
+### Project status
 
-Contributions are welcome.
+Under active development. Current focus and upcoming milestones are tracked
+in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-NovaTerminal has a strong correctness culture:
-- terminal core invariants are enforced
-- automated tests gate changes
+---
 
-See `CONTRIBUTING.md` for details.
+### Contributing
+
+Contributions are welcome. NovaTerminal has a strong correctness culture —
+terminal core invariants are enforced and automated tests gate changes. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
 
 ---
 

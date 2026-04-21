@@ -68,6 +68,15 @@ NovaTerminal supports high-performance SSH sessions integrated directly into the
 - Easily maintain local and SSH profiles in your Settings.
 - **Security:** Credentials use secure platform vault backends. No unexpected password injections triggered by terminal output are allowed for your safety. Fast reconnects and config caching simplify remote work.
 
+#### SSH backends
+
+NovaTerminal ships two SSH backends:
+
+- **OpenSSH** (default) — drives the system `ssh` binary. This is the supported path for everyday use.
+- **Native SSH** (experimental) — an in-process SSH client with its own host-key trust store, port forwarding, and one-hop jump support. Enable via the experimental toggle in Settings. The native backend does not silently fall back to OpenSSH if it fails.
+
+Current native-backend limitations: no remote forwarding, no multi-hop jump chains, and no dynamic forwarding through a jump host. See `docs/SSH_ROADMAP.md` for details.
+
 ### 4.2 Built-in SFTP Transfers
 Access the following commands via the palette to transfer files and folders between your local machine and the SSH host:
 - `SFTP: Upload File...` / `SFTP: Upload Folder...`
@@ -113,6 +122,13 @@ Export the current terminal state containing text, colors, and styles.
 ### 6.3 Debug Screens
 - **Box Drawing Test:** Accessible via `Debug: Box Drawing Test Screen` to verify font rendering, gaps, and line alignments.
 
----
+### 6.4 VT Conformance Report CLI
 
-*This manual covers NovaTerminal vNext features.*
+NovaTerminal ships a machine-readable VT conformance report derived from its
+coverage matrix. Run the terminal executable with:
+
+- `NovaTerminal --vt-report` — concise summary (matrix path, support-status counts, validation counts).
+- `NovaTerminal --vt-report --json` — full machine-readable JSON report.
+
+This is useful when filing compatibility bug reports or comparing against
+another terminal emulator's claims.

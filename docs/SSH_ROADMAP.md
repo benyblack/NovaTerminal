@@ -1,187 +1,132 @@
-Milestone Implementation Roadmap 🗺️
-====================================
+# NovaTerminal SSH Roadmap
 
-Below milestones are designed to land value early and keep architecture clean.
+_Last reviewed: 2026-04-21._
 
-M4.0 --- Foundations (Profiles + Session Type)
---------------------------------------------
+NovaTerminal supports two SSH backends:
 
-**Outcome:** You can create a profile and connect via OpenSSH reliably.
+- **OpenSSH** (default, production) — drives `ssh` in a PTY with a
+  NovaTerminal-generated config file.
+- **Native SSH** (experimental, opt-in) — an in-process Rust SSH crate with a
+  poll-based ABI, bypassing external `ssh` entirely.
 
--   `NovaTerminal.Core.Ssh` project/module
+---
 
--   Domain models: `SshProfile`, `PortForward`, `SshJumpHop`, `SshMuxOptions`
+## Native SSH status (current)
 
--   `ISshProfileStore` with JSON persistence + schema version
+_Source date: 2026-04-08, updated through 2026-04-21._
 
--   `SshSession` implements `ITerminalSession` (spawns `ssh` in PTY)
+The native SSH initiative is implemented behind conservative rollout controls.
 
--   Basic "New SSH Connection" dialog (minimal fields)
+### Completed native SSH capabilities
 
--   Smoke test: connect to a simple host
+- Backend split between OpenSSH and native SSH
+- Native Rust SSH crate with poll-based ABI
+- Avalonia host-key and auth dialogs
+- App-managed native known-host trust store
+- Local port forwarding
+- Direct-host dynamic port forwarding (SOCKS5)
+- One-hop jump-host support
+- Rollout controls, backend selector, and stable failure classification
+- Resize coalescing for fullscreen TUIs (vim, htop, tmux)
+- Keepalive honoring user settings
+- Disconnect state surfaced in the terminal pane
+- Runtime (session-scoped) password memory, opt-in
 
-Deliverable: profiles saved, connect works.
-
-* * * * *
-
-M4.1 --- OpenSSH Config Compiler (Determinism + Debuggability)
-------------------------------------------------------------
-
-**Outcome:** Profile → compiled config → stable alias launch.
-
--   `IOpenSshConfigCompiler` (compile all profiles into `ssh_config.generated`)
-
--   Atomic writes + file locking strategy (avoid concurrent writes)
-
--   Alias convention: `nova_<profileId>`
-
--   Launch uses `ssh -F <generated> nova_<id>`
-
--   Diagnostics: show resolved ssh path + "copy launch command"
-
--   Unit tests: compiler golden tests
-
-Deliverable: reproducible connections, easy bug reports.
-
-* * * * *
-
-M4.2 --- Termius-like Management UI (Search/Tags/Groups/Favorites)
-----------------------------------------------------------------
-
-**Outcome:** "Connection manager" feels real.
-
--   SSH Manager view (list + search)
-
--   Favorites, tags, group path
-
--   Open in: current pane / new tab / split H/V
-
--   Profile editor UI (Basic/Auth/Jump/Forwards)
-
--   Validation UI (bad host, missing identity file)
-
-Deliverable: most of the "it feels premium" effect.
-
-* * * * *
-
-M4.3 --- Port Forward Presets + Jump Host Graph
----------------------------------------------
-
-**Outcome:** Power-user workflows are fast.
-
--   Port forward editor table (add/clone/enable)
-
--   Forward presets ("Postgres", "Redis", "SOCKS proxy")
-
--   Jump host reorder + graph preview
-
--   Export/import profile (sanitized)
-
-Deliverable: practical devops workflows.
-
-* * * * *
-
-M4.4 --- Multiplexing (ControlMaster) + Reliability Hardening
------------------------------------------------------------
-
-**Outcome:** Multi-pane SSH becomes *snappy*.
-
--   `SshMuxOptions` UI + config emission
-
--   ControlPath strategy:
-
-    -   short path on Windows
-
-    -   per-profile stable path
-
--   Keepalive defaults + UI
-
--   Failure classifier + friendly error surface
-
-Deliverable: "feels like a real SSH client" without being one.
-
-* * * * *
-
-M4.5 --- Host Key UX Polish + Telemetry Hooks
--------------------------------------------
-
-**Outcome:** Less scary prompts, better supportability.
-
--   Detect host key prompt output patterns and show a dialog
-
--   Known hosts isolation option (app-managed file)
-
--   "Diagnostics mode" per launch (`-v/-vv`) with redaction
-
--   Metrics:
-
-    -   time to first output
-
-    -   session duration
-
-    -   exit code histogram
-
-Deliverable: fewer support issues, higher trust.
-
-* * * * *
-
-M4.6 --- QA & Regression Suite
-----------------------------
-
-**Outcome:** You can ship this.
-
--   Integration tests (where feasible) using `ssh -G` config sanity checks
-
--   Manual test checklist & scripted setup
-
--   Docs: "SSH Profiles" user guide + troubleshooting
-
-Deliverable: release-ready SSH management feature set.
-
-* * * * *
-
-Native SSH Status (2026-04-08)
-==============================
-
-The native SSH initiative is now implemented behind conservative rollout controls.
-
-Completed native SSH capabilities:
-
-- backend split between OpenSSH and native SSH
-- native Rust SSH crate with poll-based ABI
-- Avalonia host-key and auth dialogs for native SSH
-- app-managed native known-host trust store
-- local port forwarding for the native backend
-- direct-host dynamic port forwarding for the native backend
-- one-hop native jump-host support
-- rollout controls, backend selector, and stable failure classification
-
-Rollout guidance:
+### Rollout guidance
 
 - `OpenSsh` remains the default backend.
 - `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`.
-- Native SSH does not silently fall back to OpenSSH on failure.
+- Native SSH does **not** silently fall back to OpenSSH on failure.
 - Native SSH supports local forwards and direct-host dynamic forwards.
-- Native SSH does not yet support dynamic forwarding through a one-hop jump host.
-- Remote forwarding remains unsupported in the native backend.
-- Multi-hop jump chains remain unsupported in the native backend.
+- Dynamic forwarding through a one-hop jump host is **not** yet supported.
+- Remote forwarding is **not** supported in the native backend.
+- Multi-hop jump chains are **not** supported in the native backend.
 
-Verification references:
+### Verification
 
-- See `docs/native-ssh/Native_SSH_Test_Matrix.md` for the automated verification set and the remaining manual checks.
+- See [`docs/native-ssh/Native_SSH_Test_Matrix.md`](native-ssh/Native_SSH_Test_Matrix.md)
+  for the automated verification set and the remaining manual checks.
 
-* * * * *
+---
 
-Suggested "Pro" gating later 💸 (optional)
-==========================================
+## Suggested "Pro" gating (optional, future)
 
-Keep it simple early, but here are clean monetizable levers:
+Kept deliberately simple early on. Clean monetizable levers if needed later:
 
--   Advanced multiplex profiles (shared connection pools)
+- Advanced multiplex profiles (shared connection pools)
+- Team-shared profile packs (file-based export/import, no SaaS)
+- Connection templates + compliance checks
+- Enhanced diagnostics bundles
 
--   Team-shared profile packs (without full SaaS yet: file-based export/import)
+---
 
--   Connection templates + compliance checks
+## Historical milestones (OpenSSH backend)
 
--   Enhanced diagnostics bundles
+_Preserved for context. All items below are shipped._
 
+### M4.0 — Foundations (Profiles + Session Type)
+
+**Outcome:** Create a profile and connect via OpenSSH reliably.
+
+- `NovaTerminal.Core.Ssh` project/module
+- Domain models: `SshProfile`, `PortForward`, `SshJumpHop`, `SshMuxOptions`
+- `ISshProfileStore` with JSON persistence + schema version
+- `SshSession` implements `ITerminalSession` (spawns `ssh` in PTY)
+- Basic "New SSH Connection" dialog
+- Smoke test: connect to a simple host
+
+### M4.1 — OpenSSH Config Compiler
+
+**Outcome:** Profile → compiled config → stable alias launch.
+
+- `IOpenSshConfigCompiler` (compiles all profiles into `ssh_config.generated`)
+- Atomic writes + file locking strategy
+- Alias convention: `nova_<profileId>`
+- Launch uses `ssh -F <generated> nova_<id>`
+- Diagnostics: show resolved ssh path + "copy launch command"
+- Unit tests: compiler golden tests
+
+### M4.2 — Termius-like Management UI
+
+**Outcome:** Connection manager feels real.
+
+- SSH Manager view (list + search)
+- Favorites, tags, group path
+- Open in: current pane / new tab / split H/V
+- Profile editor UI (Basic/Auth/Jump/Forwards)
+- Validation UI (bad host, missing identity file)
+
+### M4.3 — Port Forward Presets + Jump Host Graph
+
+**Outcome:** Power-user workflows are fast.
+
+- Port forward editor table (add/clone/enable)
+- Forward presets ("Postgres", "Redis", "SOCKS proxy")
+- Jump host reorder + graph preview
+- Export/import profile (sanitized)
+
+### M4.4 — Multiplexing (ControlMaster) + Reliability Hardening
+
+**Outcome:** Multi-pane SSH feels snappy.
+
+- `SshMuxOptions` UI + config emission
+- ControlPath strategy (short path on Windows, per-profile stable path)
+- Keepalive defaults + UI
+- Failure classifier + friendly error surface
+
+### M4.5 — Host Key UX Polish + Telemetry Hooks
+
+**Outcome:** Less scary prompts, better supportability.
+
+- Detect host key prompt output patterns and show a dialog
+- Known hosts isolation option (app-managed file)
+- Diagnostics mode per launch (`-v`/`-vv`) with redaction
+- Metrics: time to first output, session duration, exit code histogram
+
+### M4.6 — QA & Regression Suite
+
+**Outcome:** Release-ready SSH feature set.
+
+- Integration tests (`ssh -G` config sanity checks)
+- Manual test checklist & scripted setup
+- User-facing SSH profiles guide + troubleshooting

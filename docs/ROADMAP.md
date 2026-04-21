@@ -1,5 +1,7 @@
 # NovaTerminal – Product & Engineering Roadmap
 
+_Last reviewed: 2026-04-21._
+
 This roadmap is **authoritative** for NovaTerminal.
 
 It applies to:
@@ -72,11 +74,11 @@ These constraints are enforced by tests.
 ## −1.1 Deterministic Replay Harness (G1)
 
 ### Deliverables
-- Raw PTY byte-stream recording
-- Core-only replay runner:
+- [x] Raw PTY byte-stream recording
+- [x] Core-only replay runner:
   - `AnsiParser → TerminalBuffer`
-- Deterministic buffer snapshot serializer
-- Replay-based automated tests
+- [x] Deterministic buffer snapshot serializer
+- [x] Replay-based automated tests
 
 ### Acceptance Criteria
 - Any terminal bug can be recorded once and replayed in CI
@@ -92,11 +94,11 @@ These constraints are enforced by tests.
 ## −1.2 Cross-Platform Parity Tests
 
 ### Deliverables
-- Same replay fixtures executed on:
+- [x] Same replay fixtures executed on:
   - Windows
   - Linux
   - macOS
-- Snapshot comparison across platforms
+- [x] Snapshot comparison across platforms
 
 ### Acceptance Criteria
 - Buffer snapshots are byte-for-byte identical
@@ -110,11 +112,11 @@ These constraints are enforced by tests.
 ## −1.3 Renderer Metrics & Guardrails
 
 ### Deliverables
-- Renderer instrumentation:
+- [x] Renderer instrumentation:
   - full redraw count
   - dirty cell count
   - frame timing
-- Threshold-based automated assertions
+- [x] Threshold-based automated assertions
 
 ### Acceptance Criteria
 - No flicker regressions
@@ -134,9 +136,9 @@ These constraints are enforced by tests.
 ## 0.1 VT / ANSI Core Completeness
 
 ### Deliverables
-- Complete VT / ANSI state machine
-- DEC private modes correctness
-- OSC handling:
+- [x] Complete VT / ANSI state machine (tracked in `docs/vt_coverage_matrix.md` with CI-validated report)
+- [x] DEC private modes correctness
+- [x] OSC handling:
   - window title
   - OSC 8 hyperlinks
 - [x] Proper reset semantics (`ESC c` / RIS)
@@ -156,9 +158,9 @@ These constraints are enforced by tests.
 ## 0.2 Alternate Screen & Scrollback Integrity
 
 ### Deliverables
-- Strict main / alternate buffer separation
-- Scrollback isolation
-- Cursor and attribute restoration
+- [x] Strict main / alternate buffer separation
+- [x] Scrollback isolation
+- [x] Cursor and attribute restoration
 
 ### Acceptance Criteria
 - Entering/exiting full-screen apps leaves main buffer unchanged
@@ -169,9 +171,9 @@ These constraints are enforced by tests.
 ## 0.3 Wrapping & Reflow Correctness
 
 ### Deliverables
-- Correct soft vs hard wrap semantics
-- Lossless reflow on resize
-- Correct handling of wide glyphs (emoji, CJK)
+- [x] Correct soft vs hard wrap semantics
+- [x] Lossless reflow on resize
+- [x] Correct handling of wide glyphs (emoji, CJK — Unicode width model v2)
 
 ### Acceptance Criteria
 - Resize wide → narrow → wide yields identical content
@@ -182,8 +184,8 @@ These constraints are enforced by tests.
 ## 0.4 Rendering Stability (Zero-Flicker Rule)
 
 ### Deliverables
-- Incremental (cell-diff) rendering
-- Backing surface cache
+- [x] Incremental (cell-diff) rendering
+- [x] Backing surface cache
 - [x] Stable resize under load (Thread-safe PTY backend)
 
 ### Acceptance Criteria
@@ -249,6 +251,12 @@ These constraints are enforced by tests.
 - [x] Tags, labels, groups
 - [x] Jump host support
 - [x] Identity selection UI
+
+### Native SSH backend (experimental, opt-in)
+
+A native Rust SSH crate ships alongside the default OpenSSH backend, gated by
+`TerminalSettings.ExperimentalNativeSshEnabled`. Status and scope are tracked
+in `docs/SSH_ROADMAP.md` and `docs/native-ssh/Native_SSH_Test_Matrix.md`.
 
 ---
 
