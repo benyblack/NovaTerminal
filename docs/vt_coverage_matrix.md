@@ -182,9 +182,9 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| wcwidth-like width | CJK/emoji width | ⚠ Partial | Replay | Buffer | |
-| Combining marks | Grapheme clusters | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.Tests/SurrogateTests.cs` | Buffer+Renderer | Common attachment cases covered; full Unicode conformance not claimed |
-| ZWJ emoji sequences | | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.Tests/WidthTests.cs` | Buffer+Renderer | Family emoji and regional indicators covered; full Unicode conformance not claimed |
+| wcwidth-like width | CJK/emoji width | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/WidthTests.cs`, `tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs`; Replay: `tests/NovaTerminal.Tests/Fixtures/Replay/mixed_unicode.rec` | Buffer+Renderer | Deterministic 0/1/2-cell model for combining marks, emoji modifiers, ZWJ emoji, variation selectors, and regional-indicator flags. No Unicode-version pin or full UAX #11 conformance table is documented yet. |
+| Combining marks | Grapheme clusters | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.Tests/SurrogateTests.cs`, `tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs`, `tests/NovaTerminal.Tests/ScrollAndWrapCorrectnessTests.cs` | Buffer+Renderer | Combining/variation attachment is covered for common terminal cases, including pending-wrap boundaries. Full extended-grapheme-cluster conformance is not claimed. |
+| ZWJ emoji sequences | | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.Tests/WidthTests.cs`, `tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs` | Buffer+Renderer | Chunked ZWJ families, emoji modifiers, VS15/VS16, and chunked regional-indicator flag pairs are covered. Remaining gaps: cursor-addressing CSI remains cell-oriented, and width-changing selectors that arrive after a base glyph already placed at the last column are not guaranteed to retroactively reflow. |
 
 ---
 

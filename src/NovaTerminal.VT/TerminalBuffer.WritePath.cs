@@ -99,12 +99,18 @@ namespace NovaTerminal.Core
             {
                 if (_cursorCol > 0)
                 {
-                    // If we were in pending wrap state at the right margin,
-                    // backspace moves us back one cell from that margin.
                     _cursorCol--;
+
+                    if (_cursorRow >= 0 && _cursorRow < Rows)
+                    {
+                        var row = _viewport[_cursorRow];
+                        while (_cursorCol > 0 && row.Cells[_cursorCol].IsWideContinuation)
+                        {
+                            _cursorCol--;
+                        }
+                    }
                 }
-                // Handle backing over a wide char? (Should jump 2? standard terminals vary)
-                // For now, simple backspace.
+
                 _isPendingWrap = false;
             }
             else if (c == '\t')
@@ -164,14 +170,18 @@ namespace NovaTerminal.Core
             {
                 firstRune = grapheme.EnumerateRunes().FirstOrDefault(new Rune('?'));
             }
-            bool isCombining = IsCombining(firstRune);
+            bool isZeroWidthComponent = UnicodeWidth.IsZeroWidthGraphemeComponent(firstRune);
 
 
             // ATTACHMENT LOGIC:
 
             // If it's a combining mark OR we just had a ZWJ, try to attach to the previous cell.
             // We allow this even if _lastCharCol is -1, as the look-back logic can find the base.
-            if ((isCombining || _isAfterZwj) && _cursorRow == _lastCharRow)
+            bool mayAttachToPrevious =
+                _cursorRow == _lastCharRow &&
+                (isZeroWidthComponent || _isAfterZwj || UnicodeWidth.IsSingleRegionalIndicator(grapheme));
+
+            if (mayAttachToPrevious)
             {
                 int attachCol = -1;
 
@@ -216,6 +226,11 @@ namespace NovaTerminal.Core
                     if (!cell.IsWideContinuation)
                     {
                         string existing = row.GetExtendedText(attachCol) ?? cell.Character.ToString();
+                        if (!UnicodeWidth.ShouldAttachToPrevious(existing, grapheme, _isAfterZwj))
+                        {
+                            goto NormalWrite;
+                        }
+
                         string merged = existing + grapheme;
                         row.SetExtendedText(attachCol, merged);
                         cell.HasExtendedText = true;
@@ -261,10 +276,11 @@ namespace NovaTerminal.Core
             } // End of attachment attempt logic
 
             // NORMAL WRITE LOGIC:
+NormalWrite:
             int width = GetGraphemeWidth(grapheme);
 
             // Handle Pending Wrap State (M1.3)
-            if (_isPendingWrap && !isCombining && !_isAfterZwj)
+            if (_isPendingWrap && !isZeroWidthComponent && !_isAfterZwj)
             {
                 if (_cursorRow >= 0 && _cursorRow < Rows) _viewport[_cursorRow].IsWrapped = true;
                 _cursorCol = 0;
@@ -370,33 +386,6 @@ namespace NovaTerminal.Core
             {
                 if (rune.Value == 0x200D) return true; // Any ZWJ in the grapheme makes it "joining"
             }
-            return false;
-        }
-
-        private bool IsCombining(Rune rune)
-        {
-            // ASCII characters are never combining. 
-            // This fixes '^' (U+005E) being treated as ModifierSymbol -> Combining (Width 0).
-            if (rune.Value < 0x80) return false;
-
-            var cat = Rune.GetUnicodeCategory(rune);
-
-            // Standard combining marks and modifiers
-            if (cat == UnicodeCategory.NonSpacingMark ||
-                cat == UnicodeCategory.SpacingCombiningMark ||
-                cat == UnicodeCategory.EnclosingMark ||
-                cat == UnicodeCategory.ModifierSymbol)
-                return true;
-
-            // Emoji specific joining and variation characters
-            var val = rune.Value;
-            if (val >= 0x200B && val <= 0x200F) return true; // ZWSP, ZWNJ, ZWJ, etc
-            if (val >= 0xFE00 && val <= 0xFE0F) return true; // Variation Selectors
-            if (val >= 0x1F3FB && val <= 0x1F3FF) return true; // Skin Tone Modifiers
-
-            // Tag sequences (for flags etc)
-            if (val >= 0xE0020 && val <= 0xE007F) return true;
-
             return false;
         }
 

@@ -1920,71 +1920,7 @@ namespace NovaTerminal.Core
             if (string.IsNullOrEmpty(textElement)) return 0;
             try
             {
-                if (textElement.Length == 1)
-                {
-                    return Rune.TryCreate(textElement[0], out var rune)
-                        ? Math.Max(1, GetRuneWidth(rune))
-                        : 1;
-                }
-
-                int totalBaseWidth = 0;
-                bool hasEmoji = false;
-                bool hasZwj = false;
-                bool hasModifier = false;
-                bool hasEmojiPresentation = false;
-                bool hasAmbiguousSymbolBase = false;
-                int regionalIndicatorCount = 0;
-                int nonRegionalBaseCount = 0;
-
-                foreach (var rune in textElement.EnumerateRunes())
-                {
-                    int val = rune.Value;
-                    if (val == 0x200D) { hasZwj = true; continue; }
-                    if (val == 0xFE0F) { hasEmojiPresentation = true; continue; }
-                    if (val >= 0x1F3FB && val <= 0x1F3FF) { hasModifier = true; continue; }
-                    if (IsCombiningRune(rune)) continue;
-
-                    if (val >= 0x2600 && val <= 0x27BF)
-                    {
-                        hasAmbiguousSymbolBase = true;
-                    }
-
-                    if (IsRegionalIndicatorRune(val))
-                    {
-                        regionalIndicatorCount++;
-                    }
-                    else
-                    {
-                        nonRegionalBaseCount++;
-                    }
-
-                    int w = GetRuneWidth(rune);
-                    if (totalBaseWidth == 0) totalBaseWidth = w;
-                    else if (!hasZwj) totalBaseWidth += w;
-
-                    if (w == 2) hasEmoji = true;
-                }
-
-                // Regional indicator symbols combine into 2-cell flag clusters by pair.
-                if (regionalIndicatorCount > 0 && nonRegionalBaseCount == 0)
-                {
-                    int pairs = regionalIndicatorCount / 2;
-                    int remainder = regionalIndicatorCount % 2;
-                    return (pairs * 2) + (remainder * 2);
-                }
-
-                if (hasZwj || hasModifier)
-                {
-                    return hasEmoji ? 2 : Math.Max(1, totalBaseWidth);
-                }
-
-                if (hasEmojiPresentation && hasAmbiguousSymbolBase)
-                {
-                    return Math.Max(2, totalBaseWidth);
-                }
-
-                if (totalBaseWidth == 0) return 0;
-                return totalBaseWidth;
+                return UnicodeWidth.GetGraphemeWidth(textElement);
             }
             catch (ArgumentOutOfRangeException)
             {
@@ -1998,43 +1934,12 @@ namespace NovaTerminal.Core
 
         private static int GetRuneWidth(Rune rune)
         {
-            if (IsCombiningRune(rune)) return 0;
-
-            int cp = rune.Value;
-            if (cp < 32 || (cp >= 0x7F && cp <= 0x9F)) return 0;
-            if (cp >= 0x1100 && cp <= 0x115F) return 2;
-            if (cp >= 0x2329 && cp <= 0x232A) return 2;
-            if (cp >= 0x2E80 && cp <= 0xA4CF && cp != 0x303F) return 2;
-            if (cp >= 0xAC00 && cp <= 0xD7A3) return 2;
-            if (cp >= 0xF900 && cp <= 0xFAFF) return 2;
-            if (cp >= 0xFE10 && cp <= 0xFE6F) return 2;
-            if (cp >= 0xFF00 && cp <= 0xFFEF) return 2;
-            if (cp >= 0x1F000 && cp <= 0x1FBFF) return 2;
-            if (cp >= 0x20000 && cp <= 0x3FFFF) return 2;
-
-            return 1;
+            return UnicodeWidth.GetRuneWidth(rune);
         }
 
         private static bool IsCombiningRune(Rune rune)
         {
-            if (rune.Value < 0x80) return false;
-
-            var category = Rune.GetUnicodeCategory(rune);
-            if (category == System.Globalization.UnicodeCategory.NonSpacingMark ||
-                category == System.Globalization.UnicodeCategory.SpacingCombiningMark ||
-                category == System.Globalization.UnicodeCategory.EnclosingMark ||
-                category == System.Globalization.UnicodeCategory.ModifierSymbol)
-            {
-                return true;
-            }
-
-            int val = rune.Value;
-            if (val >= 0x200B && val <= 0x200F) return true;
-            if (val >= 0xFE00 && val <= 0xFE0F) return true;
-            if (val >= 0x1F3FB && val <= 0x1F3FF) return true;
-            if (val >= 0xE0020 && val <= 0xE007F) return true;
-
-            return false;
+            return UnicodeWidth.IsZeroWidthGraphemeComponent(rune);
         }
 
         private static string NormalizeTextElementForRender(string text)
