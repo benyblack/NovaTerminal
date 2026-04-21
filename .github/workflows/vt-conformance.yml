@@ -1,0 +1,53 @@
+name: VT Conformance
+
+on:
+  pull_request:
+    paths:
+      - "docs/vt_coverage_matrix.md"
+      - "docs/ghostty-gaps/vt_conformance_tooling.md"
+      - "src/NovaTerminal.Conformance/**"
+      - ".github/workflows/vt-conformance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "docs/vt_coverage_matrix.md"
+      - "docs/ghostty-gaps/vt_conformance_tooling.md"
+      - "src/NovaTerminal.Conformance/**"
+      - ".github/workflows/vt-conformance.yml"
+  workflow_dispatch:
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  CONFIGURATION: Release
+
+jobs:
+  validate:
+    name: Validate VT Matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore conformance tool
+        run: dotnet restore src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj
+
+      - name: Build conformance tool
+        run: dotnet build src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-restore
+
+      - name: Validate matrix and generate report
+        run: dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-build -- --validate --report artifacts/vt-conformance/vt-conformance-report.json
+
+      - name: Upload VT conformance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vt-conformance-report
+          retention-days: 5
+          path: artifacts/vt-conformance/vt-conformance-report.json
