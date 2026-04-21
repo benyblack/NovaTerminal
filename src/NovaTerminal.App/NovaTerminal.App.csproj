@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>NovaTerminal</RootNamespace>
-    <AssemblyName>NovaTerminal</AssemblyName>
+    <AssemblyName>NovaTerminal.Gui</AssemblyName>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -33,6 +33,12 @@
   <PropertyGroup>
     <!-- Force use of bundled native libraries -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <CliProjectPath>$(MSBuildThisFileDirectory)..\NovaTerminal.Cli\NovaTerminal.Cli.csproj</CliProjectPath>
+    <CliBuildOutputDir>$(MSBuildThisFileDirectory)..\NovaTerminal.Cli\bin\$(Configuration)\$(TargetFramework)\</CliBuildOutputDir>
+    <CliPublishOutputDir>$(BaseIntermediateOutputPath)cli-publish\</CliPublishOutputDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -98,6 +104,55 @@
 
     <Message Importance="high"
       Text="[RustNative] Rust SSH build complete." />
+  </Target>
+
+  <Target Name="BuildCliShim"
+    AfterTargets="Build"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+
+    <Exec Command="dotnet build &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false" />
+
+    <ItemGroup>
+      <ObsoleteCliShimBuildArtifacts Include="$(OutDir)NovaTerminal.Cli*" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.exe" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.dll" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.deps.json" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.runtimeconfig.json" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.pdb" Condition="Exists('$(CliBuildOutputDir)NovaTerminal.pdb')" />
+    </ItemGroup>
+
+    <Delete Files="@(ObsoleteCliShimBuildArtifacts)" Condition="'@(ObsoleteCliShimBuildArtifacts)' != ''" />
+
+    <Copy
+      SourceFiles="@(CliShimBuildArtifacts)"
+      DestinationFolder="$(OutDir)"
+      SkipUnchangedFiles="true"
+      Condition="'@(CliShimBuildArtifacts)' != ''" />
+  </Target>
+
+  <Target Name="PublishCliShim"
+    AfterTargets="Publish"
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+
+    <MakeDir Directories="$(CliPublishOutputDir)" />
+    <Exec Command="dotnet publish &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false -o &quot;$(CliPublishOutputDir)&quot;" />
+
+    <ItemGroup>
+      <ObsoleteCliShimPublishArtifacts Include="$(PublishDir)NovaTerminal.Cli*" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.exe" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.dll" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.deps.json" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.runtimeconfig.json" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.pdb" Condition="Exists('$(CliPublishOutputDir)NovaTerminal.pdb')" />
+    </ItemGroup>
+
+    <Delete Files="@(ObsoleteCliShimPublishArtifacts)" Condition="'@(ObsoleteCliShimPublishArtifacts)' != ''" />
+
+    <Copy
+      SourceFiles="@(CliShimPublishArtifacts)"
+      DestinationFolder="$(PublishDir)"
+      SkipUnchangedFiles="true"
+      Condition="'@(CliShimPublishArtifacts)' != ''" />
   </Target>
 
   <ItemGroup>

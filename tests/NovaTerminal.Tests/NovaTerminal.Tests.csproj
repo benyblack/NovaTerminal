@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
+    <ProjectReference Include="..\..\src\NovaTerminal.Cli\NovaTerminal.Cli.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj" />
   </ItemGroup>
 

@@ -5,6 +5,7 @@ on:
     paths:
       - "docs/vt_coverage_matrix.md"
       - "docs/ghostty-gaps/vt_conformance_tooling.md"
+      - "src/NovaTerminal.App/Resources/vt-conformance-report.json"
       - "src/NovaTerminal.Conformance/**"
       - ".github/workflows/vt-conformance.yml"
   push:
@@ -12,6 +13,7 @@ on:
     paths:
       - "docs/vt_coverage_matrix.md"
       - "docs/ghostty-gaps/vt_conformance_tooling.md"
+      - "src/NovaTerminal.App/Resources/vt-conformance-report.json"
       - "src/NovaTerminal.Conformance/**"
       - ".github/workflows/vt-conformance.yml"
   workflow_dispatch:
@@ -43,6 +45,9 @@ jobs:
 
       - name: Validate matrix and generate report
         run: dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-build -- --validate --report artifacts/vt-conformance/vt-conformance-report.json
+
+      - name: Validate embedded app report is current
+        run: dotnet run --project src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj -c ${{ env.CONFIGURATION }} --no-build -- --validate --check-report src/NovaTerminal.App/Resources/vt-conformance-report.json
 
       - name: Upload VT conformance report
         if: always()
