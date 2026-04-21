@@ -66,7 +66,7 @@ It is designed to be:
 
 | Feature / CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| CUU/CUD/CUF/CUB (A/B/C/D) | Cursor up/down/forward/back | ✅ Supported | Replay: `...` | Parser+Buffer | |
+| CUU/CUD/CUF/CUB (A/B/C/D) | Cursor up/down/forward/back | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/PendingWrapTests.cs` | Parser+Buffer | Explicit CUF movement is covered via pending-wrap reset; dedicated CUU/CUD/CUB targeted coverage is still missing |
 | CUP / HVP (H/f) | Positioning, default params | ✅ Supported | Unit + Replay: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs`, `tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs` | Parser+Buffer | |
 | CHA/CPL/CNL (G/F/E) | Horizontal absolute / prev/next line | ⚠ Partial | Replay | Parser+Buffer | |
 | CHT (I) | Cursor forward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs` | Parser+Buffer | |
@@ -80,8 +80,8 @@ It is designed to be:
 
 | Feature / CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| ED (J) | 0/1/2 erase display | ✅ Supported | Replay | Parser+Buffer | |
-| EL (K) | 0/1/2 erase line | ✅ Supported | Replay | Parser+Buffer | |
+| ED (J) | 0/1/2 erase display | ✅ Supported | Replay: `tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs`, `tests/NovaTerminal.Tests/Fixtures/Replay/vttest_cursor.rec`; Unit: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
+| EL (K) | 0/1/2 erase line | ✅ Supported | Unit: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
 | ICH ( @ ) | Insert chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 | DCH (P) | Delete chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 | IL (L) / DL (M) | Insert/delete lines | ⚠ Partial | Replay | Buffer | Scroll region interactions |
@@ -106,7 +106,7 @@ It is designed to be:
 | Mode | CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---|---:|---|---|---|
 | Alternate screen | ?1049 / ?47 / ?1047 | Switch + save/restore cursor | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AlternateScreenTests.cs`; Replay: `tests/NovaTerminal.Tests/ReplayTests/AlternateScreenReplayTests.cs`, `tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs` | Buffer | Main scrollback is preserved and alt-screen output never enters scrollback. `?47` reuses the existing alternate buffer/state without clearing; `?1047` and `?1049` clear and home the alternate buffer on entry. Nested/redundant alt-screen enters are treated as no-op, and a `?1049` save is consumed by the first exit from alt-screen regardless of whether that exit uses `?47l`, `?1047l`, or `?1049l`. |
-| Show cursor | ?25 | | ✅ Supported | Unit/Replay | Buffer+Renderer | |
+| Show cursor | ?25 | | ✅ Supported | Unit: `tests/NovaTerminal.Tests/DecModeTests.cs`; Replay: `tests/NovaTerminal.Tests/ReplayTests/ReplayV2Tests.cs` | Buffer+Renderer | |
 | Application cursor keys | ?1 | Impacts input mapping | ⚠ Partial | Unit/Code: `ReplayV2Tests`, app input paths | Parser+Input | Parser/UI wiring exists; needs targeted key-mapping tests |
 | Focus event reporting | ?1004 | Emits `CSI I` / `CSI O` on focus transitions | ⚠ Partial | Unit/Code: `DecModeTests`, `TerminalView` | Parser+Input | Mode flag tested; focus emission covered by app path, not headless UI test |
 | Bracketed paste | ?2004 | Input feature | ⚠ Partial | Unit | Input layer | |
@@ -145,7 +145,7 @@ It is designed to be:
 | OSC 52 | Clipboard | ❌ Not supported | — | App/UI | |
 | OSC 8 | Hyperlinks | ✅ Supported | Unit: `tests/NovaTerminal.Tests/OscUxTests.cs` | Parser+Renderer+UI | Ctrl-click open path is app-level |
 | OSC 133 | Shell integration lifecycle | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs` | Parser+Command Assist | Supports A/B/C/D markers; broader semantic prompt extensions not audited |
-| OSC 1337 | iTerm2 inline images | ✅ Supported | Replay/Manual | Parser+Renderer | |
+| OSC 1337 | iTerm2 inline images | ⚠ Partial | Manual: `docs/qa/QA_GRAPHICS.md` | Parser+Renderer | Parser support exists, but targeted automated replay/unit coverage for OSC 1337 is still missing |
 | OSC 1339 | Windows conpty tunnel | 🧪 Experimental | Manual | Parser+Win | |
 
 ---
@@ -154,7 +154,7 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Manual/Replay | Parser+Renderer | |
+| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/NovaTerminal.Tests/GraphicsTests.cs`, `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | Parser+Renderer | |
 | Placement, z-index, scrolling | Complex interactions | ⚠ Partial | Manual | Buffer+Renderer | |
 
 ---
