@@ -14,6 +14,12 @@ class Program
     {
         try
         {
+            if (VtReportCli.TryRun(args, Console.Out, Console.Error, out int exitCode))
+            {
+                Environment.ExitCode = exitCode;
+                return;
+            }
+
             // Log startup info
             TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
             TerminalLogger.Log("Log file path: " + AppLogger.GetLogFilePath());

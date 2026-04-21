@@ -37,6 +37,9 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <EmbeddedResource Include="Resources\vt-conformance-report.json">
+      <LogicalName>NovaTerminal.Resources.vt-conformance-report.json</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <PropertyGroup>
