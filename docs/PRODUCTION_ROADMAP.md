@@ -471,7 +471,7 @@ gantt
 ### M5.3 — Launch *(1 week)*
 
 **Tasks**:
-- [ ] Public release on GitHub (MIT or source-available license — decision deferred)
+- [ ] Public release on GitHub under the MIT license
 - [ ] Website with download links, feature highlights, replay demo
 - [ ] Announce on HackerNews, Reddit r/commandline, Twitter/X
 
@@ -548,10 +548,8 @@ These are decisions you should make *before* starting each milestone:
 
 ### Before M5
 > **Q: What license?**
-> - MIT: Maximum adoption, zero revenue protection
-> - BSL (Business Source License): Source-available, prevents competing hosted services
-> - Dual license (MIT core + proprietary enterprise features): Most flexible
-> - **Recommendation**: Defer until beta feedback clarifies whether enterprise or community is the audience. Ship beta as source-available (BSL), convert to MIT if community growth is the priority.
+> - **Decision**: MIT
+> - Rationale: prioritize broad adoption, low contribution friction, and straightforward downstream use.
 
 ---
 

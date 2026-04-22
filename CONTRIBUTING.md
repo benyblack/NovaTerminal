@@ -102,7 +102,7 @@ Performance PRs without metrics will be rejected.
 Feature work is welcome **only if it does not violate roadmap gates**.
 
 Before starting feature work:
-- check `ROADMAP.md`
+- check `docs/ROADMAP.md`
 - ensure Phase −1 and Phase 0 gates are respected
 
 Features that bypass correctness phases will be rejected.
