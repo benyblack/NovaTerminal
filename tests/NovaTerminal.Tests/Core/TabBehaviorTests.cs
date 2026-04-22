@@ -56,6 +56,45 @@ public sealed class TabBehaviorTests
     }
 
     [Fact]
+    public void GetTabHeaderViewportMargin_NonMac_UsesOnlyRightReservation()
+    {
+        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+            isMacOs: false,
+            titleBarWidth: 0,
+            titleBarRightMargin: 0);
+
+        Assert.Equal(0, margin.Left);
+        Assert.Equal(NovaTerminal.MainWindow.MinimumTabHeaderRightReserve, margin.Right);
+    }
+
+    [Fact]
+    public void GetTabHeaderViewportMargin_Mac_AddsLeftReservation()
+    {
+        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+            isMacOs: true,
+            titleBarWidth: 0,
+            titleBarRightMargin: 0);
+
+        Assert.Equal(NovaTerminal.MainWindow.MacOsTrafficLightReserve, margin.Left);
+        Assert.Equal(NovaTerminal.MainWindow.MinimumTabHeaderRightReserve, margin.Right);
+    }
+
+    [Fact]
+    public void GetTabHeaderViewportMargin_GrowsRightReservationToFitTitleBarActions()
+    {
+        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+            isMacOs: false,
+            titleBarWidth: 360,
+            titleBarRightMargin: 140);
+
+        Assert.Equal(0, margin.Left);
+        double expectedRight = Math.Max(
+            NovaTerminal.MainWindow.MinimumTabHeaderRightReserve,
+            Math.Ceiling(360 + 140 + NovaTerminal.MainWindow.TabHeaderViewportPadding));
+        Assert.Equal(expectedRight, margin.Right);
+    }
+
+    [Fact]
     public void TruncateTabLabel_TruncatesWithEllipsis()
     {
         string value = NovaTerminal.MainWindow.TruncateTabLabel("abcdefgh", 6);
