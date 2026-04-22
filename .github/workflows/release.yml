@@ -53,8 +53,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [release_metadata]
     steps:
+      - name: Create or update release (tag push)
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.release_metadata.outputs.release_tag }}
+          generate_release_notes: true
 
-      - name: Create or update release
+      - name: Create or update release (manual)
+        if: github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
