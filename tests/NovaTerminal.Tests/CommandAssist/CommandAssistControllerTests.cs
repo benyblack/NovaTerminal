@@ -717,6 +717,9 @@ public sealed class CommandAssistControllerTests
 
         await historyStore.WaitForSearchSettledAsync();
         await snippetStore.WaitForReadAsync();
+        await WaitForConditionAsync(() => controller.ViewModel.TopSuggestionText == "Git Status" &&
+                                          controller.Suggestions.Count > 0 &&
+                                          controller.Suggestions[0].Type == AssistSuggestionType.Snippet);
 
         Assert.Equal("Git Status", controller.ViewModel.TopSuggestionText);
         Assert.Equal(AssistSuggestionType.Snippet, controller.Suggestions[0].Type);
