@@ -154,7 +154,7 @@ jobs:
       - name: Publish AOT
         env:
           SKIP_RUST_NATIVE_BUILD: "1"
-        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -o artifacts/publish/${{ matrix.rid }}
+        run: dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c ${{ env.CONFIGURATION }} -r ${{ matrix.rid }} --self-contained true -p:PublishAot=true -p:SkipCliShim=true -o artifacts/publish/${{ matrix.rid }}
 
       - name: Archive bundle
         shell: pwsh

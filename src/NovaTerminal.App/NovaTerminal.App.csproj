@@ -108,7 +108,7 @@
 
   <Target Name="BuildCliShim"
     AfterTargets="Build"
-    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true'">
 
     <Exec Command="dotnet build &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false" />
 
@@ -135,7 +135,7 @@
 
   <Target Name="PublishCliShim"
     AfterTargets="Publish"
-    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true'">
+    Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true'">
 
     <MakeDir Directories="$(CliPublishOutputDir)" />
     <Exec Command="dotnet publish &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false -o &quot;$(CliPublishOutputDir)&quot;" />
