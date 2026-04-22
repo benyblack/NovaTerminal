@@ -89,7 +89,8 @@ jobs:
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release
-          # Binary stays in target/release/rusty_pty.dll
+          cd rusty_ssh
+          cargo build --release
 
       - name: Build Rust (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -98,13 +99,16 @@ jobs:
           cargo build --release
           mkdir -p ../native/target_linux/release
           cp target/release/librusty_pty.so ../native/target_linux/release/
+          cd rusty_ssh
+          cargo build --release
 
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release
-          # Binary stays in target/release/librusty_pty.dylib
+          cd rusty_ssh
+          cargo build --release
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4

@@ -22,6 +22,7 @@ public static class VtConformanceReportTool
             : Path.Combine(repoRoot, matrixPath));
 
         string matrixText = File.ReadAllText(absoluteMatrixPath);
+        string normalizedMatrixText = NormalizeLineEndings(matrixText);
         string relativeMatrixPath = ToRepoRelativePath(repoRoot, absoluteMatrixPath);
 
         var rows = new List<VtConformanceRow>();
@@ -29,7 +30,7 @@ public static class VtConformanceReportTool
         var errors = new List<VtConformanceIssue>();
         var warnings = new List<VtConformanceIssue>();
 
-        ParseFeatureTables(repoRoot, relativeMatrixPath, absoluteMatrixPath, matrixText, rows, sections, errors, warnings);
+        ParseFeatureTables(repoRoot, relativeMatrixPath, absoluteMatrixPath, normalizedMatrixText, rows, sections, errors, warnings);
 
         ValidateRows(relativeMatrixPath, rows, errors, warnings);
 
@@ -37,7 +38,7 @@ public static class VtConformanceReportTool
         return new VtConformanceReport(
             SchemaVersion: 1,
             MatrixPath: relativeMatrixPath,
-            MatrixSha256: ComputeSha256(matrixText),
+            MatrixSha256: ComputeSha256(normalizedMatrixText),
             Summary: summary,
             Sections: sections,
             Rows: rows,
@@ -496,6 +497,9 @@ public static class VtConformanceReportTool
         byte[] hash = SHA256.HashData(bytes);
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
+
+    private static string NormalizeLineEndings(string text)
+        => text.Replace("\r\n", "\n", StringComparison.Ordinal);
 
     private static string ToRepoRelativePath(string repoRoot, string absolutePath)
     {

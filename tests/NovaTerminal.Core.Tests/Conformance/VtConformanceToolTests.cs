@@ -152,6 +152,34 @@ public sealed class VtConformanceToolTests
     }
 
     [Fact]
+    public void Generate_UsesLineEndingStableMatrixHash()
+    {
+        using var lfRepo = new TemporaryRepo();
+        using var crlfRepo = new TemporaryRepo();
+        const string relativeMatrixPath = "docs/vt_coverage_matrix.md";
+        const string matrix = """
+# VT Conformance Matrix
+
+## 1) Parsing
+
+| Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
+|---|---|---:|---|---|---|
+| CSI parser | Basic | ✅ Supported | Unit: `tests/NovaTerminal.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
+""";
+
+        lfRepo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
+        crlfRepo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
+        lfRepo.WriteFile(relativeMatrixPath, matrix, newline: "\n");
+        crlfRepo.WriteFile(relativeMatrixPath, matrix, newline: "\r\n");
+
+        VtConformanceReport lfReport = VtConformanceReportTool.Generate(lfRepo.RootPath, Path.Combine(lfRepo.RootPath, relativeMatrixPath));
+        VtConformanceReport crlfReport = VtConformanceReportTool.Generate(crlfRepo.RootPath, Path.Combine(crlfRepo.RootPath, relativeMatrixPath));
+
+        Assert.Equal(lfReport.MatrixSha256, crlfReport.MatrixSha256);
+        Assert.Equal(VtConformanceReportTool.Serialize(lfReport), VtConformanceReportTool.Serialize(crlfReport));
+    }
+
+    [Fact]
     public void Generate_CurrentRepositoryMatrix_HasNoValidationErrors()
     {
         string repoRoot = FindRepositoryRoot();
@@ -189,7 +217,7 @@ public sealed class VtConformanceToolTests
 
         public string RootPath { get; }
 
-        public void WriteFile(string relativePath, string content)
+        public void WriteFile(string relativePath, string content, string newline = "\n")
         {
             string absolutePath = Path.Combine(RootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
             string? directory = Path.GetDirectoryName(absolutePath);
@@ -198,7 +226,7 @@ public sealed class VtConformanceToolTests
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllText(absolutePath, content.Replace("\n", Environment.NewLine, StringComparison.Ordinal));
+            File.WriteAllText(absolutePath, content.Replace("\n", newline, StringComparison.Ordinal));
         }
 
         public void Dispose()

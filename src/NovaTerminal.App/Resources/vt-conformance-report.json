@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "4f2db6647b19739fa7ee9d79ffe27aec2ad66c4476e9fe8e0cb91d4ee962e743",
+  "matrixSha256": "2eed9f89b6fc771dad0e1da8407a1661381446eaf76553a1f0a15fc6de33c6f1",
   "summary": {
     "totalRows": 55,
     "supportedCount": 16,
