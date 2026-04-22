@@ -226,7 +226,10 @@ public sealed class VtConformanceToolTests
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllText(absolutePath, content.Replace("\n", newline, StringComparison.Ordinal));
+            string normalizedContent = content
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace("\r", "\n", StringComparison.Ordinal);
+            File.WriteAllText(absolutePath, normalizedContent.Replace("\n", newline, StringComparison.Ordinal));
         }
 
         public void Dispose()
