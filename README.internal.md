@@ -37,17 +37,21 @@ Any change that weakens determinism, parity, or replayability is rejected.
 
 ## Architecture Boundaries
 
-The solution enforces a strict Directed Acyclic Graph (DAG) to prevent circular dependencies and ensure the VT core remains pure:
+The solution keeps terminal semantics isolated behind small project boundaries so the VT core remains pure and reusable:
 
-**NovaTerminal.App** (UI)  
-  ↘ **NovaTerminal.Rendering** (Skia)  
-  ↘ **NovaTerminal.Replay** (Recording)  
-  ↘ **NovaTerminal.Pty** (OS Integration)  
-  ↘ **NovaTerminal.VT** (Core State)
+- **NovaTerminal.App** owns Avalonia UI, interaction, and app composition.
+- **NovaTerminal.Core** owns shared application/domain services and orchestration outside the VT parser/buffer.
+- **NovaTerminal.VT** owns terminal state, parsing, buffer semantics, and reflow.
+- **NovaTerminal.Rendering** owns Skia-based drawing from immutable buffer snapshots.
+- **NovaTerminal.Pty** owns OS/process and stream integration.
+- **NovaTerminal.Replay** owns recording and replay infrastructure.
+
+Key constraints:
 
 - **NovaTerminal.VT** contains **no** Avalonia or SkiaSharp references.
-- **NovaTerminal.Rendering** contains **no** Avalonia references.
-- **NovaTerminal.Pty** is strictly for stream management and binary interop.
+- **NovaTerminal.Rendering** contains **no** Avalonia references and does not fix semantic bugs.
+- **NovaTerminal.Pty** is strictly for stream/process management and binary interop.
+- UI concerns stay out of the terminal core logic.
 
 ---
 
@@ -89,9 +93,9 @@ A change is acceptable only if:
 
 ## Useful Docs
 
-- `ROADMAP.md` – test-gated product roadmap
-- `MODULE_OWNERSHIP.md` – invariant ownership
-- `IMPLEMENTATION_WORK_PLAN.md` – correctness-first execution plan
+- `docs/ROADMAP.md` – test-gated product roadmap
+- `docs/MODULE_OWNERSHIP.md` – invariant ownership
+- `docs/IMPLEMENTATION_WORK_PLAN.md` – correctness-first execution plan
 
 ---
 

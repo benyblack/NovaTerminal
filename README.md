@@ -207,6 +207,8 @@ Notes:
 Under active development. Current focus and upcoming milestones are tracked
 in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
+License: [`MIT`](LICENSE).
+
 ---
 
 ### Contributing
