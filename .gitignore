@@ -6,6 +6,10 @@
 # dotenv files
 .env
 
+# Local scratch/build capture files
+/build_err.txt
+/build_errors.txt
+
 # User-specific files
 *.rsuser
 *.suo
@@ -508,3 +512,6 @@ _temp_out/
 src/NovaTerminal.App/native/target/
 src/NovaTerminal.App/native/target_linux/
 src/NovaTerminal.App/native/rusty_ssh/target/
+
+# claude
+.claude/
