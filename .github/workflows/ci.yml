@@ -82,7 +82,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON(github.event_name == 'pull_request' && '["ubuntu-latest"]' || '["windows-latest","ubuntu-latest"]') }}
+        os: [windows-latest, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -214,7 +214,7 @@ jobs:
   pty_smoke_tests:
     name: PTY Smoke Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 20
     needs: [build_and_unit_tests, build_native]
     strategy:
@@ -290,7 +290,7 @@ jobs:
   render_metrics_tests:
     name: Render Metrics (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 20
     needs: [build_and_unit_tests, build_native]
     strategy:

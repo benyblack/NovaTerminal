@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace NovaTerminal.Conformance;
@@ -21,6 +22,7 @@ public static class VtConformanceReportTool
             : Path.Combine(repoRoot, matrixPath));
 
         string matrixText = File.ReadAllText(absoluteMatrixPath);
+        string normalizedMatrixText = NormalizeLineEndings(matrixText);
         string relativeMatrixPath = ToRepoRelativePath(repoRoot, absoluteMatrixPath);
 
         var rows = new List<VtConformanceRow>();
@@ -28,7 +30,7 @@ public static class VtConformanceReportTool
         var errors = new List<VtConformanceIssue>();
         var warnings = new List<VtConformanceIssue>();
 
-        ParseFeatureTables(repoRoot, relativeMatrixPath, absoluteMatrixPath, matrixText, rows, sections, errors, warnings);
+        ParseFeatureTables(repoRoot, relativeMatrixPath, absoluteMatrixPath, normalizedMatrixText, rows, sections, errors, warnings);
 
         ValidateRows(relativeMatrixPath, rows, errors, warnings);
 
@@ -36,7 +38,7 @@ public static class VtConformanceReportTool
         return new VtConformanceReport(
             SchemaVersion: 1,
             MatrixPath: relativeMatrixPath,
-            MatrixSha256: ComputeSha256(matrixText),
+            MatrixSha256: ComputeSha256(normalizedMatrixText),
             Summary: summary,
             Sections: sections,
             Rows: rows,
@@ -496,6 +498,9 @@ public static class VtConformanceReportTool
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
+    private static string NormalizeLineEndings(string text)
+        => text.Replace("\r\n", "\n", StringComparison.Ordinal);
+
     private static string ToRepoRelativePath(string repoRoot, string absolutePath)
     {
         string relative = Path.GetRelativePath(repoRoot, absolutePath);
@@ -674,6 +679,7 @@ public sealed record VtConformanceRow(
 public sealed record VtEvidenceLink(
     string Path,
     bool Exists,
+    [property: JsonIgnore]
     string FullPath);
 
 public sealed record VtConformanceIssue(

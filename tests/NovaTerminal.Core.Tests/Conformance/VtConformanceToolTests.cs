@@ -1,4 +1,5 @@
 using NovaTerminal.Conformance;
+using System.Text.Json;
 
 namespace NovaTerminal.Core.Tests.Conformance;
 
@@ -24,8 +25,10 @@ public sealed class VtConformanceToolTests
         VtConformanceReport report = VtConformanceReportTool.Generate(repo.RootPath, Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
         string json1 = VtConformanceReportTool.Serialize(report);
         string json2 = VtConformanceReportTool.Serialize(report);
+        using JsonDocument document = JsonDocument.Parse(json1);
 
         Assert.Equal(json1, json2);
+        Assert.DoesNotContain("\"fullPath\"", json1, StringComparison.Ordinal);
         Assert.Equal(2, report.Summary.TotalRows);
         Assert.Equal(1, report.Summary.SupportedCount);
         Assert.Equal(1, report.Summary.PartialCount);
@@ -33,6 +36,8 @@ public sealed class VtConformanceToolTests
         Assert.Equal("1) Parsing", report.Sections[0].Title);
         Assert.Equal("CSI parser", report.Rows[0].Feature);
         Assert.Equal("tests/NovaTerminal.Tests/ParserTests.cs", report.Rows[0].EvidenceLinks[0].Path);
+        Assert.Equal(Path.Combine(repo.RootPath, "tests", "NovaTerminal.Tests", "ParserTests.cs"), report.Rows[0].EvidenceLinks[0].FullPath);
+        Assert.False(document.RootElement.GetProperty("rows")[0].GetProperty("evidenceLinks")[0].TryGetProperty("fullPath", out _));
         Assert.Empty(report.Errors);
     }
 
@@ -147,6 +152,34 @@ public sealed class VtConformanceToolTests
     }
 
     [Fact]
+    public void Generate_UsesLineEndingStableMatrixHash()
+    {
+        using var lfRepo = new TemporaryRepo();
+        using var crlfRepo = new TemporaryRepo();
+        const string relativeMatrixPath = "docs/vt_coverage_matrix.md";
+        const string matrix = """
+# VT Conformance Matrix
+
+## 1) Parsing
+
+| Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
+|---|---|---:|---|---|---|
+| CSI parser | Basic | ✅ Supported | Unit: `tests/NovaTerminal.Tests/ParserTests.cs` | `Core/AnsiParser.cs` | |
+""";
+
+        lfRepo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
+        crlfRepo.WriteFile("tests/NovaTerminal.Tests/ParserTests.cs", "// parser tests");
+        lfRepo.WriteFile(relativeMatrixPath, matrix, newline: "\n");
+        crlfRepo.WriteFile(relativeMatrixPath, matrix, newline: "\r\n");
+
+        VtConformanceReport lfReport = VtConformanceReportTool.Generate(lfRepo.RootPath, Path.Combine(lfRepo.RootPath, relativeMatrixPath));
+        VtConformanceReport crlfReport = VtConformanceReportTool.Generate(crlfRepo.RootPath, Path.Combine(crlfRepo.RootPath, relativeMatrixPath));
+
+        Assert.Equal(lfReport.MatrixSha256, crlfReport.MatrixSha256);
+        Assert.Equal(VtConformanceReportTool.Serialize(lfReport), VtConformanceReportTool.Serialize(crlfReport));
+    }
+
+    [Fact]
     public void Generate_CurrentRepositoryMatrix_HasNoValidationErrors()
     {
         string repoRoot = FindRepositoryRoot();
@@ -184,7 +217,7 @@ public sealed class VtConformanceToolTests
 
         public string RootPath { get; }
 
-        public void WriteFile(string relativePath, string content)
+        public void WriteFile(string relativePath, string content, string newline = "\n")
         {
             string absolutePath = Path.Combine(RootPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
             string? directory = Path.GetDirectoryName(absolutePath);
@@ -193,7 +226,10 @@ public sealed class VtConformanceToolTests
                 Directory.CreateDirectory(directory);
             }
 
-            File.WriteAllText(absolutePath, content.Replace("\n", Environment.NewLine, StringComparison.Ordinal));
+            string normalizedContent = content
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace("\r", "\n", StringComparison.Ordinal);
+            File.WriteAllText(absolutePath, normalizedContent.Replace("\n", newline, StringComparison.Ordinal));
         }
 
         public void Dispose()

@@ -31,9 +31,9 @@ replay parity prevents silent behavioral drift.
 
 ## Install
 
-Pre-built binaries are not yet published. NovaTerminal currently ships as
-**build-from-source**; installers and GitHub Releases are planned for an
-upcoming milestone.
+GitHub release assets are produced as Native AOT bundles for `win-x64`,
+`linux-x64`, and `osx-arm64`. Installer packaging is not available yet, so
+if a release does not include the bundle you need, build from source.
 
 For build steps, jump to [Build & test](#build--test) below.
 
@@ -180,6 +180,22 @@ dotnet test -c Release --no-build --filter "Category!=Replay&Category!=RenderMet
 
 Use `ci/run.sh` (Linux/macOS) or `ci/run.ps1` (Windows) for the full local
 CI-style sequence.
+
+### Native AOT publish
+
+NovaTerminal is configured for **Native AOT** publish in
+[`src/NovaTerminal.App/NovaTerminal.App.csproj`](src/NovaTerminal.App/NovaTerminal.App.csproj).
+The project supports `win-x64`, `linux-x64`, and `osx-arm64` publish targets.
+The release workflow publishes Native AOT bundles for those targets to the
+corresponding GitHub Release.
+
+Example publish command:
+
+```bash
+dotnet publish src/NovaTerminal.App/NovaTerminal.App.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -o artifacts/publish/win-x64
+```
+
+Swap `win-x64` for `linux-x64` or `osx-arm64` as needed.
 
 ---
 
