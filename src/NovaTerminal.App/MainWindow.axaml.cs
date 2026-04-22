@@ -63,9 +63,9 @@ namespace NovaTerminal
         private readonly ISshInteractionService _sshInteractionService;
         private readonly SshLegacyProfileMigrationService _sshLegacyMigrationService;
         private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
-        private const double MinimumTabHeaderRightReserve = 440;
-        private const double MacOsTrafficLightReserve = 92;
-        private const double TabHeaderViewportPadding = 16;
+        internal const double MinimumTabHeaderRightReserve = 440;
+        internal const double MacOsTrafficLightReserve = 92;
+        internal const double TabHeaderViewportPadding = 16;
 
         private sealed class PaneZoomState
         {

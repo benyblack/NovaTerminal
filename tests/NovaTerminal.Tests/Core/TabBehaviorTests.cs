@@ -64,7 +64,7 @@ public sealed class TabBehaviorTests
             titleBarRightMargin: 0);
 
         Assert.Equal(0, margin.Left);
-        Assert.Equal(440, margin.Right);
+        Assert.Equal(NovaTerminal.MainWindow.MinimumTabHeaderRightReserve, margin.Right);
     }
 
     [Fact]
@@ -75,8 +75,8 @@ public sealed class TabBehaviorTests
             titleBarWidth: 0,
             titleBarRightMargin: 0);
 
-        Assert.Equal(92, margin.Left);
-        Assert.Equal(440, margin.Right);
+        Assert.Equal(NovaTerminal.MainWindow.MacOsTrafficLightReserve, margin.Left);
+        Assert.Equal(NovaTerminal.MainWindow.MinimumTabHeaderRightReserve, margin.Right);
     }
 
     [Fact]
@@ -88,7 +88,10 @@ public sealed class TabBehaviorTests
             titleBarRightMargin: 140);
 
         Assert.Equal(0, margin.Left);
-        Assert.Equal(516, margin.Right);
+        double expectedRight = Math.Max(
+            NovaTerminal.MainWindow.MinimumTabHeaderRightReserve,
+            Math.Ceiling(360 + 140 + NovaTerminal.MainWindow.TabHeaderViewportPadding));
+        Assert.Equal(expectedRight, margin.Right);
     }
 
     [Fact]
