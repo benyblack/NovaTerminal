@@ -56,6 +56,42 @@ public sealed class TabBehaviorTests
     }
 
     [Fact]
+    public void GetTabHeaderViewportMargin_NonMac_UsesOnlyRightReservation()
+    {
+        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+            isMacOs: false,
+            titleBarWidth: 0,
+            titleBarRightMargin: 0);
+
+        Assert.Equal(0, margin.Left);
+        Assert.Equal(440, margin.Right);
+    }
+
+    [Fact]
+    public void GetTabHeaderViewportMargin_Mac_AddsLeftReservation()
+    {
+        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+            isMacOs: true,
+            titleBarWidth: 0,
+            titleBarRightMargin: 0);
+
+        Assert.Equal(92, margin.Left);
+        Assert.Equal(440, margin.Right);
+    }
+
+    [Fact]
+    public void GetTabHeaderViewportMargin_GrowsRightReservationToFitTitleBarActions()
+    {
+        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+            isMacOs: false,
+            titleBarWidth: 360,
+            titleBarRightMargin: 140);
+
+        Assert.Equal(0, margin.Left);
+        Assert.Equal(516, margin.Right);
+    }
+
+    [Fact]
     public void TruncateTabLabel_TruncatesWithEllipsis()
     {
         string value = NovaTerminal.MainWindow.TruncateTabLabel("abcdefgh", 6);

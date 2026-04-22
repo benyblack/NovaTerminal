@@ -63,6 +63,9 @@ namespace NovaTerminal
         private readonly ISshInteractionService _sshInteractionService;
         private readonly SshLegacyProfileMigrationService _sshLegacyMigrationService;
         private static readonly TimeSpan BellDebounceWindow = TimeSpan.FromMilliseconds(750);
+        private const double MinimumTabHeaderRightReserve = 440;
+        private const double MacOsTrafficLightReserve = 92;
+        private const double TabHeaderViewportPadding = 16;
 
         private sealed class PaneZoomState
         {
@@ -434,25 +437,37 @@ namespace NovaTerminal
                 .FirstOrDefault(s => s.Name == "PART_TabHeaderScrollViewer");
         }
 
+        internal static Thickness GetTabHeaderViewportMargin(
+            bool isMacOs,
+            double titleBarWidth,
+            double titleBarRightMargin,
+            double minimumRightReserve = MinimumTabHeaderRightReserve,
+            double macLeftReserve = MacOsTrafficLightReserve,
+            double viewportPadding = TabHeaderViewportPadding)
+        {
+            double reservedLeft = isMacOs ? macLeftReserve : 0;
+            double reservedRight = minimumRightReserve;
+
+            if (titleBarWidth > 0)
+            {
+                reservedRight = Math.Max(
+                    reservedRight,
+                    Math.Ceiling(titleBarWidth + Math.Max(0, titleBarRightMargin) + viewportPadding));
+            }
+
+            return new Thickness(reservedLeft, 0, reservedRight, 0);
+        }
+
         private void UpdateTabHeaderViewport()
         {
             var scrollViewer = FindTabHeaderScrollViewer();
             var titleBar = this.FindControl<Grid>("TitleBar");
             if (scrollViewer == null) return;
 
-            double reservedRight = 440;
-            if (titleBar != null)
-            {
-                double titleBarWidth = titleBar.Bounds.Width;
-                if (titleBarWidth > 0)
-                {
-                    reservedRight = Math.Max(
-                        reservedRight,
-                        Math.Ceiling(titleBarWidth + titleBar.Margin.Right + 16));
-                }
-            }
-
-            scrollViewer.Margin = new Thickness(0, 0, reservedRight, 0);
+            scrollViewer.Margin = GetTabHeaderViewportMargin(
+                RuntimeInformation.IsOSPlatform(OSPlatform.OSX),
+                titleBar?.Bounds.Width ?? 0,
+                titleBar?.Margin.Right ?? 0);
             scrollViewer.Height = 36;
             scrollViewer.ClipToBounds = true;
 
