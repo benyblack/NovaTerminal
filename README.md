@@ -14,12 +14,20 @@ Supported platforms: **Windows · Linux · macOS**
 
 ---
 
-## Why NovaTerminal?
+### ✨ Why NovaTerminal?
 
-Terminal emulators tend to fail quietly: a small bug in resize, wrapping, or
-alternate screen handling can break `vim`, `htop`, `tmux`, or SSH workflows.
+Most terminal emulators optimize for speed or features. NovaTerminal focuses on something different:
 
-NovaTerminal is built around one core principle:
+-   🧪 **Deterministic rendering**\
+    Same input → same output. Always. Enables reliable testing and replay.
+-   📼 **Replay-driven debugging**\
+    Record terminal sessions and replay them with pixel-level consistency.
+-   ✅ **VT correctness first**\
+    Built with conformance and standards in mind---not best-effort rendering.
+-   ⚡ **GPU-accelerated rendering**\
+    Smooth, modern rendering pipeline using Skia.
+-   🧩 **Extensible architecture**\
+    Designed for future workflows (cloud, automation, AI-assisted tooling).
 
 > **Terminal correctness is enforced by automated tests, not guesswork.**
 
