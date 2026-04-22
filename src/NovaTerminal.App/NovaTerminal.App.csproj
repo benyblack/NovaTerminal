@@ -115,7 +115,8 @@
     <ItemGroup>
       <ObsoleteCliShimBuildArtifacts Include="$(OutDir)NovaTerminal.Cli*" />
       <ObsoleteLegacyGuiArtifacts Include="$(OutDir)NovaTerminal.Gui*" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.exe" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.exe" Condition="Exists('$(CliBuildOutputDir)NovaTerminal.Cli.exe')" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli" Condition="Exists('$(CliBuildOutputDir)NovaTerminal.Cli')" />
       <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.dll" />
       <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.deps.json" />
       <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.runtimeconfig.json" />
@@ -142,7 +143,8 @@
     <ItemGroup>
       <ObsoleteCliShimPublishArtifacts Include="$(PublishDir)NovaTerminal.Cli*" />
       <ObsoleteLegacyGuiPublishArtifacts Include="$(PublishDir)NovaTerminal.Gui*" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.exe" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.exe" Condition="Exists('$(CliPublishOutputDir)NovaTerminal.Cli.exe')" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli" Condition="Exists('$(CliPublishOutputDir)NovaTerminal.Cli')" />
       <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.dll" />
       <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.deps.json" />
       <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.runtimeconfig.json" />

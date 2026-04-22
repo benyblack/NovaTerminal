@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using NovaTerminal.Conformance;
 
@@ -74,7 +75,7 @@ public sealed class VtReportCliTests
     {
         string repoRoot = FindRepositoryRoot();
         string cliProjectPath = Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "NovaTerminal.Cli.csproj");
-        string cliExecutablePath = Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "bin", "Release", "net10.0", "NovaTerminal.Cli.exe");
+        string cliExecutablePath = GetExecutablePath(Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "bin", "Release", "net10.0"), "NovaTerminal.Cli");
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
@@ -98,7 +99,7 @@ public sealed class VtReportCliTests
     {
         string repoRoot = FindRepositoryRoot();
         string appProjectPath = Path.Combine(repoRoot, "src", "NovaTerminal.App", "NovaTerminal.App.csproj");
-        string appExecutablePath = Path.Combine(repoRoot, "src", "NovaTerminal.App", "bin", "Release", "net10.0", "NovaTerminal.exe");
+        string appExecutablePath = GetExecutablePath(Path.Combine(repoRoot, "src", "NovaTerminal.App", "bin", "Release", "net10.0"), "NovaTerminal");
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
@@ -130,9 +131,9 @@ public sealed class VtReportCliTests
 
         Assert.Equal(0, buildExitCode);
         Assert.Equal(string.Empty, buildStdErr);
-        Assert.True(File.Exists(Path.Combine(appOutputDirectory, "NovaTerminal.exe")));
-        Assert.True(File.Exists(Path.Combine(appOutputDirectory, "NovaTerminal.Cli.exe")));
-        Assert.False(File.Exists(Path.Combine(appOutputDirectory, "NovaTerminal.Gui.exe")));
+        Assert.True(File.Exists(GetExecutablePath(appOutputDirectory, "NovaTerminal")));
+        Assert.True(File.Exists(GetExecutablePath(appOutputDirectory, "NovaTerminal.Cli")));
+        Assert.False(File.Exists(GetExecutablePath(appOutputDirectory, "NovaTerminal.Gui")));
     }
 
     [Fact]
@@ -186,6 +187,14 @@ public sealed class VtReportCliTests
         process.WaitForExit();
 
         return (process.ExitCode, stdout, stderr);
+    }
+
+    private static string GetExecutablePath(string directory, string baseName)
+    {
+        string fileName = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? $"{baseName}.exe"
+            : baseName;
+        return Path.Combine(directory, fileName);
     }
 
 }

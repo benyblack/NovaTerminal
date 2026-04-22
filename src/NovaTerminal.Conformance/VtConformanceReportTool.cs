@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace NovaTerminal.Conformance;
@@ -674,6 +675,7 @@ public sealed record VtConformanceRow(
 public sealed record VtEvidenceLink(
     string Path,
     bool Exists,
+    [property: JsonIgnore]
     string FullPath);
 
 public sealed record VtConformanceIssue(

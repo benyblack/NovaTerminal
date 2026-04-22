@@ -114,8 +114,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -136,8 +135,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -172,8 +170,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -194,8 +191,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -218,13 +214,11 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/AnsiCorpusReplayTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiCorpusReplayTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -245,8 +239,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/PendingWrapTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\PendingWrapTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -268,13 +261,11 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\CursorPositioningCompletionTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\RegressionTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -311,8 +302,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -333,8 +323,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -355,8 +344,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\CursorPositioningCompletionTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -377,8 +365,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\CursorPositioningCompletionTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -401,18 +388,15 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Core.Tests\\Ssh\\NativeSshTerminalParityTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/Fixtures/Replay/vttest_cursor.rec",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\Fixtures\\Replay\\vttest_cursor.rec"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\RegressionTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -433,8 +417,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Core.Tests\\Ssh\\NativeSshTerminalParityTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -551,8 +534,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/DecModeTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\DecModeTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -604,18 +586,15 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/AlternateScreenTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AlternateScreenTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/ReplayTests/AlternateScreenReplayTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\AlternateScreenReplayTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\NativeSshReplayParityTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -637,13 +616,11 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/DecModeTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\DecModeTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/ReplayTests/ReplayV2Tests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ReplayTests\\ReplayV2Tests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -730,8 +707,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscUxTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -753,8 +729,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/SgrAttributeTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\SgrAttributeTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -837,8 +812,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -859,8 +833,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\TabSystemTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -898,8 +871,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscUxTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -934,8 +906,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscUxTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -956,8 +927,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/OscShellIntegrationTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscShellIntegrationTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -978,8 +948,7 @@
       "evidenceLinks": [
         {
           "path": "docs/qa/QA_GRAPHICS.md",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\docs\\qa\\QA_GRAPHICS.md"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": false,
@@ -1016,13 +985,11 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\AnsiParserHardeningTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/GraphicsTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\GraphicsTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -1119,8 +1086,7 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\OscUxTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -1142,18 +1108,15 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/Fixtures/Replay/mixed_unicode.rec",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\Fixtures\\Replay\\mixed_unicode.rec"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\UnicodeWidthModelV2Tests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/WidthTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\WidthTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -1174,23 +1137,19 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\GraphemeAttachmentTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/ScrollAndWrapCorrectnessTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\ScrollAndWrapCorrectnessTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/SurrogateTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\SurrogateTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\UnicodeWidthModelV2Tests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
@@ -1211,18 +1170,15 @@
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\GraphemeAttachmentTests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\UnicodeWidthModelV2Tests.cs"
+          "exists": true
         },
         {
           "path": "tests/NovaTerminal.Tests/WidthTests.cs",
-          "exists": true,
-          "fullPath": "D:\\projects\\nova2\\tests\\NovaTerminal.Tests\\WidthTests.cs"
+          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,

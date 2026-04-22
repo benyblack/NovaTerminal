@@ -1,4 +1,5 @@
 using NovaTerminal.Conformance;
+using System.Text.Json;
 
 namespace NovaTerminal.Core.Tests.Conformance;
 
@@ -24,8 +25,10 @@ public sealed class VtConformanceToolTests
         VtConformanceReport report = VtConformanceReportTool.Generate(repo.RootPath, Path.Combine(repo.RootPath, "docs", "vt_coverage_matrix.md"));
         string json1 = VtConformanceReportTool.Serialize(report);
         string json2 = VtConformanceReportTool.Serialize(report);
+        using JsonDocument document = JsonDocument.Parse(json1);
 
         Assert.Equal(json1, json2);
+        Assert.DoesNotContain("\"fullPath\"", json1, StringComparison.Ordinal);
         Assert.Equal(2, report.Summary.TotalRows);
         Assert.Equal(1, report.Summary.SupportedCount);
         Assert.Equal(1, report.Summary.PartialCount);
@@ -33,6 +36,8 @@ public sealed class VtConformanceToolTests
         Assert.Equal("1) Parsing", report.Sections[0].Title);
         Assert.Equal("CSI parser", report.Rows[0].Feature);
         Assert.Equal("tests/NovaTerminal.Tests/ParserTests.cs", report.Rows[0].EvidenceLinks[0].Path);
+        Assert.Equal(Path.Combine(repo.RootPath, "tests", "NovaTerminal.Tests", "ParserTests.cs"), report.Rows[0].EvidenceLinks[0].FullPath);
+        Assert.False(document.RootElement.GetProperty("rows")[0].GetProperty("evidenceLinks")[0].TryGetProperty("fullPath", out _));
         Assert.Empty(report.Errors);
     }
 
