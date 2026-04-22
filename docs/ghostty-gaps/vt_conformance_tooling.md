@@ -109,8 +109,8 @@ The CI workflow also runs the `--check-report` command, so a stale embedded arti
 User-facing commands:
 
 ```powershell
-NovaTerminal --vt-report
-NovaTerminal --vt-report --json
+NovaTerminal.Cli --vt-report
+NovaTerminal.Cli --vt-report --json
 ```
 
 Default output is a short summary:
@@ -124,10 +124,9 @@ Default output is a short summary:
 
 Implementation note:
 
-- `NovaTerminal.exe` remains the public entry point
-- `NovaTerminal.exe` is a small console launcher that handles VT-report modes directly
-- normal GUI startup is delegated to a sibling `NovaTerminal.Gui.exe` built from `NovaTerminal.App`
-- this split keeps `NovaTerminal --vt-report` shell-friendly without changing terminal runtime behavior
+- `NovaTerminal.exe` is the normal GUI entry point
+- `NovaTerminal.Cli.exe` is the console-side executable for VT-report and other headless tooling
+- on Windows, interactive shell use should prefer `NovaTerminal.Cli.exe` rather than the GUI binary
 
 ## Intentional Limitations
 

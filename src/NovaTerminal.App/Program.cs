@@ -14,6 +14,13 @@ class Program
     {
         try
         {
+            if (VtReportCommand.IsSupportedCliMode(args))
+            {
+                CliConsoleBindings.Prepare();
+                Environment.ExitCode = VtReportCommand.Execute(args, Console.Out, Console.Error);
+                return;
+            }
+
             // Log startup info
             TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
             TerminalLogger.Log("Log file path: " + AppLogger.GetLogFilePath());

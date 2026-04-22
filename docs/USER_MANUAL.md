@@ -127,8 +127,10 @@ Export the current terminal state containing text, colors, and styles.
 NovaTerminal ships a machine-readable VT conformance report derived from its
 coverage matrix. Run the terminal executable with:
 
-- `NovaTerminal --vt-report` — concise summary (matrix path, support-status counts, validation counts).
-- `NovaTerminal --vt-report --json` — full machine-readable JSON report.
+- `NovaTerminal.Cli --vt-report` — concise summary (matrix path, support-status counts, validation counts).
+- `NovaTerminal.Cli --vt-report --json` — full machine-readable JSON report.
+
+On Windows, prefer the console-side executable for interactive shell use. The GUI app `NovaTerminal.exe` is intended for normal windowed startup, while `NovaTerminal.Cli.exe` is the reliable VT-report entrypoint from PowerShell or `cmd`.
 
 This is useful when filing compatibility bug reports or comparing against
 another terminal emulator's claims.
