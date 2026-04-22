@@ -74,7 +74,7 @@ public sealed class VtReportCliTests
     {
         string repoRoot = FindRepositoryRoot();
         string cliProjectPath = Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "NovaTerminal.Cli.csproj");
-        string cliExecutablePath = Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "bin", "Release", "net10.0", "NovaTerminal.exe");
+        string cliExecutablePath = Path.Combine(repoRoot, "src", "NovaTerminal.Cli", "bin", "Release", "net10.0", "NovaTerminal.Cli.exe");
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
@@ -94,55 +94,45 @@ public sealed class VtReportCliTests
     }
 
     [Fact]
-    public void GuiAppLauncher_Launch_UsesSiblingGuiPath()
-    {
-        var starter = new FakeGuiAppProcessStarter(shouldStart: true);
-
-        int exitCode = GuiAppLauncher.Launch(
-            ["--help"],
-            @"D:\projects\nova2\src\NovaTerminal.App\bin\Debug\net10.0",
-            starter,
-            TextWriter.Null);
-
-        Assert.Equal(0, exitCode);
-        Assert.Equal(
-            Path.Combine(@"D:\projects\nova2\src\NovaTerminal.App\bin\Debug\net10.0", "NovaTerminal.Gui.exe"),
-            starter.FilePath);
-        Assert.NotNull(starter.Args);
-        Assert.Equal(["--help"], starter.Args);
-    }
-
-    [Fact]
-    public void GuiAppLauncher_Launch_ReturnsError_WhenGuiStartFails()
-    {
-        using var stderr = new StringWriter();
-        var starter = new FakeGuiAppProcessStarter(shouldStart: false);
-
-        int exitCode = GuiAppLauncher.Launch(
-            ["--help"],
-            @"D:\projects\nova2\src\NovaTerminal.App\bin\Debug\net10.0",
-            starter,
-            stderr);
-
-        Assert.Equal(2, exitCode);
-        Assert.Contains("Failed to launch GUI application", stderr.ToString());
-    }
-
-    [Fact]
-    public void AppBinary_PrintsHumanReadableSummary_ViaCliShim()
+    public void AppBinary_PrintsHumanReadableSummary()
     {
         string repoRoot = FindRepositoryRoot();
+        string appProjectPath = Path.Combine(repoRoot, "src", "NovaTerminal.App", "NovaTerminal.App.csproj");
         string appExecutablePath = Path.Combine(repoRoot, "src", "NovaTerminal.App", "bin", "Release", "net10.0", "NovaTerminal.exe");
+        (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
+            repoRoot,
+            "dotnet",
+            $"build \"{appProjectPath}\" -c Release --no-restore");
         (int exitCode, string stdout, string stderr) = RunProcessFromRepository(
             repoRoot,
             appExecutablePath,
             "--vt-report");
 
+        Assert.Equal(0, buildExitCode);
+        Assert.Equal(string.Empty, buildStdErr);
         Assert.Equal(0, exitCode);
         Assert.Equal(string.Empty, stderr);
         Assert.Contains("NovaTerminal VT Report", stdout);
         Assert.Contains("Matrix:", stdout);
         Assert.Contains("Validation:", stdout);
+    }
+
+    [Fact]
+    public void AppBuild_CopiesCliShim_AsNamedSidecar()
+    {
+        string repoRoot = FindRepositoryRoot();
+        string appProjectPath = Path.Combine(repoRoot, "src", "NovaTerminal.App", "NovaTerminal.App.csproj");
+        string appOutputDirectory = Path.Combine(repoRoot, "src", "NovaTerminal.App", "bin", "Release", "net10.0");
+        (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
+            repoRoot,
+            "dotnet",
+            $"build \"{appProjectPath}\" -c Release --no-restore");
+
+        Assert.Equal(0, buildExitCode);
+        Assert.Equal(string.Empty, buildStdErr);
+        Assert.True(File.Exists(Path.Combine(appOutputDirectory, "NovaTerminal.exe")));
+        Assert.True(File.Exists(Path.Combine(appOutputDirectory, "NovaTerminal.Cli.exe")));
+        Assert.False(File.Exists(Path.Combine(appOutputDirectory, "NovaTerminal.Gui.exe")));
     }
 
     [Fact]
@@ -198,24 +188,4 @@ public sealed class VtReportCliTests
         return (process.ExitCode, stdout, stderr);
     }
 
-    private sealed class FakeGuiAppProcessStarter : IGuiAppProcessStarter
-    {
-        public FakeGuiAppProcessStarter(bool shouldStart)
-        {
-            ShouldStart = shouldStart;
-        }
-
-        public bool ShouldStart { get; }
-
-        public string? FilePath { get; private set; }
-
-        public string[]? Args { get; private set; }
-
-        public bool TryStart(string filePath, string[] args)
-        {
-            FilePath = filePath;
-            Args = [.. args];
-            return ShouldStart;
-        }
-    }
 }

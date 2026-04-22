@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <RootNamespace>NovaTerminal</RootNamespace>
-    <AssemblyName>NovaTerminal.Gui</AssemblyName>
+    <AssemblyName>NovaTerminal</AssemblyName>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -114,14 +114,16 @@
 
     <ItemGroup>
       <ObsoleteCliShimBuildArtifacts Include="$(OutDir)NovaTerminal.Cli*" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.exe" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.dll" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.deps.json" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.runtimeconfig.json" />
-      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.pdb" Condition="Exists('$(CliBuildOutputDir)NovaTerminal.pdb')" />
+      <ObsoleteLegacyGuiArtifacts Include="$(OutDir)NovaTerminal.Gui*" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.exe" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.dll" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.deps.json" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.runtimeconfig.json" />
+      <CliShimBuildArtifacts Include="$(CliBuildOutputDir)NovaTerminal.Cli.pdb" Condition="Exists('$(CliBuildOutputDir)NovaTerminal.Cli.pdb')" />
     </ItemGroup>
 
     <Delete Files="@(ObsoleteCliShimBuildArtifacts)" Condition="'@(ObsoleteCliShimBuildArtifacts)' != ''" />
+    <Delete Files="@(ObsoleteLegacyGuiArtifacts)" Condition="'@(ObsoleteLegacyGuiArtifacts)' != ''" />
 
     <Copy
       SourceFiles="@(CliShimBuildArtifacts)"
@@ -139,14 +141,16 @@
 
     <ItemGroup>
       <ObsoleteCliShimPublishArtifacts Include="$(PublishDir)NovaTerminal.Cli*" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.exe" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.dll" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.deps.json" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.runtimeconfig.json" />
-      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.pdb" Condition="Exists('$(CliPublishOutputDir)NovaTerminal.pdb')" />
+      <ObsoleteLegacyGuiPublishArtifacts Include="$(PublishDir)NovaTerminal.Gui*" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.exe" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.dll" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.deps.json" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.runtimeconfig.json" />
+      <CliShimPublishArtifacts Include="$(CliPublishOutputDir)NovaTerminal.Cli.pdb" Condition="Exists('$(CliPublishOutputDir)NovaTerminal.Cli.pdb')" />
     </ItemGroup>
 
     <Delete Files="@(ObsoleteCliShimPublishArtifacts)" Condition="'@(ObsoleteCliShimPublishArtifacts)' != ''" />
+    <Delete Files="@(ObsoleteLegacyGuiPublishArtifacts)" Condition="'@(ObsoleteLegacyGuiPublishArtifacts)' != ''" />
 
     <Copy
       SourceFiles="@(CliShimPublishArtifacts)"
@@ -201,5 +205,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="NovaTerminal.Tests" />
+    <InternalsVisibleTo Include="NovaTerminal.Cli" />
   </ItemGroup>
 </Project>
