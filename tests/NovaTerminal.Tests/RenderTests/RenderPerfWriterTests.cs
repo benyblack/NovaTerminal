@@ -43,31 +43,32 @@ namespace NovaTerminal.Tests.RenderTests
                 Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS", "1");
                 Environment.SetEnvironmentVariable("NOVATERM_RENDER_METRICS_OUT", outPath);
 
-                using RenderPerfWriter? writer = RenderPerfWriter.CreateFromEnvironment();
-                Assert.NotNull(writer);
-
-                var metrics = new RenderPerfMetrics
+                using (RenderPerfWriter? writer = RenderPerfWriter.CreateFromEnvironment())
                 {
-                    FrameIndex = 7,
-                    FrameTimeMs = 2.5,
-                    DirtyRows = 3,
-                    DirtySpansTotal = 3,
-                    DrawCallsText = 2,
-                    DrawCallsRects = 1,
-                    DrawCallsTotal = 3,
-                    RowPictureCacheHits = 4,
-                    RowPictureCacheMisses = 1,
-                    PictureBuilds = 1,
-                    FlushCount = 2,
-                    AtlasAlphaGlyphs = 5,
-                    AtlasColorGlyphs = 6,
-                    DirectDrawTextCount = 2,
-                    ShapedTextRuns = 1,
-                    AllocBytesThisFrame = 128
-                };
+                    Assert.NotNull(writer);
 
-                writer!.TryWrite(metrics);
-                writer.Dispose();
+                    var metrics = new RenderPerfMetrics
+                    {
+                        FrameIndex = 7,
+                        FrameTimeMs = 2.5,
+                        DirtyRows = 3,
+                        DirtySpansTotal = 3,
+                        DrawCallsText = 2,
+                        DrawCallsRects = 1,
+                        DrawCallsTotal = 3,
+                        RowPictureCacheHits = 4,
+                        RowPictureCacheMisses = 1,
+                        PictureBuilds = 1,
+                        FlushCount = 2,
+                        AtlasAlphaGlyphs = 5,
+                        AtlasColorGlyphs = 6,
+                        DirectDrawTextCount = 2,
+                        ShapedTextRuns = 1,
+                        AllocBytesThisFrame = 128
+                    };
+
+                    writer!.TryWrite(metrics);
+                }
 
                 Assert.True(File.Exists(outPath));
                 string[] lines = File.ReadAllLines(outPath);
@@ -125,22 +126,24 @@ namespace NovaTerminal.Tests.RenderTests
             try
             {
                 Directory.CreateDirectory(tempDir);
-                using RenderPerfWriter? writer = RenderPerfWriter.Create(outPath);
-                Assert.NotNull(writer);
-
-                writer!.TryWrite(new RenderPerfMetrics { FrameIndex = 1, FrameTimeMs = 1.0 });
-                Assert.True(File.Exists(outPath));
-
-                long lenAfterFirstWrite = new FileInfo(outPath).Length;
-                Assert.Equal(0, lenAfterFirstWrite);
-
-                for (int i = 2; i <= 60; i++)
+                using (RenderPerfWriter? writer = RenderPerfWriter.Create(outPath))
                 {
-                    writer.TryWrite(new RenderPerfMetrics { FrameIndex = i, FrameTimeMs = 1.0 });
-                }
+                    Assert.NotNull(writer);
 
-                long lenAfterThreshold = new FileInfo(outPath).Length;
-                Assert.True(lenAfterThreshold > 0);
+                    writer!.TryWrite(new RenderPerfMetrics { FrameIndex = 1, FrameTimeMs = 1.0 });
+                    Assert.True(File.Exists(outPath));
+
+                    long lenAfterFirstWrite = new FileInfo(outPath).Length;
+                    Assert.Equal(0, lenAfterFirstWrite);
+
+                    for (int i = 2; i <= 60; i++)
+                    {
+                        writer.TryWrite(new RenderPerfMetrics { FrameIndex = i, FrameTimeMs = 1.0 });
+                    }
+
+                    long lenAfterThreshold = new FileInfo(outPath).Length;
+                    Assert.True(lenAfterThreshold > 0);
+                }
             }
             finally
             {
