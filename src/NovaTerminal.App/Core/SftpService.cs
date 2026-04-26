@@ -32,6 +32,12 @@ namespace NovaTerminal.Core
         Canceled
     }
 
+    internal enum SftpTransferBackend
+    {
+        ExternalScp,
+        NativeSftp
+    }
+
     public class TransferJob
     {
         public Guid Id { get; set; } = Guid.NewGuid();
@@ -91,34 +97,15 @@ namespace NovaTerminal.Core
 
                 if (profile == null) throw new Exception("Profile not found");
 
-                SshLaunchDetails? launchDetails = null;
-                try
+                switch (SelectTransferBackend(profile))
                 {
-                    launchDetails = sshService.BuildLaunchDetails(profile, SshDiagnosticsLevel.None);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[SftpService] SSH launch details unavailable for '{profile.Name}', using legacy SCP args: {ex.Message}");
-                }
-
-                string scpExe = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) ? "scp.exe" : "scp";
-                string args = BuildScpArguments(job, profile, launchDetails, settings.Profiles);
-
-                ProcessStartInfo startInfo = CreateScpStartInfo(scpExe, args, profile);
-
-                using var process = Process.Start(startInfo);
-                if (process == null) throw new Exception("Failed to start scp process");
-
-                string error = startInfo.RedirectStandardError
-                    ? await process.StandardError.ReadToEndAsync()
-                    : string.Empty;
-                await process.WaitForExitAsync();
-
-                if (process.ExitCode != 0)
-                {
-                    throw new Exception(string.IsNullOrWhiteSpace(error)
-                        ? $"scp exited with code {process.ExitCode}."
-                        : error);
+                    case SftpTransferBackend.NativeSftp:
+                        await RunNativeSftpJobAsync(job, profile);
+                        break;
+                    case SftpTransferBackend.ExternalScp:
+                    default:
+                        await RunExternalScpJobAsync(job, profile, settings.Profiles, sshService);
+                        break;
                 }
 
                 Dispatcher.UIThread.Post(() =>
@@ -139,6 +126,15 @@ namespace NovaTerminal.Core
                     JobUpdated?.Invoke(this, job);
                 });
             }
+        }
+
+        internal static SftpTransferBackend SelectTransferBackend(TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+
+            return profile.SshBackendKind == NovaTerminal.Core.Ssh.Models.SshBackendKind.Native
+                ? SftpTransferBackend.NativeSftp
+                : SftpTransferBackend.ExternalScp;
         }
 
         internal static TerminalProfile? ResolveProfileForJob(
@@ -190,6 +186,55 @@ namespace NovaTerminal.Core
             }
 
             return null;
+        }
+
+        private static async Task RunExternalScpJobAsync(
+            TransferJob job,
+            TerminalProfile profile,
+            IReadOnlyList<TerminalProfile>? allProfiles,
+            SshConnectionService sshService)
+        {
+            ArgumentNullException.ThrowIfNull(job);
+            ArgumentNullException.ThrowIfNull(profile);
+            ArgumentNullException.ThrowIfNull(sshService);
+
+            SshLaunchDetails? launchDetails = null;
+            try
+            {
+                launchDetails = sshService.BuildLaunchDetails(profile, SshDiagnosticsLevel.None);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SftpService] SSH launch details unavailable for '{profile.Name}', using legacy SCP args: {ex.Message}");
+            }
+
+            string scpExe = System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows) ? "scp.exe" : "scp";
+            string args = BuildScpArguments(job, profile, launchDetails, allProfiles);
+
+            ProcessStartInfo startInfo = CreateScpStartInfo(scpExe, args, profile);
+
+            using var process = Process.Start(startInfo);
+            if (process == null) throw new Exception("Failed to start scp process");
+
+            string error = startInfo.RedirectStandardError
+                ? await process.StandardError.ReadToEndAsync()
+                : string.Empty;
+            await process.WaitForExitAsync();
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception(string.IsNullOrWhiteSpace(error)
+                    ? $"scp exited with code {process.ExitCode}."
+                    : error);
+            }
+        }
+
+        private static Task RunNativeSftpJobAsync(TransferJob job, TerminalProfile profile)
+        {
+            ArgumentNullException.ThrowIfNull(job);
+            ArgumentNullException.ThrowIfNull(profile);
+
+            throw new NotImplementedException("Native SFTP transfers are not implemented yet.");
         }
 
         internal static string BuildScpArguments(

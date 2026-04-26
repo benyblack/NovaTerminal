@@ -23,6 +23,30 @@ public sealed class SftpServiceTests
     }
 
     [Fact]
+    public void SelectTransferBackend_ForNativeProfile_UsesNativeSftp()
+    {
+        var profile = new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native
+        };
+
+        Assert.Equal(SftpTransferBackend.NativeSftp, SftpService.SelectTransferBackend(profile));
+    }
+
+    [Fact]
+    public void SelectTransferBackend_ForOpenSshProfile_UsesExternalScp()
+    {
+        var profile = new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.OpenSsh
+        };
+
+        Assert.Equal(SftpTransferBackend.ExternalScp, SftpService.SelectTransferBackend(profile));
+    }
+
+    [Fact]
     public void ResolveProfileForJob_PrefersProfileIdOverDuplicateName()
     {
         var localProfiles = new List<TerminalProfile>
