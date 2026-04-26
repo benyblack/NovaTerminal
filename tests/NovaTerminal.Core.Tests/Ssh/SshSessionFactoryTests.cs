@@ -95,6 +95,7 @@ public sealed class SshSessionFactoryTests
     private sealed class StubNativeSshInterop : INativeSshInterop
     {
         public IntPtr Connect(NativeSshConnectionOptions options) => new(1);
+        public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
         public NativeSshEvent? PollEvent(IntPtr sessionHandle) => null;
         public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data)
         {

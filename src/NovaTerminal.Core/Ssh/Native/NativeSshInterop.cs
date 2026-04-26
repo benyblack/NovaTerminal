@@ -83,6 +83,21 @@ public sealed class NativeSshInterop : INativeSshInterop
         }
     }
 
+    public void RunSftpTransfer(
+        NativeSshConnectionOptions connectionOptions,
+        NativeSftpTransferOptions transferOptions,
+        Action<NativeSftpTransferProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connectionOptions);
+        ArgumentNullException.ThrowIfNull(transferOptions);
+
+        transferOptions.Validate();
+        cancellationToken.ThrowIfCancellationRequested();
+
+        throw new NotImplementedException("Native SFTP transfer is not implemented yet.");
+    }
+
     public NativeSshEvent? PollEvent(IntPtr sessionHandle)
     {
         if (sessionHandle == IntPtr.Zero)

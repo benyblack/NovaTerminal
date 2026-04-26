@@ -493,6 +493,11 @@ public sealed class NativePortForwardSessionTests
 
         public IntPtr Connect(NativeSshConnectionOptions options) => new(1);
 
+        public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
         public NativeSshEvent? PollEvent(IntPtr sessionHandle)
         {
             return _events.TryDequeue(out NativeSshEvent? nextEvent)
