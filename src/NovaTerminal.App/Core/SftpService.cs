@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Core
@@ -135,6 +136,37 @@ namespace NovaTerminal.Core
             return profile.SshBackendKind == NovaTerminal.Core.Ssh.Models.SshBackendKind.Native
                 ? SftpTransferBackend.NativeSftp
                 : SftpTransferBackend.ExternalScp;
+        }
+
+        internal static NativeSshConnectionOptions BuildNativeTransferConnectionOptions(
+            SshConnectionService sshService,
+            TerminalProfile profile,
+            IReadOnlyList<TerminalProfile>? allProfiles = null)
+        {
+            ArgumentNullException.ThrowIfNull(sshService);
+            ArgumentNullException.ThrowIfNull(profile);
+
+            var nativeConnector = new NativeJumpHostConnector();
+            var resolvedProfile = sshService.GetStoredProfile(profile.Id)
+                ?? SshConnectionService.MapLegacyTerminalProfile(profile, EnsureLegacyJumpHostProfiles(profile, allProfiles));
+            return nativeConnector.CreateConnectionOptions(resolvedProfile, cols: 120, rows: 30);
+        }
+
+        private static IReadOnlyList<TerminalProfile>? EnsureLegacyJumpHostProfiles(
+            TerminalProfile profile,
+            IReadOnlyList<TerminalProfile>? allProfiles)
+        {
+            if (!profile.JumpHostProfileId.HasValue)
+            {
+                return allProfiles;
+            }
+
+            if (allProfiles == null || allProfiles.Count == 0)
+            {
+                throw new InvalidOperationException("allProfiles is required when building native transfer options from a legacy profile with jump hosts.");
+            }
+
+            return allProfiles;
         }
 
         internal static TerminalProfile? ResolveProfileForJob(

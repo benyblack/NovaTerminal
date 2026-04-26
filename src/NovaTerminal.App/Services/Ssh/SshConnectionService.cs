@@ -52,6 +52,11 @@ public sealed class SshLaunchDetails
         return profile == null ? null : ToRuntimeProfile(profile);
     }
 
+    internal SshProfile? GetStoredProfile(Guid profileId)
+    {
+        return _profileStore.GetProfile(profileId);
+    }
+
     public NewSshConnectionViewModel CreateEditorViewModel(TerminalProfile? profile)
     {
         if (profile == null)

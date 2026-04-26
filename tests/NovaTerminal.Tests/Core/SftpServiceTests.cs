@@ -1,5 +1,7 @@
 using NovaTerminal.Core;
+using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Core.Ssh.Storage;
 using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Tests.Core;
@@ -44,6 +46,114 @@ public sealed class SftpServiceTests
         };
 
         Assert.Equal(SftpTransferBackend.ExternalScp, SftpService.SelectTransferBackend(profile));
+    }
+
+    [Fact]
+    public void BuildNativeTransferConnectionOptions_UsesProfileTarget()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        var profile = new TerminalProfile
+        {
+            Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            SshPort = 2200
+        };
+
+        NativeSshConnectionOptions options = SftpService.BuildNativeTransferConnectionOptions(service, profile);
+
+        Assert.Equal("prod.internal", options.Host);
+        Assert.Equal("ops", options.User);
+        Assert.Equal(2200, options.Port);
+    }
+
+    [Fact]
+    public void BuildNativeTransferConnectionOptions_UsesStoredProfileWhenAvailable()
+    {
+        Guid profileId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var store = new InMemorySshProfileStore();
+        store.SaveProfile(new SshProfile
+        {
+            Id = profileId,
+            Name = "Prod",
+            BackendKind = SshBackendKind.Native,
+            Host = "prod.internal",
+            User = "ops",
+            Port = 2200,
+            ServerAliveIntervalSeconds = 45,
+            ServerAliveCountMax = 6,
+            JumpHops = new List<SshJumpHop>
+            {
+                new() { Host = "jump.internal", User = "jumper", Port = 2222 }
+            }
+        });
+        var service = new SshConnectionService(store);
+        TerminalProfile runtimeProfile = service.GetConnectionProfiles().Single(profile => profile.Id == profileId);
+
+        NativeSshConnectionOptions options = SftpService.BuildNativeTransferConnectionOptions(service, runtimeProfile);
+
+        Assert.Equal("prod.internal", options.Host);
+        Assert.Equal("ops", options.User);
+        Assert.Equal(2200, options.Port);
+        Assert.Equal(45, options.KeepAliveIntervalSeconds);
+        Assert.Equal(6, options.KeepAliveCountMax);
+        Assert.NotNull(options.JumpHost);
+        Assert.Equal("jump.internal", options.JumpHost!.Host);
+        Assert.Equal("jumper", options.JumpHost.User);
+        Assert.Equal(2222, options.JumpHost.Port);
+    }
+
+    [Fact]
+    public void BuildNativeTransferConnectionOptions_ThrowsWhenJumpHostFallbackHasNoProfileList()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        var targetProfile = new TerminalProfile
+        {
+            Id = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            JumpHostProfileId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        };
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+            () => SftpService.BuildNativeTransferConnectionOptions(service, targetProfile));
+
+        Assert.Contains("allProfiles", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildNativeTransferConnectionOptions_UsesResolvedJumpHost()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        Guid jumpId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var jumpProfile = new TerminalProfile
+        {
+            Id = jumpId,
+            Type = ConnectionType.SSH,
+            SshHost = "jump.internal",
+            SshUser = "jumper",
+            SshPort = 2222
+        };
+        var targetProfile = new TerminalProfile
+        {
+            Id = Guid.Parse("cccccccc-cccc-cccc-cccc-ccccccccccce"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            JumpHostProfileId = jumpId
+        };
+
+        NativeSshConnectionOptions options = SftpService.BuildNativeTransferConnectionOptions(service, targetProfile, new[] { jumpProfile, targetProfile });
+
+        Assert.NotNull(options.JumpHost);
+        Assert.Equal("jump.internal", options.JumpHost!.Host);
+        Assert.Equal("jumper", options.JumpHost.User);
+        Assert.Equal(2222, options.JumpHost.Port);
     }
 
     [Fact]
@@ -233,5 +343,21 @@ public sealed class SftpServiceTests
 
         Assert.True(startInfo.RedirectStandardError);
         Assert.True(startInfo.CreateNoWindow);
+    }
+
+    private sealed class InMemorySshProfileStore : ISshProfileStore
+    {
+        private readonly Dictionary<Guid, SshProfile> _profiles = new();
+
+        public IReadOnlyList<SshProfile> GetProfiles() => _profiles.Values.ToArray();
+
+        public SshProfile? GetProfile(Guid profileId) => _profiles.GetValueOrDefault(profileId);
+
+        public void SaveProfile(SshProfile profile)
+        {
+            _profiles[profile.Id] = profile;
+        }
+
+        public bool DeleteProfile(Guid profileId) => _profiles.Remove(profileId);
     }
 }
