@@ -21,6 +21,13 @@ class Program
                 return;
             }
 
+            if (SshAskPassCommand.IsSupportedCliMode(args))
+            {
+                CliConsoleBindings.Prepare();
+                Environment.ExitCode = SshAskPassCommand.Execute(args, Console.Out, Console.Error);
+                return;
+            }
+
             // Log startup info
             TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
             TerminalLogger.Log("Log file path: " + AppLogger.GetLogFilePath());
