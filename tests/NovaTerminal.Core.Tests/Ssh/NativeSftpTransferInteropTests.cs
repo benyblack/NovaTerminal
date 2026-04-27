@@ -76,7 +76,7 @@ public sealed class NativeSftpTransferInteropTests
         };
         NativeSftpTransferOptions transferOptions = new()
         {
-            Direction = NativeSftpTransferDirection.Upload,
+            Direction = (NativeSftpTransferDirection)99,
             Kind = NativeSftpTransferKind.Directory,
             LocalPath = @"C:\downloads\report.txt",
             RemotePath = "/tmp/report.txt"
@@ -88,9 +88,8 @@ public sealed class NativeSftpTransferInteropTests
             progress: null,
             CancellationToken.None);
 
-        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(act);
+        ArgumentOutOfRangeException ex = Assert.Throws<ArgumentOutOfRangeException>(act);
 
-        Assert.Contains("not implemented", ex.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("upload/directory", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("direction", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

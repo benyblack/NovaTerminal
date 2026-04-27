@@ -1087,17 +1087,6 @@ async fn authenticate_transfer<H>(
 where
     H: client::Handler + Send + 'static,
 {
-    if let Some(password) = auth.password.as_deref() {
-        let result = session
-            .authenticate_password(user.to_owned(), password.to_owned())
-            .await?;
-        if result.success() {
-            return Ok(());
-        }
-
-        anyhow::bail!("SSH authentication failed");
-    }
-
     if let Some(identity_file) = auth.identity_file.as_deref() {
         let key = load_secret_key(Path::new(identity_file), None).map_err(|_| {
             anyhow::anyhow!(
@@ -1112,6 +1101,17 @@ where
                 user.to_owned(),
                 PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
             )
+            .await?;
+        if result.success() {
+            return Ok(());
+        }
+
+        anyhow::bail!("SSH authentication failed");
+    }
+
+    if let Some(password) = auth.password.as_deref() {
+        let result = session
+            .authenticate_password(user.to_owned(), password.to_owned())
             .await?;
         if result.success() {
             return Ok(());
@@ -1138,32 +1138,32 @@ where
     channel.request_subsystem(true, "sftp").await?;
     let sftp = SftpSession::new(channel.into_stream()).await?;
     let direction = transfer.direction.trim().to_ascii_lowercase();
-    match direction.as_str() {
-        "download" => {
-            let mut remote_file = sftp.open(transfer.remote_path.clone()).await?;
+    let kind = transfer.kind.trim().to_ascii_lowercase();
 
-            let local_path = PathBuf::from(&transfer.local_path);
-            if let Some(parent) = local_path.parent() {
-                if !parent.as_os_str().is_empty() {
-                    std::fs::create_dir_all(parent)?;
-                }
-            }
-
-            let mut local_file = TokioFile::create(&local_path).await?;
-            copy(&mut remote_file, &mut local_file).await?;
-            local_file.flush().await?;
-            remote_file.shutdown().await?;
+    match (direction.as_str(), kind.as_str()) {
+        ("download", "file") => {
+            download_file_from_remote(&sftp, &transfer.remote_path, Path::new(&transfer.local_path))
+                .await?;
         }
-        "upload" => {
-            let mut local_file = TokioFile::open(Path::new(&transfer.local_path)).await?;
-            let mut remote_file = sftp.create(transfer.remote_path.clone()).await?;
-            copy(&mut local_file, &mut remote_file).await?;
-            remote_file.shutdown().await?;
+        ("upload", "file") => {
+            upload_file_to_remote(&sftp, Path::new(&transfer.local_path), &transfer.remote_path)
+                .await?;
+        }
+        ("download", "directory") => {
+            let local_root = PathBuf::from(&transfer.local_path)
+                .join(remote_basename(&transfer.remote_path)?);
+            download_directory_from_remote(&sftp, &transfer.remote_path, &local_root).await?;
+        }
+        ("upload", "directory") => {
+            let local_root = PathBuf::from(&transfer.local_path);
+            let remote_root =
+                resolve_upload_directory_target(&sftp, &local_root, &transfer.remote_path).await?;
+            upload_directory_to_remote(&sftp, &local_root, &remote_root).await?;
         }
         _ => anyhow::bail!(
             "Native SFTP transfer mode '{}/{}' is not implemented yet.",
             direction,
-            transfer.kind.trim().to_ascii_lowercase()
+            kind
         ),
     }
 
@@ -1174,7 +1174,9 @@ where
 fn validate_supported_sftp_mode(transfer: &SftpTransferRequestBody) -> anyhow::Result<()> {
     let direction = transfer.direction.trim().to_ascii_lowercase();
     let kind = transfer.kind.trim().to_ascii_lowercase();
-    if (direction == "download" || direction == "upload") && kind == "file" {
+    if (direction == "download" || direction == "upload")
+        && (kind == "file" || kind == "directory")
+    {
         return Ok(());
     }
 
@@ -1183,6 +1185,193 @@ fn validate_supported_sftp_mode(transfer: &SftpTransferRequestBody) -> anyhow::R
         direction,
         kind
     )
+}
+
+async fn download_file_from_remote(
+    sftp: &SftpSession,
+    remote_path: &str,
+    local_path: &Path,
+) -> anyhow::Result<()> {
+    let mut remote_file = sftp.open(remote_path.to_owned()).await?;
+    if let Some(parent) = local_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
+    let mut local_file = TokioFile::create(local_path).await?;
+    copy(&mut remote_file, &mut local_file).await?;
+    local_file.flush().await?;
+    remote_file.shutdown().await?;
+    Ok(())
+}
+
+async fn upload_file_to_remote(
+    sftp: &SftpSession,
+    local_path: &Path,
+    remote_path: &str,
+) -> anyhow::Result<()> {
+    let mut local_file = TokioFile::open(local_path).await?;
+    let mut remote_file = sftp.create(remote_path.to_owned()).await?;
+    copy(&mut local_file, &mut remote_file).await?;
+    remote_file.shutdown().await?;
+    Ok(())
+}
+
+async fn download_directory_from_remote(
+    sftp: &SftpSession,
+    remote_root: &str,
+    local_root: &Path,
+) -> anyhow::Result<()> {
+    std::fs::create_dir_all(local_root)?;
+
+    let mut pending = VecDeque::from([(remote_root.to_owned(), local_root.to_path_buf())]);
+    while let Some((remote_dir, local_dir)) = pending.pop_front() {
+        std::fs::create_dir_all(&local_dir)?;
+
+        let mut entries = sftp
+            .read_dir(remote_dir.clone())
+            .await?
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.file_name());
+
+        for entry in entries {
+            let file_name = entry.file_name();
+            let remote_child = join_remote_path(&remote_dir, &file_name);
+            let local_child = local_dir.join(&file_name);
+            let metadata = entry.metadata();
+
+            if metadata.is_dir() {
+                pending.push_back((remote_child, local_child));
+                continue;
+            }
+
+            if metadata.is_regular() {
+                download_file_from_remote(sftp, &remote_child, &local_child).await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn upload_directory_to_remote(
+    sftp: &SftpSession,
+    local_root: &Path,
+    remote_root: &str,
+) -> anyhow::Result<()> {
+    ensure_remote_directory_exists(sftp, remote_root).await?;
+
+    let mut pending = VecDeque::from([(local_root.to_path_buf(), remote_root.to_owned())]);
+    while let Some((local_dir, remote_dir)) = pending.pop_front() {
+        let mut entries = std::fs::read_dir(&local_dir)?
+            .collect::<Result<Vec<_>, std::io::Error>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
+
+        for entry in entries {
+            let local_child = entry.path();
+            let file_name = entry.file_name();
+            let file_name = file_name.to_string_lossy().into_owned();
+            let remote_child = join_remote_path(&remote_dir, &file_name);
+            let metadata = std::fs::symlink_metadata(&local_child)?;
+
+            if metadata.is_dir() {
+                ensure_remote_directory_exists(sftp, &remote_child).await?;
+                pending.push_back((local_child, remote_child));
+                continue;
+            }
+
+            if metadata.is_file() {
+                upload_file_to_remote(sftp, &local_child, &remote_child).await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn resolve_upload_directory_target(
+    sftp: &SftpSession,
+    local_root: &Path,
+    remote_path: &str,
+) -> anyhow::Result<String> {
+    let local_name = local_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Local directory name is required for native SFTP upload."))?;
+    let normalized_remote = normalize_remote_directory_path(remote_path)?;
+
+    if sftp.try_exists(normalized_remote.clone()).await? {
+        let metadata = sftp.metadata(normalized_remote.clone()).await?;
+        if metadata.is_dir() {
+            return Ok(join_remote_path(&normalized_remote, local_name));
+        }
+    }
+
+    Ok(normalized_remote)
+}
+
+async fn ensure_remote_directory_exists(sftp: &SftpSession, path: &str) -> anyhow::Result<()> {
+    let normalized = normalize_remote_directory_path(path)?;
+    if normalized == "/" {
+        return Ok(());
+    }
+
+    let is_absolute = normalized.starts_with('/');
+    let mut current = if is_absolute {
+        String::from("/")
+    } else {
+        String::new()
+    };
+
+    for part in normalized.split('/').filter(|part| !part.is_empty()) {
+        current = if current == "/" {
+            format!("/{}", part)
+        } else if current.is_empty() {
+            part.to_owned()
+        } else {
+            format!("{}/{}", current, part)
+        };
+
+        if !sftp.try_exists(current.clone()).await? {
+            sftp.create_dir(current.clone()).await?;
+        }
+    }
+
+    Ok(())
+}
+
+fn remote_basename(path: &str) -> anyhow::Result<String> {
+    let normalized = normalize_remote_directory_path(path)?;
+    normalized
+        .rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .map(str::to_owned)
+        .ok_or_else(|| anyhow::anyhow!("Remote directory name is required for native SFTP transfer."))
+}
+
+fn normalize_remote_directory_path(path: &str) -> anyhow::Result<String> {
+    let trimmed = path.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Ok("/".to_owned());
+    }
+
+    if trimmed == "." {
+        anyhow::bail!("Remote directory path '.' is not supported for native SFTP transfer.");
+    }
+
+    Ok(trimmed.to_owned())
+}
+
+fn join_remote_path(base: &str, child: &str) -> String {
+    let trimmed_base = base.trim_end_matches('/');
+    let trimmed_child = child.trim_matches('/');
+    if trimmed_base.is_empty() || trimmed_base == "/" {
+        format!("/{}", trimmed_child)
+    } else {
+        format!("{}/{}", trimmed_base, trimmed_child)
+    }
 }
 
 fn run_session(
@@ -1750,7 +1939,7 @@ mod tests {
     #[test]
     fn sftp_transfer_rejects_unsupported_modes() {
         let request = CString::new(
-            r#"{"connection":{"host":"example.com","user":"nova","port":22,"password":"secret","knownHostsFilePath":"known_hosts.json"},"transfer":{"direction":"upload","kind":"directory","localPath":"local.txt","remotePath":"/tmp/remote.txt"}}"#,
+            r#"{"connection":{"host":"example.com","user":"nova","port":22,"password":"secret","knownHostsFilePath":"known_hosts.json"},"transfer":{"direction":"sync","kind":"directory","localPath":"local.txt","remotePath":"/tmp/remote.txt"}}"#,
         )
         .unwrap();
         let mut response = ptr::null_mut();
@@ -1764,7 +1953,7 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(response_json).unwrap();
         assert_eq!("not-implemented", payload["status"]);
         assert_eq!(
-            "Native SFTP transfer mode 'upload/directory' is not implemented yet.",
+            "Native SFTP transfer mode 'sync/directory' is not implemented yet.",
             payload["message"]
         );
 

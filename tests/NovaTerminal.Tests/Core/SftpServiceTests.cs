@@ -49,7 +49,7 @@ public sealed class SftpServiceTests
     }
 
     [Fact]
-    public void SelectExecutionBackend_ForNativeFolder_UsesExternalScpUntilDirectorySupportExists()
+    public void SelectExecutionBackend_ForNativeFolder_UsesNativeSftp()
     {
         var profile = new TerminalProfile
         {
@@ -64,7 +64,7 @@ public sealed class SftpServiceTests
             RemotePath = "/tmp/folder"
         };
 
-        Assert.Equal(SftpTransferBackend.ExternalScp, SftpService.SelectExecutionBackend(profile, job));
+        Assert.Equal(SftpTransferBackend.NativeSftp, SftpService.SelectExecutionBackend(profile, job));
     }
 
     [Fact]
@@ -378,14 +378,14 @@ public sealed class SftpServiceTests
     }
 
     [Fact]
-    public void BuildScpArguments_ForNativeBackend_AllowsInteractiveAuthentication()
+    public void BuildScpArguments_ForOpenSshBackend_UsesBatchMode()
     {
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("39292451-ad10-4f26-aeb7-2175527a66be"),
-            Name = "Native Prod",
+            Name = "OpenSSH Prod",
             Type = ConnectionType.SSH,
-            SshBackendKind = SshBackendKind.Native,
+            SshBackendKind = SshBackendKind.OpenSsh,
             SshHost = "prod.internal",
             SshUser = "ops"
         };
@@ -403,18 +403,18 @@ public sealed class SftpServiceTests
         string args = SftpService.BuildScpArguments(job, profile, launchDetails: null);
 
         Assert.Contains(" -O ", args, StringComparison.Ordinal);
-        Assert.DoesNotContain(" -B ", args, StringComparison.Ordinal);
+        Assert.Contains(" -B ", args, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void CreateScpStartInfo_ForNativeBackend_UsesAskPassAndStaysHidden()
+    public void CreateScpStartInfo_DoesNotConfigureAskPass()
     {
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("e15099d2-ac29-40cb-bf1f-f466eb2622b7"),
-            Name = "Native Prod",
+            Name = "OpenSSH Prod",
             Type = ConnectionType.SSH,
-            SshBackendKind = SshBackendKind.Native,
+            SshBackendKind = SshBackendKind.OpenSsh,
             SshHost = "prod.internal",
             SshUser = "ops",
             SshPort = 2200
@@ -424,14 +424,8 @@ public sealed class SftpServiceTests
 
         Assert.True(startInfo.RedirectStandardError);
         Assert.True(startInfo.CreateNoWindow);
-        Assert.Equal("1", startInfo.Environment[SshAskPassCommand.ModeEnvironmentVariable]);
-        Assert.Equal("force", startInfo.Environment["SSH_ASKPASS_REQUIRE"]);
-        Assert.False(string.IsNullOrWhiteSpace(startInfo.Environment["SSH_ASKPASS"]));
-        Assert.Equal(profile.Id.ToString(), startInfo.Environment[SshAskPassCommand.ProfileIdEnvironmentVariable]);
-        Assert.Equal("Native Prod", startInfo.Environment[SshAskPassCommand.ProfileNameEnvironmentVariable]);
-        Assert.Equal("ops", startInfo.Environment[SshAskPassCommand.ProfileUserEnvironmentVariable]);
-        Assert.Equal("prod.internal", startInfo.Environment[SshAskPassCommand.ProfileHostEnvironmentVariable]);
-        Assert.Equal("2200", startInfo.Environment[SshAskPassCommand.ProfilePortEnvironmentVariable]);
+        Assert.False(startInfo.Environment.ContainsKey("SSH_ASKPASS"));
+        Assert.False(startInfo.Environment.ContainsKey("SSH_ASKPASS_REQUIRE"));
     }
 
     [Fact]

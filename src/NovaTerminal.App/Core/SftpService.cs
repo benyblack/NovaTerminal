@@ -144,11 +144,6 @@ namespace NovaTerminal.Core
             ArgumentNullException.ThrowIfNull(profile);
             ArgumentNullException.ThrowIfNull(job);
 
-            if (job.Kind != TransferKind.File)
-            {
-                return SftpTransferBackend.ExternalScp;
-            }
-
             return SelectTransferBackend(profile);
         }
 
@@ -423,10 +418,7 @@ namespace NovaTerminal.Core
             }
 
             args.Append(" -O");
-            if (ShouldUseBatchMode(profile))
-            {
-                args.Append(" -B");
-            }
+            args.Append(" -B");
 
             string localPath = QuoteArg(job.LocalPath.Replace("\\", "/", StringComparison.Ordinal));
             string remotePath = QuoteArg(job.RemotePath);
@@ -447,71 +439,14 @@ namespace NovaTerminal.Core
             ArgumentException.ThrowIfNullOrWhiteSpace(scpExe);
             ArgumentNullException.ThrowIfNull(profile);
 
-            bool hideProcess = !RequiresVisibleAuthenticationPrompt(profile);
-            var startInfo = new ProcessStartInfo
+            return new ProcessStartInfo
             {
                 FileName = scpExe,
                 Arguments = args,
                 UseShellExecute = false,
-                RedirectStandardError = hideProcess,
-                CreateNoWindow = hideProcess
+                RedirectStandardError = true,
+                CreateNoWindow = true
             };
-
-            if (RequiresAskPass(profile))
-            {
-                ConfigureAskPass(startInfo, profile);
-            }
-
-            return startInfo;
-        }
-
-        private static bool ShouldUseBatchMode(TerminalProfile profile)
-        {
-            return !RequiresAskPass(profile);
-        }
-
-        private static bool RequiresAskPass(TerminalProfile profile)
-        {
-            return profile.SshBackendKind == NovaTerminal.Core.Ssh.Models.SshBackendKind.Native;
-        }
-
-        private static bool RequiresVisibleAuthenticationPrompt(TerminalProfile profile)
-        {
-            return RequiresAskPass(profile) && string.IsNullOrWhiteSpace(ResolveAskPassExecutablePath());
-        }
-
-        private static void ConfigureAskPass(ProcessStartInfo startInfo, TerminalProfile profile)
-        {
-            string? askPassPath = ResolveAskPassExecutablePath();
-            if (string.IsNullOrWhiteSpace(askPassPath))
-            {
-                return;
-            }
-
-            startInfo.Environment[SshAskPassCommand.ModeEnvironmentVariable] = "1";
-            startInfo.Environment["SSH_ASKPASS"] = askPassPath;
-            startInfo.Environment["SSH_ASKPASS_REQUIRE"] = "force";
-            startInfo.Environment["DISPLAY"] = "NovaTerminal";
-            startInfo.Environment[SshAskPassCommand.ProfileIdEnvironmentVariable] = profile.Id.ToString();
-            startInfo.Environment[SshAskPassCommand.ProfileNameEnvironmentVariable] = profile.Name ?? string.Empty;
-            startInfo.Environment[SshAskPassCommand.ProfileUserEnvironmentVariable] = profile.SshUser ?? string.Empty;
-            startInfo.Environment[SshAskPassCommand.ProfileHostEnvironmentVariable] = profile.SshHost ?? string.Empty;
-            startInfo.Environment[SshAskPassCommand.ProfilePortEnvironmentVariable] = profile.SshPort.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        }
-
-        internal static string? ResolveAskPassExecutablePath()
-        {
-            string baseDirectory = AppContext.BaseDirectory;
-            string fileName = OperatingSystem.IsWindows()
-                ? "NovaTerminal.Cli.exe"
-                : "NovaTerminal.Cli";
-            string cliPath = Path.Combine(baseDirectory, fileName);
-            if (File.Exists(cliPath))
-            {
-                return cliPath;
-            }
-
-            return null;
         }
 
         private static string QuoteArg(string value)

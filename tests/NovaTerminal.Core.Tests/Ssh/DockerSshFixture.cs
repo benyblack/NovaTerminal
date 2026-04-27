@@ -59,6 +59,14 @@ internal sealed class DockerSshFixture : IAsyncDisposable
             .ConfigureAwait(false);
     }
 
+    public async Task CreateDirectoryAsync(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        await RunDockerCommandAsync($"exec {_containerName} mkdir -p {path}")
+            .ConfigureAwait(false);
+    }
+
     public static async Task<DockerSshFixture> StartAsync()
     {
         await EnsureDockerAvailableAsync().ConfigureAwait(false);

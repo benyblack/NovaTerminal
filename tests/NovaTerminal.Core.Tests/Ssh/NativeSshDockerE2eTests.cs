@@ -109,6 +109,104 @@ public sealed class NativeSshDockerE2eTests
     [DockerFact]
     [Trait("Category", "DockerE2E")]
     [Trait("Target", "NativeSsh")]
+    public async Task NativeSftp_CanDownloadDirectory()
+    {
+        await using var fixture = await DockerSshFixture.StartAsync();
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-download-dir-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            const string remoteRoot = "/tmp/native-sftp-download-dir";
+            await fixture.CreateDirectoryAsync($"{remoteRoot}/nested");
+            await fixture.WriteTextFileAsync($"{remoteRoot}/a.txt", "alpha");
+            await fixture.WriteTextFileAsync($"{remoteRoot}/nested/b.txt", "beta");
+
+            SshHostKeyInfo hostKey = await fixture.GetHostKeyAsync();
+            string knownHostsPath = Path.Combine(tempRoot, "native_known_hosts.json");
+            var knownHosts = new NativeKnownHostsStore(knownHostsPath);
+            knownHosts.TrustHost(fixture.Host, fixture.Port, hostKey.Algorithm, hostKey.Fingerprint);
+
+            var interop = new NativeSshInterop();
+            var connection = new NativeSshConnectionOptions
+            {
+                Host = fixture.Host,
+                User = fixture.UserName,
+                Port = fixture.Port,
+                Password = fixture.Password,
+                KnownHostsFilePath = knownHostsPath
+            };
+            var transfer = new NativeSftpTransferOptions
+            {
+                Direction = NativeSftpTransferDirection.Download,
+                Kind = NativeSftpTransferKind.Directory,
+                LocalPath = tempRoot,
+                RemotePath = remoteRoot
+            };
+
+            interop.RunSftpTransfer(connection, transfer, progress: null, CancellationToken.None);
+
+            string localRoot = Path.Combine(tempRoot, "native-sftp-download-dir");
+            Assert.Equal("alpha", await File.ReadAllTextAsync(Path.Combine(localRoot, "a.txt")));
+            Assert.Equal("beta", await File.ReadAllTextAsync(Path.Combine(localRoot, "nested", "b.txt")));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
+    public async Task NativeSftp_CanUploadDirectory()
+    {
+        await using var fixture = await DockerSshFixture.StartAsync();
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-upload-dir-{Guid.NewGuid():N}");
+        string localRoot = Path.Combine(tempRoot, "native-sftp-upload-dir");
+        Directory.CreateDirectory(Path.Combine(localRoot, "nested"));
+        try
+        {
+            await File.WriteAllTextAsync(Path.Combine(localRoot, "a.txt"), "alpha");
+            await File.WriteAllTextAsync(Path.Combine(localRoot, "nested", "b.txt"), "beta");
+
+            SshHostKeyInfo hostKey = await fixture.GetHostKeyAsync();
+            string knownHostsPath = Path.Combine(tempRoot, "native_known_hosts.json");
+            var knownHosts = new NativeKnownHostsStore(knownHostsPath);
+            knownHosts.TrustHost(fixture.Host, fixture.Port, hostKey.Algorithm, hostKey.Fingerprint);
+
+            var interop = new NativeSshInterop();
+            var connection = new NativeSshConnectionOptions
+            {
+                Host = fixture.Host,
+                User = fixture.UserName,
+                Port = fixture.Port,
+                Password = fixture.Password,
+                KnownHostsFilePath = knownHostsPath
+            };
+            var transfer = new NativeSftpTransferOptions
+            {
+                Direction = NativeSftpTransferDirection.Upload,
+                Kind = NativeSftpTransferKind.Directory,
+                LocalPath = localRoot,
+                RemotePath = "/tmp"
+            };
+
+            interop.RunSftpTransfer(connection, transfer, progress: null, CancellationToken.None);
+
+            Assert.Equal("alpha", await fixture.ReadTextFileAsync("/tmp/native-sftp-upload-dir/a.txt"));
+            Assert.Equal("beta", await fixture.ReadTextFileAsync("/tmp/native-sftp-upload-dir/nested/b.txt"));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
     public async Task NativeSsh_CanAuthenticate_RunCommand_AndReturnToPrompt()
     {
         await using var fixture = await DockerSshFixture.StartAsync();
