@@ -13,6 +13,9 @@ public sealed class NativeSshInterop : INativeSshInterop
     private const int ResultClosed = -3;
     private const int ResultCanceled = -6;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly NativeSftpTransferProgressCallback SftpTransferProgressCallback = OnNativeSftpTransferProgress;
+    private static readonly IntPtr SftpTransferProgressCallbackPointer =
+        Marshal.GetFunctionPointerForDelegate(SftpTransferProgressCallback);
 
     public IntPtr Connect(NativeSshConnectionOptions options)
     {
@@ -105,6 +108,7 @@ public sealed class NativeSshInterop : INativeSshInterop
 
         IntPtr requestPtr = IntPtr.Zero;
         IntPtr responsePtr = IntPtr.Zero;
+        GCHandle progressStateHandle = default;
         string cancellationMarkerPath = Path.Combine(
             Path.GetTempPath(),
             $"nova-sftp-cancel-{Guid.NewGuid():N}.signal");
@@ -130,7 +134,16 @@ public sealed class NativeSshInterop : INativeSshInterop
             };
             requestJson = JsonSerializer.Serialize(request, JsonOptions);
             requestPtr = Marshal.StringToCoTaskMemUTF8(requestJson);
-            int rc = NativeMethods.nova_ssh_sftp_transfer(requestPtr, out responsePtr);
+            if (progress is not null)
+            {
+                progressStateHandle = GCHandle.Alloc(new NativeSftpTransferProgressCallbackState(progress));
+            }
+
+            int rc = NativeMethods.nova_ssh_sftp_transfer(
+                requestPtr,
+                progressStateHandle.IsAllocated ? SftpTransferProgressCallbackPointer : IntPtr.Zero,
+                progressStateHandle.IsAllocated ? GCHandle.ToIntPtr(progressStateHandle) : IntPtr.Zero,
+                out responsePtr);
             string? responseJson = TakeNativeUtf8AndFree(ref responsePtr);
             if (rc == ResultCanceled)
             {
@@ -144,6 +157,11 @@ public sealed class NativeSshInterop : INativeSshInterop
         }
         finally
         {
+            if (progressStateHandle.IsAllocated)
+            {
+                progressStateHandle.Free();
+            }
+
             FreeUtf8(requestPtr);
             if (responsePtr != IntPtr.Zero)
             {
@@ -355,12 +373,76 @@ public sealed class NativeSshInterop : INativeSshInterop
         throw new InvalidOperationException($"Native SSH submit response failed with result {rc}.");
     }
 
+    internal static void InvokeManagedProgressCallbackForTest(
+        Action<NativeSftpTransferProgress> progress,
+        ulong bytesDone,
+        ulong bytesTotal,
+        string currentPath)
+    {
+        ArgumentNullException.ThrowIfNull(progress);
+
+        IntPtr currentPathPtr = IntPtr.Zero;
+
+        try
+        {
+            currentPathPtr = Marshal.StringToCoTaskMemUTF8(currentPath);
+            InvokeManagedProgressCallback(
+                progress,
+                new NativeSftpTransferProgressCallbackData
+                {
+                    BytesDone = bytesDone,
+                    BytesTotal = bytesTotal,
+                    CurrentPath = currentPathPtr
+                });
+        }
+        finally
+        {
+            FreeUtf8(currentPathPtr);
+        }
+    }
+
     private static void FreeUtf8(IntPtr pointer)
     {
         if (pointer != IntPtr.Zero)
         {
             Marshal.FreeCoTaskMem(pointer);
         }
+    }
+
+    private static void OnNativeSftpTransferProgress(IntPtr context, NativeSftpTransferProgressCallbackData progress)
+    {
+        if (context == IntPtr.Zero)
+        {
+            return;
+        }
+
+        GCHandle handle = GCHandle.FromIntPtr(context);
+        if (handle.Target is not NativeSftpTransferProgressCallbackState state)
+        {
+            return;
+        }
+
+        try
+        {
+            InvokeManagedProgressCallback(state.Progress, progress);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void InvokeManagedProgressCallback(
+        Action<NativeSftpTransferProgress> progress,
+        NativeSftpTransferProgressCallbackData nativeProgress)
+    {
+        progress(new NativeSftpTransferProgress
+        {
+            BytesDone = checked((long)nativeProgress.BytesDone),
+            BytesTotal = checked((long)nativeProgress.BytesTotal),
+            CurrentPath = nativeProgress.CurrentPath == IntPtr.Zero
+                ? null
+                : Marshal.PtrToStringUTF8(nativeProgress.CurrentPath)
+        });
     }
 
     private static void ValidateConnectionOptions(NativeSshConnectionOptions options)
@@ -532,6 +614,16 @@ public sealed class NativeSshInterop : INativeSshInterop
         public string? Message { get; init; }
     }
 
+    private sealed class NativeSftpTransferProgressCallbackState
+    {
+        public NativeSftpTransferProgressCallbackState(Action<NativeSftpTransferProgress> progress)
+        {
+            Progress = progress;
+        }
+
+        public Action<NativeSftpTransferProgress> Progress { get; }
+    }
+
     private static class NativeMethods
     {
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_connect")]
@@ -565,7 +657,11 @@ public sealed class NativeSshInterop : INativeSshInterop
         public static extern int nova_ssh_submit_response(IntPtr session, uint responseKind, byte[] data, nuint dataLength);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_sftp_transfer")]
-        public static extern int nova_ssh_sftp_transfer(IntPtr requestJson, out IntPtr responseJson);
+        public static extern int nova_ssh_sftp_transfer(
+            IntPtr requestJson,
+            IntPtr progressCallback,
+            IntPtr progressContext,
+            out IntPtr responseJson);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_string_free")]
         public static extern void nova_ssh_string_free(IntPtr value);

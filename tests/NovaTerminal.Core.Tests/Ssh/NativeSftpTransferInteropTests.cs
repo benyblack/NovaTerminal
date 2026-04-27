@@ -53,6 +53,26 @@ public sealed class NativeSftpTransferInteropTests
     }
 
     [Fact]
+    public void NativeProgressCallback_TranslatesPayloadToManagedProgress()
+    {
+        NativeSftpTransferProgress? observed = null;
+        MethodInfo? helperMethod = typeof(NativeSshInterop).GetMethod(
+            "InvokeManagedProgressCallbackForTest",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.True(
+            helperMethod is not null,
+            "Expected NativeSshInterop to expose a nonpublic static InvokeManagedProgressCallbackForTest helper.");
+
+        helperMethod!.Invoke(null, [new Action<NativeSftpTransferProgress>(progress => observed = progress), 512UL, 2048UL, "/tmp/archive.tar"]);
+
+        Assert.NotNull(observed);
+        Assert.Equal(512, observed!.BytesDone);
+        Assert.Equal(2048, observed.BytesTotal);
+        Assert.Equal("/tmp/archive.tar", observed.CurrentPath);
+    }
+
+    [Fact]
     public void TransferOptions_RequireLocalAndRemotePaths()
     {
         NativeSftpTransferOptions options = new()
