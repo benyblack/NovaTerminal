@@ -39,6 +39,7 @@ The native SSH initiative is implemented behind conservative rollout controls.
 - `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`.
 - Native SSH does **not** silently fall back to OpenSSH on failure.
 - Native SSH file transfers use the built-in native SFTP path.
+- Native SSH single-file transfers show live byte progress when the total size is known; folder transfers report per-file progress only.
 - OpenSSH file transfers still use the system `scp` path.
 - Native SSH supports local forwards and direct-host dynamic forwards.
 - Dynamic forwarding through a one-hop jump host is **not** yet supported.

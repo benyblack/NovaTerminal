@@ -94,6 +94,8 @@ Current Native SSH transfer notes:
 
 - Transfers use the native backend's known-hosts store and do not silently fall back to OpenSSH.
 - Password and identity-file authentication are supported for non-interactive transfers.
+- Single-file transfers show live byte progress when the total size is known.
+- Folder transfers report per-file progress callbacks; they do not show a precomputed total for the entire tree.
 - Cancellation is supported from the Transfer Center for native transfers.
 
 ---
