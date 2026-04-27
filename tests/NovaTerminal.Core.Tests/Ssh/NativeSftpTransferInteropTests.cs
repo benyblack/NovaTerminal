@@ -1,9 +1,48 @@
 using NovaTerminal.Core.Ssh.Native;
+using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace NovaTerminal.Core.Tests.Ssh;
 
 public sealed class NativeSftpTransferInteropTests
 {
+    [Fact]
+    public void ProgressPayload_AllowsKnownTotalAndCurrentPath()
+    {
+        NativeSftpTransferProgress progress = new()
+        {
+            BytesDone = 128,
+            BytesTotal = 1024,
+            CurrentPath = "/tmp/report.txt"
+        };
+
+        Assert.Equal(128, progress.BytesDone);
+        Assert.Equal(1024, progress.BytesTotal);
+        Assert.Equal("/tmp/report.txt", progress.CurrentPath);
+    }
+
+    [Fact]
+    public void NativeSshInterop_ForwardsNativeSftpProgressCallbackToManagedProgressHandler()
+    {
+        Action<NativeSftpTransferProgress>? managedProgress = null;
+        NativeSftpTransferProgress? observed = null;
+        managedProgress = progress => observed = progress;
+
+        using NativeSftpTransferProgressCallbackDataHandle nativeProgress = new(128, 1024, "/tmp/report.txt");
+        MethodInfo? forwardMethod = typeof(NativeSshInterop).GetMethod(
+            "ForwardSftpTransferProgress",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.NotNull(forwardMethod);
+
+        forwardMethod!.Invoke(null, [managedProgress, nativeProgress.Data]);
+
+        Assert.NotNull(observed);
+        Assert.Equal(128, observed!.BytesDone);
+        Assert.Equal(1024, observed.BytesTotal);
+        Assert.Equal("/tmp/report.txt", observed.CurrentPath);
+    }
+
     [Fact]
     public void TransferOptions_RequireLocalAndRemotePaths()
     {
@@ -91,5 +130,32 @@ public sealed class NativeSftpTransferInteropTests
         ArgumentOutOfRangeException ex = Assert.Throws<ArgumentOutOfRangeException>(act);
 
         Assert.Contains("direction", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed class NativeSftpTransferProgressCallbackDataHandle : IDisposable
+    {
+        private IntPtr currentPath;
+
+        public NativeSftpTransferProgressCallbackDataHandle(ulong bytesDone, ulong bytesTotal, string currentPath)
+        {
+            this.currentPath = Marshal.StringToCoTaskMemUTF8(currentPath);
+            Data = new NativeSftpTransferProgressCallbackData
+            {
+                BytesDone = bytesDone,
+                BytesTotal = bytesTotal,
+                CurrentPath = this.currentPath
+            };
+        }
+
+        public NativeSftpTransferProgressCallbackData Data { get; }
+
+        public void Dispose()
+        {
+            if (currentPath != IntPtr.Zero)
+            {
+                Marshal.FreeCoTaskMem(currentPath);
+                currentPath = IntPtr.Zero;
+            }
+        }
     }
 }

@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace NovaTerminal.Core.Ssh.Native;
 
 public enum NativeSftpTransferDirection
@@ -48,4 +50,12 @@ public sealed class NativeSftpTransferProgress
     public long BytesDone { get; init; }
     public long BytesTotal { get; init; }
     public string? CurrentPath { get; init; }
+}
+
+[StructLayout(LayoutKind.Sequential)]
+public struct NativeSftpTransferProgressCallbackData
+{
+    public ulong BytesDone { get; init; }
+    public ulong BytesTotal { get; init; }
+    public IntPtr CurrentPath { get; init; }
 }
