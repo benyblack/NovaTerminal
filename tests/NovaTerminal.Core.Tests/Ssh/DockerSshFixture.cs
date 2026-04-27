@@ -51,6 +51,14 @@ internal sealed class DockerSshFixture : IAsyncDisposable
         return new SshHostKeyInfo(algorithm, fingerprint);
     }
 
+    public async Task<string> ReadTextFileAsync(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        return await RunDockerCommandAsync($"exec {_containerName} cat {path}")
+            .ConfigureAwait(false);
+    }
+
     public static async Task<DockerSshFixture> StartAsync()
     {
         await EnsureDockerAvailableAsync().ConfigureAwait(false);

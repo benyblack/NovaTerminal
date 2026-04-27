@@ -1137,19 +1137,36 @@ where
     let channel = session.channel_open_session().await?;
     channel.request_subsystem(true, "sftp").await?;
     let sftp = SftpSession::new(channel.into_stream()).await?;
-    let mut remote_file = sftp.open(transfer.remote_path.clone()).await?;
+    let direction = transfer.direction.trim().to_ascii_lowercase();
+    match direction.as_str() {
+        "download" => {
+            let mut remote_file = sftp.open(transfer.remote_path.clone()).await?;
 
-    let local_path = PathBuf::from(&transfer.local_path);
-    if let Some(parent) = local_path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
+            let local_path = PathBuf::from(&transfer.local_path);
+            if let Some(parent) = local_path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)?;
+                }
+            }
+
+            let mut local_file = TokioFile::create(&local_path).await?;
+            copy(&mut remote_file, &mut local_file).await?;
+            local_file.flush().await?;
+            remote_file.shutdown().await?;
         }
+        "upload" => {
+            let mut local_file = TokioFile::open(Path::new(&transfer.local_path)).await?;
+            let mut remote_file = sftp.create(transfer.remote_path.clone()).await?;
+            copy(&mut local_file, &mut remote_file).await?;
+            remote_file.shutdown().await?;
+        }
+        _ => anyhow::bail!(
+            "Native SFTP transfer mode '{}/{}' is not implemented yet.",
+            direction,
+            transfer.kind.trim().to_ascii_lowercase()
+        ),
     }
 
-    let mut local_file = TokioFile::create(&local_path).await?;
-    copy(&mut remote_file, &mut local_file).await?;
-    local_file.flush().await?;
-    remote_file.shutdown().await?;
     sftp.close().await?;
     Ok(())
 }
@@ -1157,7 +1174,7 @@ where
 fn validate_supported_sftp_mode(transfer: &SftpTransferRequestBody) -> anyhow::Result<()> {
     let direction = transfer.direction.trim().to_ascii_lowercase();
     let kind = transfer.kind.trim().to_ascii_lowercase();
-    if direction == "download" && kind == "file" {
+    if (direction == "download" || direction == "upload") && kind == "file" {
         return Ok(());
     }
 

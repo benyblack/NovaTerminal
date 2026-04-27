@@ -50,7 +50,17 @@
 
   <PropertyGroup>
     <NativeProjectDir>$(MSBuildProjectDirectory)\native\</NativeProjectDir>
+    <RustSshNativeProjectDir>$(NativeProjectDir)rusty_ssh\</RustSshNativeProjectDir>
+    <RustSshNativeOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">$(RustSshNativeProjectDir)target\release\rusty_ssh.dll</RustSshNativeOutput>
+    <RustSshNativeOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">$(RustSshNativeProjectDir)target\release\librusty_ssh.so</RustSshNativeOutput>
+    <RustSshNativeOutput Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">$(RustSshNativeProjectDir)target\release\librusty_ssh.dylib</RustSshNativeOutput>
   </PropertyGroup>
+
+  <ItemGroup>
+    <RustSshNativeInputs Include="$(RustSshNativeProjectDir)Cargo.toml" />
+    <RustSshNativeInputs Include="$(RustSshNativeProjectDir)Cargo.lock" />
+    <RustSshNativeInputs Include="$(RustSshNativeProjectDir)src\**\*.rs" />
+  </ItemGroup>
 
   <Target Name="BuildRustNative"
     BeforeTargets="PrepareForBuild"
@@ -84,18 +94,14 @@
     Condition="'$(DesignTimeBuild)' != 'true'
       and '$(IsCrossTargetingBuild)' != 'true'
       and '$(SKIP_RUST_NATIVE_BUILD)' != '1'
-      and (
-        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and !Exists('$(NativeProjectDir)rusty_ssh\target\release\rusty_ssh.dll'))
-        or
-        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and !Exists('$(NativeProjectDir)rusty_ssh\target\release\librusty_ssh.so'))
-        or
-        ($([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and !Exists('$(NativeProjectDir)rusty_ssh\target\release\librusty_ssh.dylib'))
-      )">
+      and '$(RustSshNativeOutput)' != ''"
+    Inputs="@(RustSshNativeInputs)"
+    Outputs="$(RustSshNativeOutput)">
 
     <Message Importance="high"
-      Text="[RustNative] Building Rust SSH native library in: $(NativeProjectDir)rusty_ssh" />
+      Text="[RustNative] Building Rust SSH native library in: $(RustSshNativeProjectDir)" />
 
-    <Exec WorkingDirectory="$(NativeProjectDir)rusty_ssh"
+    <Exec WorkingDirectory="$(RustSshNativeProjectDir)"
       Command="cargo build --release"
       EchoOff="false"
       ConsoleToMSBuild="true"
