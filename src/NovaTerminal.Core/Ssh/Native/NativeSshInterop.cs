@@ -95,6 +95,7 @@ public sealed class NativeSshInterop : INativeSshInterop
         ArgumentNullException.ThrowIfNull(transferOptions);
 
         ValidateConnectionOptions(connectionOptions);
+        ValidateSftpConnectionOptions(connectionOptions);
         transferOptions.Validate();
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -355,6 +356,16 @@ public sealed class NativeSshInterop : INativeSshInterop
         }
     }
 
+    private static void ValidateSftpConnectionOptions(NativeSshConnectionOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.KnownHostsFilePath))
+        {
+            throw new ArgumentException(
+                "A known-hosts store path is required for native SFTP transfers.",
+                nameof(options.KnownHostsFilePath));
+        }
+    }
+
     private static string BuildSftpTransferFailureMessage(int resultCode, string? responseJson)
     {
         string message = $"Native SFTP transfer failed with result {resultCode}.";
@@ -447,7 +458,9 @@ public sealed class NativeSshInterop : INativeSshInterop
                     connectionOptions.Host,
                     connectionOptions.User,
                     connectionOptions.Port,
+                    string.IsNullOrWhiteSpace(connectionOptions.Password) ? null : connectionOptions.Password,
                     string.IsNullOrWhiteSpace(connectionOptions.IdentityFilePath) ? null : connectionOptions.IdentityFilePath,
+                    connectionOptions.KnownHostsFilePath!,
                     jumpHost),
                 new SftpTransferRequestBody(
                     transferOptions.Direction.ToString().ToLowerInvariant(),
@@ -461,7 +474,9 @@ public sealed class NativeSshInterop : INativeSshInterop
         string Host,
         string User,
         int Port,
+        string? Password,
         string? IdentityFilePath,
+        string KnownHostsFilePath,
         SftpJumpHostRequest? JumpHost);
 
     private sealed record SftpJumpHostRequest(string Host, string? User, int Port);

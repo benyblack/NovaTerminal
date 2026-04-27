@@ -19,6 +19,38 @@ internal sealed class DockerSshFixture : IAsyncDisposable
     public string UserName => "nova";
     public string Password => "nova-pass";
 
+    public async Task WriteTextFileAsync(string path, string contents)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(contents);
+
+        string tempFile = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tempFile, contents).ConfigureAwait(false);
+            await RunDockerCommandAsync($"cp \"{tempFile}\" {_containerName}:{path}")
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    public async Task<SshHostKeyInfo> GetHostKeyAsync()
+    {
+        string publicKey = await RunDockerCommandAsync(
+            $"exec {_containerName} cat /etc/ssh/ssh_host_ed25519_key.pub")
+            .ConfigureAwait(false);
+        string fingerprintOutput = await RunDockerCommandAsync(
+            $"exec {_containerName} ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256")
+            .ConfigureAwait(false);
+
+        string algorithm = publicKey.Split(' ', StringSplitOptions.RemoveEmptyEntries)[0];
+        string fingerprint = fingerprintOutput.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1];
+        return new SshHostKeyInfo(algorithm, fingerprint);
+    }
+
     public static async Task<DockerSshFixture> StartAsync()
     {
         await EnsureDockerAvailableAsync().ConfigureAwait(false);
@@ -173,3 +205,5 @@ internal sealed class DockerSshFixture : IAsyncDisposable
         return string.IsNullOrWhiteSpace(stdout) ? stderr.Trim() : stdout.Trim();
     }
 }
+
+internal sealed record SshHostKeyInfo(string Algorithm, string Fingerprint);

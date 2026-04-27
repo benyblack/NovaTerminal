@@ -1,17 +1,20 @@
 use libc::{c_char, c_int};
 use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
-use russh::keys::{load_secret_key, ssh_key, PrivateKeyWithHashAlg};
+use russh::keys::{PrivateKeyWithHashAlg, load_secret_key, ssh_key};
 use russh::{ChannelMsg, Disconnect};
+use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::ffi::{CStr, CString};
 use std::future::Future;
 use std::io::Cursor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::{Arc, Condvar, Mutex, mpsc as std_mpsc};
 use std::thread;
 use std::time::Duration;
+use tokio::fs::File as TokioFile;
+use tokio::io::{AsyncWriteExt, copy};
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 
@@ -115,7 +118,10 @@ struct QueuedResponse {
 
 enum WorkerCommand {
     Write(Vec<u8>),
-    Resize { cols: u16, rows: u16 },
+    Resize {
+        cols: u16,
+        rows: u16,
+    },
     OpenDirectTcpIp {
         host_to_connect: String,
         port_to_connect: u32,
@@ -162,6 +168,19 @@ struct NovaClientHandler {
     shared: Arc<SharedState>,
     host: String,
     port: u16,
+}
+
+#[derive(Clone)]
+struct TransferClientHandler {
+    host: String,
+    port: u16,
+    known_hosts: NativeKnownHostsVerifier,
+}
+
+#[derive(Clone)]
+struct TransferAuthConfig {
+    password: Option<String>,
+    identity_file: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -240,7 +259,9 @@ struct SftpConnectionRequest {
     host: String,
     user: String,
     port: u16,
+    password: Option<String>,
     identity_file_path: Option<String>,
+    known_hosts_file_path: String,
     jump_host: Option<SftpJumpHostRequest>,
 }
 
@@ -268,6 +289,20 @@ struct SftpTransferResponse<'a> {
     message: &'a str,
 }
 
+#[derive(Clone)]
+struct NativeKnownHostsVerifier {
+    entries: Arc<Vec<NativeKnownHostEntry>>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+struct NativeKnownHostEntry {
+    host: String,
+    port: u16,
+    algorithm: String,
+    fingerprint: String,
+}
+
 impl SharedState {
     fn new() -> Self {
         Self {
@@ -283,7 +318,10 @@ impl SharedState {
             return;
         }
 
-        self.events.lock().expect("events mutex poisoned").push_back(event);
+        self.events
+            .lock()
+            .expect("events mutex poisoned")
+            .push_back(event);
     }
 
     fn peek_event(&self) -> Option<QueuedEvent> {
@@ -300,7 +338,11 @@ impl SharedState {
     }
 
     fn pop_event(&self) {
-        let _ = self.events.lock().expect("events mutex poisoned").pop_front();
+        let _ = self
+            .events
+            .lock()
+            .expect("events mutex poisoned")
+            .pop_front();
     }
 
     fn queue_response(&self, response: QueuedResponse) {
@@ -378,6 +420,28 @@ impl client::Handler for NovaClientHandler {
     }
 }
 
+impl client::Handler for TransferClientHandler {
+    type Error = anyhow::Error;
+
+    fn check_server_key(
+        &mut self,
+        server_public_key: &ssh_key::PublicKey,
+    ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
+        let known_hosts = self.known_hosts.clone();
+        let host = self.host.clone();
+        let port = self.port;
+        let algorithm = server_public_key.algorithm().to_string();
+        let fingerprint = server_public_key
+            .fingerprint(ssh_key::HashAlg::Sha256)
+            .to_string();
+
+        async move {
+            known_hosts.verify(&host, port, &algorithm, &fingerprint)?;
+            Ok(true)
+        }
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_connect(args: *const NovaSshConnectArgs) -> *mut NovaSshSession {
     let config = match ConnectConfig::from_args(args) {
@@ -404,8 +468,10 @@ pub extern "C" fn nova_ssh_connect(args: *const NovaSshConnectArgs) -> *mut Nova
 
         worker_shared.queue_event(QueuedEvent {
             kind: NovaSshEventKind::Closed,
-            payload: serde_json::to_vec(&ClosedPayload { reason: "session-ended" })
-                .unwrap_or_default(),
+            payload: serde_json::to_vec(&ClosedPayload {
+                reason: "session-ended",
+            })
+            .unwrap_or_default(),
             status_code: 0,
             flags: NOVA_SSH_EVENT_FLAG_JSON,
         });
@@ -487,11 +553,7 @@ pub extern "C" fn nova_ssh_write(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nova_ssh_resize(
-    session: *mut NovaSshSession,
-    cols: u16,
-    rows: u16,
-) -> c_int {
+pub extern "C" fn nova_ssh_resize(session: *mut NovaSshSession, cols: u16, rows: u16) -> c_int {
     if session.is_null() || cols == 0 || rows == 0 {
         return NOVA_SSH_RESULT_INVALID_ARGUMENT;
     }
@@ -720,12 +782,30 @@ pub extern "C" fn nova_ssh_sftp_transfer(
         );
     }
 
-    write_sftp_response_json(
-        response_json,
-        NOVA_SSH_RESULT_NOT_IMPLEMENTED,
-        "not-implemented",
-        "Native backend stub reached: SFTP transfer not implemented.",
-    )
+    match run_sftp_transfer(request) {
+        Ok(()) => write_sftp_response_json(
+            response_json,
+            NOVA_SSH_RESULT_OK,
+            "ok",
+            "Native SFTP transfer completed.",
+        ),
+        Err(error) => {
+            let message = error.to_string();
+            let lower = message.to_ascii_lowercase();
+            let (result, status) = if lower.contains("not implemented") {
+                (NOVA_SSH_RESULT_NOT_IMPLEMENTED, "not-implemented")
+            } else if lower.contains("invalid")
+                || lower.contains("requires either")
+                || lower.contains("known-hosts store path")
+            {
+                (NOVA_SSH_RESULT_INVALID_ARGUMENT, "invalid-argument")
+            } else {
+                (NOVA_SSH_RESULT_CLOSED, "error")
+            };
+
+            write_sftp_response_json(response_json, result, status, &message)
+        }
+    }
 }
 
 #[unsafe(no_mangle)]
@@ -751,7 +831,11 @@ impl ConnectConfig {
         let effective_jump_host = jump_host.map(|host| JumpHostConfig {
             host,
             user: jump_user.unwrap_or_else(|| user.clone()),
-            port: if args.jump_port == 0 { 22 } else { args.jump_port },
+            port: if args.jump_port == 0 {
+                22
+            } else {
+                args.jump_port
+            },
         });
 
         Some(Self {
@@ -782,7 +866,10 @@ fn read_c_string(value: *const c_char) -> Option<String> {
         return None;
     }
 
-    let string = unsafe { CStr::from_ptr(value) }.to_string_lossy().trim().to_owned();
+    let string = unsafe { CStr::from_ptr(value) }
+        .to_string_lossy()
+        .trim()
+        .to_owned();
     if string.is_empty() {
         None
     } else {
@@ -818,7 +905,10 @@ fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
         .as_ref()
         .is_some_and(|jump_host| {
             jump_host.host.trim().is_empty()
-                || jump_host.user.as_deref().is_some_and(|user| user.trim().is_empty())
+                || jump_host
+                    .user
+                    .as_deref()
+                    .is_some_and(|user| user.trim().is_empty())
                 || jump_host.port == 0
         });
 
@@ -827,14 +917,255 @@ fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
         || request.connection.port == 0
         || request
             .connection
+            .password
+            .as_deref()
+            .is_some_and(|password| password.trim().is_empty())
+        || request
+            .connection
             .identity_file_path
             .as_deref()
             .is_some_and(|path| path.trim().is_empty())
+        || request.connection.known_hosts_file_path.trim().is_empty()
         || jump_host_is_blank
         || request.transfer.direction.trim().is_empty()
         || request.transfer.kind.trim().is_empty()
         || request.transfer.local_path.trim().is_empty()
         || request.transfer.remote_path.trim().is_empty()
+}
+
+impl NativeKnownHostsVerifier {
+    fn load(path: &str) -> anyhow::Result<Self> {
+        let store_path = Path::new(path);
+        if !store_path.exists() {
+            return Ok(Self {
+                entries: Arc::new(Vec::new()),
+            });
+        }
+
+        let json = std::fs::read_to_string(store_path)?;
+        let entries = serde_json::from_str::<Vec<NativeKnownHostEntry>>(&json)?;
+        Ok(Self {
+            entries: Arc::new(entries),
+        })
+    }
+
+    fn verify(
+        &self,
+        host: &str,
+        port: u16,
+        algorithm: &str,
+        fingerprint: &str,
+    ) -> anyhow::Result<()> {
+        let expected_host = host.trim();
+        let expected_port = normalize_known_host_port(port);
+        let expected_algorithm = normalize_known_host_algorithm(algorithm);
+        let expected_fingerprint = normalize_known_host_fingerprint(fingerprint);
+
+        let existing = self.entries.iter().find(|entry| {
+            entry.host.trim().eq_ignore_ascii_case(expected_host)
+                && normalize_known_host_port(entry.port) == expected_port
+        });
+
+        match existing {
+            None => anyhow::bail!(
+                "Unknown host key for {}:{}. Add the server key to the native known-hosts store before transferring files.",
+                host,
+                port
+            ),
+            Some(entry)
+                if normalize_known_host_algorithm(&entry.algorithm) == expected_algorithm
+                    && normalize_known_host_fingerprint(&entry.fingerprint)
+                        == expected_fingerprint =>
+            {
+                Ok(())
+            }
+            Some(_) => anyhow::bail!(
+                "Host key mismatch for {}:{}. The native known-hosts store entry does not match the server key.",
+                host,
+                port
+            ),
+        }
+    }
+}
+
+fn normalize_known_host_port(port: u16) -> u16 {
+    if port == 0 { 22 } else { port }
+}
+
+fn normalize_known_host_algorithm(algorithm: &str) -> String {
+    algorithm.trim().to_owned()
+}
+
+fn normalize_known_host_fingerprint(fingerprint: &str) -> String {
+    let normalized = fingerprint.trim();
+    if normalized.is_empty() {
+        return String::new();
+    }
+
+    const PREFIX: &str = "SHA256:";
+    if normalized.len() >= PREFIX.len() && normalized[..PREFIX.len()].eq_ignore_ascii_case(PREFIX) {
+        format!("{}{}", PREFIX, normalized[PREFIX.len()..].trim())
+    } else {
+        normalized.to_owned()
+    }
+}
+
+fn run_sftp_transfer(request: SftpTransferRequest) -> anyhow::Result<()> {
+    validate_supported_sftp_mode(&request.transfer)?;
+
+    let runtime = Builder::new_current_thread().enable_all().build()?;
+    runtime.block_on(async move {
+        let known_hosts =
+            NativeKnownHostsVerifier::load(&request.connection.known_hosts_file_path)?;
+        let client_config = Arc::new(client::Config::default());
+        let auth = TransferAuthConfig {
+            password: request.connection.password.clone(),
+            identity_file: request.connection.identity_file_path.clone(),
+        };
+
+        let jump_session = if let Some(jump_host) = &request.connection.jump_host {
+            let jump_handler = TransferClientHandler {
+                host: jump_host.host.clone(),
+                port: jump_host.port,
+                known_hosts: known_hosts.clone(),
+            };
+
+            let mut jump = client::connect(
+                client_config.clone(),
+                (jump_host.host.as_str(), jump_host.port),
+                jump_handler,
+            )
+            .await?;
+
+            let jump_user = jump_host
+                .user
+                .as_deref()
+                .unwrap_or(request.connection.user.as_str());
+            authenticate_transfer(jump_user, &auth, &mut jump).await?;
+            Some(jump)
+        } else {
+            None
+        };
+
+        let target_handler = TransferClientHandler {
+            host: request.connection.host.clone(),
+            port: request.connection.port,
+            known_hosts: known_hosts.clone(),
+        };
+
+        let mut session = if let Some(jump) = &jump_session {
+            let stream = jump
+                .channel_open_direct_tcpip(
+                    request.connection.host.clone(),
+                    request.connection.port as u32,
+                    "127.0.0.1",
+                    0,
+                )
+                .await?
+                .into_stream();
+
+            client::connect_stream(client_config.clone(), stream, target_handler).await?
+        } else {
+            client::connect(
+                client_config.clone(),
+                (request.connection.host.as_str(), request.connection.port),
+                target_handler,
+            )
+            .await?
+        };
+
+        authenticate_transfer(&request.connection.user, &auth, &mut session).await?;
+        perform_sftp_transfer(&mut session, &request.transfer).await
+    })
+}
+
+async fn authenticate_transfer<H>(
+    user: &str,
+    auth: &TransferAuthConfig,
+    session: &mut client::Handle<H>,
+) -> anyhow::Result<()>
+where
+    H: client::Handler + Send + 'static,
+{
+    if let Some(password) = auth.password.as_deref() {
+        let result = session
+            .authenticate_password(user.to_owned(), password.to_owned())
+            .await?;
+        if result.success() {
+            return Ok(());
+        }
+
+        anyhow::bail!("SSH authentication failed");
+    }
+
+    if let Some(identity_file) = auth.identity_file.as_deref() {
+        let key = load_secret_key(Path::new(identity_file), None).map_err(|_| {
+            anyhow::anyhow!(
+                "Failed to load identity file '{}' for non-interactive native SFTP auth. Encrypted keys require interactive passphrase entry, which is not available for transfers.",
+                identity_file
+            )
+        })?;
+
+        let hash_alg = session.best_supported_rsa_hash().await?.flatten();
+        let result = session
+            .authenticate_publickey(
+                user.to_owned(),
+                PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
+            )
+            .await?;
+        if result.success() {
+            return Ok(());
+        }
+
+        anyhow::bail!("SSH authentication failed");
+    }
+
+    anyhow::bail!(
+        "Native SFTP transfer requires either a password or an identity file for non-interactive authentication."
+    )
+}
+
+async fn perform_sftp_transfer<H>(
+    session: &mut client::Handle<H>,
+    transfer: &SftpTransferRequestBody,
+) -> anyhow::Result<()>
+where
+    H: client::Handler + Send + 'static,
+{
+    validate_supported_sftp_mode(transfer)?;
+
+    let channel = session.channel_open_session().await?;
+    channel.request_subsystem(true, "sftp").await?;
+    let sftp = SftpSession::new(channel.into_stream()).await?;
+    let mut remote_file = sftp.open(transfer.remote_path.clone()).await?;
+
+    let local_path = PathBuf::from(&transfer.local_path);
+    if let Some(parent) = local_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
+    let mut local_file = TokioFile::create(&local_path).await?;
+    copy(&mut remote_file, &mut local_file).await?;
+    local_file.flush().await?;
+    remote_file.shutdown().await?;
+    sftp.close().await?;
+    Ok(())
+}
+
+fn validate_supported_sftp_mode(transfer: &SftpTransferRequestBody) -> anyhow::Result<()> {
+    let direction = transfer.direction.trim().to_ascii_lowercase();
+    let kind = transfer.kind.trim().to_ascii_lowercase();
+    if direction == "download" && kind == "file" {
+        return Ok(());
+    }
+
+    anyhow::bail!(
+        "Native SFTP transfer mode '{}/{}' is not implemented yet.",
+        direction,
+        kind
+    )
 }
 
 fn run_session(
@@ -1044,7 +1375,10 @@ fn coalesce_pending_resize_commands(
 
     loop {
         match command_rx.try_recv() {
-            Ok(WorkerCommand::Resize { cols: next_cols, rows: next_rows }) => {
+            Ok(WorkerCommand::Resize {
+                cols: next_cols,
+                rows: next_rows,
+            }) => {
                 cols = next_cols;
                 rows = next_rows;
             }
@@ -1052,7 +1386,8 @@ fn coalesce_pending_resize_commands(
                 pending_command = Some(command);
                 break;
             }
-            Err(mpsc::error::TryRecvError::Empty) | Err(mpsc::error::TryRecvError::Disconnected) => {
+            Err(mpsc::error::TryRecvError::Empty)
+            | Err(mpsc::error::TryRecvError::Disconnected) => {
                 break;
             }
         }
@@ -1063,7 +1398,9 @@ fn coalesce_pending_resize_commands(
 
 async fn open_direct_tcpip_channel(
     session: &client::Handle<NovaClientHandler>,
-    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+    forward_channels: Arc<
+        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
+    >,
     shared: Arc<SharedState>,
     host_to_connect: String,
     port_to_connect: u32,
@@ -1134,7 +1471,9 @@ async fn open_direct_tcpip_channel(
 }
 
 async fn write_forward_channel(
-    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+    forward_channels: Arc<
+        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
+    >,
     channel_id: u32,
     data: Vec<u8>,
 ) -> anyhow::Result<()> {
@@ -1151,7 +1490,9 @@ async fn write_forward_channel(
 }
 
 async fn send_forward_channel_eof(
-    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+    forward_channels: Arc<
+        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
+    >,
     channel_id: u32,
 ) -> anyhow::Result<()> {
     let writer = {
@@ -1167,7 +1508,9 @@ async fn send_forward_channel_eof(
 }
 
 async fn close_forward_channel(
-    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+    forward_channels: Arc<
+        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
+    >,
     channel_id: u32,
 ) -> anyhow::Result<()> {
     let writer = forward_channels.lock().await.remove(&channel_id);
@@ -1179,11 +1522,16 @@ async fn close_forward_channel(
 }
 
 async fn close_all_forward_channels(
-    forward_channels: Arc<tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>>,
+    forward_channels: Arc<
+        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
+    >,
 ) {
     let writers = {
         let mut channels = forward_channels.lock().await;
-        channels.drain().map(|(_, writer)| writer).collect::<Vec<_>>()
+        channels
+            .drain()
+            .map(|(_, writer)| writer)
+            .collect::<Vec<_>>()
     };
 
     for writer in writers {
@@ -1198,14 +1546,20 @@ async fn authenticate(
     session: &mut client::Handle<NovaClientHandler>,
 ) -> anyhow::Result<()> {
     if let Some(identity_file) = identity_file {
-        if let Some(auth_result) = try_public_key_auth(user, shared, session, identity_file).await? {
+        if let Some(auth_result) = try_public_key_auth(user, shared, session, identity_file).await?
+        {
             if auth_result.success() {
                 return Ok(());
             }
         }
     }
 
-    let password = prompt_text(shared, NovaSshEventKind::PasswordPrompt, "Password:", NovaSshResponseKind::Password)?;
+    let password = prompt_text(
+        shared,
+        NovaSshEventKind::PasswordPrompt,
+        "Password:",
+        NovaSshResponseKind::Password,
+    )?;
     let password_auth = session
         .authenticate_password(user.to_owned(), password)
         .await?;
@@ -1288,7 +1642,9 @@ async fn authenticate_keyboard_interactive(
                 });
 
                 let responses = wait_keyboard_responses(shared)?;
-                response = session.authenticate_keyboard_interactive_respond(responses).await?;
+                response = session
+                    .authenticate_keyboard_interactive_respond(responses)
+                    .await?;
             }
         }
     }
@@ -1375,9 +1731,9 @@ mod tests {
     }
 
     #[test]
-    fn sftp_transfer_stub_returns_not_implemented_response() {
+    fn sftp_transfer_rejects_unsupported_modes() {
         let request = CString::new(
-            r#"{"connection":{"host":"example.com","user":"nova","port":22},"transfer":{"direction":"download","kind":"file","localPath":"local.txt","remotePath":"/tmp/remote.txt"}}"#,
+            r#"{"connection":{"host":"example.com","user":"nova","port":22,"password":"secret","knownHostsFilePath":"known_hosts.json"},"transfer":{"direction":"upload","kind":"directory","localPath":"local.txt","remotePath":"/tmp/remote.txt"}}"#,
         )
         .unwrap();
         let mut response = ptr::null_mut();
@@ -1391,7 +1747,7 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_str(response_json).unwrap();
         assert_eq!("not-implemented", payload["status"]);
         assert_eq!(
-            "Native backend stub reached: SFTP transfer not implemented.",
+            "Native SFTP transfer mode 'upload/directory' is not implemented yet.",
             payload["message"]
         );
 
@@ -1506,7 +1862,10 @@ mod tests {
         let client_config = build_client_config(&config);
 
         assert_eq!(None, client_config.inactivity_timeout);
-        assert_eq!(Some(Duration::from_secs(15)), client_config.keepalive_interval);
+        assert_eq!(
+            Some(Duration::from_secs(15)),
+            client_config.keepalive_interval
+        );
         assert_eq!(7, client_config.keepalive_max);
     }
 
@@ -1517,13 +1876,22 @@ mod tests {
         runtime.block_on(async {
             let (command_tx, mut command_rx) = mpsc::unbounded_channel();
             command_tx
-                .send(WorkerCommand::Resize { cols: 120, rows: 30 })
+                .send(WorkerCommand::Resize {
+                    cols: 120,
+                    rows: 30,
+                })
                 .unwrap();
             command_tx
-                .send(WorkerCommand::Resize { cols: 140, rows: 40 })
+                .send(WorkerCommand::Resize {
+                    cols: 140,
+                    rows: 40,
+                })
                 .unwrap();
             command_tx
-                .send(WorkerCommand::Resize { cols: 160, rows: 50 })
+                .send(WorkerCommand::Resize {
+                    cols: 160,
+                    rows: 50,
+                })
                 .unwrap();
             drop(command_tx);
 
@@ -1554,16 +1922,25 @@ mod tests {
         runtime.block_on(async {
             let (command_tx, mut command_rx) = mpsc::unbounded_channel();
             command_tx
-                .send(WorkerCommand::Resize { cols: 120, rows: 30 })
+                .send(WorkerCommand::Resize {
+                    cols: 120,
+                    rows: 30,
+                })
                 .unwrap();
             command_tx
-                .send(WorkerCommand::Resize { cols: 140, rows: 40 })
+                .send(WorkerCommand::Resize {
+                    cols: 140,
+                    rows: 40,
+                })
                 .unwrap();
             command_tx
                 .send(WorkerCommand::Write(vec![1, 2, 3]))
                 .unwrap();
             command_tx
-                .send(WorkerCommand::Resize { cols: 160, rows: 50 })
+                .send(WorkerCommand::Resize {
+                    cols: 160,
+                    rows: 50,
+                })
                 .unwrap();
             drop(command_tx);
 
@@ -1611,7 +1988,9 @@ mod tests {
 fn build_client_config(config: &ConnectConfig) -> client::Config {
     client::Config {
         inactivity_timeout: None,
-        keepalive_interval: Some(Duration::from_secs(config.keepalive_interval_seconds as u64)),
+        keepalive_interval: Some(Duration::from_secs(
+            config.keepalive_interval_seconds as u64,
+        )),
         keepalive_max: config.keepalive_count_max as usize,
         ..<_>::default()
     }
