@@ -207,6 +207,23 @@ public sealed class SftpServiceTests
     }
 
     [Fact]
+    public void ApplyNativeTransferProgress_UpdatesDisplayStateForKnownTotals()
+    {
+        var job = new TransferJob { State = TransferState.Running };
+
+        SftpService.ApplyNativeTransferProgress(job, new NativeSftpTransferProgress
+        {
+            BytesDone = 1024,
+            BytesTotal = 4096,
+            CurrentPath = "/tmp/sample.bin"
+        });
+
+        Assert.Equal(0.25, job.Progress, 3);
+        Assert.False(job.IsProgressIndeterminate);
+        Assert.Contains("25%", job.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TransferJob_DownloadDisplayName_UsesRemoteLeaf()
     {
         var job = new TransferJob

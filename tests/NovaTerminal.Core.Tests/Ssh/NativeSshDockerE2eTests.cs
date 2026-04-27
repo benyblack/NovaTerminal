@@ -226,6 +226,73 @@ public sealed class NativeSshDockerE2eTests
     [DockerFact]
     [Trait("Category", "DockerE2E")]
     [Trait("Target", "NativeSsh")]
+    public async Task NativeSftp_CanReportProgressDuringDirectoryDownload()
+    {
+        await using var fixture = await DockerSshFixture.StartAsync();
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-download-dir-progress-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            const string remoteRoot = "/tmp/native-sftp-download-dir-progress";
+            string nestedRemotePath = $"{remoteRoot}/nested";
+            string remoteFileA = $"{remoteRoot}/a.txt";
+            string remoteFileB = $"{nestedRemotePath}/b.txt";
+            await fixture.CreateDirectoryAsync(nestedRemotePath);
+            await fixture.WriteTextFileAsync(remoteFileA, string.Concat(Enumerable.Repeat("alpha-", 32 * 1024)));
+            await fixture.WriteTextFileAsync(remoteFileB, string.Concat(Enumerable.Repeat("beta-", 32 * 1024)));
+
+            SshHostKeyInfo hostKey = await fixture.GetHostKeyAsync();
+            string knownHostsPath = Path.Combine(tempRoot, "native_known_hosts.json");
+            var knownHosts = new NativeKnownHostsStore(knownHostsPath);
+            knownHosts.TrustHost(fixture.Host, fixture.Port, hostKey.Algorithm, hostKey.Fingerprint);
+
+            var progressUpdates = new List<NativeSftpTransferProgress>();
+            var interop = new NativeSshInterop();
+            var connection = new NativeSshConnectionOptions
+            {
+                Host = fixture.Host,
+                User = fixture.UserName,
+                Port = fixture.Port,
+                Password = fixture.Password,
+                KnownHostsFilePath = knownHostsPath
+            };
+            var transfer = new NativeSftpTransferOptions
+            {
+                Direction = NativeSftpTransferDirection.Download,
+                Kind = NativeSftpTransferKind.Directory,
+                LocalPath = tempRoot,
+                RemotePath = remoteRoot
+            };
+
+            interop.RunSftpTransfer(
+                connection,
+                transfer,
+                progress: update => progressUpdates.Add(update),
+                CancellationToken.None);
+
+            string localRoot = Path.Combine(tempRoot, "native-sftp-download-dir-progress");
+            Assert.Equal(string.Concat(Enumerable.Repeat("alpha-", 32 * 1024)), await File.ReadAllTextAsync(Path.Combine(localRoot, "a.txt")));
+            Assert.Equal(string.Concat(Enumerable.Repeat("beta-", 32 * 1024)), await File.ReadAllTextAsync(Path.Combine(localRoot, "nested", "b.txt")));
+
+            Assert.True(progressUpdates.Count > 0, "Expected progress callbacks during directory download.");
+            Assert.All(
+                progressUpdates,
+                update => Assert.False(string.IsNullOrWhiteSpace(update.CurrentPath), "Expected each progress callback to include a current path."));
+            Assert.Contains(progressUpdates, update => string.Equals(update.CurrentPath, remoteFileA, StringComparison.Ordinal));
+            Assert.Contains(progressUpdates, update => string.Equals(update.CurrentPath, remoteFileB, StringComparison.Ordinal));
+            Assert.Contains(progressUpdates, update => update.BytesTotal > 0);
+            Assert.All(progressUpdates, update => Assert.True(update.BytesDone > 0, "Expected directory progress updates to report copied bytes."));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
     public async Task NativeSftp_CanUploadDirectory()
     {
         await using var fixture = await DockerSshFixture.StartAsync();
