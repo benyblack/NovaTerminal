@@ -6,6 +6,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="NovaTerminal.Core.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
   </ItemGroup>
 </Project>
