@@ -1,6 +1,6 @@
 # NovaTerminal SSH Roadmap
 
-_Last reviewed: 2026-04-21._
+_Last reviewed: 2026-04-27._
 
 NovaTerminal supports two SSH backends:
 
@@ -13,7 +13,7 @@ NovaTerminal supports two SSH backends:
 
 ## Native SSH status (current)
 
-_Source date: 2026-04-08, updated through 2026-04-21._
+_Source date: 2026-04-08, updated through 2026-04-27._
 
 The native SSH initiative is implemented behind conservative rollout controls.
 
@@ -23,6 +23,7 @@ The native SSH initiative is implemented behind conservative rollout controls.
 - Native Rust SSH crate with poll-based ABI
 - Avalonia host-key and auth dialogs
 - App-managed native known-host trust store
+- Native SFTP file and folder upload/download
 - Local port forwarding
 - Direct-host dynamic port forwarding (SOCKS5)
 - One-hop jump-host support
@@ -37,6 +38,8 @@ The native SSH initiative is implemented behind conservative rollout controls.
 - `OpenSsh` remains the default backend.
 - `Native` is gated by `TerminalSettings.ExperimentalNativeSshEnabled`.
 - Native SSH does **not** silently fall back to OpenSSH on failure.
+- Native SSH file transfers use the built-in native SFTP path.
+- OpenSSH file transfers still use the system `scp` path.
 - Native SSH supports local forwards and direct-host dynamic forwards.
 - Dynamic forwarding through a one-hop jump host is **not** yet supported.
 - Remote forwarding is **not** supported in the native backend.
