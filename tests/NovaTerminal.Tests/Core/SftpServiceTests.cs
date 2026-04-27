@@ -49,6 +49,110 @@ public sealed class SftpServiceTests
     }
 
     [Fact]
+    public void SelectExecutionBackend_ForNativeFolder_UsesExternalScpUntilDirectorySupportExists()
+    {
+        var profile = new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native
+        };
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.Folder,
+            LocalPath = @"C:\tmp\folder",
+            RemotePath = "/tmp/folder"
+        };
+
+        Assert.Equal(SftpTransferBackend.ExternalScp, SftpService.SelectExecutionBackend(profile, job));
+    }
+
+    [Fact]
+    public void ExecuteNativeSftpTransfer_UsesVaultPasswordKnownHostsAndInterop()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        var profile = new TerminalProfile
+        {
+            Id = Guid.Parse("01984d8a-2ab0-72c8-b66f-965f8491a6ae"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            SshPort = 2200
+        };
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"C:\tmp\download.txt",
+            RemotePath = "/tmp/download.txt"
+        };
+        var interop = new CapturingNativeSshInterop();
+
+        SftpService.ExecuteNativeSftpTransfer(
+            job,
+            profile,
+            service,
+            allProfiles: null,
+            interop: interop,
+            passwordResolver: static _ => "vault-pass",
+            knownHostsFilePath: @"C:\ssh\native_known_hosts.json");
+
+        Assert.NotNull(interop.ConnectionOptions);
+        Assert.NotNull(interop.TransferOptions);
+        Assert.Equal("prod.internal", interop.ConnectionOptions!.Host);
+        Assert.Equal("ops", interop.ConnectionOptions.User);
+        Assert.Equal(2200, interop.ConnectionOptions.Port);
+        Assert.Equal("vault-pass", interop.ConnectionOptions.Password);
+        Assert.Equal(@"C:\ssh\native_known_hosts.json", interop.ConnectionOptions.KnownHostsFilePath);
+        Assert.Equal(NativeSftpTransferDirection.Download, interop.TransferOptions!.Direction);
+        Assert.Equal(NativeSftpTransferKind.File, interop.TransferOptions.Kind);
+        Assert.Equal(@"C:\tmp\download.txt", interop.TransferOptions.LocalPath);
+        Assert.Equal("/tmp/download.txt", interop.TransferOptions.RemotePath);
+    }
+
+    [Fact]
+    public void ExecuteNativeSftpTransfer_PrefersIdentityFileOverVaultPassword()
+    {
+        Guid profileId = Guid.Parse("01984d8f-4c31-7ae9-b8f2-7de0093b5cf7");
+        var store = new InMemorySshProfileStore();
+        store.SaveProfile(new SshProfile
+        {
+            Id = profileId,
+            Name = "Keyed",
+            BackendKind = SshBackendKind.Native,
+            Host = "prod.internal",
+            User = "ops",
+            Port = 2200,
+            AuthMode = SshAuthMode.IdentityFile,
+            IdentityFilePath = @"C:\keys\id_ed25519"
+        });
+        var service = new SshConnectionService(store);
+        TerminalProfile profile = service.GetConnectionProfiles().Single(connection => connection.Id == profileId);
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Upload,
+            Kind = TransferKind.File,
+            LocalPath = @"C:\tmp\upload.txt",
+            RemotePath = "/tmp/upload.txt"
+        };
+        var interop = new CapturingNativeSshInterop();
+
+        SftpService.ExecuteNativeSftpTransfer(
+            job,
+            profile,
+            service,
+            allProfiles: null,
+            interop: interop,
+            passwordResolver: static _ => "stale-vault-password",
+            knownHostsFilePath: @"C:\ssh\native_known_hosts.json");
+
+        Assert.NotNull(interop.ConnectionOptions);
+        Assert.Equal(@"C:\keys\id_ed25519", interop.ConnectionOptions!.IdentityFilePath);
+        Assert.Null(interop.ConnectionOptions.Password);
+    }
+
+    [Fact]
     public void BuildNativeTransferConnectionOptions_UsesProfileTarget()
     {
         var service = new SshConnectionService(new InMemorySshProfileStore());
@@ -359,5 +463,33 @@ public sealed class SftpServiceTests
         }
 
         public bool DeleteProfile(Guid profileId) => _profiles.Remove(profileId);
+    }
+
+    private sealed class CapturingNativeSshInterop : INativeSshInterop
+    {
+        public NativeSshConnectionOptions? ConnectionOptions { get; private set; }
+        public NativeSftpTransferOptions? TransferOptions { get; private set; }
+
+        public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
+
+        public void RunSftpTransfer(
+            NativeSshConnectionOptions connectionOptions,
+            NativeSftpTransferOptions transferOptions,
+            Action<NativeSftpTransferProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            ConnectionOptions = connectionOptions;
+            TransferOptions = transferOptions;
+        }
+
+        public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();
+        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Resize(IntPtr sessionHandle, int cols, int rows) => throw new NotSupportedException();
+        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options) => throw new NotSupportedException();
+        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void SendChannelEof(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void CloseChannel(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Close(IntPtr sessionHandle) => throw new NotSupportedException();
     }
 }

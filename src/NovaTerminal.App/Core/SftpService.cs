@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using NovaTerminal.Core.Ssh.Launch;
@@ -98,10 +99,10 @@ namespace NovaTerminal.Core
 
                 if (profile == null) throw new Exception("Profile not found");
 
-                switch (SelectTransferBackend(profile))
+                switch (SelectExecutionBackend(profile, job))
                 {
                     case SftpTransferBackend.NativeSftp:
-                        await RunNativeSftpJobAsync(job, profile);
+                        await RunNativeSftpJobAsync(job, profile, settings.Profiles, sshService);
                         break;
                     case SftpTransferBackend.ExternalScp:
                     default:
@@ -136,6 +137,19 @@ namespace NovaTerminal.Core
             return profile.SshBackendKind == NovaTerminal.Core.Ssh.Models.SshBackendKind.Native
                 ? SftpTransferBackend.NativeSftp
                 : SftpTransferBackend.ExternalScp;
+        }
+
+        internal static SftpTransferBackend SelectExecutionBackend(TerminalProfile profile, TransferJob job)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+            ArgumentNullException.ThrowIfNull(job);
+
+            if (job.Kind != TransferKind.File)
+            {
+                return SftpTransferBackend.ExternalScp;
+            }
+
+            return SelectTransferBackend(profile);
         }
 
         internal static NativeSshConnectionOptions BuildNativeTransferConnectionOptions(
@@ -261,12 +275,94 @@ namespace NovaTerminal.Core
             }
         }
 
-        private static Task RunNativeSftpJobAsync(TransferJob job, TerminalProfile profile)
+        private static Task RunNativeSftpJobAsync(
+            TransferJob job,
+            TerminalProfile profile,
+            IReadOnlyList<TerminalProfile>? allProfiles,
+            SshConnectionService sshService)
         {
             ArgumentNullException.ThrowIfNull(job);
             ArgumentNullException.ThrowIfNull(profile);
+            ArgumentNullException.ThrowIfNull(sshService);
 
-            throw new NotImplementedException("Native SFTP transfers are not implemented yet.");
+            ExecuteNativeSftpTransfer(
+                job,
+                profile,
+                sshService,
+                allProfiles,
+                interop: null,
+                passwordResolver: static transferProfile => new VaultService().GetSshPasswordForProfile(transferProfile),
+                knownHostsFilePath: AppPaths.NativeKnownHostsFilePath);
+
+            return Task.CompletedTask;
+        }
+
+        internal static void ExecuteNativeSftpTransfer(
+            TransferJob job,
+            TerminalProfile profile,
+            SshConnectionService sshService,
+            IReadOnlyList<TerminalProfile>? allProfiles = null,
+            INativeSshInterop? interop = null,
+            Func<TerminalProfile, string?>? passwordResolver = null,
+            string? knownHostsFilePath = null)
+        {
+            ArgumentNullException.ThrowIfNull(job);
+            ArgumentNullException.ThrowIfNull(profile);
+            ArgumentNullException.ThrowIfNull(sshService);
+
+            NativeSshConnectionOptions baseOptions = BuildNativeTransferConnectionOptions(sshService, profile, allProfiles);
+            bool prefersIdentityFile = !string.IsNullOrWhiteSpace(baseOptions.IdentityFilePath);
+            string? resolvedPassword = prefersIdentityFile ? null : passwordResolver?.Invoke(profile);
+            string effectiveKnownHostsPath = string.IsNullOrWhiteSpace(knownHostsFilePath)
+                ? AppPaths.NativeKnownHostsFilePath
+                : knownHostsFilePath;
+
+            var connectionOptions = new NativeSshConnectionOptions
+            {
+                Host = baseOptions.Host,
+                User = baseOptions.User,
+                Port = baseOptions.Port,
+                Cols = baseOptions.Cols,
+                Rows = baseOptions.Rows,
+                Term = baseOptions.Term,
+                Password = string.IsNullOrWhiteSpace(resolvedPassword) ? null : resolvedPassword,
+                IdentityFilePath = baseOptions.IdentityFilePath,
+                KnownHostsFilePath = effectiveKnownHostsPath,
+                JumpHost = baseOptions.JumpHost == null
+                    ? null
+                    : new NovaTerminal.Core.Ssh.Models.SshJumpHop
+                    {
+                        Host = baseOptions.JumpHost.Host,
+                        User = baseOptions.JumpHost.User,
+                        Port = baseOptions.JumpHost.Port
+                    },
+                KeepAliveIntervalSeconds = baseOptions.KeepAliveIntervalSeconds,
+                KeepAliveCountMax = baseOptions.KeepAliveCountMax
+            };
+            NativeSftpTransferOptions transferOptions = BuildNativeTransferOptions(job);
+
+            (interop ?? new NativeSshInterop()).RunSftpTransfer(
+                connectionOptions,
+                transferOptions,
+                progress: null,
+                CancellationToken.None);
+        }
+
+        internal static NativeSftpTransferOptions BuildNativeTransferOptions(TransferJob job)
+        {
+            ArgumentNullException.ThrowIfNull(job);
+
+            return new NativeSftpTransferOptions
+            {
+                Direction = job.Direction == TransferDirection.Upload
+                    ? NativeSftpTransferDirection.Upload
+                    : NativeSftpTransferDirection.Download,
+                Kind = job.Kind == TransferKind.Folder
+                    ? NativeSftpTransferKind.Directory
+                    : NativeSftpTransferKind.File,
+                LocalPath = job.LocalPath,
+                RemotePath = job.RemotePath
+            };
         }
 
         internal static string BuildScpArguments(
