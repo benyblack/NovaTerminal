@@ -110,6 +110,11 @@ public sealed class NativeSshDockerE2eTests
             Assert.All(progressUpdates, update => Assert.Equal(remotePath, update.CurrentPath));
             Assert.Contains(progressUpdates, update => update.BytesTotal > 0);
             Assert.All(progressUpdates, update => Assert.True(update.BytesDone > 0, "Expected progress updates to report copied bytes."));
+            Assert.Contains(progressUpdates, update => update.BytesDone < expectedBytes);
+            Assert.Contains(progressUpdates, update => update.BytesTotal == expectedBytes);
+            Assert.Contains(
+                Enumerable.Range(1, progressUpdates.Count - 1),
+                index => progressUpdates[index - 1].BytesDone < progressUpdates[index].BytesDone);
             for (int i = 1; i < progressUpdates.Count; i++)
             {
                 Assert.True(
@@ -117,6 +122,7 @@ public sealed class NativeSshDockerE2eTests
                     $"Expected BytesDone to be monotonic, but observed {progressUpdates[i - 1].BytesDone} then {progressUpdates[i].BytesDone}.");
             }
             Assert.Equal(expectedBytes, progressUpdates[^1].BytesDone);
+            Assert.Equal(expectedBytes, progressUpdates[^1].BytesTotal);
             Assert.Equal(expected, File.ReadAllText(localPath));
         }
         finally
@@ -315,6 +321,11 @@ public sealed class NativeSshDockerE2eTests
     {
         Assert.All(updates, update => Assert.Equal(remotePath, update.CurrentPath));
         Assert.Contains(updates, update => update.BytesTotal > 0);
+        Assert.Contains(updates, update => update.BytesDone < expectedBytes);
+        Assert.Contains(updates, update => update.BytesTotal == expectedBytes);
+        Assert.Contains(
+            Enumerable.Range(1, updates.Count - 1),
+            index => updates[index - 1].BytesDone < updates[index].BytesDone);
         for (int i = 1; i < updates.Count; i++)
         {
             Assert.True(
@@ -323,6 +334,7 @@ public sealed class NativeSshDockerE2eTests
         }
 
         Assert.Equal(expectedBytes, updates[^1].BytesDone);
+        Assert.Equal(expectedBytes, updates[^1].BytesTotal);
     }
 
     [DockerFact]
