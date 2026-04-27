@@ -310,9 +310,16 @@ struct NativeKnownHostEntry {
 pub struct NovaSftpTransferProgressCallbackData {
     pub bytes_done: u64,
     pub bytes_total: u64,
+    // ABI contract: current_path points to a transient UTF-8 string buffer that is
+    // only valid for the duration of the callback invocation that receives it.
     pub current_path: *const c_char,
 }
 
+// ABI contract for native SFTP progress reporting:
+// - callbacks are invoked synchronously during nova_ssh_sftp_transfer
+// - progress_context is borrowed and only valid for that call duration
+// - current_path in NovaSftpTransferProgressCallbackData is only valid for the
+//   duration of the callback invocation
 type NovaSftpTransferProgressCallback =
     unsafe extern "C" fn(*mut c_void, NovaSftpTransferProgressCallbackData);
 

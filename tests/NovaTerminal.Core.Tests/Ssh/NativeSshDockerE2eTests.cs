@@ -104,8 +104,19 @@ public sealed class NativeSshDockerE2eTests
                 progress: update => progressUpdates.Add(update),
                 CancellationToken.None);
 
-            Assert.NotEmpty(progressUpdates);
+            long expectedBytes = Encoding.UTF8.GetByteCount(expected);
+
+            Assert.True(progressUpdates.Count > 1, $"Expected multiple progress updates for a multi-chunk download, but observed {progressUpdates.Count}.");
+            Assert.All(progressUpdates, update => Assert.Equal(remotePath, update.CurrentPath));
             Assert.Contains(progressUpdates, update => update.BytesTotal > 0);
+            Assert.All(progressUpdates, update => Assert.True(update.BytesDone > 0, "Expected progress updates to report copied bytes."));
+            for (int i = 1; i < progressUpdates.Count; i++)
+            {
+                Assert.True(
+                    progressUpdates[i - 1].BytesDone <= progressUpdates[i].BytesDone,
+                    $"Expected BytesDone to be monotonic, but observed {progressUpdates[i - 1].BytesDone} then {progressUpdates[i].BytesDone}.");
+            }
+            Assert.Equal(expectedBytes, progressUpdates[^1].BytesDone);
             Assert.Equal(expected, File.ReadAllText(localPath));
         }
         finally
