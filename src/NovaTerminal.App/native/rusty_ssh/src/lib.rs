@@ -2,9 +2,9 @@ use libc::{c_char, c_int};
 use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
 use russh::keys::{load_secret_key, ssh_key, PrivateKeyWithHashAlg};
 use russh::{ChannelMsg, Disconnect};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::future::Future;
 use std::io::Cursor;
 use std::path::Path;
@@ -83,6 +83,7 @@ pub const NOVA_SSH_RESULT_INVALID_ARGUMENT: c_int = -1;
 pub const NOVA_SSH_RESULT_BUFFER_TOO_SMALL: c_int = -2;
 pub const NOVA_SSH_RESULT_CLOSED: c_int = -3;
 pub const NOVA_SSH_RESULT_CHANNEL_OPEN_FAILED: c_int = -4;
+pub const NOVA_SSH_RESULT_NOT_IMPLEMENTED: c_int = -5;
 
 const NOVA_SSH_EVENT_FLAG_JSON: u32 = 1;
 const NOVA_SSH_EVENT_FLAG_BINARY: u32 = 2;
@@ -224,6 +225,47 @@ struct TextResponse {
 #[derive(serde::Deserialize)]
 struct KeyboardInteractiveResponse {
     responses: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SftpTransferRequest {
+    connection: SftpConnectionRequest,
+    transfer: SftpTransferRequestBody,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SftpConnectionRequest {
+    host: String,
+    user: String,
+    port: u16,
+    identity_file_path: Option<String>,
+    jump_host: Option<SftpJumpHostRequest>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SftpJumpHostRequest {
+    host: String,
+    user: Option<String>,
+    port: u16,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SftpTransferRequestBody {
+    direction: String,
+    kind: String,
+    local_path: String,
+    remote_path: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SftpTransferResponse<'a> {
+    status: &'a str,
+    message: &'a str,
 }
 
 impl SharedState {
@@ -632,6 +674,71 @@ pub extern "C" fn nova_ssh_close(session: *mut NovaSshSession) -> c_int {
     NOVA_SSH_RESULT_OK
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_sftp_transfer(
+    request_json: *const c_char,
+    response_json: *mut *mut c_char,
+) -> c_int {
+    if request_json.is_null() || response_json.is_null() {
+        return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        *response_json = ptr::null_mut();
+    }
+
+    let request_text = match unsafe { CStr::from_ptr(request_json) }.to_str() {
+        Ok(value) => value,
+        Err(_) => {
+            return write_sftp_response_json(
+                response_json,
+                NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                "invalid-argument",
+                "Native backend stub rejected a non-UTF8 SFTP request.",
+            );
+        }
+    };
+
+    let request = match serde_json::from_str::<SftpTransferRequest>(request_text) {
+        Ok(value) => value,
+        Err(_) => {
+            return write_sftp_response_json(
+                response_json,
+                NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                "invalid-argument",
+                "Native backend stub rejected invalid SFTP request JSON.",
+            );
+        }
+    };
+
+    if sftp_request_has_blank_fields(&request) {
+        return write_sftp_response_json(
+            response_json,
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            "invalid-argument",
+            "Native backend stub rejected an incomplete SFTP request.",
+        );
+    }
+
+    write_sftp_response_json(
+        response_json,
+        NOVA_SSH_RESULT_NOT_IMPLEMENTED,
+        "not-implemented",
+        "Native backend stub reached: SFTP transfer not implemented.",
+    )
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_string_free(value: *mut c_char) {
+    if value.is_null() {
+        return;
+    }
+
+    unsafe {
+        drop(CString::from_raw(value));
+    }
+}
+
 impl ConnectConfig {
     fn from_args(args: *const NovaSshConnectArgs) -> Option<Self> {
         let args = unsafe { args.as_ref()? };
@@ -681,6 +788,53 @@ fn read_c_string(value: *const c_char) -> Option<String> {
     } else {
         Some(string)
     }
+}
+
+fn write_sftp_response_json(
+    response_json: *mut *mut c_char,
+    result: c_int,
+    status: &str,
+    message: &str,
+) -> c_int {
+    let response = SftpTransferResponse { status, message };
+    let json = match serde_json::to_string(&response) {
+        Ok(value) => value,
+        Err(_) => return result,
+    };
+
+    match CString::new(json) {
+        Ok(value) => unsafe {
+            *response_json = value.into_raw();
+            result
+        },
+        Err(_) => result,
+    }
+}
+
+fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
+    let jump_host_is_blank = request
+        .connection
+        .jump_host
+        .as_ref()
+        .is_some_and(|jump_host| {
+            jump_host.host.trim().is_empty()
+                || jump_host.user.as_deref().is_some_and(|user| user.trim().is_empty())
+                || jump_host.port == 0
+        });
+
+    request.connection.host.trim().is_empty()
+        || request.connection.user.trim().is_empty()
+        || request.connection.port == 0
+        || request
+            .connection
+            .identity_file_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+        || jump_host_is_blank
+        || request.transfer.direction.trim().is_empty()
+        || request.transfer.kind.trim().is_empty()
+        || request.transfer.local_path.trim().is_empty()
+        || request.transfer.remote_path.trim().is_empty()
 }
 
 fn run_session(
@@ -1188,7 +1342,6 @@ fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> *mu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::ffi::CString;
 
     #[test]
     fn null_handle_operations_return_invalid_argument() {
@@ -1205,6 +1358,8 @@ mod tests {
         let channel_eof = nova_ssh_channel_eof(ptr::null_mut(), 1);
         let channel_close = nova_ssh_channel_close(ptr::null_mut(), 1);
         let respond = nova_ssh_submit_response(ptr::null_mut(), 1, br#"{}"#.as_ptr(), 2);
+        let mut sftp_response = ptr::null_mut();
+        let sftp = nova_ssh_sftp_transfer(ptr::null(), &mut sftp_response);
         let close = nova_ssh_close(ptr::null_mut());
 
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, resize);
@@ -1214,7 +1369,33 @@ mod tests {
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, channel_eof);
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, channel_close);
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, respond);
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, sftp);
+        assert!(sftp_response.is_null());
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, close);
+    }
+
+    #[test]
+    fn sftp_transfer_stub_returns_not_implemented_response() {
+        let request = CString::new(
+            r#"{"connection":{"host":"example.com","user":"nova","port":22},"transfer":{"direction":"download","kind":"file","localPath":"local.txt","remotePath":"/tmp/remote.txt"}}"#,
+        )
+        .unwrap();
+        let mut response = ptr::null_mut();
+
+        let rc = nova_ssh_sftp_transfer(request.as_ptr(), &mut response);
+
+        assert_eq!(NOVA_SSH_RESULT_NOT_IMPLEMENTED, rc);
+        assert!(!response.is_null());
+
+        let response_json = unsafe { CStr::from_ptr(response) }.to_str().unwrap();
+        let payload: serde_json::Value = serde_json::from_str(response_json).unwrap();
+        assert_eq!("not-implemented", payload["status"]);
+        assert_eq!(
+            "Native backend stub reached: SFTP transfer not implemented.",
+            payload["message"]
+        );
+
+        nova_ssh_string_free(response);
     }
 
     #[test]

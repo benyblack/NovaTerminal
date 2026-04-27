@@ -36,7 +36,7 @@ public sealed class NativeSftpTransferInteropTests
     }
 
     [Fact]
-    public void RunSftpTransfer_ThrowsUntilNativeImplementationExists()
+    public void RunSftpTransfer_UsesNativeBackendStubResponse()
     {
         INativeSshInterop interop = new NativeSshInterop();
         NativeSshConnectionOptions connectionOptions = new()
@@ -58,8 +58,10 @@ public sealed class NativeSftpTransferInteropTests
             progress: null,
             CancellationToken.None);
 
-        NotImplementedException ex = Assert.Throws<NotImplementedException>(act);
+        InvalidOperationException ex = Assert.Throws<InvalidOperationException>(act);
 
-        Assert.Contains("Native SFTP transfer", ex.Message);
+        Assert.Contains("result -5", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("native backend stub", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not implemented", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 }

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Text.Json;
 
 namespace NovaTerminal.Core.Ssh.Native;
 
@@ -10,6 +11,7 @@ public sealed class NativeSshInterop : INativeSshInterop
     private const int ResultInvalidArgument = -1;
     private const int ResultBufferTooSmall = -2;
     private const int ResultClosed = -3;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public IntPtr Connect(NativeSshConnectionOptions options)
     {
@@ -92,10 +94,34 @@ public sealed class NativeSshInterop : INativeSshInterop
         ArgumentNullException.ThrowIfNull(connectionOptions);
         ArgumentNullException.ThrowIfNull(transferOptions);
 
+        ValidateConnectionOptions(connectionOptions);
         transferOptions.Validate();
         cancellationToken.ThrowIfCancellationRequested();
 
-        throw new NotImplementedException("Native SFTP transfer is not implemented yet.");
+        SftpTransferRequest request = SftpTransferRequest.From(connectionOptions, transferOptions);
+        string requestJson = JsonSerializer.Serialize(request, JsonOptions);
+
+        IntPtr requestPtr = IntPtr.Zero;
+        IntPtr responsePtr = IntPtr.Zero;
+
+        try
+        {
+            requestPtr = Marshal.StringToCoTaskMemUTF8(requestJson);
+            int rc = NativeMethods.nova_ssh_sftp_transfer(requestPtr, out responsePtr);
+            string? responseJson = TakeNativeUtf8AndFree(ref responsePtr);
+            if (rc != ResultOk)
+            {
+                throw new InvalidOperationException(BuildSftpTransferFailureMessage(rc, responseJson));
+            }
+        }
+        finally
+        {
+            FreeUtf8(requestPtr);
+            if (responsePtr != IntPtr.Zero)
+            {
+                NativeMethods.nova_ssh_string_free(responsePtr);
+            }
+        }
     }
 
     public NativeSshEvent? PollEvent(IntPtr sessionHandle)
@@ -298,6 +324,78 @@ public sealed class NativeSshInterop : INativeSshInterop
         }
     }
 
+    private static void ValidateConnectionOptions(NativeSshConnectionOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.Host))
+        {
+            throw new ArgumentException("A host is required for native SSH operations.", nameof(options.Host));
+        }
+
+        if (string.IsNullOrWhiteSpace(options.User))
+        {
+            throw new ArgumentException("A user is required for native SSH operations.", nameof(options.User));
+        }
+
+        if (options.Port is < 1 or > 65535)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options.Port), "The SSH port must be between 1 and 65535.");
+        }
+
+        if (options.JumpHost is { } jumpHost)
+        {
+            if (string.IsNullOrWhiteSpace(jumpHost.Host))
+            {
+                throw new ArgumentException("A jump-host name is required when jump-host options are supplied.", nameof(options.JumpHost));
+            }
+
+            if (jumpHost.Port is < 1 or > 65535)
+            {
+                throw new ArgumentOutOfRangeException(nameof(options.JumpHost), "The jump-host port must be between 1 and 65535.");
+            }
+        }
+    }
+
+    private static string BuildSftpTransferFailureMessage(int resultCode, string? responseJson)
+    {
+        string message = $"Native SFTP transfer failed with result {resultCode}.";
+        if (string.IsNullOrWhiteSpace(responseJson))
+        {
+            return message;
+        }
+
+        try
+        {
+            NativeSftpTransferResponse? response = JsonSerializer.Deserialize<NativeSftpTransferResponse>(responseJson, JsonOptions);
+            if (!string.IsNullOrWhiteSpace(response?.Message))
+            {
+                return $"{message} {response.Message}";
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return $"{message} {responseJson}";
+    }
+
+    private static string? TakeNativeUtf8AndFree(ref IntPtr pointer)
+    {
+        if (pointer == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Marshal.PtrToStringUTF8(pointer);
+        }
+        finally
+        {
+            NativeMethods.nova_ssh_string_free(pointer);
+            pointer = IntPtr.Zero;
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct NativeConnectArgs
     {
@@ -333,6 +431,53 @@ public sealed class NativeSshInterop : INativeSshInterop
         public ushort OriginatorPort;
     }
 
+    private sealed record SftpTransferRequest(SftpConnectionRequest Connection, SftpTransferRequestBody Transfer)
+    {
+        public static SftpTransferRequest From(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions)
+        {
+            SftpJumpHostRequest? jumpHost = connectionOptions.JumpHost is null
+                ? null
+                : new SftpJumpHostRequest(
+                    connectionOptions.JumpHost.Host,
+                    string.IsNullOrWhiteSpace(connectionOptions.JumpHost.User) ? null : connectionOptions.JumpHost.User,
+                    connectionOptions.JumpHost.Port);
+
+            return new SftpTransferRequest(
+                new SftpConnectionRequest(
+                    connectionOptions.Host,
+                    connectionOptions.User,
+                    connectionOptions.Port,
+                    string.IsNullOrWhiteSpace(connectionOptions.IdentityFilePath) ? null : connectionOptions.IdentityFilePath,
+                    jumpHost),
+                new SftpTransferRequestBody(
+                    transferOptions.Direction.ToString().ToLowerInvariant(),
+                    transferOptions.Kind.ToString().ToLowerInvariant(),
+                    transferOptions.LocalPath!,
+                    transferOptions.RemotePath!));
+        }
+    }
+
+    private sealed record SftpConnectionRequest(
+        string Host,
+        string User,
+        int Port,
+        string? IdentityFilePath,
+        SftpJumpHostRequest? JumpHost);
+
+    private sealed record SftpJumpHostRequest(string Host, string? User, int Port);
+
+    private sealed record SftpTransferRequestBody(
+        string Direction,
+        string Kind,
+        string LocalPath,
+        string RemotePath);
+
+    private sealed class NativeSftpTransferResponse
+    {
+        public string? Status { get; init; }
+        public string? Message { get; init; }
+    }
+
     private static class NativeMethods
     {
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_connect")]
@@ -364,5 +509,11 @@ public sealed class NativeSshInterop : INativeSshInterop
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_submit_response")]
         public static extern int nova_ssh_submit_response(IntPtr session, uint responseKind, byte[] data, nuint dataLength);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_sftp_transfer")]
+        public static extern int nova_ssh_sftp_transfer(IntPtr requestJson, out IntPtr responseJson);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_string_free")]
+        public static extern void nova_ssh_string_free(IntPtr value);
     }
 }
