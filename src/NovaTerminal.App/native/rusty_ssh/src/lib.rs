@@ -1205,10 +1205,13 @@ where
             .await?;
         }
         ("upload", "file") => {
+            let remote_target =
+                resolve_upload_file_target(&sftp, Path::new(&transfer.local_path), &transfer.remote_path)
+                    .await?;
             upload_file_to_remote(
                 &sftp,
                 Path::new(&transfer.local_path),
-                &transfer.remote_path,
+                &remote_target,
                 cancellation_marker_path,
                 progress,
             )
@@ -1331,6 +1334,47 @@ async fn upload_file_to_remote(
     .await?;
     remote_file.shutdown().await?;
     Ok(())
+}
+
+async fn resolve_upload_file_target(
+    sftp: &SftpSession,
+    local_path: &Path,
+    remote_path: &str,
+) -> anyhow::Result<String> {
+    let local_name = local_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Local file name is required for native SFTP upload."))?;
+    let home_directory = if remote_path.trim().starts_with('~') {
+        Some(
+            sftp.canonicalize(".")
+                .await
+                .map_err(|error| map_remote_transfer_error(".", error))?,
+        )
+    } else {
+        None
+    };
+    let expanded_remote_path = expand_remote_home_path(remote_path, home_directory.as_deref())?;
+    let remote_path_is_dir = if sftp
+        .try_exists(expanded_remote_path.clone())
+        .await
+        .map_err(|error| map_remote_transfer_error(&expanded_remote_path, error))?
+    {
+        sftp.metadata(expanded_remote_path.clone())
+            .await
+            .map_err(|error| map_remote_transfer_error(&expanded_remote_path, error))?
+            .is_dir()
+    } else {
+        false
+    };
+
+    resolve_upload_file_destination_path(
+        local_name,
+        remote_path,
+        home_directory.as_deref(),
+        remote_path_is_dir,
+    )
 }
 
 async fn download_directory_from_remote(
@@ -1593,6 +1637,45 @@ fn remote_basename(path: &str) -> anyhow::Result<String> {
         .find(|segment| !segment.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| anyhow::anyhow!("Remote directory name is required for native SFTP transfer."))
+}
+
+fn resolve_upload_file_destination_path(
+    local_name: &str,
+    remote_path: &str,
+    home_directory: Option<&str>,
+    remote_path_is_dir: bool,
+) -> anyhow::Result<String> {
+    let trimmed_remote_path = remote_path.trim();
+    let expanded_remote_path = expand_remote_home_path(remote_path, home_directory)?;
+    if trimmed_remote_path == "~" || remote_path_is_dir {
+        return Ok(join_remote_path(&expanded_remote_path, local_name));
+    }
+
+    Ok(expanded_remote_path)
+}
+
+fn expand_remote_home_path(path: &str, home_directory: Option<&str>) -> anyhow::Result<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("Remote file path is required for native SFTP transfer.");
+    }
+
+    if trimmed == "~" {
+        return normalize_remote_directory_path(
+            home_directory
+                .ok_or_else(|| anyhow::anyhow!("Remote home directory is unavailable for native SFTP upload."))?,
+        );
+    }
+
+    if let Some(relative_path) = trimmed.strip_prefix("~/") {
+        let home_directory = normalize_remote_directory_path(
+            home_directory
+                .ok_or_else(|| anyhow::anyhow!("Remote home directory is unavailable for native SFTP upload."))?,
+        )?;
+        return Ok(join_remote_path(&home_directory, relative_path));
+    }
+
+    Ok(trimmed.to_owned())
 }
 
 fn normalize_remote_directory_path(path: &str) -> anyhow::Result<String> {
@@ -2432,6 +2515,24 @@ mod tests {
             assert!(pending_command.is_none());
             assert!(command_rx.recv().await.is_none());
         });
+    }
+
+    #[test]
+    fn resolve_upload_file_destination_path_appends_local_name_for_existing_directory() {
+        let resolved =
+            resolve_upload_file_destination_path("upload.txt", "/tmp", None, true)
+                .expect("directory target should resolve");
+
+        assert_eq!("/tmp/upload.txt", resolved);
+    }
+
+    #[test]
+    fn resolve_upload_file_destination_path_expands_home_directory_shortcut() {
+        let resolved =
+            resolve_upload_file_destination_path("upload.txt", "~", Some("/home/nova"), false)
+                .expect("home directory shortcut should resolve");
+
+        assert_eq!("/home/nova/upload.txt", resolved);
     }
 }
 
