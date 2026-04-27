@@ -614,6 +614,11 @@ public sealed class NativeSshInterop : INativeSshInterop
         public string? Message { get; init; }
     }
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void NativeSftpTransferProgressCallback(
+        IntPtr context,
+        NativeSftpTransferProgressCallbackData progress);
+
     private sealed class NativeSftpTransferProgressCallbackState
     {
         public NativeSftpTransferProgressCallbackState(Action<NativeSftpTransferProgress> progress)

@@ -1,11 +1,4 @@
-using System.Runtime.InteropServices;
-
 namespace NovaTerminal.Core.Ssh.Native;
-
-[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-internal delegate void NativeSftpTransferProgressCallback(
-    IntPtr context,
-    NativeSftpTransferProgressCallbackData progress);
 
 public interface INativeSshInterop
 {

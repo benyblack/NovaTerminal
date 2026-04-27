@@ -73,6 +73,22 @@ public sealed class NativeSftpTransferInteropTests
     }
 
     [Fact]
+    public void NativeProgressCallback_DelegateAbi_IsNestedInsideNativeSshInterop()
+    {
+        Type? nestedDelegate = typeof(NativeSshInterop).GetNestedType(
+            "NativeSftpTransferProgressCallback",
+            BindingFlags.NonPublic);
+        Type? topLevelDelegate = typeof(INativeSshInterop).Assembly.GetType(
+            "NovaTerminal.Core.Ssh.Native.NativeSftpTransferProgressCallback",
+            throwOnError: false,
+            ignoreCase: false);
+
+        Assert.NotNull(nestedDelegate);
+        Assert.True(typeof(MulticastDelegate).IsAssignableFrom(nestedDelegate));
+        Assert.Null(topLevelDelegate);
+    }
+
+    [Fact]
     public void TransferOptions_RequireLocalAndRemotePaths()
     {
         NativeSftpTransferOptions options = new()
