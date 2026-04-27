@@ -221,6 +221,19 @@ public sealed class SftpServiceTests
         Assert.Equal(0.25, job.Progress, 3);
         Assert.False(job.IsProgressIndeterminate);
         Assert.Contains("25%", job.StatusText, StringComparison.Ordinal);
+
+        SftpService.ApplyNativeTransferProgress(job, new NativeSftpTransferProgress
+        {
+            BytesDone = 3072,
+            BytesTotal = 4096,
+            CurrentPath = "/tmp/sample.bin"
+        });
+
+        Assert.Equal(3072, job.BytesDone);
+        Assert.Equal(4096, job.BytesTotal);
+        Assert.Equal(0.75, job.Progress, 3);
+        Assert.False(job.IsProgressIndeterminate);
+        Assert.Contains("75%", job.StatusText, StringComparison.Ordinal);
     }
 
     [Fact]
