@@ -136,6 +136,8 @@ public sealed class NativeSshInterop : INativeSshInterop
             requestPtr = Marshal.StringToCoTaskMemUTF8(requestJson);
             if (progress is not null)
             {
+                // Native SFTP transfer callbacks are expected to stay synchronous within the
+                // nova_ssh_sftp_transfer call, so this GCHandle only needs to live for that invocation.
                 progressStateHandle = GCHandle.Alloc(new NativeSftpTransferProgressCallbackState(progress));
             }
 

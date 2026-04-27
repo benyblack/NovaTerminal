@@ -1,4 +1,4 @@
-use libc::{c_char, c_int};
+use libc::{c_char, c_int, c_void};
 use russh::client::{self, AuthResult, KeyboardInteractiveAuthResponse};
 use russh::keys::{PrivateKeyWithHashAlg, load_secret_key, ssh_key};
 use russh::{ChannelMsg, Disconnect};
@@ -303,6 +303,47 @@ struct NativeKnownHostEntry {
     port: u16,
     algorithm: String,
     fingerprint: String,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NovaSftpTransferProgressCallbackData {
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    pub current_path: *const c_char,
+}
+
+type NovaSftpTransferProgressCallback =
+    unsafe extern "C" fn(*mut c_void, NovaSftpTransferProgressCallbackData);
+
+#[derive(Clone, Copy)]
+struct SftpProgressEmitter {
+    callback: Option<NovaSftpTransferProgressCallback>,
+    context: *mut c_void,
+}
+
+impl SftpProgressEmitter {
+    fn emit(&self, bytes_done: u64, bytes_total: Option<u64>, current_path: &str) {
+        let Some(callback) = self.callback else {
+            return;
+        };
+
+        let current_path = match CString::new(current_path) {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+
+        unsafe {
+            callback(
+                self.context,
+                NovaSftpTransferProgressCallbackData {
+                    bytes_done,
+                    bytes_total: bytes_total.unwrap_or(0),
+                    current_path: current_path.as_ptr(),
+                },
+            );
+        }
+    }
 }
 
 impl SharedState {
@@ -741,6 +782,8 @@ pub extern "C" fn nova_ssh_close(session: *mut NovaSshSession) -> c_int {
 #[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_sftp_transfer(
     request_json: *const c_char,
+    progress_callback: Option<NovaSftpTransferProgressCallback>,
+    progress_context: *mut c_void,
     response_json: *mut *mut c_char,
 ) -> c_int {
     if request_json.is_null() || response_json.is_null() {
@@ -784,7 +827,12 @@ pub extern "C" fn nova_ssh_sftp_transfer(
         );
     }
 
-    match run_sftp_transfer(request) {
+    let progress = SftpProgressEmitter {
+        callback: progress_callback,
+        context: progress_context,
+    };
+
+    match run_sftp_transfer(request, progress) {
         Ok(()) => write_sftp_response_json(
             response_json,
             NOVA_SSH_RESULT_OK,
@@ -1005,7 +1053,7 @@ fn normalize_known_host_fingerprint(fingerprint: &str) -> String {
     }
 }
 
-fn run_sftp_transfer(request: SftpTransferRequest) -> anyhow::Result<()> {
+fn run_sftp_transfer(request: SftpTransferRequest, progress: SftpProgressEmitter) -> anyhow::Result<()> {
     validate_supported_sftp_mode(&request.transfer)?;
 
     let runtime = Builder::new_current_thread().enable_all().build()?;
@@ -1070,7 +1118,7 @@ fn run_sftp_transfer(request: SftpTransferRequest) -> anyhow::Result<()> {
         };
 
         authenticate_transfer(&request.connection.user, &auth, &mut session).await?;
-        perform_sftp_transfer(&mut session, &request.transfer).await
+        perform_sftp_transfer(&mut session, &request.transfer, progress).await
     })
 }
 
@@ -1123,6 +1171,7 @@ where
 async fn perform_sftp_transfer<H>(
     session: &mut client::Handle<H>,
     transfer: &SftpTransferRequestBody,
+    progress: SftpProgressEmitter,
 ) -> anyhow::Result<()>
 where
     H: client::Handler + Send + 'static,
@@ -1144,6 +1193,7 @@ where
                 &transfer.remote_path,
                 Path::new(&transfer.local_path),
                 cancellation_marker_path,
+                progress,
             )
             .await?;
         }
@@ -1153,6 +1203,7 @@ where
                 Path::new(&transfer.local_path),
                 &transfer.remote_path,
                 cancellation_marker_path,
+                progress,
             )
             .await?;
         }
@@ -1164,6 +1215,7 @@ where
                 &transfer.remote_path,
                 &local_root,
                 cancellation_marker_path,
+                progress,
             )
             .await?;
         }
@@ -1176,6 +1228,7 @@ where
                 &local_root,
                 &remote_root,
                 cancellation_marker_path,
+                progress,
             )
             .await?;
         }
@@ -1211,7 +1264,13 @@ async fn download_file_from_remote(
     remote_path: &str,
     local_path: &Path,
     cancellation_marker_path: Option<&str>,
+    progress: SftpProgressEmitter,
 ) -> anyhow::Result<()> {
+    let total_bytes = sftp
+        .metadata(remote_path.to_owned())
+        .await
+        .map(|metadata| metadata.size)
+        .unwrap_or(None);
     let mut remote_file = sftp
         .open(remote_path.to_owned())
         .await
@@ -1229,6 +1288,9 @@ async fn download_file_from_remote(
         &mut remote_file,
         &mut local_file,
         cancellation_marker_path,
+        total_bytes,
+        remote_path,
+        progress,
     )
     .await?;
     local_file.flush().await?;
@@ -1241,7 +1303,9 @@ async fn upload_file_to_remote(
     local_path: &Path,
     remote_path: &str,
     cancellation_marker_path: Option<&str>,
+    progress: SftpProgressEmitter,
 ) -> anyhow::Result<()> {
+    let total_bytes = std::fs::metadata(local_path).ok().map(|metadata| metadata.len());
     let mut local_file = TokioFile::open(local_path)
         .await
         .map_err(|error| map_local_transfer_error(local_path, error))?;
@@ -1253,6 +1317,9 @@ async fn upload_file_to_remote(
         &mut local_file,
         &mut remote_file,
         cancellation_marker_path,
+        total_bytes,
+        &local_path.to_string_lossy(),
+        progress,
     )
     .await?;
     remote_file.shutdown().await?;
@@ -1264,6 +1331,7 @@ async fn download_directory_from_remote(
     remote_root: &str,
     local_root: &Path,
     cancellation_marker_path: Option<&str>,
+    progress: SftpProgressEmitter,
 ) -> anyhow::Result<()> {
     std::fs::create_dir_all(local_root)?;
 
@@ -1297,6 +1365,7 @@ async fn download_directory_from_remote(
                     &remote_child,
                     &local_child,
                     cancellation_marker_path,
+                    progress,
                 )
                 .await?;
             }
@@ -1311,6 +1380,7 @@ async fn upload_directory_to_remote(
     local_root: &Path,
     remote_root: &str,
     cancellation_marker_path: Option<&str>,
+    progress: SftpProgressEmitter,
 ) -> anyhow::Result<()> {
     ensure_remote_directory_exists(sftp, remote_root).await?;
 
@@ -1341,6 +1411,7 @@ async fn upload_directory_to_remote(
                     &local_child,
                     &remote_child,
                     cancellation_marker_path,
+                    progress,
                 )
                 .await?;
             }
@@ -1419,12 +1490,16 @@ async fn copy_file_with_cancellation<R, W>(
     reader: &mut R,
     writer: &mut W,
     cancellation_marker_path: Option<&str>,
+    total_bytes: Option<u64>,
+    current_path: &str,
+    progress: SftpProgressEmitter,
 ) -> anyhow::Result<()>
 where
     R: AsyncReadExt + Unpin,
     W: AsyncWriteExt + Unpin,
 {
     let mut buffer = vec![0u8; 64 * 1024];
+    let mut bytes_done = 0u64;
     loop {
         ensure_transfer_not_canceled(cancellation_marker_path)?;
         let read = reader.read(&mut buffer).await?;
@@ -1433,6 +1508,8 @@ where
         }
 
         writer.write_all(&buffer[..read]).await?;
+        bytes_done += read as u64;
+        progress.emit(bytes_done, total_bytes, current_path);
     }
 
     Ok(())
@@ -2081,7 +2158,7 @@ mod tests {
         let channel_close = nova_ssh_channel_close(ptr::null_mut(), 1);
         let respond = nova_ssh_submit_response(ptr::null_mut(), 1, br#"{}"#.as_ptr(), 2);
         let mut sftp_response = ptr::null_mut();
-        let sftp = nova_ssh_sftp_transfer(ptr::null(), &mut sftp_response);
+        let sftp = nova_ssh_sftp_transfer(ptr::null(), None, ptr::null_mut(), &mut sftp_response);
         let close = nova_ssh_close(ptr::null_mut());
 
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, resize);
@@ -2104,7 +2181,7 @@ mod tests {
         .unwrap();
         let mut response = ptr::null_mut();
 
-        let rc = nova_ssh_sftp_transfer(request.as_ptr(), &mut response);
+        let rc = nova_ssh_sftp_transfer(request.as_ptr(), None, ptr::null_mut(), &mut response);
 
         assert_eq!(NOVA_SSH_RESULT_NOT_IMPLEMENTED, rc);
         assert!(!response.is_null());
