@@ -55,7 +55,7 @@ public sealed class NativeSftpTransferProgress
 [StructLayout(LayoutKind.Sequential)]
 public struct NativeSftpTransferProgressCallbackData
 {
-    public ulong BytesDone { get; init; }
-    public ulong BytesTotal { get; init; }
-    public IntPtr CurrentPath { get; init; }
+    public ulong BytesDone;
+    public ulong BytesTotal;
+    public IntPtr CurrentPath;
 }

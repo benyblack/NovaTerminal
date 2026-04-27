@@ -29,11 +29,20 @@ public sealed class NativeSftpTransferInteropTests
         managedProgress = progress => observed = progress;
 
         using NativeSftpTransferProgressCallbackDataHandle nativeProgress = new(128, 1024, "/tmp/report.txt");
-        MethodInfo? forwardMethod = typeof(NativeSshInterop).GetMethod(
-            "ForwardSftpTransferProgress",
-            BindingFlags.Static | BindingFlags.NonPublic);
+        MethodInfo? forwardMethod = typeof(NativeSshInterop)
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .SingleOrDefault(static method =>
+            {
+                ParameterInfo[] parameters = method.GetParameters();
+                return method.ReturnType == typeof(void)
+                    && parameters.Length == 2
+                    && parameters[0].ParameterType == typeof(Action<NativeSftpTransferProgress>)
+                    && parameters[1].ParameterType == typeof(NativeSftpTransferProgressCallbackData);
+            });
 
-        Assert.NotNull(forwardMethod);
+        Assert.True(
+            forwardMethod is not null,
+            "Expected a nonpublic static native SFTP progress translator with signature (Action<NativeSftpTransferProgress>, NativeSftpTransferProgressCallbackData).");
 
         forwardMethod!.Invoke(null, [managedProgress, nativeProgress.Data]);
 
