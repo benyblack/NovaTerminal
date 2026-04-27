@@ -207,6 +207,42 @@ public sealed class SftpServiceTests
     }
 
     [Fact]
+    public void TransferJob_DownloadDisplayName_UsesRemoteLeaf()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.Folder,
+            LocalPath = @"C:\downloads",
+            RemotePath = "/var/log/archive/"
+        };
+
+        Assert.Equal("archive", job.DisplayName);
+        Assert.Equal("archive", job.FileName);
+        Assert.Equal("Remote: /var/log/archive/", job.RemotePathText);
+        Assert.Equal(@"Local: C:\downloads", job.LocalPathText);
+    }
+
+    [Fact]
+    public void TransferJob_StatusText_UpdatesWhenProgressChanges()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            RemotePath = "/tmp/report.tar.gz",
+            State = TransferState.Running
+        };
+
+        job.BytesDone = 512;
+        job.BytesTotal = 1024;
+        job.Progress = 0.5;
+
+        Assert.Equal("512 B of 1 KB (50%)", job.StatusText);
+        Assert.False(job.IsProgressIndeterminate);
+    }
+
+    [Fact]
     public void BuildNativeTransferConnectionOptions_UsesProfileTarget()
     {
         var service = new SshConnectionService(new InMemorySshProfileStore());

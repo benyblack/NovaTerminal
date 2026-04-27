@@ -3636,6 +3636,7 @@ namespace NovaTerminal
                     RemotePath = remotePath
                 };
                 SftpService.Instance.AddJob(job);
+                ShowTransferCenter();
             }
         }
 
@@ -3792,6 +3793,15 @@ namespace NovaTerminal
             if (overlay != null)
             {
                 overlay.IsVisible = !overlay.IsVisible;
+            }
+        }
+
+        private void ShowTransferCenter()
+        {
+            var overlay = this.FindControl<Border>("TransferOverlay");
+            if (overlay != null)
+            {
+                overlay.IsVisible = true;
             }
         }
 

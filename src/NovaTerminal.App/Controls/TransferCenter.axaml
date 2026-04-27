@@ -18,11 +18,14 @@
                             
                             <!-- Info -->
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="{Binding FileName}" Foreground="White" FontWeight="SemiBold"/>
-                                <TextBlock Text="{Binding RemotePath}" Foreground="#888" FontSize="11"/>
+                                <TextBlock Text="{Binding DisplayName}" Foreground="White" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding StatusText}" Foreground="#AAA" FontSize="11"/>
+                                <TextBlock Text="{Binding RemotePathText}" Foreground="#888" FontSize="11" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding LocalPathText}" Foreground="#777" FontSize="11" TextWrapping="Wrap"/>
                                 
                                 <ProgressBar Margin="0,5" Height="4" 
                                            Value="{Binding Progress}" Minimum="0" Maximum="1"
+                                           IsIndeterminate="{Binding IsProgressIndeterminate}"
                                            IsVisible="{Binding State, Converter={StaticResource RunningConverter}}"/>
                                 
                                 <TextBlock Text="{Binding LastError}" Foreground="#F44336" FontSize="10" 
@@ -31,10 +34,16 @@
                             </StackPanel>
                             
                             <!-- Status -->
-                            <TextBlock Grid.Column="2" Grid.Row="0" 
-                                       Text="{Binding State}" 
-                                       Foreground="{Binding State, Converter={StaticResource StateBrushConverter}}"
-                                       FontSize="11" VerticalAlignment="Top"/>
+                            <StackPanel Grid.Column="2" Grid.Row="0" Spacing="6" HorizontalAlignment="Right">
+                                <TextBlock Text="{Binding State}" 
+                                           Foreground="{Binding State, Converter={StaticResource StateBrushConverter}}"
+                                           FontSize="11" HorizontalAlignment="Right"/>
+                                <Button Content="Cancel"
+                                        Padding="8,2"
+                                        FontSize="10"
+                                        Click="CancelTransfer_Click"
+                                        IsVisible="{Binding State, Converter={StaticResource RunningConverter}}"/>
+                            </StackPanel>
                             
                             <!-- Profile -->
                             <TextBlock Grid.Column="1" Grid.Row="1" 

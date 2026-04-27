@@ -1,4 +1,5 @@
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using NovaTerminal.Core;
 
 namespace NovaTerminal.Controls
@@ -13,6 +14,16 @@ namespace NovaTerminal.Controls
             {
                 list.ItemsSource = SftpService.Instance.Jobs;
             }
+        }
+
+        private void CancelTransfer_Click(object? sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { DataContext: TransferJob job })
+            {
+                return;
+            }
+
+            SftpService.Instance.CancelJob(job.Id);
         }
     }
 }

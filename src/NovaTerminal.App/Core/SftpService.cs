@@ -5,6 +5,8 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -41,25 +43,195 @@ namespace NovaTerminal.Core
         NativeSftp
     }
 
-    public class TransferJob
+    public class TransferJob : INotifyPropertyChanged
     {
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public Guid SessionId { get; set; }
-        public Guid ProfileId { get; set; }
-        public string ProfileName { get; set; } = "";
-        public TransferDirection Direction { get; set; }
-        public TransferKind Kind { get; set; }
-        public string LocalPath { get; set; } = "";
-        public string RemotePath { get; set; } = "";
-        public TransferState State { get; set; } = TransferState.Queued;
-        public double Progress { get; set; } // 0..1
-        public long BytesTotal { get; set; }
-        public long BytesDone { get; set; }
-        public string? LastError { get; set; }
-        public DateTime StartedAt { get; set; }
-        public DateTime? FinishedAt { get; set; }
+        private Guid _id = Guid.NewGuid();
+        private Guid _sessionId;
+        private Guid _profileId;
+        private string _profileName = "";
+        private TransferDirection _direction;
+        private TransferKind _kind;
+        private string _localPath = "";
+        private string _remotePath = "";
+        private TransferState _state = TransferState.Queued;
+        private double _progress;
+        private long _bytesTotal;
+        private long _bytesDone;
+        private string? _lastError;
+        private DateTime _startedAt;
+        private DateTime? _finishedAt;
 
-        public string FileName => Path.GetFileName(LocalPath);
+        public Guid Id
+        {
+            get => _id;
+            set => SetProperty(ref _id, value);
+        }
+
+        public Guid SessionId
+        {
+            get => _sessionId;
+            set => SetProperty(ref _sessionId, value);
+        }
+
+        public Guid ProfileId
+        {
+            get => _profileId;
+            set => SetProperty(ref _profileId, value);
+        }
+
+        public string ProfileName
+        {
+            get => _profileName;
+            set => SetProperty(ref _profileName, value);
+        }
+
+        public TransferDirection Direction
+        {
+            get => _direction;
+            set => SetProperty(ref _direction, value);
+        }
+
+        public TransferKind Kind
+        {
+            get => _kind;
+            set => SetProperty(ref _kind, value);
+        }
+
+        public string LocalPath
+        {
+            get => _localPath;
+            set => SetProperty(ref _localPath, value);
+        }
+
+        public string RemotePath
+        {
+            get => _remotePath;
+            set => SetProperty(ref _remotePath, value);
+        }
+
+        public TransferState State
+        {
+            get => _state;
+            set => SetProperty(ref _state, value);
+        }
+
+        public double Progress
+        {
+            get => _progress;
+            set => SetProperty(ref _progress, value);
+        }
+
+        public long BytesTotal
+        {
+            get => _bytesTotal;
+            set => SetProperty(ref _bytesTotal, value);
+        }
+
+        public long BytesDone
+        {
+            get => _bytesDone;
+            set => SetProperty(ref _bytesDone, value);
+        }
+
+        public string? LastError
+        {
+            get => _lastError;
+            set => SetProperty(ref _lastError, value);
+        }
+
+        public DateTime StartedAt
+        {
+            get => _startedAt;
+            set => SetProperty(ref _startedAt, value);
+        }
+
+        public DateTime? FinishedAt
+        {
+            get => _finishedAt;
+            set => SetProperty(ref _finishedAt, value);
+        }
+
+        public string FileName => DisplayName;
+        public string DisplayName => ResolveDisplayName();
+        public string LocalPathText => string.IsNullOrWhiteSpace(LocalPath) ? string.Empty : $"Local: {LocalPath}";
+        public string RemotePathText => string.IsNullOrWhiteSpace(RemotePath) ? string.Empty : $"Remote: {RemotePath}";
+        public bool IsProgressIndeterminate => State == TransferState.Running && BytesTotal <= 0;
+        public string StatusText => BuildStatusText();
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        private bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
+        {
+            if (EqualityComparer<T>.Default.Equals(field, value))
+            {
+                return false;
+            }
+
+            field = value;
+            OnPropertyChanged(propertyName);
+            OnDerivedPropertyChanged();
+            return true;
+        }
+
+        private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        private void OnDerivedPropertyChanged()
+        {
+            OnPropertyChanged(nameof(FileName));
+            OnPropertyChanged(nameof(DisplayName));
+            OnPropertyChanged(nameof(LocalPathText));
+            OnPropertyChanged(nameof(RemotePathText));
+            OnPropertyChanged(nameof(IsProgressIndeterminate));
+            OnPropertyChanged(nameof(StatusText));
+        }
+
+        private string ResolveDisplayName()
+        {
+            string preferredPath = Direction == TransferDirection.Download ? RemotePath : LocalPath;
+            if (string.IsNullOrWhiteSpace(preferredPath))
+            {
+                preferredPath = Direction == TransferDirection.Download ? LocalPath : RemotePath;
+            }
+
+            string trimmed = preferredPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar, '/');
+            string name = Path.GetFileName(trimmed);
+            return string.IsNullOrWhiteSpace(name) ? preferredPath : name;
+        }
+
+        private string BuildStatusText()
+        {
+            return State switch
+            {
+                TransferState.Queued => "Queued",
+                TransferState.Running when BytesTotal > 0 => $"{FormatBytes(BytesDone)} of {FormatBytes(BytesTotal)} ({Math.Round(Progress * 100)}%)",
+                TransferState.Running when BytesDone > 0 => $"{FormatBytes(BytesDone)} transferred",
+                TransferState.Running => "Transferring...",
+                TransferState.Completed => Direction == TransferDirection.Upload ? "Upload complete" : "Download complete",
+                TransferState.Canceled => "Canceled",
+                TransferState.Failed => "Failed",
+                _ => State.ToString()
+            };
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            string[] units = { "B", "KB", "MB", "GB", "TB" };
+            double value = bytes;
+            int unitIndex = 0;
+
+            while (value >= 1024 && unitIndex < units.Length - 1)
+            {
+                value /= 1024;
+                unitIndex++;
+            }
+
+            return unitIndex == 0
+                ? $"{bytes} {units[unitIndex]}"
+                : $"{value:0.#} {units[unitIndex]}";
+        }
     }
 
     public class SftpService
@@ -90,7 +262,7 @@ namespace NovaTerminal.Core
 
         public void AddJob(TransferJob job)
         {
-            Dispatcher.UIThread.Post(() => Jobs.Add(job));
+            Dispatcher.UIThread.Post(() => Jobs.Insert(0, job));
             var cancellationTokenSource = new CancellationTokenSource();
             _activeTransfers[job.Id] = cancellationTokenSource;
             // In a real implementation, we would start a queue worker here.
