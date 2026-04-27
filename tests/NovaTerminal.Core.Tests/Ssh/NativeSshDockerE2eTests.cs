@@ -238,9 +238,11 @@ public sealed class NativeSshDockerE2eTests
             string nestedRemotePath = $"{remoteRoot}/nested";
             string remoteFileA = $"{remoteRoot}/a.txt";
             string remoteFileB = $"{nestedRemotePath}/b.txt";
+            string expectedA = string.Concat(Enumerable.Repeat("alpha-", 32 * 1024));
+            string expectedB = string.Concat(Enumerable.Repeat("beta-", 32 * 1024));
             await fixture.CreateDirectoryAsync(nestedRemotePath);
-            await fixture.WriteTextFileAsync(remoteFileA, string.Concat(Enumerable.Repeat("alpha-", 32 * 1024)));
-            await fixture.WriteTextFileAsync(remoteFileB, string.Concat(Enumerable.Repeat("beta-", 32 * 1024)));
+            await fixture.WriteTextFileAsync(remoteFileA, expectedA);
+            await fixture.WriteTextFileAsync(remoteFileB, expectedB);
 
             SshHostKeyInfo hostKey = await fixture.GetHostKeyAsync();
             string knownHostsPath = Path.Combine(tempRoot, "native_known_hosts.json");
@@ -272,22 +274,55 @@ public sealed class NativeSshDockerE2eTests
                 CancellationToken.None);
 
             string localRoot = Path.Combine(tempRoot, "native-sftp-download-dir-progress");
-            Assert.Equal(string.Concat(Enumerable.Repeat("alpha-", 32 * 1024)), await File.ReadAllTextAsync(Path.Combine(localRoot, "a.txt")));
-            Assert.Equal(string.Concat(Enumerable.Repeat("beta-", 32 * 1024)), await File.ReadAllTextAsync(Path.Combine(localRoot, "nested", "b.txt")));
+            Assert.Equal(expectedA, await File.ReadAllTextAsync(Path.Combine(localRoot, "a.txt")));
+            Assert.Equal(expectedB, await File.ReadAllTextAsync(Path.Combine(localRoot, "nested", "b.txt")));
 
-            Assert.True(progressUpdates.Count > 0, "Expected progress callbacks during directory download.");
+            long expectedBytesA = Encoding.UTF8.GetByteCount(expectedA);
+            long expectedBytesB = Encoding.UTF8.GetByteCount(expectedB);
+            var updatesByPath = new Dictionary<string, List<NativeSftpTransferProgress>>(StringComparer.Ordinal);
+            foreach (NativeSftpTransferProgress update in progressUpdates)
+            {
+                string path = Assert.IsType<string>(update.CurrentPath);
+                if (!updatesByPath.TryGetValue(path, out List<NativeSftpTransferProgress>? updates))
+                {
+                    updates = new List<NativeSftpTransferProgress>();
+                    updatesByPath[path] = updates;
+                }
+
+                updates.Add(update);
+            }
+
+            Assert.True(progressUpdates.Count > 2, $"Expected multiple progress callbacks during directory download, but observed {progressUpdates.Count}.");
             Assert.All(
                 progressUpdates,
                 update => Assert.False(string.IsNullOrWhiteSpace(update.CurrentPath), "Expected each progress callback to include a current path."));
-            Assert.Contains(progressUpdates, update => string.Equals(update.CurrentPath, remoteFileA, StringComparison.Ordinal));
-            Assert.Contains(progressUpdates, update => string.Equals(update.CurrentPath, remoteFileB, StringComparison.Ordinal));
+            Assert.True(updatesByPath.ContainsKey(remoteFileA), $"Expected progress updates for {remoteFileA}.");
+            Assert.True(updatesByPath.ContainsKey(remoteFileB), $"Expected progress updates for {remoteFileB}.");
             Assert.Contains(progressUpdates, update => update.BytesTotal > 0);
             Assert.All(progressUpdates, update => Assert.True(update.BytesDone > 0, "Expected directory progress updates to report copied bytes."));
+            Assert.True(updatesByPath[remoteFileA].Count > 1, $"Expected multiple progress updates for {remoteFileA}, but observed {updatesByPath[remoteFileA].Count}.");
+            Assert.True(updatesByPath[remoteFileB].Count > 1, $"Expected multiple progress updates for {remoteFileB}, but observed {updatesByPath[remoteFileB].Count}.");
+            AssertPathProgress(remoteFileA, updatesByPath[remoteFileA], expectedBytesA);
+            AssertPathProgress(remoteFileB, updatesByPath[remoteFileB], expectedBytesB);
         }
         finally
         {
             Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    private static void AssertPathProgress(string remotePath, IReadOnlyList<NativeSftpTransferProgress> updates, long expectedBytes)
+    {
+        Assert.All(updates, update => Assert.Equal(remotePath, update.CurrentPath));
+        Assert.Contains(updates, update => update.BytesTotal > 0);
+        for (int i = 1; i < updates.Count; i++)
+        {
+            Assert.True(
+                updates[i - 1].BytesDone <= updates[i].BytesDone,
+                $"Expected BytesDone for {remotePath} to be monotonic, but observed {updates[i - 1].BytesDone} then {updates[i].BytesDone}.");
+        }
+
+        Assert.Equal(expectedBytes, updates[^1].BytesDone);
     }
 
     [DockerFact]
