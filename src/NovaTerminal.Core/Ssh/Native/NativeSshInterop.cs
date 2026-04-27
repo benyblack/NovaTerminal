@@ -11,6 +11,7 @@ public sealed class NativeSshInterop : INativeSshInterop
     private const int ResultInvalidArgument = -1;
     private const int ResultBufferTooSmall = -2;
     private const int ResultClosed = -3;
+    private const int ResultCanceled = -6;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public IntPtr Connect(NativeSshConnectionOptions options)
@@ -104,12 +105,38 @@ public sealed class NativeSshInterop : INativeSshInterop
 
         IntPtr requestPtr = IntPtr.Zero;
         IntPtr responsePtr = IntPtr.Zero;
+        string cancellationMarkerPath = Path.Combine(
+            Path.GetTempPath(),
+            $"nova-sftp-cancel-{Guid.NewGuid():N}.signal");
+        using CancellationTokenRegistration cancellationRegistration = cancellationToken.Register(() =>
+        {
+            try
+            {
+                File.WriteAllText(cancellationMarkerPath, string.Empty);
+            }
+            catch
+            {
+            }
+        });
 
         try
         {
+            request = request with
+            {
+                Transfer = request.Transfer with
+                {
+                    CancellationMarkerPath = cancellationMarkerPath
+                }
+            };
+            requestJson = JsonSerializer.Serialize(request, JsonOptions);
             requestPtr = Marshal.StringToCoTaskMemUTF8(requestJson);
             int rc = NativeMethods.nova_ssh_sftp_transfer(requestPtr, out responsePtr);
             string? responseJson = TakeNativeUtf8AndFree(ref responsePtr);
+            if (rc == ResultCanceled)
+            {
+                throw new OperationCanceledException(BuildSftpTransferFailureMessage(rc, responseJson), cancellationToken);
+            }
+
             if (rc != ResultOk)
             {
                 throw new InvalidOperationException(BuildSftpTransferFailureMessage(rc, responseJson));
@@ -121,6 +148,17 @@ public sealed class NativeSshInterop : INativeSshInterop
             if (responsePtr != IntPtr.Zero)
             {
                 NativeMethods.nova_ssh_string_free(responsePtr);
+            }
+
+            try
+            {
+                if (File.Exists(cancellationMarkerPath))
+                {
+                    File.Delete(cancellationMarkerPath);
+                }
+            }
+            catch
+            {
             }
         }
     }
@@ -485,7 +523,8 @@ public sealed class NativeSshInterop : INativeSshInterop
         string Direction,
         string Kind,
         string LocalPath,
-        string RemotePath);
+        string RemotePath,
+        string? CancellationMarkerPath = null);
 
     private sealed class NativeSftpTransferResponse
     {

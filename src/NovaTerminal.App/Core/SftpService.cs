@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -65,22 +66,52 @@ namespace NovaTerminal.Core
     {
         private static SftpService? _instance;
         public static SftpService Instance => _instance ??= new SftpService();
+        private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _activeTransfers = new();
+        private readonly INativeSshInterop _nativeInterop;
+        private readonly Func<TerminalSettings> _settingsLoader;
+        private readonly Func<SshConnectionService> _sshServiceFactory;
 
         public ObservableCollection<TransferJob> Jobs { get; } = new();
 
-        private SftpService() { }
+        private SftpService()
+            : this(null, null, null)
+        {
+        }
+
+        internal SftpService(
+            INativeSshInterop? nativeInterop,
+            Func<TerminalSettings>? settingsLoader,
+            Func<SshConnectionService>? sshServiceFactory)
+        {
+            _nativeInterop = nativeInterop ?? new NativeSshInterop();
+            _settingsLoader = settingsLoader ?? TerminalSettings.Load;
+            _sshServiceFactory = sshServiceFactory ?? (() => new SshConnectionService());
+        }
 
         public void AddJob(TransferJob job)
         {
             Dispatcher.UIThread.Post(() => Jobs.Add(job));
+            var cancellationTokenSource = new CancellationTokenSource();
+            _activeTransfers[job.Id] = cancellationTokenSource;
             // In a real implementation, we would start a queue worker here.
             // For v1, we'll start it immediately.
-            Task.Run(() => RunJobAsync(job));
+            Task.Run(() => RunJobAsync(job, cancellationTokenSource.Token));
+        }
+
+        public bool CancelJob(Guid jobId)
+        {
+            if (!_activeTransfers.TryGetValue(jobId, out CancellationTokenSource? cancellationTokenSource))
+            {
+                return false;
+            }
+
+            cancellationTokenSource.Cancel();
+            return true;
         }
 
         public event EventHandler<TransferJob>? JobUpdated;
 
-        private async Task RunJobAsync(TransferJob job)
+        internal async Task RunJobAsync(TransferJob job, CancellationToken cancellationToken)
         {
             Dispatcher.UIThread.Post(() =>
             {
@@ -91,9 +122,9 @@ namespace NovaTerminal.Core
 
             try
             {
-                var settings = TerminalSettings.Load();
+                var settings = _settingsLoader();
                 settings.Profiles ??= new List<TerminalProfile>();
-                var sshService = new SshConnectionService();
+                var sshService = _sshServiceFactory();
                 IReadOnlyList<TerminalProfile> storeProfiles = sshService.GetConnectionProfiles();
                 TerminalProfile? profile = ResolveProfileForJob(job, settings.Profiles, storeProfiles);
 
@@ -102,11 +133,11 @@ namespace NovaTerminal.Core
                 switch (SelectExecutionBackend(profile, job))
                 {
                     case SftpTransferBackend.NativeSftp:
-                        await RunNativeSftpJobAsync(job, profile, settings.Profiles, sshService);
+                        await RunNativeSftpJobAsync(job, profile, settings.Profiles, sshService, cancellationToken);
                         break;
                     case SftpTransferBackend.ExternalScp:
                     default:
-                        await RunExternalScpJobAsync(job, profile, settings.Profiles, sshService);
+                        await RunExternalScpJobAsync(job, profile, settings.Profiles, sshService, cancellationToken);
                         break;
                 }
 
@@ -114,6 +145,16 @@ namespace NovaTerminal.Core
                 {
                     job.State = TransferState.Completed;
                     job.Progress = 1.0;
+                    job.FinishedAt = DateTime.Now;
+                    JobUpdated?.Invoke(this, job);
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                Dispatcher.UIThread.Post(() =>
+                {
+                    job.State = TransferState.Canceled;
+                    job.LastError = null;
                     job.FinishedAt = DateTime.Now;
                     JobUpdated?.Invoke(this, job);
                 });
@@ -127,6 +168,13 @@ namespace NovaTerminal.Core
                     job.FinishedAt = DateTime.Now;
                     JobUpdated?.Invoke(this, job);
                 });
+            }
+            finally
+            {
+                if (_activeTransfers.TryRemove(job.Id, out CancellationTokenSource? cancellationTokenSource))
+                {
+                    cancellationTokenSource.Dispose();
+                }
             }
         }
 
@@ -233,7 +281,8 @@ namespace NovaTerminal.Core
             TransferJob job,
             TerminalProfile profile,
             IReadOnlyList<TerminalProfile>? allProfiles,
-            SshConnectionService sshService)
+            SshConnectionService sshService,
+            CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(job);
             ArgumentNullException.ThrowIfNull(profile);
@@ -256,11 +305,29 @@ namespace NovaTerminal.Core
 
             using var process = Process.Start(startInfo);
             if (process == null) throw new Exception("Failed to start scp process");
+            using CancellationTokenRegistration cancellationRegistration = cancellationToken.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch
+                {
+                }
+            });
 
             string error = startInfo.RedirectStandardError
                 ? await process.StandardError.ReadToEndAsync()
                 : string.Empty;
             await process.WaitForExitAsync();
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException("SCP transfer canceled.", cancellationToken);
+            }
 
             if (process.ExitCode != 0)
             {
@@ -270,11 +337,12 @@ namespace NovaTerminal.Core
             }
         }
 
-        private static Task RunNativeSftpJobAsync(
+        private Task RunNativeSftpJobAsync(
             TransferJob job,
             TerminalProfile profile,
             IReadOnlyList<TerminalProfile>? allProfiles,
-            SshConnectionService sshService)
+            SshConnectionService sshService,
+            CancellationToken cancellationToken)
         {
             ArgumentNullException.ThrowIfNull(job);
             ArgumentNullException.ThrowIfNull(profile);
@@ -285,9 +353,15 @@ namespace NovaTerminal.Core
                 profile,
                 sshService,
                 allProfiles,
-                interop: null,
+                interop: _nativeInterop,
                 passwordResolver: static transferProfile => new VaultService().GetSshPasswordForProfile(transferProfile),
-                knownHostsFilePath: AppPaths.NativeKnownHostsFilePath);
+                knownHostsFilePath: AppPaths.NativeKnownHostsFilePath,
+                progress: nativeProgress => Dispatcher.UIThread.Post(() =>
+                {
+                    ApplyNativeTransferProgress(job, nativeProgress);
+                    JobUpdated?.Invoke(this, job);
+                }),
+                cancellationToken: cancellationToken);
 
             return Task.CompletedTask;
         }
@@ -299,7 +373,9 @@ namespace NovaTerminal.Core
             IReadOnlyList<TerminalProfile>? allProfiles = null,
             INativeSshInterop? interop = null,
             Func<TerminalProfile, string?>? passwordResolver = null,
-            string? knownHostsFilePath = null)
+            string? knownHostsFilePath = null,
+            Action<NativeSftpTransferProgress>? progress = null,
+            CancellationToken cancellationToken = default)
         {
             ArgumentNullException.ThrowIfNull(job);
             ArgumentNullException.ThrowIfNull(profile);
@@ -339,8 +415,20 @@ namespace NovaTerminal.Core
             (interop ?? new NativeSshInterop()).RunSftpTransfer(
                 connectionOptions,
                 transferOptions,
-                progress: null,
-                CancellationToken.None);
+                progress,
+                cancellationToken);
+        }
+
+        internal static void ApplyNativeTransferProgress(TransferJob job, NativeSftpTransferProgress progress)
+        {
+            ArgumentNullException.ThrowIfNull(job);
+            ArgumentNullException.ThrowIfNull(progress);
+
+            job.BytesDone = progress.BytesDone;
+            job.BytesTotal = progress.BytesTotal;
+            job.Progress = progress.BytesTotal > 0
+                ? Math.Clamp((double)progress.BytesDone / progress.BytesTotal, 0.0, 1.0)
+                : 0.0;
         }
 
         internal static NativeSftpTransferOptions BuildNativeTransferOptions(TransferJob job)

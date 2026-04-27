@@ -153,6 +153,60 @@ public sealed class SftpServiceTests
     }
 
     [Fact]
+    public void ExecuteNativeSftpTransfer_ForwardsCancellationTokenToInterop()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        var profile = new TerminalProfile
+        {
+            Id = Guid.Parse("01984da2-06b2-77a3-b8cd-cad971781eec"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            SshPort = 2200
+        };
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"C:\tmp\download.txt",
+            RemotePath = "/tmp/download.txt"
+        };
+        var interop = new CapturingNativeSshInterop();
+        using var cts = new CancellationTokenSource();
+
+        SftpService.ExecuteNativeSftpTransfer(
+            job,
+            profile,
+            service,
+            allProfiles: null,
+            interop: interop,
+            passwordResolver: static _ => "vault-pass",
+            knownHostsFilePath: @"C:\ssh\native_known_hosts.json",
+            cancellationToken: cts.Token);
+
+        Assert.True(interop.CancellationToken.CanBeCanceled);
+    }
+
+    [Fact]
+    public void ApplyNativeTransferProgress_MapsBytesAndFraction()
+    {
+        var job = new TransferJob();
+        var progress = new NativeSftpTransferProgress
+        {
+            BytesDone = 25,
+            BytesTotal = 100,
+            CurrentPath = "/tmp/file.txt"
+        };
+
+        SftpService.ApplyNativeTransferProgress(job, progress);
+
+        Assert.Equal(25, job.BytesDone);
+        Assert.Equal(100, job.BytesTotal);
+        Assert.Equal(0.25, job.Progress, 3);
+    }
+
+    [Fact]
     public void BuildNativeTransferConnectionOptions_UsesProfileTarget()
     {
         var service = new SshConnectionService(new InMemorySshProfileStore());
@@ -463,6 +517,7 @@ public sealed class SftpServiceTests
     {
         public NativeSshConnectionOptions? ConnectionOptions { get; private set; }
         public NativeSftpTransferOptions? TransferOptions { get; private set; }
+        public CancellationToken CancellationToken { get; private set; }
 
         public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
 
@@ -474,6 +529,7 @@ public sealed class SftpServiceTests
         {
             ConnectionOptions = connectionOptions;
             TransferOptions = transferOptions;
+            CancellationToken = cancellationToken;
         }
 
         public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();

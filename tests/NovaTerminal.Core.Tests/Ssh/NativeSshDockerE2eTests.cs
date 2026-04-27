@@ -207,6 +207,139 @@ public sealed class NativeSshDockerE2eTests
     [DockerFact]
     [Trait("Category", "DockerE2E")]
     [Trait("Target", "NativeSsh")]
+    public async Task NativeSftp_MissingRemotePath_ReturnsClearError()
+    {
+        await using var fixture = await DockerSshFixture.StartAsync();
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-missing-remote-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            SshHostKeyInfo hostKey = await fixture.GetHostKeyAsync();
+            string knownHostsPath = Path.Combine(tempRoot, "native_known_hosts.json");
+            var knownHosts = new NativeKnownHostsStore(knownHostsPath);
+            knownHosts.TrustHost(fixture.Host, fixture.Port, hostKey.Algorithm, hostKey.Fingerprint);
+
+            var interop = new NativeSshInterop();
+            var connection = new NativeSshConnectionOptions
+            {
+                Host = fixture.Host,
+                User = fixture.UserName,
+                Port = fixture.Port,
+                Password = fixture.Password,
+                KnownHostsFilePath = knownHostsPath
+            };
+            var transfer = new NativeSftpTransferOptions
+            {
+                Direction = NativeSftpTransferDirection.Download,
+                Kind = NativeSftpTransferKind.File,
+                LocalPath = Path.Combine(tempRoot, "missing.txt"),
+                RemotePath = "/tmp/does-not-exist.txt"
+            };
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+                () => interop.RunSftpTransfer(connection, transfer, progress: null, CancellationToken.None));
+
+            Assert.Contains("Remote path not found: /tmp/does-not-exist.txt", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
+    public async Task NativeSftp_MissingLocalPath_ReturnsClearError()
+    {
+        await using var fixture = await DockerSshFixture.StartAsync();
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-missing-local-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            SshHostKeyInfo hostKey = await fixture.GetHostKeyAsync();
+            string knownHostsPath = Path.Combine(tempRoot, "native_known_hosts.json");
+            var knownHosts = new NativeKnownHostsStore(knownHostsPath);
+            knownHosts.TrustHost(fixture.Host, fixture.Port, hostKey.Algorithm, hostKey.Fingerprint);
+
+            var interop = new NativeSshInterop();
+            var connection = new NativeSshConnectionOptions
+            {
+                Host = fixture.Host,
+                User = fixture.UserName,
+                Port = fixture.Port,
+                Password = fixture.Password,
+                KnownHostsFilePath = knownHostsPath
+            };
+            var transfer = new NativeSftpTransferOptions
+            {
+                Direction = NativeSftpTransferDirection.Upload,
+                Kind = NativeSftpTransferKind.File,
+                LocalPath = Path.Combine(tempRoot, "does-not-exist.txt"),
+                RemotePath = "/tmp/upload.txt"
+            };
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+                () => interop.RunSftpTransfer(connection, transfer, progress: null, CancellationToken.None));
+
+            Assert.Contains("Local path not found:", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
+    public async Task NativeSftp_BadPassword_ReturnsAuthenticationFailed()
+    {
+        await using var fixture = await DockerSshFixture.StartAsync();
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), $"nova-native-sftp-auth-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            await fixture.WriteTextFileAsync("/tmp/auth-check.txt", "auth");
+            SshHostKeyInfo hostKey = await fixture.GetHostKeyAsync();
+            string knownHostsPath = Path.Combine(tempRoot, "native_known_hosts.json");
+            var knownHosts = new NativeKnownHostsStore(knownHostsPath);
+            knownHosts.TrustHost(fixture.Host, fixture.Port, hostKey.Algorithm, hostKey.Fingerprint);
+
+            var interop = new NativeSshInterop();
+            var connection = new NativeSshConnectionOptions
+            {
+                Host = fixture.Host,
+                User = fixture.UserName,
+                Port = fixture.Port,
+                Password = "wrong-password",
+                KnownHostsFilePath = knownHostsPath
+            };
+            var transfer = new NativeSftpTransferOptions
+            {
+                Direction = NativeSftpTransferDirection.Download,
+                Kind = NativeSftpTransferKind.File,
+                LocalPath = Path.Combine(tempRoot, "auth.txt"),
+                RemotePath = "/tmp/auth-check.txt"
+            };
+
+            InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+                () => interop.RunSftpTransfer(connection, transfer, progress: null, CancellationToken.None));
+
+            Assert.Contains("Authentication failed", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
     public async Task NativeSsh_CanAuthenticate_RunCommand_AndReturnToPrompt()
     {
         await using var fixture = await DockerSshFixture.StartAsync();
