@@ -266,8 +266,8 @@ namespace NovaTerminal.Core
 
             void initializeJob()
             {
-                Jobs.Insert(0, job);
                 MarkJobRunning(job);
+                Jobs.Insert(0, job);
                 JobUpdated?.Invoke(this, job);
             }
 
@@ -277,7 +277,10 @@ namespace NovaTerminal.Core
             }
             else
             {
-                Dispatcher.UIThread.Post(initializeJob);
+                Dispatcher.UIThread
+                    .InvokeAsync(initializeJob, DispatcherPriority.Send)
+                    .GetAwaiter()
+                    .GetResult();
             }
 
             var cancellationTokenSource = new CancellationTokenSource();

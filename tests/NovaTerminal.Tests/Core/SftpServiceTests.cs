@@ -1,3 +1,4 @@
+using Avalonia.Headless.XUnit;
 using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Models;
@@ -268,6 +269,57 @@ public sealed class SftpServiceTests
 
         Assert.Equal(TransferState.Running, job.State);
         Assert.Equal(startedAt, job.StartedAt);
+    }
+
+    [AvaloniaFact]
+    public async Task AddJob_FromBackgroundThread_LeavesJobRunningBeforeReturn()
+    {
+        Guid profileId = Guid.Parse("d89c3426-bd78-4b6c-8bf8-3d2810b263c1");
+        var store = new InMemorySshProfileStore();
+        store.SaveProfile(new SshProfile
+        {
+            Id = profileId,
+            Name = "Native",
+            BackendKind = SshBackendKind.Native,
+            Host = "prod.internal",
+            User = "ops",
+            Port = 2200,
+            AuthMode = SshAuthMode.Default
+        });
+        var sshService = new SshConnectionService(store);
+        TerminalProfile profile = sshService.GetConnectionProfiles().Single(connection => connection.Id == profileId);
+        var interop = new BlockingNativeSshInterop();
+        var sut = new SftpService(
+            interop,
+            settingsLoader: () => new TerminalSettings { Profiles = new List<TerminalProfile> { profile } },
+            sshServiceFactory: () => sshService);
+        var job = new TransferJob
+        {
+            SessionId = Guid.NewGuid(),
+            ProfileId = profile.Id,
+            ProfileName = profile.Name,
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"C:\tmp\movie.mkv",
+            RemotePath = "/mnt/box/media/movies/movie.mkv"
+        };
+
+        TransferState stateAfterAddReturns = TransferState.Failed;
+        string statusAfterAddReturns = string.Empty;
+
+        await Task.Run(() =>
+        {
+            sut.AddJob(job);
+            stateAfterAddReturns = job.State;
+            statusAfterAddReturns = job.StatusText;
+        });
+
+        Assert.True(interop.Started.Wait(TimeSpan.FromSeconds(2)), "Native transfer worker did not start.");
+        Assert.Equal(TransferState.Running, stateAfterAddReturns);
+        Assert.Equal("Transferring...", statusAfterAddReturns);
+        Assert.Equal(TransferState.Running, job.State);
+
+        interop.Release.Set();
     }
 
     [Fact]
@@ -630,6 +682,34 @@ public sealed class SftpServiceTests
             ConnectionOptions = connectionOptions;
             TransferOptions = transferOptions;
             CancellationToken = cancellationToken;
+        }
+
+        public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();
+        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Resize(IntPtr sessionHandle, int cols, int rows) => throw new NotSupportedException();
+        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options) => throw new NotSupportedException();
+        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void SendChannelEof(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void CloseChannel(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Close(IntPtr sessionHandle) => throw new NotSupportedException();
+    }
+
+    private sealed class BlockingNativeSshInterop : INativeSshInterop
+    {
+        public ManualResetEventSlim Started { get; } = new(false);
+        public ManualResetEventSlim Release { get; } = new(false);
+
+        public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
+
+        public void RunSftpTransfer(
+            NativeSshConnectionOptions connectionOptions,
+            NativeSftpTransferOptions transferOptions,
+            Action<NativeSftpTransferProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            Started.Set();
+            Release.Wait(cancellationToken);
         }
 
         public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();

@@ -3813,7 +3813,10 @@ namespace NovaTerminal
             }
             else
             {
-                Dispatcher.UIThread.Post(show, DispatcherPriority.Loaded);
+                Dispatcher.UIThread
+                    .InvokeAsync(show, DispatcherPriority.Send)
+                    .GetAwaiter()
+                    .GetResult();
             }
         }
 
