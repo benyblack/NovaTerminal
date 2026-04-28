@@ -271,6 +271,38 @@ public sealed class SftpServiceTests
         Assert.Equal(startedAt, job.StartedAt);
     }
 
+    [Fact]
+    public void BuildNativeTransferOptions_UnescapesShellEscapedRemoteSpaces()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"D:\downloads\Gravity.2013.1080p.Farsi.Dubbed.MegaMoviBot.mkv",
+            RemotePath = "/mnt/box1/media/movies/Gravity\\ 2013/Gravity.2013.1080p.Farsi.Dubbed.MegaMoviBot.mkv"
+        };
+
+        NativeSftpTransferOptions options = SftpService.BuildNativeTransferOptions(job);
+
+        Assert.Equal("/mnt/box1/media/movies/Gravity 2013/Gravity.2013.1080p.Farsi.Dubbed.MegaMoviBot.mkv", options.RemotePath);
+    }
+
+    [Fact]
+    public void BuildNativeTransferOptions_PreservesLiteralBackslashesThatAreNotShellEscapes()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"D:\downloads\sample.txt",
+            RemotePath = "/mnt/share/folder\\backup/sample.txt"
+        };
+
+        NativeSftpTransferOptions options = SftpService.BuildNativeTransferOptions(job);
+
+        Assert.Equal("/mnt/share/folder\\backup/sample.txt", options.RemotePath);
+    }
+
     [AvaloniaFact]
     public async Task AddJob_FromBackgroundThread_LeavesJobRunningBeforeReturn()
     {
