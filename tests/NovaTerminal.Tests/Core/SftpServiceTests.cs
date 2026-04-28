@@ -237,6 +237,40 @@ public sealed class SftpServiceTests
     }
 
     [Fact]
+    public void MarkJobRunning_TransitionsQueuedJobToRunningImmediately()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.Folder,
+            RemotePath = "/tmp/archive"
+        };
+
+        SftpService.MarkJobRunning(job);
+
+        Assert.Equal(TransferState.Running, job.State);
+        Assert.NotEqual(default, job.StartedAt);
+        Assert.Equal("Transferring...", job.StatusText);
+        Assert.True(job.IsProgressIndeterminate);
+    }
+
+    [Fact]
+    public void MarkJobRunning_DoesNotOverwriteExistingStartTime()
+    {
+        DateTime startedAt = new(2026, 4, 28, 12, 0, 0, DateTimeKind.Local);
+        var job = new TransferJob
+        {
+            State = TransferState.Queued,
+            StartedAt = startedAt
+        };
+
+        SftpService.MarkJobRunning(job);
+
+        Assert.Equal(TransferState.Running, job.State);
+        Assert.Equal(startedAt, job.StartedAt);
+    }
+
+    [Fact]
     public void TransferJob_DownloadDisplayName_UsesRemoteLeaf()
     {
         var job = new TransferJob

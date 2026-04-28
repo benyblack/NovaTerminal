@@ -3798,10 +3798,22 @@ namespace NovaTerminal
 
         private void ShowTransferCenter()
         {
-            var overlay = this.FindControl<Border>("TransferOverlay");
-            if (overlay != null)
+            void show()
             {
-                overlay.IsVisible = true;
+                var overlay = this.FindControl<Border>("TransferOverlay");
+                if (overlay != null)
+                {
+                    overlay.IsVisible = true;
+                }
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                show();
+            }
+            else
+            {
+                Dispatcher.UIThread.Post(show, DispatcherPriority.Loaded);
             }
         }
 

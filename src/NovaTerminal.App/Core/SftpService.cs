@@ -262,7 +262,24 @@ namespace NovaTerminal.Core
 
         public void AddJob(TransferJob job)
         {
-            Dispatcher.UIThread.Post(() => Jobs.Insert(0, job));
+            ArgumentNullException.ThrowIfNull(job);
+
+            void initializeJob()
+            {
+                Jobs.Insert(0, job);
+                MarkJobRunning(job);
+                JobUpdated?.Invoke(this, job);
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                initializeJob();
+            }
+            else
+            {
+                Dispatcher.UIThread.Post(initializeJob);
+            }
+
             var cancellationTokenSource = new CancellationTokenSource();
             _activeTransfers[job.Id] = cancellationTokenSource;
             // In a real implementation, we would start a queue worker here.
@@ -285,13 +302,6 @@ namespace NovaTerminal.Core
 
         internal async Task RunJobAsync(TransferJob job, CancellationToken cancellationToken)
         {
-            Dispatcher.UIThread.Post(() =>
-            {
-                job.State = TransferState.Running;
-                job.StartedAt = DateTime.Now;
-                JobUpdated?.Invoke(this, job);
-            });
-
             try
             {
                 var settings = _settingsLoader();
@@ -601,6 +611,17 @@ namespace NovaTerminal.Core
             job.Progress = progress.BytesTotal > 0
                 ? Math.Clamp((double)progress.BytesDone / progress.BytesTotal, 0.0, 1.0)
                 : 0.0;
+        }
+
+        internal static void MarkJobRunning(TransferJob job)
+        {
+            ArgumentNullException.ThrowIfNull(job);
+
+            job.State = TransferState.Running;
+            if (job.StartedAt == default)
+            {
+                job.StartedAt = DateTime.Now;
+            }
         }
 
         internal static NativeSftpTransferOptions BuildNativeTransferOptions(TransferJob job)

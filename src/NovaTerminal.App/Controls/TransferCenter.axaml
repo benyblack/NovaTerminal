@@ -2,12 +2,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:core="clr-namespace:NovaTerminal.Core"
              x:Class="NovaTerminal.Controls.TransferCenter">
-    <Grid RowDefinitions="Auto, *">
-        <Border Background="#2D2D2D" Padding="10">
-            <TextBlock Text="Recent Transfers" Foreground="White" FontWeight="Bold"/>
-        </Border>
-        
-        <ListBox Name="JobsList" Grid.Row="1" Background="#1E1E1E" BorderThickness="0">
+    <Grid>
+        <ListBox Name="JobsList" Background="#1E1E1E" BorderThickness="0">
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="core:TransferJob">
                     <Border BorderBrush="#333" BorderThickness="0,0,0,1" Padding="10">
