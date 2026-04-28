@@ -284,11 +284,34 @@ struct SftpTransferRequestBody {
     cancellation_marker_path: Option<String>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemotePathListRequest {
+    connection: SftpConnectionRequest,
+    path: String,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct SftpTransferResponse<'a> {
     status: &'a str,
     message: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemotePathListResponse<'a> {
+    status: &'a str,
+    message: &'a str,
+    entries: Vec<RemotePathListEntry>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemotePathListEntry {
+    name: String,
+    full_path: String,
+    is_directory: bool,
 }
 
 #[derive(Clone)]
@@ -854,6 +877,67 @@ pub extern "C" fn nova_ssh_sftp_transfer(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn nova_ssh_sftp_list_directory(
+    request_json: *const c_char,
+    response_json: *mut *mut c_char,
+) -> c_int {
+    if request_json.is_null() || response_json.is_null() {
+        return NOVA_SSH_RESULT_INVALID_ARGUMENT;
+    }
+
+    unsafe {
+        *response_json = ptr::null_mut();
+    }
+
+    let request_text = match unsafe { CStr::from_ptr(request_json) }.to_str() {
+        Ok(value) => value,
+        Err(_) => {
+            return write_sftp_response_json(
+                response_json,
+                NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                "invalid-argument",
+                "Native backend stub rejected a non-UTF8 remote path list request.",
+            );
+        }
+    };
+
+    let request = match serde_json::from_str::<RemotePathListRequest>(request_text) {
+        Ok(value) => value,
+        Err(_) => {
+            return write_sftp_response_json(
+                response_json,
+                NOVA_SSH_RESULT_INVALID_ARGUMENT,
+                "invalid-argument",
+                "Native backend stub rejected invalid remote path list request JSON.",
+            );
+        }
+    };
+
+    if remote_path_list_request_has_blank_fields(&request) {
+        return write_sftp_response_json(
+            response_json,
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            "invalid-argument",
+            "Native backend stub rejected an incomplete remote path list request.",
+        );
+    }
+
+    match run_remote_path_list(request) {
+        Ok(entries) => write_remote_path_list_response_json(
+            response_json,
+            NOVA_SSH_RESULT_OK,
+            "ok",
+            "Native remote path listing completed.",
+            entries,
+        ),
+        Err(error) => {
+            let (result, status, message) = classify_sftp_transfer_error(&error);
+            write_remote_path_list_response_json(response_json, result, status, &message, Vec::new())
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_string_free(value: *mut c_char) {
     if value.is_null() {
         return;
@@ -943,6 +1027,32 @@ fn write_sftp_response_json(
     }
 }
 
+fn write_remote_path_list_response_json(
+    response_json: *mut *mut c_char,
+    result: c_int,
+    status: &str,
+    message: &str,
+    entries: Vec<RemotePathListEntry>,
+) -> c_int {
+    let response = RemotePathListResponse {
+        status,
+        message,
+        entries,
+    };
+    let json = match serde_json::to_string(&response) {
+        Ok(value) => value,
+        Err(_) => return result,
+    };
+
+    match CString::new(json) {
+        Ok(value) => unsafe {
+            *response_json = value.into_raw();
+            result
+        },
+        Err(_) => result,
+    }
+}
+
 fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
     let jump_host_is_blank = request
         .connection
@@ -981,6 +1091,38 @@ fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
             .cancellation_marker_path
             .as_deref()
             .is_some_and(|path| path.trim().is_empty())
+}
+
+fn remote_path_list_request_has_blank_fields(request: &RemotePathListRequest) -> bool {
+    let jump_host_is_blank = request
+        .connection
+        .jump_host
+        .as_ref()
+        .is_some_and(|jump_host| {
+            jump_host.host.trim().is_empty()
+                || jump_host
+                    .user
+                    .as_deref()
+                    .is_some_and(|user| user.trim().is_empty())
+                || jump_host.port == 0
+        });
+
+    request.connection.host.trim().is_empty()
+        || request.connection.user.trim().is_empty()
+        || request.connection.port == 0
+        || request
+            .connection
+            .password
+            .as_deref()
+            .is_some_and(|password| password.trim().is_empty())
+        || request
+            .connection
+            .identity_file_path
+            .as_deref()
+            .is_some_and(|path| path.trim().is_empty())
+        || request.connection.known_hosts_file_path.trim().is_empty()
+        || jump_host_is_blank
+        || request.path.trim().is_empty()
 }
 
 impl NativeKnownHostsVerifier {
@@ -1129,6 +1271,73 @@ fn run_sftp_transfer(request: SftpTransferRequest, progress: SftpProgressEmitter
     })
 }
 
+fn run_remote_path_list(request: RemotePathListRequest) -> anyhow::Result<Vec<RemotePathListEntry>> {
+    let runtime = Builder::new_current_thread().enable_all().build()?;
+    runtime.block_on(async move {
+        let known_hosts =
+            NativeKnownHostsVerifier::load(&request.connection.known_hosts_file_path)?;
+        let client_config = Arc::new(client::Config::default());
+        let auth = TransferAuthConfig {
+            password: request.connection.password.clone(),
+            identity_file: request.connection.identity_file_path.clone(),
+        };
+
+        let jump_session = if let Some(jump_host) = &request.connection.jump_host {
+            let jump_handler = TransferClientHandler {
+                host: jump_host.host.clone(),
+                port: jump_host.port,
+                known_hosts: known_hosts.clone(),
+            };
+
+            let mut jump = client::connect(
+                client_config.clone(),
+                (jump_host.host.as_str(), jump_host.port),
+                jump_handler,
+            )
+            .await?;
+
+            let jump_user = jump_host
+                .user
+                .as_deref()
+                .unwrap_or(request.connection.user.as_str());
+            authenticate_transfer(jump_user, &auth, &mut jump).await?;
+            Some(jump)
+        } else {
+            None
+        };
+
+        let target_handler = TransferClientHandler {
+            host: request.connection.host.clone(),
+            port: request.connection.port,
+            known_hosts: known_hosts.clone(),
+        };
+
+        let mut session = if let Some(jump) = &jump_session {
+            let stream = jump
+                .channel_open_direct_tcpip(
+                    request.connection.host.clone(),
+                    request.connection.port as u32,
+                    "127.0.0.1",
+                    0,
+                )
+                .await?
+                .into_stream();
+
+            client::connect_stream(client_config.clone(), stream, target_handler).await?
+        } else {
+            client::connect(
+                client_config.clone(),
+                (request.connection.host.as_str(), request.connection.port),
+                target_handler,
+            )
+            .await?
+        };
+
+        authenticate_transfer(&request.connection.user, &auth, &mut session).await?;
+        list_remote_directory(&mut session, &request.path).await
+    })
+}
+
 async fn authenticate_transfer<H>(
     user: &str,
     auth: &TransferAuthConfig,
@@ -1251,6 +1460,51 @@ where
 
     sftp.close().await?;
     Ok(())
+}
+
+async fn list_remote_directory<H>(
+    session: &mut client::Handle<H>,
+    remote_path: &str,
+) -> anyhow::Result<Vec<RemotePathListEntry>>
+where
+    H: client::Handler + Send + 'static,
+{
+    let channel = session.channel_open_session().await?;
+    channel.request_subsystem(true, "sftp").await?;
+    let sftp = SftpSession::new(channel.into_stream()).await?;
+
+    let home_directory = if remote_path.trim().starts_with('~') {
+        Some(
+            sftp.canonicalize(".")
+                .await
+                .map_err(|error| map_remote_transfer_error(".", error))?,
+        )
+    } else {
+        None
+    };
+    let expanded_remote_path = expand_remote_home_path(remote_path, home_directory.as_deref())?;
+    let mut entries = sftp
+        .read_dir(expanded_remote_path.clone())
+        .await
+        .map_err(|error| map_remote_transfer_error(&expanded_remote_path, error))?
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.file_name());
+
+    let mapped = entries
+        .into_iter()
+        .map(|entry| {
+            let name = entry.file_name();
+            let full_path = join_remote_path(&expanded_remote_path, &name);
+            RemotePathListEntry {
+                name,
+                full_path,
+                is_directory: entry.metadata().is_dir(),
+            }
+        })
+        .collect();
+
+    sftp.close().await?;
+    Ok(mapped)
 }
 
 fn validate_supported_sftp_mode(transfer: &SftpTransferRequestBody) -> anyhow::Result<()> {
@@ -2283,6 +2537,30 @@ mod tests {
             "Native SFTP transfer mode 'sync/directory' is not implemented yet.",
             payload["message"]
         );
+
+        nova_ssh_string_free(response);
+    }
+
+    #[test]
+    fn sftp_list_directory_rejects_incomplete_requests() {
+        let request = CString::new(
+            r#"{"connection":{"host":"example.com","user":"nova","port":22,"password":"secret","knownHostsFilePath":"known_hosts.json"},"path":""}"#,
+        )
+        .unwrap();
+        let mut response = ptr::null_mut();
+
+        let rc = nova_ssh_sftp_list_directory(request.as_ptr(), &mut response);
+
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, rc);
+        assert!(!response.is_null());
+
+        let response_json = unsafe { CStr::from_ptr(response) }.to_str().unwrap();
+        let payload: serde_json::Value = serde_json::from_str(response_json).unwrap();
+        assert_eq!("invalid-argument", payload["status"]);
+        assert!(payload["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("incomplete"));
 
         nova_ssh_string_free(response);
     }
