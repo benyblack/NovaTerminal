@@ -2,8 +2,25 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:core="clr-namespace:NovaTerminal.Core"
              x:Class="NovaTerminal.Controls.TransferCenter">
-    <Grid>
-        <ListBox Name="JobsList" Background="#1E1E1E" BorderThickness="0">
+    <Grid RowDefinitions="Auto,*">
+        <Border Background="#252526" BorderBrush="#333333" BorderThickness="0,0,0,1" Padding="10,8">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Name="BtnClearFinished"
+                        Content="Clear Finished"
+                        Padding="8,2"
+                        FontSize="10"/>
+                <Button Name="BtnClearFailed"
+                        Content="Clear Failed"
+                        Padding="8,2"
+                        FontSize="10"/>
+                <Button Name="BtnClearInactive"
+                        Content="Clear Inactive"
+                        Padding="8,2"
+                        FontSize="10"/>
+            </StackPanel>
+        </Border>
+
+        <ListBox Name="JobsList" Grid.Row="1" Background="#1E1E1E" BorderThickness="0">
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="core:TransferJob">
                     <Border BorderBrush="#333" BorderThickness="0,0,0,1" Padding="10">
@@ -38,7 +55,12 @@
                                         Padding="8,2"
                                         FontSize="10"
                                         Click="CancelTransfer_Click"
-                                        IsVisible="{Binding State, Converter={StaticResource RunningConverter}}"/>
+                                        IsVisible="{Binding CanCancel}"/>
+                                <Button Content="Remove"
+                                        Padding="8,2"
+                                        FontSize="10"
+                                        Click="RemoveTransfer_Click"
+                                        IsVisible="{Binding CanRemove}"/>
                             </StackPanel>
                             
                             <!-- Profile -->

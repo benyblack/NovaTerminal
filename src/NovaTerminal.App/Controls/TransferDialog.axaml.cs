@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
+using Avalonia.Platform.Storage;
 using NovaTerminal.Core;
 using NovaTerminal.Models;
 
@@ -40,6 +43,8 @@ public partial class TransferDialog : Window
             ?? throw new InvalidOperationException("ValidationMessage was not found.");
         _confirmButton = this.FindControl<Button>("BtnTransferConfirm")
             ?? throw new InvalidOperationException("BtnTransferConfirm was not found.");
+        Button browseButton = this.FindControl<Button>("BtnBrowseLocal")
+            ?? throw new InvalidOperationException("BtnBrowseLocal was not found.");
 
         Button cancelButton = this.FindControl<Button>("BtnTransferCancel")
             ?? throw new InvalidOperationException("BtnTransferCancel was not found.");
@@ -50,7 +55,9 @@ public partial class TransferDialog : Window
         _localPathBox.PropertyChanged += OnPathBoxPropertyChanged;
         _confirmButton.Click += OnConfirmClick;
         cancelButton.Click += OnCancelClick;
+        browseButton.Click += OnBrowseLocalClick;
         Opened += OnOpened;
+        KeyDown += OnDialogKeyDown;
 
         RefreshValidation();
     }
@@ -81,11 +88,97 @@ public partial class TransferDialog : Window
         Result = TransferDialogResult.CreateConfirmed(
             _localPathBox.Text?.Trim() ?? string.Empty,
             _remotePathBox.Text?.Trim() ?? string.Empty);
+        Close(Result);
     }
 
     private void OnCancelClick(object? sender, RoutedEventArgs e)
     {
         Result = null;
+        Close(null);
+    }
+
+    private async void OnBrowseLocalClick(object? sender, RoutedEventArgs e)
+    {
+        TopLevel? topLevel = TopLevel.GetTopLevel(this);
+        if (topLevel?.StorageProvider == null)
+        {
+            return;
+        }
+
+        if (_request.Direction == TransferDirection.Upload)
+        {
+            if (_request.Kind == TransferKind.File)
+            {
+                IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+                {
+                    Title = "Select File to Upload",
+                    AllowMultiple = false
+                });
+
+                if (files.Count > 0)
+                {
+                    _localPathBox.Text = files[0].Path.LocalPath;
+                }
+            }
+            else
+            {
+                IReadOnlyList<IStorageFolder> folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+                {
+                    Title = "Select Folder to Upload",
+                    AllowMultiple = false
+                });
+
+                if (folders.Count > 0)
+                {
+                    _localPathBox.Text = folders[0].Path.LocalPath;
+                }
+            }
+
+            return;
+        }
+
+        if (_request.Kind == TransferKind.File)
+        {
+            IStorageFile? file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Select Local Destination",
+                SuggestedFileName = ResolveSuggestedFileName()
+            });
+
+            if (file != null)
+            {
+                _localPathBox.Text = file.Path.LocalPath;
+            }
+
+            return;
+        }
+
+        IReadOnlyList<IStorageFolder> destinationFolders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+        {
+            Title = "Select Local Destination Folder",
+            AllowMultiple = false
+        });
+
+        if (destinationFolders.Count > 0)
+        {
+            _localPathBox.Text = destinationFolders[0].Path.LocalPath;
+        }
+    }
+
+    private void OnDialogKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape)
+        {
+            OnCancelClick(this, new RoutedEventArgs());
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter && _confirmButton.IsEnabled)
+        {
+            OnConfirmClick(this, new RoutedEventArgs());
+            e.Handled = true;
+        }
     }
 
     private void RefreshValidation()
@@ -105,5 +198,18 @@ public partial class TransferDialog : Window
         string action = direction == TransferDirection.Upload ? "Upload" : "Download";
         string item = kind == TransferKind.Folder ? "Folder" : "File";
         return $"{action} {item}";
+    }
+
+    private string ResolveSuggestedFileName()
+    {
+        string remotePath = _remotePathBox.Text?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(remotePath))
+        {
+            return "download";
+        }
+
+        string trimmed = remotePath.TrimEnd('/', '\\');
+        string fileName = System.IO.Path.GetFileName(trimmed);
+        return string.IsNullOrWhiteSpace(fileName) ? "download" : fileName;
     }
 }

@@ -23,6 +23,7 @@ using SkiaSharp;
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Models;
 using NovaTerminal.ViewModels.Ssh;
 using NovaTerminal.Views.Ssh;
 
@@ -66,6 +67,10 @@ namespace NovaTerminal
         internal const double MinimumTabHeaderRightReserve = 440;
         internal const double MacOsTrafficLightReserve = 92;
         internal const double TabHeaderViewportPadding = 16;
+        private bool _isDraggingTransferOverlay;
+        private Point _transferOverlayDragStart;
+        private Point _transferOverlayOffsetStart;
+        private TranslateTransform? _transferOverlayTransform;
 
         private sealed class PaneZoomState
         {
@@ -3576,115 +3581,60 @@ namespace NovaTerminal
 
             var profile = pane.Profile;
             var sessionId = pane.Session?.Id ?? Guid.Empty;
-
-            string? localPath = null;
-            string? remotePath = null;
-
-            if (direction == TransferDirection.Upload)
-            {
-                // File Picker
-                var topLevel = TopLevel.GetTopLevel(this);
-                if (topLevel == null) return;
-
-                if (kind == TransferKind.File)
-                {
-                    var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Select File to Upload", AllowMultiple = false });
-                    if (files != null && files.Count > 0) localPath = files[0].Path.LocalPath;
-                }
-                else
-                {
-                    var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Select Folder to Upload", AllowMultiple = false });
-                    if (folders != null && folders.Count > 0) localPath = folders[0].Path.LocalPath;
-                }
-
-                if (string.IsNullOrEmpty(localPath)) return;
-
-                remotePath = await PromptForRemotePathAsync("Remote Destination Path", profile!.DefaultRemoteDir ?? "~");
-            }
-            else
-            {
-                // Download
-                remotePath = await PromptForRemotePathAsync("Remote Source Path", profile!.DefaultRemoteDir ?? "~");
-                if (string.IsNullOrEmpty(remotePath)) return;
-
-                // Folder/File Picker for destination
-                var topLevel = TopLevel.GetTopLevel(this);
-                if (topLevel == null) return;
-
-                if (kind == TransferKind.File)
-                {
-                    var file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions { Title = "Select Local Destination", SuggestedFileName = Path.GetFileName(remotePath) });
-                    if (file != null) localPath = file.Path.LocalPath;
-                }
-                else
-                {
-                    var folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Select Local Destination Folder", AllowMultiple = false });
-                    if (folders != null && folders.Count > 0) localPath = folders[0].Path.LocalPath;
-                }
-            }
-
-            if (!string.IsNullOrEmpty(localPath) && !string.IsNullOrEmpty(remotePath))
-            {
-                var job = new TransferJob
-                {
-                    SessionId = sessionId,
-                    ProfileId = profile.Id,
-                    ProfileName = profile.Name,
-                    Direction = direction,
-                    Kind = kind,
-                    LocalPath = localPath,
-                    RemotePath = remotePath
-                };
-                SftpService.Instance.AddJob(job);
-                ShowTransferCenter();
-            }
+            await InitiateSftpTransferAsync(profile, sessionId, direction, kind);
         }
 
-        private TaskCompletionSource<string?>? _pathPromptTcs;
-        private async Task<string?> PromptForRemotePathAsync(string title, string defaultValue)
+        internal Task InitiateSftpTransferForTest(
+            TerminalProfile profile,
+            Guid sessionId,
+            TransferDirection direction,
+            TransferKind kind)
         {
-            var overlay = this.FindControl<Grid>("PathPromptOverlay");
-            var titleBlock = this.FindControl<TextBlock>("PathPromptTitle");
-            var box = this.FindControl<TextBox>("PathPromptBox");
-            var btnConfirm = this.FindControl<Button>("BtnPathConfirm");
-            var btnCancel = this.FindControl<Button>("BtnPathCancel");
+            ArgumentNullException.ThrowIfNull(profile);
+            return InitiateSftpTransferAsync(profile, sessionId, direction, kind);
+        }
 
-            if (overlay == null || box == null || titleBlock == null || btnConfirm == null || btnCancel == null) return null;
+        private async Task InitiateSftpTransferAsync(
+            TerminalProfile profile,
+            Guid sessionId,
+            TransferDirection direction,
+            TransferKind kind)
+        {
+            var request = TransferDialogRequest.ForAction(
+                direction,
+                kind,
+                profile.DefaultRemoteDir ?? "~");
 
-            titleBlock.Text = title;
-            box.Text = defaultValue;
-            overlay.IsVisible = true;
-            box.Focus();
-
-            _pathPromptTcs = new TaskCompletionSource<string?>();
-
-            EventHandler<Avalonia.Interactivity.RoutedEventArgs>? confirmHandler = null;
-            EventHandler<Avalonia.Interactivity.RoutedEventArgs>? cancelHandler = null;
-
-            confirmHandler = (s, e) =>
+            TransferDialogResult? result = await ShowTransferDialogAsync(request);
+            if (result is not { IsConfirmed: true })
             {
-                overlay.IsVisible = false;
-                _pathPromptTcs.TrySetResult(box.Text);
+                return;
+            }
+
+            var job = new TransferJob
+            {
+                SessionId = sessionId,
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                Direction = direction,
+                Kind = kind,
+                LocalPath = result.LocalPath,
+                RemotePath = result.RemotePath
             };
 
-            cancelHandler = (s, e) =>
-            {
-                overlay.IsVisible = false;
-                _pathPromptTcs.TrySetResult(null);
-            };
+            EnqueueTransferJob(job);
+        }
 
-            btnConfirm.Click += confirmHandler;
-            btnCancel.Click += cancelHandler;
+        internal virtual async Task<TransferDialogResult?> ShowTransferDialogAsync(TransferDialogRequest request)
+        {
+            var dialog = new TransferDialog(request);
+            return await dialog.ShowDialog<TransferDialogResult?>(this);
+        }
 
-            try
-            {
-                return await _pathPromptTcs.Task;
-            }
-            finally
-            {
-                btnConfirm.Click -= confirmHandler;
-                btnCancel.Click -= cancelHandler;
-            }
+        internal virtual void EnqueueTransferJob(TransferJob job)
+        {
+            SftpService.Instance.AddJob(job);
+            ShowTransferCenter();
         }
 
         private void InitializeCommandPaletteUI()
@@ -3823,7 +3773,82 @@ namespace NovaTerminal
         private void InitializeTransferCenterUI()
         {
             var btnClose = this.FindControl<Button>("BtnCloseTransfers");
+            var overlay = this.FindControl<Border>("TransferOverlay");
+            var titleBar = this.FindControl<Grid>("TransferTitleBar");
+
             if (btnClose != null) btnClose.Click += (s, e) => ToggleTransferCenter();
+
+            if (overlay != null)
+            {
+                _transferOverlayTransform = overlay.RenderTransform as TranslateTransform;
+                if (_transferOverlayTransform == null)
+                {
+                    _transferOverlayTransform = new TranslateTransform();
+                    overlay.RenderTransform = _transferOverlayTransform;
+                }
+            }
+
+            if (titleBar != null)
+            {
+                titleBar.PointerPressed += OnTransferTitleBarPointerPressed;
+                titleBar.PointerMoved += OnTransferTitleBarPointerMoved;
+                titleBar.PointerReleased += OnTransferTitleBarPointerReleased;
+                titleBar.PointerCaptureLost += OnTransferTitleBarPointerCaptureLost;
+            }
+        }
+
+        private void OnTransferTitleBarPointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (sender is not Control titleBar || e.Source is Button)
+            {
+                return;
+            }
+
+            if (!e.GetCurrentPoint(titleBar).Properties.IsLeftButtonPressed)
+            {
+                return;
+            }
+
+            _isDraggingTransferOverlay = true;
+            _transferOverlayDragStart = e.GetPosition(this);
+            _transferOverlayOffsetStart = new Point(
+                _transferOverlayTransform?.X ?? 0,
+                _transferOverlayTransform?.Y ?? 0);
+            e.Pointer.Capture(titleBar);
+            e.Handled = true;
+        }
+
+        private void OnTransferTitleBarPointerMoved(object? sender, PointerEventArgs e)
+        {
+            if (!_isDraggingTransferOverlay || _transferOverlayTransform == null)
+            {
+                return;
+            }
+
+            Point current = e.GetPosition(this);
+            Vector delta = current - _transferOverlayDragStart;
+            _transferOverlayTransform.X = _transferOverlayOffsetStart.X + delta.X;
+            _transferOverlayTransform.Y = _transferOverlayOffsetStart.Y + delta.Y;
+        }
+
+        private void OnTransferTitleBarPointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            StopTransferTitleBarDrag(sender, e);
+        }
+
+        private void OnTransferTitleBarPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+        {
+            _isDraggingTransferOverlay = false;
+        }
+
+        private void StopTransferTitleBarDrag(object? sender, PointerReleasedEventArgs e)
+        {
+            if (sender is Control titleBar)
+            {
+                e.Pointer.Capture(null);
+            }
+
+            _isDraggingTransferOverlay = false;
         }
 
         private async Task OpenSettings(int tabIndex, Guid? profileId = null)

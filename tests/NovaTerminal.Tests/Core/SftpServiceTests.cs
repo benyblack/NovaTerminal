@@ -304,6 +304,56 @@ public sealed class SftpServiceTests
     }
 
     [AvaloniaFact]
+    public void ClearInactiveJobs_RemovesFinishedFailedAndCanceledOnly()
+    {
+        var sut = new SftpService(null, null, null);
+        sut.Jobs.Add(new TransferJob { State = TransferState.Running, RemotePath = "/tmp/running" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Completed, RemotePath = "/tmp/completed" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Failed, RemotePath = "/tmp/failed" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Canceled, RemotePath = "/tmp/canceled" });
+
+        sut.ClearInactiveJobs();
+
+        Assert.Single(sut.Jobs);
+        Assert.Equal(TransferState.Running, sut.Jobs[0].State);
+    }
+
+    [AvaloniaFact]
+    public void ClearFailedJobs_RemovesOnlyFailedTransfers()
+    {
+        var sut = new SftpService(null, null, null);
+        sut.Jobs.Add(new TransferJob { State = TransferState.Running, RemotePath = "/tmp/running" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Failed, RemotePath = "/tmp/failed" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Completed, RemotePath = "/tmp/completed" });
+
+        sut.ClearFailedJobs();
+
+        Assert.Equal(2, sut.Jobs.Count);
+        Assert.DoesNotContain(sut.Jobs, job => job.State == TransferState.Failed);
+        Assert.Contains(sut.Jobs, job => job.State == TransferState.Running);
+        Assert.Contains(sut.Jobs, job => job.State == TransferState.Completed);
+    }
+
+    [AvaloniaFact]
+    public void RemoveJob_RemovesOnlyTheRequestedInactiveTransfer()
+    {
+        var sut = new SftpService(null, null, null);
+        var completed = new TransferJob { Id = Guid.NewGuid(), State = TransferState.Completed, RemotePath = "/tmp/completed" };
+        var failed = new TransferJob { Id = Guid.NewGuid(), State = TransferState.Failed, RemotePath = "/tmp/failed" };
+        var running = new TransferJob { Id = Guid.NewGuid(), State = TransferState.Running, RemotePath = "/tmp/running" };
+        sut.Jobs.Add(completed);
+        sut.Jobs.Add(failed);
+        sut.Jobs.Add(running);
+
+        sut.RemoveJob(failed.Id);
+
+        Assert.Equal(2, sut.Jobs.Count);
+        Assert.Contains(sut.Jobs, job => job.Id == completed.Id);
+        Assert.DoesNotContain(sut.Jobs, job => job.Id == failed.Id);
+        Assert.Contains(sut.Jobs, job => job.Id == running.Id);
+    }
+
+    [AvaloniaFact]
     public async Task AddJob_FromBackgroundThread_LeavesJobRunningBeforeReturn()
     {
         Guid profileId = Guid.Parse("d89c3426-bd78-4b6c-8bf8-3d2810b263c1");

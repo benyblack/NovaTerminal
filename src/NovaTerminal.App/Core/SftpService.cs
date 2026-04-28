@@ -156,6 +156,8 @@ namespace NovaTerminal.Core
         public string LocalPathText => string.IsNullOrWhiteSpace(LocalPath) ? string.Empty : $"Local: {LocalPath}";
         public string RemotePathText => string.IsNullOrWhiteSpace(RemotePath) ? string.Empty : $"Remote: {RemotePath}";
         public bool IsProgressIndeterminate => State == TransferState.Running && BytesTotal <= 0;
+        public bool CanCancel => State == TransferState.Running;
+        public bool CanRemove => State is TransferState.Completed or TransferState.Failed or TransferState.Canceled;
         public string StatusText => BuildStatusText();
 
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -185,6 +187,8 @@ namespace NovaTerminal.Core
             OnPropertyChanged(nameof(LocalPathText));
             OnPropertyChanged(nameof(RemotePathText));
             OnPropertyChanged(nameof(IsProgressIndeterminate));
+            OnPropertyChanged(nameof(CanCancel));
+            OnPropertyChanged(nameof(CanRemove));
             OnPropertyChanged(nameof(StatusText));
         }
 
@@ -301,6 +305,28 @@ namespace NovaTerminal.Core
             return true;
         }
 
+        public void ClearFinishedJobs()
+        {
+            RemoveJobsWhere(job => job.State == TransferState.Completed);
+        }
+
+        public void ClearFailedJobs()
+        {
+            RemoveJobsWhere(job => job.State == TransferState.Failed);
+        }
+
+        public void ClearInactiveJobs()
+        {
+            RemoveJobsWhere(job => job.State is TransferState.Completed or TransferState.Failed or TransferState.Canceled);
+        }
+
+        public void RemoveJob(Guid jobId)
+        {
+            RemoveJobsWhere(job =>
+                job.Id == jobId &&
+                job.State is TransferState.Completed or TransferState.Failed or TransferState.Canceled);
+        }
+
         public event EventHandler<TransferJob>? JobUpdated;
 
         internal async Task RunJobAsync(TransferJob job, CancellationToken cancellationToken)
@@ -360,6 +386,34 @@ namespace NovaTerminal.Core
                 {
                     cancellationTokenSource.Dispose();
                 }
+            }
+        }
+
+        private void RemoveJobsWhere(Func<TransferJob, bool> predicate)
+        {
+            ArgumentNullException.ThrowIfNull(predicate);
+
+            void remove()
+            {
+                for (int i = Jobs.Count - 1; i >= 0; i--)
+                {
+                    if (predicate(Jobs[i]))
+                    {
+                        Jobs.RemoveAt(i);
+                    }
+                }
+            }
+
+            if (Dispatcher.UIThread.CheckAccess())
+            {
+                remove();
+            }
+            else
+            {
+                Dispatcher.UIThread
+                    .InvokeAsync(remove, DispatcherPriority.Send)
+                    .GetAwaiter()
+                    .GetResult();
             }
         }
 
