@@ -3,6 +3,10 @@ namespace NovaTerminal.Core.Ssh.Native;
 public interface INativeSshInterop
 {
     IntPtr Connect(NativeSshConnectionOptions options);
+    IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(
+        NativeSshConnectionOptions connectionOptions,
+        string remotePath,
+        CancellationToken cancellationToken);
     void RunSftpTransfer(
         NativeSshConnectionOptions connectionOptions,
         NativeSftpTransferOptions transferOptions,

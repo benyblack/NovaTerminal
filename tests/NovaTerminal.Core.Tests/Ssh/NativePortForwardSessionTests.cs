@@ -498,6 +498,11 @@ public sealed class NativePortForwardSessionTests
             throw new NotSupportedException();
         }
 
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(NativeSshConnectionOptions connectionOptions, string remotePath, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
         public NativeSshEvent? PollEvent(IntPtr sessionHandle)
         {
             return _events.TryDequeue(out NativeSshEvent? nextEvent)

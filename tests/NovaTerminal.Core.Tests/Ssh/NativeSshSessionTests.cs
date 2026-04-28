@@ -219,6 +219,11 @@ public sealed class NativeSshSessionTests
             throw new NotSupportedException();
         }
 
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(NativeSshConnectionOptions connectionOptions, string remotePath, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
         public NativeSshEvent? PollEvent(IntPtr sessionHandle)
         {
             if (sessionHandle == IntPtr.Zero)
