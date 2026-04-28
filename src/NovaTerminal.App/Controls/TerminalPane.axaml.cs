@@ -25,7 +25,9 @@ using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Interactions;
+using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Sessions;
+using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Controls
 {
@@ -1168,6 +1170,7 @@ namespace NovaTerminal.Controls
                         HandleSessionExit(session, code);
                     });
                 };
+                RegisterActiveSshSession(session, profile);
                 UpdateCommandAssistContext();
             }
             catch (Exception ex)
@@ -1565,6 +1568,7 @@ namespace NovaTerminal.Controls
             if (Session != null)
             {
                 ITerminalSession session = Session;
+                UnregisterActiveSshSession(session);
                 Session = null;
                 session.Dispose();
             }
@@ -1650,9 +1654,28 @@ namespace NovaTerminal.Controls
             if (Session != null)
             {
                 ITerminalSession session = Session;
+                UnregisterActiveSshSession(session);
                 Session = null;
                 session.Dispose();
             }
+        }
+
+        private static void RegisterActiveSshSession(ITerminalSession session, TerminalProfile? profile)
+        {
+            if (profile?.Type != ConnectionType.SSH || profile.SshBackendKind != SshBackendKind.Native)
+            {
+                return;
+            }
+
+            ActiveSshSessionRegistry.Instance.Register(new ActiveSshSessionDescriptor(
+                session.Id,
+                profile.Id,
+                profile.SshBackendKind));
+        }
+
+        private static void UnregisterActiveSshSession(ITerminalSession session)
+        {
+            ActiveSshSessionRegistry.Instance.Unregister(session.Id);
         }
 
         private void Sftp_JobUpdated(object? sender, TransferJob job)
