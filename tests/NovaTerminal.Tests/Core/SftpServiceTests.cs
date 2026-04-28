@@ -751,6 +751,7 @@ public sealed class SftpServiceTests
     {
         public NativeSshConnectionOptions? ConnectionOptions { get; private set; }
         public NativeSftpTransferOptions? TransferOptions { get; private set; }
+        public string? ListedRemotePath { get; private set; }
         public CancellationToken CancellationToken { get; private set; }
 
         public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
@@ -764,6 +765,17 @@ public sealed class SftpServiceTests
             ConnectionOptions = connectionOptions;
             TransferOptions = transferOptions;
             CancellationToken = cancellationToken;
+        }
+
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(
+            NativeSshConnectionOptions connectionOptions,
+            string remotePath,
+            CancellationToken cancellationToken)
+        {
+            ConnectionOptions = connectionOptions;
+            ListedRemotePath = remotePath;
+            CancellationToken = cancellationToken;
+            return [];
         }
 
         public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();
@@ -793,6 +805,11 @@ public sealed class SftpServiceTests
             Started.Set();
             Release.Wait(cancellationToken);
         }
+
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(
+            NativeSshConnectionOptions connectionOptions,
+            string remotePath,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();
         public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
