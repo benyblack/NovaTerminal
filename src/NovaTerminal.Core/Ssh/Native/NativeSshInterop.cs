@@ -1,9 +1,10 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace NovaTerminal.Core.Ssh.Native;
 
-public sealed class NativeSshInterop : INativeSshInterop
+public sealed partial class NativeSshInterop : INativeSshInterop
 {
     private const string LibName = "rusty_ssh";
     private const int ResultOk = 0;
@@ -12,7 +13,6 @@ public sealed class NativeSshInterop : INativeSshInterop
     private const int ResultBufferTooSmall = -2;
     private const int ResultClosed = -3;
     private const int ResultCanceled = -6;
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private static readonly NativeSftpTransferProgressCallback SftpTransferProgressCallback = OnNativeSftpTransferProgress;
     private static readonly IntPtr SftpTransferProgressCallbackPointer =
         Marshal.GetFunctionPointerForDelegate(SftpTransferProgressCallback);
@@ -104,7 +104,7 @@ public sealed class NativeSshInterop : INativeSshInterop
         cancellationToken.ThrowIfCancellationRequested();
 
         SftpTransferRequest request = SftpTransferRequest.From(connectionOptions, transferOptions);
-        string requestJson = JsonSerializer.Serialize(request, JsonOptions);
+        string requestJson = SerializeSftpTransferRequest(request);
 
         IntPtr requestPtr = IntPtr.Zero;
         IntPtr responsePtr = IntPtr.Zero;
@@ -132,7 +132,7 @@ public sealed class NativeSshInterop : INativeSshInterop
                     CancellationMarkerPath = cancellationMarkerPath
                 }
             };
-            requestJson = JsonSerializer.Serialize(request, JsonOptions);
+            requestJson = SerializeSftpTransferRequest(request);
             requestPtr = Marshal.StringToCoTaskMemUTF8(requestJson);
             if (progress is not null)
             {
@@ -498,7 +498,9 @@ public sealed class NativeSshInterop : INativeSshInterop
 
         try
         {
-            NativeSftpTransferResponse? response = JsonSerializer.Deserialize<NativeSftpTransferResponse>(responseJson, JsonOptions);
+            NativeSftpTransferResponse? response = JsonSerializer.Deserialize(
+                responseJson,
+                NativeSshTransferJsonContext.Default.NativeSftpTransferResponse);
             if (!string.IsNullOrWhiteSpace(response?.Message))
             {
                 return $"{message} {response.Message}";
@@ -509,6 +511,35 @@ public sealed class NativeSshInterop : INativeSshInterop
         }
 
         return $"{message} {responseJson}";
+    }
+
+    internal static string SerializeSftpTransferRequestForTests(
+        NativeSshConnectionOptions connectionOptions,
+        NativeSftpTransferOptions transferOptions)
+    {
+        ArgumentNullException.ThrowIfNull(connectionOptions);
+        ArgumentNullException.ThrowIfNull(transferOptions);
+
+        return SerializeSftpTransferRequest(SftpTransferRequest.From(connectionOptions, transferOptions));
+    }
+
+    internal static string? DeserializeSftpTransferResponseMessageForTests(string responseJson)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(responseJson);
+
+        NativeSftpTransferResponse? response = JsonSerializer.Deserialize(
+            responseJson,
+            NativeSshTransferJsonContext.Default.NativeSftpTransferResponse);
+        return response?.Message;
+    }
+
+    private static string SerializeSftpTransferRequest(SftpTransferRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        return JsonSerializer.Serialize(
+            request,
+            NativeSshTransferJsonContext.Default.SftpTransferRequest);
     }
 
     private static string? TakeNativeUtf8AndFree(ref IntPtr pointer)
@@ -614,6 +645,16 @@ public sealed class NativeSshInterop : INativeSshInterop
     {
         public string? Status { get; init; }
         public string? Message { get; init; }
+    }
+
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(SftpTransferRequest))]
+    [JsonSerializable(typeof(SftpConnectionRequest))]
+    [JsonSerializable(typeof(SftpJumpHostRequest))]
+    [JsonSerializable(typeof(SftpTransferRequestBody))]
+    [JsonSerializable(typeof(NativeSftpTransferResponse))]
+    private partial class NativeSshTransferJsonContext : JsonSerializerContext
+    {
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

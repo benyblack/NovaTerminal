@@ -120,6 +120,50 @@ public sealed class NativeSftpTransferInteropTests
     }
 
     [Fact]
+    public void SerializeSftpTransferRequest_UsesGeneratedMetadataAndCamelCasePayload()
+    {
+        NativeSshConnectionOptions connectionOptions = new()
+        {
+            Host = "example.com",
+            User = "nova",
+            Port = 2222,
+            Password = "secret",
+            KnownHostsFilePath = @"C:\known-hosts.json",
+            JumpHost = new NovaTerminal.Core.Ssh.Models.SshJumpHop
+            {
+                Host = "jump.internal",
+                User = "jumper",
+                Port = 2200
+            }
+        };
+        NativeSftpTransferOptions transferOptions = new()
+        {
+            Direction = NativeSftpTransferDirection.Download,
+            Kind = NativeSftpTransferKind.File,
+            LocalPath = @"C:\downloads\movie.mkv",
+            RemotePath = "/mnt/box1/media/movies/Movie Name/movie.mkv"
+        };
+
+        string json = NativeSshInterop.SerializeSftpTransferRequestForTests(connectionOptions, transferOptions);
+
+        Assert.Contains("\"connection\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"transfer\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"knownHostsFilePath\":\"C:\\\\known-hosts.json\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"jumpHost\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"remotePath\":\"/mnt/box1/media/movies/Movie Name/movie.mkv\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeserializeSftpTransferResponse_UsesGeneratedMetadata()
+    {
+        const string responseJson = "{\"status\":\"error\",\"message\":\"authentication failed\"}";
+
+        string? message = NativeSshInterop.DeserializeSftpTransferResponseMessageForTests(responseJson);
+
+        Assert.Equal("authentication failed", message);
+    }
+
+    [Fact]
     public void RunSftpTransfer_RequiresKnownHostsStorePath()
     {
         INativeSshInterop interop = new NativeSshInterop();
