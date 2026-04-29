@@ -114,19 +114,20 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         string cancellationMarkerPath = Path.Combine(
             Path.GetTempPath(),
             $"nova-sftp-cancel-{Guid.NewGuid():N}.signal");
-        using CancellationTokenRegistration cancellationRegistration = cancellationToken.Register(() =>
-        {
-            try
-            {
-                File.WriteAllText(cancellationMarkerPath, string.Empty);
-            }
-            catch
-            {
-            }
-        });
+        CancellationTokenRegistration cancellationRegistration = default;
 
         try
         {
+            cancellationRegistration = cancellationToken.Register(() =>
+            {
+                try
+                {
+                    File.WriteAllText(cancellationMarkerPath, string.Empty);
+                }
+                catch
+                {
+                }
+            });
             request = request with
             {
                 Transfer = request.Transfer with
@@ -172,16 +173,31 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                 NativeMethods.nova_ssh_string_free(responsePtr);
             }
 
-            try
+            CleanupCancellationMarker(ref cancellationRegistration, cancellationMarkerPath);
+        }
+    }
+
+    internal static void CleanupCancellationMarkerForTests(
+        ref CancellationTokenRegistration cancellationRegistration,
+        string cancellationMarkerPath)
+    {
+        CleanupCancellationMarker(ref cancellationRegistration, cancellationMarkerPath);
+    }
+
+    private static void CleanupCancellationMarker(
+        ref CancellationTokenRegistration cancellationRegistration,
+        string cancellationMarkerPath)
+    {
+        cancellationRegistration.Dispose();
+        try
+        {
+            if (File.Exists(cancellationMarkerPath))
             {
-                if (File.Exists(cancellationMarkerPath))
-                {
-                    File.Delete(cancellationMarkerPath);
-                }
+                File.Delete(cancellationMarkerPath);
             }
-            catch
-            {
-            }
+        }
+        catch
+        {
         }
     }
 

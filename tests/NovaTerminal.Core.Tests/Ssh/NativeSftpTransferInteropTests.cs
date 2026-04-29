@@ -1,4 +1,5 @@
 using NovaTerminal.Core.Ssh.Native;
+using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -219,6 +220,24 @@ public sealed class NativeSftpTransferInteropTests
         ArgumentOutOfRangeException ex = Assert.Throws<ArgumentOutOfRangeException>(act);
 
         Assert.Contains("direction", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CleanupCancellationMarker_DisposesRegistrationBeforeDeletingMarker()
+    {
+        string markerPath = Path.Combine(Path.GetTempPath(), $"nova-sftp-test-{Guid.NewGuid():N}.signal");
+        File.WriteAllText(markerPath, string.Empty);
+
+        using CancellationTokenSource cts = new();
+        CancellationTokenRegistration registration = cts.Token.Register(() =>
+        {
+            File.WriteAllText(markerPath, "canceled");
+        });
+
+        NativeSshInterop.CleanupCancellationMarkerForTests(ref registration, markerPath);
+        cts.Cancel();
+
+        Assert.False(File.Exists(markerPath));
     }
 
     private sealed class NativeSftpTransferProgressCallbackDataHandle : IDisposable
