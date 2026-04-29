@@ -55,15 +55,157 @@ public sealed class RemotePathAutocompleteServiceTests
         Assert.Equal("/mnt/media/movies", results[0].FullPath);
     }
 
+    [Fact]
+    public async Task GetSuggestionsAsync_UsesResolvedPassword_ForPasswordBasedProfiles()
+    {
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+        var interop = new RecordingNativeSshInterop(
+            new[]
+            {
+                new NativeRemotePathEntry("movies", "/mnt/media/movies", true)
+            });
+        var service = CreateService(
+            registry,
+            interop,
+            CreateSshService(profileId),
+            _ => "top-secret");
+
+        await service.GetSuggestionsAsync(
+            profileId,
+            sessionId,
+            "/mnt/media/mov",
+            CancellationToken.None);
+
+        Assert.NotNull(interop.LastConnectionOptions);
+        Assert.Equal("top-secret", interop.LastConnectionOptions!.Password);
+    }
+
+    [Fact]
+    public async Task GetSuggestionsAsync_UsesRuntimeSessionPassword_WhenVaultPasswordIsUnavailable()
+    {
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+        registry.SetRuntimePassword(sessionId, "runtime-secret");
+        var interop = new RecordingNativeSshInterop(
+            new[]
+            {
+                new NativeRemotePathEntry("movies", "/mnt/media/movies", true)
+            });
+        var service = CreateService(
+            registry,
+            interop,
+            CreateSshService(profileId),
+            _ => null);
+
+        await service.GetSuggestionsAsync(
+            profileId,
+            sessionId,
+            "/mnt/media/mov",
+            CancellationToken.None);
+
+        Assert.NotNull(interop.LastConnectionOptions);
+        Assert.Equal("runtime-secret", interop.LastConnectionOptions!.Password);
+    }
+
+    [Fact]
+    public async Task GetSuggestionsAsync_SetsKnownHostsPath_ForNativeListing()
+    {
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+        var interop = new RecordingNativeSshInterop(
+            new[]
+            {
+                new NativeRemotePathEntry("code", "/home/nova/code", true)
+            });
+        var service = CreateService(
+            registry,
+            interop,
+            CreateSshService(profileId),
+            _ => null);
+
+        await service.GetSuggestionsAsync(
+            profileId,
+            sessionId,
+            "~/cod",
+            CancellationToken.None);
+
+        Assert.NotNull(interop.LastConnectionOptions);
+        Assert.Equal(AppPaths.NativeKnownHostsFilePath, interop.LastConnectionOptions!.KnownHostsFilePath);
+    }
+
+    [Fact]
+    public async Task GetSuggestionsAsync_WhenPathEndsWithSeparator_ListsDirectoryChildren()
+    {
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+        var interop = new RecordingNativeSshInterop(
+            new[]
+            {
+                new NativeRemotePathEntry("server", "/home/nova/code/server", true)
+            });
+        var service = CreateService(
+            registry,
+            interop,
+            CreateSshService(profileId),
+            _ => null);
+
+        IReadOnlyList<RemotePathSuggestion> results = await service.GetSuggestionsAsync(
+            profileId,
+            sessionId,
+            "~/code/",
+            CancellationToken.None);
+
+        Assert.Equal("~/code", interop.LastRemotePath);
+        Assert.Single(results);
+        Assert.Equal("server", results[0].DisplayName);
+    }
+
+    [Fact]
+    public async Task GetSuggestionsAsync_WhenPrefixIsEmpty_ReturnsTopCappedEntries()
+    {
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+        var entries = Enumerable.Range(1, 20)
+            .Select(index => new NativeRemotePathEntry($"item{index:00}", $"/home/nova/code/item{index:00}", index % 2 == 0))
+            .ToArray();
+        var interop = new RecordingNativeSshInterop(entries);
+        var service = CreateService(
+            registry,
+            interop,
+            CreateSshService(profileId),
+            _ => null);
+
+        IReadOnlyList<RemotePathSuggestion> results = await service.GetSuggestionsAsync(
+            profileId,
+            sessionId,
+            "~/code/",
+            CancellationToken.None);
+
+        Assert.Equal(12, results.Count);
+    }
+
     private static RemotePathAutocompleteService CreateService(
         ActiveSshSessionRegistry registry,
         INativeSshInterop interop,
-        SshConnectionService sshService)
+        SshConnectionService sshService,
+        Func<TerminalProfile, string?>? passwordResolver = null)
     {
         return new RemotePathAutocompleteService(
             interop,
             registry,
-            () => sshService);
+            () => sshService,
+            passwordResolver);
     }
 
     private static SshConnectionService CreateSshService(Guid profileId)
@@ -112,6 +254,7 @@ public sealed class RemotePathAutocompleteServiceTests
         }
 
         public string? LastRemotePath { get; private set; }
+        public NativeSshConnectionOptions? LastConnectionOptions { get; private set; }
 
         public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
 
@@ -120,6 +263,7 @@ public sealed class RemotePathAutocompleteServiceTests
             string remotePath,
             CancellationToken cancellationToken)
         {
+            LastConnectionOptions = connectionOptions;
             LastRemotePath = remotePath;
             return _entries;
         }

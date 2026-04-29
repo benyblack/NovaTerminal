@@ -1,5 +1,6 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:NovaTerminal.Controls"
         x:Class="NovaTerminal.Controls.TransferDialog"
         Width="560"
         Height="280"
@@ -20,11 +21,10 @@
                        Foreground="#D0D0D0"
                        VerticalAlignment="Center"
                        Margin="0,0,12,0"/>
-            <TextBox Name="RemotePathBox"
-                     Grid.Row="1"
-                     Grid.Column="1"
-                     Watermark="~/downloads or /mnt/share"
-                     Margin="0,0,8,0"/>
+            <controls:RemotePathTextBox Name="RemotePathInput"
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        Margin="0,0,8,0"/>
 
             <TextBlock Grid.Row="2"
                        Text="Local"

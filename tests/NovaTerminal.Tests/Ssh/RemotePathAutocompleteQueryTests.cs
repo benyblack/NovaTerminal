@@ -24,6 +24,24 @@ public sealed class RemotePathAutocompleteQueryTests
     }
 
     [Fact]
+    public void Parse_WhenPathEndsWithSeparator_UsesDirectoryAsParentAndEmptyPrefix()
+    {
+        RemotePathAutocompleteQuery query = RemotePathAutocompleteQuery.Parse("~/code/");
+
+        Assert.Equal("~/code", query.ParentPath);
+        Assert.Equal(string.Empty, query.Prefix);
+    }
+
+    [Fact]
+    public void Parse_WhenRootPathEndsWithSeparator_UsesRootAsParentAndEmptyPrefix()
+    {
+        RemotePathAutocompleteQuery query = RemotePathAutocompleteQuery.Parse("/");
+
+        Assert.Equal("/", query.ParentPath);
+        Assert.Equal(string.Empty, query.Prefix);
+    }
+
+    [Fact]
     public void Rank_PrefersDirectoryPrefixMatchesBeforeFiles()
     {
         IReadOnlyList<RemotePathSuggestion> suggestions = RemotePathAutocompleteQuery.Rank(

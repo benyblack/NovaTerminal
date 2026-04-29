@@ -6,24 +6,29 @@ using System.Threading.Tasks;
 using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Native;
+using NovaTerminal.Core.Ssh.Storage;
 using NovaTerminal.Models;
 
 namespace NovaTerminal.Services.Ssh;
 
 public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteService
 {
+    private const int MaxSuggestions = 12;
     private readonly INativeSshInterop _nativeInterop;
     private readonly ActiveSshSessionRegistry _sessionRegistry;
     private readonly Func<SshConnectionService> _sshServiceFactory;
+    private readonly Func<TerminalProfile, string?> _passwordResolver;
 
     public RemotePathAutocompleteService(
         INativeSshInterop? nativeInterop = null,
         ActiveSshSessionRegistry? sessionRegistry = null,
-        Func<SshConnectionService>? sshServiceFactory = null)
+        Func<SshConnectionService>? sshServiceFactory = null,
+        Func<TerminalProfile, string?>? passwordResolver = null)
     {
         _nativeInterop = nativeInterop ?? new NativeSshInterop();
         _sessionRegistry = sessionRegistry ?? ActiveSshSessionRegistry.Instance;
         _sshServiceFactory = sshServiceFactory ?? (() => new SshConnectionService());
+        _passwordResolver = passwordResolver ?? (profile => new VaultService().GetSshPasswordForProfile(profile));
     }
 
     public Task<IReadOnlyList<RemotePathSuggestion>> GetSuggestionsAsync(
@@ -55,10 +60,38 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
             }
 
             RemotePathAutocompleteQuery query = RemotePathAutocompleteQuery.Parse(input);
-            NativeSshConnectionOptions connectionOptions = SftpService.BuildNativeTransferConnectionOptions(
+            NativeSshConnectionOptions baseOptions = SftpService.BuildNativeTransferConnectionOptions(
                 sshService,
                 profile,
                 sshService.GetConnectionProfiles());
+            bool prefersIdentityFile = !string.IsNullOrWhiteSpace(baseOptions.IdentityFilePath);
+            string? resolvedPassword = prefersIdentityFile
+                ? null
+                : (_sessionRegistry.TryGetRuntimePassword(sessionId, out string? runtimePassword)
+                    ? runtimePassword
+                    : _passwordResolver(profile));
+            var connectionOptions = new NativeSshConnectionOptions
+            {
+                Host = baseOptions.Host,
+                Port = baseOptions.Port,
+                User = baseOptions.User,
+                Cols = baseOptions.Cols,
+                Rows = baseOptions.Rows,
+                Term = baseOptions.Term,
+                Password = string.IsNullOrWhiteSpace(resolvedPassword) ? null : resolvedPassword,
+                IdentityFilePath = baseOptions.IdentityFilePath,
+                KnownHostsFilePath = string.IsNullOrWhiteSpace(baseOptions.KnownHostsFilePath)
+                    ? AppPaths.NativeKnownHostsFilePath
+                    : baseOptions.KnownHostsFilePath,
+                JumpHost = baseOptions.JumpHost == null
+                    ? null
+                    : new SshJumpHop
+                    {
+                        Host = baseOptions.JumpHost.Host,
+                        User = baseOptions.JumpHost.User,
+                        Port = baseOptions.JumpHost.Port
+                    }
+            };
 
             IReadOnlyList<NativeRemotePathEntry> entries = _nativeInterop.ListRemoteDirectory(
                 connectionOptions,
@@ -67,7 +100,9 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
 
             IReadOnlyList<RemotePathSuggestion> ranked = RemotePathAutocompleteQuery.Rank(
                 entries.Select(entry => new RemotePathSuggestion(entry.Name, entry.FullPath, entry.IsDirectory)),
-                query.Prefix);
+                query.Prefix)
+                .Take(MaxSuggestions)
+                .ToList();
 
             return Task.FromResult(ranked);
         }

@@ -7,13 +7,14 @@ using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using NovaTerminal.Core;
 using NovaTerminal.Models;
+using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Controls;
 
 public partial class TransferDialog : Window
 {
     private readonly TransferDialogRequest _request;
-    private readonly TextBox _remotePathBox;
+    private readonly RemotePathTextBox _remotePathInput;
     private readonly TextBox _localPathBox;
     private readonly TextBlock _validationMessage;
     private readonly Button _confirmButton;
@@ -28,15 +29,17 @@ public partial class TransferDialog : Window
     {
     }
 
-    public TransferDialog(TransferDialogRequest request)
+    public TransferDialog(
+        TransferDialogRequest request,
+        IRemotePathAutocompleteService? autocompleteService = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
         _request = request;
         InitializeComponent();
 
-        _remotePathBox = this.FindControl<TextBox>("RemotePathBox")
-            ?? throw new InvalidOperationException("RemotePathBox was not found.");
+        _remotePathInput = this.FindControl<RemotePathTextBox>("RemotePathInput")
+            ?? throw new InvalidOperationException("RemotePathInput was not found.");
         _localPathBox = this.FindControl<TextBox>("LocalPathBox")
             ?? throw new InvalidOperationException("LocalPathBox was not found.");
         _validationMessage = this.FindControl<TextBlock>("ValidationMessage")
@@ -50,8 +53,12 @@ public partial class TransferDialog : Window
             ?? throw new InvalidOperationException("BtnTransferCancel was not found.");
 
         Title = BuildTitle(request.Direction, request.Kind);
-        _remotePathBox.Text = request.RemotePath;
-        _remotePathBox.PropertyChanged += OnPathBoxPropertyChanged;
+        _remotePathInput.ProfileId = request.ProfileId;
+        _remotePathInput.SessionId = request.SessionId;
+        _remotePathInput.AutocompleteService = autocompleteService ?? new RemotePathAutocompleteService();
+        _remotePathInput.Watermark = "~/downloads or /mnt/share";
+        _remotePathInput.Text = request.RemotePath;
+        _remotePathInput.TextChanged += OnPathInputChanged;
         _localPathBox.PropertyChanged += OnPathBoxPropertyChanged;
         _confirmButton.Click += OnConfirmClick;
         cancelButton.Click += OnCancelClick;
@@ -66,7 +73,12 @@ public partial class TransferDialog : Window
 
     private void OnOpened(object? sender, EventArgs e)
     {
-        _remotePathBox.Focus();
+        _remotePathInput.FocusTextBox();
+    }
+
+    private void OnPathInputChanged(object? sender, EventArgs e)
+    {
+        RefreshValidation();
     }
 
     private void OnPathBoxPropertyChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
@@ -87,7 +99,7 @@ public partial class TransferDialog : Window
 
         Result = TransferDialogResult.CreateConfirmed(
             _localPathBox.Text?.Trim() ?? string.Empty,
-            _remotePathBox.Text?.Trim() ?? string.Empty);
+            _remotePathInput.Text.Trim());
         Close(Result);
     }
 
@@ -183,7 +195,7 @@ public partial class TransferDialog : Window
 
     private void RefreshValidation()
     {
-        bool hasRemote = !string.IsNullOrWhiteSpace(_remotePathBox.Text);
+        bool hasRemote = !string.IsNullOrWhiteSpace(_remotePathInput.Text);
         bool hasLocal = !string.IsNullOrWhiteSpace(_localPathBox.Text);
         bool valid = hasRemote && hasLocal;
 
@@ -202,7 +214,7 @@ public partial class TransferDialog : Window
 
     private string ResolveSuggestedFileName()
     {
-        string remotePath = _remotePathBox.Text?.Trim() ?? string.Empty;
+        string remotePath = _remotePathInput.Text.Trim();
         if (string.IsNullOrWhiteSpace(remotePath))
         {
             return "download";

@@ -332,6 +332,51 @@ public sealed class SshInteractionServiceTests
     }
 
     [Fact]
+    public async Task NativePasswordRequests_StoreSubmittedPassword_InRuntimeSessionCache()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string vaultPath = Path.Combine(tempRoot, "vault.dat");
+            var vault = new VaultService(vaultPath);
+            Guid sessionId = Guid.Parse("6e392be4-b615-496f-b1f6-c559d7f4c4f3");
+            Guid profileId = Guid.Parse("b15431d2-30e6-46de-99cd-c984f4995aaf");
+            ActiveSshSessionRegistry.Instance.Unregister(sessionId);
+            ActiveSshSessionRegistry.Instance.Register(new ActiveSshSessionDescriptor(
+                sessionId,
+                profileId,
+                NovaTerminal.Core.Ssh.Models.SshBackendKind.Native));
+
+            var service = new SshInteractionService(
+                vaultService: vault,
+                authPresenter: (_, _, _) =>
+                    Task.FromResult(SshInteractionResponse.FromSecret("manual-secret")));
+
+            SshInteractionResponse response = await service.HandleAsync(new SshInteractionRequest
+            {
+                Kind = SshInteractionKind.Password,
+                Prompt = "Password:",
+                SessionId = sessionId,
+                ProfileId = profileId,
+                ProfileName = "Native Prod",
+                ProfileUser = "alice",
+                ProfileHost = "example.internal",
+                AllowVaultPasswordReuse = false
+            }, CancellationToken.None);
+
+            Assert.Equal("manual-secret", response.Secret);
+            Assert.True(ActiveSshSessionRegistry.Instance.TryGetRuntimePassword(sessionId, out string? password));
+            Assert.Equal("manual-secret", password);
+
+            ActiveSshSessionRegistry.Instance.Unregister(sessionId);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task NativePasswordRequests_LeavingRememberUnchecked_PreservesExistingVaultSecret()
     {
         string tempRoot = CreateTempDirectory();

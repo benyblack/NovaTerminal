@@ -12,4 +12,5 @@ public sealed class RemotePathSuggestion
     public string DisplayName { get; }
     public string FullPath { get; }
     public bool IsDirectory { get; }
+    public string KindText => IsDirectory ? "DIR" : "FILE";
 }

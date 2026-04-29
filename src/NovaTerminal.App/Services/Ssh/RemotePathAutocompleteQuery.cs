@@ -29,6 +29,22 @@ public sealed class RemotePathAutocompleteQuery
             return new RemotePathAutocompleteQuery("~", string.Empty);
         }
 
+        if (normalized.EndsWith("/", StringComparison.Ordinal))
+        {
+            string directoryPath = normalized.TrimEnd('/');
+            if (string.IsNullOrEmpty(directoryPath))
+            {
+                return new RemotePathAutocompleteQuery("/", string.Empty);
+            }
+
+            if (directoryPath == "~")
+            {
+                return new RemotePathAutocompleteQuery("~", string.Empty);
+            }
+
+            return new RemotePathAutocompleteQuery(directoryPath, string.Empty);
+        }
+
         string trimmed = normalized.TrimEnd('/');
         int lastSlashIndex = trimmed.LastIndexOf('/');
         if (lastSlashIndex < 0)

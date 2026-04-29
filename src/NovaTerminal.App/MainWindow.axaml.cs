@@ -3603,7 +3603,9 @@ namespace NovaTerminal
             var request = TransferDialogRequest.ForAction(
                 direction,
                 kind,
-                profile.DefaultRemoteDir ?? "~");
+                profile.DefaultRemoteDir ?? "~",
+                profile.Id,
+                sessionId);
 
             TransferDialogResult? result = await ShowTransferDialogAsync(request);
             if (result is not { IsConfirmed: true })

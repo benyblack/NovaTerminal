@@ -433,6 +433,7 @@ public sealed class NativeSshSession : ITerminalSession
         SshInteractionRequest requestWithContext = new()
         {
             Kind = request.Kind,
+            SessionId = Id,
             ProfileId = _profileId,
             ProfileName = _profileName,
             ProfileUser = _profileUser,
