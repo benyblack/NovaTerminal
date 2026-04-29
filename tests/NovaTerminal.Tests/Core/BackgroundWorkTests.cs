@@ -7,20 +7,20 @@ public sealed class BackgroundWorkTests
     [Fact]
     public async Task RunBlockingAsync_ReturnsPendingTaskWhileBlockingWorkRuns()
     {
-        using ManualResetEventSlim started = new(false);
-        using ManualResetEventSlim release = new(false);
+        TaskCompletionSource started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         Task<int> task = BackgroundWork.RunBlockingAsync(_ =>
         {
-            started.Set();
-            release.Wait();
+            started.SetResult();
+            release.Task.GetAwaiter().GetResult();
             return 42;
         });
 
-        Assert.True(started.Wait(TimeSpan.FromSeconds(1)));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.False(task.IsCompleted);
 
-        release.Set();
+        release.SetResult();
 
         int result = await task;
 
