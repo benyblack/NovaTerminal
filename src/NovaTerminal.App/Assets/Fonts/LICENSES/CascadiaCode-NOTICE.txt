@@ -1,0 +1,6 @@
+Cascadia Mono PL
+Source: microsoft/cascadia-code
+Release: v2407.24
+Font file: CascadiaMonoPL-Regular.otf
+
+The upstream license text is included in CascadiaCode-LICENSE.txt.

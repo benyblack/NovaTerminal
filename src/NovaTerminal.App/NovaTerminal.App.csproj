@@ -43,6 +43,12 @@
 
   <ItemGroup>
     <AvaloniaResource Include="Assets\**" />
+    <Content Include="Assets\Fonts\CascadiaMonoPL-Regular.otf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="Assets\Fonts\LICENSES\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <EmbeddedResource Include="Resources\vt-conformance-report.json">
       <LogicalName>NovaTerminal.Resources.vt-conformance-report.json</LogicalName>
     </EmbeddedResource>
