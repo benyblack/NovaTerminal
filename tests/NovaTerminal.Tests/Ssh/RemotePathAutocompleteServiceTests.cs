@@ -195,6 +195,48 @@ public sealed class RemotePathAutocompleteServiceTests
         Assert.Equal(12, results.Count);
     }
 
+    [Fact]
+    public async Task GetSuggestionsAsync_ReturnsBeforeBlockingNativeLookupCompletes()
+    {
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+        var interop = new BlockingNativeSshInterop(
+            new[]
+            {
+                new NativeRemotePathEntry("code", "/home/nova/code", true)
+            });
+        var service = CreateService(
+            registry,
+            interop,
+            CreateSshService(profileId),
+            _ => null);
+
+        Task<IReadOnlyList<RemotePathSuggestion>>? returnedTask = null;
+        Task invocation = Task.Run(() =>
+        {
+            returnedTask = service.GetSuggestionsAsync(
+                profileId,
+                sessionId,
+                "~/cod",
+                CancellationToken.None);
+        });
+
+        Assert.True(interop.Started.Wait(TimeSpan.FromSeconds(1)));
+        Task completed = await Task.WhenAny(invocation, Task.Delay(TimeSpan.FromSeconds(1)));
+        Assert.Same(invocation, completed);
+        Assert.NotNull(returnedTask);
+        Assert.False(returnedTask!.IsCompleted);
+
+        interop.Release.Set();
+
+        IReadOnlyList<RemotePathSuggestion> results = await returnedTask;
+
+        Assert.Single(results);
+        Assert.Equal("/home/nova/code", results[0].FullPath);
+    }
+
     private static RemotePathAutocompleteService CreateService(
         ActiveSshSessionRegistry registry,
         INativeSshInterop interop,
@@ -265,6 +307,42 @@ public sealed class RemotePathAutocompleteServiceTests
         {
             LastConnectionOptions = connectionOptions;
             LastRemotePath = remotePath;
+            return _entries;
+        }
+
+        public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();
+        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Resize(IntPtr sessionHandle, int cols, int rows) => throw new NotSupportedException();
+        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options) => throw new NotSupportedException();
+        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void SendChannelEof(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void CloseChannel(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Close(IntPtr sessionHandle) => throw new NotSupportedException();
+    }
+
+    private sealed class BlockingNativeSshInterop : INativeSshInterop
+    {
+        private readonly IReadOnlyList<NativeRemotePathEntry> _entries;
+
+        public BlockingNativeSshInterop(IReadOnlyList<NativeRemotePathEntry> entries)
+        {
+            _entries = entries;
+        }
+
+        public ManualResetEventSlim Started { get; } = new(false);
+        public ManualResetEventSlim Release { get; } = new(false);
+
+        public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
+
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(
+            NativeSshConnectionOptions connectionOptions,
+            string remotePath,
+            CancellationToken cancellationToken)
+        {
+            Started.Set();
+            Release.Wait(cancellationToken);
             return _entries;
         }
 

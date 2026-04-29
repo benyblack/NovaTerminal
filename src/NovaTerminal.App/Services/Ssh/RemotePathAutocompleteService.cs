@@ -31,7 +31,7 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
         _passwordResolver = passwordResolver ?? (profile => new VaultService().GetSshPasswordForProfile(profile));
     }
 
-    public Task<IReadOnlyList<RemotePathSuggestion>> GetSuggestionsAsync(
+    public async Task<IReadOnlyList<RemotePathSuggestion>> GetSuggestionsAsync(
         Guid profileId,
         Guid sessionId,
         string input,
@@ -39,7 +39,7 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
     {
         if (profileId == Guid.Empty || sessionId == Guid.Empty || string.IsNullOrWhiteSpace(input))
         {
-            return Task.FromResult<IReadOnlyList<RemotePathSuggestion>>([]);
+            return [];
         }
 
         if (!_sessionRegistry.TryGet(sessionId, out ActiveSshSessionDescriptor? descriptor) ||
@@ -47,8 +47,10 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
             descriptor.ProfileId != profileId ||
             descriptor.BackendKind != SshBackendKind.Native)
         {
-            return Task.FromResult<IReadOnlyList<RemotePathSuggestion>>([]);
+            return [];
         }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         try
         {
@@ -56,7 +58,7 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
             TerminalProfile? profile = sshService.GetConnectionProfile(profileId);
             if (profile == null || profile.SshBackendKind != SshBackendKind.Native)
             {
-                return Task.FromResult<IReadOnlyList<RemotePathSuggestion>>([]);
+                return [];
             }
 
             RemotePathAutocompleteQuery query = RemotePathAutocompleteQuery.Parse(input);
@@ -93,18 +95,15 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
                     }
             };
 
-            IReadOnlyList<NativeRemotePathEntry> entries = _nativeInterop.ListRemoteDirectory(
-                connectionOptions,
-                query.ParentPath,
+            IReadOnlyList<NativeRemotePathEntry> entries = await Task.Run(
+                () => _nativeInterop.ListRemoteDirectory(connectionOptions, query.ParentPath, cancellationToken),
                 cancellationToken);
 
-            IReadOnlyList<RemotePathSuggestion> ranked = RemotePathAutocompleteQuery.Rank(
-                entries.Select(entry => new RemotePathSuggestion(entry.Name, entry.FullPath, entry.IsDirectory)),
-                query.Prefix)
+            return RemotePathAutocompleteQuery.Rank(
+                    entries.Select(entry => new RemotePathSuggestion(entry.Name, entry.FullPath, entry.IsDirectory)),
+                    query.Prefix)
                 .Take(MaxSuggestions)
                 .ToList();
-
-            return Task.FromResult(ranked);
         }
         catch (OperationCanceledException)
         {
@@ -112,7 +111,7 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
         }
         catch
         {
-            return Task.FromResult<IReadOnlyList<RemotePathSuggestion>>([]);
+            return [];
         }
     }
 }
