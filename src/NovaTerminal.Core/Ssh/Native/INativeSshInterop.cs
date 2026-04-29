@@ -3,6 +3,8 @@ namespace NovaTerminal.Core.Ssh.Native;
 public interface INativeSshInterop
 {
     IntPtr Connect(NativeSshConnectionOptions options);
+
+    // Blocking FFI/network call. App/UI-facing services must offload this work before awaiting it.
     IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(
         NativeSshConnectionOptions connectionOptions,
         string remotePath,

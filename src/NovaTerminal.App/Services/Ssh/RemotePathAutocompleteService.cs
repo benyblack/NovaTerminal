@@ -95,8 +95,8 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
                     }
             };
 
-            IReadOnlyList<NativeRemotePathEntry> entries = await Task.Run(
-                () => _nativeInterop.ListRemoteDirectory(connectionOptions, query.ParentPath, cancellationToken),
+            IReadOnlyList<NativeRemotePathEntry> entries = await BackgroundWork.RunBlockingAsync(
+                token => _nativeInterop.ListRemoteDirectory(connectionOptions, query.ParentPath, token),
                 cancellationToken);
 
             return RemotePathAutocompleteQuery.Rank(
