@@ -25,7 +25,9 @@ using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Interactions;
+using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Sessions;
+using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Controls
 {
@@ -415,7 +417,17 @@ namespace NovaTerminal.Controls
                 CommandAssistInfrastructure.GetErrorInsightService(),
                 modeRouter: null,
                 resultBuilder: null,
-                action => Dispatcher.UIThread.Post(action));
+                action =>
+                {
+                    if (Dispatcher.UIThread.CheckAccess())
+                    {
+                        action();
+                    }
+                    else
+                    {
+                        Dispatcher.UIThread.Post(action);
+                    }
+                });
 
             BindCommandAssistViews(_commandAssistController.ViewModel);
 
@@ -1168,6 +1180,7 @@ namespace NovaTerminal.Controls
                         HandleSessionExit(session, code);
                     });
                 };
+                RegisterActiveSshSession(session, profile);
                 UpdateCommandAssistContext();
             }
             catch (Exception ex)
@@ -1565,6 +1578,7 @@ namespace NovaTerminal.Controls
             if (Session != null)
             {
                 ITerminalSession session = Session;
+                UnregisterActiveSshSession(session);
                 Session = null;
                 session.Dispose();
             }
@@ -1650,9 +1664,28 @@ namespace NovaTerminal.Controls
             if (Session != null)
             {
                 ITerminalSession session = Session;
+                UnregisterActiveSshSession(session);
                 Session = null;
                 session.Dispose();
             }
+        }
+
+        private static void RegisterActiveSshSession(ITerminalSession session, TerminalProfile? profile)
+        {
+            if (profile?.Type != ConnectionType.SSH || profile.SshBackendKind != SshBackendKind.Native)
+            {
+                return;
+            }
+
+            ActiveSshSessionRegistry.Instance.Register(new ActiveSshSessionDescriptor(
+                session.Id,
+                profile.Id,
+                profile.SshBackendKind));
+        }
+
+        private static void UnregisterActiveSshSession(ITerminalSession session)
+        {
+            ActiveSshSessionRegistry.Instance.Unregister(session.Id);
         }
 
         private void Sftp_JobUpdated(object? sender, TransferJob job)
@@ -1667,9 +1700,15 @@ namespace NovaTerminal.Controls
 
                 if (activeJobs.Count > 0)
                 {
+                    TransferJob primaryJob = activeJobs
+                        .OrderByDescending(j => j.StartedAt)
+                        .First();
+
                     SftpStatus.IsVisible = true;
-                    SftpIcon.Text = activeJobs.Any(j => j.Direction == TransferDirection.Upload) ? "⬆" : "⬇";
-                    SftpText.Text = $"SFTP: {activeJobs.Count} active transfers";
+                    SftpIcon.Text = activeJobs.Count > 1
+                        ? "⇅"
+                        : primaryJob.Direction == TransferDirection.Upload ? "⬆" : "⬇";
+                    SftpText.Text = BuildRunningTransferStatus(primaryJob, activeJobs.Count);
                 }
                 else
                 {
@@ -1681,8 +1720,13 @@ namespace NovaTerminal.Controls
                     if (lastJob != null && lastJob.FinishedAt > DateTime.Now.AddSeconds(-10))
                     {
                         SftpStatus.IsVisible = true;
-                        SftpIcon.Text = lastJob.State == TransferState.Completed ? "✅" : "❌";
-                        SftpText.Text = lastJob.State == TransferState.Completed ? "SFTP complete" : $"SFTP failed: {lastJob.LastError}";
+                        SftpIcon.Text = lastJob.State switch
+                        {
+                            TransferState.Completed => "✅",
+                            TransferState.Canceled => "⏹",
+                            _ => "❌"
+                        };
+                        SftpText.Text = BuildCompletedTransferStatus(lastJob);
                     }
                     else
                     {
@@ -1690,6 +1734,28 @@ namespace NovaTerminal.Controls
                     }
                 }
             });
+        }
+
+        private static string BuildRunningTransferStatus(TransferJob job, int activeTransferCount)
+        {
+            string action = job.Direction == TransferDirection.Upload ? "Uploading" : "Downloading";
+            string detail = job.BytesTotal > 0
+                ? $" {Math.Round(job.Progress * 100)}%"
+                : string.Empty;
+            string prefix = activeTransferCount > 1 ? $"{activeTransferCount} transfers • " : string.Empty;
+            return $"{prefix}{action} {job.DisplayName}{detail}";
+        }
+
+        private static string BuildCompletedTransferStatus(TransferJob job)
+        {
+            return job.State switch
+            {
+                TransferState.Completed => $"{(job.Direction == TransferDirection.Upload ? "Uploaded" : "Downloaded")} {job.DisplayName}",
+                TransferState.Canceled => $"{(job.Direction == TransferDirection.Upload ? "Upload" : "Download")} canceled",
+                TransferState.Failed when !string.IsNullOrWhiteSpace(job.LastError) => $"Transfer failed: {job.LastError}",
+                TransferState.Failed => "Transfer failed",
+                _ => "Transfer updated"
+            };
         }
 
         private void UpdateForwardingStatus()

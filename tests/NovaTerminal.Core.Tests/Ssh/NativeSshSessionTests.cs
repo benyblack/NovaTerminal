@@ -214,6 +214,16 @@ public sealed class NativeSshSessionTests
             return new IntPtr(_nextHandle++);
         }
 
+        public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(NativeSshConnectionOptions connectionOptions, string remotePath, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
         public NativeSshEvent? PollEvent(IntPtr sessionHandle)
         {
             if (sessionHandle == IntPtr.Zero)

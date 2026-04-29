@@ -128,6 +128,16 @@ public sealed class JumpHostConnectPlanTests
             return new IntPtr(1);
         }
 
+        public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(NativeSshConnectionOptions connectionOptions, string remotePath, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
         public NativeSshEvent? PollEvent(IntPtr sessionHandle) => NativeSshEvent.Closed();
 
         public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data)

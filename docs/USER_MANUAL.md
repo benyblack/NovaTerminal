@@ -85,6 +85,20 @@ Access the following commands via the palette to transfer files and folders betw
 
 *(Note: SFTP commands only function when the active pane is an SSH session).*
 
+Transfer behavior depends on the SSH backend:
+
+- **OpenSSH profiles** use the system `scp` executable.
+- **Native SSH profiles** use NovaTerminal's built-in native SFTP path for file and folder upload/download.
+
+Current Native SSH transfer notes:
+
+- Transfers use the native backend's known-hosts store and do not silently fall back to OpenSSH.
+- Password and identity-file authentication are supported for non-interactive transfers.
+- The transfer dialog offers remote path autocomplete when the same profile already has an active Native SSH session.
+- Single-file transfers show live byte progress when the total size is known.
+- Folder transfers report per-file progress callbacks; they do not show a precomputed total for the entire tree.
+- Cancellation is supported from the Transfer Center for native transfers.
+
 ---
 
 ## 5. Terminal Engine & UI Behavior

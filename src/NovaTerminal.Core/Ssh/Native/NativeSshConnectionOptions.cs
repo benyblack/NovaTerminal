@@ -13,7 +13,9 @@ public sealed class NativeSshConnectionOptions
     public int Cols { get; init; } = 120;
     public int Rows { get; init; } = 30;
     public string Term { get; init; } = "xterm-256color";
+    public string? Password { get; init; }
     public string? IdentityFilePath { get; init; }
+    public string? KnownHostsFilePath { get; init; }
     public SshJumpHop? JumpHost { get; init; }
     public int KeepAliveIntervalSeconds { get; init; } = DefaultKeepAliveIntervalSeconds;
     public int KeepAliveCountMax { get; init; } = DefaultKeepAliveCountMax;
