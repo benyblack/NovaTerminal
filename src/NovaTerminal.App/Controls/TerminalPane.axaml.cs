@@ -417,7 +417,17 @@ namespace NovaTerminal.Controls
                 CommandAssistInfrastructure.GetErrorInsightService(),
                 modeRouter: null,
                 resultBuilder: null,
-                action => Dispatcher.UIThread.Post(action));
+                action =>
+                {
+                    if (Dispatcher.UIThread.CheckAccess())
+                    {
+                        action();
+                    }
+                    else
+                    {
+                        Dispatcher.UIThread.Post(action);
+                    }
+                });
 
             BindCommandAssistViews(_commandAssistController.ViewModel);
 
