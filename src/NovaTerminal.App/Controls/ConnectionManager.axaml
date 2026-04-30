@@ -92,23 +92,58 @@
                                     </ItemsControl>
 
                                     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
-                                        <Button Content="⭐" Width="30" Tag="{Binding}" ToolTip.Tip="Toggle favorite" Click="OnFavoriteClick" />
-                                        <Button Width="30" Height="24" Padding="2" Background="Transparent" BorderThickness="0" ToolTip.Tip="Edit connection" Tag="{Binding}" Click="OnEditClick">
+                                        <Button Content="⭐"
+                                                Width="32"
+                                                Height="32"
+                                                Padding="0"
+                                                HorizontalContentAlignment="Center"
+                                                VerticalContentAlignment="Center"
+                                                Tag="{Binding}"
+                                                ToolTip.Tip="Toggle favorite"
+                                                Click="OnFavoriteClick" />
+                                        <Button Width="32"
+                                                Height="32"
+                                                Padding="0"
+                                                HorizontalContentAlignment="Center"
+                                                VerticalContentAlignment="Center"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                ToolTip.Tip="Edit connection"
+                                                Tag="{Binding}"
+                                                Click="OnEditClick">
                                             <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"
-                                                      Width="12"
-                                                      Height="12"
+                                                      Width="14"
+                                                      Height="14"
                                                       Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
                                         </Button>
-                                        <Button Width="30" Height="24" Padding="2" Background="Transparent" BorderThickness="0" ToolTip.Tip="Copy launch command" Tag="{Binding}" Click="OnCopyCommandClick">
-                                            <PathIcon Data="M19,21H9A2,2 0 0,1 7,19V7H9V19H19M16,3A2,2 0 0,1 18,5V15A2,2 0 0,1 16,17H12A2,2 0 0,1 10,15V5A2,2 0 0,1 12,3H16Z"
-                                                      Width="12"
-                                                      Height="12"
+                                        <Button Width="32"
+                                                Height="32"
+                                                Padding="0"
+                                                HorizontalContentAlignment="Center"
+                                                VerticalContentAlignment="Center"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                ToolTip.Tip="Copy launch command"
+                                                Tag="{Binding}"
+                                                Click="OnCopyCommandClick">
+                                            <PathIcon Data="M16,19H8A2,2 0 0,1 6,17V7H8V17H16M18,5A2,2 0 0,1 20,7V15A2,2 0 0,1 18,17H11A2,2 0 0,1 9,15V7A2,2 0 0,1 11,5H18M18,7H11V15H18V7Z"
+                                                      Width="14"
+                                                      Height="14"
                                                       Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
                                         </Button>
-                                        <Button Width="30" Height="24" Padding="2" Background="Transparent" BorderThickness="0" ToolTip.Tip="Connection details" Tag="{Binding}" Click="OnDetailsClick">
+                                        <Button Width="32"
+                                                Height="32"
+                                                Padding="0"
+                                                HorizontalContentAlignment="Center"
+                                                VerticalContentAlignment="Center"
+                                                Background="Transparent"
+                                                BorderThickness="0"
+                                                ToolTip.Tip="Connection details"
+                                                Tag="{Binding}"
+                                                Click="OnDetailsClick">
                                             <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"
-                                                      Width="12"
-                                                      Height="12"
+                                                      Width="14"
+                                                      Height="14"
                                                       Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
                                         </Button>
                                     </StackPanel>
