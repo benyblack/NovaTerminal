@@ -45,6 +45,11 @@ namespace NovaTerminal.Controls
         Close
     }
 
+    public readonly record struct SidebarTransferRequest(
+        TransferDirection Direction,
+        TransferKind Kind,
+        string RemotePath);
+
     public partial class TerminalPane : UserControl, IDisposable
     {
         public ITerminalSession? Session { get; private set; }
@@ -56,6 +61,7 @@ namespace NovaTerminal.Controls
         public Guid PaneId { get; set; } = Guid.NewGuid();
 
         public event Action<TerminalPane, TransferDirection, TransferKind>? RequestSftpTransfer;
+        public event Action<TerminalPane, SidebarTransferRequest>? RequestRemoteFilesSidebarTransfer;
         public event Action<bool>? RecordingStateChanged;
         public event Action<TerminalPane, string>? WorkingDirectoryChanged;
         public event Action<TerminalPane, string>? TitleChanged;
@@ -418,17 +424,17 @@ namespace NovaTerminal.Controls
             {
                 if (RemoteFilesSidebarHost.FindControl<Button>("BtnUploadFile") is Button uploadFileButton)
                 {
-                    uploadFileButton.Click += (_, _) => RequestSftpTransfer?.Invoke(this, TransferDirection.Upload, TransferKind.File);
+                    uploadFileButton.Click += (_, _) => RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind.File);
                 }
 
                 if (RemoteFilesSidebarHost.FindControl<Button>("BtnUploadFolder") is Button uploadFolderButton)
                 {
-                    uploadFolderButton.Click += (_, _) => RequestSftpTransfer?.Invoke(this, TransferDirection.Upload, TransferKind.Folder);
+                    uploadFolderButton.Click += (_, _) => RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind.Folder);
                 }
 
                 if (RemoteFilesSidebarHost.FindControl<Button>("BtnDownloadSelected") is Button downloadSelectedButton)
                 {
-                    downloadSelectedButton.Click += (_, _) => RequestRemoteFilesSidebarDownload();
+                    downloadSelectedButton.Click += (_, _) => RequestRemoteFilesSidebarTransferForSelectedEntry();
                 }
             }
 
@@ -575,7 +581,7 @@ namespace NovaTerminal.Controls
             UpdateRemoteFilesSidebarEntryPointState();
         }
 
-        private void RequestRemoteFilesSidebarDownload()
+        private void RequestRemoteFilesSidebarTransferForSelectedEntry()
         {
             if (_remoteFilesSidebarViewModel?.SelectedEntry is not { } selectedEntry)
             {
@@ -585,7 +591,31 @@ namespace NovaTerminal.Controls
             TransferKind kind = selectedEntry.IsDirectory
                 ? TransferKind.Folder
                 : TransferKind.File;
-            RequestSftpTransfer?.Invoke(this, TransferDirection.Download, kind);
+            RequestRemoteFilesSidebarTransfer?.Invoke(
+                this,
+                new SidebarTransferRequest(
+                    TransferDirection.Download,
+                    kind,
+                    selectedEntry.FullPath));
+        }
+
+        private void RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind kind)
+        {
+            string remoteDirectory = _remoteFilesSidebarViewModel?.CurrentPath
+                ?? CurrentWorkingDirectory
+                ?? Profile?.DefaultRemoteDir
+                ?? "~";
+            if (string.IsNullOrWhiteSpace(remoteDirectory))
+            {
+                return;
+            }
+
+            RequestRemoteFilesSidebarTransfer?.Invoke(
+                this,
+                new SidebarTransferRequest(
+                    TransferDirection.Upload,
+                    kind,
+                    remoteDirectory));
         }
 
         private void InitializeCommandAssist()

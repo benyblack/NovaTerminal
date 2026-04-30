@@ -10,6 +10,7 @@ public sealed class TransferDialogRequest
     public string RemotePath { get; init; } = string.Empty;
     public Guid ProfileId { get; init; }
     public Guid SessionId { get; init; }
+    public bool PreferLocalPathOnOpen { get; init; }
 
     public static TransferDialogRequest ForAction(
         TransferDirection direction,
@@ -24,7 +25,26 @@ public sealed class TransferDialogRequest
             Kind = kind,
             RemotePath = defaultRemotePath,
             ProfileId = profileId,
-            SessionId = sessionId
+            SessionId = sessionId,
+            PreferLocalPathOnOpen = false
+        };
+    }
+
+    public static TransferDialogRequest ForSidebarAction(
+        TransferDirection direction,
+        TransferKind kind,
+        string remotePath,
+        Guid profileId,
+        Guid sessionId)
+    {
+        return new TransferDialogRequest
+        {
+            Direction = direction,
+            Kind = kind,
+            RemotePath = remotePath,
+            ProfileId = profileId,
+            SessionId = sessionId,
+            PreferLocalPathOnOpen = true
         };
     }
 }

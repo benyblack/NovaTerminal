@@ -2168,6 +2168,7 @@ namespace NovaTerminal
         {
             pane.SshInteractionHandler = _sshInteractionService;
             pane.RequestSftpTransfer -= OnPaneRequestSftpTransfer;
+            pane.RequestRemoteFilesSidebarTransfer -= OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
             pane.TitleChanged -= OnPaneTitleChanged;
             pane.PaneActionRequested -= OnPaneActionRequested;
@@ -2178,6 +2179,7 @@ namespace NovaTerminal
             pane.ProcessExited -= OnPaneProcessExited;
 
             pane.RequestSftpTransfer += OnPaneRequestSftpTransfer;
+            pane.RequestRemoteFilesSidebarTransfer += OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged += OnPaneWorkingDirectoryChanged;
             pane.TitleChanged += OnPaneTitleChanged;
             pane.PaneActionRequested += OnPaneActionRequested;
@@ -2191,6 +2193,7 @@ namespace NovaTerminal
         private void UnwirePane(TerminalPane pane)
         {
             pane.RequestSftpTransfer -= OnPaneRequestSftpTransfer;
+            pane.RequestRemoteFilesSidebarTransfer -= OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
             pane.TitleChanged -= OnPaneTitleChanged;
             pane.PaneActionRequested -= OnPaneActionRequested;
@@ -2204,6 +2207,11 @@ namespace NovaTerminal
         private void OnPaneRequestSftpTransfer(TerminalPane srcPane, TransferDirection direction, TransferKind kind)
         {
             _ = InitiateSftpTransfer(srcPane, direction, kind);
+        }
+
+        private void OnPaneRequestRemoteFilesSidebarTransfer(TerminalPane srcPane, SidebarTransferRequest request)
+        {
+            _ = InitiateSidebarSftpTransfer(srcPane, request.Direction, request.Kind, request.RemotePath);
         }
 
         private void OnPaneWorkingDirectoryChanged(TerminalPane srcPane, string cwd)
@@ -3595,6 +3603,36 @@ namespace NovaTerminal
             return InitiateSftpTransferAsync(profile, sessionId, direction, kind);
         }
 
+        internal Task StartSidebarDownloadForTest(
+            TerminalProfile profile,
+            Guid sessionId,
+            string selectedRemotePath,
+            TransferKind kind)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+            return InitiateSidebarSftpTransferAsync(
+                profile,
+                sessionId,
+                TransferDirection.Download,
+                kind,
+                selectedRemotePath);
+        }
+
+        internal Task StartSidebarUploadForTest(
+            TerminalProfile profile,
+            Guid sessionId,
+            string remoteDirectory,
+            TransferKind kind)
+        {
+            ArgumentNullException.ThrowIfNull(profile);
+            return InitiateSidebarSftpTransferAsync(
+                profile,
+                sessionId,
+                TransferDirection.Upload,
+                kind,
+                remoteDirectory);
+        }
+
         private async Task InitiateSftpTransferAsync(
             TerminalProfile profile,
             Guid sessionId,
@@ -3605,6 +3643,59 @@ namespace NovaTerminal
                 direction,
                 kind,
                 profile.DefaultRemoteDir ?? "~",
+                profile.Id,
+                sessionId);
+
+            TransferDialogResult? result = await ShowTransferDialogAsync(request);
+            if (result is not { IsConfirmed: true })
+            {
+                return;
+            }
+
+            var job = new TransferJob
+            {
+                SessionId = sessionId,
+                ProfileId = profile.Id,
+                ProfileName = profile.Name,
+                Direction = direction,
+                Kind = kind,
+                LocalPath = result.LocalPath,
+                RemotePath = result.RemotePath
+            };
+
+            EnqueueTransferJob(job);
+        }
+
+        private Task InitiateSidebarSftpTransfer(
+            TerminalPane srcPane,
+            TransferDirection direction,
+            TransferKind kind,
+            string remotePath)
+        {
+            if (srcPane.Profile == null || srcPane.Session == null)
+            {
+                return Task.CompletedTask;
+            }
+
+            return InitiateSidebarSftpTransferAsync(
+                srcPane.Profile,
+                srcPane.Session.Id,
+                direction,
+                kind,
+                remotePath);
+        }
+
+        private async Task InitiateSidebarSftpTransferAsync(
+            TerminalProfile profile,
+            Guid sessionId,
+            TransferDirection direction,
+            TransferKind kind,
+            string remotePath)
+        {
+            var request = TransferDialogRequest.ForSidebarAction(
+                direction,
+                kind,
+                remotePath,
                 profile.Id,
                 sessionId);
 
