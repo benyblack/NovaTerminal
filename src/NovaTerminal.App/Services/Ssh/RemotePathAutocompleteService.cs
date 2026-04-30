@@ -42,61 +42,26 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
             return [];
         }
 
-        if (!_sessionRegistry.TryGet(sessionId, out ActiveSshSessionDescriptor? descriptor) ||
-            descriptor is null ||
-            descriptor.ProfileId != profileId ||
-            descriptor.BackendKind != SshBackendKind.Native)
-        {
-            return [];
-        }
-
         cancellationToken.ThrowIfCancellationRequested();
 
         try
         {
-            SshConnectionService sshService = _sshServiceFactory();
-            TerminalProfile? profile = sshService.GetConnectionProfile(profileId);
-            if (profile == null || profile.SshBackendKind != SshBackendKind.Native)
+            if (!RemoteDirectoryBrowserService.TryCreateNativeListingConnection(
+                    profileId,
+                    sessionId,
+                    _sessionRegistry,
+                    _sshServiceFactory,
+                    _passwordResolver,
+                    out NativeSshConnectionOptions? connectionOptions,
+                    out _))
             {
                 return [];
             }
 
             RemotePathAutocompleteQuery query = RemotePathAutocompleteQuery.Parse(input);
-            NativeSshConnectionOptions baseOptions = SftpService.BuildNativeTransferConnectionOptions(
-                sshService,
-                profile,
-                sshService.GetConnectionProfiles());
-            bool prefersIdentityFile = !string.IsNullOrWhiteSpace(baseOptions.IdentityFilePath);
-            string? resolvedPassword = prefersIdentityFile
-                ? null
-                : (_sessionRegistry.TryGetRuntimePassword(sessionId, out string? runtimePassword)
-                    ? runtimePassword
-                    : _passwordResolver(profile));
-            var connectionOptions = new NativeSshConnectionOptions
-            {
-                Host = baseOptions.Host,
-                Port = baseOptions.Port,
-                User = baseOptions.User,
-                Cols = baseOptions.Cols,
-                Rows = baseOptions.Rows,
-                Term = baseOptions.Term,
-                Password = string.IsNullOrWhiteSpace(resolvedPassword) ? null : resolvedPassword,
-                IdentityFilePath = baseOptions.IdentityFilePath,
-                KnownHostsFilePath = string.IsNullOrWhiteSpace(baseOptions.KnownHostsFilePath)
-                    ? AppPaths.NativeKnownHostsFilePath
-                    : baseOptions.KnownHostsFilePath,
-                JumpHost = baseOptions.JumpHost == null
-                    ? null
-                    : new SshJumpHop
-                    {
-                        Host = baseOptions.JumpHost.Host,
-                        User = baseOptions.JumpHost.User,
-                        Port = baseOptions.JumpHost.Port
-                    }
-            };
 
             IReadOnlyList<NativeRemotePathEntry> entries = await BackgroundWork.RunBlockingAsync(
-                token => _nativeInterop.ListRemoteDirectory(connectionOptions, query.ParentPath, token),
+                token => _nativeInterop.ListRemoteDirectory(connectionOptions!, query.ParentPath, token),
                 cancellationToken);
 
             return RemotePathAutocompleteQuery.Rank(
