@@ -60,24 +60,29 @@ public partial class RemoteFilesSidebar : UserControl
         await ViewModel.JumpToCurrentDirectoryAsync();
     }
 
-    private async void RemoteEntriesList_DoubleTapped(object? sender, RoutedEventArgs e)
+    private void RemoteEntriesList_DoubleTapped(object? sender, RoutedEventArgs e)
     {
-        await NavigateIntoSelectedDirectoryAsync();
+        StartDirectoryNavigation();
     }
 
-    private async void RemoteEntriesList_KeyDown(object? sender, KeyEventArgs e)
+    private void RemoteEntriesList_KeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key != Key.Enter)
         {
             return;
         }
 
-        await NavigateIntoSelectedDirectoryAsync();
         e.Handled = true;
+        StartDirectoryNavigation();
     }
 
     private Task NavigateIntoSelectedDirectoryAsync()
     {
         return ViewModel?.NavigateIntoSelectedDirectoryAsync() ?? Task.CompletedTask;
+    }
+
+    private void StartDirectoryNavigation()
+    {
+        _ = NavigateIntoSelectedDirectoryAsync();
     }
 }

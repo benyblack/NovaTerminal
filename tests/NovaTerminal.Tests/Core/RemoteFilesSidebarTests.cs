@@ -60,15 +60,85 @@ public sealed class RemoteFilesSidebarTests
     }
 
     [AvaloniaFact]
-    public async Task ActivatingSelectedDirectory_NavigatesIntoDirectory()
+    public async Task NavigationButtons_AreDisabled_WhileLoading()
     {
+        var service = new ControlledRemoteDirectoryBrowserService();
         var viewModel = new RemoteFilesSidebarViewModel(
-            new FakeRemoteDirectoryBrowserService(
-                RemoteSidebarListingResult.Success("/srv", new[]
-                {
-                    new RemoteSidebarEntry("logs", "/srv/logs", true)
-                }),
-                RemoteSidebarListingResult.Success("/srv/logs", Array.Empty<RemoteSidebarEntry>())));
+            service);
+        var control = new RemoteFilesSidebar
+        {
+            DataContext = viewModel
+        };
+
+        Button navigateUpButton = control.FindControl<Button>("BtnNavigateUp")!;
+        Button refreshButton = control.FindControl<Button>("BtnRefresh")!;
+        Button jumpToCwdButton = control.FindControl<Button>("BtnJumpToCwd")!;
+
+        Task openTask = viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+        await service.WaitForRequestAsync("/srv");
+        viewModel.SetJumpToCurrentDirectoryCandidate("/srv/api");
+
+        Assert.True(viewModel.IsLoading);
+        Assert.False(navigateUpButton.IsEffectivelyEnabled);
+        Assert.False(refreshButton.IsEffectivelyEnabled);
+        Assert.False(jumpToCwdButton.IsEffectivelyEnabled);
+
+        service.CompletePending("/srv", RemoteSidebarListingResult.Success("/srv", Array.Empty<RemoteSidebarEntry>()));
+        await openTask;
+    }
+
+    [AvaloniaFact]
+    public async Task EnterActivation_HandlesKeyEvent_BeforeAsyncNavigationCompletes()
+    {
+        var service = new ControlledRemoteDirectoryBrowserService();
+        service.EnqueueImmediate("/srv", RemoteSidebarListingResult.Success("/srv", new[]
+        {
+            new RemoteSidebarEntry("logs", "/srv/logs", true)
+        }));
+
+        var viewModel = new RemoteFilesSidebarViewModel(service);
+        var control = new RemoteFilesSidebar
+        {
+            DataContext = viewModel
+        };
+
+        bool bubbledToParent = false;
+        control.AddHandler(InputElement.KeyDownEvent, (_, _) => bubbledToParent = true, RoutingStrategies.Bubble);
+
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+
+        ListBox entriesList = control.FindControl<ListBox>("RemoteEntriesList")!;
+        entriesList.SelectedIndex = 0;
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Enter,
+            Source = entriesList
+        };
+
+        entriesList.RaiseEvent(args);
+
+        Assert.True(args.Handled);
+        Assert.False(bubbledToParent);
+        Assert.True(viewModel.IsLoading);
+
+        await service.WaitForRequestAsync("/srv/logs");
+        service.CompletePending("/srv/logs", RemoteSidebarListingResult.Success("/srv/logs", Array.Empty<RemoteSidebarEntry>()));
+        await WaitForConditionAsync(() => viewModel.CurrentPath == "/srv/logs");
+
+        Assert.Equal("/srv/logs", viewModel.CurrentPath);
+    }
+
+    [AvaloniaFact]
+    public async Task DoubleTapActivation_NavigatesIntoDirectory()
+    {
+        var service = new ControlledRemoteDirectoryBrowserService();
+        service.EnqueueImmediate("/srv", RemoteSidebarListingResult.Success("/srv", new[]
+        {
+            new RemoteSidebarEntry("logs", "/srv/logs", true)
+        }));
+
+        var viewModel = new RemoteFilesSidebarViewModel(service);
         var control = new RemoteFilesSidebar
         {
             DataContext = viewModel
@@ -78,14 +148,28 @@ public sealed class RemoteFilesSidebarTests
 
         ListBox entriesList = control.FindControl<ListBox>("RemoteEntriesList")!;
         entriesList.SelectedIndex = 0;
-        entriesList.RaiseEvent(new KeyEventArgs
-        {
-            RoutedEvent = InputElement.KeyDownEvent,
-            Key = Key.Enter,
-            Source = entriesList
-        });
+        entriesList.RaiseEvent(new RoutedEventArgs(InputElement.DoubleTappedEvent));
+
+        await service.WaitForRequestAsync("/srv/logs");
+        service.CompletePending("/srv/logs", RemoteSidebarListingResult.Success("/srv/logs", Array.Empty<RemoteSidebarEntry>()));
+        await WaitForConditionAsync(() => viewModel.CurrentPath == "/srv/logs");
 
         Assert.Equal("/srv/logs", viewModel.CurrentPath);
+    }
+
+    private static async Task WaitForConditionAsync(Func<bool> predicate)
+    {
+        for (int attempt = 0; attempt < 50; attempt++)
+        {
+            if (predicate())
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        Assert.True(predicate(), "Timed out waiting for condition.");
     }
 
     private sealed class FakeRemoteDirectoryBrowserService : IRemoteDirectoryBrowserService
@@ -114,6 +198,94 @@ public sealed class RemoteFilesSidebarTests
             }
 
             return Task.FromResult(_results.Dequeue());
+        }
+    }
+
+    private sealed class ControlledRemoteDirectoryBrowserService : IRemoteDirectoryBrowserService
+    {
+        private readonly Dictionary<string, Queue<TaskCompletionSource<RemoteSidebarListingResult>>> _pendingRequests = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, Queue<RemoteSidebarListingResult>> _immediateResults = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, TaskCompletionSource<object?>> _requestSignals = new(StringComparer.Ordinal);
+
+        public void EnqueueImmediate(string remotePath, RemoteSidebarListingResult result)
+        {
+            if (!_immediateResults.TryGetValue(remotePath, out Queue<RemoteSidebarListingResult>? results))
+            {
+                results = new Queue<RemoteSidebarListingResult>();
+                _immediateResults[remotePath] = results;
+            }
+
+            results.Enqueue(result);
+        }
+
+        public async Task WaitForRequestAsync(string remotePath)
+        {
+            TaskCompletionSource<object?> signal;
+
+            lock (_requestSignals)
+            {
+                if (!_requestSignals.TryGetValue(remotePath, out signal!))
+                {
+                    signal = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _requestSignals[remotePath] = signal;
+                }
+            }
+
+            await signal.Task;
+        }
+
+        public void CompletePending(string remotePath, RemoteSidebarListingResult result)
+        {
+            TaskCompletionSource<RemoteSidebarListingResult> pending;
+
+            lock (_pendingRequests)
+            {
+                pending = _pendingRequests[remotePath].Dequeue();
+            }
+
+            pending.SetResult(result);
+        }
+
+        public Task<RemoteSidebarListingResult> ListDirectoryAsync(
+            Guid profileId,
+            Guid sessionId,
+            string remotePath,
+            CancellationToken cancellationToken)
+        {
+            lock (_requestSignals)
+            {
+                if (_requestSignals.TryGetValue(remotePath, out TaskCompletionSource<object?>? existingSignal))
+                {
+                    existingSignal.TrySetResult(null);
+                }
+                else
+                {
+                    var signal = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    signal.SetResult(null);
+                    _requestSignals[remotePath] = signal;
+                }
+            }
+
+            if (_immediateResults.TryGetValue(remotePath, out Queue<RemoteSidebarListingResult>? immediateResults)
+                && immediateResults.Count > 0)
+            {
+                return Task.FromResult(immediateResults.Dequeue());
+            }
+
+            var pending = new TaskCompletionSource<RemoteSidebarListingResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            lock (_pendingRequests)
+            {
+                if (!_pendingRequests.TryGetValue(remotePath, out Queue<TaskCompletionSource<RemoteSidebarListingResult>>? requests))
+                {
+                    requests = new Queue<TaskCompletionSource<RemoteSidebarListingResult>>();
+                    _pendingRequests[remotePath] = requests;
+                }
+
+                requests.Enqueue(pending);
+            }
+
+            return pending.Task;
         }
     }
 }
