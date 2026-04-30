@@ -11,12 +11,14 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading.Tasks;
+using System.Threading;
 using System.Net.NetworkInformation;
 using System.Linq;
 using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
 using Avalonia.Platform.Storage;
 using System.ComponentModel;
+using System.Reflection;
 using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ViewModels;
@@ -27,7 +29,9 @@ using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Sessions;
+using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;
+using NovaTerminal.ViewModels.Ssh;
 
 namespace NovaTerminal.Controls
 {
@@ -83,6 +87,9 @@ namespace NovaTerminal.Controls
         private int _sshAssistCorrectionPassCount;
         private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
         private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
+        private IRemoteDirectoryBrowserService _remoteDirectoryBrowserService = new RemoteDirectoryBrowserService();
+        private RemoteFilesSidebarViewModel? _remoteFilesSidebarViewModel;
+        private bool _isRemoteFilesSidebarTestServiceConfigured;
         private const double CommandAssistBubbleWidth = 420;
         private const double CommandAssistBubbleHeight = 36;
         private const double CommandAssistPopupWidth = 520;
@@ -173,10 +180,22 @@ namespace NovaTerminal.Controls
             Profile = profile;
             TermView.ShellOverride = profile.ShellOverride;
             UpdateCommandAssistContext();
+            if (!IsRemoteFilesSidebarSupported())
+            {
+                CloseRemoteFilesSidebar();
+            }
+
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarEntryPointState();
         }
 
         public Control ActiveControl => TermView;
         public ISshInteractionHandler? SshInteractionHandler { get; set; }
+
+        public void ToggleRemoteFilesSidebar()
+        {
+            _ = ToggleRemoteFilesSidebarAsync();
+        }
 
         public TerminalPane()
         {
@@ -383,8 +402,190 @@ namespace NovaTerminal.Controls
                 }
             }
 
+            InitializeRemoteFilesSidebar();
+        }
 
+        private void InitializeRemoteFilesSidebar()
+        {
+            SetRemoteFilesSidebarService(_remoteDirectoryBrowserService);
 
+            if (MenuToggleRemoteFilesSidebar != null)
+            {
+                MenuToggleRemoteFilesSidebar.Click += async (_, _) => await ToggleRemoteFilesSidebarAsync();
+            }
+
+            if (RemoteFilesSidebarHost != null)
+            {
+                if (RemoteFilesSidebarHost.FindControl<Button>("BtnUploadFile") is Button uploadFileButton)
+                {
+                    uploadFileButton.Click += (_, _) => RequestSftpTransfer?.Invoke(this, TransferDirection.Upload, TransferKind.File);
+                }
+
+                if (RemoteFilesSidebarHost.FindControl<Button>("BtnUploadFolder") is Button uploadFolderButton)
+                {
+                    uploadFolderButton.Click += (_, _) => RequestSftpTransfer?.Invoke(this, TransferDirection.Upload, TransferKind.Folder);
+                }
+
+                if (RemoteFilesSidebarHost.FindControl<Button>("BtnDownloadSelected") is Button downloadSelectedButton)
+                {
+                    downloadSelectedButton.Click += (_, _) => RequestRemoteFilesSidebarDownload();
+                }
+            }
+
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        private void SetRemoteFilesSidebarService(IRemoteDirectoryBrowserService directoryBrowserService)
+        {
+            ArgumentNullException.ThrowIfNull(directoryBrowserService);
+
+            if (_remoteFilesSidebarViewModel != null)
+            {
+                _remoteFilesSidebarViewModel.PropertyChanged -= OnRemoteFilesSidebarViewModelPropertyChanged;
+            }
+
+            _remoteDirectoryBrowserService = directoryBrowserService;
+            _remoteFilesSidebarViewModel = new RemoteFilesSidebarViewModel(directoryBrowserService);
+            _remoteFilesSidebarViewModel.PropertyChanged += OnRemoteFilesSidebarViewModelPropertyChanged;
+
+            if (RemoteFilesSidebarHost != null)
+            {
+                RemoteFilesSidebarHost.DataContext = _remoteFilesSidebarViewModel;
+            }
+        }
+
+        private void OnRemoteFilesSidebarViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        private bool IsRemoteFilesSidebarSupported()
+        {
+            return Profile?.Type == ConnectionType.SSH &&
+                   Profile.SshBackendKind == SshBackendKind.Native;
+        }
+
+        private void UpdateRemoteFilesSidebarEntryPointState()
+        {
+            if (MenuToggleRemoteFilesSidebar == null)
+            {
+                return;
+            }
+
+            bool isSupported = IsRemoteFilesSidebarSupported();
+            bool isBlockedByAltScreen = Buffer?.IsAltScreenActive == true;
+            MenuToggleRemoteFilesSidebar.IsVisible = isSupported;
+            MenuToggleRemoteFilesSidebar.IsEnabled = isSupported && !isBlockedByAltScreen;
+            MenuToggleRemoteFilesSidebar.Header = _remoteFilesSidebarViewModel?.IsOpen == true
+                ? "Hide Remote Files"
+                : "Remote Files";
+        }
+
+        private void UpdateRemoteFilesSidebarVisibility()
+        {
+            if (RemoteFilesSidebarHost == null)
+            {
+                return;
+            }
+
+            RemoteFilesSidebarHost.IsVisible =
+                _remoteFilesSidebarViewModel?.IsOpen == true &&
+                !(Buffer?.IsAltScreenActive ?? false) &&
+                IsRemoteFilesSidebarSupported();
+        }
+
+        private void UpdateRemoteFilesSidebarCurrentDirectoryState()
+        {
+            if (_remoteFilesSidebarViewModel == null)
+            {
+                return;
+            }
+
+            if (!_remoteFilesSidebarViewModel.IsOpen)
+            {
+                _remoteFilesSidebarViewModel.SetJumpToCurrentDirectoryCandidate(null);
+                return;
+            }
+
+            string? currentWorkingDirectory = string.IsNullOrWhiteSpace(CurrentWorkingDirectory)
+                ? null
+                : CurrentWorkingDirectory.Trim();
+            string? jumpTarget = string.Equals(
+                currentWorkingDirectory,
+                _remoteFilesSidebarViewModel.CurrentPath,
+                StringComparison.Ordinal)
+                ? null
+                : currentWorkingDirectory;
+            _remoteFilesSidebarViewModel.SetJumpToCurrentDirectoryCandidate(jumpTarget);
+        }
+
+        private async Task ToggleRemoteFilesSidebarAsync()
+        {
+            if (_remoteFilesSidebarViewModel == null)
+            {
+                return;
+            }
+
+            if (_remoteFilesSidebarViewModel.IsOpen)
+            {
+                CloseRemoteFilesSidebar();
+                return;
+            }
+
+            if (!IsRemoteFilesSidebarSupported() ||
+                Profile == null ||
+                Session == null ||
+                Session.Id == Guid.Empty ||
+                Buffer?.IsAltScreenActive == true)
+            {
+                return;
+            }
+
+            await OpenRemoteFilesSidebarAsync(Profile.Id, Session.Id);
+        }
+
+        private async Task OpenRemoteFilesSidebarAsync(Guid profileId, Guid sessionId)
+        {
+            if (_remoteFilesSidebarViewModel == null)
+            {
+                return;
+            }
+
+            string startPath = RemoteSidebarStartPathResolver.Resolve(
+                CurrentWorkingDirectory,
+                Profile?.DefaultRemoteDir);
+            await _remoteFilesSidebarViewModel.OpenAsync(
+                profileId,
+                sessionId,
+                startPath,
+                CancellationToken.None);
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        private void CloseRemoteFilesSidebar()
+        {
+            _remoteFilesSidebarViewModel?.Close();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        private void RequestRemoteFilesSidebarDownload()
+        {
+            if (_remoteFilesSidebarViewModel?.SelectedEntry is not { } selectedEntry)
+            {
+                return;
+            }
+
+            TransferKind kind = selectedEntry.IsDirectory
+                ? TransferKind.Folder
+                : TransferKind.File;
+            RequestSftpTransfer?.Invoke(this, TransferDirection.Download, kind);
         }
 
         private void InitializeCommandAssist()
@@ -847,7 +1048,14 @@ namespace NovaTerminal.Controls
 
         private void OnBufferScreenSwitched(bool isAltScreen)
         {
-            Dispatcher.UIThread.Post(() => _commandAssistController?.HandleAltScreenChanged(isAltScreen));
+            Dispatcher.UIThread.Post(() => HandleAltScreenChanged(isAltScreen));
+        }
+
+        private void HandleAltScreenChanged(bool isAltScreen)
+        {
+            _commandAssistController?.HandleAltScreenChanged(isAltScreen);
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
         }
 
         private void OnCommandAssistEnterObserved()
@@ -892,6 +1100,8 @@ namespace NovaTerminal.Controls
 
         private void UpdatePaneContextMenuState()
         {
+            UpdateRemoteFilesSidebarEntryPointState();
+
             if (RootGrid.ContextMenu?.Items is not IEnumerable<object> items)
             {
                 return;
@@ -1042,9 +1252,7 @@ namespace NovaTerminal.Controls
                 _shellLifecycleTracker?.HandleWorkingDirectoryChanged(cwd);
                 Dispatcher.UIThread.Post(() =>
                 {
-                    CurrentWorkingDirectory = cwd;
-                    UpdateCommandAssistContext();
-                    WorkingDirectoryChanged?.Invoke(this, cwd);
+                    HandleWorkingDirectoryChanged(cwd);
                 });
             };
             Parser.OnTitleChanged += title =>
@@ -1109,6 +1317,8 @@ namespace NovaTerminal.Controls
             {
                 RootGrid.ContextMenu = null;
             }
+
+            UpdateRemoteFilesSidebarEntryPointState();
 
             string startingDir = profile?.StartingDirectory ?? "";
             Session = null;
@@ -1231,6 +1441,14 @@ namespace NovaTerminal.Controls
                     Parser.CellHeight = ch;
                 }
             };
+        }
+
+        private void HandleWorkingDirectoryChanged(string cwd)
+        {
+            CurrentWorkingDirectory = cwd;
+            UpdateCommandAssistContext();
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            WorkingDirectoryChanged?.Invoke(this, cwd);
         }
 
 
@@ -1575,6 +1793,8 @@ namespace NovaTerminal.Controls
 
         public void Reconnect()
         {
+            CloseRemoteFilesSidebar();
+
             if (Session != null)
             {
                 ITerminalSession session = Session;
@@ -1596,6 +1816,77 @@ namespace NovaTerminal.Controls
             return session == null || !session.IsProcessRunning;
         }
 
+        internal void ConfigureRemoteFilesSidebarForTest(IRemoteDirectoryBrowserService directoryBrowserService)
+        {
+            _isRemoteFilesSidebarTestServiceConfigured = true;
+            SetRemoteFilesSidebarService(directoryBrowserService);
+            UpdateRemoteFilesSidebarCurrentDirectoryState();
+            UpdateRemoteFilesSidebarVisibility();
+            UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        internal void ShowRemoteFilesSidebarForTest()
+        {
+            if (!_isRemoteFilesSidebarTestServiceConfigured)
+            {
+                ConfigureRemoteFilesSidebarForTest(new TestRemoteDirectoryBrowserService());
+            }
+
+            if (!IsRemoteFilesSidebarSupported())
+            {
+                Profile = new TerminalProfile
+                {
+                    Name = "Test Native SSH",
+                    Type = ConnectionType.SSH,
+                    SshBackendKind = SshBackendKind.Native,
+                    SshHost = "test.example",
+                    SshUser = "nova"
+                };
+            }
+
+            OpenRemoteFilesSidebarAsync(Profile?.Id ?? Guid.NewGuid(), Session?.Id ?? Guid.NewGuid())
+                .GetAwaiter()
+                .GetResult();
+        }
+
+        internal void HandleAltScreenChangedForTest(bool isAltScreen)
+        {
+            if (Buffer != null)
+            {
+                FieldInfo? field = typeof(TerminalBuffer).GetField("_isAltScreen", BindingFlags.Instance | BindingFlags.NonPublic);
+                field?.SetValue(Buffer, isAltScreen);
+            }
+
+            HandleAltScreenChanged(isAltScreen);
+        }
+
+        internal void HandleWorkingDirectoryChangedForTest(string cwd)
+        {
+            HandleWorkingDirectoryChanged(cwd);
+        }
+
+        internal bool IsRemoteFilesSidebarVisibleForTest()
+        {
+            return RemoteFilesSidebarHost?.IsVisible == true;
+        }
+
+        internal bool IsRemoteFilesSidebarEntryAvailableForTest()
+        {
+            UpdateRemoteFilesSidebarEntryPointState();
+            return MenuToggleRemoteFilesSidebar?.IsVisible == true &&
+                   MenuToggleRemoteFilesSidebar.IsEnabled;
+        }
+
+        internal string GetRemoteFilesSidebarCurrentPathForTest()
+        {
+            return _remoteFilesSidebarViewModel?.CurrentPath ?? string.Empty;
+        }
+
+        internal string? GetRemoteFilesSidebarJumpTargetForTest()
+        {
+            return _remoteFilesSidebarViewModel?.JumpToCurrentDirectoryPath;
+        }
+
         internal void HandleSessionExitForTesting(int code)
         {
             HandleSessionExit(Session, code);
@@ -1612,6 +1903,7 @@ namespace NovaTerminal.Controls
 
             if (Profile?.Type == ConnectionType.SSH)
             {
+                CloseRemoteFilesSidebar();
                 WriteSshDisconnectedBanner(code);
             }
 
@@ -1654,6 +1946,8 @@ namespace NovaTerminal.Controls
 
         public void Dispose()
         {
+            CloseRemoteFilesSidebar();
+
             if (Buffer != null)
             {
                 Buffer.OnScreenSwitched -= OnBufferScreenSwitched;
@@ -2030,5 +2324,20 @@ namespace NovaTerminal.Controls
             double BubbleHeight,
             double PopupWidth,
             double PopupHeight);
+
+        private sealed class TestRemoteDirectoryBrowserService : IRemoteDirectoryBrowserService
+        {
+            public Task<RemoteSidebarListingResult> ListDirectoryAsync(
+                Guid profileId,
+                Guid sessionId,
+                string remotePath,
+                CancellationToken cancellationToken)
+            {
+                string resolvedPath = string.IsNullOrWhiteSpace(remotePath) ? "~" : remotePath;
+                return Task.FromResult(RemoteSidebarListingResult.Success(
+                    resolvedPath,
+                    Array.Empty<RemoteSidebarEntry>()));
+            }
+        }
     }
 }
