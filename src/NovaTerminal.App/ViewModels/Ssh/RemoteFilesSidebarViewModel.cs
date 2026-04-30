@@ -14,6 +14,7 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
 {
     private readonly IRemoteDirectoryBrowserService _directoryBrowserService;
     private readonly Stack<string> _backStack = new();
+    private readonly HashSet<long> _pendingLoadVersions = new();
     private Guid _profileId;
     private Guid _sessionId;
     private bool _isOpen;
@@ -23,6 +24,8 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
     private string? _jumpToCurrentDirectoryPath;
     private RemoteFilesSidebarEntryViewModel? _selectedEntry;
     private string? _errorMessage;
+    private long _latestRequestedLoadVersion;
+    private long _nextLoadVersion;
 
     public RemoteFilesSidebarViewModel(IRemoteDirectoryBrowserService directoryBrowserService)
     {
@@ -94,17 +97,19 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
         _profileId = profileId;
         _sessionId = sessionId;
         _backStack.Clear();
+        InvalidatePendingLoads();
         OnPropertyChanged(nameof(CanNavigateBack));
         IsDisconnected = false;
         IsOpen = true;
         JumpToCurrentDirectoryPath = null;
 
-        await LoadDirectoryAsync(initialPath, pushCurrentPathToBackStack: false, cancellationToken).ConfigureAwait(false);
+        await LoadDirectoryAsync(initialPath, BackStackMutation.None, backStackPath: null, cancellationToken);
     }
 
     public void Close()
     {
         _backStack.Clear();
+        InvalidatePendingLoads();
         OnPropertyChanged(nameof(CanNavigateBack));
         Entries.Clear();
         SelectedEntry = null;
@@ -123,7 +128,7 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
             return Task.CompletedTask;
         }
 
-        return LoadDirectoryAsync(CurrentPath, pushCurrentPathToBackStack: false, cancellationToken);
+        return LoadDirectoryAsync(CurrentPath, BackStackMutation.None, backStackPath: null, cancellationToken);
     }
 
     public Task NavigateIntoSelectedDirectoryAsync(CancellationToken cancellationToken = default)
@@ -133,7 +138,11 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
             return Task.CompletedTask;
         }
 
-        return LoadDirectoryAsync(SelectedEntry.FullPath, pushCurrentPathToBackStack: true, cancellationToken);
+        return LoadDirectoryAsync(
+            SelectedEntry.FullPath,
+            BackStackMutation.Push,
+            backStackPath: CurrentPath,
+            cancellationToken);
     }
 
     public Task NavigateUpAsync(CancellationToken cancellationToken = default)
@@ -144,7 +153,11 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
             return Task.CompletedTask;
         }
 
-        return LoadDirectoryAsync(parentPath, pushCurrentPathToBackStack: true, cancellationToken);
+        return LoadDirectoryAsync(
+            parentPath,
+            BackStackMutation.Push,
+            backStackPath: CurrentPath,
+            cancellationToken);
     }
 
     public Task NavigateBackAsync(CancellationToken cancellationToken = default)
@@ -154,9 +167,12 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
             return Task.CompletedTask;
         }
 
-        string previousPath = _backStack.Pop();
-        OnPropertyChanged(nameof(CanNavigateBack));
-        return LoadDirectoryAsync(previousPath, pushCurrentPathToBackStack: false, cancellationToken);
+        string previousPath = _backStack.Peek();
+        return LoadDirectoryAsync(
+            previousPath,
+            BackStackMutation.PopOnSuccess,
+            backStackPath: previousPath,
+            cancellationToken);
     }
 
     public Task JumpToCurrentDirectoryAsync(CancellationToken cancellationToken = default)
@@ -166,7 +182,11 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
             return Task.CompletedTask;
         }
 
-        return LoadDirectoryAsync(JumpToCurrentDirectoryPath, pushCurrentPathToBackStack: true, cancellationToken);
+        return LoadDirectoryAsync(
+            JumpToCurrentDirectoryPath,
+            BackStackMutation.Push,
+            backStackPath: CurrentPath,
+            cancellationToken);
     }
 
     public void SetJumpToCurrentDirectoryCandidate(string? remotePath)
@@ -178,36 +198,79 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
 
     public void MarkDisconnected()
     {
+        InvalidatePendingLoads();
         IsDisconnected = true;
         IsLoading = false;
     }
 
     private async Task LoadDirectoryAsync(
         string remotePath,
-        bool pushCurrentPathToBackStack,
+        BackStackMutation backStackMutation,
+        string? backStackPath,
         CancellationToken cancellationToken)
     {
-        string previousPath = CurrentPath;
-        IsLoading = true;
-        IsDisconnected = false;
+        long loadVersion = BeginLoad();
 
         try
         {
             RemoteSidebarListingResult result = await _directoryBrowserService
-                .ListDirectoryAsync(_profileId, _sessionId, remotePath, cancellationToken)
-                .ConfigureAwait(false);
+                .ListDirectoryAsync(_profileId, _sessionId, remotePath, cancellationToken);
 
-            if (pushCurrentPathToBackStack && !string.IsNullOrWhiteSpace(previousPath))
+            if (loadVersion != _latestRequestedLoadVersion || !IsOpen)
             {
-                _backStack.Push(previousPath);
-                OnPropertyChanged(nameof(CanNavigateBack));
+                return;
             }
 
+            ApplyBackStackMutation(backStackMutation, backStackPath, result.IsSuccess);
             ApplyListingResult(result);
         }
         finally
         {
-            IsLoading = false;
+            EndLoad(loadVersion);
+        }
+    }
+
+    private long BeginLoad()
+    {
+        long loadVersion = ++_nextLoadVersion;
+        _latestRequestedLoadVersion = loadVersion;
+        _pendingLoadVersions.Add(loadVersion);
+        IsLoading = true;
+        IsDisconnected = false;
+        return loadVersion;
+    }
+
+    private void EndLoad(long loadVersion)
+    {
+        _pendingLoadVersions.Remove(loadVersion);
+        IsLoading = _pendingLoadVersions.Count > 0;
+    }
+
+    private void ApplyBackStackMutation(
+        BackStackMutation mutation,
+        string? backStackPath,
+        bool isSuccess)
+    {
+        if (!isSuccess || string.IsNullOrWhiteSpace(backStackPath))
+        {
+            return;
+        }
+
+        switch (mutation)
+        {
+            case BackStackMutation.Push:
+                _backStack.Push(backStackPath);
+                OnPropertyChanged(nameof(CanNavigateBack));
+                break;
+
+            case BackStackMutation.PopOnSuccess:
+                if (_backStack.Count > 0 && string.Equals(_backStack.Peek(), backStackPath, StringComparison.Ordinal))
+                {
+                    _backStack.Pop();
+                    OnPropertyChanged(nameof(CanNavigateBack));
+                }
+
+                break;
         }
     }
 
@@ -267,5 +330,19 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+
+    private void InvalidatePendingLoads()
+    {
+        _latestRequestedLoadVersion = ++_nextLoadVersion;
+        _pendingLoadVersions.Clear();
+        IsLoading = false;
+    }
+
+    private enum BackStackMutation
+    {
+        None = 0,
+        Push = 1,
+        PopOnSuccess = 2
     }
 }
