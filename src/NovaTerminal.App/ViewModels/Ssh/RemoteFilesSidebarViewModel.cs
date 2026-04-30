@@ -37,19 +37,39 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
     public bool IsOpen
     {
         get => _isOpen;
-        private set => SetField(ref _isOpen, value);
+        private set
+        {
+            if (SetField(ref _isOpen, value))
+            {
+                OnPropertyChanged(nameof(CanInteractWithRemote));
+                OnPropertyChanged(nameof(CanDownloadSelected));
+            }
+        }
     }
 
     public bool IsLoading
     {
         get => _isLoading;
-        private set => SetField(ref _isLoading, value);
+        private set
+        {
+            if (SetField(ref _isLoading, value))
+            {
+                OnPropertyChanged(nameof(CanInteractWithRemote));
+            }
+        }
     }
 
     public bool IsDisconnected
     {
         get => _isDisconnected;
-        private set => SetField(ref _isDisconnected, value);
+        private set
+        {
+            if (SetField(ref _isDisconnected, value))
+            {
+                OnPropertyChanged(nameof(CanInteractWithRemote));
+                OnPropertyChanged(nameof(CanDownloadSelected));
+            }
+        }
     }
 
     public string CurrentPath
@@ -78,7 +98,9 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool CanDownloadSelected => SelectedEntry is not null;
+    public bool CanInteractWithRemote => IsOpen && !IsDisconnected && !IsLoading;
+
+    public bool CanDownloadSelected => SelectedEntry is not null && IsOpen && !IsDisconnected;
 
     public bool CanNavigateBack => _backStack.Count > 0;
 
@@ -199,6 +221,9 @@ public sealed class RemoteFilesSidebarViewModel : INotifyPropertyChanged
     public void MarkDisconnected()
     {
         InvalidatePendingLoads();
+        JumpToCurrentDirectoryPath = null;
+        SelectedEntry = null;
+        ErrorMessage = "SSH session disconnected.";
         IsDisconnected = true;
         IsLoading = false;
     }

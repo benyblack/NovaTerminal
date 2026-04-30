@@ -30,7 +30,7 @@
             <Grid Grid.Row="1"
                   ColumnDefinitions="Auto,Auto,Auto,*"
                   ColumnSpacing="6"
-                  IsEnabled="{Binding !IsLoading}">
+                  IsEnabled="{Binding CanInteractWithRemote}">
                 <Button Name="BtnNavigateBack"
                         Content="Back"
                         Padding="10,4"
@@ -55,7 +55,7 @@
                     HorizontalAlignment="Left"
                     Content="Jump to Current Directory"
                     Padding="10,4"
-                    IsEnabled="{Binding !IsLoading}"
+                    IsEnabled="{Binding CanInteractWithRemote}"
                     IsVisible="{Binding JumpToCurrentDirectoryPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                     Click="JumpToCwd_Click"/>
 
@@ -64,7 +64,7 @@
                      Background="#16181C"
                      BorderBrush="#2A2F35"
                      BorderThickness="1"
-                     IsEnabled="{Binding !IsLoading}"
+                     IsEnabled="{Binding CanInteractWithRemote}"
                      ItemsSource="{Binding Entries}"
                      SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
                      DoubleTapped="RemoteEntriesList_DoubleTapped"
@@ -96,12 +96,12 @@
                     <Button Name="BtnUploadFile"
                             Content="Upload File"
                             Padding="10,4"
-                            IsEnabled="{Binding IsOpen}"/>
+                            IsEnabled="{Binding CanInteractWithRemote}"/>
                     <Button Name="BtnUploadFolder"
                             Grid.Column="1"
                             Content="Upload Folder"
                             Padding="10,4"
-                            IsEnabled="{Binding IsOpen}"/>
+                            IsEnabled="{Binding CanInteractWithRemote}"/>
                     <Button Name="BtnDownloadSelected"
                             Grid.Column="2"
                             HorizontalAlignment="Stretch"

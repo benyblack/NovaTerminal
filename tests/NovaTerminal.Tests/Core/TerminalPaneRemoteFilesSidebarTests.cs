@@ -120,6 +120,30 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
         Assert.Equal(new[] { "~/downloads" }, service.RequestedPaths);
     }
 
+    [AvaloniaFact]
+    public void SessionExit_KeepsSidebarVisibleInDisconnectedState()
+    {
+        var pane = new TerminalPane(new TerminalProfile
+        {
+            Name = "Native SSH",
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "server.example",
+            SshUser = "nova",
+            DefaultRemoteDir = "~/downloads"
+        });
+
+        pane.ConfigureRemoteFilesSidebarForTest(new RecordingRemoteDirectoryBrowserService(
+            RemoteSidebarListingResult.Success("~/downloads", Array.Empty<RemoteSidebarEntry>())));
+        pane.ShowRemoteFilesSidebarForTest();
+
+        pane.HandleSessionExitForTesting(255);
+
+        Assert.True(pane.IsRemoteFilesSidebarVisibleForTest());
+        Assert.True(pane.IsRemoteFilesSidebarDisconnectedForTest());
+        Assert.False(pane.IsRemoteFilesSidebarEntryAvailableForTest());
+    }
+
     private sealed class RecordingRemoteDirectoryBrowserService : IRemoteDirectoryBrowserService
     {
         private readonly Queue<RemoteSidebarListingResult> _results;

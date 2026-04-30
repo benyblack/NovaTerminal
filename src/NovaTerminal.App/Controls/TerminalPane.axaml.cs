@@ -484,9 +484,12 @@ namespace NovaTerminal.Controls
 
             bool isSupported = IsRemoteFilesSidebarSupported();
             bool isBlockedByAltScreen = Buffer?.IsAltScreenActive == true;
+            bool isSidebarOpen = _remoteFilesSidebarViewModel?.IsOpen == true;
+            bool isSidebarDisconnected = _remoteFilesSidebarViewModel?.IsDisconnected == true;
+            bool canOpen = (isSidebarOpen && !isSidebarDisconnected) || Session?.IsProcessRunning == true;
             MenuToggleRemoteFilesSidebar.IsVisible = isSupported;
-            MenuToggleRemoteFilesSidebar.IsEnabled = isSupported && !isBlockedByAltScreen;
-            MenuToggleRemoteFilesSidebar.Header = _remoteFilesSidebarViewModel?.IsOpen == true
+            MenuToggleRemoteFilesSidebar.IsEnabled = isSupported && !isBlockedByAltScreen && canOpen;
+            MenuToggleRemoteFilesSidebar.Header = isSidebarOpen
                 ? "Hide Remote Files"
                 : "Remote Files";
         }
@@ -1917,6 +1920,11 @@ namespace NovaTerminal.Controls
             return _remoteFilesSidebarViewModel?.JumpToCurrentDirectoryPath;
         }
 
+        internal bool IsRemoteFilesSidebarDisconnectedForTest()
+        {
+            return _remoteFilesSidebarViewModel?.IsDisconnected == true;
+        }
+
         internal void HandleSessionExitForTesting(int code)
         {
             HandleSessionExit(Session, code);
@@ -1933,7 +1941,13 @@ namespace NovaTerminal.Controls
 
             if (Profile?.Type == ConnectionType.SSH)
             {
-                CloseRemoteFilesSidebar();
+                if (_remoteFilesSidebarViewModel?.IsOpen == true)
+                {
+                    _remoteFilesSidebarViewModel.MarkDisconnected();
+                    UpdateRemoteFilesSidebarVisibility();
+                    UpdateRemoteFilesSidebarEntryPointState();
+                }
+
                 WriteSshDisconnectedBanner(code);
             }
 

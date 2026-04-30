@@ -145,6 +145,28 @@ public sealed class RemoteFilesSidebarViewModelTests
     }
 
     [Fact]
+    public async Task MarkDisconnected_KeepsSidebarOpenButDisablesTransferActions()
+    {
+        var service = new FakeRemoteDirectoryBrowserService("/srv", new[]
+        {
+            new RemoteSidebarEntry("logs", "/srv/logs", true)
+        });
+
+        var viewModel = new RemoteFilesSidebarViewModel(service);
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+        viewModel.SelectedEntry = Assert.Single(viewModel.Entries);
+
+        viewModel.MarkDisconnected();
+
+        Assert.True(viewModel.IsOpen);
+        Assert.True(viewModel.IsDisconnected);
+        Assert.False(viewModel.CanInteractWithRemote);
+        Assert.False(viewModel.CanDownloadSelected);
+        Assert.Null(viewModel.SelectedEntry);
+        Assert.Equal("SSH session disconnected.", viewModel.ErrorMessage);
+    }
+
+    [Fact]
     public async Task LaterLoadCompletion_WinsOverEarlierStaleCompletion()
     {
         var service = new ControlledRemoteDirectoryBrowserService();
