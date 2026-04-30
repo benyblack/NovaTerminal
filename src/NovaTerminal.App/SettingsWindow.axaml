@@ -34,7 +34,7 @@
                         <StackPanel>
                             <TextBlock Text="Font Family" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
                             <ComboBox Name="FontList" HorizontalAlignment="Stretch">
-                                <ComboBoxItem>Consolas</ComboBoxItem>
+                                <ComboBoxItem>Cascadia Mono PL</ComboBoxItem>
                                 <ComboBoxItem>JetBrains Mono</ComboBoxItem>
                             </ComboBox>
                         </StackPanel>
@@ -353,7 +353,7 @@
                             <StackPanel Orientation="Horizontal" Spacing="10">
                                 <CheckBox Name="CheckOverrideFont" Content="Font" VerticalAlignment="Center"/>
                                 <ComboBox Name="OverrideFontList" Width="200" IsEnabled="{Binding #CheckOverrideFont.IsChecked}">
-                                    <ComboBoxItem>Consolas</ComboBoxItem>
+                                    <ComboBoxItem>Cascadia Mono PL</ComboBoxItem>
                                     <ComboBoxItem>JetBrains Mono</ComboBoxItem>
                                 </ComboBox>
                             </StackPanel>

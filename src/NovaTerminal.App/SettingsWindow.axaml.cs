@@ -622,7 +622,7 @@ namespace NovaTerminal
                 {
                     if (fontList.SelectedItem is ComboBoxItem item && item.Content != null)
                     {
-                        OnFontChanged?.Invoke(item.Content.ToString() ?? "Consolas");
+                        OnFontChanged?.Invoke(item.Content.ToString() ?? BundledFontCatalog.DefaultTerminalFontFamily);
                     }
                 };
             }
@@ -781,8 +781,9 @@ namespace NovaTerminal
             if (fontList != null) fontList.Items.Clear();
             if (overrideFontList != null) overrideFontList.Items.Clear();
 
-            var fonts = SkiaSharp.SKFontManager.Default.FontFamilies
-                .OrderBy(f => f)
+            var fonts = BuildFontFamilyChoices(
+                    SkiaSharp.SKFontManager.Default.FontFamilies,
+                    _selectedProfile?.FontFamily ?? _settings.FontFamily)
                 .Select(f => new ComboBoxItem { Content = f })
                 .ToList();
 
@@ -792,6 +793,24 @@ namespace NovaTerminal
                 // Create a separate instance for the second list to avoid visual tree parenting issues
                 if (overrideFontList != null) overrideFontList.Items.Add(new ComboBoxItem { Content = f.Content });
             }
+        }
+
+        internal static System.Collections.Generic.List<string> BuildFontFamilyChoices(
+            System.Collections.Generic.IEnumerable<string> systemFonts,
+            string? configuredFontFamily)
+        {
+            var names = new System.Collections.Generic.SortedSet<string>(
+                systemFonts?.Where(f => !string.IsNullOrWhiteSpace(f)) ?? System.Array.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+
+            names.Add(BundledFontCatalog.DefaultTerminalFontFamily);
+
+            if (!string.IsNullOrWhiteSpace(configuredFontFamily))
+            {
+                names.Add(configuredFontFamily);
+            }
+
+            return names.ToList();
         }
 
         private void PopulateThemes()
@@ -1333,7 +1352,7 @@ namespace NovaTerminal
             if (commandAssistToggle != null) _settings.CommandAssistEnabled = commandAssistToggle.IsChecked == true;
 
             if (fontList?.SelectedItem is ComboBoxItem fontItem)
-                _settings.FontFamily = fontItem.Content?.ToString() ?? "Consolas";
+                _settings.FontFamily = fontItem.Content?.ToString() ?? BundledFontCatalog.DefaultTerminalFontFamily;
 
             if (themeList?.SelectedItem is ComboBoxItem themeItem)
                 _settings.ThemeName = themeItem.Content?.ToString() ?? "Default";

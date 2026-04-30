@@ -11,7 +11,7 @@ namespace NovaTerminal.Core
 
         public double FontSize { get; set; } = 14;
         public int MaxHistory { get; set; } = 10000;
-        public string FontFamily { get; set; } = "Consolas";
+        public string FontFamily { get; set; } = BundledFontCatalog.DefaultTerminalFontFamily;
         public string ThemeName { get; set; } = "Default";
         public double WindowOpacity { get; set; } = 1.0;
         public string BlurEffect { get; set; } = "Acrylic";
@@ -101,12 +101,17 @@ namespace NovaTerminal.Core
         public static TerminalSettings Load()
         {
             AppPaths.EnsureInitialized();
+            return LoadFromPath(SettingsPath);
+        }
+
+        internal static TerminalSettings LoadFromPath(string settingsPath)
+        {
             TerminalSettings settings;
-            if (File.Exists(SettingsPath))
+            if (File.Exists(settingsPath))
             {
                 try
                 {
-                    string json = File.ReadAllText(SettingsPath);
+                    string json = File.ReadAllText(settingsPath);
                     settings = JsonSerializer.Deserialize(json, AppJsonContext.Default.TerminalSettings) ?? new TerminalSettings();
                 }
                 catch
