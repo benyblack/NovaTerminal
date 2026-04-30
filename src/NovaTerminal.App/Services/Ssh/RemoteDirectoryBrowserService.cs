@@ -138,6 +138,8 @@ public sealed class RemoteDirectoryBrowserService : IRemoteDirectoryBrowserServi
                 Cols = baseOptions.Cols,
                 Rows = baseOptions.Rows,
                 Term = baseOptions.Term,
+                KeepAliveIntervalSeconds = baseOptions.KeepAliveIntervalSeconds,
+                KeepAliveCountMax = baseOptions.KeepAliveCountMax,
                 Password = string.IsNullOrWhiteSpace(resolvedPassword) ? null : resolvedPassword,
                 IdentityFilePath = baseOptions.IdentityFilePath,
                 KnownHostsFilePath = string.IsNullOrWhiteSpace(baseOptions.KnownHostsFilePath)
@@ -165,9 +167,7 @@ public sealed class RemoteDirectoryBrowserService : IRemoteDirectoryBrowserServi
 
     private static string NormalizeRemotePath(string remotePath)
     {
-        return string.IsNullOrWhiteSpace(remotePath)
-            ? "~"
-            : remotePath.Trim();
+        return string.IsNullOrWhiteSpace(remotePath) ? "~" : remotePath;
     }
 
     private static string GetErrorMessage(Exception ex, string fallback)

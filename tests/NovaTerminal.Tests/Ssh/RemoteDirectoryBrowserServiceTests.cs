@@ -113,6 +113,53 @@ public sealed class RemoteDirectoryBrowserServiceTests
         Assert.Equal("~", interop.LastRemotePath);
     }
 
+    [Fact]
+    public async Task ListDirectoryAsync_WhenRemotePathIsNonBlank_PreservesOriginalWhitespace()
+    {
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+        var interop = new RecordingNativeSshInterop(
+            new[]
+            {
+                new NativeRemotePathEntry("logs", "/srv/logs", true)
+            });
+        const string remotePath = "  /srv/app  ";
+        var service = CreateService(registry, interop, CreateSshService(profileId));
+
+        RemoteSidebarListingResult result = await service.ListDirectoryAsync(profileId, sessionId, remotePath, CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(remotePath, result.ResolvedPath);
+        Assert.Equal(remotePath, interop.LastRemotePath);
+    }
+
+    [Fact]
+    public async Task ListDirectoryAsync_PropagatesKeepAliveSettings_ToNativeListingConnection()
+    {
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+        var interop = new RecordingNativeSshInterop(
+            new[]
+            {
+                new NativeRemotePathEntry("logs", "/srv/logs", true)
+            });
+        var service = CreateService(
+            registry,
+            interop,
+            CreateSshService(profileId, keepAliveIntervalSeconds: 45, keepAliveCountMax: 6));
+
+        RemoteSidebarListingResult result = await service.ListDirectoryAsync(profileId, sessionId, "/srv", CancellationToken.None);
+
+        Assert.True(result.IsSuccess);
+        Assert.NotNull(interop.LastConnectionOptions);
+        Assert.Equal(45, interop.LastConnectionOptions!.KeepAliveIntervalSeconds);
+        Assert.Equal(6, interop.LastConnectionOptions.KeepAliveCountMax);
+    }
+
     private static RemoteDirectoryBrowserService CreateService(
         ActiveSshSessionRegistry registry,
         INativeSshInterop interop,
@@ -126,7 +173,10 @@ public sealed class RemoteDirectoryBrowserServiceTests
             passwordResolver);
     }
 
-    private static SshConnectionService CreateSshService(Guid profileId)
+    private static SshConnectionService CreateSshService(
+        Guid profileId,
+        int keepAliveIntervalSeconds = 30,
+        int keepAliveCountMax = 3)
     {
         var store = new TestSshProfileStore();
         store.SaveProfile(new SshProfile
@@ -137,7 +187,9 @@ public sealed class RemoteDirectoryBrowserServiceTests
             Host = "prod.internal",
             User = "ops",
             Port = 2200,
-            AuthMode = SshAuthMode.Default
+            AuthMode = SshAuthMode.Default,
+            ServerAliveIntervalSeconds = keepAliveIntervalSeconds,
+            ServerAliveCountMax = keepAliveCountMax
         });
 
         return new SshConnectionService(store);
