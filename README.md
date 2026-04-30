@@ -162,8 +162,24 @@ graph TD
 
 Prerequisites:
 
-- .NET 10 SDK
-- Rust toolchain (`rustup`, `cargo`) for native PTY builds
+- .NET 10 SDK. The solution targets `net10.0`.
+- Rust stable toolchain installed via `rustup`. Both native crates use Rust edition 2024, so `rustc` and `cargo` must be on `PATH`.
+- macOS: Xcode Command Line Tools (`xcode-select --install`) so Cargo has an available system linker.
+- Windows: Rust's default `stable-x86_64-pc-windows-msvc` toolchain expects the MSVC build tools to be installed.
+
+Verify the toolchain before building:
+
+```bash
+dotnet --version
+rustc --version
+cargo --version
+```
+
+Notes:
+
+- `dotnet build` for `src/NovaTerminal.App` triggers `cargo build --release` for the native PTY and native SSH libraries automatically.
+- The CLI project references the app project, so `dotnet build` and `dotnet test` both require the Rust toolchain unless you explicitly set `SKIP_RUST_NATIVE_BUILD=1` for a downstream job that already has the native artifacts.
+- If a clean clone fails during Cargo's `build-script-build` step on macOS, first confirm `rustc`/`cargo` are installed and that Xcode Command Line Tools are available. If the failure happened after a partial build, remove `src/NovaTerminal.App/native/target` and `src/NovaTerminal.App/native/rusty_ssh/target` and retry.
 
 Build:
 
@@ -179,7 +195,7 @@ dotnet test -c Release --no-build --filter "Category!=Replay&Category!=RenderMet
 ```
 
 Use `ci/run.sh` (Linux/macOS) or `ci/run.ps1` (Windows) for the full local
-CI-style sequence.
+CI-style sequence. Both scripts assume the .NET and Rust toolchains are already installed.
 
 ### Native AOT publish
 

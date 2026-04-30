@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -e
 
+echo "=== TOOLING ==="
+dotnet --info
+rustc --version
+cargo --version
+
 echo "=== CLEAN ==="
 dotnet clean
 
