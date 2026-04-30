@@ -76,6 +76,11 @@ public sealed class SshInteractionService : ISshInteractionService
     private async Task<SshInteractionResponse> HandlePasswordAsync(Window? owner, SshInteractionRequest request, CancellationToken cancellationToken)
     {
         SshInteractionResponse response = await _authPresenter(owner, CreatePasswordViewModel(request), cancellationToken);
+        if (request.SessionId.HasValue && !response.IsCanceled && !string.IsNullOrEmpty(response.Secret))
+        {
+            ActiveSshSessionRegistry.Instance.SetRuntimePassword(request.SessionId.Value, response.Secret);
+        }
+
         if (ShouldStorePasswordInVault(request, response))
         {
             _vaultService.SetSshPasswordForProfile(CreateVaultProfile(request), response.Secret);
@@ -87,8 +92,21 @@ public sealed class SshInteractionService : ISshInteractionService
     private bool TryHandlePasswordFromVault(SshInteractionRequest request, out SshInteractionResponse response)
     {
         if (request.Kind != SshInteractionKind.Password ||
-            !request.ProfileId.HasValue ||
-            !request.AllowVaultPasswordReuse)
+            !request.ProfileId.HasValue)
+        {
+            response = SshInteractionResponse.Cancel();
+            return false;
+        }
+
+        if (request.SessionId.HasValue &&
+            ActiveSshSessionRegistry.Instance.TryGetRuntimePassword(request.SessionId.Value, out string? runtimePassword) &&
+            !string.IsNullOrEmpty(runtimePassword))
+        {
+            response = SshInteractionResponse.FromSecret(runtimePassword);
+            return true;
+        }
+
+        if (!request.AllowVaultPasswordReuse)
         {
             response = SshInteractionResponse.Cancel();
             return false;

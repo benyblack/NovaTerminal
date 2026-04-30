@@ -1,0 +1,269 @@
+using NovaTerminal.Core.Ssh.Native;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+
+namespace NovaTerminal.Core.Tests.Ssh;
+
+public sealed class NativeSftpTransferInteropTests
+{
+    [Fact]
+    public void ProgressPayload_AllowsKnownTotalAndCurrentPath()
+    {
+        NativeSftpTransferProgress progress = new()
+        {
+            BytesDone = 128,
+            BytesTotal = 1024,
+            CurrentPath = "/tmp/report.txt"
+        };
+
+        Assert.Equal(128, progress.BytesDone);
+        Assert.Equal(1024, progress.BytesTotal);
+        Assert.Equal("/tmp/report.txt", progress.CurrentPath);
+    }
+
+    [Fact]
+    public void NativeSshInterop_ForwardsNativeSftpProgressCallbackToManagedProgressHandler()
+    {
+        Action<NativeSftpTransferProgress>? managedProgress = null;
+        NativeSftpTransferProgress? observed = null;
+        managedProgress = progress => observed = progress;
+
+        using NativeSftpTransferProgressCallbackDataHandle nativeProgress = new(128, 1024, "/tmp/report.txt");
+        MethodInfo? forwardMethod = typeof(NativeSshInterop)
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .SingleOrDefault(static method =>
+            {
+                ParameterInfo[] parameters = method.GetParameters();
+                return method.ReturnType == typeof(void)
+                    && parameters.Length == 2
+                    && parameters[0].ParameterType == typeof(Action<NativeSftpTransferProgress>)
+                    && parameters[1].ParameterType == typeof(NativeSftpTransferProgressCallbackData);
+            });
+
+        Assert.True(
+            forwardMethod is not null,
+            "Expected a nonpublic static native SFTP progress translator with signature (Action<NativeSftpTransferProgress>, NativeSftpTransferProgressCallbackData).");
+
+        forwardMethod!.Invoke(null, [managedProgress, nativeProgress.Data]);
+
+        Assert.NotNull(observed);
+        Assert.Equal(128, observed!.BytesDone);
+        Assert.Equal(1024, observed.BytesTotal);
+        Assert.Equal("/tmp/report.txt", observed.CurrentPath);
+    }
+
+    [Fact]
+    public void NativeProgressCallback_TranslatesPayloadToManagedProgress()
+    {
+        NativeSftpTransferProgress? observed = null;
+        MethodInfo? helperMethod = typeof(NativeSshInterop).GetMethod(
+            "InvokeManagedProgressCallbackForTest",
+            BindingFlags.Static | BindingFlags.NonPublic);
+
+        Assert.True(
+            helperMethod is not null,
+            "Expected NativeSshInterop to expose a nonpublic static InvokeManagedProgressCallbackForTest helper.");
+
+        helperMethod!.Invoke(null, [new Action<NativeSftpTransferProgress>(progress => observed = progress), 512UL, 2048UL, "/tmp/archive.tar"]);
+
+        Assert.NotNull(observed);
+        Assert.Equal(512, observed!.BytesDone);
+        Assert.Equal(2048, observed.BytesTotal);
+        Assert.Equal("/tmp/archive.tar", observed.CurrentPath);
+    }
+
+    [Fact]
+    public void NativeProgressCallback_DelegateAbi_IsNestedInsideNativeSshInterop()
+    {
+        Type? nestedDelegate = typeof(NativeSshInterop).GetNestedType(
+            "NativeSftpTransferProgressCallback",
+            BindingFlags.NonPublic);
+        Type? topLevelDelegate = typeof(INativeSshInterop).Assembly.GetType(
+            "NovaTerminal.Core.Ssh.Native.NativeSftpTransferProgressCallback",
+            throwOnError: false,
+            ignoreCase: false);
+
+        Assert.NotNull(nestedDelegate);
+        Assert.True(typeof(MulticastDelegate).IsAssignableFrom(nestedDelegate));
+        Assert.Null(topLevelDelegate);
+    }
+
+    [Fact]
+    public void TransferOptions_RequireLocalAndRemotePaths()
+    {
+        NativeSftpTransferOptions options = new()
+        {
+            Direction = NativeSftpTransferDirection.Download,
+            Kind = NativeSftpTransferKind.File
+        };
+
+        Assert.Throws<ArgumentException>(() => options.Validate());
+    }
+
+    [Fact]
+    public void TransferOptions_AcceptExplicitLocalAndRemotePaths()
+    {
+        NativeSftpTransferOptions options = new()
+        {
+            Direction = NativeSftpTransferDirection.Upload,
+            Kind = NativeSftpTransferKind.Directory,
+            LocalPath = @"C:\downloads\logs",
+            RemotePath = "/var/tmp/logs"
+        };
+
+        options.Validate();
+
+        Assert.Equal(NativeSftpTransferDirection.Upload, options.Direction);
+        Assert.Equal(NativeSftpTransferKind.Directory, options.Kind);
+        Assert.Equal(@"C:\downloads\logs", options.LocalPath);
+        Assert.Equal("/var/tmp/logs", options.RemotePath);
+    }
+
+    [Fact]
+    public void SerializeSftpTransferRequest_UsesGeneratedMetadataAndCamelCasePayload()
+    {
+        NativeSshConnectionOptions connectionOptions = new()
+        {
+            Host = "example.com",
+            User = "nova",
+            Port = 2222,
+            Password = "secret",
+            KnownHostsFilePath = @"C:\known-hosts.json",
+            JumpHost = new NovaTerminal.Core.Ssh.Models.SshJumpHop
+            {
+                Host = "jump.internal",
+                User = "jumper",
+                Port = 2200
+            }
+        };
+        NativeSftpTransferOptions transferOptions = new()
+        {
+            Direction = NativeSftpTransferDirection.Download,
+            Kind = NativeSftpTransferKind.File,
+            LocalPath = @"C:\downloads\movie.mkv",
+            RemotePath = "/mnt/box1/media/movies/Movie Name/movie.mkv"
+        };
+
+        string json = NativeSshInterop.SerializeSftpTransferRequestForTests(connectionOptions, transferOptions);
+
+        Assert.Contains("\"connection\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"transfer\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"knownHostsFilePath\":\"C:\\\\known-hosts.json\"", json, StringComparison.Ordinal);
+        Assert.Contains("\"jumpHost\":", json, StringComparison.Ordinal);
+        Assert.Contains("\"remotePath\":\"/mnt/box1/media/movies/Movie Name/movie.mkv\"", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeserializeSftpTransferResponse_UsesGeneratedMetadata()
+    {
+        const string responseJson = "{\"status\":\"error\",\"message\":\"authentication failed\"}";
+
+        string? message = NativeSshInterop.DeserializeSftpTransferResponseMessageForTests(responseJson);
+
+        Assert.Equal("authentication failed", message);
+    }
+
+    [Fact]
+    public void RunSftpTransfer_RequiresKnownHostsStorePath()
+    {
+        INativeSshInterop interop = new NativeSshInterop();
+        NativeSshConnectionOptions connectionOptions = new()
+        {
+            Host = "example.com",
+            User = "nova"
+        };
+        NativeSftpTransferOptions transferOptions = new()
+        {
+            Direction = NativeSftpTransferDirection.Download,
+            Kind = NativeSftpTransferKind.File,
+            LocalPath = @"C:\downloads\report.txt",
+            RemotePath = "/tmp/report.txt"
+        };
+
+        Action act = () => interop.RunSftpTransfer(
+            connectionOptions,
+            transferOptions,
+            progress: null,
+            CancellationToken.None);
+
+        ArgumentException ex = Assert.Throws<ArgumentException>(act);
+
+        Assert.Contains("known-hosts", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RunSftpTransfer_ReturnsClearErrorForUnsupportedModes()
+    {
+        INativeSshInterop interop = new NativeSshInterop();
+        NativeSshConnectionOptions connectionOptions = new()
+        {
+            Host = "example.com",
+            User = "nova",
+            Password = "secret",
+            KnownHostsFilePath = @"C:\known-hosts.json"
+        };
+        NativeSftpTransferOptions transferOptions = new()
+        {
+            Direction = (NativeSftpTransferDirection)99,
+            Kind = NativeSftpTransferKind.Directory,
+            LocalPath = @"C:\downloads\report.txt",
+            RemotePath = "/tmp/report.txt"
+        };
+
+        Action act = () => interop.RunSftpTransfer(
+            connectionOptions,
+            transferOptions,
+            progress: null,
+            CancellationToken.None);
+
+        ArgumentOutOfRangeException ex = Assert.Throws<ArgumentOutOfRangeException>(act);
+
+        Assert.Contains("direction", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void CleanupCancellationMarker_DisposesRegistrationBeforeDeletingMarker()
+    {
+        string markerPath = Path.Combine(Path.GetTempPath(), $"nova-sftp-test-{Guid.NewGuid():N}.signal");
+        File.WriteAllText(markerPath, string.Empty);
+
+        using CancellationTokenSource cts = new();
+        CancellationTokenRegistration registration = cts.Token.Register(() =>
+        {
+            File.WriteAllText(markerPath, "canceled");
+        });
+
+        NativeSshInterop.CleanupCancellationMarkerForTests(ref registration, markerPath);
+        cts.Cancel();
+
+        Assert.False(File.Exists(markerPath));
+    }
+
+    private sealed class NativeSftpTransferProgressCallbackDataHandle : IDisposable
+    {
+        private IntPtr currentPath;
+
+        public NativeSftpTransferProgressCallbackDataHandle(ulong bytesDone, ulong bytesTotal, string currentPath)
+        {
+            this.currentPath = Marshal.StringToCoTaskMemUTF8(currentPath);
+            Data = new NativeSftpTransferProgressCallbackData
+            {
+                BytesDone = bytesDone,
+                BytesTotal = bytesTotal,
+                CurrentPath = this.currentPath
+            };
+        }
+
+        public NativeSftpTransferProgressCallbackData Data { get; }
+
+        public void Dispose()
+        {
+            if (currentPath != IntPtr.Zero)
+            {
+                Marshal.FreeCoTaskMem(currentPath);
+                currentPath = IntPtr.Zero;
+            }
+        }
+    }
+}

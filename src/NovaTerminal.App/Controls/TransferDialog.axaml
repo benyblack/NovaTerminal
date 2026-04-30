@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:NovaTerminal.Controls"
+        x:Class="NovaTerminal.Controls.TransferDialog"
+        Width="560"
+        Height="280"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner"
+        Title="Transfer">
+    <Border Background="#252526" BorderBrush="#333333" BorderThickness="1" Padding="16">
+        <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto" ColumnDefinitions="Auto,*,Auto">
+            <TextBlock Grid.ColumnSpan="3"
+                       Text="Transfer"
+                       Foreground="White"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,12"/>
+
+            <TextBlock Grid.Row="1"
+                       Text="Remote"
+                       Foreground="#D0D0D0"
+                       VerticalAlignment="Center"
+                       Margin="0,0,12,0"/>
+            <controls:RemotePathTextBox Name="RemotePathInput"
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        Margin="0,0,8,0"/>
+
+            <TextBlock Grid.Row="2"
+                       Text="Local"
+                       Foreground="#D0D0D0"
+                       VerticalAlignment="Center"
+                       Margin="0,12,12,0"/>
+            <TextBox Name="LocalPathBox"
+                     Grid.Row="2"
+                     Grid.Column="1"
+                     Margin="0,12,8,0"/>
+            <Button Name="BtnBrowseLocal"
+                    Grid.Row="2"
+                    Grid.Column="2"
+                    Content="Browse..."
+                    Margin="0,12,0,0"
+                    MinWidth="88"/>
+
+            <TextBlock Name="ValidationMessage"
+                       Grid.Row="3"
+                       Grid.ColumnSpan="3"
+                       Foreground="#F14C4C"
+                       Margin="0,12,0,0"
+                       TextWrapping="Wrap"/>
+
+            <StackPanel Grid.Row="4"
+                        Grid.ColumnSpan="3"
+                        Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Spacing="10"
+                        Margin="0,20,0,0">
+                <Button Name="BtnTransferCancel"
+                        Content="Cancel"
+                        MinWidth="88"/>
+                <Button Name="BtnTransferConfirm"
+                        Content="Start Transfer"
+                        MinWidth="110"
+                        Background="#007ACC"
+                        Foreground="White"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

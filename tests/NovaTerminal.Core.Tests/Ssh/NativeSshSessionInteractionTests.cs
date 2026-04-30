@@ -172,6 +172,16 @@ public sealed class NativeSshSessionInteractionTests
 
         public IntPtr Connect(NativeSshConnectionOptions options) => new(1);
 
+        public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(NativeSshConnectionOptions connectionOptions, string remotePath, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
         public NativeSshEvent? PollEvent(IntPtr sessionHandle)
         {
             PollCallCount++;

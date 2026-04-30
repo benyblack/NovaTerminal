@@ -505,7 +505,7 @@ namespace NovaTerminal.Core
             }
         }
         // Keep primary font deterministic and monospace-first for box-drawing stability.
-        private const string FontFamilyList = "Cascadia Mono, JetBrains Mono, DejaVu Sans Mono, Consolas, MesloLGS NF, MesloLGM Nerd Font, Fira Code, Monospace";
+        private static readonly string FontFamilyList = $"{BundledFontCatalog.DefaultTerminalFontFamily}, Cascadia Mono, JetBrains Mono, DejaVu Sans Mono, Consolas, MesloLGS NF, MesloLGM Nerd Font, Fira Code, Monospace";
         private Typeface _typeface = new Typeface(FontFamilyList, FontStyle.Normal, FontWeight.Normal);
         private double _fontSize = 14;
         private CellMetrics _metrics;
@@ -522,12 +522,12 @@ namespace NovaTerminal.Core
         private SharedSKFont? _skFont;
         private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
         private static readonly int[] BoxDrawingProbeCodePoints = { 0x2502, 0x2500, 0x250C, 0x2510, 0x2514, 0x2518, 0x253C };
-        private static readonly string[] PreferredMonospaceFonts = { "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
+        private static readonly string[] PreferredMonospaceFonts = { BundledFontCatalog.DefaultTerminalFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", "Cascadia Code" };
 
         private static readonly string[] FallbackChainNames = {
             "Segoe UI Symbol", "Symbola",                              // Symbols
             "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", // Emojis
-            "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", // Monospace-first
+            BundledFontCatalog.DefaultTerminalFontFamily, "Cascadia Mono", "JetBrains Mono", "DejaVu Sans Mono", "Consolas", // Monospace-first
             "Cascadia Code", "Fira Code", "MesloLGS NF",                        // Alternate symbol sources
             "Courier New", "Monospace"                                 // Last Resort
         };
@@ -543,7 +543,7 @@ namespace NovaTerminal.Core
                 if (_fallbackChainInitialized) return;
                 foreach (var name in FallbackChainNames)
                 {
-                    var tf = SKTypeface.FromFamilyName(name);
+                    var tf = TryCreateTypeface(name);
                     if (tf != null && tf.FamilyName == name)
                     {
                         FallbackChain.Add(tf);
@@ -900,6 +900,12 @@ namespace NovaTerminal.Core
 
         private static SKTypeface? TryCreateTypeface(string family)
         {
+            var bundled = BundledFontCatalog.TryCreateSkTypeface(family);
+            if (bundled != null)
+            {
+                return bundled;
+            }
+
             var tf = SKTypeface.FromFamilyName(family);
             if (tf == null) return null;
             if (string.IsNullOrWhiteSpace(tf.FamilyName))

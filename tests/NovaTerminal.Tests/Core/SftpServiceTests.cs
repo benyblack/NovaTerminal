@@ -1,5 +1,8 @@
+using Avalonia.Headless.XUnit;
 using NovaTerminal.Core;
+using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Core.Ssh.Storage;
 using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Tests.Core;
@@ -20,6 +23,529 @@ public sealed class SftpServiceTests
         {
             Environment.SetEnvironmentVariable(SshAskPassCommand.ModeEnvironmentVariable, previous);
         }
+    }
+
+    [Fact]
+    public void SelectTransferBackend_ForNativeProfile_UsesNativeSftp()
+    {
+        var profile = new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native
+        };
+
+        Assert.Equal(SftpTransferBackend.NativeSftp, SftpService.SelectTransferBackend(profile));
+    }
+
+    [Fact]
+    public void SelectTransferBackend_ForOpenSshProfile_UsesExternalScp()
+    {
+        var profile = new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.OpenSsh
+        };
+
+        Assert.Equal(SftpTransferBackend.ExternalScp, SftpService.SelectTransferBackend(profile));
+    }
+
+    [Fact]
+    public void SelectExecutionBackend_ForNativeFolder_UsesNativeSftp()
+    {
+        var profile = new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native
+        };
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.Folder,
+            LocalPath = @"C:\tmp\folder",
+            RemotePath = "/tmp/folder"
+        };
+
+        Assert.Equal(SftpTransferBackend.NativeSftp, SftpService.SelectExecutionBackend(profile, job));
+    }
+
+    [Fact]
+    public void ExecuteNativeSftpTransfer_UsesVaultPasswordKnownHostsAndInterop()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        var profile = new TerminalProfile
+        {
+            Id = Guid.Parse("01984d8a-2ab0-72c8-b66f-965f8491a6ae"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            SshPort = 2200
+        };
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"C:\tmp\download.txt",
+            RemotePath = "/tmp/download.txt"
+        };
+        var interop = new CapturingNativeSshInterop();
+
+        SftpService.ExecuteNativeSftpTransfer(
+            job,
+            profile,
+            service,
+            allProfiles: null,
+            interop: interop,
+            passwordResolver: static _ => "vault-pass",
+            knownHostsFilePath: @"C:\ssh\native_known_hosts.json");
+
+        Assert.NotNull(interop.ConnectionOptions);
+        Assert.NotNull(interop.TransferOptions);
+        Assert.Equal("prod.internal", interop.ConnectionOptions!.Host);
+        Assert.Equal("ops", interop.ConnectionOptions.User);
+        Assert.Equal(2200, interop.ConnectionOptions.Port);
+        Assert.Equal("vault-pass", interop.ConnectionOptions.Password);
+        Assert.Equal(@"C:\ssh\native_known_hosts.json", interop.ConnectionOptions.KnownHostsFilePath);
+        Assert.Equal(NativeSftpTransferDirection.Download, interop.TransferOptions!.Direction);
+        Assert.Equal(NativeSftpTransferKind.File, interop.TransferOptions.Kind);
+        Assert.Equal(@"C:\tmp\download.txt", interop.TransferOptions.LocalPath);
+        Assert.Equal("/tmp/download.txt", interop.TransferOptions.RemotePath);
+    }
+
+    [Fact]
+    public void ExecuteNativeSftpTransfer_PrefersIdentityFileOverVaultPassword()
+    {
+        Guid profileId = Guid.Parse("01984d8f-4c31-7ae9-b8f2-7de0093b5cf7");
+        var store = new InMemorySshProfileStore();
+        store.SaveProfile(new SshProfile
+        {
+            Id = profileId,
+            Name = "Keyed",
+            BackendKind = SshBackendKind.Native,
+            Host = "prod.internal",
+            User = "ops",
+            Port = 2200,
+            AuthMode = SshAuthMode.IdentityFile,
+            IdentityFilePath = @"C:\keys\id_ed25519"
+        });
+        var service = new SshConnectionService(store);
+        TerminalProfile profile = service.GetConnectionProfiles().Single(connection => connection.Id == profileId);
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Upload,
+            Kind = TransferKind.File,
+            LocalPath = @"C:\tmp\upload.txt",
+            RemotePath = "/tmp/upload.txt"
+        };
+        var interop = new CapturingNativeSshInterop();
+
+        SftpService.ExecuteNativeSftpTransfer(
+            job,
+            profile,
+            service,
+            allProfiles: null,
+            interop: interop,
+            passwordResolver: static _ => "stale-vault-password",
+            knownHostsFilePath: @"C:\ssh\native_known_hosts.json");
+
+        Assert.NotNull(interop.ConnectionOptions);
+        Assert.Equal(@"C:\keys\id_ed25519", interop.ConnectionOptions!.IdentityFilePath);
+        Assert.Null(interop.ConnectionOptions.Password);
+    }
+
+    [Fact]
+    public void ExecuteNativeSftpTransfer_ForwardsCancellationTokenToInterop()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        var profile = new TerminalProfile
+        {
+            Id = Guid.Parse("01984da2-06b2-77a3-b8cd-cad971781eec"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            SshPort = 2200
+        };
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"C:\tmp\download.txt",
+            RemotePath = "/tmp/download.txt"
+        };
+        var interop = new CapturingNativeSshInterop();
+        using var cts = new CancellationTokenSource();
+
+        SftpService.ExecuteNativeSftpTransfer(
+            job,
+            profile,
+            service,
+            allProfiles: null,
+            interop: interop,
+            passwordResolver: static _ => "vault-pass",
+            knownHostsFilePath: @"C:\ssh\native_known_hosts.json",
+            cancellationToken: cts.Token);
+
+        Assert.True(interop.CancellationToken.CanBeCanceled);
+    }
+
+    [Fact]
+    public void ApplyNativeTransferProgress_MapsBytesAndFraction()
+    {
+        var job = new TransferJob();
+        var progress = new NativeSftpTransferProgress
+        {
+            BytesDone = 25,
+            BytesTotal = 100,
+            CurrentPath = "/tmp/file.txt"
+        };
+
+        SftpService.ApplyNativeTransferProgress(job, progress);
+
+        Assert.Equal(25, job.BytesDone);
+        Assert.Equal(100, job.BytesTotal);
+        Assert.Equal(0.25, job.Progress, 3);
+    }
+
+    [Fact]
+    public void ApplyNativeTransferProgress_UpdatesDisplayStateForKnownTotals()
+    {
+        var job = new TransferJob { State = TransferState.Running };
+
+        SftpService.ApplyNativeTransferProgress(job, new NativeSftpTransferProgress
+        {
+            BytesDone = 1024,
+            BytesTotal = 4096,
+            CurrentPath = "/tmp/sample.bin"
+        });
+
+        Assert.Equal(0.25, job.Progress, 3);
+        Assert.False(job.IsProgressIndeterminate);
+        Assert.Contains("25%", job.StatusText, StringComparison.Ordinal);
+
+        SftpService.ApplyNativeTransferProgress(job, new NativeSftpTransferProgress
+        {
+            BytesDone = 3072,
+            BytesTotal = 4096,
+            CurrentPath = "/tmp/sample.bin"
+        });
+
+        Assert.Equal(3072, job.BytesDone);
+        Assert.Equal(4096, job.BytesTotal);
+        Assert.Equal(0.75, job.Progress, 3);
+        Assert.False(job.IsProgressIndeterminate);
+        Assert.Contains("75%", job.StatusText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void MarkJobRunning_TransitionsQueuedJobToRunningImmediately()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.Folder,
+            RemotePath = "/tmp/archive"
+        };
+
+        SftpService.MarkJobRunning(job);
+
+        Assert.Equal(TransferState.Running, job.State);
+        Assert.NotEqual(default, job.StartedAt);
+        Assert.Equal("Transferring...", job.StatusText);
+        Assert.True(job.IsProgressIndeterminate);
+    }
+
+    [Fact]
+    public void MarkJobRunning_DoesNotOverwriteExistingStartTime()
+    {
+        DateTime startedAt = new(2026, 4, 28, 12, 0, 0, DateTimeKind.Local);
+        var job = new TransferJob
+        {
+            State = TransferState.Queued,
+            StartedAt = startedAt
+        };
+
+        SftpService.MarkJobRunning(job);
+
+        Assert.Equal(TransferState.Running, job.State);
+        Assert.Equal(startedAt, job.StartedAt);
+    }
+
+    [Fact]
+    public void BuildNativeTransferOptions_UnescapesShellEscapedRemoteSpaces()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"D:\downloads\Gravity.2013.1080p.Farsi.Dubbed.MegaMoviBot.mkv",
+            RemotePath = "/mnt/box1/media/movies/Gravity\\ 2013/Gravity.2013.1080p.Farsi.Dubbed.MegaMoviBot.mkv"
+        };
+
+        NativeSftpTransferOptions options = SftpService.BuildNativeTransferOptions(job);
+
+        Assert.Equal("/mnt/box1/media/movies/Gravity 2013/Gravity.2013.1080p.Farsi.Dubbed.MegaMoviBot.mkv", options.RemotePath);
+    }
+
+    [Fact]
+    public void BuildNativeTransferOptions_PreservesLiteralBackslashesThatAreNotShellEscapes()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"D:\downloads\sample.txt",
+            RemotePath = "/mnt/share/folder\\backup/sample.txt"
+        };
+
+        NativeSftpTransferOptions options = SftpService.BuildNativeTransferOptions(job);
+
+        Assert.Equal("/mnt/share/folder\\backup/sample.txt", options.RemotePath);
+    }
+
+    [AvaloniaFact]
+    public void ClearInactiveJobs_RemovesFinishedFailedAndCanceledOnly()
+    {
+        var sut = new SftpService(null, null, null);
+        sut.Jobs.Add(new TransferJob { State = TransferState.Running, RemotePath = "/tmp/running" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Completed, RemotePath = "/tmp/completed" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Failed, RemotePath = "/tmp/failed" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Canceled, RemotePath = "/tmp/canceled" });
+
+        sut.ClearInactiveJobs();
+
+        Assert.Single(sut.Jobs);
+        Assert.Equal(TransferState.Running, sut.Jobs[0].State);
+    }
+
+    [AvaloniaFact]
+    public void ClearFailedJobs_RemovesOnlyFailedTransfers()
+    {
+        var sut = new SftpService(null, null, null);
+        sut.Jobs.Add(new TransferJob { State = TransferState.Running, RemotePath = "/tmp/running" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Failed, RemotePath = "/tmp/failed" });
+        sut.Jobs.Add(new TransferJob { State = TransferState.Completed, RemotePath = "/tmp/completed" });
+
+        sut.ClearFailedJobs();
+
+        Assert.Equal(2, sut.Jobs.Count);
+        Assert.DoesNotContain(sut.Jobs, job => job.State == TransferState.Failed);
+        Assert.Contains(sut.Jobs, job => job.State == TransferState.Running);
+        Assert.Contains(sut.Jobs, job => job.State == TransferState.Completed);
+    }
+
+    [AvaloniaFact]
+    public void RemoveJob_RemovesOnlyTheRequestedInactiveTransfer()
+    {
+        var sut = new SftpService(null, null, null);
+        var completed = new TransferJob { Id = Guid.NewGuid(), State = TransferState.Completed, RemotePath = "/tmp/completed" };
+        var failed = new TransferJob { Id = Guid.NewGuid(), State = TransferState.Failed, RemotePath = "/tmp/failed" };
+        var running = new TransferJob { Id = Guid.NewGuid(), State = TransferState.Running, RemotePath = "/tmp/running" };
+        sut.Jobs.Add(completed);
+        sut.Jobs.Add(failed);
+        sut.Jobs.Add(running);
+
+        sut.RemoveJob(failed.Id);
+
+        Assert.Equal(2, sut.Jobs.Count);
+        Assert.Contains(sut.Jobs, job => job.Id == completed.Id);
+        Assert.DoesNotContain(sut.Jobs, job => job.Id == failed.Id);
+        Assert.Contains(sut.Jobs, job => job.Id == running.Id);
+    }
+
+    [AvaloniaFact]
+    public async Task AddJob_FromBackgroundThread_LeavesJobRunningBeforeReturn()
+    {
+        Guid profileId = Guid.Parse("d89c3426-bd78-4b6c-8bf8-3d2810b263c1");
+        var store = new InMemorySshProfileStore();
+        store.SaveProfile(new SshProfile
+        {
+            Id = profileId,
+            Name = "Native",
+            BackendKind = SshBackendKind.Native,
+            Host = "prod.internal",
+            User = "ops",
+            Port = 2200,
+            AuthMode = SshAuthMode.Default
+        });
+        var sshService = new SshConnectionService(store);
+        TerminalProfile profile = sshService.GetConnectionProfiles().Single(connection => connection.Id == profileId);
+        var interop = new BlockingNativeSshInterop();
+        var sut = new SftpService(
+            interop,
+            settingsLoader: () => new TerminalSettings { Profiles = new List<TerminalProfile> { profile } },
+            sshServiceFactory: () => sshService);
+        var job = new TransferJob
+        {
+            SessionId = Guid.NewGuid(),
+            ProfileId = profile.Id,
+            ProfileName = profile.Name,
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            LocalPath = @"C:\tmp\movie.mkv",
+            RemotePath = "/mnt/box/media/movies/movie.mkv"
+        };
+
+        TransferState stateAfterAddReturns = TransferState.Failed;
+        string statusAfterAddReturns = string.Empty;
+
+        await Task.Run(() =>
+        {
+            sut.AddJob(job);
+            stateAfterAddReturns = job.State;
+            statusAfterAddReturns = job.StatusText;
+        });
+
+        Assert.True(interop.Started.Wait(TimeSpan.FromSeconds(2)), "Native transfer worker did not start.");
+        Assert.Equal(TransferState.Running, stateAfterAddReturns);
+        Assert.Equal("Transferring...", statusAfterAddReturns);
+        Assert.Equal(TransferState.Running, job.State);
+
+        interop.Release.Set();
+    }
+
+    [Fact]
+    public void TransferJob_DownloadDisplayName_UsesRemoteLeaf()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.Folder,
+            LocalPath = @"C:\downloads",
+            RemotePath = "/var/log/archive/"
+        };
+
+        Assert.Equal("archive", job.DisplayName);
+        Assert.Equal("archive", job.FileName);
+        Assert.Equal("Remote: /var/log/archive/", job.RemotePathText);
+        Assert.Equal(@"Local: C:\downloads", job.LocalPathText);
+    }
+
+    [Fact]
+    public void TransferJob_StatusText_UpdatesWhenProgressChanges()
+    {
+        var job = new TransferJob
+        {
+            Direction = TransferDirection.Download,
+            Kind = TransferKind.File,
+            RemotePath = "/tmp/report.tar.gz",
+            State = TransferState.Running
+        };
+
+        job.BytesDone = 512;
+        job.BytesTotal = 1024;
+        job.Progress = 0.5;
+
+        Assert.Equal("512 B of 1 KB (50%)", job.StatusText);
+        Assert.False(job.IsProgressIndeterminate);
+    }
+
+    [Fact]
+    public void BuildNativeTransferConnectionOptions_UsesProfileTarget()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        var profile = new TerminalProfile
+        {
+            Id = Guid.Parse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            SshPort = 2200
+        };
+
+        NativeSshConnectionOptions options = SftpService.BuildNativeTransferConnectionOptions(service, profile);
+
+        Assert.Equal("prod.internal", options.Host);
+        Assert.Equal("ops", options.User);
+        Assert.Equal(2200, options.Port);
+    }
+
+    [Fact]
+    public void BuildNativeTransferConnectionOptions_UsesStoredProfileWhenAvailable()
+    {
+        Guid profileId = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        var store = new InMemorySshProfileStore();
+        store.SaveProfile(new SshProfile
+        {
+            Id = profileId,
+            Name = "Prod",
+            BackendKind = SshBackendKind.Native,
+            Host = "prod.internal",
+            User = "ops",
+            Port = 2200,
+            ServerAliveIntervalSeconds = 45,
+            ServerAliveCountMax = 6,
+            JumpHops = new List<SshJumpHop>
+            {
+                new() { Host = "jump.internal", User = "jumper", Port = 2222 }
+            }
+        });
+        var service = new SshConnectionService(store);
+        TerminalProfile runtimeProfile = service.GetConnectionProfiles().Single(profile => profile.Id == profileId);
+
+        NativeSshConnectionOptions options = SftpService.BuildNativeTransferConnectionOptions(service, runtimeProfile);
+
+        Assert.Equal("prod.internal", options.Host);
+        Assert.Equal("ops", options.User);
+        Assert.Equal(2200, options.Port);
+        Assert.Equal(45, options.KeepAliveIntervalSeconds);
+        Assert.Equal(6, options.KeepAliveCountMax);
+        Assert.NotNull(options.JumpHost);
+        Assert.Equal("jump.internal", options.JumpHost!.Host);
+        Assert.Equal("jumper", options.JumpHost.User);
+        Assert.Equal(2222, options.JumpHost.Port);
+    }
+
+    [Fact]
+    public void BuildNativeTransferConnectionOptions_ThrowsWhenJumpHostFallbackHasNoProfileList()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        var targetProfile = new TerminalProfile
+        {
+            Id = Guid.Parse("dddddddd-dddd-dddd-dddd-dddddddddddd"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            JumpHostProfileId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+        };
+
+        InvalidOperationException error = Assert.Throws<InvalidOperationException>(
+            () => SftpService.BuildNativeTransferConnectionOptions(service, targetProfile));
+
+        Assert.Contains("allProfiles", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildNativeTransferConnectionOptions_UsesResolvedJumpHost()
+    {
+        var service = new SshConnectionService(new InMemorySshProfileStore());
+        Guid jumpId = Guid.Parse("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        var jumpProfile = new TerminalProfile
+        {
+            Id = jumpId,
+            Type = ConnectionType.SSH,
+            SshHost = "jump.internal",
+            SshUser = "jumper",
+            SshPort = 2222
+        };
+        var targetProfile = new TerminalProfile
+        {
+            Id = Guid.Parse("cccccccc-cccc-cccc-cccc-ccccccccccce"),
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "prod.internal",
+            SshUser = "ops",
+            JumpHostProfileId = jumpId
+        };
+
+        NativeSshConnectionOptions options = SftpService.BuildNativeTransferConnectionOptions(service, targetProfile, new[] { jumpProfile, targetProfile });
+
+        Assert.NotNull(options.JumpHost);
+        Assert.Equal("jump.internal", options.JumpHost!.Host);
+        Assert.Equal("jumper", options.JumpHost.User);
+        Assert.Equal(2222, options.JumpHost.Port);
     }
 
     [Fact]
@@ -140,14 +666,14 @@ public sealed class SftpServiceTests
     }
 
     [Fact]
-    public void BuildScpArguments_ForNativeBackend_AllowsInteractiveAuthentication()
+    public void BuildScpArguments_ForOpenSshBackend_UsesBatchMode()
     {
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("39292451-ad10-4f26-aeb7-2175527a66be"),
-            Name = "Native Prod",
+            Name = "OpenSSH Prod",
             Type = ConnectionType.SSH,
-            SshBackendKind = SshBackendKind.Native,
+            SshBackendKind = SshBackendKind.OpenSsh,
             SshHost = "prod.internal",
             SshUser = "ops"
         };
@@ -165,18 +691,18 @@ public sealed class SftpServiceTests
         string args = SftpService.BuildScpArguments(job, profile, launchDetails: null);
 
         Assert.Contains(" -O ", args, StringComparison.Ordinal);
-        Assert.DoesNotContain(" -B ", args, StringComparison.Ordinal);
+        Assert.Contains(" -B ", args, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void CreateScpStartInfo_ForNativeBackend_UsesAskPassAndStaysHidden()
+    public void CreateScpStartInfo_DoesNotConfigureAskPass()
     {
         var profile = new TerminalProfile
         {
             Id = Guid.Parse("e15099d2-ac29-40cb-bf1f-f466eb2622b7"),
-            Name = "Native Prod",
+            Name = "OpenSSH Prod",
             Type = ConnectionType.SSH,
-            SshBackendKind = SshBackendKind.Native,
+            SshBackendKind = SshBackendKind.OpenSsh,
             SshHost = "prod.internal",
             SshUser = "ops",
             SshPort = 2200
@@ -186,14 +712,8 @@ public sealed class SftpServiceTests
 
         Assert.True(startInfo.RedirectStandardError);
         Assert.True(startInfo.CreateNoWindow);
-        Assert.Equal("1", startInfo.Environment[SshAskPassCommand.ModeEnvironmentVariable]);
-        Assert.Equal("force", startInfo.Environment["SSH_ASKPASS_REQUIRE"]);
-        Assert.False(string.IsNullOrWhiteSpace(startInfo.Environment["SSH_ASKPASS"]));
-        Assert.Equal(profile.Id.ToString(), startInfo.Environment[SshAskPassCommand.ProfileIdEnvironmentVariable]);
-        Assert.Equal("Native Prod", startInfo.Environment[SshAskPassCommand.ProfileNameEnvironmentVariable]);
-        Assert.Equal("ops", startInfo.Environment[SshAskPassCommand.ProfileUserEnvironmentVariable]);
-        Assert.Equal("prod.internal", startInfo.Environment[SshAskPassCommand.ProfileHostEnvironmentVariable]);
-        Assert.Equal("2200", startInfo.Environment[SshAskPassCommand.ProfilePortEnvironmentVariable]);
+        Assert.False(startInfo.Environment.ContainsKey("SSH_ASKPASS"));
+        Assert.False(startInfo.Environment.ContainsKey("SSH_ASKPASS_REQUIRE"));
     }
 
     [Fact]
@@ -209,5 +729,96 @@ public sealed class SftpServiceTests
 
         Assert.True(startInfo.RedirectStandardError);
         Assert.True(startInfo.CreateNoWindow);
+    }
+
+    private sealed class InMemorySshProfileStore : ISshProfileStore
+    {
+        private readonly Dictionary<Guid, SshProfile> _profiles = new();
+
+        public IReadOnlyList<SshProfile> GetProfiles() => _profiles.Values.ToArray();
+
+        public SshProfile? GetProfile(Guid profileId) => _profiles.GetValueOrDefault(profileId);
+
+        public void SaveProfile(SshProfile profile)
+        {
+            _profiles[profile.Id] = profile;
+        }
+
+        public bool DeleteProfile(Guid profileId) => _profiles.Remove(profileId);
+    }
+
+    private sealed class CapturingNativeSshInterop : INativeSshInterop
+    {
+        public NativeSshConnectionOptions? ConnectionOptions { get; private set; }
+        public NativeSftpTransferOptions? TransferOptions { get; private set; }
+        public string? ListedRemotePath { get; private set; }
+        public CancellationToken CancellationToken { get; private set; }
+
+        public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
+
+        public void RunSftpTransfer(
+            NativeSshConnectionOptions connectionOptions,
+            NativeSftpTransferOptions transferOptions,
+            Action<NativeSftpTransferProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            ConnectionOptions = connectionOptions;
+            TransferOptions = transferOptions;
+            CancellationToken = cancellationToken;
+        }
+
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(
+            NativeSshConnectionOptions connectionOptions,
+            string remotePath,
+            CancellationToken cancellationToken)
+        {
+            ConnectionOptions = connectionOptions;
+            ListedRemotePath = remotePath;
+            CancellationToken = cancellationToken;
+            return [];
+        }
+
+        public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();
+        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Resize(IntPtr sessionHandle, int cols, int rows) => throw new NotSupportedException();
+        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options) => throw new NotSupportedException();
+        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void SendChannelEof(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void CloseChannel(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Close(IntPtr sessionHandle) => throw new NotSupportedException();
+    }
+
+    private sealed class BlockingNativeSshInterop : INativeSshInterop
+    {
+        public ManualResetEventSlim Started { get; } = new(false);
+        public ManualResetEventSlim Release { get; } = new(false);
+
+        public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
+
+        public void RunSftpTransfer(
+            NativeSshConnectionOptions connectionOptions,
+            NativeSftpTransferOptions transferOptions,
+            Action<NativeSftpTransferProgress>? progress,
+            CancellationToken cancellationToken)
+        {
+            Started.Set();
+            Release.Wait(cancellationToken);
+        }
+
+        public IReadOnlyList<NativeRemotePathEntry> ListRemoteDirectory(
+            NativeSshConnectionOptions connectionOptions,
+            string remotePath,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();
+        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Resize(IntPtr sessionHandle, int cols, int rows) => throw new NotSupportedException();
+        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options) => throw new NotSupportedException();
+        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void SendChannelEof(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void CloseChannel(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
+        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Close(IntPtr sessionHandle) => throw new NotSupportedException();
     }
 }

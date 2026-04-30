@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Media;
 using System;
 using NovaTerminal.Core;
 
@@ -48,5 +49,10 @@ class Program
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
+            .With(new FontManagerOptions
+            {
+                FontFamilyMappings = BundledFontCatalog.CreateFontFamilyMappings(),
+                DefaultFamilyName = BundledFontCatalog.DefaultTerminalFontFamily
+            })
             .LogToTrace();
 }

@@ -3,6 +3,7 @@ namespace NovaTerminal.Core.Ssh.Interactions;
 public sealed class SshInteractionRequest
 {
     public SshInteractionKind Kind { get; init; }
+    public Guid? SessionId { get; init; }
     public Guid? ProfileId { get; init; }
     public string ProfileName { get; init; } = string.Empty;
     public string ProfileUser { get; init; } = string.Empty;
