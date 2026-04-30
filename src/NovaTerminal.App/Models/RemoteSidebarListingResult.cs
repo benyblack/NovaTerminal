@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace NovaTerminal.Models;
 
@@ -29,9 +30,11 @@ public sealed class RemoteSidebarListingResult
         ArgumentException.ThrowIfNullOrWhiteSpace(resolvedPath);
         ArgumentNullException.ThrowIfNull(entries);
 
+        RemoteSidebarEntry[] snapshot = entries.ToArray();
+
         return new RemoteSidebarListingResult(
             resolvedPath,
-            entries,
+            snapshot,
             isSuccess: true,
             errorMessage: null);
     }
