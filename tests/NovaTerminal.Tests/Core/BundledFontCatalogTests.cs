@@ -24,4 +24,25 @@ public sealed class BundledFontCatalogTests
         Assert.NotNull(typeface);
         Assert.Equal(BundledFontCatalog.DefaultTerminalFontFamily, typeface!.FamilyName);
     }
+
+    [Fact]
+    public void GetBundledFontData_CachesLoadedFontData()
+    {
+        var first = BundledFontCatalog.GetBundledFontData();
+        var second = BundledFontCatalog.GetBundledFontData();
+
+        Assert.NotNull(first);
+        Assert.Same(first, second);
+    }
+
+    [Fact]
+    public void TryCreateSkTypeface_ReturnsIndependentInstances()
+    {
+        using var first = BundledFontCatalog.TryCreateSkTypeface(BundledFontCatalog.DefaultTerminalFontFamily);
+        using var second = BundledFontCatalog.TryCreateSkTypeface(BundledFontCatalog.DefaultTerminalFontFamily);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.NotSame(first, second);
+    }
 }

@@ -12,6 +12,7 @@ namespace NovaTerminal.Core
         internal const string DefaultTerminalFontFamily = "Cascadia Mono PL";
         internal const string DefaultTerminalFontAssetUri = "avares://NovaTerminal/Assets/Fonts/CascadiaMonoPL-Regular.otf#Cascadia Mono PL";
         private const string DefaultTerminalFontAssetPath = "avares://NovaTerminal/Assets/Fonts/CascadiaMonoPL-Regular.otf";
+        private static readonly Lazy<SKData?> BundledFontData = new(LoadBundledFontData);
 
         internal static IReadOnlyDictionary<string, FontFamily> CreateFontFamilyMappings()
         {
@@ -30,23 +31,28 @@ namespace NovaTerminal.Core
 
             try
             {
-                string outputPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", "CascadiaMonoPL-Regular.otf");
-                if (File.Exists(outputPath))
-                {
-                    return SKTypeface.FromFile(outputPath);
-                }
-
-                using Stream assetStream = AssetLoader.Open(new Uri(DefaultTerminalFontAssetPath, UriKind.Absolute));
-                using var memory = new MemoryStream();
-                assetStream.CopyTo(memory);
-                using var data = SKData.CreateCopy(memory.ToArray());
-                return SKTypeface.FromData(data);
+                var data = GetBundledFontData();
+                return data == null ? null : SKTypeface.FromData(data);
             }
             catch (Exception ex)
             {
                 TerminalLogger.Log($"[Font][Warn] Failed to load bundled font '{family}': {ex.Message}");
                 return null;
             }
+        }
+
+        internal static SKData? GetBundledFontData() => BundledFontData.Value;
+
+        private static SKData? LoadBundledFontData()
+        {
+            string outputPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Fonts", "CascadiaMonoPL-Regular.otf");
+            if (File.Exists(outputPath))
+            {
+                return SKData.Create(outputPath);
+            }
+
+            using Stream assetStream = AssetLoader.Open(new Uri(DefaultTerminalFontAssetPath, UriKind.Absolute));
+            return SKData.Create(assetStream);
         }
     }
 }
