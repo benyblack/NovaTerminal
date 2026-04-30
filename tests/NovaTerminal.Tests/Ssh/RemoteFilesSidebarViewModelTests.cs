@@ -43,14 +43,15 @@ public sealed class RemoteFilesSidebarViewModelTests
     }
 
     [Fact]
-    public async Task NavigateIntoSelectedDirectoryAsync_LoadsChildPath_AndEnablesNavigateBack()
+    public async Task NavigateIntoSelectedDirectoryAsync_ThenNavigateBackAsync_ReturnsToPreviousPath()
     {
         var service = new FakeRemoteDirectoryBrowserService(
             RemoteSidebarListingResult.Success("/srv", new[]
             {
                 new RemoteSidebarEntry("logs", "/srv/logs", true)
             }),
-            RemoteSidebarListingResult.Success("/srv/logs", Array.Empty<RemoteSidebarEntry>()));
+            RemoteSidebarListingResult.Success("/srv/logs", Array.Empty<RemoteSidebarEntry>()),
+            RemoteSidebarListingResult.Success("/srv", Array.Empty<RemoteSidebarEntry>()));
 
         var viewModel = new RemoteFilesSidebarViewModel(service);
         await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
@@ -60,7 +61,12 @@ public sealed class RemoteFilesSidebarViewModelTests
 
         Assert.Equal("/srv/logs", viewModel.CurrentPath);
         Assert.True(viewModel.CanNavigateBack);
-        Assert.Equal(new[] { "/srv", "/srv/logs" }, service.RequestedPaths);
+
+        await viewModel.NavigateBackAsync();
+
+        Assert.Equal("/srv", viewModel.CurrentPath);
+        Assert.False(viewModel.CanNavigateBack);
+        Assert.Equal(new[] { "/srv", "/srv/logs", "/srv" }, service.RequestedPaths);
     }
 
     [Fact]
