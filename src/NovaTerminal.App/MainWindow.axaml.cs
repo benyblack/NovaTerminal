@@ -3692,6 +3692,31 @@ namespace NovaTerminal
             TransferKind kind,
             string remotePath)
         {
+            if (direction == TransferDirection.Upload)
+            {
+                string? localPath = kind == TransferKind.File
+                    ? await PickLocalUploadFilePathAsync()
+                    : await PickLocalUploadFolderPathAsync();
+                if (string.IsNullOrWhiteSpace(localPath))
+                {
+                    return;
+                }
+
+                var uploadJob = new TransferJob
+                {
+                    SessionId = sessionId,
+                    ProfileId = profile.Id,
+                    ProfileName = profile.Name,
+                    Direction = direction,
+                    Kind = kind,
+                    LocalPath = localPath,
+                    RemotePath = remotePath
+                };
+
+                EnqueueTransferJob(uploadJob);
+                return;
+            }
+
             var request = TransferDialogRequest.ForSidebarAction(
                 direction,
                 kind,
@@ -3723,6 +3748,40 @@ namespace NovaTerminal
         {
             var dialog = new TransferDialog(request);
             return await dialog.ShowDialog<TransferDialogResult?>(this);
+        }
+
+        internal virtual async Task<string?> PickLocalUploadFilePathAsync()
+        {
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null)
+            {
+                return null;
+            }
+
+            IReadOnlyList<IStorageFile> files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Select File to Upload",
+                AllowMultiple = false
+            });
+
+            return files.Count > 0 ? files[0].Path.LocalPath : null;
+        }
+
+        internal virtual async Task<string?> PickLocalUploadFolderPathAsync()
+        {
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null)
+            {
+                return null;
+            }
+
+            IReadOnlyList<IStorageFolder> folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "Select Folder to Upload",
+                AllowMultiple = false
+            });
+
+            return folders.Count > 0 ? folders[0].Path.LocalPath : null;
         }
 
         internal virtual void EnqueueTransferJob(TransferJob job)

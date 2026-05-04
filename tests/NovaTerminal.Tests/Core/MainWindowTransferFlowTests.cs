@@ -35,6 +35,7 @@ public sealed class MainWindowTransferFlowTests
         Assert.Equal(@"D:\downloads\a.mkv", job.LocalPath);
         Assert.Equal(TransferDirection.Download, job.Direction);
         Assert.Equal(TransferKind.File, job.Kind);
+        Assert.True(window.TransferDialogWasShown);
     }
 
     [AvaloniaFact]
@@ -62,31 +63,49 @@ public sealed class MainWindowTransferFlowTests
     }
 
     [AvaloniaFact]
-    public async Task SidebarUpload_UsesCurrentRemoteDirectory_AsInitialRemotePath()
+    public async Task SidebarUploadFile_UsesLocalFilePicker_AndCurrentRemoteDirectory()
     {
-        foreach (TransferKind kind in new[] { TransferKind.File, TransferKind.Folder })
+        var window = new TestMainWindow
         {
-            var window = new TestMainWindow
-            {
-                NextTransferDialogResult = TransferDialogResult.CreateConfirmed(
-                    localPath: @"D:\downloads\payload.txt",
-                    remotePath: "/srv/app")
-            };
+            NextPickedLocalFilePath = @"D:\temp\report.txt"
+        };
 
-            await window.StartSidebarUploadForTest(
-                profile: CreateNativeProfile(),
-                sessionId: Guid.Parse("3165a397-02ad-4dd2-913a-1b98b20ae7ef"),
-                remoteDirectory: "/srv/app",
-                kind: kind);
+        await window.StartSidebarUploadForTest(
+            profile: CreateNativeProfile(),
+            sessionId: Guid.Parse("3165a397-02ad-4dd2-913a-1b98b20ae7ef"),
+            remoteDirectory: "/srv/app",
+            kind: TransferKind.File);
 
-            Assert.NotNull(window.LastTransferDialogRequest);
-            Assert.Equal("/srv/app", window.LastTransferDialogRequest!.RemotePath);
-            Assert.True(window.LastTransferDialogRequest.PreferLocalPathOnOpen);
-            Assert.Equal(kind, window.LastTransferDialogRequest.Kind);
-            Assert.NotNull(window.QueuedJob);
-            Assert.Equal("/srv/app", window.QueuedJob!.RemotePath);
-            Assert.Equal(kind, window.QueuedJob.Kind);
-        }
+        Assert.NotNull(window.QueuedJob);
+        Assert.Equal("/srv/app", window.QueuedJob!.RemotePath);
+        Assert.Equal(@"D:\temp\report.txt", window.QueuedJob.LocalPath);
+        Assert.Equal(TransferKind.File, window.QueuedJob.Kind);
+        Assert.True(window.FilePickerWasShown);
+        Assert.False(window.FolderPickerWasShown);
+        Assert.False(window.TransferDialogWasShown);
+    }
+
+    [AvaloniaFact]
+    public async Task SidebarUploadFolder_UsesLocalFolderPicker_AndCurrentRemoteDirectory()
+    {
+        var window = new TestMainWindow
+        {
+            NextPickedLocalFolderPath = @"D:\temp\payload"
+        };
+
+        await window.StartSidebarUploadForTest(
+            profile: CreateNativeProfile(),
+            sessionId: Guid.Parse("f619f165-642b-4f83-9fef-785ca3473af5"),
+            remoteDirectory: "/srv/app",
+            kind: TransferKind.Folder);
+
+        Assert.NotNull(window.QueuedJob);
+        Assert.Equal("/srv/app", window.QueuedJob!.RemotePath);
+        Assert.Equal(@"D:\temp\payload", window.QueuedJob.LocalPath);
+        Assert.Equal(TransferKind.Folder, window.QueuedJob.Kind);
+        Assert.False(window.FilePickerWasShown);
+        Assert.True(window.FolderPickerWasShown);
+        Assert.False(window.TransferDialogWasShown);
     }
 
     [AvaloniaFact]
@@ -127,13 +146,31 @@ public sealed class MainWindowTransferFlowTests
     private sealed class TestMainWindow : NovaTerminal.MainWindow
     {
         public TransferDialogResult? NextTransferDialogResult { get; set; }
+        public string? NextPickedLocalFilePath { get; set; }
+        public string? NextPickedLocalFolderPath { get; set; }
         public TransferJob? QueuedJob { get; private set; }
         public TransferDialogRequest? LastTransferDialogRequest { get; private set; }
+        public bool TransferDialogWasShown { get; private set; }
+        public bool FilePickerWasShown { get; private set; }
+        public bool FolderPickerWasShown { get; private set; }
 
         internal override Task<TransferDialogResult?> ShowTransferDialogAsync(TransferDialogRequest request)
         {
             LastTransferDialogRequest = request;
+            TransferDialogWasShown = true;
             return Task.FromResult(NextTransferDialogResult);
+        }
+
+        internal override Task<string?> PickLocalUploadFilePathAsync()
+        {
+            FilePickerWasShown = true;
+            return Task.FromResult<string?>(NextPickedLocalFilePath);
+        }
+
+        internal override Task<string?> PickLocalUploadFolderPathAsync()
+        {
+            FolderPickerWasShown = true;
+            return Task.FromResult<string?>(NextPickedLocalFolderPath);
         }
 
         internal override void EnqueueTransferJob(TransferJob job)
