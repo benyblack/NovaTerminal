@@ -109,6 +109,85 @@ public sealed class RemoteFilesSidebarTests
     }
 
     [AvaloniaFact]
+    public async Task BackButton_IsDisabled_WhileLoadingNavigation()
+    {
+        var service = new ControlledRemoteDirectoryBrowserService();
+        service.EnqueueImmediate("/srv", RemoteSidebarListingResult.Success("/srv", new[]
+        {
+            new RemoteSidebarEntry("logs", "/srv/logs", true)
+        }));
+        service.EnqueueImmediate("/srv/logs", RemoteSidebarListingResult.Success("/srv/logs", Array.Empty<RemoteSidebarEntry>()));
+
+        var viewModel = new RemoteFilesSidebarViewModel(service);
+        var control = new RemoteFilesSidebar
+        {
+            DataContext = viewModel
+        };
+
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+
+        ListBox entriesList = control.FindControl<ListBox>("RemoteEntriesList")!;
+        Button navigateBackButton = control.FindControl<Button>("BtnNavigateBack")!;
+        entriesList.SelectedIndex = 0;
+        entriesList.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Enter,
+            Source = entriesList
+        });
+        await WaitForConditionAsync(() => viewModel.CurrentPath == "/srv/logs");
+
+        Task navigateBackTask = viewModel.NavigateBackAsync();
+        await service.WaitForRequestAsync("/srv");
+
+        Assert.True(viewModel.CanNavigateBack);
+        Assert.True(viewModel.IsLoading);
+        Assert.False(navigateBackButton.IsEffectivelyEnabled);
+
+        service.CompletePending("/srv", RemoteSidebarListingResult.Success("/srv", Array.Empty<RemoteSidebarEntry>()));
+        await navigateBackTask;
+    }
+
+    [AvaloniaFact]
+    public async Task BackButton_IsDisabled_AfterDisconnect()
+    {
+        var service = new ControlledRemoteDirectoryBrowserService();
+        service.EnqueueImmediate("/srv", RemoteSidebarListingResult.Success("/srv", new[]
+        {
+            new RemoteSidebarEntry("logs", "/srv/logs", true)
+        }));
+        service.EnqueueImmediate("/srv/logs", RemoteSidebarListingResult.Success("/srv/logs", Array.Empty<RemoteSidebarEntry>()));
+
+        var viewModel = new RemoteFilesSidebarViewModel(service);
+        var control = new RemoteFilesSidebar
+        {
+            DataContext = viewModel
+        };
+
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+
+        ListBox entriesList = control.FindControl<ListBox>("RemoteEntriesList")!;
+        Button navigateBackButton = control.FindControl<Button>("BtnNavigateBack")!;
+        entriesList.SelectedIndex = 0;
+        entriesList.RaiseEvent(new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.Enter,
+            Source = entriesList
+        });
+
+        await WaitForConditionAsync(() => viewModel.CurrentPath == "/srv/logs");
+        Assert.True(viewModel.CanNavigateBack);
+        Assert.True(navigateBackButton.IsEffectivelyEnabled);
+
+        viewModel.MarkDisconnected();
+
+        Assert.True(viewModel.CanNavigateBack);
+        Assert.True(viewModel.IsDisconnected);
+        Assert.False(navigateBackButton.IsEffectivelyEnabled);
+    }
+
+    [AvaloniaFact]
     public async Task EnterActivation_HandlesKeyEvent_BeforeAsyncNavigationCompletes()
     {
         var service = new ControlledRemoteDirectoryBrowserService();
