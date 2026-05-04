@@ -3,64 +3,56 @@
              xmlns:vm="clr-namespace:NovaTerminal.ViewModels.Ssh"
              x:Class="NovaTerminal.Controls.RemoteFilesSidebar"
              x:DataType="vm:RemoteFilesSidebarViewModel">
-    <Border Width="320"
+    <Border Name="SidebarChrome"
+            Width="288"
             Background="#1B1D21"
             BorderBrush="#31353A"
             BorderThickness="1,0,0,0"
-            Padding="12">
-        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="10">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                <StackPanel Spacing="2">
-                    <TextBlock Text="Remote Files"
-                               FontSize="14"
-                               FontWeight="SemiBold"/>
-                    <TextBlock Text="{Binding CurrentPath}"
-                               Foreground="#9AA4B2"
-                               FontSize="11"
-                               TextTrimming="CharacterEllipsis"/>
-                </StackPanel>
-
-                <Button Name="BtnCloseSidebar"
-                        Grid.Column="1"
-                        Content="Close"
-                        Padding="10,4"
-                        Click="CloseSidebar_Click"/>
-            </Grid>
-
-            <Grid Grid.Row="1"
-                  ColumnDefinitions="Auto,Auto,Auto,*"
-                  ColumnSpacing="6"
-                  IsEnabled="{Binding CanInteractWithRemote}">
+            Padding="10">
+        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+            <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto" ColumnSpacing="6">
                 <Button Name="BtnNavigateBack"
                         Content="Back"
-                        Padding="10,4"
+                        Padding="8,3"
                         IsEnabled="{Binding CanNavigateBack}"
                         Click="NavigateBack_Click"/>
                 <Button Name="BtnNavigateUp"
                         Grid.Column="1"
                         Content="Up"
-                        Padding="10,4"
-                        IsEnabled="{Binding IsOpen}"
+                        Padding="8,3"
+                        IsEnabled="{Binding CanInteractWithRemote}"
                         Click="NavigateUp_Click"/>
+                <TextBlock Grid.Column="2"
+                           VerticalAlignment="Center"
+                           Text="{Binding CurrentPath}"
+                           Foreground="#C5CDD8"
+                           FontSize="11"
+                           FontWeight="SemiBold"
+                           TextTrimming="CharacterEllipsis"/>
                 <Button Name="BtnRefresh"
-                        Grid.Column="2"
+                        Grid.Column="3"
                         Content="Refresh"
-                        Padding="10,4"
-                        IsEnabled="{Binding IsOpen}"
+                        Padding="8,3"
+                        IsEnabled="{Binding CanInteractWithRemote}"
                         Click="Refresh_Click"/>
+                <Button Name="BtnCloseSidebar"
+                        Grid.Column="4"
+                        Content="Close"
+                        Padding="8,3"
+                        Click="CloseSidebar_Click"/>
             </Grid>
 
             <Button Name="BtnJumpToCwd"
-                    Grid.Row="2"
+                    Grid.Row="1"
                     HorizontalAlignment="Left"
-                    Content="Jump to Current Directory"
-                    Padding="10,4"
+                    Content="Jump to cwd"
+                    Padding="8,3"
                     IsEnabled="{Binding CanInteractWithRemote}"
                     IsVisible="{Binding JumpToCurrentDirectoryPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                     Click="JumpToCwd_Click"/>
 
             <ListBox Name="RemoteEntriesList"
-                     Grid.Row="3"
+                     Grid.Row="2"
                      Background="#16181C"
                      BorderBrush="#2A2F35"
                      BorderThickness="1"
@@ -71,42 +63,39 @@
                      KeyDown="RemoteEntriesList_KeyDown">
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:RemoteFilesSidebarEntryViewModel">
-                        <Border BorderBrush="#252A30" BorderThickness="0,0,0,1" Padding="8,6">
-                            <StackPanel Spacing="2">
-                                <TextBlock Text="{Binding Name}"
-                                           TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Text="{Binding FullPath}"
-                                           Foreground="#7D8794"
-                                           FontSize="11"
-                                           TextTrimming="CharacterEllipsis"/>
-                            </StackPanel>
+                        <Border BorderBrush="#252A30"
+                                BorderThickness="0,0,0,1"
+                                Padding="8,5">
+                            <TextBlock Text="{Binding Name}"
+                                       TextTrimming="CharacterEllipsis"/>
                         </Border>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <StackPanel Grid.Row="4" Spacing="10">
+            <StackPanel Grid.Row="3" Spacing="8">
                 <TextBlock Name="InlineErrorText"
                            Text="{Binding ErrorMessage}"
                            Foreground="#F16C6C"
+                           FontSize="11"
                            TextWrapping="Wrap"
                            IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
 
                 <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="6">
                     <Button Name="BtnUploadFile"
-                            Content="Upload File"
-                            Padding="10,4"
+                            Content="File"
+                            Padding="8,3"
                             IsEnabled="{Binding CanInteractWithRemote}"/>
                     <Button Name="BtnUploadFolder"
                             Grid.Column="1"
-                            Content="Upload Folder"
-                            Padding="10,4"
+                            Content="Folder"
+                            Padding="8,3"
                             IsEnabled="{Binding CanInteractWithRemote}"/>
                     <Button Name="BtnDownloadSelected"
                             Grid.Column="2"
                             HorizontalAlignment="Stretch"
-                            Content="Download Selected"
-                            Padding="10,4"
+                            Content="Download"
+                            Padding="8,3"
                             IsEnabled="{Binding CanDownloadSelected}"/>
                 </Grid>
             </StackPanel>

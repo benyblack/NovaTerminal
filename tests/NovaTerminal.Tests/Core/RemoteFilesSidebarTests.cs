@@ -12,6 +12,27 @@ namespace NovaTerminal.Tests.Core;
 public sealed class RemoteFilesSidebarTests
 {
     [AvaloniaFact]
+    public void Sidebar_UsesCompactChromeWidth()
+    {
+        var control = new RemoteFilesSidebar();
+
+        Border chrome = control.FindControl<Border>("SidebarChrome")!;
+        Assert.Equal(288d, chrome.Width);
+    }
+
+    [AvaloniaFact]
+    public void Footer_UsesCompactDownloadActionLabel_AndPreservesExistingButtonBindings()
+    {
+        var control = new RemoteFilesSidebar();
+
+        Assert.NotNull(control.FindControl<Button>("BtnUploadFile"));
+        Assert.NotNull(control.FindControl<Button>("BtnUploadFolder"));
+
+        Button downloadButton = control.FindControl<Button>("BtnDownloadSelected")!;
+        Assert.Equal("Download", downloadButton.Content);
+    }
+
+    [AvaloniaFact]
     public void DownloadButton_IsDisabled_WhenNothingIsSelected()
     {
         var viewModel = new RemoteFilesSidebarViewModel(new FakeRemoteDirectoryBrowserService());
