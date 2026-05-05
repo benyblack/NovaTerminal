@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:controls="clr-namespace:NovaTerminal.Controls"
              xmlns:vm="clr-namespace:NovaTerminal.ViewModels.Ssh"
              x:Class="NovaTerminal.Controls.RemoteFilesSidebar"
              x:DataType="vm:RemoteFilesSidebarViewModel">
@@ -9,53 +10,85 @@
             BorderBrush="#31353A"
             BorderThickness="1,0,0,0"
             Padding="10">
-        <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
-            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="6">
-                <Grid ColumnDefinitions="Auto,Auto,*,Auto"
-                      ColumnSpacing="6"
-                      IsEnabled="{Binding CanInteractWithRemote}">
-                    <Button Name="BtnNavigateBack"
-                            Content="Back"
-                            Padding="8,3"
-                            IsEnabled="{Binding CanNavigateBack}"
-                            Click="NavigateBack_Click"/>
-                    <Button Name="BtnNavigateUp"
-                            Grid.Column="1"
-                            Content="Up"
-                            Padding="8,3"
-                            Click="NavigateUp_Click"/>
-                    <TextBlock Grid.Column="2"
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="8">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                <StackPanel Spacing="1">
+                    <TextBlock Name="HostTitleText"
+                               Text="{Binding HostTitle, RelativeSource={RelativeSource AncestorType=controls:RemoteFilesSidebar}}"
+                               Foreground="#F3F6FA"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Name="HostSubtitleText"
+                               Text="{Binding HostSubtitle, RelativeSource={RelativeSource AncestorType=controls:RemoteFilesSidebar}}"
+                               Foreground="#96A0AE"
+                               FontSize="11"
+                               TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+
+                <Button Name="BtnRefresh"
+                        Grid.Column="1"
+                        Content="Refresh"
+                        Padding="8,3"
+                        IsEnabled="{Binding CanInteractWithRemote}"
+                        Click="Refresh_Click"/>
+
+                <Button Name="BtnCloseSidebar"
+                        Grid.Column="2"
+                        Content="Close"
+                        Padding="8,3"
+                        Click="CloseSidebar_Click"/>
+            </Grid>
+
+            <Border Grid.Row="1"
+                    Background="#16181C"
+                    BorderBrush="#2A2F35"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="8,6">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                    <TextBlock Name="CurrentPathText"
                                VerticalAlignment="Center"
                                Text="{Binding CurrentPath}"
                                Foreground="#C5CDD8"
                                FontSize="11"
                                FontWeight="SemiBold"
                                TextTrimming="CharacterEllipsis"/>
-                    <Button Name="BtnRefresh"
-                            Grid.Column="3"
-                            Content="Refresh"
-                            Padding="8,3"
-                            Click="Refresh_Click"/>
+                    <TextBlock Name="ItemCountText"
+                               Grid.Column="1"
+                               VerticalAlignment="Center"
+                               Text="{Binding ItemCountLabel, RelativeSource={RelativeSource AncestorType=controls:RemoteFilesSidebar}}"
+                               Foreground="#7F8895"
+                               FontSize="10"/>
                 </Grid>
+            </Border>
 
-                <Button Name="BtnCloseSidebar"
-                        Grid.Column="1"
-                        Content="Close"
+            <Grid Grid.Row="2"
+                  ColumnDefinitions="Auto,Auto,*"
+                  ColumnSpacing="6"
+                  IsEnabled="{Binding CanInteractWithRemote}">
+                <Button Name="BtnNavigateBack"
+                        Content="Back"
                         Padding="8,3"
-                        Click="CloseSidebar_Click"/>
+                        IsEnabled="{Binding CanNavigateBack}"
+                        Click="NavigateBack_Click"/>
+                <Button Name="BtnNavigateUp"
+                        Grid.Column="1"
+                        Content="Up"
+                        Padding="8,3"
+                        Click="NavigateUp_Click"/>
+                <Button Name="BtnJumpToCwd"
+                        Grid.Column="2"
+                        HorizontalAlignment="Right"
+                        Content="Jump to cwd"
+                        Padding="8,3"
+                        IsEnabled="{Binding CanInteractWithRemote}"
+                        IsVisible="{Binding JumpToCurrentDirectoryPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                        Click="JumpToCwd_Click"/>
             </Grid>
 
-            <Button Name="BtnJumpToCwd"
-                    Grid.Row="1"
-                    HorizontalAlignment="Left"
-                    Content="Jump to cwd"
-                    Padding="8,3"
-                    IsEnabled="{Binding CanInteractWithRemote}"
-                    IsVisible="{Binding JumpToCurrentDirectoryPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                    Click="JumpToCwd_Click"/>
-
             <ListBox Name="RemoteEntriesList"
-                     Grid.Row="2"
+                     Grid.Row="3"
                      Background="#16181C"
                      BorderBrush="#2A2F35"
                      BorderThickness="1"
@@ -76,7 +109,7 @@
                 </ListBox.ItemTemplate>
             </ListBox>
 
-            <StackPanel Grid.Row="3" Spacing="8">
+            <StackPanel Grid.Row="4" Spacing="8">
                 <TextBlock Name="InlineErrorText"
                            Text="{Binding ErrorMessage}"
                            Foreground="#F16C6C"

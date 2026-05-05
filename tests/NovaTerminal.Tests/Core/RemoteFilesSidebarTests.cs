@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using NovaTerminal.Controls;
 using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;
@@ -18,6 +19,20 @@ public sealed class RemoteFilesSidebarTests
 
         Border chrome = control.FindControl<Border>("SidebarChrome")!;
         Assert.Equal(288d, chrome.Width);
+    }
+
+    [AvaloniaFact]
+    public void Sidebar_UsesHostHeader_AndCompactPathRow()
+    {
+        var control = new RemoteFilesSidebar();
+
+        Assert.NotNull(control.FindControl<TextBlock>("HostTitleText"));
+        Assert.NotNull(control.FindControl<TextBlock>("HostSubtitleText"));
+
+        TextBlock currentPathText = control.FindControl<TextBlock>("CurrentPathText")!;
+        Assert.Equal(TextTrimming.CharacterEllipsis, currentPathText.TextTrimming);
+
+        Assert.NotNull(control.FindControl<TextBlock>("ItemCountText"));
     }
 
     [AvaloniaFact]
