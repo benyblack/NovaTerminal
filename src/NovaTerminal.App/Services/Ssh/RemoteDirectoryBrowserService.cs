@@ -66,7 +66,10 @@ public sealed class RemoteDirectoryBrowserService : IRemoteDirectoryBrowserServi
             RemoteSidebarEntry[] mappedEntries = entries
                 .OrderBy(entry => entry.IsDirectory ? 0 : 1)
                 .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
-                .Select(entry => new RemoteSidebarEntry(entry.Name, entry.FullPath, entry.IsDirectory))
+                .Select(entry => new RemoteSidebarEntry(entry.Name, entry.FullPath, entry.IsDirectory)
+                {
+                    ModifiedAtUtc = entry.ModifiedAtUtc
+                })
                 .ToArray();
 
             return RemoteSidebarListingResult.Success(resolvedPath, mappedEntries);

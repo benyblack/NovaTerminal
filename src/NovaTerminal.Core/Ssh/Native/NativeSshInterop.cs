@@ -667,7 +667,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
             NativeSshTransferJsonContext.Default.RemotePathListResponse);
 
         return response?.Entries?
-            .Select(entry => new NativeRemotePathEntry(entry.Name, entry.FullPath, entry.IsDirectory))
+            .Select(entry => new NativeRemotePathEntry(entry.Name, entry.FullPath, entry.IsDirectory, entry.ModifiedAtUtc))
             .ToList() ?? [];
     }
 
@@ -812,6 +812,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         public string Name { get; init; } = string.Empty;
         public string FullPath { get; init; } = string.Empty;
         public bool IsDirectory { get; init; }
+        public DateTime? ModifiedAtUtc { get; init; }
     }
 
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

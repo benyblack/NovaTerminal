@@ -35,6 +35,28 @@ public sealed class RemoteDirectoryBrowserServiceTests
     }
 
     [Fact]
+    public async Task ListDirectoryAsync_PreservesModifiedTimeMetadata()
+    {
+        DateTime modifiedAtUtc = new(2026, 5, 4, 20, 15, 0, DateTimeKind.Utc);
+        Guid profileId = Guid.NewGuid();
+        Guid sessionId = Guid.NewGuid();
+        var registry = new ActiveSshSessionRegistry();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+
+        var interop = new RecordingNativeSshInterop(
+            new[]
+            {
+                new NativeRemotePathEntry("access.log", "/srv/access.log", false, modifiedAtUtc)
+            });
+
+        var service = CreateService(registry, interop, CreateSshService(profileId));
+        RemoteSidebarListingResult result = await service.ListDirectoryAsync(profileId, sessionId, "/srv", CancellationToken.None);
+
+        RemoteSidebarEntry entry = Assert.Single(result.Entries);
+        Assert.Equal(modifiedAtUtc, entry.ModifiedAtUtc);
+    }
+
+    [Fact]
     public async Task ListDirectoryAsync_WhenNoActiveNativeSessionExists_ReturnsFailureWithoutThrowing()
     {
         Guid profileId = Guid.NewGuid();
