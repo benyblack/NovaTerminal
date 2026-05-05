@@ -43,6 +43,39 @@ public sealed class RemoteFilesSidebarViewModelTests
     }
 
     [Fact]
+    public async Task OpenAsync_MapsModifiedMetadataToEntryViewModels()
+    {
+        var service = new FakeRemoteDirectoryBrowserService("/srv", new[]
+        {
+            new RemoteSidebarEntry("logs", "/srv/logs", true)
+            {
+                ModifiedAtUtc = new DateTime(2026, 5, 4, 20, 15, 0, DateTimeKind.Utc)
+            }
+        });
+
+        var viewModel = new RemoteFilesSidebarViewModel(service);
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+
+        RemoteFilesSidebarEntryViewModel entry = Assert.Single(viewModel.Entries);
+        Assert.Equal("May 04", entry.ModifiedDisplayText);
+    }
+
+    [Fact]
+    public async Task OpenAsync_UsesPlaceholderWhenModifiedMetadataIsMissing()
+    {
+        var service = new FakeRemoteDirectoryBrowserService("/srv", new[]
+        {
+            new RemoteSidebarEntry("logs", "/srv/logs", true)
+        });
+
+        var viewModel = new RemoteFilesSidebarViewModel(service);
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+
+        RemoteFilesSidebarEntryViewModel entry = Assert.Single(viewModel.Entries);
+        Assert.Equal("-", entry.ModifiedDisplayText);
+    }
+
+    [Fact]
     public async Task NavigateIntoSelectedDirectoryAsync_ThenNavigateBackAsync_ReturnsToPreviousPath()
     {
         var service = new FakeRemoteDirectoryBrowserService(
