@@ -127,25 +127,28 @@ jobs:
           name: dotnet-build-${{ matrix.os }}
 
       # VtReportCliTests.cs looks for app/CLI binaries in src/*/bin/Release/net10.0/.
-      # Every file there is already present in the test output, so we point the src
-      # directories at the test output with a symlink (Linux) or junction (Windows)
-      # rather than duplicating 1.1 GB in the artifact.
-      - name: Link src bin dirs to test output (Linux)
+      # Every file there is already present in the test output (MSBuild copies all
+      # referenced DLLs and the host executable), so we mirror it locally with
+      # hardlinks (Linux) or robocopy (Windows) instead of duplicating 1.1 GB in
+      # the artifact. Local disk copy is fast; network upload/download is not.
+      - name: Reconstruct src bin dirs from test output (Linux)
         if: runner.os == 'Linux'
         run: |
           mkdir -p src/NovaTerminal.App/bin/Release src/NovaTerminal.Cli/bin/Release
-          ln -s "$GITHUB_WORKSPACE/tests/NovaTerminal.Tests/bin/Release/net10.0" src/NovaTerminal.App/bin/Release/net10.0
-          ln -s "$GITHUB_WORKSPACE/tests/NovaTerminal.Tests/bin/Release/net10.0" src/NovaTerminal.Cli/bin/Release/net10.0
+          cp -rl tests/NovaTerminal.Tests/bin/Release/net10.0 src/NovaTerminal.App/bin/Release/net10.0
+          cp -rl tests/NovaTerminal.Tests/bin/Release/net10.0 src/NovaTerminal.Cli/bin/Release/net10.0
 
-      - name: Link src bin dirs to test output (Windows)
+      - name: Reconstruct src bin dirs from test output (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $testOut = "$env:GITHUB_WORKSPACE\tests\NovaTerminal.Tests\bin\Release\net10.0"
-          New-Item -ItemType Directory -Force "src\NovaTerminal.App\bin\Release" | Out-Null
-          New-Item -ItemType Directory -Force "src\NovaTerminal.Cli\bin\Release" | Out-Null
-          New-Item -ItemType Junction -Path "src\NovaTerminal.App\bin\Release\net10.0" -Target $testOut | Out-Null
-          New-Item -ItemType Junction -Path "src\NovaTerminal.Cli\bin\Release\net10.0" -Target $testOut | Out-Null
+          $src = "tests\NovaTerminal.Tests\bin\Release\net10.0"
+          # robocopy exits 0 (nothing to copy) or 1 (files copied) on success; >=8 is an error
+          foreach ($dst in @("src\NovaTerminal.App\bin\Release\net10.0", "src\NovaTerminal.Cli\bin\Release\net10.0")) {
+            robocopy $src $dst /E /NJH /NJS /NFL /NDL /NC /NS | Out-Null
+            if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
+          }
+          exit 0
 
       - name: Test (unit)
         # Keep the unit lane focused on deterministic tests; stress tests run in nightly,
