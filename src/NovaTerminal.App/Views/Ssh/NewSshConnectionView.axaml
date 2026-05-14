@@ -31,13 +31,13 @@
             <TabItem Header="Basic">
                 <Grid Margin="0,10,0,0" ColumnDefinitions="170,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="10">
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Name" VerticalAlignment="Center" />
-                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Name}" Watermark="My server" />
+                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding Name}" PlaceholderText="My server" />
 
                     <TextBlock Grid.Row="1" Grid.Column="0" Text="HostName" VerticalAlignment="Center" />
-                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HostName}" Watermark="example.internal" />
+                    <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding HostName}" PlaceholderText="example.internal" />
 
                     <TextBlock Grid.Row="2" Grid.Column="0" Text="User" VerticalAlignment="Center" />
-                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding UserName}" Watermark="Optional" />
+                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding UserName}" PlaceholderText="Optional" />
 
                     <TextBlock Grid.Row="3" Grid.Column="0" Text="Port" VerticalAlignment="Center" />
                     <NumericUpDown Grid.Row="3" Grid.Column="1" Minimum="1" Maximum="65535" Value="{Binding Port}" />
@@ -46,7 +46,7 @@
                     <ComboBox Grid.Row="4" Grid.Column="1" Name="BackendKindCombo" SelectedItem="{Binding BackendKind}" />
 
                     <TextBlock Grid.Row="5" Grid.Column="0" Text="Accent" VerticalAlignment="Center" />
-                    <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding AccentColor}" Watermark="#0078D4 (optional)" />
+                    <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding AccentColor}" PlaceholderText="#0078D4 (optional)" />
 
                     <TextBlock Grid.Row="6" Grid.Column="0" Text="Remote shell" VerticalAlignment="Center" />
                     <ComboBox Grid.Row="6" Grid.Column="1" Name="RemoteShellKindCombo" SelectedItem="{Binding RemoteShellKind}" />
@@ -62,7 +62,7 @@
                              TextWrapping="Wrap"
                              Height="120"
                              VerticalContentAlignment="Top"
-                             Watermark="Optional notes..." />
+                             PlaceholderText="Optional notes..." />
                 </Grid>
             </TabItem>
 
@@ -77,7 +77,7 @@
                                VerticalAlignment="Center"
                                IsVisible="{Binding IsIdentityFileAuth}" />
                     <Grid Grid.Row="1" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding IsIdentityFileAuth}">
-                        <TextBox Grid.Column="0" Text="{Binding IdentityFilePath}" Watermark="Path to private key" />
+                        <TextBox Grid.Column="0" Text="{Binding IdentityFilePath}" PlaceholderText="Path to private key" />
                         <Button Grid.Column="1" Content="Browse..." Click="OnBrowseIdentityFileClick" />
                     </Grid>
                 </Grid>
@@ -86,8 +86,8 @@
             <TabItem Header="Jump Hosts">
                 <Grid Margin="0,10,0,0" RowDefinitions="Auto,*" RowSpacing="8">
                     <Grid ColumnDefinitions="2*,*,Auto,Auto" ColumnSpacing="8">
-                        <TextBox Name="JumpHostInput" Grid.Column="0" Watermark="Host (required)" />
-                        <TextBox Name="JumpUserInput" Grid.Column="1" Watermark="User (optional)" />
+                        <TextBox Name="JumpHostInput" Grid.Column="0" PlaceholderText="Host (required)" />
+                        <TextBox Name="JumpUserInput" Grid.Column="1" PlaceholderText="User (optional)" />
                         <NumericUpDown Name="JumpPortInput" Grid.Column="2" Width="90" Minimum="1" Maximum="65535" Value="22" />
                         <Button Grid.Column="3" Content="Add" Click="OnAddJumpHostClick" />
                     </Grid>
@@ -113,9 +113,9 @@
                 <Grid Margin="0,10,0,0" RowDefinitions="Auto,*" RowSpacing="8">
                     <Grid ColumnDefinitions="Auto,*,Auto,*,Auto,Auto" ColumnSpacing="8">
                         <ComboBox Name="ForwardKindCombo" Grid.Column="0" Width="100" />
-                        <TextBox Name="ForwardBindInput" Grid.Column="1" Watermark="Bind address (optional)" />
+                        <TextBox Name="ForwardBindInput" Grid.Column="1" PlaceholderText="Bind address (optional)" />
                         <NumericUpDown Name="ForwardSourcePortInput" Grid.Column="2" Width="90" Minimum="1" Maximum="65535" />
-                        <TextBox Name="ForwardDestHostInput" Grid.Column="3" Watermark="Destination host" />
+                        <TextBox Name="ForwardDestHostInput" Grid.Column="3" PlaceholderText="Destination host" />
                         <NumericUpDown Name="ForwardDestPortInput" Grid.Column="4" Width="90" Minimum="1" Maximum="65535" />
                         <Button Grid.Column="5" Content="Add" Click="OnAddForwardClick" />
                     </Grid>
@@ -154,7 +154,7 @@
                              TextWrapping="Wrap"
                              VerticalContentAlignment="Top"
                              Height="150"
-                             Watermark="-o StrictHostKeyChecking=no" />
+                             PlaceholderText="-o StrictHostKeyChecking=no" />
                 </Grid>
             </TabItem>
         </TabControl>

@@ -11,7 +11,7 @@
             <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
                 <TextBlock Text="Connections" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
                 <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-                    <TextBox Name="SearchInput" Watermark="Search name, host, tags, notes..." Margin="0,0,5,0" />
+                    <TextBox Name="SearchInput" PlaceholderText="Search name, host, tags, notes..." Margin="0,0,5,0" />
                     <Button Name="BtnNewConnection"
                             Grid.Column="1"
                             MinWidth="56"

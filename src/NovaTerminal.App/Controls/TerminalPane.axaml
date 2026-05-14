@@ -4,7 +4,6 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:core="clr-namespace:NovaTerminal.Core"
              xmlns:assist="clr-namespace:NovaTerminal.CommandAssist.Views"
-             xmlns:controls="clr-namespace:NovaTerminal.Controls"
              mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
              x:Class="NovaTerminal.Controls.TerminalPane"
              Focusable="True"
@@ -35,106 +34,99 @@
                         <MenuItem Header="Close Pane" Name="MenuPaneClose" />
                     </MenuItem>
                     <MenuItem Header="SFTP">
-                        <MenuItem Header="Remote Files" Name="MenuToggleRemoteFilesSidebar" />
+                        <MenuItem Header="Upload File..." Name="MenuUploadFile" />
+                        <MenuItem Header="Upload Folder..." Name="MenuUploadFolder" />
+                        <Separator />
+                        <MenuItem Header="Download File..." Name="MenuDownloadFile" />
+                        <MenuItem Header="Download Folder..." Name="MenuDownloadFolder" />
                     </MenuItem>
                     <MenuItem Header="Explain Selection" Name="MenuExplainSelection" IsVisible="False" />
                 </ContextMenu>
             </Grid.ContextMenu>
 
-            <Grid x:Name="PaneContentGrid"
-                  Grid.Row="0"
-                  ColumnDefinitions="*,Auto">
-                <Grid x:Name="TerminalLayerHost"
-                      Grid.Column="0">
-                    <!-- Terminal View Layer -->
-                    <core:TerminalView x:Name="TermView" Grid.Row="0" />
-                    <Border Name="InactiveOverlay"
-                            Background="#66000000"
-                            IsVisible="False"
-                            IsHitTestVisible="False"
-                            ZIndex="20"
-                            Grid.Row="0" />
+            <!-- Terminal View Layer -->
+            <core:TerminalView x:Name="TermView" Grid.Row="0" />
+            <Border Name="InactiveOverlay"
+                    Background="#66000000"
+                    IsVisible="False"
+                    IsHitTestVisible="False"
+                    ZIndex="20"
+                    Grid.Row="0" />
 
-                    <!-- ScrollBar Overlay -->
-                    <ScrollBar x:Name="TermScrollBar"
-                               Grid.Row="0"
-                               Orientation="Vertical"
-                               AllowAutoHide="True"
-                               Visibility="Visible"
-                               HorizontalAlignment="Right"
-                               Width="10"
-                               Minimum="0" Maximum="0"
-                               ViewportSize="20"/>
+            <!-- ScrollBar Overlay -->
+            <ScrollBar x:Name="TermScrollBar"
+                       Grid.Row="0"
+                       Orientation="Vertical"
+                       AllowAutoHide="True"
+                       Visibility="Visible"
+                       HorizontalAlignment="Right"
+                       Width="10"
+                       Minimum="0" Maximum="0"
+                       ViewportSize="20"/>
 
-                    <!-- Action Toast Panel -->
-                    <Border Name="ToastPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Center"
-                            Margin="0,20,0,0" Background="#383838" CornerRadius="6" Padding="12,8"
-                            BorderBrush="#505050" BorderThickness="1" ZIndex="250" Grid.Row="0">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="8" Opacity="0.5" OffsetY="2" Color="Black" />
-                        </Border.Effect>
-                        <Grid ColumnDefinitions="Auto, *, Auto, Auto, Auto">
-                            <TextBlock Grid.Column="0" Text="📄" Foreground="#AAA" VerticalAlignment="Center" Margin="0,0,8,0" />
-                            <TextBlock Name="ToastMessageText" Grid.Column="1" Text="Paste contents of filename.txt?" 
-                                       Foreground="White" VerticalAlignment="Center" Margin="0,0,16,0" />
-                            <Button Name="ToastPastePathBtn" Grid.Column="2" Content="Paste path" 
-                                    Background="#333" Foreground="White" BorderThickness="1" BorderBrush="#555" CornerRadius="4" Padding="8,4" Margin="0,0,8,0" Cursor="Hand" />
-                            <Button Name="ToastActionBtn" Grid.Column="3" Content="Paste contents" 
-                                    Background="#0078D7" Foreground="White" BorderThickness="0" CornerRadius="4" Padding="8,4" Margin="0,0,8,0" Cursor="Hand" />
-                            <Button Name="ToastCloseBtn" Grid.Column="4" Content="✕" 
-                                    Background="Transparent" Foreground="#AAA" BorderThickness="0" VerticalAlignment="Center" Padding="4" Cursor="Hand" />
-                        </Grid>
-                    </Border>
-
-                    <!-- Search Overlay -->
-                    <Border Name="SearchPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Right" 
-                            Margin="0,10,24,0" Background="#383838" CornerRadius="4" Padding="6" Width="400"
-                            BorderBrush="#505050" BorderThickness="1" ZIndex="200"
-                            Grid.Row="0">
-                        <Border.Resources>
-                            <SolidColorBrush x:Key="TextControlBackground">#1a1a1a</SolidColorBrush>
-                            <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
-                        </Border.Resources>
-                        <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto, Auto, Auto">
-                            <TextBox Name="SearchBox" Watermark="Search..." 
-                                     BorderThickness="1" BorderBrush="#505050" 
-                                     VerticalContentAlignment="Center" 
-                                     Padding="8,4" Margin="2"/>
-                            
-                            <ToggleButton Name="SearchCaseSensitive" Grid.Column="1" Content="Aa" 
-                                          Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
-                                          ToolTip.Tip="Match Case"/>
-                            <ToggleButton Name="SearchRegex" Grid.Column="2" Content=".*" 
-                                          Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
-                                          ToolTip.Tip="Use Regular Expression"/>
-
-                            <TextBlock Name="SearchCount" Grid.Column="3" Text="0/0" Foreground="#AAA" 
-                                       VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
-                            <Button Name="SearchPrev" Grid.Column="4" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                            <Button Name="SearchNext" Grid.Column="5" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                            <Button Name="SearchClose" Grid.Column="6" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
-                        </Grid>
-                    </Border>
-
-                    <Grid x:Name="CommandAssistOverlayHost"
-                          Grid.Row="0"
-                          ZIndex="150"
-                          IsVisible="False"
-                          IsHitTestVisible="False">
-                        <assist:CommandAssistPopupView x:Name="CommandAssistPopup"
-                                                       HorizontalAlignment="Left"
-                                                       VerticalAlignment="Top"
-                                                       Margin="16,16,16,84" />
-                        <assist:CommandAssistBubbleView x:Name="CommandAssistBubble"
-                                                        HorizontalAlignment="Left"
-                                                        VerticalAlignment="Top"
-                                                        Margin="16,16,16,24" />
-                    </Grid>
+            <!-- Action Toast Panel -->
+            <Border Name="ToastPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Center"
+                    Margin="0,20,0,0" Background="#383838" CornerRadius="6" Padding="12,8"
+                    BorderBrush="#505050" BorderThickness="1" ZIndex="250" Grid.Row="0">
+                <Border.Effect>
+                    <DropShadowEffect BlurRadius="8" Opacity="0.5" OffsetY="2" Color="Black" />
+                </Border.Effect>
+                <Grid ColumnDefinitions="Auto, *, Auto, Auto, Auto">
+                    <TextBlock Grid.Column="0" Text="📄" Foreground="#AAA" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBlock Name="ToastMessageText" Grid.Column="1" Text="Paste contents of filename.txt?" 
+                               Foreground="White" VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <Button Name="ToastPastePathBtn" Grid.Column="2" Content="Paste path" 
+                            Background="#333" Foreground="White" BorderThickness="1" BorderBrush="#555" CornerRadius="4" Padding="8,4" Margin="0,0,8,0" Cursor="Hand" />
+                    <Button Name="ToastActionBtn" Grid.Column="3" Content="Paste contents" 
+                            Background="#0078D7" Foreground="White" BorderThickness="0" CornerRadius="4" Padding="8,4" Margin="0,0,8,0" Cursor="Hand" />
+                    <Button Name="ToastCloseBtn" Grid.Column="4" Content="✕" 
+                            Background="Transparent" Foreground="#AAA" BorderThickness="0" VerticalAlignment="Center" Padding="4" Cursor="Hand" />
                 </Grid>
+            </Border>
 
-                <controls:RemoteFilesSidebar x:Name="RemoteFilesSidebarHost"
-                                             Grid.Column="1"
-                                             IsVisible="False" />
+            <!-- Search Overlay -->
+            <Border Name="SearchPanel" IsVisible="False" VerticalAlignment="Top" HorizontalAlignment="Right" 
+                    Margin="0,10,24,0" Background="#383838" CornerRadius="4" Padding="6" Width="400"
+                    BorderBrush="#505050" BorderThickness="1" ZIndex="200"
+                    Grid.Row="0">
+                <Border.Resources>
+                    <SolidColorBrush x:Key="TextControlBackground">#1a1a1a</SolidColorBrush>
+                    <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
+                </Border.Resources>
+                <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto, Auto, Auto">
+                    <TextBox Name="SearchBox" PlaceholderText="Search..." 
+                             BorderThickness="1" BorderBrush="#505050" 
+                             VerticalContentAlignment="Center" 
+                             Padding="8,4" Margin="2"/>
+                    
+                    <ToggleButton Name="SearchCaseSensitive" Grid.Column="1" Content="Aa" 
+                                  Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                                  ToolTip.Tip="Match Case"/>
+                    <ToggleButton Name="SearchRegex" Grid.Column="2" Content=".*" 
+                                  Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" 
+                                  ToolTip.Tip="Use Regular Expression"/>
+
+                    <TextBlock Name="SearchCount" Grid.Column="3" Text="0/0" Foreground="#AAA" 
+                               VerticalAlignment="Center" Margin="8,0" FontSize="12"/>
+                    <Button Name="SearchPrev" Grid.Column="4" Content="▲" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                    <Button Name="SearchNext" Grid.Column="5" Content="▼" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                    <Button Name="SearchClose" Grid.Column="6" Content="✕" Background="Transparent" Foreground="#AAA" BorderThickness="0" Margin="2" Width="30" Focusable="False"/>
+                </Grid>
+            </Border>
+
+            <Grid x:Name="CommandAssistOverlayHost"
+                  Grid.Row="0"
+                  ZIndex="150"
+                  IsVisible="False"
+                  IsHitTestVisible="False">
+                <assist:CommandAssistPopupView x:Name="CommandAssistPopup"
+                                               HorizontalAlignment="Left"
+                                               VerticalAlignment="Top"
+                                               Margin="16,16,16,84" />
+                <assist:CommandAssistBubbleView x:Name="CommandAssistBubble"
+                                                HorizontalAlignment="Left"
+                                                VerticalAlignment="Top"
+                                                Margin="16,16,16,24" />
             </Grid>
 
             <!-- Port Forwarding Status Bar -->

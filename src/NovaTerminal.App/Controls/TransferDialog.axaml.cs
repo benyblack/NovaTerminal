@@ -56,7 +56,7 @@ public partial class TransferDialog : Window
         _remotePathInput.ProfileId = request.ProfileId;
         _remotePathInput.SessionId = request.SessionId;
         _remotePathInput.AutocompleteService = autocompleteService ?? new RemotePathAutocompleteService();
-        _remotePathInput.Watermark = "~/downloads or /mnt/share";
+        _remotePathInput.PlaceholderText = "~/downloads or /mnt/share";
         _remotePathInput.Text = request.RemotePath;
         _remotePathInput.TextChanged += OnPathInputChanged;
         _localPathBox.PropertyChanged += OnPathBoxPropertyChanged;

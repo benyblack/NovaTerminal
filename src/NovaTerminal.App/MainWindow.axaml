@@ -220,7 +220,7 @@
                 <SolidColorBrush x:Key="TextControlForegroundFocused">White</SolidColorBrush>
             </Border.Resources>
             <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto, Auto, Auto">
-                <TextBox Name="SearchBox" Watermark="Search..." 
+                <TextBox Name="SearchBox" PlaceholderText="Search..." 
                          BorderThickness="1" BorderBrush="#505050" 
                          VerticalContentAlignment="Center" 
                          Padding="8,4" Margin="2"/>
@@ -276,7 +276,7 @@
         <Grid Name="CommandPaletteOverlay" ZIndex="999" IsVisible="False" Background="#80000000">
             <Border Width="600" Height="400" Background="#252526" BorderBrush="#007ACC" BorderThickness="1" CornerRadius="4" VerticalAlignment="Top" Margin="0,80,0,0">
                 <Grid RowDefinitions="Auto, *">
-                    <TextBox Name="CommandSearchBox" Watermark="Type a command..." FontSize="14" Padding="10" BorderThickness="0,0,0,1" BorderBrush="#333333" Background="Transparent" Foreground="White" />
+                    <TextBox Name="CommandSearchBox" PlaceholderText="Type a command..." FontSize="14" Padding="10" BorderThickness="0,0,0,1" BorderBrush="#333333" Background="Transparent" Foreground="White" />
                     <ListBox Name="CommandList" Grid.Row="1" Background="Transparent" BorderThickness="0">
                         <ListBox.ItemTemplate>
                             <DataTemplate x:CompileBindings="False">
