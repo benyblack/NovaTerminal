@@ -11,7 +11,6 @@ namespace NovaTerminal.Tests
     {
         public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>()
             .UseSkia()
-            .With(new SkiaOptions { MaxGpuResourceSizeBytes = 0 })
             .UseHeadless(new AvaloniaHeadlessPlatformOptions());
     }
 }
