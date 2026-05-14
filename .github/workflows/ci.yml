@@ -36,33 +36,50 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Cache the compiled binary keyed on all Rust source files.
+      # On a hit the toolchain and cargo build are skipped entirely.
+      - name: Cache native binary
+        id: native-bin-cache
+        uses: actions/cache@v4
+        with:
+          path: src/NovaTerminal.App/native/target/release
+          key: native-bin-${{ matrix.os }}-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
+
       - name: Install Rust
+        if: steps.native-bin-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust Cache
+      - name: Rust incremental build cache
+        if: steps.native-bin-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/NovaTerminal.App/native
 
       - name: Build Rust (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.os == 'windows-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release
 
       - name: Build Rust (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release
-          mkdir -p ../native/target_linux/release
-          cp target/release/librusty_pty.so ../native/target_linux/release/
 
       - name: Build Rust (macOS)
-        if: matrix.os == 'macos-latest'
+        if: matrix.os == 'macos-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release
+
+      # Linux puts the .so in a separate path expected by the csproj.
+      # Run unconditionally so it's always present whether freshly built or cache-restored.
+      - name: Stage Linux native binary
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir -p src/NovaTerminal.App/native/target_linux/release
+          cp src/NovaTerminal.App/native/target/release/librusty_pty.so src/NovaTerminal.App/native/target_linux/release/
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
