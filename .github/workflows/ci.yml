@@ -32,7 +32,7 @@ jobs:
       fail-fast: false
       matrix:
         os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest","ubuntu-latest"]') }}
-    
+
     steps:
       - uses: actions/checkout@v4
 
@@ -49,15 +49,12 @@ jobs:
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release
-          # Binary stays in target/release/rusty_pty.dll
 
       - name: Build Rust (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release
-          # Move to the special target_linux dir expected by csproj if needed
-          # Actually, we can just move it to src/NovaTerminal.App/native/target_linux/release/
           mkdir -p ../native/target_linux/release
           cp target/release/librusty_pty.so ../native/target_linux/release/
 
@@ -66,7 +63,6 @@ jobs:
         run: |
           cd src/NovaTerminal.App/native
           cargo build --release
-          # Binary stays in target/release/librusty_pty.dylib
 
       - name: Upload Native Artifact
         uses: actions/upload-artifact@v4
@@ -74,10 +70,10 @@ jobs:
           name: native-${{ matrix.os }}
           path: src/NovaTerminal.App/native/target*/**/release/*pty.*
 
-  build_and_unit_tests:
-    name: Build + Unit Tests (${{ matrix.os }})
+  build_dotnet:
+    name: Build .NET (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 15
     needs: [build_native]
     strategy:
       fail-fast: false
@@ -101,8 +97,41 @@ jobs:
       - name: Restore
         run: dotnet restore
 
-      - name: Build (C#)
+      - name: Build
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dotnet-build-${{ matrix.os }}
+          retention-days: 1
+          path: |
+            tests/**/bin/${{ env.CONFIGURATION }}/**
+            src/NovaTerminal.App/bin/${{ env.CONFIGURATION }}/**
+            src/NovaTerminal.Cli/bin/${{ env.CONFIGURATION }}/**
+
+  build_and_unit_tests:
+    name: Build + Unit Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    needs: [build_dotnet]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download Build Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dotnet-build-${{ matrix.os }}
 
       - name: Test (unit)
         # Keep the unit lane focused on deterministic tests; stress tests run in nightly,
@@ -120,8 +149,8 @@ jobs:
   golden_shared_png_tests:
     name: Golden Shared PNGs (windows-latest)
     runs-on: windows-latest
-    timeout-minutes: 20
-    needs: [build_native]
+    timeout-minutes: 10
+    needs: [build_dotnet]
 
     steps:
       - uses: actions/checkout@v4
@@ -131,17 +160,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Native Artifact
+      - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-windows-latest
-          path: src/NovaTerminal.App/native
-
-      - name: Restore
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+          name: dotnet-build-windows-latest
 
       - name: Run Golden Shared PNG Tests
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=GoldenSharedPng" --logger "trx;LogFileName=golden_shared_png_tests.trx"
@@ -158,8 +180,8 @@ jobs:
     name: Replay Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     if: github.event_name != 'pull_request'
-    timeout-minutes: 25
-    needs: [build_and_unit_tests, build_native]
+    timeout-minutes: 15
+    needs: [build_dotnet]
     strategy:
       fail-fast: false
       matrix:
@@ -173,17 +195,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Native Artifact
+      - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
-
-      - name: Restore
-        run: dotnet restore
-
-      - name: Build (tests only)
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+          name: dotnet-build-${{ matrix.os }}
 
       - name: Run Replay Tests
         env:
@@ -215,8 +230,8 @@ jobs:
     name: PTY Smoke Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    timeout-minutes: 20
-    needs: [build_and_unit_tests, build_native]
+    timeout-minutes: 10
+    needs: [build_dotnet]
     strategy:
       fail-fast: false
       matrix:
@@ -230,17 +245,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Native Artifact
+      - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
-
-      - name: Restore
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+          name: dotnet-build-${{ matrix.os }}
 
       - name: Run PTY smoke tests
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=PtySmoke" --logger "trx;LogFileName=pty_smoke_tests.trx"
@@ -291,8 +299,8 @@ jobs:
     name: Render Metrics (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    timeout-minutes: 20
-    needs: [build_and_unit_tests, build_native]
+    timeout-minutes: 10
+    needs: [build_dotnet]
     strategy:
       fail-fast: false
       matrix:
@@ -306,17 +314,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Native Artifact
+      - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
-
-      - name: Restore
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+          name: dotnet-build-${{ matrix.os }}
 
       - name: Run Render Metrics Tests
         env:
@@ -337,9 +338,9 @@ jobs:
   tab_perf_smoke:
     name: Tab Perf Smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     if: github.event_name == 'pull_request' || github.event_name == 'push'
-    needs: [build_and_unit_tests, build_native]
+    needs: [build_dotnet]
 
     steps:
       - uses: actions/checkout@v4
@@ -349,17 +350,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Native Artifact
+      - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-ubuntu-latest
-          path: src/NovaTerminal.App/native
-
-      - name: Restore
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+          name: dotnet-build-ubuntu-latest
 
       - name: Run tab perf smoke
         env:
@@ -382,7 +376,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event_name == 'schedule'
-    needs: [build_and_unit_tests, build_native]
+    needs: [build_dotnet]
 
     steps:
       - uses: actions/checkout@v4
@@ -392,17 +386,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Native Artifact
+      - name: Download Build Artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-ubuntu-latest
-          path: src/NovaTerminal.App/native
-
-      - name: Restore
-        run: dotnet restore
-
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+          name: dotnet-build-ubuntu-latest
 
       - name: Run stress lanes
         env:
