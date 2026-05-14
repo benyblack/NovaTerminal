@@ -24,8 +24,10 @@ env:
   CONFIGURATION: Release
 
 jobs:
-  build_native:
-    name: Build Native (${{ matrix.os }})
+  # Single build job per OS: Rust native + .NET in one step.
+  # Eliminates the artifact round-trip that the old build_native → build_dotnet split required.
+  build:
+    name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -36,8 +38,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── Rust native ────────────────────────────────────────────────────────────
       # Cache the compiled binary keyed on all Rust source files.
-      # On a hit the toolchain and cargo build are skipped entirely.
+      # On a hit the toolchain install, Swatinem, and cargo build are all skipped.
       - name: Cache native binary
         id: native-bin-cache
         uses: actions/cache@v4
@@ -57,59 +60,30 @@ jobs:
 
       - name: Build Rust (Windows)
         if: matrix.os == 'windows-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
-        run: |
-          cd src/NovaTerminal.App/native
-          cargo build --release
+        run: cd src/NovaTerminal.App/native && cargo build --release
 
       - name: Build Rust (Linux)
         if: matrix.os == 'ubuntu-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
-        run: |
-          cd src/NovaTerminal.App/native
-          cargo build --release
+        run: cd src/NovaTerminal.App/native && cargo build --release
 
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
-        run: |
-          cd src/NovaTerminal.App/native
-          cargo build --release
+        run: cd src/NovaTerminal.App/native && cargo build --release
 
-      # Linux puts the .so in a separate path expected by the csproj.
-      # Run unconditionally so it's always present whether freshly built or cache-restored.
+      # Linux csproj expects the .so at target_linux/release/ — stage it whether
+      # it was freshly built or restored from cache.
       - name: Stage Linux native binary
         if: matrix.os == 'ubuntu-latest'
         run: |
           mkdir -p src/NovaTerminal.App/native/target_linux/release
-          cp src/NovaTerminal.App/native/target/release/librusty_pty.so src/NovaTerminal.App/native/target_linux/release/
+          cp src/NovaTerminal.App/native/target/release/librusty_pty.so \
+             src/NovaTerminal.App/native/target_linux/release/
 
-      - name: Upload Native Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native/target*/**/release/*pty.*
-
-  build_dotnet:
-    name: Build .NET (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
-    needs: [build_native]
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-
-    steps:
-      - uses: actions/checkout@v4
-
+      # ── .NET ───────────────────────────────────────────────────────────────────
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-
-      - name: Download Native Artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
 
       - name: Restore
         run: dotnet restore
@@ -117,7 +91,9 @@ jobs:
       - name: Build
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
-      - name: Upload Build Artifact
+      # The native binary is a <Content> item so it's already in bin/Release/net10.0/.
+      # All downstream test jobs download this artifact and run with --no-build.
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
@@ -128,10 +104,10 @@ jobs:
             src/NovaTerminal.Cli/bin/${{ env.CONFIGURATION }}/**
 
   build_and_unit_tests:
-    name: Build + Unit Tests (${{ matrix.os }})
+    name: Unit Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
-    needs: [build_dotnet]
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -145,7 +121,7 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Build Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
@@ -167,7 +143,7 @@ jobs:
     name: Golden Shared PNGs (windows-latest)
     runs-on: windows-latest
     timeout-minutes: 10
-    needs: [build_dotnet]
+    needs: [build]
 
     steps:
       - uses: actions/checkout@v4
@@ -177,7 +153,7 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Build Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-windows-latest
@@ -198,7 +174,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     if: github.event_name != 'pull_request'
     timeout-minutes: 15
-    needs: [build_dotnet]
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -212,7 +188,7 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Build Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
@@ -248,7 +224,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 10
-    needs: [build_dotnet]
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -262,7 +238,7 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Build Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
@@ -317,7 +293,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     timeout-minutes: 10
-    needs: [build_dotnet]
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -331,7 +307,7 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Build Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
@@ -357,7 +333,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.event_name == 'pull_request' || github.event_name == 'push'
-    needs: [build_dotnet]
+    needs: [build]
 
     steps:
       - uses: actions/checkout@v4
@@ -367,7 +343,7 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Build Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-ubuntu-latest
@@ -393,7 +369,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event_name == 'schedule'
-    needs: [build_dotnet]
+    needs: [build]
 
     steps:
       - uses: actions/checkout@v4
@@ -403,7 +379,7 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Build Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-ubuntu-latest
@@ -429,7 +405,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'workflow_dispatch'
     timeout-minutes: 40
-    needs: [build_native]
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -449,11 +425,10 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - name: Download Native Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
+          name: dotnet-build-${{ matrix.os }}
 
       - name: Restore
         run: dotnet restore
