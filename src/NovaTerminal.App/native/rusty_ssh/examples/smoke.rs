@@ -47,6 +47,11 @@ fn main() {
         jump_port: 0,
         keepalive_interval_seconds: 30,
         keepalive_count_max: 3,
+        remote_shell_kind: 0,
+        shell_detection_command: std::ptr::null(),
+        bash_cwd_bootstrap: std::ptr::null(),
+        zsh_cwd_bootstrap: std::ptr::null(),
+        fish_cwd_bootstrap: std::ptr::null(),
     };
 
     let session = nova_ssh_connect(&connect_args);

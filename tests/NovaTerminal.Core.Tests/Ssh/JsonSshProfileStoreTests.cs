@@ -152,6 +152,35 @@ public sealed class JsonSshProfileStoreTests
     }
 
     [Fact]
+    public void SaveAndLoad_RoundTripsRemoteShellKind()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string storePath = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(storePath);
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("2b7ca4ee-dc11-4a0e-bb7c-c6db8d3f5e25"),
+                Name = "bash",
+                Host = "bash.internal",
+                RemoteShellKind = RemoteShellKind.Bash
+            };
+
+            store.SaveProfile(profile);
+
+            SshProfile? loaded = store.GetProfile(profile.Id);
+
+            Assert.NotNull(loaded);
+            Assert.Equal(RemoteShellKind.Bash, loaded!.RemoteShellKind);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void NormalizeRememberPasswordPreference_PreservesNativeProfiles()
     {
         var profile = new SshProfile
