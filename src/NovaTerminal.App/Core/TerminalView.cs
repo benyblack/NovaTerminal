@@ -369,7 +369,7 @@ namespace NovaTerminal.Core
 
         private void OnDragOver(object? sender, DragEventArgs e)
         {
-            if (e.DataTransfer.TryGetFiles() != null || e.DataTransfer.Contains(DataFormat.Text))
+            if (e.DataTransfer.Contains(DataFormat.File) || e.DataTransfer.Contains(DataFormat.Text))
             {
                 e.DragEffects = DragDropEffects.Copy;
                 e.Handled = true;
@@ -516,6 +516,8 @@ namespace NovaTerminal.Core
         private bool _enableComplexShaping = true;
         private readonly GlyphCache _glyphCache = new();
         private double _lastRenderScalingForRowCache = -1.0;
+        private TopLevel? _cachedTopLevel;
+        private double _cachedRenderScaling = 1.0;
 
 
         private GlyphTypeface? _glyphTypeface;
@@ -722,6 +724,13 @@ namespace NovaTerminal.Core
             _isAttachedToVisualTree = true;
             RefreshUiTimerState();
 
+            _cachedTopLevel = TopLevel.GetTopLevel(this);
+            if (_cachedTopLevel != null)
+            {
+                _cachedRenderScaling = _cachedTopLevel.RenderScaling;
+                _cachedTopLevel.ScalingChanged += OnTopLevelScalingChanged;
+            }
+
             // Ensure char metrics are available immediately upon attachment
             MeasureCharSize();
 
@@ -738,6 +747,18 @@ namespace NovaTerminal.Core
             _isAttachedToVisualTree = false;
             _isUiRenderable = false;
             StopUiTimers();
+
+            if (_cachedTopLevel != null)
+            {
+                _cachedTopLevel.ScalingChanged -= OnTopLevelScalingChanged;
+                _cachedTopLevel = null;
+            }
+        }
+
+        private void OnTopLevelScalingChanged(object? sender, EventArgs e)
+        {
+            _cachedRenderScaling = _cachedTopLevel?.RenderScaling ?? 1.0;
+            MeasureCharSize();
         }
 
         protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -949,7 +970,7 @@ namespace NovaTerminal.Core
         public void MeasureCharSize()
         {
             _rowCache.RequestClear();
-            double scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+            double scaling = _cachedRenderScaling;
 
             // Try to get SKTypeface first as it's our source of truth
             ClearSkiaResources();
@@ -1468,7 +1489,7 @@ namespace NovaTerminal.Core
             }
 
             // Create and dispatch custom draw op
-            var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
+            var scaling = _cachedRenderScaling;
             if (Math.Abs(scaling - _lastRenderScalingForRowCache) > 0.0001)
             {
                 _lastRenderScalingForRowCache = scaling;
