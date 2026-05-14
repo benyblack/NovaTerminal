@@ -127,6 +127,7 @@ public sealed class SshLaunchDetails
         candidate.AccentColor = profile.AccentColor?.Trim() ?? string.Empty;
         candidate.GroupPath = profile.Group?.Trim() ?? candidate.GroupPath;
         candidate.BackendKind = profile.SshBackendKind;
+        candidate.RemoteShellKind = profile.RemoteShellKind;
 
         bool favorite = profile.Tags?.Any(IsFavoriteTag) == true;
         candidate.Tags = NormalizeTags(profile.Tags, favorite);
@@ -324,6 +325,7 @@ public sealed class SshLaunchDetails
             SshUser = profile.User,
             SshPort = profile.Port > 0 ? profile.Port : 22,
             SshBackendKind = profile.BackendKind,
+            RemoteShellKind = profile.RemoteShellKind,
             UseSshAgent = !useIdentityFile,
             IdentityFilePath = useIdentityFile ? profile.IdentityFilePath : string.Empty,
             SshKeyPath = useIdentityFile ? profile.IdentityFilePath : string.Empty,
@@ -349,6 +351,7 @@ public sealed class SshLaunchDetails
             Notes = profile.Notes?.Trim() ?? string.Empty,
             AccentColor = profile.AccentColor?.Trim() ?? string.Empty,
             Tags = NormalizeTags(profile.Tags, profile.Tags?.Any(IsFavoriteTag) == true),
+            RemoteShellKind = profile.RemoteShellKind,
             AuthMode = !profile.UseSshAgent && (!string.IsNullOrWhiteSpace(profile.IdentityFilePath) || !string.IsNullOrWhiteSpace(profile.SshKeyPath))
                 ? SshAuthMode.IdentityFile
                 : SshAuthMode.Agent,
@@ -593,7 +596,8 @@ public sealed class SshLaunchDetails
             ServerAliveIntervalSeconds = profile.ServerAliveIntervalSeconds,
             ServerAliveCountMax = profile.ServerAliveCountMax,
             ExtraSshArgs = profile.ExtraSshArgs,
-            WorkingDirectory = profile.WorkingDirectory
+            WorkingDirectory = profile.WorkingDirectory,
+            RemoteShellKind = profile.RemoteShellKind
         };
     }
 

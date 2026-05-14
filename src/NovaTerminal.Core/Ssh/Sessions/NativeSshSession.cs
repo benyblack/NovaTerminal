@@ -71,7 +71,7 @@ public sealed class NativeSshSession : ITerminalSession
         _profileHost = profile.Host;
         _allowVaultPasswordReuse = profile.Id != Guid.Empty;
         JumpHostConnectPlan connectPlan = JumpHostConnectPlan.Create(profile);
-        NativeSshConnectionOptions connectionOptions = _jumpHostConnector.CreateConnectionOptions(connectPlan, profile, cols, rows);
+        NativeSshConnectionOptions connectionOptions = CreateConnectionOptions(connectPlan, profile, cols, rows);
         _log($"[NativeSshSession] backend=native path={_jumpHostConnector.DescribePath(connectPlan)} target={connectionOptions.User}@{connectionOptions.Host}:{connectionOptions.Port}");
         _sessionHandle = _interop.Connect(connectionOptions);
 
@@ -258,6 +258,58 @@ public sealed class NativeSshSession : ITerminalSession
     public void AttachBuffer(TerminalBuffer buffer)
     {
         _buffer = buffer;
+    }
+
+    private NativeSshConnectionOptions CreateConnectionOptions(
+        JumpHostConnectPlan connectPlan,
+        SshProfile profile,
+        int cols,
+        int rows)
+    {
+        NativeSshConnectionOptions baseOptions = _jumpHostConnector.CreateConnectionOptions(connectPlan, profile, cols, rows);
+        RemoteShellKind remoteShellKind = profile.RemoteShellKind;
+
+        return new NativeSshConnectionOptions
+        {
+            Host = baseOptions.Host,
+            User = baseOptions.User,
+            Port = baseOptions.Port,
+            Cols = baseOptions.Cols,
+            Rows = baseOptions.Rows,
+            Term = baseOptions.Term,
+            Password = baseOptions.Password,
+            IdentityFilePath = baseOptions.IdentityFilePath,
+            KnownHostsFilePath = baseOptions.KnownHostsFilePath,
+            JumpHost = baseOptions.JumpHost,
+            KeepAliveIntervalSeconds = baseOptions.KeepAliveIntervalSeconds,
+            KeepAliveCountMax = baseOptions.KeepAliveCountMax,
+            RemoteShellKind = remoteShellKind,
+            ShellDetectionCommand = remoteShellKind == RemoteShellKind.Auto
+                ? "sh -lc 'printf \"%s\" \"${SHELL##*/}\"' 2>/dev/null"
+                : null,
+            BashCwdBootstrap = string.Join(
+                "\n",
+                "__nova_emit_cwd() {",
+                "  printf '\\033]7;%s\\007' \"$PWD\"",
+                "}",
+                "PROMPT_COMMAND=\"__nova_emit_cwd${PROMPT_COMMAND:+;$PROMPT_COMMAND}\""),
+            ZshCwdBootstrap = string.Join(
+                "\n",
+                "autoload -Uz add-zsh-hook",
+                "__nova_emit_cwd() {",
+                "  printf '\\033]7;%s\\007' \"$PWD\"",
+                "}",
+                "add-zsh-hook precmd __nova_emit_cwd"),
+            FishCwdBootstrap = string.Join(
+                "\n",
+                "functions -q fish_prompt; and functions -c fish_prompt __nova_original_fish_prompt",
+                "function fish_prompt",
+                "    printf '\\033]7;%s\\007' \"$PWD\"",
+                "    if functions -q __nova_original_fish_prompt",
+                "        __nova_original_fish_prompt",
+                "    end",
+                "end")
+        };
     }
 
     public void TakeSnapshot()

@@ -31,4 +31,5 @@ public sealed class SshProfile
     public int ServerAliveCountMax { get; set; } = 3;
     public string ExtraSshArgs { get; set; } = string.Empty;
     public string WorkingDirectory { get; set; } = string.Empty;
+    public RemoteShellKind RemoteShellKind { get; set; } = RemoteShellKind.Auto;
 }

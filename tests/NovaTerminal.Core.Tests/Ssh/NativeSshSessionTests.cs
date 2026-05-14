@@ -168,6 +168,42 @@ public sealed class NativeSshSessionTests
         Assert.Equal(7, interop.LastConnectOptions.KeepAliveCountMax);
     }
 
+    [Fact]
+    public async Task Connect_WithAutoRemoteShellKind_PassesProbeAndSupportedBootstraps()
+    {
+        var interop = new FakeNativeSshInterop();
+        SshProfile profile = CreateProfile();
+        profile.RemoteShellKind = RemoteShellKind.Auto;
+
+        using var session = new NativeSshSession(profile, interop: interop);
+
+        await WaitUntilAsync(() => interop.LastConnectOptions != null);
+
+        Assert.NotNull(interop.LastConnectOptions);
+        Assert.Equal(RemoteShellKind.Auto, interop.LastConnectOptions!.RemoteShellKind);
+        Assert.Contains("sh -lc", interop.LastConnectOptions.ShellDetectionCommand, StringComparison.Ordinal);
+        Assert.Contains("PROMPT_COMMAND", interop.LastConnectOptions.BashCwdBootstrap, StringComparison.Ordinal);
+        Assert.Contains("add-zsh-hook precmd", interop.LastConnectOptions.ZshCwdBootstrap, StringComparison.Ordinal);
+        Assert.Contains("fish_prompt", interop.LastConnectOptions.FishCwdBootstrap, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Connect_WithExplicitBashRemoteShellKind_SkipsProbeButPassesBootstrap()
+    {
+        var interop = new FakeNativeSshInterop();
+        SshProfile profile = CreateProfile();
+        profile.RemoteShellKind = RemoteShellKind.Bash;
+
+        using var session = new NativeSshSession(profile, interop: interop);
+
+        await WaitUntilAsync(() => interop.LastConnectOptions != null);
+
+        Assert.NotNull(interop.LastConnectOptions);
+        Assert.Equal(RemoteShellKind.Bash, interop.LastConnectOptions!.RemoteShellKind);
+        Assert.Null(interop.LastConnectOptions.ShellDetectionCommand);
+        Assert.Contains("PROMPT_COMMAND", interop.LastConnectOptions.BashCwdBootstrap, StringComparison.Ordinal);
+    }
+
     private static SshProfile CreateProfile()
     {
         return new SshProfile

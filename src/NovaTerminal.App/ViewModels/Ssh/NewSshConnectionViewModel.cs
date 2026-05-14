@@ -39,6 +39,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     private string _extraSshArgs = string.Empty;
     private bool _connectAfterSave;
     private bool _experimentalNativeSshEnabled;
+    private RemoteShellKind _remoteShellKind = RemoteShellKind.Auto;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -199,6 +200,12 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         }
     }
 
+    public RemoteShellKind RemoteShellKind
+    {
+        get => _remoteShellKind;
+        set => SetField(ref _remoteShellKind, value);
+    }
+
     public string BackendWarning =>
         BackendKind == SshBackendKind.Native && !ExperimentalNativeSshEnabled
             ? "Native SSH is disabled globally. Enable ExperimentalNativeSshEnabled in settings or switch this profile back to OpenSSH."
@@ -304,7 +311,8 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
             },
             ServerAliveIntervalSeconds = keepAliveInterval,
             ServerAliveCountMax = keepAliveCountMax,
-            ExtraSshArgs = ExtraSshArgs?.Trim() ?? string.Empty
+            ExtraSshArgs = ExtraSshArgs?.Trim() ?? string.Empty,
+            RemoteShellKind = RemoteShellKind
         };
     }
 
@@ -329,6 +337,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
             IsFavorite = profile.Tags.Any(tag => string.Equals(tag, "favorite", StringComparison.OrdinalIgnoreCase)),
             Notes = profile.Notes ?? string.Empty,
             BackendKind = profile.SshBackendKind,
+            RemoteShellKind = profile.RemoteShellKind,
             AuthMode = hasIdentityFile ? NewSshAuthMode.IdentityFile : NewSshAuthMode.Agent,
             IdentityFilePath = !string.IsNullOrWhiteSpace(profile.IdentityFilePath)
                 ? profile.IdentityFilePath!
@@ -395,6 +404,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         EnableMux = sshProfile.MuxOptions.Enabled;
         ControlPersistSeconds = sshProfile.MuxOptions.ControlPersistSeconds >= 0 ? sshProfile.MuxOptions.ControlPersistSeconds : 90;
         ExtraSshArgs = sshProfile.ExtraSshArgs ?? string.Empty;
+        RemoteShellKind = sshProfile.RemoteShellKind;
     }
 
     private static PortForward? ConvertLegacyForward(ForwardingRule legacy)

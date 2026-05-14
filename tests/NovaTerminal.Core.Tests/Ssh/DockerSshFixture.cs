@@ -5,7 +5,7 @@ namespace NovaTerminal.Core.Tests.Ssh;
 
 internal sealed class DockerSshFixture : IAsyncDisposable
 {
-    private const string ImageTag = "novaterm-native-ssh-e2e:local";
+    private const string ImageTag = "novaterm-native-ssh-e2e:v2";
     private string _containerName = string.Empty;
     private bool _started;
 
@@ -64,6 +64,14 @@ internal sealed class DockerSshFixture : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
         await RunDockerCommandAsync($"exec {_containerName} mkdir -p {path}")
+            .ConfigureAwait(false);
+    }
+
+    public async Task SetLoginShellAsync(string shellPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(shellPath);
+
+        await RunDockerCommandAsync($"exec {_containerName} usermod -s {shellPath} {UserName}")
             .ConfigureAwait(false);
     }
 

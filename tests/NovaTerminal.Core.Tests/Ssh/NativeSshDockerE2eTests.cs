@@ -4,6 +4,7 @@ using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Sessions;
 using NovaTerminal.Core.Tests.Infra;
 using System.Text;
+using NovaTerminal.Core;
 
 namespace NovaTerminal.Core.Tests.Ssh;
 
@@ -822,6 +823,30 @@ public sealed class NativeSshDockerE2eTests
         Assert.DoesNotContain(after.Lines.Take(20), line => line.Contains("line 01", StringComparison.Ordinal));
     }
 
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
+    public Task NativeSsh_AutoRemoteShellKind_EmitsCwdUpdatesForBash()
+    {
+        return AssertAutoRemoteShellKindEmitsCwdUpdatesAsync("/bin/bash");
+    }
+
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
+    public Task NativeSsh_AutoRemoteShellKind_EmitsCwdUpdatesForZsh()
+    {
+        return AssertAutoRemoteShellKindEmitsCwdUpdatesAsync("/usr/bin/zsh");
+    }
+
+    [DockerFact]
+    [Trait("Category", "DockerE2E")]
+    [Trait("Target", "NativeSsh")]
+    public Task NativeSsh_AutoRemoteShellKind_EmitsCwdUpdatesForFish()
+    {
+        return AssertAutoRemoteShellKindEmitsCwdUpdatesAsync("/usr/bin/fish");
+    }
+
     private static SshProfile CreateProfile(DockerSshFixture fixture)
     {
         return new SshProfile
@@ -833,6 +858,57 @@ public sealed class NativeSshDockerE2eTests
             User = fixture.UserName,
             Port = fixture.Port
         };
+    }
+
+    private static async Task AssertAutoRemoteShellKindEmitsCwdUpdatesAsync(string loginShellPath)
+    {
+        await using var fixture = await DockerSshFixture.StartAsync();
+        await fixture.SetLoginShellAsync(loginShellPath);
+
+        var buffer = new TerminalBuffer(120, 30);
+        var parser = new AnsiParser(buffer);
+        var handler = new NativeSshTestInteractionHandler(fixture.Password);
+        var cwdEvents = new List<string>();
+
+        parser.OnWorkingDirectoryChanged += cwd =>
+        {
+            lock (cwdEvents)
+            {
+                cwdEvents.Add(cwd);
+            }
+        };
+
+        SshProfile profile = CreateProfile(fixture);
+        profile.RemoteShellKind = RemoteShellKind.Auto;
+
+        using var session = new NativeSshSession(
+            profile,
+            cols: 120,
+            rows: 30,
+            interactionHandler: handler);
+
+        session.AttachBuffer(buffer);
+        session.OnOutputReceived += parser.Process;
+
+        await WaitUntilAsync(
+            () => GetLatestCwd(cwdEvents) == "/home/nova",
+            TimeSpan.FromSeconds(20),
+            $"initial cwd from {loginShellPath}");
+
+        session.SendInput("cd /tmp\n");
+
+        await WaitUntilAsync(
+            () => GetLatestCwd(cwdEvents) == "/tmp",
+            TimeSpan.FromSeconds(20),
+            $"cwd change after cd in {loginShellPath}");
+    }
+
+    private static string? GetLatestCwd(List<string> cwdEvents)
+    {
+        lock (cwdEvents)
+        {
+            return cwdEvents.Count == 0 ? null : cwdEvents[^1];
+        }
     }
 
     private static bool SnapshotContains(TerminalBuffer buffer, string value)

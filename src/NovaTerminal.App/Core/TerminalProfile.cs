@@ -64,6 +64,7 @@ namespace NovaTerminal.Core
         public string SshUser { get; set; } = "";
         public string SshKeyPath { get; set; } = "";
         public SshBackendKind SshBackendKind { get; set; } = SshBackendKind.OpenSsh;
+        public RemoteShellKind RemoteShellKind { get; set; } = RemoteShellKind.Auto;
 
         public ShellOverride ShellOverride { get; set; } = ShellOverride.Auto;
 

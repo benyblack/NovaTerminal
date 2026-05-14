@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
+using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.ViewModels.Ssh;
 
@@ -16,6 +17,7 @@ public partial class NewSshConnectionView : Window
         InitializeComponent();
         ConfigureAuthModeCombo();
         ConfigureBackendKindCombo();
+        ConfigureRemoteShellKindCombo();
         ConfigureForwardKindCombo();
     }
 
@@ -46,6 +48,15 @@ public partial class NewSshConnectionView : Window
         if (combo != null)
         {
             combo.ItemsSource = Enum.GetValues<SshBackendKind>();
+        }
+    }
+
+    private void ConfigureRemoteShellKindCombo()
+    {
+        var combo = this.FindControl<ComboBox>("RemoteShellKindCombo");
+        if (combo != null)
+        {
+            combo.ItemsSource = Enum.GetValues<RemoteShellKind>();
         }
     }
 
