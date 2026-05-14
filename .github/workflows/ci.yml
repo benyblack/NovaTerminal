@@ -91,17 +91,17 @@ jobs:
       - name: Build
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
-      # The native binary is a <Content> item so it's already in bin/Release/net10.0/.
-      # All downstream test jobs download this artifact and run with --no-build.
+      # Upload only the test output directories. src/*/bin/ is 100% duplicated inside
+      # tests/NovaTerminal.Tests/bin/ (MSBuild copies all referenced DLLs + executables),
+      # so including it would double the artifact size for no benefit.
+      # VtReportCliTests needs src/NovaTerminal.App/bin/ at runtime — the unit test
+      # job restores it from the test output via a symlink/junction (see below).
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
           retention-days: 1
-          path: |
-            tests/**/bin/${{ env.CONFIGURATION }}/**
-            src/NovaTerminal.App/bin/${{ env.CONFIGURATION }}/**
-            src/NovaTerminal.Cli/bin/${{ env.CONFIGURATION }}/**
+          path: tests/**/bin/${{ env.CONFIGURATION }}/**
 
   build_and_unit_tests:
     name: Unit Tests (${{ matrix.os }})
@@ -125,6 +125,27 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
+
+      # VtReportCliTests.cs looks for app/CLI binaries in src/*/bin/Release/net10.0/.
+      # Every file there is already present in the test output, so we point the src
+      # directories at the test output with a symlink (Linux) or junction (Windows)
+      # rather than duplicating 1.1 GB in the artifact.
+      - name: Link src bin dirs to test output (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p src/NovaTerminal.App/bin/Release src/NovaTerminal.Cli/bin/Release
+          ln -s "$GITHUB_WORKSPACE/tests/NovaTerminal.Tests/bin/Release/net10.0" src/NovaTerminal.App/bin/Release/net10.0
+          ln -s "$GITHUB_WORKSPACE/tests/NovaTerminal.Tests/bin/Release/net10.0" src/NovaTerminal.Cli/bin/Release/net10.0
+
+      - name: Link src bin dirs to test output (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $testOut = "$env:GITHUB_WORKSPACE\tests\NovaTerminal.Tests\bin\Release\net10.0"
+          New-Item -ItemType Directory -Force "src\NovaTerminal.App\bin\Release" | Out-Null
+          New-Item -ItemType Directory -Force "src\NovaTerminal.Cli\bin\Release" | Out-Null
+          New-Item -ItemType Junction -Path "src\NovaTerminal.App\bin\Release\net10.0" -Target $testOut | Out-Null
+          New-Item -ItemType Junction -Path "src\NovaTerminal.Cli\bin\Release\net10.0" -Target $testOut | Out-Null
 
       - name: Test (unit)
         # Keep the unit lane focused on deterministic tests; stress tests run in nightly,
