@@ -696,8 +696,31 @@ public sealed partial class NativeSshInterop : INativeSshInterop
             NativeSshTransferJsonContext.Default.RemotePathListResponse);
 
         return response?.Entries?
-            .Select(entry => new NativeRemotePathEntry(entry.Name, entry.FullPath, entry.IsDirectory))
+            .Select(entry => new NativeRemotePathEntry(
+                entry.Name,
+                entry.FullPath,
+                entry.IsDirectory,
+                entry.ModifiedAtUtc ?? ConvertUnixSecondsToUtc(entry.ModifiedAtUnixSeconds)))
             .ToList() ?? [];
+    }
+
+    private static DateTime? ConvertUnixSecondsToUtc(ulong? modifiedAtUnixSeconds)
+    {
+        if (!modifiedAtUnixSeconds.HasValue)
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset
+                .FromUnixTimeSeconds(checked((long)modifiedAtUnixSeconds.Value))
+                .UtcDateTime;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
     }
 
     private static string? TakeNativeUtf8AndFree(ref IntPtr pointer)
@@ -846,6 +869,8 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         public string Name { get; init; } = string.Empty;
         public string FullPath { get; init; } = string.Empty;
         public bool IsDirectory { get; init; }
+        public DateTime? ModifiedAtUtc { get; init; }
+        public ulong? ModifiedAtUnixSeconds { get; init; }
     }
 
     [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]

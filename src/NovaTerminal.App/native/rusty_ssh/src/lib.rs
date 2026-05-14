@@ -336,6 +336,7 @@ struct RemotePathListEntry {
     name: String,
     full_path: String,
     is_directory: bool,
+    modified_at_unix_seconds: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -1690,6 +1691,7 @@ where
                 name,
                 full_path,
                 is_directory: entry.metadata().is_dir(),
+                modified_at_unix_seconds: entry.metadata().mtime.map(|value| value as u64),
             }
         })
         .collect();
@@ -2860,6 +2862,34 @@ mod tests {
                 .unwrap_or_default()
                 .contains("incomplete")
         );
+
+        nova_ssh_string_free(response);
+    }
+
+    #[test]
+    fn remote_path_list_response_serializes_modified_unix_seconds() {
+        let mut response = ptr::null_mut();
+        let entries = vec![RemotePathListEntry {
+            name: "access.log".to_owned(),
+            full_path: "/srv/access.log".to_owned(),
+            is_directory: false,
+            modified_at_unix_seconds: Some(1_777_925_700),
+        }];
+
+        let rc = write_remote_path_list_response_json(
+            &mut response,
+            NOVA_SSH_RESULT_OK,
+            "ok",
+            "listed",
+            entries,
+        );
+
+        assert_eq!(NOVA_SSH_RESULT_OK, rc);
+        assert!(!response.is_null());
+
+        let response_json = unsafe { CStr::from_ptr(response) }.to_str().unwrap();
+        let payload: serde_json::Value = serde_json::from_str(response_json).unwrap();
+        assert_eq!(1_777_925_700u64, payload["entries"][0]["modifiedAtUnixSeconds"]);
 
         nova_ssh_string_free(response);
     }

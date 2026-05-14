@@ -20,9 +20,23 @@ public sealed class ActiveSshSessionRegistry
 
     public bool TryGet(Guid sessionId, out ActiveSshSessionDescriptor? descriptor)
     {
-        bool found = _sessions.TryGetValue(sessionId, out ActiveSshSessionDescriptor stored);
+        bool found = _sessions.TryGetValue(sessionId, out ActiveSshSessionDescriptor? stored);
         descriptor = found ? stored : null;
         return found;
+    }
+
+    public bool TryGetActiveNativeSession(Guid profileId, Guid sessionId, out ActiveSshSessionDescriptor? descriptor)
+    {
+        if (!TryGet(sessionId, out descriptor) ||
+            descriptor is null ||
+            descriptor.ProfileId != profileId ||
+            descriptor.BackendKind != SshBackendKind.Native)
+        {
+            descriptor = null;
+            return false;
+        }
+
+        return true;
     }
 
     public void Unregister(Guid sessionId)

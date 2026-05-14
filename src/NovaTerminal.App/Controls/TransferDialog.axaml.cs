@@ -73,6 +73,12 @@ public partial class TransferDialog : Window
 
     private void OnOpened(object? sender, EventArgs e)
     {
+        if (_request.PreferLocalPathOnOpen)
+        {
+            _localPathBox.Focus();
+            return;
+        }
+
         _remotePathInput.FocusTextBox();
     }
 

@@ -22,6 +22,7 @@ public sealed class TransferDialogRequestTests
         Assert.Equal("~/downloads", request.RemotePath);
         Assert.Equal(profileId, request.ProfileId);
         Assert.Equal(sessionId, request.SessionId);
+        Assert.False(request.PreferLocalPathOnOpen);
     }
 
     [Fact]

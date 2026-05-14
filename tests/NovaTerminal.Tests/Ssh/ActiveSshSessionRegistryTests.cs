@@ -69,4 +69,38 @@ public sealed class ActiveSshSessionRegistryTests
 
         Assert.False(registry.TryGetRuntimePassword(sessionId, out _));
     }
+
+    [Fact]
+    public void TryGetActiveNativeSession_WhenProfileAndBackendMatch_ReturnsDescriptor()
+    {
+        var registry = new ActiveSshSessionRegistry();
+        Guid sessionId = Guid.NewGuid();
+        Guid profileId = Guid.NewGuid();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.Native));
+
+        Assert.True(registry.TryGetActiveNativeSession(profileId, sessionId, out ActiveSshSessionDescriptor? descriptor));
+        Assert.NotNull(descriptor);
+        Assert.Equal(sessionId, descriptor!.SessionId);
+    }
+
+    [Fact]
+    public void TryGetActiveNativeSession_WhenProfileDiffers_ReturnsFalse()
+    {
+        var registry = new ActiveSshSessionRegistry();
+        Guid sessionId = Guid.NewGuid();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, Guid.NewGuid(), SshBackendKind.Native));
+
+        Assert.False(registry.TryGetActiveNativeSession(Guid.NewGuid(), sessionId, out _));
+    }
+
+    [Fact]
+    public void TryGetActiveNativeSession_WhenBackendIsNotNative_ReturnsFalse()
+    {
+        var registry = new ActiveSshSessionRegistry();
+        Guid sessionId = Guid.NewGuid();
+        Guid profileId = Guid.NewGuid();
+        registry.Register(new ActiveSshSessionDescriptor(sessionId, profileId, SshBackendKind.OpenSsh));
+
+        Assert.False(registry.TryGetActiveNativeSession(profileId, sessionId, out _));
+    }
 }

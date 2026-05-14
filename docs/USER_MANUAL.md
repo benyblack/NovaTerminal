@@ -90,11 +90,17 @@ Transfer behavior depends on the SSH backend:
 - **OpenSSH profiles** use the system `scp` executable.
 - **Native SSH profiles** use NovaTerminal's built-in native SFTP path for file and folder upload/download.
 
+Native SSH panes also expose a pane-local `Remote Files` sidebar from the pane context menu. The sidebar is lightly navigable, opens from the pane's current remote directory when available, and keeps upload/download actions grounded in the directory or entry you are looking at. The compact rail shows the active host identity, current remote path, and per-entry modified dates so you can quickly spot recently changed files. `Upload File` and `Upload Folder` target the directory currently shown in the sidebar, while `Download Selected` uses the selected remote file or folder.
+
 Current Native SSH transfer notes:
 
 - Transfers use the native backend's known-hosts store and do not silently fall back to OpenSSH.
 - Password and identity-file authentication are supported for non-interactive transfers.
 - The transfer dialog offers remote path autocomplete when the same profile already has an active Native SSH session.
+- Sidebar-initiated uploads go straight to a local file or folder picker, then start the transfer directly into the sidebar's current remote directory.
+- Sidebar-initiated file downloads use a save picker with the remote filename prefilled; sidebar folder downloads use a local folder picker.
+- Manual `SFTP:` command-palette flows still use the transfer dialog, including remote path autocomplete when an active Native SSH session is available.
+- The `Remote Files` sidebar hides automatically while alternate-screen/fullscreen terminal applications are active.
 - Single-file transfers show live byte progress when the total size is known.
 - Folder transfers report per-file progress callbacks; they do not show a precomputed total for the entire tree.
 - Cancellation is supported from the Transfer Center for native transfers.

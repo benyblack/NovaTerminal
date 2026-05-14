@@ -202,6 +202,7 @@ Double-click on a directory should also navigate into it.
 - `Download Selected` is enabled only when a remote file or folder is selected.
 - Download acts on the selected entry.
 - Local destination selection can still use the existing local picker flow.
+- Sidebar-originated transfers continue using the existing dialog/picker flow, but the remote path is prefilled from the active sidebar context rather than a generic default.
 
 ### Execution Boundary
 
@@ -212,7 +213,7 @@ The sidebar should not own transfer execution. It only produces clearer transfer
 - No active session: entry point hidden or disabled.
 - Directory listing failure: show inline error and `Retry`, no modal.
 - Missing path or permission error: show inline error, keep navigation controls available.
-- Session disconnect while open: freeze list actions, show disconnected state, allow close.
+- Session disconnect while open: keep the sidebar visible, freeze list/transfer actions, show disconnected state, allow close.
 - Transfer start failure: continue to surface through existing transfer job error handling.
 - Long-running transfer progress remains in the existing Transfer Center / status UI rather than moving into the sidebar.
 
