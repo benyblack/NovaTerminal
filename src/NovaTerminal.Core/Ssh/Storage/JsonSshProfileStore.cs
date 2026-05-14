@@ -255,6 +255,9 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         normalized.IdentityFilePath = normalized.IdentityFilePath?.Trim() ?? string.Empty;
         SshProfileNormalizer.NormalizeRememberPasswordPreference(normalized);
         normalized.WorkingDirectory = normalized.WorkingDirectory?.Trim() ?? string.Empty;
+        normalized.RemoteShellKind = Enum.IsDefined(normalized.RemoteShellKind)
+            ? normalized.RemoteShellKind
+            : RemoteShellKind.Auto;
         normalized.ServerAliveIntervalSeconds = normalized.ServerAliveIntervalSeconds > 0
             ? normalized.ServerAliveIntervalSeconds
             : 30;
@@ -331,7 +334,8 @@ public sealed class JsonSshProfileStore : ISshProfileStore
             ServerAliveIntervalSeconds = profile.ServerAliveIntervalSeconds,
             ServerAliveCountMax = profile.ServerAliveCountMax,
             ExtraSshArgs = profile.ExtraSshArgs,
-            WorkingDirectory = profile.WorkingDirectory
+            WorkingDirectory = profile.WorkingDirectory,
+            RemoteShellKind = profile.RemoteShellKind
         };
     }
 

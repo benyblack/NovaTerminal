@@ -20,6 +20,8 @@ use tokio::sync::mpsc;
 
 const COPY_BUFFER_SIZE: usize = 64 * 1024;
 const CANCELLATION_CHECK_INTERVAL_BYTES: u64 = 1024 * 1024;
+const SHELL_DETECTION_TIMEOUT: Duration = Duration::from_secs(3);
+const SHELL_DETECTION_MAX_OUTPUT_BYTES: usize = 4096;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -45,6 +47,11 @@ pub struct NovaSshConnectArgs {
     pub jump_port: u16,
     pub keepalive_interval_seconds: u32,
     pub keepalive_count_max: u32,
+    pub remote_shell_kind: u32,
+    pub shell_detection_command: *const c_char,
+    pub bash_cwd_bootstrap: *const c_char,
+    pub zsh_cwd_bootstrap: *const c_char,
+    pub fish_cwd_bootstrap: *const c_char,
 }
 
 #[repr(C)]
@@ -158,6 +165,20 @@ struct ConnectConfig {
     jump_host: Option<JumpHostConfig>,
     keepalive_interval_seconds: u32,
     keepalive_count_max: u32,
+    remote_shell_kind: RemoteShellKind,
+    shell_detection_command: Option<String>,
+    bash_cwd_bootstrap: Option<String>,
+    zsh_cwd_bootstrap: Option<String>,
+    fish_cwd_bootstrap: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RemoteShellKind {
+    Auto,
+    Bash,
+    Zsh,
+    Fish,
+    Pwsh,
 }
 
 #[derive(Clone)]
@@ -935,7 +956,13 @@ pub extern "C" fn nova_ssh_sftp_list_directory(
         ),
         Err(error) => {
             let (result, status, message) = classify_sftp_transfer_error(&error);
-            write_remote_path_list_response_json(response_json, result, status, &message, Vec::new())
+            write_remote_path_list_response_json(
+                response_json,
+                result,
+                status,
+                &message,
+                Vec::new(),
+            )
         }
     }
 }
@@ -989,7 +1016,155 @@ impl ConnectConfig {
             } else {
                 args.keepalive_count_max
             },
+            remote_shell_kind: parse_remote_shell_kind(args.remote_shell_kind),
+            shell_detection_command: read_c_string(args.shell_detection_command),
+            bash_cwd_bootstrap: read_c_string(args.bash_cwd_bootstrap),
+            zsh_cwd_bootstrap: read_c_string(args.zsh_cwd_bootstrap),
+            fish_cwd_bootstrap: read_c_string(args.fish_cwd_bootstrap),
         })
+    }
+}
+
+fn parse_remote_shell_kind(value: u32) -> RemoteShellKind {
+    match value {
+        1 => RemoteShellKind::Bash,
+        2 => RemoteShellKind::Zsh,
+        3 => RemoteShellKind::Fish,
+        4 => RemoteShellKind::Pwsh,
+        _ => RemoteShellKind::Auto,
+    }
+}
+
+fn detect_login_shell_output_to_kind(output: &str) -> RemoteShellKind {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return RemoteShellKind::Auto;
+    }
+
+    let token = trimmed
+        .split_whitespace()
+        .next()
+        .unwrap_or(trimmed)
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(trimmed)
+        .trim_end_matches(".exe")
+        .to_ascii_lowercase();
+
+    match token.as_str() {
+        "bash" => RemoteShellKind::Bash,
+        "zsh" => RemoteShellKind::Zsh,
+        "fish" => RemoteShellKind::Fish,
+        "pwsh" | "powershell" => RemoteShellKind::Pwsh,
+        _ => RemoteShellKind::Auto,
+    }
+}
+
+fn shell_single_quote(value: &str) -> String {
+    value.replace('\'', "'\"'\"'")
+}
+
+fn wrap_posix_startup_command(command: String) -> String {
+    format!("sh -lc '{}'", shell_single_quote(&command))
+}
+
+fn bash_login_startup() -> &'static str {
+    "if [ -f ~/.bash_profile ]; then . ~/.bash_profile; \
+elif [ -f ~/.bash_login ]; then . ~/.bash_login; \
+elif [ -f ~/.profile ]; then . ~/.profile; \
+fi"
+}
+
+fn zsh_login_startup() -> &'static str {
+    "if [ -f ~/.zprofile ]; then source ~/.zprofile; fi"
+}
+
+fn append_bounded_shell_detection_output(output: &mut Vec<u8>, data: &[u8]) -> bool {
+    let remaining = SHELL_DETECTION_MAX_OUTPUT_BYTES.saturating_sub(output.len());
+    if remaining == 0 {
+        return true;
+    }
+
+    output.extend_from_slice(&data[..data.len().min(remaining)]);
+    output.len() >= SHELL_DETECTION_MAX_OUTPUT_BYTES
+}
+
+fn build_startup_command(shell_kind: RemoteShellKind, config: &ConnectConfig) -> Option<String> {
+    match shell_kind {
+        RemoteShellKind::Bash => {
+            let bootstrap = config.bash_cwd_bootstrap.as_deref()?;
+            Some(wrap_posix_startup_command(format!(
+                "tmp_rc=$(mktemp)\ncat >\"$tmp_rc\" <<'__NOVA_BASHRC__'\n{bash_login_startup}\nif [ -f ~/.bashrc ]; then . ~/.bashrc; fi\n{bootstrap}\n__NOVA_BASHRC__\nexec bash --rcfile \"$tmp_rc\" -i",
+                bash_login_startup = bash_login_startup()
+            )))
+        }
+        RemoteShellKind::Zsh => {
+            let bootstrap = config.zsh_cwd_bootstrap.as_deref()?;
+            Some(wrap_posix_startup_command(format!(
+                "tmp_dir=$(mktemp -d)\ncat >\"$tmp_dir/.zprofile\" <<'__NOVA_ZPROFILE__'\n{zsh_login_startup}\n__NOVA_ZPROFILE__\ncat >\"$tmp_dir/.zshrc\" <<'__NOVA_ZSHRC__'\nif [ -f ~/.zshrc ]; then source ~/.zshrc; fi\n{bootstrap}\n__NOVA_ZSHRC__\nZDOTDIR=\"$tmp_dir\" exec zsh -il",
+                zsh_login_startup = zsh_login_startup()
+            )))
+        }
+        RemoteShellKind::Fish => {
+            let bootstrap = config.fish_cwd_bootstrap.as_deref()?;
+            Some(wrap_posix_startup_command(format!(
+                "tmp_dir=$(mktemp -d)\nmkdir -p \"$tmp_dir/fish\"\ncat >\"$tmp_dir/fish/config.fish\" <<'__NOVA_FISHRC__'\nif test -f ~/.config/fish/config.fish\n    source ~/.config/fish/config.fish\nend\n{bootstrap}\n__NOVA_FISHRC__\nXDG_CONFIG_HOME=\"$tmp_dir\" exec fish -i"
+            )))
+        }
+        RemoteShellKind::Auto | RemoteShellKind::Pwsh => None,
+    }
+}
+
+async fn detect_login_shell<H>(
+    session: &mut client::Handle<H>,
+    command: &str,
+) -> anyhow::Result<RemoteShellKind>
+where
+    H: client::Handler + Send + 'static,
+{
+    let mut channel = session.channel_open_session().await?;
+    channel.exec(true, command).await?;
+
+    let detection_result = tokio::time::timeout(SHELL_DETECTION_TIMEOUT, async {
+        let mut output = Vec::new();
+        loop {
+            match channel.wait().await {
+                Some(ChannelMsg::Data { data }) => {
+                    if append_bounded_shell_detection_output(&mut output, data.as_ref()) {
+                        break;
+                    }
+                }
+                Some(ChannelMsg::ExtendedData { .. }) => {}
+                Some(ChannelMsg::ExitStatus { .. })
+                | Some(ChannelMsg::ExitSignal { .. })
+                | Some(ChannelMsg::Success)
+                | Some(ChannelMsg::Failure)
+                | Some(ChannelMsg::WindowAdjusted { .. })
+                | Some(ChannelMsg::XonXoff { .. })
+                | Some(ChannelMsg::Open { .. })
+                | Some(ChannelMsg::OpenFailure(_)) => {}
+                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                Some(ChannelMsg::RequestPty { .. })
+                | Some(ChannelMsg::RequestShell { .. })
+                | Some(ChannelMsg::Exec { .. })
+                | Some(ChannelMsg::Signal { .. })
+                | Some(ChannelMsg::RequestSubsystem { .. })
+                | Some(ChannelMsg::RequestX11 { .. })
+                | Some(ChannelMsg::SetEnv { .. })
+                | Some(ChannelMsg::WindowChange { .. })
+                | Some(ChannelMsg::AgentForward { .. })
+                | Some(_) => {}
+            }
+        }
+
+        detect_login_shell_output_to_kind(String::from_utf8_lossy(&output).as_ref())
+    })
+    .await;
+
+    let _ = channel.close().await;
+    match detection_result {
+        Ok(shell_kind) => Ok(shell_kind),
+        Err(_) => Err(anyhow::anyhow!("shell detection timed out")),
     }
 }
 
@@ -1205,7 +1380,10 @@ fn normalize_known_host_fingerprint(fingerprint: &str) -> String {
     }
 }
 
-fn run_sftp_transfer(request: SftpTransferRequest, progress: SftpProgressEmitter) -> anyhow::Result<()> {
+fn run_sftp_transfer(
+    request: SftpTransferRequest,
+    progress: SftpProgressEmitter,
+) -> anyhow::Result<()> {
     validate_supported_sftp_mode(&request.transfer)?;
 
     let runtime = Builder::new_current_thread().enable_all().build()?;
@@ -1274,7 +1452,9 @@ fn run_sftp_transfer(request: SftpTransferRequest, progress: SftpProgressEmitter
     })
 }
 
-fn run_remote_path_list(request: RemotePathListRequest) -> anyhow::Result<Vec<RemotePathListEntry>> {
+fn run_remote_path_list(
+    request: RemotePathListRequest,
+) -> anyhow::Result<Vec<RemotePathListEntry>> {
     let runtime = Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(async move {
         let known_hosts =
@@ -1419,9 +1599,12 @@ where
             .await?;
         }
         ("upload", "file") => {
-            let remote_target =
-                resolve_upload_file_target(&sftp, Path::new(&transfer.local_path), &transfer.remote_path)
-                    .await?;
+            let remote_target = resolve_upload_file_target(
+                &sftp,
+                Path::new(&transfer.local_path),
+                &transfer.remote_path,
+            )
+            .await?;
             upload_file_to_remote(
                 &sftp,
                 Path::new(&transfer.local_path),
@@ -1433,8 +1616,8 @@ where
             .await?;
         }
         ("download", "directory") => {
-            let local_root = PathBuf::from(&transfer.local_path)
-                .join(remote_basename(&transfer.remote_path)?);
+            let local_root =
+                PathBuf::from(&transfer.local_path).join(remote_basename(&transfer.remote_path)?);
             download_directory_from_remote(
                 &sftp,
                 &transfer.remote_path,
@@ -1518,8 +1701,7 @@ where
 fn validate_supported_sftp_mode(transfer: &SftpTransferRequestBody) -> anyhow::Result<()> {
     let direction = transfer.direction.trim().to_ascii_lowercase();
     let kind = transfer.kind.trim().to_ascii_lowercase();
-    if (direction == "download" || direction == "upload")
-        && (kind == "file" || kind == "directory")
+    if (direction == "download" || direction == "upload") && (kind == "file" || kind == "directory")
     {
         return Ok(());
     }
@@ -1584,7 +1766,9 @@ async fn upload_file_to_remote(
     progress: SftpProgressEmitter,
     copy_buffer: &mut [u8],
 ) -> anyhow::Result<()> {
-    let total_bytes = std::fs::metadata(local_path).ok().map(|metadata| metadata.len());
+    let total_bytes = std::fs::metadata(local_path)
+        .ok()
+        .map(|metadata| metadata.len());
     let mut local_file = TokioFile::open(local_path)
         .await
         .map_err(|error| map_local_transfer_error(local_path, error))?;
@@ -1715,8 +1899,8 @@ async fn upload_directory_to_remote(
     let mut pending = VecDeque::from([(local_root.to_path_buf(), remote_root.to_owned())]);
     while let Some((local_dir, remote_dir)) = pending.pop_front() {
         ensure_transfer_not_canceled(cancellation_marker_path)?;
-        let mut entries = std::fs::read_dir(&local_dir)?
-            .collect::<Result<Vec<_>, std::io::Error>>()?;
+        let mut entries =
+            std::fs::read_dir(&local_dir)?.collect::<Result<Vec<_>, std::io::Error>>()?;
         entries.sort_by_key(|entry| entry.file_name());
 
         for entry in entries {
@@ -1759,7 +1943,9 @@ async fn resolve_upload_directory_target(
         .file_name()
         .and_then(|value| value.to_str())
         .filter(|value| !value.trim().is_empty())
-        .ok_or_else(|| anyhow::anyhow!("Local directory name is required for native SFTP upload."))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("Local directory name is required for native SFTP upload.")
+        })?;
     let normalized_remote = normalize_remote_directory_path(remote_path)?;
 
     if sftp
@@ -1974,7 +2160,9 @@ fn remote_basename(path: &str) -> anyhow::Result<String> {
         .rsplit('/')
         .find(|segment| !segment.is_empty())
         .map(str::to_owned)
-        .ok_or_else(|| anyhow::anyhow!("Remote directory name is required for native SFTP transfer."))
+        .ok_or_else(|| {
+            anyhow::anyhow!("Remote directory name is required for native SFTP transfer.")
+        })
 }
 
 fn resolve_upload_file_destination_path(
@@ -2002,27 +2190,21 @@ fn expand_remote_home_path(path: &str, home_directory: Option<&str>) -> anyhow::
     }
 
     if trimmed == "~" {
-        return normalize_remote_directory_path(
-            home_directory
-                .ok_or_else(|| {
-                    anyhow::Error::new(NativeSftpTransferError::new(
-                        NativeSftpTransferErrorKind::InvalidArgument,
-                        "Remote home directory is unavailable for native SFTP upload.",
-                    ))
-                })?,
-        );
+        return normalize_remote_directory_path(home_directory.ok_or_else(|| {
+            anyhow::Error::new(NativeSftpTransferError::new(
+                NativeSftpTransferErrorKind::InvalidArgument,
+                "Remote home directory is unavailable for native SFTP upload.",
+            ))
+        })?);
     }
 
     if let Some(relative_path) = trimmed.strip_prefix("~/") {
-        let home_directory = normalize_remote_directory_path(
-            home_directory
-                .ok_or_else(|| {
-                    anyhow::Error::new(NativeSftpTransferError::new(
-                        NativeSftpTransferErrorKind::InvalidArgument,
-                        "Remote home directory is unavailable for native SFTP upload.",
-                    ))
-                })?,
-        )?;
+        let home_directory = normalize_remote_directory_path(home_directory.ok_or_else(|| {
+            anyhow::Error::new(NativeSftpTransferError::new(
+                NativeSftpTransferErrorKind::InvalidArgument,
+                "Remote home directory is unavailable for native SFTP upload.",
+            ))
+        })?)?;
         return Ok(join_remote_path(&home_directory, relative_path));
     }
 
@@ -2116,6 +2298,17 @@ fn run_session(
         )
         .await?;
 
+        let effective_shell_kind = if config.remote_shell_kind != RemoteShellKind::Auto {
+            config.remote_shell_kind
+        } else if let Some(command) = config.shell_detection_command.as_deref() {
+            match detect_login_shell(&mut session, command).await {
+                Ok(shell_kind) => shell_kind,
+                Err(_) => RemoteShellKind::Auto,
+            }
+        } else {
+            RemoteShellKind::Auto
+        };
+
         let mut channel = session.channel_open_session().await?;
         channel
             .request_pty(
@@ -2128,7 +2321,11 @@ fn run_session(
                 &[],
             )
             .await?;
-        channel.request_shell(true).await?;
+        if let Some(startup_command) = build_startup_command(effective_shell_kind, &config) {
+            channel.exec(true, startup_command).await?;
+        } else {
+            channel.request_shell(true).await?;
+        }
 
         shared.queue_event(QueuedEvent {
             kind: NovaSshEventKind::Connected,
@@ -2657,10 +2854,12 @@ mod tests {
         let response_json = unsafe { CStr::from_ptr(response) }.to_str().unwrap();
         let payload: serde_json::Value = serde_json::from_str(response_json).unwrap();
         assert_eq!("invalid-argument", payload["status"]);
-        assert!(payload["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("incomplete"));
+        assert!(
+            payload["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("incomplete")
+        );
 
         nova_ssh_string_free(response);
     }
@@ -2747,12 +2946,83 @@ mod tests {
             jump_port: 0,
             keepalive_interval_seconds: 15,
             keepalive_count_max: 7,
+            remote_shell_kind: 0,
+            shell_detection_command: ptr::null(),
+            bash_cwd_bootstrap: ptr::null(),
+            zsh_cwd_bootstrap: ptr::null(),
+            fish_cwd_bootstrap: ptr::null(),
         };
 
         let config = ConnectConfig::from_args(&args).expect("config should parse");
 
         assert_eq!(15, config.keepalive_interval_seconds);
         assert_eq!(7, config.keepalive_count_max);
+    }
+
+    #[test]
+    fn connect_config_reads_remote_shell_fields_from_ffi_args() {
+        let host = CString::new("native.example").unwrap();
+        let user = CString::new("nova").unwrap();
+        let term = CString::new("xterm-256color").unwrap();
+        let shell_detection_command = CString::new("sh -lc 'printf test'").unwrap();
+        let bash_cwd_bootstrap = CString::new("bash-bootstrap").unwrap();
+        let zsh_cwd_bootstrap = CString::new("zsh-bootstrap").unwrap();
+        let fish_cwd_bootstrap = CString::new("fish-bootstrap").unwrap();
+
+        let args = NovaSshConnectArgs {
+            host: host.as_ptr(),
+            user: user.as_ptr(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: term.as_ptr(),
+            identity_file: ptr::null(),
+            jump_host: ptr::null(),
+            jump_user: ptr::null(),
+            jump_port: 0,
+            keepalive_interval_seconds: 15,
+            keepalive_count_max: 7,
+            remote_shell_kind: 2,
+            shell_detection_command: shell_detection_command.as_ptr(),
+            bash_cwd_bootstrap: bash_cwd_bootstrap.as_ptr(),
+            zsh_cwd_bootstrap: zsh_cwd_bootstrap.as_ptr(),
+            fish_cwd_bootstrap: fish_cwd_bootstrap.as_ptr(),
+        };
+
+        let config = ConnectConfig::from_args(&args).expect("config should parse");
+
+        assert_eq!(RemoteShellKind::Zsh, config.remote_shell_kind);
+        assert_eq!(
+            Some("sh -lc 'printf test'".to_owned()),
+            config.shell_detection_command
+        );
+        assert_eq!(Some("bash-bootstrap".to_owned()), config.bash_cwd_bootstrap);
+        assert_eq!(Some("zsh-bootstrap".to_owned()), config.zsh_cwd_bootstrap);
+        assert_eq!(Some("fish-bootstrap".to_owned()), config.fish_cwd_bootstrap);
+    }
+
+    #[test]
+    fn detect_login_shell_output_to_kind_maps_known_tokens() {
+        assert_eq!(
+            RemoteShellKind::Bash,
+            detect_login_shell_output_to_kind("/bin/bash")
+        );
+        assert_eq!(
+            RemoteShellKind::Zsh,
+            detect_login_shell_output_to_kind("zsh")
+        );
+        assert_eq!(
+            RemoteShellKind::Fish,
+            detect_login_shell_output_to_kind("/usr/local/bin/fish")
+        );
+        assert_eq!(
+            RemoteShellKind::Pwsh,
+            detect_login_shell_output_to_kind("powershell")
+        );
+        assert_eq!(
+            RemoteShellKind::Auto,
+            detect_login_shell_output_to_kind("tcsh")
+        );
     }
 
     #[test]
@@ -2768,6 +3038,11 @@ mod tests {
             jump_host: None,
             keepalive_interval_seconds: 15,
             keepalive_count_max: 7,
+            remote_shell_kind: RemoteShellKind::Auto,
+            shell_detection_command: None,
+            bash_cwd_bootstrap: None,
+            zsh_cwd_bootstrap: None,
+            fish_cwd_bootstrap: None,
         };
 
         let client_config = build_client_config(&config);
@@ -2778,6 +3053,131 @@ mod tests {
             client_config.keepalive_interval
         );
         assert_eq!(7, client_config.keepalive_max);
+    }
+
+    #[test]
+    fn build_startup_command_wraps_bash_bootstrap() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            jump_host: None,
+            keepalive_interval_seconds: 30,
+            keepalive_count_max: 3,
+            remote_shell_kind: RemoteShellKind::Bash,
+            shell_detection_command: None,
+            bash_cwd_bootstrap: Some("printf 'cwd'".to_owned()),
+            zsh_cwd_bootstrap: None,
+            fish_cwd_bootstrap: None,
+        };
+
+        let command = build_startup_command(RemoteShellKind::Bash, &config)
+            .expect("bash command should be generated");
+
+        assert!(command.starts_with("sh -lc '"));
+        assert!(command.contains("tmp_rc=$(mktemp)"));
+        assert!(command.contains("exec bash --rcfile"));
+        assert!(command.contains("~/.bash_profile"));
+        assert!(command.contains("~/.bash_login"));
+        assert!(command.contains("~/.profile"));
+        assert!(command.contains("~/.bashrc"));
+    }
+
+    #[test]
+    fn build_startup_command_wraps_fish_bootstrap_in_posix_shell() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            jump_host: None,
+            keepalive_interval_seconds: 30,
+            keepalive_count_max: 3,
+            remote_shell_kind: RemoteShellKind::Fish,
+            shell_detection_command: None,
+            bash_cwd_bootstrap: None,
+            zsh_cwd_bootstrap: None,
+            fish_cwd_bootstrap: Some("printf 'cwd'".to_owned()),
+        };
+
+        let command = build_startup_command(RemoteShellKind::Fish, &config)
+            .expect("fish command should be generated");
+
+        assert!(command.starts_with("sh -lc '"));
+        assert!(command.contains("exec fish -i"));
+        assert!(command.contains("XDG_CONFIG_HOME"));
+    }
+
+    #[test]
+    fn build_startup_command_wraps_zsh_bootstrap_with_login_startup() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            jump_host: None,
+            keepalive_interval_seconds: 30,
+            keepalive_count_max: 3,
+            remote_shell_kind: RemoteShellKind::Zsh,
+            shell_detection_command: None,
+            bash_cwd_bootstrap: None,
+            zsh_cwd_bootstrap: Some("print cwd".to_owned()),
+            fish_cwd_bootstrap: None,
+        };
+
+        let command = build_startup_command(RemoteShellKind::Zsh, &config)
+            .expect("zsh command should be generated");
+
+        assert!(command.starts_with("sh -lc '"));
+        assert!(command.contains("$tmp_dir/.zprofile"));
+        assert!(command.contains("~/.zprofile"));
+        assert!(command.contains("exec zsh -il"));
+        assert!(command.contains("$tmp_dir/.zshrc"));
+    }
+
+    #[test]
+    fn build_startup_command_returns_none_for_auto_or_pwsh() {
+        let config = ConnectConfig {
+            host: "native.example".to_owned(),
+            user: "nova".to_owned(),
+            port: 22,
+            cols: 120,
+            rows: 30,
+            term: "xterm-256color".to_owned(),
+            identity_file: None,
+            jump_host: None,
+            keepalive_interval_seconds: 30,
+            keepalive_count_max: 3,
+            remote_shell_kind: RemoteShellKind::Auto,
+            shell_detection_command: Some("sh -lc 'printf bash'".to_owned()),
+            bash_cwd_bootstrap: Some("printf 'cwd'".to_owned()),
+            zsh_cwd_bootstrap: Some("print cwd".to_owned()),
+            fish_cwd_bootstrap: Some("printf cwd".to_owned()),
+        };
+
+        assert_eq!(None, build_startup_command(RemoteShellKind::Auto, &config));
+        assert_eq!(None, build_startup_command(RemoteShellKind::Pwsh, &config));
+    }
+
+    #[test]
+    fn append_bounded_shell_detection_output_truncates_at_limit() {
+        let mut output = vec![b'x'; SHELL_DETECTION_MAX_OUTPUT_BYTES - 2];
+
+        let reached_limit = append_bounded_shell_detection_output(&mut output, b"abcd");
+
+        assert!(reached_limit);
+        assert_eq!(SHELL_DETECTION_MAX_OUTPUT_BYTES, output.len());
+        assert_eq!(&output[output.len() - 2..], b"ab");
     }
 
     #[test]
@@ -2897,9 +3297,8 @@ mod tests {
 
     #[test]
     fn resolve_upload_file_destination_path_appends_local_name_for_existing_directory() {
-        let resolved =
-            resolve_upload_file_destination_path("upload.txt", "/tmp", None, true)
-                .expect("directory target should resolve");
+        let resolved = resolve_upload_file_destination_path("upload.txt", "/tmp", None, true)
+            .expect("directory target should resolve");
 
         assert_eq!("/tmp/upload.txt", resolved);
     }
@@ -2916,8 +3315,12 @@ mod tests {
     #[test]
     fn should_check_for_cancellation_only_after_interval_is_reached() {
         assert!(!should_check_for_cancellation(64 * 1024));
-        assert!(!should_check_for_cancellation(CANCELLATION_CHECK_INTERVAL_BYTES - 1));
-        assert!(should_check_for_cancellation(CANCELLATION_CHECK_INTERVAL_BYTES));
+        assert!(!should_check_for_cancellation(
+            CANCELLATION_CHECK_INTERVAL_BYTES - 1
+        ));
+        assert!(should_check_for_cancellation(
+            CANCELLATION_CHECK_INTERVAL_BYTES
+        ));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 FROM debian:12-slim
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-server bash ca-certificates vim-tiny \
+    && apt-get install -y --no-install-recommends openssh-server bash zsh fish ca-certificates vim-tiny \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -s /bin/bash nova \
@@ -21,6 +21,9 @@ RUN mkdir -p /var/run/sshd /home/nova/.ssh \
 RUN ssh-keygen -A
 
 RUN printf "export PS1='nova$ '\n" > /home/nova/.bashrc \
+    && printf "PROMPT='nova$ '\n" > /home/nova/.zshrc \
+    && mkdir -p /home/nova/.config/fish \
+    && printf "function fish_prompt\n    printf 'nova$ '\nend\n" > /home/nova/.config/fish/config.fish \
     && printf "if [ -f ~/.bashrc ]; then . ~/.bashrc; fi\n" > /home/nova/.bash_profile \
     && chown -R nova:nova /home/nova
 

@@ -656,6 +656,33 @@ public sealed class SshConnectionServiceTests
         }
     }
 
+    [Fact]
+    public void GetConnectionProfiles_ProjectsRemoteShellKindIntoRuntimeProfile()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+            store.SaveProfile(new SshProfile
+            {
+                Id = Guid.Parse("5eef2d64-8877-44e5-945a-afdc676a44c8"),
+                Name = "bash",
+                Host = "bash.internal",
+                RemoteShellKind = RemoteShellKind.Bash
+            });
+
+            TerminalProfile runtime = service.GetConnectionProfiles().Single();
+
+            Assert.Equal(RemoteShellKind.Bash, runtime.RemoteShellKind);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private sealed class RecordingSshPasswordVault : ISshPasswordVault
     {
         public Dictionary<string, string> Secrets { get; } = new(StringComparer.Ordinal);

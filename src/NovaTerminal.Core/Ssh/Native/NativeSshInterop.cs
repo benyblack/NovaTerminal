@@ -27,6 +27,10 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         IntPtr userPtr = IntPtr.Zero;
         IntPtr termPtr = IntPtr.Zero;
         IntPtr identityPtr = IntPtr.Zero;
+        IntPtr shellDetectionCommandPtr = IntPtr.Zero;
+        IntPtr bashCwdBootstrapPtr = IntPtr.Zero;
+        IntPtr zshCwdBootstrapPtr = IntPtr.Zero;
+        IntPtr fishCwdBootstrapPtr = IntPtr.Zero;
 
         try
         {
@@ -36,6 +40,22 @@ public sealed partial class NativeSshInterop : INativeSshInterop
             if (!string.IsNullOrWhiteSpace(options.IdentityFilePath))
             {
                 identityPtr = Marshal.StringToCoTaskMemUTF8(options.IdentityFilePath);
+            }
+            if (!string.IsNullOrWhiteSpace(options.ShellDetectionCommand))
+            {
+                shellDetectionCommandPtr = Marshal.StringToCoTaskMemUTF8(options.ShellDetectionCommand);
+            }
+            if (!string.IsNullOrWhiteSpace(options.BashCwdBootstrap))
+            {
+                bashCwdBootstrapPtr = Marshal.StringToCoTaskMemUTF8(options.BashCwdBootstrap);
+            }
+            if (!string.IsNullOrWhiteSpace(options.ZshCwdBootstrap))
+            {
+                zshCwdBootstrapPtr = Marshal.StringToCoTaskMemUTF8(options.ZshCwdBootstrap);
+            }
+            if (!string.IsNullOrWhiteSpace(options.FishCwdBootstrap))
+            {
+                fishCwdBootstrapPtr = Marshal.StringToCoTaskMemUTF8(options.FishCwdBootstrap);
             }
 
             IntPtr jumpHostPtr = IntPtr.Zero;
@@ -65,7 +85,12 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                     JumpUser = jumpUserPtr,
                     JumpPort = checked((ushort)(options.JumpHost?.Port ?? 0)),
                     KeepAliveIntervalSeconds = checked((uint)Math.Max(0, options.KeepAliveIntervalSeconds)),
-                    KeepAliveCountMax = checked((uint)Math.Max(0, options.KeepAliveCountMax))
+                    KeepAliveCountMax = checked((uint)Math.Max(0, options.KeepAliveCountMax)),
+                    RemoteShellKind = (uint)options.RemoteShellKind,
+                    ShellDetectionCommand = shellDetectionCommandPtr,
+                    BashCwdBootstrap = bashCwdBootstrapPtr,
+                    ZshCwdBootstrap = zshCwdBootstrapPtr,
+                    FishCwdBootstrap = fishCwdBootstrapPtr
                 };
 
                 IntPtr handle = NativeMethods.nova_ssh_connect(in args);
@@ -88,6 +113,10 @@ public sealed partial class NativeSshInterop : INativeSshInterop
             FreeUtf8(userPtr);
             FreeUtf8(termPtr);
             FreeUtf8(identityPtr);
+            FreeUtf8(shellDetectionCommandPtr);
+            FreeUtf8(bashCwdBootstrapPtr);
+            FreeUtf8(zshCwdBootstrapPtr);
+            FreeUtf8(fishCwdBootstrapPtr);
         }
     }
 
@@ -704,6 +733,11 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         public ushort JumpPort;
         public uint KeepAliveIntervalSeconds;
         public uint KeepAliveCountMax;
+        public uint RemoteShellKind;
+        public IntPtr ShellDetectionCommand;
+        public IntPtr BashCwdBootstrap;
+        public IntPtr ZshCwdBootstrap;
+        public IntPtr FishCwdBootstrap;
     }
 
     [StructLayout(LayoutKind.Sequential)]

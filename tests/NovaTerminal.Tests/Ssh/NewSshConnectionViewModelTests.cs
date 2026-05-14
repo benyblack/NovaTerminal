@@ -1,3 +1,4 @@
+using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.ViewModels.Ssh;
 
@@ -205,6 +206,25 @@ public sealed class NewSshConnectionViewModelTests
         SshProfile profile = vm.ToSshProfile();
 
         Assert.False(profile.RememberPasswordInVault);
+    }
+
+    [Fact]
+    public void RemoteShellKind_RoundTripsBetweenViewModelAndSshProfile()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "Bash Host",
+            HostName = "bash.internal",
+            RemoteShellKind = RemoteShellKind.Bash
+        };
+
+        SshProfile profile = vm.ToSshProfile();
+        Assert.Equal(RemoteShellKind.Bash, profile.RemoteShellKind);
+
+        var roundTripped = new NewSshConnectionViewModel();
+        roundTripped.ApplySshProfile(profile);
+
+        Assert.Equal(RemoteShellKind.Bash, roundTripped.RemoteShellKind);
     }
 
     [Fact]

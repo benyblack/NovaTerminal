@@ -19,6 +19,11 @@ public sealed class NativeSshConnectionOptions
     public SshJumpHop? JumpHost { get; init; }
     public int KeepAliveIntervalSeconds { get; init; } = DefaultKeepAliveIntervalSeconds;
     public int KeepAliveCountMax { get; init; } = DefaultKeepAliveCountMax;
+    public RemoteShellKind RemoteShellKind { get; init; } = RemoteShellKind.Auto;
+    public string? ShellDetectionCommand { get; init; }
+    public string? BashCwdBootstrap { get; init; }
+    public string? ZshCwdBootstrap { get; init; }
+    public string? FishCwdBootstrap { get; init; }
 
     public static NativeSshConnectionOptions FromProfile(SshProfile profile, int cols, int rows)
     {
@@ -39,7 +44,8 @@ public sealed class NativeSshConnectionOptions
                 : DefaultKeepAliveCountMax,
             IdentityFilePath = string.IsNullOrWhiteSpace(profile.IdentityFilePath)
                 ? null
-                : profile.IdentityFilePath
+                : profile.IdentityFilePath,
+            RemoteShellKind = profile.RemoteShellKind
         };
     }
 }
