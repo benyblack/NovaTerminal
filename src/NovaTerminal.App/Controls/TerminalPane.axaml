@@ -36,12 +36,6 @@
                     </MenuItem>
                     <MenuItem Header="SFTP">
                         <MenuItem Header="Remote Files" Name="MenuToggleRemoteFilesSidebar" />
-                        <Separator />
-                        <MenuItem Header="Upload File..." Name="MenuUploadFile" />
-                        <MenuItem Header="Upload Folder..." Name="MenuUploadFolder" />
-                        <Separator />
-                        <MenuItem Header="Download File..." Name="MenuDownloadFile" />
-                        <MenuItem Header="Download Folder..." Name="MenuDownloadFolder" />
                     </MenuItem>
                     <MenuItem Header="Explain Selection" Name="MenuExplainSelection" IsVisible="False" />
                 </ContextMenu>

@@ -10,7 +10,7 @@
             BorderBrush="#31353A"
             BorderThickness="1,0,0,0"
             Padding="10">
-        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="8">
+        <Grid RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="2">
             <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
                 <StackPanel Spacing="1">
                     <TextBlock Name="HostTitleText"
@@ -29,14 +29,14 @@
                 <Button Name="BtnRefresh"
                         Grid.Column="1"
                         Content="Refresh"
-                        Padding="8,3"
+                        Padding="6,2"
                         IsEnabled="{Binding CanInteractWithRemote}"
                         Click="Refresh_Click"/>
 
                 <Button Name="BtnCloseSidebar"
                         Grid.Column="2"
                         Content="Close"
-                        Padding="8,3"
+                        Padding="6,2"
                         Click="CloseSidebar_Click"/>
             </Grid>
 
@@ -45,7 +45,7 @@
                     BorderBrush="#2A2F35"
                     BorderThickness="1"
                     CornerRadius="6"
-                    Padding="8,6">
+                    Padding="3,2">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                     <TextBlock Name="CurrentPathText"
                                VerticalAlignment="Center"
@@ -59,7 +59,7 @@
                                VerticalAlignment="Center"
                                Text="{Binding ItemCountLabel, RelativeSource={RelativeSource AncestorType=controls:RemoteFilesSidebar}}"
                                Foreground="#7F8895"
-                               FontSize="10"/>
+                               FontSize="11"/>
                 </Grid>
             </Border>
 
@@ -68,20 +68,38 @@
                   ColumnSpacing="6"
                   IsEnabled="{Binding CanInteractWithRemote}">
                 <Button Name="BtnNavigateBack"
-                        Content="Back"
-                        Padding="8,3"
+                        Padding="3,2"
                         IsEnabled="{Binding CanNavigateBack}"
-                        Click="NavigateBack_Click"/>
+                        Click="NavigateBack_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <PathIcon Name="NavigateBackIcon"
+                                  Width="12"
+                                  Height="12"
+                                  VerticalAlignment="Center"
+                                  Data="M20,11V13H7.83L13.42,18.59L12,20L4,12L12,4L13.41,5.41L7.83,11H20Z"/>
+                        <TextBlock VerticalAlignment="Center"
+                                   Text="Back"/>
+                    </StackPanel>
+                </Button>
                 <Button Name="BtnNavigateUp"
                         Grid.Column="1"
-                        Content="Up"
-                        Padding="8,3"
-                        Click="NavigateUp_Click"/>
+                        Padding="3,2"
+                        Click="NavigateUp_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <PathIcon Name="NavigateUpIcon"
+                                  Width="12"
+                                  Height="12"
+                                  VerticalAlignment="Center"
+                                  Data="M12,8L6,14H10V20H14V14H18L12,8Z"/>
+                        <TextBlock VerticalAlignment="Center"
+                                   Text="Up"/>
+                    </StackPanel>
+                </Button>
                 <Button Name="BtnJumpToCwd"
                         Grid.Column="2"
                         HorizontalAlignment="Right"
                         Content="Jump to cwd"
-                        Padding="8,3"
+                        Padding="3,2"
                         IsEnabled="{Binding CanInteractWithRemote}"
                         IsVisible="{Binding JumpToCurrentDirectoryPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                         Click="JumpToCwd_Click"/>
@@ -97,13 +115,55 @@
                      SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
                      DoubleTapped="RemoteEntriesList_DoubleTapped"
                      KeyDown="RemoteEntriesList_KeyDown">
+                <ListBox.ItemContainerTheme>
+                    <ControlTheme TargetType="ListBoxItem">
+                        <Setter Property="Padding" Value="2,2,2,2"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Background" Value="Transparent"/>
+                        <Setter Property="BorderBrush" Value="Transparent"/>
+                        <Setter Property="BorderThickness" Value="1"/>
+                        <Setter Property="CornerRadius" Value="4"/>
+
+                        <Style Selector="^:pointerover">
+                            <Setter Property="Background" Value="#202B35"/>
+                            <Setter Property="BorderBrush" Value="#314352"/>
+                        </Style>
+
+                        <Style Selector="^:selected">
+                            <Setter Property="Background" Value="#25384B"/>
+                            <Setter Property="BorderBrush" Value="#4E6A86"/>
+                        </Style>
+                    </ControlTheme>
+                </ListBox.ItemContainerTheme>
                 <ListBox.ItemTemplate>
                     <DataTemplate x:DataType="vm:RemoteFilesSidebarEntryViewModel">
-                        <Border BorderBrush="#252A30"
-                                BorderThickness="0,0,0,1"
-                                Padding="8,5">
-                            <TextBlock Text="{Binding Name}"
-                                       TextTrimming="CharacterEllipsis"/>
+                        <Border Name="EntryRowBorder"
+                                BorderBrush="#252A30"
+                                BorderThickness="0,0,0,1">
+                            <Grid Name="EntryRowGrid"
+                                  ColumnDefinitions="Auto,*,Auto"
+                                  ColumnSpacing="6">
+                                <PathIcon Name="EntryTypeIcon"
+                                          Width="11"
+                                          Height="11"
+                                          VerticalAlignment="Center"
+                                          Data="{Binding EntryIconData}"
+                                          Foreground="#8FA0B5"/>
+                                <TextBlock Name="EntryNameText"
+                                           Grid.Column="1"
+                                           VerticalAlignment="Center"
+                                           Text="{Binding Name}"
+                                           Foreground="#E7EDF5"
+                                           FontSize="14"
+                                           TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Name="EntryModifiedText"
+                                           Grid.Column="2"
+                                           VerticalAlignment="Center"
+                                           Text="{Binding ModifiedDisplayText}"
+                                           Foreground="#8490A0"
+                                           FontSize="12"
+                                           HorizontalAlignment="Right"/>
+                            </Grid>
                         </Border>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
@@ -119,20 +179,50 @@
 
                 <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="6">
                     <Button Name="BtnUploadFile"
-                            Content="File"
-                            Padding="8,3"
-                            IsEnabled="{Binding CanInteractWithRemote}"/>
+                            Padding="6,2"
+                            IsEnabled="{Binding CanInteractWithRemote}">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Name="UploadFileIcon"
+                                      Width="12"
+                                      Height="12"
+                                      VerticalAlignment="Center"
+                                      Data="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M12,18V12.83L9.41,15.41L8,14L13,9L18,14L16.59,15.41L14,12.83V18H12M14,9V3.5L19.5,9H14Z"/>
+                            <TextBlock Name="UploadFileLabel"
+                                       VerticalAlignment="Center"
+                                       Text="File"/>
+                        </StackPanel>
+                    </Button>
                     <Button Name="BtnUploadFolder"
                             Grid.Column="1"
-                            Content="Folder"
-                            Padding="8,3"
-                            IsEnabled="{Binding CanInteractWithRemote}"/>
+                            Padding="6,2"
+                            IsEnabled="{Binding CanInteractWithRemote}">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Name="UploadFolderIcon"
+                                      Width="12"
+                                      Height="12"
+                                      VerticalAlignment="Center"
+                                      Data="M12,19V13.83L9.41,16.41L8,15L13,10L18,15L16.59,16.41L14,13.83V19H12M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8A2,2 0 0,0 20,6H12L10,4Z"/>
+                            <TextBlock Name="UploadFolderLabel"
+                                       VerticalAlignment="Center"
+                                       Text="Folder"/>
+                        </StackPanel>
+                    </Button>
                     <Button Name="BtnDownloadSelected"
                             Grid.Column="2"
                             HorizontalAlignment="Stretch"
-                            Content="Download"
-                            Padding="8,3"
-                            IsEnabled="{Binding CanDownloadSelected}"/>
+                            Padding="6,2"
+                            IsEnabled="{Binding CanDownloadSelected}">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <PathIcon Name="DownloadSelectedIcon"
+                                      Width="12"
+                                      Height="12"
+                                      VerticalAlignment="Center"
+                                      Data="M5,20H19V18H5M19,9H15V3H9V9H5L12,16L19,9Z"/>
+                            <TextBlock Name="DownloadSelectedLabel"
+                                       VerticalAlignment="Center"
+                                       Text="Download"/>
+                        </StackPanel>
+                    </Button>
                 </Grid>
             </StackPanel>
         </Grid>

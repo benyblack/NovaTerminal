@@ -2167,7 +2167,6 @@ namespace NovaTerminal
         private void WirePane(TerminalPane pane)
         {
             pane.SshInteractionHandler = _sshInteractionService;
-            pane.RequestSftpTransfer -= OnPaneRequestSftpTransfer;
             pane.RequestRemoteFilesSidebarTransfer -= OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
             pane.TitleChanged -= OnPaneTitleChanged;
@@ -2178,7 +2177,6 @@ namespace NovaTerminal
             pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
 
-            pane.RequestSftpTransfer += OnPaneRequestSftpTransfer;
             pane.RequestRemoteFilesSidebarTransfer += OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged += OnPaneWorkingDirectoryChanged;
             pane.TitleChanged += OnPaneTitleChanged;
@@ -2192,7 +2190,6 @@ namespace NovaTerminal
 
         private void UnwirePane(TerminalPane pane)
         {
-            pane.RequestSftpTransfer -= OnPaneRequestSftpTransfer;
             pane.RequestRemoteFilesSidebarTransfer -= OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
             pane.TitleChanged -= OnPaneTitleChanged;
@@ -2202,11 +2199,6 @@ namespace NovaTerminal
             pane.CommandStarted -= OnPaneCommandStarted;
             pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
-        }
-
-        private void OnPaneRequestSftpTransfer(TerminalPane srcPane, TransferDirection direction, TransferKind kind)
-        {
-            _ = InitiateSftpTransfer(srcPane, direction, kind);
         }
 
         private void OnPaneRequestRemoteFilesSidebarTransfer(TerminalPane srcPane, SidebarTransferRequest request)
@@ -3717,15 +3709,10 @@ namespace NovaTerminal
                 return;
             }
 
-            var request = TransferDialogRequest.ForSidebarAction(
-                direction,
-                kind,
-                remotePath,
-                profile.Id,
-                sessionId);
-
-            TransferDialogResult? result = await ShowTransferDialogAsync(request);
-            if (result is not { IsConfirmed: true })
+            string? localDownloadPath = kind == TransferKind.File
+                ? await PickLocalDownloadFilePathAsync(ResolveSuggestedDownloadFileName(remotePath))
+                : await PickLocalDownloadFolderPathAsync();
+            if (string.IsNullOrWhiteSpace(localDownloadPath))
             {
                 return;
             }
@@ -3737,8 +3724,8 @@ namespace NovaTerminal
                 ProfileName = profile.Name,
                 Direction = direction,
                 Kind = kind,
-                LocalPath = result.LocalPath,
-                RemotePath = result.RemotePath
+                LocalPath = localDownloadPath,
+                RemotePath = remotePath
             };
 
             EnqueueTransferJob(job);
@@ -3784,10 +3771,58 @@ namespace NovaTerminal
             return folders.Count > 0 ? folders[0].Path.LocalPath : null;
         }
 
+        internal virtual async Task<string?> PickLocalDownloadFilePathAsync(string suggestedFileName)
+        {
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null)
+            {
+                return null;
+            }
+
+            IStorageFile? file = await topLevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+            {
+                Title = "Select Local Destination",
+                SuggestedFileName = suggestedFileName
+            });
+
+            return file?.Path.LocalPath;
+        }
+
+        internal virtual async Task<string?> PickLocalDownloadFolderPathAsync()
+        {
+            TopLevel? topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null)
+            {
+                return null;
+            }
+
+            IReadOnlyList<IStorageFolder> folders = await topLevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
+            {
+                Title = "Select Local Destination Folder",
+                AllowMultiple = false
+            });
+
+            return folders.Count > 0 ? folders[0].Path.LocalPath : null;
+        }
+
         internal virtual void EnqueueTransferJob(TransferJob job)
         {
             SftpService.Instance.AddJob(job);
             ShowTransferCenter();
+        }
+
+        private static string ResolveSuggestedDownloadFileName(string remotePath)
+        {
+            string trimmed = remotePath.Trim().TrimEnd('/', '\\');
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                return "download";
+            }
+
+            string fileName = Path.GetFileName(trimmed);
+            return string.IsNullOrWhiteSpace(fileName)
+                ? "download"
+                : fileName;
         }
 
         private void InitializeCommandPaletteUI()

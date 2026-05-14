@@ -51,7 +51,7 @@ This pass does not add:
 
 Use a compact right rail with a dense two-column list:
 
-- primary column: name with file or folder icon
+- primary column: name-first entry label with stronger directory emphasis
 - secondary column: modified time only
 
 This keeps the rail compact enough for terminal use while adding the single most useful secondary signal for SSH workflows such as log inspection, config browsing, and runtime validation.
@@ -106,7 +106,7 @@ The pane context menu should not reintroduce generic upload/download actions bes
 
 The current entry contract is too small for the desired list presentation. The sidebar list should expand from name/path/directory metadata to include modified-time metadata.
 
-Recommended model shape:
+Implemented model shape:
 
 - `Name`
 - `FullPath`
@@ -119,7 +119,7 @@ Optional later follow-up:
 
 Recommendation:
 
-Store raw metadata in the app-layer model and format it in the view or view model. Do not bake display strings into the service contract unless backend constraints make that unavoidable.
+Store raw metadata in the app-layer model and format it in the view model. Do not bake display strings into the service contract unless backend constraints make that unavoidable.
 
 If modified metadata is unavailable for an entry, the sidebar should still render the listing and show a simple placeholder such as `-`.
 
@@ -182,6 +182,7 @@ After this pass:
 - the sidebar looks materially closer to a polished NovaTerminal surface
 - the rail remains compact and pane-local
 - remote context is clearer
+- recently modified entries are visible without opening a second details surface
 - users can quickly see what changed recently in the current directory
 - the UX remains aligned with NovaTerminal's terminal-first philosophy
 - the product does not drift into an embedded SFTP client or file manager

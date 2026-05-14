@@ -1,12 +1,16 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 using NovaTerminal.Controls;
 using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.ViewModels.Ssh;
+using System.IO;
+using System.Linq;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -42,9 +46,146 @@ public sealed class RemoteFilesSidebarTests
 
         Assert.NotNull(control.FindControl<Button>("BtnUploadFile"));
         Assert.NotNull(control.FindControl<Button>("BtnUploadFolder"));
+        Assert.NotNull(control.FindControl<Button>("BtnDownloadSelected"));
+    }
 
-        Button downloadButton = control.FindControl<Button>("BtnDownloadSelected")!;
-        Assert.Equal("Download", downloadButton.Content);
+    [AvaloniaFact]
+    public async Task Sidebar_UsesEntryAndActionIcons()
+    {
+        var viewModel = new RemoteFilesSidebarViewModel(
+            new FakeRemoteDirectoryBrowserService(
+                "/srv",
+                new[]
+                {
+                    new RemoteSidebarEntry("alpha", "/srv/alpha", true),
+                    new RemoteSidebarEntry("access.log", "/srv/access.log", false)
+                }));
+        var control = new RemoteFilesSidebar
+        {
+            DataContext = viewModel
+        };
+        var window = new Window
+        {
+            Width = 320,
+            Height = 480,
+            Content = control
+        };
+
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+        window.Measure(new Size(320, 480));
+        window.Arrange(new Rect(0, 0, 320, 480));
+
+        PathIcon[] entryIcons = control.GetVisualDescendants()
+            .OfType<PathIcon>()
+            .Where(icon => icon.Name == "EntryTypeIcon")
+            .ToArray();
+        PathIcon? uploadFileIcon = control.GetVisualDescendants().OfType<PathIcon>().FirstOrDefault(icon => icon.Name == "UploadFileIcon");
+        PathIcon? uploadFolderIcon = control.GetVisualDescendants().OfType<PathIcon>().FirstOrDefault(icon => icon.Name == "UploadFolderIcon");
+        PathIcon? downloadSelectedIcon = control.GetVisualDescendants().OfType<PathIcon>().FirstOrDefault(icon => icon.Name == "DownloadSelectedIcon");
+        TextBlock? uploadFileLabel = control.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(text => text.Name == "UploadFileLabel");
+        TextBlock? uploadFolderLabel = control.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(text => text.Name == "UploadFolderLabel");
+        TextBlock? downloadSelectedLabel = control.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(text => text.Name == "DownloadSelectedLabel");
+
+        Assert.NotEmpty(entryIcons);
+        Assert.NotNull(uploadFileIcon);
+        Assert.NotNull(uploadFolderIcon);
+        Assert.NotNull(downloadSelectedIcon);
+        Assert.Equal("File", uploadFileLabel?.Text);
+        Assert.Equal("Folder", uploadFolderLabel?.Text);
+        Assert.Equal("Download", downloadSelectedLabel?.Text);
+    }
+
+    [AvaloniaFact]
+    public void NavigationButtons_UseIcons()
+    {
+        var control = new RemoteFilesSidebar();
+
+        Assert.NotNull(control.FindControl<PathIcon>("NavigateBackIcon"));
+        Assert.NotNull(control.FindControl<PathIcon>("NavigateUpIcon"));
+    }
+
+    [AvaloniaFact]
+    public async Task Sidebar_UsesMoreCompactItemAndButtonSizing()
+    {
+        var viewModel = new RemoteFilesSidebarViewModel(
+            new FakeRemoteDirectoryBrowserService(
+                "/srv",
+                new[]
+                {
+                    new RemoteSidebarEntry("access.log", "/srv/access.log", false)
+                }));
+        var control = new RemoteFilesSidebar
+        {
+            DataContext = viewModel
+        };
+        var window = new Window
+        {
+            Width = 320,
+            Height = 480,
+            Content = control
+        };
+
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+        window.Measure(new Size(320, 480));
+        window.Arrange(new Rect(0, 0, 320, 480));
+
+        ListBoxItem? listBoxItem = control.GetVisualDescendants().OfType<ListBoxItem>().FirstOrDefault();
+        Button navigateBackButton = control.FindControl<Button>("BtnNavigateBack")!;
+        Button uploadFileButton = control.FindControl<Button>("BtnUploadFile")!;
+
+        Assert.NotNull(listBoxItem);
+        Assert.Equal(new Thickness(2), listBoxItem!.Padding);
+        Assert.Equal(new Thickness(3, 2), navigateBackButton.Padding);
+        Assert.Equal(new Thickness(6, 2), uploadFileButton.Padding);
+    }
+
+    [AvaloniaFact]
+    public void Sidebar_DefinesVisibleSelectedEntryStyle()
+    {
+        string sidebarPath = FindRepoFile("src", "NovaTerminal.App", "Controls", "RemoteFilesSidebar.axaml");
+        string xaml = File.ReadAllText(sidebarPath);
+
+        Assert.Contains("<Style Selector=\"^:selected\">", xaml);
+        Assert.Contains("<Setter Property=\"Background\" Value=\"#25384B\"/>", xaml);
+        Assert.Contains("<Setter Property=\"BorderBrush\" Value=\"#4E6A86\"/>", xaml);
+    }
+
+    [AvaloniaFact]
+    public async Task Sidebar_UsesDenseTwoColumnEntryTemplate()
+    {
+        var viewModel = new RemoteFilesSidebarViewModel(
+            new FakeRemoteDirectoryBrowserService(
+                "/srv",
+                new[]
+                {
+                    new RemoteSidebarEntry("access.log", "/srv/access.log", false)
+                    {
+                        ModifiedAtUtc = new DateTime(2026, 5, 4, 20, 15, 0, DateTimeKind.Utc)
+                    }
+                }));
+        var control = new RemoteFilesSidebar
+        {
+            DataContext = viewModel
+        };
+        var window = new Window
+        {
+            Width = 320,
+            Height = 480,
+            Content = control
+        };
+
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+        window.Measure(new Size(320, 480));
+        window.Arrange(new Rect(0, 0, 320, 480));
+
+        Grid? rowGrid = control.GetVisualDescendants().OfType<Grid>().FirstOrDefault(grid => grid.Name == "EntryRowGrid");
+        TextBlock? modifiedText = control.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(text => text.Name == "EntryModifiedText");
+        TextBlock? pathText = control.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(text => text.Name == "EntryPathText");
+
+        Assert.NotNull(rowGrid);
+        Assert.NotNull(modifiedText);
+        Assert.Equal("May 04", modifiedText!.Text);
+        Assert.Null(pathText);
     }
 
     [AvaloniaFact]
@@ -285,6 +426,24 @@ public sealed class RemoteFilesSidebarTests
         }
 
         Assert.True(predicate(), "Timed out waiting for condition.");
+    }
+
+    private static string FindRepoFile(params string[] relativeSegments)
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+
+        while (directory != null)
+        {
+            string candidate = Path.Combine(new[] { directory.FullName }.Concat(relativeSegments).ToArray());
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not locate repo file: {Path.Combine(relativeSegments)}");
     }
 
     private sealed class FakeRemoteDirectoryBrowserService : IRemoteDirectoryBrowserService

@@ -60,7 +60,6 @@ namespace NovaTerminal.Controls
         public TerminalProfile? Profile { get; private set; }
         public Guid PaneId { get; set; } = Guid.NewGuid();
 
-        public event Action<TerminalPane, TransferDirection, TransferKind>? RequestSftpTransfer;
         public event Action<TerminalPane, SidebarTransferRequest>? RequestRemoteFilesSidebarTransfer;
         public event Action<bool>? RecordingStateChanged;
         public event Action<TerminalPane, string>? WorkingDirectoryChanged;
@@ -186,6 +185,7 @@ namespace NovaTerminal.Controls
             Profile = profile;
             TermView.ShellOverride = profile.ShellOverride;
             UpdateCommandAssistContext();
+            UpdateRemoteFilesSidebarHostIdentity();
             if (!IsRemoteFilesSidebarSupported())
             {
                 CloseRemoteFilesSidebar();
@@ -375,18 +375,6 @@ namespace NovaTerminal.Controls
             {
                 contextMenu.Opening += (_, _) => UpdatePaneContextMenuState();
 
-                var sftpMenu = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(m => (string?)m.Header == "SFTP");
-                if (sftpMenu != null)
-                {
-                    foreach (var sub in sftpMenu.Items.OfType<MenuItem>())
-                    {
-                        if (sub.Name == "MenuUploadFile") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Upload, TransferKind.File);
-                        if (sub.Name == "MenuUploadFolder") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Upload, TransferKind.Folder);
-                        if (sub.Name == "MenuDownloadFile") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Download, TransferKind.File);
-                        if (sub.Name == "MenuDownloadFolder") sub.Click += (s, e) => RequestSftpTransfer?.Invoke(this, TransferDirection.Download, TransferKind.Folder);
-                    }
-                }
-
                 var paneMenu = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(m => (string?)m.Header == "Pane");
                 if (paneMenu != null)
                 {
@@ -438,6 +426,7 @@ namespace NovaTerminal.Controls
                 }
             }
 
+            UpdateRemoteFilesSidebarHostIdentity();
             UpdateRemoteFilesSidebarCurrentDirectoryState();
             UpdateRemoteFilesSidebarVisibility();
             UpdateRemoteFilesSidebarEntryPointState();
@@ -460,6 +449,8 @@ namespace NovaTerminal.Controls
             {
                 RemoteFilesSidebarHost.DataContext = _remoteFilesSidebarViewModel;
             }
+
+            UpdateRemoteFilesSidebarHostIdentity();
         }
 
         private void OnRemoteFilesSidebarViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -505,6 +496,38 @@ namespace NovaTerminal.Controls
                 _remoteFilesSidebarViewModel?.IsOpen == true &&
                 !(Buffer?.IsAltScreenActive ?? false) &&
                 IsRemoteFilesSidebarSupported();
+        }
+
+        private void UpdateRemoteFilesSidebarHostIdentity()
+        {
+            RemoteFilesSidebarHost?.SetHostIdentity(
+                string.IsNullOrWhiteSpace(Profile?.Name) ? null : Profile.Name,
+                BuildRemoteFilesSidebarSubtitle(Profile));
+        }
+
+        private static string? BuildRemoteFilesSidebarSubtitle(TerminalProfile? profile)
+        {
+            if (profile?.Type != ConnectionType.SSH)
+            {
+                return null;
+            }
+
+            string host = profile.SshHost?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                return null;
+            }
+
+            string subtitle = string.IsNullOrWhiteSpace(profile.SshUser)
+                ? host
+                : $"{profile.SshUser.Trim()}@{host}";
+
+            if (profile.SshPort > 0 && profile.SshPort != 22)
+            {
+                subtitle = $"{subtitle}:{profile.SshPort}";
+            }
+
+            return subtitle;
         }
 
         private void UpdateRemoteFilesSidebarCurrentDirectoryState()
@@ -1908,6 +1931,26 @@ namespace NovaTerminal.Controls
             UpdateRemoteFilesSidebarEntryPointState();
             return MenuToggleRemoteFilesSidebar?.IsVisible == true &&
                    MenuToggleRemoteFilesSidebar.IsEnabled;
+        }
+
+        internal IReadOnlyList<string> GetSftpContextMenuItemNamesForTest()
+        {
+            if (RootGrid.ContextMenu?.Items is not IEnumerable<object> items)
+            {
+                return Array.Empty<string>();
+            }
+
+            MenuItem? sftpMenu = items.OfType<MenuItem>().FirstOrDefault(m => (string?)m.Header == "SFTP");
+            if (sftpMenu?.Items is null)
+            {
+                return Array.Empty<string>();
+            }
+
+            return sftpMenu.Items
+                .OfType<MenuItem>()
+                .Select(item => item.Name ?? string.Empty)
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .ToArray();
         }
 
         internal string GetRemoteFilesSidebarCurrentPathForTest()

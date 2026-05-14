@@ -10,6 +10,23 @@ namespace NovaTerminal.Tests.Core;
 public sealed class TerminalPaneRemoteFilesSidebarTests
 {
     [AvaloniaFact]
+    public void NativeSshPane_ContextMenu_KeepsOnlyRemoteFilesEntry()
+    {
+        var pane = new TerminalPane(new TerminalProfile
+        {
+            Name = "Native SSH",
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "server.example",
+            SshUser = "nova"
+        });
+
+        IReadOnlyList<string> names = pane.GetSftpContextMenuItemNamesForTest();
+
+        Assert.Equal(new[] { "MenuToggleRemoteFilesSidebar" }, names);
+    }
+
+    [AvaloniaFact]
     public void Sidebar_HidesImmediately_WhenAltScreenBecomesActive()
     {
         var pane = new TerminalPane();

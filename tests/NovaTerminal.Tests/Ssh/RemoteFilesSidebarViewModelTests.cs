@@ -61,6 +61,22 @@ public sealed class RemoteFilesSidebarViewModelTests
     }
 
     [Fact]
+    public async Task OpenAsync_MapsDistinctEntryIcons_ForDirectoriesAndFiles()
+    {
+        var service = new FakeRemoteDirectoryBrowserService("/srv", new[]
+        {
+            new RemoteSidebarEntry("logs", "/srv/logs", true),
+            new RemoteSidebarEntry("access.log", "/srv/access.log", false)
+        });
+
+        var viewModel = new RemoteFilesSidebarViewModel(service);
+        await viewModel.OpenAsync(Guid.NewGuid(), Guid.NewGuid(), "/srv", CancellationToken.None);
+
+        Assert.Equal(2, viewModel.Entries.Count);
+        Assert.NotEqual(viewModel.Entries[0].EntryIconData, viewModel.Entries[1].EntryIconData);
+    }
+
+    [Fact]
     public async Task OpenAsync_UsesPlaceholderWhenModifiedMetadataIsMissing()
     {
         var service = new FakeRemoteDirectoryBrowserService("/srv", new[]

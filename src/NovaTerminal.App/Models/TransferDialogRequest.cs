@@ -29,22 +29,4 @@ public sealed class TransferDialogRequest
             PreferLocalPathOnOpen = false
         };
     }
-
-    public static TransferDialogRequest ForSidebarAction(
-        TransferDirection direction,
-        TransferKind kind,
-        string remotePath,
-        Guid profileId,
-        Guid sessionId)
-    {
-        return new TransferDialogRequest
-        {
-            Direction = direction,
-            Kind = kind,
-            RemotePath = remotePath,
-            ProfileId = profileId,
-            SessionId = sessionId,
-            PreferLocalPathOnOpen = true
-        };
-    }
 }

@@ -47,10 +47,25 @@ public sealed class NativeSshRemotePathInteropTests
     }
 
     [Fact]
-    public void DeserializeRemotePathListResponse_MapsAndNormalizesModifiedAtUtcMetadata()
+    public void DeserializeRemotePathListResponse_MapsModifiedUnixSecondsMetadata()
     {
         const string json = """
-        {"entries":[{"name":"movies","fullPath":"/mnt/media/movies","isDirectory":true,"modifiedAtUtc":"2026-05-04T20:15:00"},{"name":"logs","fullPath":"/mnt/media/logs","isDirectory":true,"modifiedAtUtc":null}]}
+        {"entries":[{"name":"movies","fullPath":"/mnt/media/movies","isDirectory":true,"modifiedAtUnixSeconds":1777925700},{"name":"logs","fullPath":"/mnt/media/logs","isDirectory":true,"modifiedAtUnixSeconds":null}]}
+        """;
+
+        IReadOnlyList<NativeRemotePathEntry> entries = NativeSshInterop.DeserializeRemotePathListResponseForTests(json);
+
+        Assert.Equal(2, entries.Count);
+        Assert.Equal(new DateTime(2026, 5, 4, 20, 15, 0, DateTimeKind.Utc), entries[0].ModifiedAtUtc);
+        Assert.Equal(DateTimeKind.Utc, entries[0].ModifiedAtUtc!.Value.Kind);
+        Assert.Null(entries[1].ModifiedAtUtc);
+    }
+
+    [Fact]
+    public void DeserializeRemotePathListResponse_PreservesLegacyModifiedAtUtcMetadata()
+    {
+        const string json = """
+        {"entries":[{"name":"archive","fullPath":"/mnt/media/archive","isDirectory":true,"modifiedAtUtc":"2026-05-04T20:15:00"},{"name":"logs","fullPath":"/mnt/media/logs","isDirectory":true,"modifiedAtUtc":null}]}
         """;
 
         IReadOnlyList<NativeRemotePathEntry> entries = NativeSshInterop.DeserializeRemotePathListResponseForTests(json);

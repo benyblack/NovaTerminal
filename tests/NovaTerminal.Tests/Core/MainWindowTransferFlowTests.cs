@@ -43,9 +43,7 @@ public sealed class MainWindowTransferFlowTests
     {
         var window = new TestMainWindow
         {
-            NextTransferDialogResult = TransferDialogResult.CreateConfirmed(
-                localPath: @"D:\downloads\logs",
-                remotePath: "/srv/logs")
+            NextPickedLocalFolderPath = @"D:\downloads\logs"
         };
 
         await window.StartSidebarDownloadForTest(
@@ -54,12 +52,34 @@ public sealed class MainWindowTransferFlowTests
             selectedRemotePath: "/srv/logs",
             kind: TransferKind.Folder);
 
-        Assert.NotNull(window.LastTransferDialogRequest);
-        Assert.Equal("/srv/logs", window.LastTransferDialogRequest!.RemotePath);
-        Assert.True(window.LastTransferDialogRequest.PreferLocalPathOnOpen);
         Assert.NotNull(window.QueuedJob);
         Assert.Equal("/srv/logs", window.QueuedJob!.RemotePath);
+        Assert.Equal(@"D:\downloads\logs", window.QueuedJob.LocalPath);
         Assert.Equal(TransferKind.Folder, window.QueuedJob.Kind);
+        Assert.True(window.FolderPickerWasShown);
+        Assert.False(window.TransferDialogWasShown);
+    }
+
+    [AvaloniaFact]
+    public async Task SidebarDownloadFile_UsesSavePicker_WithRemoteFileName()
+    {
+        var window = new TestMainWindow
+        {
+            NextSavedLocalFilePath = @"D:\downloads\logs.txt"
+        };
+
+        await window.StartSidebarDownloadForTest(
+            profile: CreateNativeProfile(),
+            sessionId: Guid.Parse("2a6228c7-fc68-46f6-b620-60650ee2f4d0"),
+            selectedRemotePath: "/srv/logs.txt",
+            kind: TransferKind.File);
+
+        Assert.NotNull(window.QueuedJob);
+        Assert.Equal("/srv/logs.txt", window.QueuedJob!.RemotePath);
+        Assert.Equal(@"D:\downloads\logs.txt", window.QueuedJob.LocalPath);
+        Assert.Equal("logs.txt", window.LastSuggestedSaveFileName);
+        Assert.True(window.SavePickerWasShown);
+        Assert.False(window.TransferDialogWasShown);
     }
 
     [AvaloniaFact]
@@ -131,6 +151,25 @@ public sealed class MainWindowTransferFlowTests
         Assert.False(window.LastTransferDialogRequest.PreferLocalPathOnOpen);
     }
 
+    [AvaloniaFact]
+    public async Task ManualTransferFlow_StillUsesTransferDialog_WhenSidebarFlowDoesNot()
+    {
+        var window = new TestMainWindow
+        {
+            NextTransferDialogResult = TransferDialogResult.CreateConfirmed(
+                localPath: @"D:\downloads\logs",
+                remotePath: "/srv/logs")
+        };
+
+        await window.InitiateSftpTransferForTest(
+            CreateNativeProfile(),
+            Guid.Parse("f3cbca88-8445-4e12-8e31-aa2b7f6d9f76"),
+            TransferDirection.Download,
+            TransferKind.Folder);
+
+        Assert.True(window.TransferDialogWasShown);
+    }
+
     private static TerminalProfile CreateNativeProfile()
     {
         return new TerminalProfile
@@ -148,11 +187,14 @@ public sealed class MainWindowTransferFlowTests
         public TransferDialogResult? NextTransferDialogResult { get; set; }
         public string? NextPickedLocalFilePath { get; set; }
         public string? NextPickedLocalFolderPath { get; set; }
+        public string? NextSavedLocalFilePath { get; set; }
         public TransferJob? QueuedJob { get; private set; }
         public TransferDialogRequest? LastTransferDialogRequest { get; private set; }
         public bool TransferDialogWasShown { get; private set; }
         public bool FilePickerWasShown { get; private set; }
         public bool FolderPickerWasShown { get; private set; }
+        public bool SavePickerWasShown { get; private set; }
+        public string? LastSuggestedSaveFileName { get; private set; }
 
         internal override Task<TransferDialogResult?> ShowTransferDialogAsync(TransferDialogRequest request)
         {
@@ -168,6 +210,19 @@ public sealed class MainWindowTransferFlowTests
         }
 
         internal override Task<string?> PickLocalUploadFolderPathAsync()
+        {
+            FolderPickerWasShown = true;
+            return Task.FromResult<string?>(NextPickedLocalFolderPath);
+        }
+
+        internal override Task<string?> PickLocalDownloadFilePathAsync(string suggestedFileName)
+        {
+            SavePickerWasShown = true;
+            LastSuggestedSaveFileName = suggestedFileName;
+            return Task.FromResult<string?>(NextSavedLocalFilePath);
+        }
+
+        internal override Task<string?> PickLocalDownloadFolderPathAsync()
         {
             FolderPickerWasShown = true;
             return Task.FromResult<string?>(NextPickedLocalFolderPath);
