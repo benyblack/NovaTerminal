@@ -6,6 +6,7 @@ using Avalonia.Media;
 using Avalonia.Media.TextFormatting;
 using Avalonia.Threading;
 using Avalonia.Platform.Storage;
+using Avalonia.Input.Platform;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -368,7 +369,7 @@ namespace NovaTerminal.Core
 
         private void OnDragOver(object? sender, DragEventArgs e)
         {
-            if (e.Data.GetFiles() != null || e.Data.Contains(DataFormats.Text))
+            if (e.DataTransfer.TryGetFiles() != null || e.DataTransfer.Contains(DataFormat.Text))
             {
                 e.DragEffects = DragDropEffects.Copy;
                 e.Handled = true;
@@ -379,7 +380,7 @@ namespace NovaTerminal.Core
         {
             if (_session == null) return;
 
-            var files = e.Data.GetFiles();
+            var files = e.DataTransfer.TryGetFiles();
             if (files != null)
             {
                 var paths = new List<string>();
@@ -455,7 +456,7 @@ namespace NovaTerminal.Core
                 }
             }
 
-            if (e.Data.GetText() is string text && !string.IsNullOrWhiteSpace(text))
+            if (e.DataTransfer.TryGetText() is string text && !string.IsNullOrWhiteSpace(text))
             {
                 _session.SendInput(text);
                 PasteObserved?.Invoke(text);
@@ -517,7 +518,7 @@ namespace NovaTerminal.Core
         private double _lastRenderScalingForRowCache = -1.0;
 
 
-        private IGlyphTypeface? _glyphTypeface;
+        private GlyphTypeface? _glyphTypeface;
         private SharedSKTypeface? _skTypeface;
         private SharedSKFont? _skFont;
         private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
@@ -748,7 +749,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        protected override void OnGotFocus(GotFocusEventArgs e)
+        protected override void OnGotFocus(FocusChangedEventArgs e)
         {
             base.OnGotFocus(e);
             string? sequence = TerminalInputModeEncoder.EncodeFocusChanged(_buffer?.Modes, isFocused: true);
@@ -760,7 +761,7 @@ namespace NovaTerminal.Core
             InvalidateVisual();
         }
 
-        protected override void OnLostFocus(RoutedEventArgs e)
+        protected override void OnLostFocus(FocusChangedEventArgs e)
         {
             base.OnLostFocus(e);
             string? sequence = TerminalInputModeEncoder.EncodeFocusChanged(_buffer?.Modes, isFocused: false);
@@ -948,7 +949,7 @@ namespace NovaTerminal.Core
         public void MeasureCharSize()
         {
             _rowCache.RequestClear();
-            double scaling = VisualRoot?.RenderScaling ?? 1.0;
+            double scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
 
             // Try to get SKTypeface first as it's our source of truth
             ClearSkiaResources();
@@ -1467,7 +1468,7 @@ namespace NovaTerminal.Core
             }
 
             // Create and dispatch custom draw op
-            var scaling = VisualRoot?.RenderScaling ?? 1.0;
+            var scaling = TopLevel.GetTopLevel(this)?.RenderScaling ?? 1.0;
             if (Math.Abs(scaling - _lastRenderScalingForRowCache) > 0.0001)
             {
                 _lastRenderScalingForRowCache = scaling;

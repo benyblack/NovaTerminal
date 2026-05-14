@@ -27,7 +27,7 @@ namespace NovaTerminal.UI.Replay
         {
             InitializeComponent();
 #if DEBUG
-            this.AttachDevTools();
+            Application.Current?.AttachDeveloperTools();
 #endif
         }
 

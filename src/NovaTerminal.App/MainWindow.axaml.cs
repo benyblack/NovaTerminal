@@ -18,6 +18,7 @@ using Avalonia.Media;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
 using Avalonia.Automation;
+using Avalonia.Input.Platform;
 using SkiaSharp;
 
 using NovaTerminal.Controls;
@@ -3298,10 +3299,9 @@ namespace NovaTerminal
             try
             {
                 var topLevel = TopLevel.GetTopLevel(this);
-#pragma warning disable CS0618
                 if (topLevel?.Clipboard != null)
                 {
-                    var text = await topLevel.Clipboard.GetTextAsync();
+                    var text = await topLevel.Clipboard.TryGetTextAsync();
                     if (!string.IsNullOrEmpty(text) && _currentPane?.Session != null)
                     {
                         // Normalize line endings to avoid double newlines on paste
@@ -3313,7 +3313,6 @@ namespace NovaTerminal
                         _currentPane.Session.SendInput(text);
                     }
                 }
-#pragma warning restore CS0618
             }
             catch { }
         }

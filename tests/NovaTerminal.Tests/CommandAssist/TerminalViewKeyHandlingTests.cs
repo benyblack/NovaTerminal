@@ -14,12 +14,12 @@ public sealed class TerminalViewKeyHandlingTests
     {
         public void RaiseGotFocusForTest()
         {
-            OnGotFocus(new GotFocusEventArgs());
+            OnGotFocus(new FocusChangedEventArgs(InputElement.GotFocusEvent));
         }
 
         public void RaiseLostFocusForTest()
         {
-            OnLostFocus(new RoutedEventArgs());
+            OnLostFocus(new FocusChangedEventArgs(InputElement.LostFocusEvent));
         }
     }
 

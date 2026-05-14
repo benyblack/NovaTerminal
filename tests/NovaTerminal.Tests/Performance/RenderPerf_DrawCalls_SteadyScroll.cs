@@ -1,7 +1,7 @@
 using NovaTerminal.Tests.Performance.Infra;
 using Avalonia.Headless.XUnit;
 using Xunit;
-using Xunit.Abstractions;
+
 
 namespace NovaTerminal.Tests.Performance
 {

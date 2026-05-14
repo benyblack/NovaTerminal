@@ -8,7 +8,6 @@
         x:Name="RootWindow"
         Icon="avares://NovaTerminal/Assets/nova_icon.png"
         ExtendClientAreaToDecorationsHint="True"
-        ExtendClientAreaChromeHints="PreferSystemChrome"
         TransparencyLevelHint=""
         Background="Transparent">
     <Window.Resources>

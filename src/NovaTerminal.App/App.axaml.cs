@@ -19,7 +19,7 @@ public partial class App : Application
 
             // Enable DevTools for debugging - Press F12 to open
 #if DEBUG
-            desktop.MainWindow.AttachDevTools();
+            this.AttachDeveloperTools();
 #endif
         }
 

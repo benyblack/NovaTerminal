@@ -2,7 +2,7 @@ using Xunit;
 using NovaTerminal.Core;
 using NovaTerminal.Core.Storage;
 using System.Text;
-using Xunit.Abstractions;
+
 using System.Collections.Generic;
 using System;
 
