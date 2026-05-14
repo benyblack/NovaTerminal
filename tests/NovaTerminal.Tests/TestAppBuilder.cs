@@ -10,6 +10,7 @@ namespace NovaTerminal.Tests
     public class TestAppBuilder
     {
         public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>()
+            .UseSkia()
             .UseHeadless(new AvaloniaHeadlessPlatformOptions());
     }
 }
