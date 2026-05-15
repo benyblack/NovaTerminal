@@ -101,10 +101,9 @@ jobs:
         with:
           name: dotnet-build-${{ matrix.os }}
           retention-days: 1
-          # Use explicit (non-glob) paths so upload-artifact treats the workspace
-          # root as the artifact root, preserving the tests/ prefix. A leading glob
-          # pattern (tests/**) would cause the tool to strip tests/ as the common
-          # prefix, breaking all downstream path assumptions.
+          # upload-artifact@v4 strips the longest common ancestor of all paths, so
+          # "tests/" is stripped from both entries here. All download-artifact steps
+          # compensate by specifying path: tests to restore the prefix.
           path: |
             tests/NovaTerminal.Tests/bin/${{ env.CONFIGURATION }}
             tests/NovaTerminal.Core.Tests/bin/${{ env.CONFIGURATION }}
@@ -131,6 +130,10 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
+          # upload-artifact@v4 strips the longest common ancestor of all uploaded paths.
+          # Both uploaded paths share "tests/" so it gets stripped inside the zip.
+          # Downloading to "tests" restores the expected tests/* structure.
+          path: tests
 
       # VtReportCliTests.cs looks for app/CLI binaries in src/*/bin/Release/net10.0/.
       # Every file there is already present in the test output (MSBuild copies all
@@ -187,6 +190,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-windows-latest
+          path: tests
 
       - name: Run Golden Shared PNG Tests
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=GoldenSharedPng" --logger "trx;LogFileName=golden_shared_png_tests.trx"
@@ -222,6 +226,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
+          path: tests
 
       - name: Run Replay Tests
         env:
@@ -272,6 +277,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
+          path: tests
 
       - name: Run PTY smoke tests
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=PtySmoke" --logger "trx;LogFileName=pty_smoke_tests.trx"
@@ -341,6 +347,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
+          path: tests
 
       - name: Run Render Metrics Tests
         env:
@@ -377,6 +384,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-ubuntu-latest
+          path: tests
 
       - name: Run tab perf smoke
         env:
@@ -413,6 +421,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-ubuntu-latest
+          path: tests
 
       - name: Run stress lanes
         env:
@@ -459,6 +468,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-${{ matrix.os }}
+          path: tests
 
       - name: Restore
         run: dotnet restore
