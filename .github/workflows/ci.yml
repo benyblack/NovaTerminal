@@ -141,6 +141,11 @@ jobs:
           # Downloading to "tests" restores the expected tests/* structure.
           path: tests
 
+      # zip artifacts don't preserve Unix execute bits; restore them so the test host can run.
+      - name: Restore execute permissions (Linux)
+        if: runner.os == 'Linux'
+        run: find tests -name "*.Tests" -type f | xargs chmod +x
+
       # VtReportCliTests.cs looks for app/CLI binaries in src/*/bin/Release/net10.0/.
       # Every file there is already present in the test output (MSBuild copies all
       # referenced DLLs and the host executable), so we mirror it locally with
@@ -244,6 +249,10 @@ jobs:
           name: dotnet-build-${{ matrix.os }}
           path: tests
 
+      - name: Restore execute permissions (Linux)
+        if: runner.os == 'Linux'
+        run: find tests -name "*.Tests" -type f | xargs chmod +x
+
       - name: Restore
         run: dotnet restore
 
@@ -299,6 +308,10 @@ jobs:
         with:
           name: dotnet-build-${{ matrix.os }}
           path: tests
+
+      - name: Restore execute permissions (Linux)
+        if: runner.os == 'Linux'
+        run: find tests -name "*.Tests" -type f | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
@@ -375,6 +388,10 @@ jobs:
           name: dotnet-build-${{ matrix.os }}
           path: tests
 
+      - name: Restore execute permissions (Linux)
+        if: runner.os == 'Linux'
+        run: find tests -name "*.Tests" -type f | xargs chmod +x
+
       - name: Restore
         run: dotnet restore
 
@@ -417,6 +434,9 @@ jobs:
           name: dotnet-build-ubuntu-latest
           path: tests
 
+      - name: Restore execute permissions
+        run: find tests -name "*.Tests" -type f | xargs chmod +x
+
       - name: Restore
         run: dotnet restore
 
@@ -458,6 +478,9 @@ jobs:
         with:
           name: dotnet-build-ubuntu-latest
           path: tests
+
+      - name: Restore execute permissions
+        run: find tests -name "*.Tests" -type f | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
