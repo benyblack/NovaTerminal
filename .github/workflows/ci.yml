@@ -82,8 +82,17 @@ jobs:
              src/NovaTerminal.App/native/target_linux/release/
 
       # ── .NET ───────────────────────────────────────────────────────────────────
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -125,8 +134,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -181,6 +199,10 @@ jobs:
       - name: Test (unit)
         # Keep the unit lane focused on deterministic tests; stress tests run in nightly,
         # and shared golden PNGs are currently only stable against the checked-in baselines on Windows.
+        # SKIP_RUST_NATIVE_BUILD prevents VtReportCliTests from triggering cargo builds when they
+        # call `dotnet build --no-restore` at runtime (rusty_ssh deps aren't available in test jobs).
+        env:
+          SKIP_RUST_NATIVE_BUILD: '1'
         run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" --logger "trx;LogFileName=unit_tests.trx"
 
       - name: Upload test results
@@ -200,8 +222,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -241,8 +272,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -305,8 +345,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -388,8 +437,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -438,8 +496,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -487,8 +554,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
           cache: true
@@ -546,8 +622,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
           cache: true
