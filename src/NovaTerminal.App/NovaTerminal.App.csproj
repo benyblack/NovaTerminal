@@ -122,7 +122,11 @@
     AfterTargets="Build"
     Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true'">
 
-    <Exec Command="dotnet build &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false" />
+    <!-- UseSharedCompilation=false prevents the Roslyn compiler server from being spawned as a
+         background process that inherits pipe handles from the outer build. Without this, tests
+         that capture stdout/stderr of `dotnet build App` via pipes would hang indefinitely on
+         Linux because VBCSCompiler holds the write end of the pipe after the build exits. -->
+    <Exec Command="dotnet build &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false -p:UseSharedCompilation=false" />
 
     <ItemGroup>
       <ObsoleteCliShimBuildArtifacts Include="$(OutDir)NovaTerminal.Cli*" />
