@@ -141,10 +141,15 @@ jobs:
           # Downloading to "tests" restores the expected tests/* structure.
           path: tests
 
-      # zip artifacts don't preserve Unix execute bits; restore them so the test host can run.
+      # zip artifacts don't preserve Unix execute bits; restore them so the test host and
+      # any app/CLI binaries referenced by tests (NovaTerminal.App, NovaTerminal.Cli) can run.
       - name: Restore execute permissions (Linux)
         if: runner.os == 'Linux'
-        run: find tests -name "*.Tests" -type f | xargs chmod +x
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       # VtReportCliTests.cs looks for app/CLI binaries in src/*/bin/Release/net10.0/.
       # Every file there is already present in the test output (MSBuild copies all
@@ -251,7 +256,11 @@ jobs:
 
       - name: Restore execute permissions (Linux)
         if: runner.os == 'Linux'
-        run: find tests -name "*.Tests" -type f | xargs chmod +x
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
@@ -311,7 +320,11 @@ jobs:
 
       - name: Restore execute permissions (Linux)
         if: runner.os == 'Linux'
-        run: find tests -name "*.Tests" -type f | xargs chmod +x
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
@@ -390,7 +403,11 @@ jobs:
 
       - name: Restore execute permissions (Linux)
         if: runner.os == 'Linux'
-        run: find tests -name "*.Tests" -type f | xargs chmod +x
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
@@ -435,7 +452,11 @@ jobs:
           path: tests
 
       - name: Restore execute permissions
-        run: find tests -name "*.Tests" -type f | xargs chmod +x
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
@@ -480,7 +501,11 @@ jobs:
           path: tests
 
       - name: Restore execute permissions
-        run: find tests -name "*.Tests" -type f | xargs chmod +x
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
