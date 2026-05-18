@@ -8,6 +8,7 @@
         x:Name="RootWindow"
         Icon="avares://NovaTerminal/Assets/nova_icon.png"
         ExtendClientAreaToDecorationsHint="True"
+        WindowDecorationsTheme="{StaticResource NovaWindowDecorationsTheme}"
         TransparencyLevelHint=""
         Background="Transparent">
     <Window.Resources>
