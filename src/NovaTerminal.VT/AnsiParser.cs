@@ -16,6 +16,14 @@ namespace NovaTerminal.Core
         // Flag to swallow a single newline after an inline image (common in scripts)
         private bool _swallowNextNewline = false;
 
+        // DEC G0..G3 charset designation + GL shift state.
+        // mc/ncurses draw box characters via terminfo `smacs`/`rmacs` (SO/SI) and `ESC ( 0`
+        // to designate G0 as DEC Special Graphics; printable letters then map per the table.
+        private enum Charset { Ascii, DecSpecialGraphics }
+        private readonly Charset[] _charsets = new Charset[] { Charset.Ascii, Charset.Ascii, Charset.Ascii, Charset.Ascii };
+        private int _gl; // 0..3 — index into _charsets currently shifted to GL
+        private int _pendingCharsetSlot = -1;
+
         // Zero-alloc buffers
         private char[] _paramBuffer = new char[256];
         private int _paramLen = 0;
@@ -86,6 +94,45 @@ namespace NovaTerminal.Core
                 _textBuffer.Clear();
             }
         }
+
+        // DEC Special Graphics: maps 0x5F..0x7E to box-drawing/symbol characters.
+        // Anything outside that range passes through unchanged.
+        private static char MapDecSpecialGraphics(char c) => c switch
+        {
+            '_' => ' ',
+            '`' => '◆',
+            'a' => '▒',
+            'b' => '␉',
+            'c' => '␌',
+            'd' => '␍',
+            'e' => '␊',
+            'f' => '°',
+            'g' => '±',
+            'h' => '␤',
+            'i' => '␋',
+            'j' => '┘',
+            'k' => '┐',
+            'l' => '┌',
+            'm' => '└',
+            'n' => '┼',
+            'o' => '⎺',
+            'p' => '⎻',
+            'q' => '─',
+            'r' => '⎼',
+            's' => '⎽',
+            't' => '├',
+            'u' => '┤',
+            'v' => '┴',
+            'w' => '┬',
+            'x' => '│',
+            'y' => '≤',
+            'z' => '≥',
+            '{' => 'π',
+            '|' => '≠',
+            '}' => '£',
+            '~' => '·',
+            _ => c,
+        };
 
         private void BeginCsi()
         {
@@ -220,6 +267,14 @@ namespace NovaTerminal.Core
                                     {
                                         OnBell?.Invoke();
                                     }
+                                    else if (c == '') // SO — shift GL to G1
+                                    {
+                                        _gl = 1;
+                                    }
+                                    else if (c == '') // SI — shift GL to G0
+                                    {
+                                        _gl = 0;
+                                    }
                                     else
                                     {
                                         if (_swallowNextNewline)
@@ -236,8 +291,8 @@ namespace NovaTerminal.Core
                                 }
                                 else
                                 {
-                                    // Printable Characters
-                                    _textBuffer.Append(c);
+                                    // Printable Characters — translate via active GL charset.
+                                    _textBuffer.Append(_charsets[_gl] == Charset.DecSpecialGraphics ? MapDecSpecialGraphics(c) : c);
                                 }
                                 break;
 
@@ -270,7 +325,18 @@ namespace NovaTerminal.Core
                                 }
                                 else if (c == '(' || c == ')' || c == '*' || c == '+' || c == '-')
                                 {
-                                    // G0/G1 charset selection - wait for the next char but don't print
+                                    // G0..G3 charset designation. '(' '-' designate G0,
+                                    // ')' G1, '*' G2, '+' G3. Capture slot, then consume the
+                                    // designator char on the next byte.
+                                    _pendingCharsetSlot = c switch
+                                    {
+                                        '(' => 0,
+                                        '-' => 0,
+                                        ')' => 1,
+                                        '*' => 2,
+                                        '+' => 3,
+                                        _ => 0,
+                                    };
                                     _state = State.Charset;
                                 }
                                 else if (c == '#')
@@ -285,7 +351,14 @@ namespace NovaTerminal.Core
                                 break;
 
                             case State.Charset:
-                                // Consume the charset designation character (e.g. 'B' in ESC ( B)
+                                // The designator chooses the table loaded into the slot captured in State.Esc.
+                                // '0' = DEC Special Graphics; everything else (including 'B' = US-ASCII and
+                                // unsupported designators like 'A'/'1'/'2') falls back to ASCII pass-through.
+                                if (_pendingCharsetSlot >= 0 && _pendingCharsetSlot < _charsets.Length)
+                                {
+                                    _charsets[_pendingCharsetSlot] = c == '0' ? Charset.DecSpecialGraphics : Charset.Ascii;
+                                }
+                                _pendingCharsetSlot = -1;
                                 _state = State.Normal;
                                 break;
 
