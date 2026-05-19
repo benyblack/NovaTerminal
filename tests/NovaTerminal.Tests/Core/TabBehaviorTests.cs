@@ -95,6 +95,23 @@ public sealed class TabBehaviorTests
     }
 
     [Fact]
+    public void GetTabHeaderViewportMargin_Mac_UsesActualTitleBarWidth_NotWindowsMinimum()
+    {
+        // On macOS the right caption-button reserve is collapsed (~8px), so the computed
+        // right reservation can drop below the Windows-sized MinimumTabHeaderRightReserve.
+        // The viewport must trust the actual measurement; otherwise a visible gap appears
+        // between the last tab and the right-side custom buttons.
+        var margin = NovaTerminal.MainWindow.GetTabHeaderViewportMargin(
+            isMacOs: true,
+            titleBarWidth: 340,
+            titleBarRightMargin: 8);
+
+        double expectedRight = Math.Ceiling(340 + 8 + NovaTerminal.MainWindow.TabHeaderViewportPadding);
+        Assert.Equal(expectedRight, margin.Right);
+        Assert.True(margin.Right < NovaTerminal.MainWindow.MinimumTabHeaderRightReserve);
+    }
+
+    [Fact]
     public void TruncateTabLabel_TruncatesWithEllipsis()
     {
         string value = NovaTerminal.MainWindow.TruncateTabLabel("abcdefgh", 6);

@@ -452,14 +452,14 @@ namespace NovaTerminal
             double viewportPadding = TabHeaderViewportPadding)
         {
             double reservedLeft = isMacOs ? macLeftReserve : 0;
-            double reservedRight = minimumRightReserve;
 
-            if (titleBarWidth > 0)
-            {
-                reservedRight = Math.Max(
-                    reservedRight,
-                    Math.Ceiling(titleBarWidth + Math.Max(0, titleBarRightMargin) + viewportPadding));
-            }
+            // Before the title bar has measured, fall back to the static minimum so the first paint
+            // doesn't crowd tabs against the buttons. Once we have a real bound, trust it — the floor
+            // was sized for Windows (custom buttons + 140px caption reserve) and overshoots on macOS,
+            // where the caption lives on the left and titleBarRightMargin is small.
+            double reservedRight = titleBarWidth > 0
+                ? Math.Ceiling(titleBarWidth + Math.Max(0, titleBarRightMargin) + viewportPadding)
+                : minimumRightReserve;
 
             return new Thickness(reservedLeft, 0, reservedRight, 0);
         }
