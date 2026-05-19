@@ -1647,6 +1647,15 @@ namespace NovaTerminal
                         BeginMoveDrag(e);
                 };
                 titleBar.SizeChanged += (_, __) => Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
+
+                // XAML sets Margin="0,4,140,0" to reserve space for Windows-style caption buttons on the right.
+                // On macOS the system traffic lights are on the left, so collapse the right reservation
+                // so the custom buttons (+, tab list, record, …, settings) sit flush against the edge.
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                {
+                    var m = titleBar.Margin;
+                    titleBar.Margin = new Thickness(m.Left, m.Top, 8, m.Bottom);
+                }
             }
 
 
