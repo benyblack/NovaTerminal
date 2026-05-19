@@ -43,12 +43,19 @@ jobs:
       # ── Rust native ────────────────────────────────────────────────────────────
       # Cache the compiled binary keyed on all Rust source files.
       # On a hit the toolchain install, Swatinem, and cargo build are all skipped.
+      # Cache both target/release and target_linux/release: the Linux csproj
+      # consumes the .so from target_linux/release, so it must be part of the
+      # cache or a cache hit leaves the staged path empty and the Build step
+      # below is skipped. Key bumped to v2 to invalidate caches that only
+      # contained target/release.
       - name: Cache native binary
         id: native-bin-cache
         uses: actions/cache@v4
         with:
-          path: src/NovaTerminal.App/native/target/release
-          key: native-bin-${{ matrix.os }}-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
+          path: |
+            src/NovaTerminal.App/native/target/release
+            src/NovaTerminal.App/native/target_linux/release
+          key: native-bin-v2-${{ matrix.os }}-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
@@ -64,22 +71,19 @@ jobs:
         if: matrix.os == 'windows-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
         run: cd src/NovaTerminal.App/native && cargo build --release
 
+      # Linux build also stages the .so into target_linux/release so the
+      # cached payload is complete and no separate stage step is needed.
       - name: Build Rust (Linux)
         if: matrix.os == 'ubuntu-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
-        run: cd src/NovaTerminal.App/native && cargo build --release
+        run: |
+          cd src/NovaTerminal.App/native
+          cargo build --release
+          mkdir -p target_linux/release
+          cp target/release/librusty_pty.so target_linux/release/
 
       - name: Build Rust (macOS)
         if: matrix.os == 'macos-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
         run: cd src/NovaTerminal.App/native && cargo build --release
-
-      # Linux csproj expects the .so at target_linux/release/ — stage it whether
-      # it was freshly built or restored from cache.
-      - name: Stage Linux native binary
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          mkdir -p src/NovaTerminal.App/native/target_linux/release
-          cp src/NovaTerminal.App/native/target/release/librusty_pty.so \
-             src/NovaTerminal.App/native/target_linux/release/
 
       # ── .NET ───────────────────────────────────────────────────────────────────
       - name: Cache .NET SDK
