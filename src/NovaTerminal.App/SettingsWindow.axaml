@@ -89,15 +89,15 @@
                                     <UniformGrid Columns="2">
                                         <StackPanel Margin="0,0,5,0">
                                             <TextBlock Text="Foreground" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
-                                            <TextBox Name="EditThemeFgInput" Watermark="#RRGGBB" />
+                                            <TextBox Name="EditThemeFgInput" PlaceholderText="#RRGGBB" />
                                         </StackPanel>
                                         <StackPanel Margin="5,0,0,0">
                                             <TextBlock Text="Background" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
-                                            <TextBox Name="EditThemeBgInput" Watermark="#RRGGBB" />
+                                            <TextBox Name="EditThemeBgInput" PlaceholderText="#RRGGBB" />
                                         </StackPanel>
                                         <StackPanel Margin="0,5,5,0">
                                             <TextBlock Text="Cursor" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
-                                            <TextBox Name="EditThemeCursorInput" Watermark="#RRGGBB" />
+                                            <TextBox Name="EditThemeCursorInput" PlaceholderText="#RRGGBB" />
                                         </StackPanel>
                                     </UniformGrid>
 
@@ -188,7 +188,7 @@
 
                         <TextBlock Text="Background Image" FontSize="16" Margin="0,10,0,5" FontWeight="SemiBold"/>
                         <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-                            <TextBox Name="BgImagePathInput" Watermark="Path onto image file..." Margin="0,0,10,0"/>
+                            <TextBox Name="BgImagePathInput" PlaceholderText="Path onto image file..." Margin="0,0,10,0"/>
                             <Button Name="BtnBrowseImage" Content="..." Grid.Column="1" Width="40" Margin="0,0,5,0"/>
                             <Button Name="BtnClearImage" Content="✕" Grid.Column="2" Width="40" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
                         </Grid>
@@ -244,17 +244,17 @@
 
                             <StackPanel>
                                 <TextBlock Text="Executable Path" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileCommandInput" Watermark="e.g. cmd.exe, powershell.exe" />
+                                <TextBox Name="ProfileCommandInput" PlaceholderText="e.g. cmd.exe, powershell.exe" />
                             </StackPanel>
 
                             <StackPanel>
                                 <TextBlock Text="Arguments" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileArgsInput" Watermark="Optional arguments..." />
+                                <TextBox Name="ProfileArgsInput" PlaceholderText="Optional arguments..." />
                             </StackPanel>
 
                             <StackPanel>
                                 <TextBlock Text="Starting Directory" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileCwdInput" Watermark="Optional working directory..." />
+                                <TextBox Name="ProfileCwdInput" PlaceholderText="Optional working directory..." />
                             </StackPanel>
 
                             <Separator Opacity="0.2" Margin="0,5"/>
@@ -271,7 +271,7 @@
                                 <Grid ColumnDefinitions="*, 80">
                                     <StackPanel>
                                         <TextBlock Text="Host" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                        <TextBox Name="SshHostInput" Watermark="e.g. 192.168.1.1 or example.com" />
+                                        <TextBox Name="SshHostInput" PlaceholderText="e.g. 192.168.1.1 or example.com" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Margin="10,0,0,0">
                                         <TextBlock Text="Port" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
@@ -281,12 +281,12 @@
 
                                 <StackPanel>
                                     <TextBlock Text="Username" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                    <TextBox Name="SshUserInput" Watermark="e.g. root or ubuntu" />
+                                    <TextBox Name="SshUserInput" PlaceholderText="e.g. root or ubuntu" />
                                 </StackPanel>
 
                                 <StackPanel>
                                     <TextBlock Text="Password / Passphrase (Optional)" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                    <TextBox Name="SshPasswordInput" PasswordChar="*" Watermark="Leave empty to prompt in terminal" />
+                                    <TextBox Name="SshPasswordInput" PasswordChar="*" PlaceholderText="Leave empty to prompt in terminal" />
                                 </StackPanel>
 
                                 <StackPanel>
@@ -295,7 +295,7 @@
                                     <RadioButton Name="RadioAuthKey" Content="Use Identity File" GroupName="AuthMode" Margin="0,0,0,5"/>
                                     
                                     <Grid ColumnDefinitions="*, Auto" Margin="20,0,0,0">
-                                        <TextBox Name="SshKeyPathInput" Watermark="Path to private key (id_rsa, .pem)" IsEnabled="False"/>
+                                        <TextBox Name="SshKeyPathInput" PlaceholderText="Path to private key (id_rsa, .pem)" IsEnabled="False"/>
                                         <Button Name="BtnBrowseSshKey" Grid.Column="1" Content="..." Margin="5,0,0,0" Width="40" IsEnabled="False"/>
                                     </Grid>
                                 </StackPanel>
@@ -320,8 +320,8 @@
                                                     <ComboBoxItem>Remote</ComboBoxItem>
                                                     <ComboBoxItem>Dynamic</ComboBoxItem>
                                                 </ComboBox>
-                                                <TextBox Name="RuleInputLocal" Watermark="8080" Width="100"/>
-                                                <TextBox Name="RuleInputRemote" Watermark="127.0.0.1:80" Width="100"/>
+                                                <TextBox Name="RuleInputLocal" PlaceholderText="8080" Width="100"/>
+                                                <TextBox Name="RuleInputRemote" PlaceholderText="127.0.0.1:80" Width="100"/>
                                                 <Button Name="BtnAddRule" Content="+"/>
                                             </StackPanel>
                                         </StackPanel>
@@ -340,12 +340,12 @@
                             
                             <StackPanel>
                                 <TextBlock Text="Group" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileGroupInput" Watermark="e.g. Work, Personal" />
+                                <TextBox Name="ProfileGroupInput" PlaceholderText="e.g. Work, Personal" />
                             </StackPanel>
 
                             <StackPanel>
                                 <TextBlock Text="Tags" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileTagsInput" Watermark="comma, separated, tags" />
+                                <TextBox Name="ProfileTagsInput" PlaceholderText="comma, separated, tags" />
                             </StackPanel>
                             
                             <TextBlock Text="Visual Overrides (Experimental)" FontSize="14" FontWeight="SemiBold" Margin="0,5,0,0" Foreground="#888"/>

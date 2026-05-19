@@ -26,7 +26,7 @@ namespace NovaTerminal.Core
         private readonly Typeface _typeface;
         private readonly double _fontSize;
         private readonly Rect _bounds;
-        private readonly IGlyphTypeface _glyphTypeface;
+        private readonly GlyphTypeface _glyphTypeface;
         private readonly SharedSKTypeface? _skTypeface;
         private readonly SharedSKFont? _skFont;
         private readonly bool _enableLigatures;
@@ -162,7 +162,7 @@ namespace NovaTerminal.Core
             CellMetrics metrics,
             Typeface typeface,
             double fontSize,
-            IGlyphTypeface glyphTypeface,
+            GlyphTypeface glyphTypeface,
             SharedSKTypeface? skTypeface,
             SharedSKFont? skFont,
             bool enableLigatures,

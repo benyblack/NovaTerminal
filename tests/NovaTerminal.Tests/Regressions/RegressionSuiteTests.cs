@@ -5,7 +5,7 @@ using NovaTerminal.Tests.Infra;
 using System.IO;
 using System.Threading.Tasks;
 using Xunit;
-using Xunit.Abstractions;
+
 
 namespace NovaTerminal.Tests.Regressions
 {

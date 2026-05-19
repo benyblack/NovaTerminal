@@ -18,6 +18,7 @@ using Avalonia.Media;
 using Avalonia.Layout;
 using Avalonia.Platform.Storage;
 using Avalonia.Automation;
+using Avalonia.Input.Platform;
 using SkiaSharp;
 
 using NovaTerminal.Controls;
@@ -451,14 +452,14 @@ namespace NovaTerminal
             double viewportPadding = TabHeaderViewportPadding)
         {
             double reservedLeft = isMacOs ? macLeftReserve : 0;
-            double reservedRight = minimumRightReserve;
 
-            if (titleBarWidth > 0)
-            {
-                reservedRight = Math.Max(
-                    reservedRight,
-                    Math.Ceiling(titleBarWidth + Math.Max(0, titleBarRightMargin) + viewportPadding));
-            }
+            // Before the title bar has measured, fall back to the static minimum so the first paint
+            // doesn't crowd tabs against the buttons. Once we have a real bound, trust it — the floor
+            // was sized for Windows (custom buttons + 140px caption reserve) and overshoots on macOS,
+            // where the caption lives on the left and titleBarRightMargin is small.
+            double reservedRight = titleBarWidth > 0
+                ? Math.Ceiling(titleBarWidth + Math.Max(0, titleBarRightMargin) + viewportPadding)
+                : minimumRightReserve;
 
             return new Thickness(reservedLeft, 0, reservedRight, 0);
         }
@@ -1646,6 +1647,15 @@ namespace NovaTerminal
                         BeginMoveDrag(e);
                 };
                 titleBar.SizeChanged += (_, __) => Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
+
+                // XAML sets Margin="0,4,140,0" to reserve space for Windows-style caption buttons on the right.
+                // On macOS the system traffic lights are on the left, so collapse the right reservation
+                // so the custom buttons (+, tab list, record, …, settings) sit flush against the edge.
+                if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+                {
+                    var m = titleBar.Margin;
+                    titleBar.Margin = new Thickness(m.Left, m.Top, 8, m.Bottom);
+                }
             }
 
 
@@ -3298,10 +3308,9 @@ namespace NovaTerminal
             try
             {
                 var topLevel = TopLevel.GetTopLevel(this);
-#pragma warning disable CS0618
                 if (topLevel?.Clipboard != null)
                 {
-                    var text = await topLevel.Clipboard.GetTextAsync();
+                    var text = await topLevel.Clipboard.TryGetTextAsync();
                     if (!string.IsNullOrEmpty(text) && _currentPane?.Session != null)
                     {
                         // Normalize line endings to avoid double newlines on paste
@@ -3313,7 +3322,6 @@ namespace NovaTerminal
                         _currentPane.Session.SendInput(text);
                     }
                 }
-#pragma warning restore CS0618
             }
             catch { }
         }

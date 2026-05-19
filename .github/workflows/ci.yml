@@ -22,63 +22,110 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   CONFIGURATION: Release
+  # Opt into Node.js 24 now; GitHub Actions will force this on 2026-06-02.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build_native:
-    name: Build Native (${{ matrix.os }})
+  # Single build job per OS: Rust native + .NET in one step.
+  # Eliminates the artifact round-trip that the old build_native → build_dotnet split required.
+  build:
+    name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["windows-latest","ubuntu-latest","macos-latest"]' || '["windows-latest","ubuntu-latest"]') }}
-    
+
     steps:
       - uses: actions/checkout@v4
 
+      # ── Rust native ────────────────────────────────────────────────────────────
+      # Cache the compiled binary keyed on all Rust source files.
+      # On a hit the toolchain install, Swatinem, and cargo build are all skipped.
+      - name: Cache native binary
+        id: native-bin-cache
+        uses: actions/cache@v4
+        with:
+          path: src/NovaTerminal.App/native/target/release
+          key: native-bin-${{ matrix.os }}-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
+
       - name: Install Rust
+        if: steps.native-bin-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust Cache
+      - name: Rust incremental build cache
+        if: steps.native-bin-cache.outputs.cache-hit != 'true'
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src/NovaTerminal.App/native
 
       - name: Build Rust (Windows)
-        if: matrix.os == 'windows-latest'
-        run: |
-          cd src/NovaTerminal.App/native
-          cargo build --release
-          # Binary stays in target/release/rusty_pty.dll
+        if: matrix.os == 'windows-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
+        run: cd src/NovaTerminal.App/native && cargo build --release
 
       - name: Build Rust (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          cd src/NovaTerminal.App/native
-          cargo build --release
-          # Move to the special target_linux dir expected by csproj if needed
-          # Actually, we can just move it to src/NovaTerminal.App/native/target_linux/release/
-          mkdir -p ../native/target_linux/release
-          cp target/release/librusty_pty.so ../native/target_linux/release/
+        if: matrix.os == 'ubuntu-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
+        run: cd src/NovaTerminal.App/native && cargo build --release
 
       - name: Build Rust (macOS)
-        if: matrix.os == 'macos-latest'
-        run: |
-          cd src/NovaTerminal.App/native
-          cargo build --release
-          # Binary stays in target/release/librusty_pty.dylib
+        if: matrix.os == 'macos-latest' && steps.native-bin-cache.outputs.cache-hit != 'true'
+        run: cd src/NovaTerminal.App/native && cargo build --release
 
-      - name: Upload Native Artifact
+      # Linux csproj expects the .so at target_linux/release/ — stage it whether
+      # it was freshly built or restored from cache.
+      - name: Stage Linux native binary
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir -p src/NovaTerminal.App/native/target_linux/release
+          cp src/NovaTerminal.App/native/target/release/librusty_pty.so \
+             src/NovaTerminal.App/native/target_linux/release/
+
+      # ── .NET ───────────────────────────────────────────────────────────────────
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
+        with:
+          dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+
+      # Upload only the test output directories. src/*/bin/ is 100% duplicated inside
+      # tests/NovaTerminal.Tests/bin/ (MSBuild copies all referenced DLLs + executables),
+      # so including it would double the artifact size for no benefit.
+      # VtReportCliTests needs src/NovaTerminal.App/bin/ at runtime — the unit test
+      # job restores it from the test output via a symlink/junction (see below).
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native/target*/**/release/*pty.*
+          name: dotnet-build-${{ matrix.os }}
+          retention-days: 1
+          # upload-artifact@v4 strips the longest common ancestor of all paths, so
+          # "tests/" is stripped from both entries here. All download-artifact steps
+          # compensate by specifying path: tests to restore the prefix.
+          path: |
+            tests/NovaTerminal.Tests/bin/${{ env.CONFIGURATION }}
+            tests/NovaTerminal.Core.Tests/bin/${{ env.CONFIGURATION }}
 
   build_and_unit_tests:
-    name: Build + Unit Tests (${{ matrix.os }})
+    name: Unit Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    needs: [build_native]
+    timeout-minutes: 15
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -87,27 +134,76 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
-      - name: Download Native Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
+          name: dotnet-build-${{ matrix.os }}
+          # upload-artifact@v4 strips the longest common ancestor of all uploaded paths.
+          # Both uploaded paths share "tests/" so it gets stripped inside the zip.
+          # Downloading to "tests" restores the expected tests/* structure.
+          path: tests
+
+      # zip artifacts don't preserve Unix execute bits; restore them so the test host and
+      # any app/CLI binaries referenced by tests (NovaTerminal.App, NovaTerminal.Cli) can run.
+      - name: Restore execute permissions (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
+
+      # VtReportCliTests.cs looks for app/CLI binaries in src/*/bin/Release/net10.0/.
+      # Every file there is already present in the test output (MSBuild copies all
+      # referenced DLLs and the host executable), so we mirror it locally with
+      # hardlinks (Linux) or robocopy (Windows) instead of duplicating 1.1 GB in
+      # the artifact. Local disk copy is fast; network upload/download is not.
+      - name: Reconstruct src bin dirs from test output (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p src/NovaTerminal.App/bin/Release src/NovaTerminal.Cli/bin/Release
+          cp -rl tests/NovaTerminal.Tests/bin/Release/net10.0 src/NovaTerminal.App/bin/Release/net10.0
+          cp -rl tests/NovaTerminal.Tests/bin/Release/net10.0 src/NovaTerminal.Cli/bin/Release/net10.0
+
+      - name: Reconstruct src bin dirs from test output (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $src = "tests\NovaTerminal.Tests\bin\Release\net10.0"
+          # robocopy exits 0 (nothing to copy) or 1 (files copied) on success; >=8 is an error
+          foreach ($dst in @("src\NovaTerminal.App\bin\Release\net10.0", "src\NovaTerminal.Cli\bin\Release\net10.0")) {
+            robocopy $src $dst /E /NJH /NJS /NFL /NDL /NC /NS | Out-Null
+            if ($LASTEXITCODE -ge 8) { exit $LASTEXITCODE }
+          }
+          exit 0
 
       - name: Restore
         run: dotnet restore
 
-      - name: Build (C#)
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
-
       - name: Test (unit)
         # Keep the unit lane focused on deterministic tests; stress tests run in nightly,
         # and shared golden PNGs are currently only stable against the checked-in baselines on Windows.
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" --logger "trx;LogFileName=unit_tests.trx"
+        # SKIP_RUST_NATIVE_BUILD prevents VtReportCliTests from triggering cargo builds when they
+        # call `dotnet build --no-restore` at runtime (rusty_ssh deps aren't available in test jobs).
+        env:
+          SKIP_RUST_NATIVE_BUILD: '1'
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" --logger "trx;LogFileName=unit_tests.trx"
 
       - name: Upload test results
         if: always()
@@ -120,31 +216,39 @@ jobs:
   golden_shared_png_tests:
     name: Golden Shared PNGs (windows-latest)
     runs-on: windows-latest
-    timeout-minutes: 20
-    needs: [build_native]
+    timeout-minutes: 10
+    needs: [build]
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
-      - name: Download Native Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-windows-latest
-          path: src/NovaTerminal.App/native
+          name: dotnet-build-windows-latest
+          path: tests
 
       - name: Restore
         run: dotnet restore
 
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
-
       - name: Run Golden Shared PNG Tests
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=GoldenSharedPng" --logger "trx;LogFileName=golden_shared_png_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=GoldenSharedPng" --logger "trx;LogFileName=golden_shared_png_tests.trx"
 
       - name: Upload golden shared PNG test results
         if: always()
@@ -158,8 +262,8 @@ jobs:
     name: Replay Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     if: github.event_name != 'pull_request'
-    timeout-minutes: 25
-    needs: [build_and_unit_tests, build_native]
+    timeout-minutes: 15
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -168,27 +272,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
-      - name: Download Native Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
+          name: dotnet-build-${{ matrix.os }}
+          path: tests
+
+      - name: Restore execute permissions (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
 
-      - name: Build (tests only)
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
-
       - name: Run Replay Tests
         env:
           PARITY_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/parity
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=Replay" --logger "trx;LogFileName=replay_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Replay" --logger "trx;LogFileName=replay_tests.trx"
 
       - name: Prepare Replay Artifact Bundle
         if: always()
@@ -215,8 +335,8 @@ jobs:
     name: PTY Smoke Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    timeout-minutes: 20
-    needs: [build_and_unit_tests, build_native]
+    timeout-minutes: 10
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -225,25 +345,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
-      - name: Download Native Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
+          name: dotnet-build-${{ matrix.os }}
+          path: tests
+
+      - name: Restore execute permissions (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
 
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
-
       - name: Run PTY smoke tests
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=PtySmoke" --logger "trx;LogFileName=pty_smoke_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=PtySmoke" --logger "trx;LogFileName=pty_smoke_tests.trx"
 
       - name: Upload PTY smoke test results
         if: always()
@@ -291,8 +427,8 @@ jobs:
     name: Render Metrics (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    timeout-minutes: 20
-    needs: [build_and_unit_tests, build_native]
+    timeout-minutes: 10
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -301,28 +437,44 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
-      - name: Download Native Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
+          name: dotnet-build-${{ matrix.os }}
+          path: tests
+
+      - name: Restore execute permissions (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
-
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Run Render Metrics Tests
         env:
           WRITE_METRICS_ARTIFACTS: "1"
           METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=RenderMetrics" --logger "trx;LogFileName=render_metrics.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=RenderMetrics" --logger "trx;LogFileName=render_metrics.trx"
 
       - name: Upload render metrics
         if: always()
@@ -337,35 +489,50 @@ jobs:
   tab_perf_smoke:
     name: Tab Perf Smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     if: github.event_name == 'pull_request' || github.event_name == 'push'
-    needs: [build_and_unit_tests, build_native]
+    needs: [build]
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
-      - name: Download Native Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-ubuntu-latest
-          path: src/NovaTerminal.App/native
+          name: dotnet-build-ubuntu-latest
+          path: tests
+
+      - name: Restore execute permissions
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
-
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Run tab perf smoke
         env:
           WRITE_METRICS_ARTIFACTS: "1"
           METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=Performance|Category=Latency" --logger "trx;LogFileName=tab_perf_smoke.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Performance|Category=Latency" --logger "trx;LogFileName=tab_perf_smoke.trx"
 
       - name: Upload tab perf smoke artifacts
         if: always()
@@ -382,33 +549,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.event_name == 'schedule'
-    needs: [build_and_unit_tests, build_native]
+    needs: [build]
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
-      - name: Download Native Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-ubuntu-latest
-          path: src/NovaTerminal.App/native
+          name: dotnet-build-ubuntu-latest
+          path: tests
+
+      - name: Restore execute permissions
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
 
       - name: Restore
         run: dotnet restore
-
-      - name: Build
-        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       - name: Run stress lanes
         env:
           WRITE_METRICS_ARTIFACTS: "1"
           METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --filter "Category=Stress|Category=Performance|Category=Latency|Category=RenderMetrics" --logger "trx;LogFileName=nightly_tab_stress.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Stress|Category=Performance|Category=Latency|Category=RenderMetrics" --logger "trx;LogFileName=nightly_tab_stress.trx"
 
       - name: Upload nightly stress artifacts
         if: always()
@@ -425,7 +607,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'workflow_dispatch'
     timeout-minutes: 40
-    needs: [build_native]
+    needs: [build]
     strategy:
       fail-fast: false
       matrix:
@@ -440,16 +622,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
-      - name: Download Native Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          name: native-${{ matrix.os }}
-          path: src/NovaTerminal.App/native
+          name: dotnet-build-${{ matrix.os }}
+          path: tests
 
       - name: Restore
         run: dotnet restore

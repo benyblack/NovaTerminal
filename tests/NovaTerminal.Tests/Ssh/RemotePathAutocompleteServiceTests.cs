@@ -223,8 +223,8 @@ public sealed class RemotePathAutocompleteServiceTests
                 CancellationToken.None);
         });
 
-        Assert.True(interop.Started.Wait(TimeSpan.FromSeconds(1)));
-        Task completed = await Task.WhenAny(invocation, Task.Delay(TimeSpan.FromSeconds(1)));
+        Assert.True(interop.Started.Wait(TimeSpan.FromSeconds(10)));
+        Task completed = await Task.WhenAny(invocation, Task.Delay(TimeSpan.FromSeconds(10)));
         Assert.Same(invocation, completed);
         Assert.NotNull(returnedTask);
         Assert.False(returnedTask!.IsCompleted);

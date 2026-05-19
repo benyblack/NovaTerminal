@@ -12,21 +12,21 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="11.3.10" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.10" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.10" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.10" />
+    <PackageReference Include="Avalonia" Version="12.0.3" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.0.3" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.3" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="12.0.3" />
     <!--Condition
-    below is needed to remove Avalonia.Diagnostics package from build output in Release
+    below is needed to remove AvaloniaUI.DiagnosticsSupport package from build output in Release
     configuration.-->
-    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.10">
+    <PackageReference Include="AvaloniaUI.DiagnosticsSupport" Version="2.2.0">
       <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
       <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="SkiaSharp" Version="3.116.1" />
-    <PackageReference Include="SkiaSharp.HarfBuzz" Version="3.116.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.116.1" />
-    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp" Version="3.119.4-preview.1.1" />
+    <PackageReference Include="SkiaSharp.HarfBuzz" Version="3.119.4-preview.1.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Win32" Version="3.119.4-preview.1.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.119.4-preview.1.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.2" />
   </ItemGroup>
 
@@ -122,7 +122,11 @@
     AfterTargets="Build"
     Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true'">
 
-    <Exec Command="dotnet build &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false" />
+    <!-- UseSharedCompilation=false prevents the Roslyn compiler server from being spawned as a
+         background process that inherits pipe handles from the outer build. Without this, tests
+         that capture stdout/stderr of `dotnet build App` via pipes would hang indefinitely on
+         Linux because VBCSCompiler holds the write end of the pipe after the build exits. -->
+    <Exec Command="dotnet build &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false -p:UseSharedCompilation=false" />
 
     <ItemGroup>
       <ObsoleteCliShimBuildArtifacts Include="$(OutDir)NovaTerminal.Cli*" />
@@ -175,32 +179,32 @@
 
   <ItemGroup>
     <Content Include="native\target\release\rusty_pty.dll"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and Exists('native\target\release\rusty_pty.dll')">
       <Link>rusty_pty.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="native\target_linux\release\librusty_pty.so"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and Exists('native\target_linux\release\librusty_pty.so')">
       <Link>librusty_pty.so</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="native\target\release\librusty_pty.dylib"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and Exists('native\target\release\librusty_pty.dylib')">
       <Link>librusty_pty.dylib</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="native\rusty_ssh\target\release\rusty_ssh.dll"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and Exists('native\rusty_ssh\target\release\rusty_ssh.dll')">
       <Link>rusty_ssh.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="native\rusty_ssh\target\release\librusty_ssh.so"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and Exists('native\rusty_ssh\target\release\librusty_ssh.so')">
       <Link>librusty_ssh.so</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="native\rusty_ssh\target\release\librusty_ssh.dylib"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">
+      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and Exists('native\rusty_ssh\target\release\librusty_ssh.dylib')">
       <Link>librusty_ssh.dylib</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

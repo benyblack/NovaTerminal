@@ -63,10 +63,10 @@ public partial class RemotePathTextBox : UserControl
         set => _pathTextBox.Text = value;
     }
 
-    public string? Watermark
+    public string? PlaceholderText
     {
-        get => _pathTextBox.Watermark?.ToString();
-        set => _pathTextBox.Watermark = value;
+        get => _pathTextBox.PlaceholderText;
+        set => _pathTextBox.PlaceholderText = value;
     }
 
     public event EventHandler? TextChanged;

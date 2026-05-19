@@ -1,7 +1,7 @@
 using System;
 using Xunit;
 using NovaTerminal.Core;
-using Xunit.Abstractions;
+
 using System.Linq;
 
 namespace NovaTerminal.Tests

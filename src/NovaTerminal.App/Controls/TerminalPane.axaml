@@ -96,7 +96,7 @@
                             <SolidColorBrush x:Key="TextControlForeground">White</SolidColorBrush>
                         </Border.Resources>
                         <Grid ColumnDefinitions="*, Auto, Auto, Auto, Auto, Auto, Auto">
-                            <TextBox Name="SearchBox" Watermark="Search..." 
+                            <TextBox Name="SearchBox" PlaceholderText="Search..." 
                                      BorderThickness="1" BorderBrush="#505050" 
                                      VerticalContentAlignment="Center" 
                                      Padding="8,4" Margin="2"/>

@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Threading.Tasks;
 using Xunit;
-using Xunit.Abstractions;
+
 
 namespace NovaTerminal.Tests.Performance
 {

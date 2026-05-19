@@ -182,11 +182,14 @@ public sealed class VtReportCliTests
         using var process = Process.Start(startInfo);
         Assert.NotNull(process);
 
-        string stdout = process!.StandardOutput.ReadToEnd();
-        string stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+        // Read stdout and stderr concurrently to avoid the deadlock that occurs
+        // on Windows when the subprocess fills the 4KB stderr pipe buffer while
+        // we're blocked on ReadToEnd() for stdout.
+        var stdoutTask = Task.Run(() => process!.StandardOutput.ReadToEnd());
+        var stderrTask = Task.Run(() => process!.StandardError.ReadToEnd());
+        process!.WaitForExit();
 
-        return (process.ExitCode, stdout, stderr);
+        return (process.ExitCode, stdoutTask.Result, stderrTask.Result);
     }
 
     private static string GetExecutablePath(string directory, string baseName)
