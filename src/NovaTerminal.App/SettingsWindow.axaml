@@ -1,393 +1,779 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="NovaTerminal.SettingsWindow"
-        Title="Settings" Width="650" Height="500"
-        WindowStartupLocation="CenterOwner">
-    
+        Title="Settings"
+        Width="880" Height="620"
+        MinWidth="780" MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Background="#16181d"
+        Foreground="#e6e8ec"
+        FontFamily="Inter, Segoe UI, system-ui, sans-serif">
+
+    <Window.Resources>
+        <SolidColorBrush x:Key="NtWindowBg"        Color="#16181d"/>
+        <SolidColorBrush x:Key="NtChromeBg"        Color="#1c1f26"/>
+        <SolidColorBrush x:Key="NtPanel"           Color="#23272f"/>
+        <SolidColorBrush x:Key="NtPanelAlt"        Color="#1a1d23"/>
+        <SolidColorBrush x:Key="NtHairline"        Color="#2a2f38"/>
+        <SolidColorBrush x:Key="NtHairlineStrong"  Color="#353b46"/>
+        <SolidColorBrush x:Key="NtFg"              Color="#e6e8ec"/>
+        <SolidColorBrush x:Key="NtFg2"             Color="#b4bac4"/>
+        <SolidColorBrush x:Key="NtFg3"             Color="#8b93a1"/>
+        <SolidColorBrush x:Key="NtFg4"             Color="#5c6370"/>
+        <SolidColorBrush x:Key="NtBlue"            Color="#61afef"/>
+        <SolidColorBrush x:Key="NtBlueDim"         Color="#2461afef"/>
+        <SolidColorBrush x:Key="NtGreen"           Color="#98c379"/>
+        <SolidColorBrush x:Key="NtYellow"          Color="#e5c07b"/>
+        <SolidColorBrush x:Key="NtRed"             Color="#e06c75"/>
+        <FontFamily x:Key="NtMono">JetBrains Mono, Cascadia Mono, Consolas, Menlo, monospace</FontFamily>
+    </Window.Resources>
+
     <Window.Styles>
-        <Style Selector="TabItem">
-            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
-            <Setter Property="FontSize" Value="14" />
+        <!-- Hide the TabControl's header strip — sidebar drives selection. -->
+        <Style Selector="TabControl#MainTabs">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
         </Style>
-        <Style Selector="TabItem:selected">
-            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
-            <Setter Property="FontWeight" Value="SemiBold" />
+        <Style Selector="TabControl#MainTabs /template/ ItemsPresenter#PART_ItemsPresenter">
+            <Setter Property="IsVisible" Value="False"/>
         </Style>
-        <!-- Ensure template parts don't override the foreground -->
-        <Style Selector="TabItem:selected /template/ ContentPresenter#PART_ContentPresenter">
-            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+        <Style Selector="TabControl#MainTabs > TabItem">
+            <Setter Property="Height" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="Opacity" Value="0"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
         </Style>
-        <Style Selector="TabItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-             <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Window}}" />
+
+        <!-- Section header (uppercase, dim) -->
+        <Style Selector="TextBlock.SectionHeader">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg3}"/>
+            <Setter Property="LetterSpacing" Value="1.2"/>
+        </Style>
+
+        <!-- Page title + subtitle -->
+        <Style Selector="TextBlock.H1">
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+        </Style>
+        <Style Selector="TextBlock.Subtitle">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg3}"/>
+        </Style>
+
+        <!-- Row label / description -->
+        <Style Selector="TextBlock.RowLabel">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+        </Style>
+        <Style Selector="TextBlock.RowDesc">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg3}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+
+        <!-- Inputs (TextBox, NumericUpDown) -->
+        <Style Selector="TextBox">
+            <Setter Property="Background" Value="{StaticResource NtPanelAlt}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtHairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+            <Setter Property="CaretBrush" Value="{StaticResource NtBlue}"/>
+            <Setter Property="SelectionBrush" Value="{StaticResource NtBlueDim}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+        <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderBrush" Value="{StaticResource NtBlue}"/>
+        </Style>
+        <Style Selector="NumericUpDown">
+            <Setter Property="Background" Value="{StaticResource NtPanelAlt}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtHairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <!-- ComboBox -->
+        <Style Selector="ComboBox">
+            <Setter Property="Background" Value="{StaticResource NtPanelAlt}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtHairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="MinHeight" Value="32"/>
+        </Style>
+
+        <!-- Primary action button -->
+        <Style Selector="Button.Primary">
+            <Setter Property="Background" Value="{StaticResource NtBlue}"/>
+            <Setter Property="Foreground" Value="#0a1622"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="16,7"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.Primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#7cc1f5"/>
+        </Style>
+        <Style Selector="Button.Primary:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#4f9bde"/>
+        </Style>
+
+        <!-- Secondary pill button -->
+        <Style Selector="Button.Pill">
+            <Setter Property="Background" Value="{StaticResource NtPanel}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtHairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+        </Style>
+        <Style Selector="Button.Pill:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2a2f38"/>
+        </Style>
+
+        <!-- Danger button (delete) -->
+        <Style Selector="Button.Danger">
+            <Setter Property="Background" Value="#3a1a1d"/>
+            <Setter Property="BorderBrush" Value="#5c2329"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Foreground" Value="{StaticResource NtRed}"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="14,6"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style Selector="Button.Danger:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#4a2024"/>
+        </Style>
+
+        <!-- Icon-only ghost button -->
+        <Style Selector="Button.IconBtn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg3}"/>
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.IconBtn:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+        </Style>
+        <Style Selector="Button.IconBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2a2f38"/>
+        </Style>
+
+        <!-- Sidebar (ListBox + items) -->
+        <Style Selector="ListBox.SideNav">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+        <Style Selector="ListBox.SideNav ListBoxItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="2,0,0,0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Padding" Value="10,7"/>
+            <Setter Property="Margin" Value="6,1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg2}"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+        <Style Selector="ListBox.SideNav ListBoxItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1f2730"/>
+        </Style>
+        <Style Selector="ListBox.SideNav ListBoxItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource NtBlueDim}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtBlue}"/>
+            <Setter Property="BorderThickness" Value="2,0,0,0"/>
+        </Style>
+        <Style Selector="ListBox.SideNav ListBoxItem:selected">
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+        </Style>
+
+        <!-- Toggle-pill restyle for CheckBoxes that should look like toggles.
+             CheckBox type is preserved so the code-behind keeps finding them. -->
+        <Style Selector="CheckBox.Toggle">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Grid ColumnDefinitions="*,Auto">
+                        <ContentPresenter Grid.Column="0"
+                                          Content="{TemplateBinding Content}"
+                                          VerticalAlignment="Center"
+                                          Foreground="{TemplateBinding Foreground}"
+                                          IsVisible="{Binding $parent[CheckBox].Content, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+                        <Border Grid.Column="1"
+                                Name="PART_Track"
+                                Width="34" Height="20"
+                                CornerRadius="10"
+                                Background="{StaticResource NtHairlineStrong}"
+                                Margin="8,0,0,0">
+                            <Ellipse Name="PART_Knob"
+                                     Width="16" Height="16"
+                                     Fill="White"
+                                     HorizontalAlignment="Left"
+                                     Margin="2,0,0,0"/>
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+        <Style Selector="CheckBox.Toggle:checked /template/ Border#PART_Track">
+            <Setter Property="Background" Value="{StaticResource NtBlue}"/>
+        </Style>
+        <Style Selector="CheckBox.Toggle:checked /template/ Ellipse#PART_Knob">
+            <Setter Property="HorizontalAlignment" Value="Right"/>
+            <Setter Property="Margin" Value="0,0,2,0"/>
+        </Style>
+
+        <!-- Slider -->
+        <Style Selector="Slider">
+            <Setter Property="Foreground" Value="{StaticResource NtBlue}"/>
+            <Setter Property="Background" Value="{StaticResource NtHairlineStrong}"/>
+            <Setter Property="MinHeight" Value="22"/>
+        </Style>
+
+        <!-- RadioButton -->
+        <Style Selector="RadioButton">
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <!-- Separator -->
+        <Style Selector="Separator">
+            <Setter Property="Background" Value="{StaticResource NtHairline}"/>
+            <Setter Property="Height" Value="1"/>
+            <Setter Property="Margin" Value="0,4"/>
         </Style>
     </Window.Styles>
-    
-    <Grid Margin="15" RowDefinitions="Auto, *, Auto">
-        <TextBlock Text="Terminal Settings" FontSize="22" FontWeight="Bold" Margin="0,0,0,15"/>
-        
-        <TabControl Name="MainTabs" Grid.Row="1">
-            <!-- Appearance Tab -->
-            <TabItem Header="Appearance">
-                <ScrollViewer Margin="0,10,0,0">
-                    <StackPanel Spacing="15" Margin="0,0,15,0">
-                        <!-- Font Family -->
-                        <StackPanel>
-                            <TextBlock Text="Font Family" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
-                            <ComboBox Name="FontList" HorizontalAlignment="Stretch">
-                                <ComboBoxItem>Cascadia Mono PL</ComboBoxItem>
-                                <ComboBoxItem>JetBrains Mono</ComboBoxItem>
-                            </ComboBox>
-                        </StackPanel>
 
-                        <!-- Enable Ligatures -->
-                        <CheckBox Name="LigatureToggle" Content="Enable Programming Ligatures" Margin="0,5,0,0"/>
+    <Grid RowDefinitions="*,Auto">
 
-                        <!-- Enable Complex Shaping -->
-                        <CheckBox Name="ComplexShapingToggle" Content="Enable Complex Shaping (Run-level HarfBuzz)" Margin="0,5,0,0"/>
+        <!-- ╭───────── Body: sidebar + content ─────────╮ -->
+        <Grid Grid.Row="0" ColumnDefinitions="208,*">
 
-                        <!-- Command Assist -->
-                        <CheckBox Name="CommandAssistToggle" Content="Enable Command Assistant" Margin="0,5,0,0"/>
-                        
-                        <!-- Font Size -->
-                        <StackPanel>
-                            <TextBlock Text="Font Size" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
-                            <NumericUpDown Name="FontSizeInput" Minimum="6" Maximum="72" Value="14"/>
-                        </StackPanel>
-                        
-                        <!-- Scrollback -->
-                        <StackPanel>
-                            <TextBlock Text="Scrollback Limit (Lines)" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
-                            <NumericUpDown Name="ScrollbackInput" Minimum="100" Maximum="100000" Value="10000" Increment="1000"/>
-                        </StackPanel>
-                        
-                        <!-- Theme -->
-                        <StackPanel>
-                            <TextBlock Text="Theme" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
-                            <Grid ColumnDefinitions="*, Auto, Auto, Auto">
-                                <ComboBox Name="ThemeList" HorizontalAlignment="Stretch">
-                                    <ComboBoxItem>Default (Dark)</ComboBoxItem>
-                                </ComboBox>
-                                <Button Name="BtnEditTheme" Grid.Column="1" Content="Edit" Margin="5,0,0,0" Padding="10,4" />
-                                <Button Name="BtnImportTheme" Grid.Column="2" Content="Import" Margin="5,0,0,0" Padding="10,4" />
-                                <Button Name="BtnNewTheme" Grid.Column="3" Content="+" Margin="5,0,0,0" Width="32" HorizontalContentAlignment="Center" ToolTip.Tip="New Theme" />
-                            </Grid>
-                            
-                            <!-- Theme Editor Panel (Hidden by default) -->
-                            <Border Name="ThemeEditorPanel" TextElement.Foreground="White" IsVisible="False" Margin="0,10,0,0" Padding="12" Background="#252525" BorderBrush="#444" BorderThickness="1" CornerRadius="4">
-                                <StackPanel Spacing="10">
-                                    <Grid ColumnDefinitions="*, Auto">
-                                        <TextBlock Text="Theme Editor" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                                        <Button Name="BtnCloseEditor" Grid.Column="1" Content="✕" Background="Transparent" BorderThickness="0" Padding="5,2"/>
-                                    </Grid>
-                                    
-                                    <StackPanel>
-                                        <TextBlock Text="Theme Name" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
-                                        <TextBox Name="EditThemeNameInput" IsReadOnly="False" />
-                                    </StackPanel>
+            <!-- Sidebar -->
+            <Border Grid.Column="0"
+                    Background="{StaticResource NtChromeBg}"
+                    BorderBrush="{StaticResource NtHairline}"
+                    BorderThickness="0,0,1,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="0,16,0,16" Spacing="0">
+                        <TextBlock Classes="SectionHeader" Text="INTERFACE" Margin="14,0,14,8"/>
+                        <ListBox Name="SideNav"
+                                 Classes="SideNav"
+                                 SelectionMode="Single"
+                                 SelectedIndex="{Binding #MainTabs.SelectedIndex, Mode=TwoWay}">
+                            <ListBoxItem>
+                                <Grid ColumnDefinitions="20,*">
+                                    <TextBlock Grid.Column="0" Text="◐" FontSize="13" Foreground="{StaticResource NtBlue}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Appearance" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                            </ListBoxItem>
+                            <ListBoxItem>
+                                <Grid ColumnDefinitions="20,*">
+                                    <TextBlock Grid.Column="0" Text="&gt;_" FontFamily="{StaticResource NtMono}" FontSize="12" Foreground="{StaticResource NtFg3}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Shells &amp; Profiles" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                            </ListBoxItem>
+                        </ListBox>
 
-                                    <!-- Global Colors -->
-                                    <UniformGrid Columns="2">
-                                        <StackPanel Margin="0,0,5,0">
-                                            <TextBlock Text="Foreground" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
-                                            <TextBox Name="EditThemeFgInput" PlaceholderText="#RRGGBB" />
-                                        </StackPanel>
-                                        <StackPanel Margin="5,0,0,0">
-                                            <TextBlock Text="Background" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
-                                            <TextBox Name="EditThemeBgInput" PlaceholderText="#RRGGBB" />
-                                        </StackPanel>
-                                        <StackPanel Margin="0,5,5,0">
-                                            <TextBlock Text="Cursor" Opacity="0.7" FontSize="10" Margin="0,0,0,3"/>
-                                            <TextBox Name="EditThemeCursorInput" PlaceholderText="#RRGGBB" />
-                                        </StackPanel>
-                                    </UniformGrid>
-
-                                    <TextBlock Text="ANSI Palette" Opacity="0.7" FontSize="10" Margin="0,5,0,0"/>
-                                    <UniformGrid Rows="2" Columns="8" Name="EditorSwatchGrid">
-                                        <!-- Populated via binding or code, but let's put placeholders for layout -->
-                                        <Button Name="EditSwatch0" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch1" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch2" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch3" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch4" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch5" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch6" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch7" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch8" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch9" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch10" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch11" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch12" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch13" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch14" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                        <Button Name="EditSwatch15" Width="24" Height="24" Margin="2" Background="Black" CornerRadius="2" />
-                                    </UniformGrid>
-
-                                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
-                                        <Button Name="BtnSaveTheme" Content="Save Theme" Classes="accent" />
-                                        <Button Name="BtnDeleteTheme" Content="Delete" Background="#441111" />
-                                        <TextBlock Name="ThemeEditorStatus" VerticalAlignment="Center" FontSize="11" Opacity="0.7"/>
-                                    </StackPanel>
-                                </StackPanel>
-                            </Border>
-
-                            <!-- Visual Preview Area -->
-                            <Border Name="ThemePreviewArea" Margin="0,10,0,0" Padding="10" Background="#111" BorderBrush="#333" BorderThickness="1" CornerRadius="4">
-                                <StackPanel Spacing="10">
-                                    <TextBlock Text="Preview" FontSize="10" Opacity="0.7" Margin="0,0,0,5"/>
-                                    <TextBlock Text="Supports .png, .jpg, .bmp" FontSize="10" Opacity="0.5" FontStyle="Italic" Margin="0,2,0,5"/>
-                                    
-                                    <!-- Sample Text -->
-                                    <Border Name="SampleTextBorder" Padding="10" CornerRadius="4">
-                                        <TextBlock Name="SampleTextBlock" Text="The quick brown fox jumps over the lazy dog." />
-                                    </Border>
-                                    
-                                    <!-- ANSI Swatches -->
-                                    <UniformGrid Rows="2" Columns="8" HorizontalAlignment="Center">
-                                        <Border Name="Swatch0" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Black" />
-                                        <Border Name="Swatch1" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Red" />
-                                        <Border Name="Swatch2" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Green" />
-                                        <Border Name="Swatch3" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Yellow" />
-                                        <Border Name="Swatch4" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Blue" />
-                                        <Border Name="Swatch5" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Magenta" />
-                                        <Border Name="Swatch6" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Cyan" />
-                                        <Border Name="Swatch7" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="White" />
-                                        
-                                        <Border Name="Swatch8" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Black" />
-                                        <Border Name="Swatch9" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Red" />
-                                        <Border Name="Swatch10" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Green" />
-                                        <Border Name="Swatch11" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Yellow" />
-                                        <Border Name="Swatch12" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Blue" />
-                                        <Border Name="Swatch13" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Magenta" />
-                                        <Border Name="Swatch14" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright Cyan" />
-                                        <Border Name="Swatch15" Width="20" Height="20" Margin="2" CornerRadius="2" ToolTip.Tip="Bright White" />
-                                    </UniformGrid>
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-                        
-                        <Separator Background="#333" Margin="0,5"/>
-
-                        <!-- Window Opacity -->
-                        <StackPanel>
-                            <Grid ColumnDefinitions="*, Auto">
-                                <TextBlock Text="Window Opacity" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
-                                <TextBlock Name="OpacityValueDisplay" Grid.Column="1" Text="100%" Opacity="0.7" HorizontalAlignment="Right" FontSize="12"/>
-                            </Grid>
-                            <Slider Name="WindowOpacitySlider" Minimum="0.2" Maximum="1.0" Value="1.0" TickFrequency="0.01" IsSnapToTickEnabled="True"/>
-                        </StackPanel>
-
-                        <!-- Blur -->
-                        <StackPanel>
-                            <TextBlock Text="Blur Effect" Margin="0,0,0,5" Opacity="0.7" FontSize="12"/>
-                            <ComboBox Name="BlurList" HorizontalAlignment="Stretch">
-                                <ComboBoxItem>Acrylic</ComboBoxItem>
-                                <ComboBoxItem>Mica</ComboBoxItem>
-                                <ComboBoxItem>None</ComboBoxItem>
-                            </ComboBox>
-                        </StackPanel>
-
-                        <TextBlock Text="Background Image" FontSize="16" Margin="0,10,0,5" FontWeight="SemiBold"/>
-                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-                            <TextBox Name="BgImagePathInput" PlaceholderText="Path onto image file..." Margin="0,0,10,0"/>
-                            <Button Name="BtnBrowseImage" Content="..." Grid.Column="1" Width="40" Margin="0,0,5,0"/>
-                            <Button Name="BtnClearImage" Content="✕" Grid.Column="2" Width="40" HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
-                        </Grid>
-
-                        <Grid ColumnDefinitions="Auto, *, Auto" Margin="0,0,0,10">
-                            <TextBlock Text="Image Opacity:" VerticalAlignment="Center" Width="100" Foreground="#AAA" FontSize="12"/>
-                            <Slider Name="BgImageOpacitySlider" Grid.Column="1" Minimum="0" Maximum="1" Margin="10,0"/>
-                            <TextBlock Name="BgImageOpacityDisplay" Grid.Column="2" Text="50%" VerticalAlignment="Center" FontSize="12"/>
-                        </Grid>
-                        
-                        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,10">
-                            <TextBlock Text="Stretch Mode:" VerticalAlignment="Center" Width="100" Foreground="#AAA" FontSize="12"/>
-                            <ComboBox Name="BgImageStretchList" Width="150">
-                                <ComboBoxItem>None</ComboBoxItem>
-                                <ComboBoxItem>Fill</ComboBoxItem>
-                                <ComboBoxItem>Uniform</ComboBoxItem>
-                                <ComboBoxItem>UniformToFill</ComboBoxItem>
-                            </ComboBox>
-                        </StackPanel>
+                        <Border Margin="14,18,14,8"
+                                Padding="0,12,0,0"
+                                BorderBrush="{StaticResource NtHairline}"
+                                BorderThickness="0,1,0,0">
+                            <StackPanel Spacing="4">
+                                <TextBlock FontSize="11"
+                                           Foreground="{StaticResource NtFg4}"
+                                           TextWrapping="Wrap"
+                                           Text="Changes apply live."/>
+                                <TextBlock FontSize="11"
+                                           Foreground="{StaticResource NtFg4}"
+                                           TextWrapping="Wrap"
+                                           Text="Hit ⌘S or click Save to persist."/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
-            </TabItem>
+            </Border>
 
-            <!-- Profiles Tab -->
-            <TabItem Header="Profiles">
-                <Grid ColumnDefinitions="200, *" Margin="0,10,0,0">
-                    <!-- Profile List -->
-                    <Grid Grid.Column="0" RowDefinitions="*, Auto" Margin="0,0,10,0">
-                        <ListBox Name="ProfilesListBox" BorderThickness="0" Background="Transparent">
-                            <!-- Items populated in code -->
-                        </ListBox>
-                        <StackPanel Grid.Row="1" Orientation="Vertical" Spacing="5" Margin="0,5,10,0">
-                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                <Button Name="BtnAddProfile" Content="Add New" FontSize="12" Padding="8,4"/>
-                                <Button Name="BtnDeleteProfile" Content="Delete" FontSize="12" Padding="8,4" Background="#AA3333" Foreground="White"/>
-                            </StackPanel>
-                            <Separator Opacity="0.2" Margin="0,5"/>
-                            <TextBlock Text="Import From:" Opacity="0.7" FontSize="11" Margin="0,0,0,2"/>
-                            <StackPanel Orientation="Vertical" Spacing="5">
-                                <Button Name="BtnImportWT" Content="Windows Terminal" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                                <TextBlock Name="ImportStatusText" Text="" Foreground="#00FF00" FontSize="11" HorizontalAlignment="Center" Margin="0,5,0,0"/>
-                            </StackPanel>
-                        </StackPanel>
-                    </Grid>
+            <!-- Content -->
+            <TabControl Name="MainTabs" Grid.Column="1" Padding="0">
 
-                    <!-- Profile Editor -->
-                    <ScrollViewer Grid.Column="1">
-                        <StackPanel Name="ProfileEditorPanel" Spacing="15" Margin="10,0,0,0">
-                            <StackPanel>
-                                <TextBlock Text="Profile Name" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileNameInput" />
+                <!-- ┌──── Appearance ────┐ -->
+                <TabItem Header="Appearance">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="32,28,32,28" Spacing="0">
+
+                            <StackPanel Margin="0,0,0,24">
+                                <TextBlock Classes="H1" Text="Appearance"/>
+                                <TextBlock Classes="Subtitle" Margin="0,4,0,0" Text="Colors, themes, fonts, and window presentation."/>
                             </StackPanel>
 
-                            <StackPanel>
-                                <TextBlock Text="Executable Path" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileCommandInput" PlaceholderText="e.g. cmd.exe, powershell.exe" />
-                            </StackPanel>
+                            <!-- ── Theme section ── -->
+                            <TextBlock Classes="SectionHeader" Text="THEME" Margin="0,0,0,14"/>
 
-                            <StackPanel>
-                                <TextBlock Text="Arguments" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileArgsInput" PlaceholderText="Optional arguments..." />
-                            </StackPanel>
-
-                            <StackPanel>
-                                <TextBlock Text="Starting Directory" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileCwdInput" PlaceholderText="Optional working directory..." />
-                            </StackPanel>
-
-                            <Separator Opacity="0.2" Margin="0,5"/>
-
-                            <StackPanel>
-                                <TextBlock Text="Connection Type" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                <ComboBox Name="ProfileTypeList" HorizontalAlignment="Stretch" IsEnabled="False">
-                                    <ComboBoxItem>Local (CMD, PowerShell, WSL)</ComboBoxItem>
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="0,0,0,12">
+                                <ComboBox Name="ThemeList" Grid.Column="0" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem>Default (Dark)</ComboBoxItem>
                                 </ComboBox>
-                            </StackPanel>
+                                <Button Name="BtnEditTheme"   Grid.Column="1" Classes="Pill" Content="Edit"      Margin="6,0,0,0"/>
+                                <Button Name="BtnImportTheme" Grid.Column="2" Classes="Pill" Content="Import…"   Margin="6,0,0,0"/>
+                                <Button Name="BtnNewTheme"    Grid.Column="3" Classes="Pill" Content="+ New"     Margin="6,0,0,0" ToolTip.Tip="New theme"/>
+                            </Grid>
 
-                            <!-- SSH Specific Settings -->
-                            <StackPanel Name="SshSettingsPanel" Spacing="15" IsVisible="False">
-                                <Grid ColumnDefinitions="*, 80">
-                                    <StackPanel>
-                                        <TextBlock Text="Host" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                        <TextBox Name="SshHostInput" PlaceholderText="e.g. 192.168.1.1 or example.com" />
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="10,0,0,0">
-                                        <TextBlock Text="Port" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                        <NumericUpDown Name="SshPortInput" Minimum="1" Maximum="65535" Value="22" />
-                                    </StackPanel>
-                                </Grid>
-
-                                <StackPanel>
-                                    <TextBlock Text="Username" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                    <TextBox Name="SshUserInput" PlaceholderText="e.g. root or ubuntu" />
-                                </StackPanel>
-
-                                <StackPanel>
-                                    <TextBlock Text="Password / Passphrase (Optional)" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                    <TextBox Name="SshPasswordInput" PasswordChar="*" PlaceholderText="Leave empty to prompt in terminal" />
-                                </StackPanel>
-
-                                <StackPanel>
-                                    <TextBlock Text="Authentication" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                    <RadioButton Name="RadioAuthAgent" Content="Use SSH Agent (Recommended)" GroupName="AuthMode" IsChecked="True" Margin="0,0,0,5"/>
-                                    <RadioButton Name="RadioAuthKey" Content="Use Identity File" GroupName="AuthMode" Margin="0,0,0,5"/>
-                                    
-                                    <Grid ColumnDefinitions="*, Auto" Margin="20,0,0,0">
-                                        <TextBox Name="SshKeyPathInput" PlaceholderText="Path to private key (id_rsa, .pem)" IsEnabled="False"/>
-                                        <Button Name="BtnBrowseSshKey" Grid.Column="1" Content="..." Margin="5,0,0,0" Width="40" IsEnabled="False"/>
+                            <!-- Theme Editor Panel (toggled by BtnEditTheme / BtnNewTheme) -->
+                            <Border Name="ThemeEditorPanel"
+                                    IsVisible="False"
+                                    Margin="0,0,0,12"
+                                    Padding="14"
+                                    Background="{StaticResource NtPanel}"
+                                    BorderBrush="{StaticResource NtHairline}"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <StackPanel Spacing="12">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Text="Theme editor" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{StaticResource NtFg}"/>
+                                        <Button Name="BtnCloseEditor" Grid.Column="1" Classes="IconBtn" Content="✕"/>
                                     </Grid>
-                                </StackPanel>
 
-                                <StackPanel>
-                                    <TextBlock Text="Jump Host (Bastion)" Opacity="0.7" FontSize="12" Margin="0,0,0,5"/>
-                                    <ComboBox Name="JumpHostList" HorizontalAlignment="Stretch" PlaceholderText="Direct Connection (None)">
-                                        <!-- Items populated in code -->
-                                    </ComboBox>
-                                </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="Theme name" Classes="RowDesc"/>
+                                        <TextBox Name="EditThemeNameInput"/>
+                                    </StackPanel>
 
-                                <StackPanel Spacing="5">
-                                    <TextBlock Text="Port Forwarding" Opacity="0.7" FontSize="12"/>
-                                    <Border Background="#1A1A1A" TextElement.Foreground="White" BorderBrush="#333" BorderThickness="1" CornerRadius="4" Padding="5">
-                                        <StackPanel Spacing="5">
-                                            <StackPanel Name="ForwardsList" Spacing="2"/>
-                                            <Separator Background="#333"/>
-                                            <TextBlock Text="Add new rule:" Foreground="#666" FontSize="10"/>
-                                            <StackPanel Orientation="Horizontal" Spacing="5">
-                                                <ComboBox Name="RuleInputType" SelectedIndex="0" Width="100">
-                                                    <ComboBoxItem>Local</ComboBoxItem>
-                                                    <ComboBoxItem>Remote</ComboBoxItem>
-                                                    <ComboBoxItem>Dynamic</ComboBoxItem>
-                                                </ComboBox>
-                                                <TextBox Name="RuleInputLocal" PlaceholderText="8080" Width="100"/>
-                                                <TextBox Name="RuleInputRemote" PlaceholderText="127.0.0.1:80" Width="100"/>
-                                                <Button Name="BtnAddRule" Content="+"/>
-                                            </StackPanel>
+                                    <UniformGrid Columns="3">
+                                        <StackPanel Margin="0,0,6,0" Spacing="4">
+                                            <TextBlock Text="Foreground" Classes="RowDesc"/>
+                                            <TextBox Name="EditThemeFgInput" PlaceholderText="#RRGGBB"/>
                                         </StackPanel>
-                                    </Border>
+                                        <StackPanel Margin="3,0,3,0" Spacing="4">
+                                            <TextBlock Text="Background" Classes="RowDesc"/>
+                                            <TextBox Name="EditThemeBgInput" PlaceholderText="#RRGGBB"/>
+                                        </StackPanel>
+                                        <StackPanel Margin="6,0,0,0" Spacing="4">
+                                            <TextBlock Text="Cursor" Classes="RowDesc"/>
+                                            <TextBox Name="EditThemeCursorInput" PlaceholderText="#RRGGBB"/>
+                                        </StackPanel>
+                                    </UniformGrid>
+
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Text="ANSI palette" Classes="RowDesc"/>
+                                        <UniformGrid Rows="2" Columns="8" Name="EditorSwatchGrid">
+                                            <Button Name="EditSwatch0"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch1"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch2"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch3"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch4"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch5"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch6"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch7"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch8"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch9"  Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch10" Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch11" Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch12" Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch13" Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch14" Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                            <Button Name="EditSwatch15" Width="28" Height="28" Margin="2" Background="Black" CornerRadius="3"/>
+                                        </UniformGrid>
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button Name="BtnSaveTheme" Classes="Primary" Content="Save theme"/>
+                                        <Button Name="BtnDeleteTheme" Classes="Danger" Content="Delete"/>
+                                        <TextBlock Name="ThemeEditorStatus" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource NtFg3}"/>
+                                    </StackPanel>
                                 </StackPanel>
+                            </Border>
 
+                            <!-- Theme Preview Area -->
+                            <Border Name="ThemePreviewArea"
+                                    Margin="0,0,0,28"
+                                    Padding="12"
+                                    Background="#111"
+                                    BorderBrush="{StaticResource NtHairline}"
+                                    BorderThickness="1"
+                                    CornerRadius="6">
+                                <StackPanel Spacing="10">
+                                    <TextBlock Text="Preview" Classes="RowDesc" Margin="0,0,0,2"/>
+                                    <Border Name="SampleTextBorder" Padding="10" CornerRadius="4">
+                                        <TextBlock Name="SampleTextBlock"
+                                                   Text="The quick brown fox jumps over the lazy dog."
+                                                   FontFamily="{StaticResource NtMono}"
+                                                   FontSize="12"/>
+                                    </Border>
+                                    <UniformGrid Rows="2" Columns="8" HorizontalAlignment="Left">
+                                        <Border Name="Swatch0"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Black"/>
+                                        <Border Name="Swatch1"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Red"/>
+                                        <Border Name="Swatch2"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Green"/>
+                                        <Border Name="Swatch3"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Yellow"/>
+                                        <Border Name="Swatch4"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Blue"/>
+                                        <Border Name="Swatch5"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Magenta"/>
+                                        <Border Name="Swatch6"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Cyan"/>
+                                        <Border Name="Swatch7"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="White"/>
+                                        <Border Name="Swatch8"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Bright Black"/>
+                                        <Border Name="Swatch9"  Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Bright Red"/>
+                                        <Border Name="Swatch10" Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Bright Green"/>
+                                        <Border Name="Swatch11" Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Bright Yellow"/>
+                                        <Border Name="Swatch12" Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Bright Blue"/>
+                                        <Border Name="Swatch13" Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Bright Magenta"/>
+                                        <Border Name="Swatch14" Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Bright Cyan"/>
+                                        <Border Name="Swatch15" Width="20" Height="20" Margin="2" CornerRadius="3" ToolTip.Tip="Bright White"/>
+                                    </UniformGrid>
+                                </StackPanel>
+                            </Border>
 
+                            <!-- ── Window section ── -->
+                            <TextBlock Classes="SectionHeader" Text="WINDOW" Margin="0,0,0,14"/>
 
-                            </StackPanel>
+                            <Grid ColumnDefinitions="*,360" Margin="0,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Window opacity"/>
+                                    <TextBlock Classes="RowDesc"  Text="Applies when the window is focused."/>
+                                </StackPanel>
+                                <Grid Grid.Column="1" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                                    <Slider Name="WindowOpacitySlider"
+                                            Grid.Column="0"
+                                            Minimum="0.2" Maximum="1.0" Value="1.0"
+                                            TickFrequency="0.01" IsSnapToTickEnabled="True"/>
+                                    <TextBlock Name="OpacityValueDisplay"
+                                               Grid.Column="1"
+                                               Text="100%"
+                                               Width="48" TextAlignment="Right"
+                                               VerticalAlignment="Center"
+                                               FontFamily="{StaticResource NtMono}"
+                                               FontSize="12"
+                                               Foreground="{StaticResource NtFg2}"
+                                               Margin="10,0,0,0"/>
+                                </Grid>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
 
-                            <Separator Background="#333" Margin="0,5"/>
-                            <Button Name="BtnSetDefault" Content="Set as Default" HorizontalAlignment="Left" Padding="10,4"/>
-                            
-                            <Separator Background="#333" Margin="0,5"/>
-                            <TextBlock Text="Organization" FontSize="14" FontWeight="SemiBold" Margin="0,5,0,0" Foreground="#888"/>
-                            
-                            <StackPanel>
-                                <TextBlock Text="Group" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileGroupInput" PlaceholderText="e.g. Work, Personal" />
-                            </StackPanel>
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Blur effect"/>
+                                    <TextBlock Classes="RowDesc"  Text="Acrylic / Mica where supported by the OS."/>
+                                </StackPanel>
+                                <ComboBox Name="BlurList" Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                    <ComboBoxItem>Acrylic</ComboBoxItem>
+                                    <ComboBoxItem>Mica</ComboBoxItem>
+                                    <ComboBoxItem>None</ComboBoxItem>
+                                </ComboBox>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
 
-                            <StackPanel>
-                                <TextBlock Text="Tags" Foreground="#AAA" FontSize="12" Margin="0,0,0,5"/>
-                                <TextBox Name="ProfileTagsInput" PlaceholderText="comma, separated, tags" />
-                            </StackPanel>
-                            
-                            <TextBlock Text="Visual Overrides (Experimental)" FontSize="14" FontWeight="SemiBold" Margin="0,5,0,0" Foreground="#888"/>
-                            
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <CheckBox Name="CheckOverrideFont" Content="Font" VerticalAlignment="Center"/>
-                                <ComboBox Name="OverrideFontList" Width="200" IsEnabled="{Binding #CheckOverrideFont.IsChecked}">
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Background image"/>
+                                    <TextBlock Classes="RowDesc"  Text="PNG / JPG / BMP, per-theme."/>
+                                </StackPanel>
+                                <Grid Grid.Column="1" ColumnDefinitions="*,Auto,Auto" VerticalAlignment="Center">
+                                    <TextBox Name="BgImagePathInput" Grid.Column="0" PlaceholderText="Path to image file…"/>
+                                    <Button Name="BtnBrowseImage" Grid.Column="1" Classes="Pill" Content="…" Width="40" Margin="6,0,0,0"/>
+                                    <Button Name="BtnClearImage"  Grid.Column="2" Classes="IconBtn" Content="✕" Margin="4,0,0,0"/>
+                                </Grid>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,360" Margin="0,10,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Image opacity"/>
+                                </StackPanel>
+                                <Grid Grid.Column="1" ColumnDefinitions="*,Auto" VerticalAlignment="Center">
+                                    <Slider Name="BgImageOpacitySlider" Grid.Column="0" Minimum="0" Maximum="1"/>
+                                    <TextBlock Name="BgImageOpacityDisplay" Grid.Column="1" Text="50%" Width="48" TextAlignment="Right" VerticalAlignment="Center" FontFamily="{StaticResource NtMono}" FontSize="12" Foreground="{StaticResource NtFg2}" Margin="10,0,0,0"/>
+                                </Grid>
+                            </Grid>
+                            <Grid ColumnDefinitions="*,360" Margin="0,10,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Stretch mode"/>
+                                </StackPanel>
+                                <ComboBox Name="BgImageStretchList" Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Center">
+                                    <ComboBoxItem>None</ComboBoxItem>
+                                    <ComboBoxItem>Fill</ComboBoxItem>
+                                    <ComboBoxItem>Uniform</ComboBoxItem>
+                                    <ComboBoxItem>UniformToFill</ComboBoxItem>
+                                </ComboBox>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,18,0,18"/>
+
+                            <!-- ── Fonts & Text rendering ── -->
+                            <TextBlock Classes="SectionHeader" Text="FONTS &amp; TEXT" Margin="0,0,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Font family"/>
+                                    <TextBlock Classes="RowDesc"  Text="Monospaced font used in the terminal."/>
+                                </StackPanel>
+                                <ComboBox Name="FontList" Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Center">
                                     <ComboBoxItem>Cascadia Mono PL</ComboBoxItem>
                                     <ComboBoxItem>JetBrains Mono</ComboBoxItem>
                                 </ComboBox>
-                            </StackPanel>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
 
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <CheckBox Name="CheckOverrideSize" Content="Size" VerticalAlignment="Center"/>
-                                <NumericUpDown Name="OverrideFontSizeInput" Minimum="6" Maximum="72" Value="14" Width="120" IsEnabled="{Binding #CheckOverrideSize.IsChecked}"/>
-                            </StackPanel>
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Font size"/>
+                                </StackPanel>
+                                <NumericUpDown Name="FontSizeInput" Grid.Column="1" Minimum="6" Maximum="72" Value="14" VerticalAlignment="Center" HorizontalAlignment="Stretch"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
 
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <CheckBox Name="CheckOverrideTheme" Content="Theme" VerticalAlignment="Center"/>
-                                <ComboBox Name="OverrideThemeList" Width="200" IsEnabled="{Binding #CheckOverrideTheme.IsChecked}">
-                                    <ComboBoxItem>Default (Dark)</ComboBoxItem>
-                                    <ComboBoxItem>Solarized Dark</ComboBoxItem>
-                                    <ComboBoxItem>Dracula</ComboBoxItem>
-                                    <ComboBoxItem>Monokai</ComboBoxItem>
-                                    <ComboBoxItem>One Half Dark</ComboBoxItem>
-                                    <ComboBoxItem>GitHub Dark</ComboBoxItem>
-                                </ComboBox>
-                            </StackPanel>
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Programming ligatures"/>
+                                    <TextBlock Classes="RowDesc" Text="Render => != >= |> as glyphs."/>
+                                </StackPanel>
+                                <CheckBox Name="LigatureToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
 
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <CheckBox Name="CheckOverrideLigatures" Content="Ligatures" VerticalAlignment="Center"/>
-                                <CheckBox Name="OverrideLigatureToggle" Content="Enabled" IsEnabled="{Binding #CheckOverrideLigatures.IsChecked}" VerticalAlignment="Center"/>
-                            </StackPanel>
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Complex shaping (HarfBuzz)"/>
+                                    <TextBlock Classes="RowDesc" Text="Run-level shaping for non-Latin scripts and emoji."/>
+                                </StackPanel>
+                                <CheckBox Name="ComplexShapingToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Command assistant"/>
+                                    <TextBlock Classes="RowDesc" Text="Inline suggestions from shell integration."/>
+                                </StackPanel>
+                                <CheckBox Name="CommandAssistToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,18,0,18"/>
+
+                            <!-- ── Scrollback ── -->
+                            <TextBlock Classes="SectionHeader" Text="SCROLLBACK" Margin="0,0,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Scrollback limit"/>
+                                    <TextBlock Classes="RowDesc" Text="Maximum number of lines retained per pane."/>
+                                </StackPanel>
+                                <NumericUpDown Name="ScrollbackInput" Grid.Column="1" Minimum="100" Maximum="100000" Value="10000" Increment="1000" VerticalAlignment="Center" HorizontalAlignment="Stretch"/>
+                            </Grid>
                         </StackPanel>
                     </ScrollViewer>
-                </Grid>
-            </TabItem>
-        </TabControl>
-        
-        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,15,0,0">
-            <Button Name="BtnCancel" Content="Cancel" Width="90" HorizontalContentAlignment="Center"/>
-            <Button Name="BtnSave" Content="Save" Width="90" HorizontalContentAlignment="Center" Background="#0078d4" Foreground="White"/>
-        </StackPanel>
+                </TabItem>
+
+                <!-- ┌──── Shells & Profiles ────┐ -->
+                <TabItem Header="Profiles">
+                    <Grid ColumnDefinitions="240,*" Margin="0">
+                        <!-- Profile list -->
+                        <Border Grid.Column="0"
+                                Background="{StaticResource NtChromeBg}"
+                                BorderBrush="{StaticResource NtHairline}"
+                                BorderThickness="0,0,1,0">
+                            <Grid RowDefinitions="Auto,*,Auto" Margin="14,16">
+                                <TextBlock Grid.Row="0" Classes="SectionHeader" Text="LOCAL PROFILES" Margin="0,0,0,10"/>
+                                <ListBox Name="ProfilesListBox"
+                                         Grid.Row="1"
+                                         BorderThickness="0"
+                                         Background="Transparent"/>
+                                <StackPanel Grid.Row="2" Spacing="6" Margin="0,10,0,0">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <Button Name="BtnAddProfile" Classes="Pill" Content="+ Add" HorizontalAlignment="Stretch"/>
+                                        <Button Name="BtnDeleteProfile" Classes="Danger" Content="Delete"/>
+                                    </StackPanel>
+                                    <Separator/>
+                                    <TextBlock Text="Import from:" Classes="RowDesc"/>
+                                    <Button Name="BtnImportWT" Classes="Pill" Content="Windows Terminal" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                                    <TextBlock Name="ImportStatusText" Text="" Foreground="{StaticResource NtGreen}" FontSize="11" HorizontalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Profile editor -->
+                        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Name="ProfileEditorPanel" Margin="32,28,32,28" Spacing="0">
+
+                                <StackPanel Margin="0,0,0,24">
+                                    <TextBlock Classes="H1" Text="Profile"/>
+                                    <TextBlock Classes="Subtitle" Margin="0,4,0,0" Text="Edit the selected profile. Changes apply on Save."/>
+                                </StackPanel>
+
+                                <TextBlock Classes="SectionHeader" Text="BASICS" Margin="0,0,0,14"/>
+
+                                <StackPanel Spacing="14" Margin="0,0,0,20">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Profile name"/>
+                                        <TextBox Name="ProfileNameInput"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Executable path"/>
+                                        <TextBox Name="ProfileCommandInput" PlaceholderText="e.g. cmd.exe, powershell.exe"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Arguments"/>
+                                        <TextBox Name="ProfileArgsInput" PlaceholderText="Optional arguments…"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Starting directory"/>
+                                        <TextBox Name="ProfileCwdInput" PlaceholderText="Optional working directory…"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Connection type"/>
+                                        <ComboBox Name="ProfileTypeList" HorizontalAlignment="Stretch" IsEnabled="False">
+                                            <ComboBoxItem>Local (CMD, PowerShell, WSL)</ComboBoxItem>
+                                        </ComboBox>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <!-- SSH-only panel (toggled in code-behind) -->
+                                <StackPanel Name="SshSettingsPanel" Spacing="14" Margin="0,0,0,20" IsVisible="False">
+                                    <TextBlock Classes="SectionHeader" Text="SSH"/>
+
+                                    <Grid ColumnDefinitions="*,90">
+                                        <StackPanel Grid.Column="0" Spacing="4" Margin="0,0,8,0">
+                                            <TextBlock Classes="RowLabel" Text="Host"/>
+                                            <TextBox Name="SshHostInput" PlaceholderText="e.g. 192.168.1.1 or example.com"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Spacing="4">
+                                            <TextBlock Classes="RowLabel" Text="Port"/>
+                                            <NumericUpDown Name="SshPortInput" Minimum="1" Maximum="65535" Value="22"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Username"/>
+                                        <TextBox Name="SshUserInput" PlaceholderText="e.g. root or ubuntu"/>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Password / passphrase (optional)"/>
+                                        <TextBox Name="SshPasswordInput" PasswordChar="*" PlaceholderText="Leave empty to prompt in terminal"/>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Classes="RowLabel" Text="Authentication"/>
+                                        <RadioButton Name="RadioAuthAgent" Content="Use SSH agent (recommended)" GroupName="AuthMode" IsChecked="True"/>
+                                        <RadioButton Name="RadioAuthKey"   Content="Use identity file" GroupName="AuthMode"/>
+                                        <Grid ColumnDefinitions="*,Auto" Margin="22,4,0,0">
+                                            <TextBox Name="SshKeyPathInput" PlaceholderText="Path to private key (id_rsa, .pem)" IsEnabled="False"/>
+                                            <Button Name="BtnBrowseSshKey" Grid.Column="1" Classes="Pill" Content="…" Width="40" Margin="6,0,0,0" IsEnabled="False"/>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Jump host (bastion)"/>
+                                        <ComboBox Name="JumpHostList" HorizontalAlignment="Stretch" PlaceholderText="Direct connection (none)"/>
+                                    </StackPanel>
+
+                                    <StackPanel Spacing="6">
+                                        <TextBlock Classes="RowLabel" Text="Port forwarding"/>
+                                        <Border Background="{StaticResource NtPanelAlt}"
+                                                BorderBrush="{StaticResource NtHairline}"
+                                                BorderThickness="1"
+                                                CornerRadius="5"
+                                                Padding="10">
+                                            <StackPanel Spacing="8">
+                                                <StackPanel Name="ForwardsList" Spacing="4"/>
+                                                <Separator/>
+                                                <TextBlock Text="Add new rule:" Classes="RowDesc"/>
+                                                <Grid ColumnDefinitions="100,100,*,Auto">
+                                                    <ComboBox Name="RuleInputType" Grid.Column="0" SelectedIndex="0">
+                                                        <ComboBoxItem>Local</ComboBoxItem>
+                                                        <ComboBoxItem>Remote</ComboBoxItem>
+                                                        <ComboBoxItem>Dynamic</ComboBoxItem>
+                                                    </ComboBox>
+                                                    <TextBox Name="RuleInputLocal"  Grid.Column="1" PlaceholderText="8080" Margin="6,0,0,0"/>
+                                                    <TextBox Name="RuleInputRemote" Grid.Column="2" PlaceholderText="127.0.0.1:80" Margin="6,0,0,0"/>
+                                                    <Button  Name="BtnAddRule"      Grid.Column="3" Classes="Pill" Content="+" Margin="6,0,0,0" Width="40"/>
+                                                </Grid>
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <Button Name="BtnSetDefault" Classes="Pill" Content="Set as default" HorizontalAlignment="Left" Margin="0,0,0,20"/>
+
+                                <TextBlock Classes="SectionHeader" Text="ORGANIZATION" Margin="0,0,0,14"/>
+                                <StackPanel Spacing="14" Margin="0,0,0,20">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Group"/>
+                                        <TextBox Name="ProfileGroupInput" PlaceholderText="e.g. Work, Personal"/>
+                                    </StackPanel>
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Classes="RowLabel" Text="Tags"/>
+                                        <TextBox Name="ProfileTagsInput" PlaceholderText="comma, separated, tags"/>
+                                    </StackPanel>
+                                </StackPanel>
+
+                                <TextBlock Classes="SectionHeader" Text="VISUAL OVERRIDES (EXPERIMENTAL)" Margin="0,0,0,14"/>
+                                <StackPanel Spacing="10">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <CheckBox Name="CheckOverrideFont" Content="Font" VerticalAlignment="Center"/>
+                                        <ComboBox Name="OverrideFontList" Width="220" IsEnabled="{Binding #CheckOverrideFont.IsChecked}">
+                                            <ComboBoxItem>Cascadia Mono PL</ComboBoxItem>
+                                            <ComboBoxItem>JetBrains Mono</ComboBoxItem>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <CheckBox Name="CheckOverrideSize" Content="Size" VerticalAlignment="Center"/>
+                                        <NumericUpDown Name="OverrideFontSizeInput" Minimum="6" Maximum="72" Value="14" Width="140" IsEnabled="{Binding #CheckOverrideSize.IsChecked}"/>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <CheckBox Name="CheckOverrideTheme" Content="Theme" VerticalAlignment="Center"/>
+                                        <ComboBox Name="OverrideThemeList" Width="220" IsEnabled="{Binding #CheckOverrideTheme.IsChecked}">
+                                            <ComboBoxItem>Default (Dark)</ComboBoxItem>
+                                            <ComboBoxItem>Solarized Dark</ComboBoxItem>
+                                            <ComboBoxItem>Dracula</ComboBoxItem>
+                                            <ComboBoxItem>Monokai</ComboBoxItem>
+                                            <ComboBoxItem>One Half Dark</ComboBoxItem>
+                                            <ComboBoxItem>GitHub Dark</ComboBoxItem>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <CheckBox Name="CheckOverrideLigatures" Content="Ligatures" VerticalAlignment="Center"/>
+                                        <CheckBox Name="OverrideLigatureToggle" Content="Enabled" IsEnabled="{Binding #CheckOverrideLigatures.IsChecked}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </Grid>
+                </TabItem>
+            </TabControl>
+        </Grid>
+
+        <!-- ╭───────── Footer ─────────╮ -->
+        <Border Grid.Row="1"
+                Background="{StaticResource NtChromeBg}"
+                BorderBrush="{StaticResource NtHairline}"
+                BorderThickness="0,1,0,0"
+                Padding="16,10">
+            <Grid ColumnDefinitions="*,Auto,Auto">
+                <TextBlock Grid.Column="0"
+                           Text="Changes apply live."
+                           Foreground="{StaticResource NtFg3}"
+                           FontSize="12"
+                           VerticalAlignment="Center"/>
+                <Button Name="BtnCancel" Grid.Column="1" Classes="Pill"    Content="Cancel" Width="100" Margin="0,0,8,0"/>
+                <Button Name="BtnSave"   Grid.Column="2" Classes="Primary" Content="Save"   Width="100"/>
+            </Grid>
+        </Border>
     </Grid>
 </Window>

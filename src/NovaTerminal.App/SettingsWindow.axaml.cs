@@ -1312,6 +1312,7 @@ namespace NovaTerminal
 
             var contrastColor = theme.GetContrastForeground();
             var contrastForeground = new SolidColorBrush(contrastColor.ToAvaloniaColor());
+            UpdatePaletteResources(theme);
 
             this.Background = new Avalonia.Media.SolidColorBrush(theme.Background.ToAvaloniaColor());
             this.Foreground = contrastForeground;
@@ -1326,6 +1327,60 @@ namespace NovaTerminal
                 // Already set Force White in XAML, but good to double check if needed
             }
         }
+
+        private void UpdatePaletteResources(TerminalTheme theme)
+        {
+            var background = theme.Background.ToAvaloniaColor();
+            var foreground = theme.Foreground.ToAvaloniaColor();
+            bool dark = IsDark(background);
+
+            UpdateBrush("NtWindowBg", background);
+            UpdateBrush("NtChromeBg", Shift(background, dark ? 10 : -10));
+            UpdateBrush("NtPanel", Shift(background, dark ? 18 : -18));
+            UpdateBrush("NtPanelAlt", Shift(background, dark ? 6 : -6));
+            UpdateBrush("NtHairline", Shift(background, dark ? 28 : -28));
+            UpdateBrush("NtHairlineStrong", Shift(background, dark ? 40 : -40));
+            UpdateBrush("NtFg", foreground);
+            UpdateBrush("NtFg2", WithAlpha(foreground, 0xC8));
+            UpdateBrush("NtFg3", WithAlpha(foreground, 0x9A));
+            UpdateBrush("NtFg4", WithAlpha(foreground, 0x6E));
+            UpdateBrush("NtBlue", theme.Blue.ToAvaloniaColor());
+            UpdateBrush("NtBlueDim", WithAlpha(theme.Blue.ToAvaloniaColor(), 0x24));
+            UpdateBrush("NtGreen", theme.Green.ToAvaloniaColor());
+            UpdateBrush("NtYellow", theme.Yellow.ToAvaloniaColor());
+            UpdateBrush("NtRed", theme.Red.ToAvaloniaColor());
+        }
+
+        private void UpdateBrush(string key, Color color)
+        {
+            if (Resources[key] is SolidColorBrush brush)
+            {
+                brush.Color = color;
+            }
+            else
+            {
+                Resources[key] = new SolidColorBrush(color);
+            }
+        }
+
+        private static bool IsDark(Color color)
+        {
+            double luminance = ((0.299 * color.R) + (0.587 * color.G) + (0.114 * color.B)) / 255.0;
+            return luminance < 0.5;
+        }
+
+        private static Color Shift(Color color, int delta)
+        {
+            return Color.FromArgb(
+                color.A,
+                Clamp(color.R + delta),
+                Clamp(color.G + delta),
+                Clamp(color.B + delta));
+        }
+
+        private static Color WithAlpha(Color color, byte alpha) => Color.FromArgb(alpha, color.R, color.G, color.B);
+
+        private static byte Clamp(int value) => (byte)Math.Max(0, Math.Min(255, value));
 
         private void SaveAndClose()
         {

@@ -207,6 +207,38 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
+    public void SaveProfile_PersistsEditedGroupAndGeneralTags()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+
+            var vm = new NewSshConnectionViewModel
+            {
+                Name = "Prod",
+                HostName = "prod.internal",
+                Group = "  Work / Prod  ",
+                TagsText = " db, critical, db ",
+                IsFavorite = true
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+            SshProfile? persisted = store.GetProfile(saved.Id);
+
+            Assert.NotNull(persisted);
+            Assert.Equal("Work / Prod", persisted!.GroupPath);
+            Assert.Equal(new[] { "critical", "db", "favorite" }, persisted.Tags);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SaveProfile_DoesNotPersistRememberPasswordPreferenceForNewProfiles()
     {
         string tempRoot = CreateTempDirectory();
@@ -340,6 +372,39 @@ public sealed class SshConnectionServiceTests
             NewSshConnectionViewModel editorVm = service.CreateEditorViewModel(runtimeProfile);
 
             Assert.False(editorVm.RememberPasswordInVault);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CreateEditorViewModel_LoadsStoredGroupAndGeneralTags()
+    {
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+            var profileId = Guid.Parse("0c4f1473-8b85-4af6-a312-483e0d86a166");
+
+            store.SaveProfile(new SshProfile
+            {
+                Id = profileId,
+                Name = "Prod",
+                Host = "prod.internal",
+                GroupPath = "Prod/API",
+                Tags = new List<string> { "favorite", "api", "critical" }
+            });
+
+            TerminalProfile runtimeProfile = service.GetConnectionProfile(profileId)!;
+            NewSshConnectionViewModel editorVm = service.CreateEditorViewModel(runtimeProfile);
+
+            Assert.Equal("Prod/API", editorVm.Group);
+            Assert.Equal("api, critical", editorVm.TagsText);
+            Assert.True(editorVm.IsFavorite);
         }
         finally
         {

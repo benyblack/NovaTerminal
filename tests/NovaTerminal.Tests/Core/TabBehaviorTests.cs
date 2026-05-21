@@ -2,6 +2,31 @@ namespace NovaTerminal.Tests.Core;
 
 public sealed class TabBehaviorTests
 {
+    [Theory]
+    [InlineData(false, false, "None")]
+    [InlineData(false, true, "OpenContextMenu")]
+    [InlineData(true, false, "CloseTab")]
+    [InlineData(true, true, "CloseTab")]
+    public void ResolveTabHeaderPointerAction_MapsButtonsToExpectedAction(
+        bool isMiddlePressed,
+        bool isRightPressed,
+        string expected)
+    {
+        var action = NovaTerminal.MainWindow.ResolveTabHeaderPointerAction(isMiddlePressed, isRightPressed);
+        Assert.Equal(expected, action.ToString());
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void ShouldDeferTabContextMenuOpen_DefersOnlyWhenTabWasNotSelected(
+        bool wasSelected,
+        bool expected)
+    {
+        bool shouldDefer = NovaTerminal.MainWindow.ShouldDeferTabContextMenuOpen(wasSelected);
+        Assert.Equal(expected, shouldDefer);
+    }
+
     [Fact]
     public void GetNextMruIndex_Forward_CyclesAcrossAllTabs()
     {
@@ -128,5 +153,37 @@ public sealed class TabBehaviorTests
 
         Assert.EndsWith("~ab12", value);
         Assert.Equal(12, value.Length);
+    }
+
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public void ShouldSkipTabWhenClosingOthers_SkipsPinnedOrProtectedTabs(
+        bool isPinned,
+        bool isProtected,
+        bool expected)
+    {
+        bool skip = NovaTerminal.MainWindow.ShouldSkipTabWhenClosingOthers(isPinned, isProtected);
+        Assert.Equal(expected, skip);
+    }
+
+    [Theory]
+    [InlineData(false, "Pin Tab")]
+    [InlineData(true, "Unpin Tab")]
+    public void GetPinTabActionLabel_ReflectsPinnedState(bool isPinned, string expected)
+    {
+        string label = NovaTerminal.MainWindow.GetPinTabActionLabel(isPinned);
+        Assert.Equal(expected, label);
+    }
+
+    [Theory]
+    [InlineData(false, "Protect Tab")]
+    [InlineData(true, "Unprotect Tab")]
+    public void GetProtectTabActionLabel_ReflectsProtectedState(bool isProtected, string expected)
+    {
+        string label = NovaTerminal.MainWindow.GetProtectTabActionLabel(isProtected);
+        Assert.Equal(expected, label);
     }
 }

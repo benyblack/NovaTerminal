@@ -5,154 +5,631 @@
              xmlns:sshvm="clr-namespace:NovaTerminal.ViewModels.Ssh"
              xmlns:local="clr-namespace:NovaTerminal.Controls"
              x:Class="NovaTerminal.Controls.ConnectionManager"
-             mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="500">
-    <Grid ColumnDefinitions="250,*" Margin="10">
-        <Border Grid.Column="0" BorderBrush="#333" BorderThickness="0,0,1,0" Padding="0,0,10,0">
-            <Grid RowDefinitions="Auto,Auto,Auto,Auto,*">
-                <TextBlock Text="Connections" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
-                <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-                    <TextBox Name="SearchInput" PlaceholderText="Search name, host, tags, notes..." Margin="0,0,5,0" />
-                    <Button Name="BtnNewConnection"
-                            Grid.Column="1"
-                            MinWidth="56"
-                            Height="30"
-                            Padding="10,4"
-                            Margin="0,0,5,0"
-                            Content="New"
-                            ToolTip.Tip="Create a new SSH connection"
-                            Click="OnNewConnectionClick" />
-                    <Button Name="BtnSync"
-                            Grid.Column="2"
-                            Width="30"
-                            Height="30"
-                            Padding="5"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            ToolTip.Tip="Sync from ~/.ssh/config"
-                            Click="OnSyncClick">
-                        <PathIcon Data="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z" Width="16" Height="16"/>
+             mc:Ignorable="d"
+             d:DesignWidth="1080" d:DesignHeight="720"
+             HorizontalAlignment="Stretch"
+             VerticalAlignment="Stretch"
+             Background="#16181d"
+             Foreground="#e6e8ec"
+             FontFamily="Inter, Segoe UI, system-ui, sans-serif">
+
+    <UserControl.Resources>
+        <SolidColorBrush x:Key="NtWindowBg"   Color="#16181d"/>
+        <SolidColorBrush x:Key="NtChromeBg"   Color="#1c1f26"/>
+        <SolidColorBrush x:Key="NtPanel"      Color="#23272f"/>
+        <SolidColorBrush x:Key="NtPanelAlt"   Color="#1a1d23"/>
+        <SolidColorBrush x:Key="NtHairline"   Color="#2a2f38"/>
+        <SolidColorBrush x:Key="NtFg"         Color="#e6e8ec"/>
+        <SolidColorBrush x:Key="NtFg2"        Color="#b4bac4"/>
+        <SolidColorBrush x:Key="NtFg3"        Color="#8b93a1"/>
+        <SolidColorBrush x:Key="NtFg4"        Color="#5c6370"/>
+        <SolidColorBrush x:Key="NtBlue"       Color="#61afef"/>
+        <SolidColorBrush x:Key="NtBlueDim"    Color="#2461afef"/>
+        <SolidColorBrush x:Key="NtBlueFaint"  Color="#1561afef"/>
+        <SolidColorBrush x:Key="NtBlueBorder" Color="#4d61afef"/>
+        <SolidColorBrush x:Key="NtGreen"      Color="#98c379"/>
+        <SolidColorBrush x:Key="NtYellow"     Color="#e5c07b"/>
+        <SolidColorBrush x:Key="NtRed"        Color="#e06c75"/>
+        <SolidColorBrush x:Key="NtMagenta"    Color="#c678dd"/>
+
+        <FontFamily x:Key="NtMono">JetBrains Mono, Cascadia Mono, Consolas, Menlo, monospace</FontFamily>
+    </UserControl.Resources>
+
+    <UserControl.Styles>
+        <!-- Section header -->
+        <Style Selector="TextBlock.SectionHeader">
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg3}"/>
+            <Setter Property="LetterSpacing" Value="1.2"/>
+        </Style>
+
+        <!-- Search input -->
+        <Style Selector="TextBox.Search">
+            <Setter Property="Background" Value="{StaticResource NtPanelAlt}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtHairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="28,5,8,5"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+            <Setter Property="CaretBrush" Value="{StaticResource NtBlue}"/>
+            <Setter Property="SelectionBrush" Value="{StaticResource NtBlueDim}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="MinHeight" Value="30"/>
+        </Style>
+        <Style Selector="TextBox.Search:focus /template/ Border#PART_BorderElement">
+            <Setter Property="BorderBrush" Value="{StaticResource NtBlue}"/>
+        </Style>
+
+        <!-- Primary action button -->
+        <Style Selector="Button.Primary">
+            <Setter Property="Background" Value="{StaticResource NtBlue}"/>
+            <Setter Property="Foreground" Value="#0a1622"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.Primary:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#7cc1f5"/>
+        </Style>
+        <Style Selector="Button.Primary:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#4f9bde"/>
+        </Style>
+
+        <!-- Secondary pill button -->
+        <Style Selector="Button.Pill">
+            <Setter Property="Background" Value="{StaticResource NtPanel}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtHairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.Pill:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2a2f38"/>
+        </Style>
+        <Style Selector="Button.Pill:pressed /template/ ContentPresenter">
+            <Setter Property="Background" Value="#353b46"/>
+        </Style>
+
+        <!-- Icon-only ghost button -->
+        <Style Selector="Button.IconBtn">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="6"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg3}"/>
+            <Setter Property="Width" Value="30"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+        <Style Selector="Button.IconBtn:pointerover">
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+        </Style>
+        <Style Selector="Button.IconBtn:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#2a2f38"/>
+        </Style>
+
+        <!-- Danger icon button (delete) -->
+        <Style Selector="Button.Danger">
+            <Setter Property="Foreground" Value="{StaticResource NtRed}"/>
+        </Style>
+
+        <!-- Filter chip toggle -->
+        <Style Selector="ToggleButton.Chip">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtHairline}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="9,3"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg3}"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="MinHeight" Value="22"/>
+        </Style>
+        <Style Selector="ToggleButton.Chip:checked">
+            <Setter Property="Background" Value="{StaticResource NtBlueDim}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtBlue}"/>
+            <Setter Property="Foreground" Value="{StaticResource NtBlue}"/>
+        </Style>
+        <Style Selector="ToggleButton.Chip:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1f2730"/>
+        </Style>
+
+        <!-- Groups column item -->
+        <Style Selector="Button.GroupItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="2,0,0,0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg2}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="Button.GroupItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1f2730"/>
+        </Style>
+        <Style Selector="Button.GroupItem.active">
+            <Setter Property="Background" Value="{StaticResource NtBlueDim}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtBlue}"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+        </Style>
+
+        <!-- Multi-select rail toggle -->
+        <Style Selector="ToggleButton.RailToggle">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="2,0,0,0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg2}"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="ToggleButton.RailToggle:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1f2730"/>
+        </Style>
+        <Style Selector="ToggleButton.RailToggle:checked">
+            <Setter Property="Background" Value="{StaticResource NtBlueDim}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtBlue}"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg}"/>
+        </Style>
+
+        <!-- List row (ListBoxItem) -->
+        <Style Selector="ListBoxItem.RowItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="BorderThickness" Value="2,0,0,1"/>
+            <Setter Property="BorderBrush" Value="#002a2f38"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        </Style>
+        <Style Selector="ListBoxItem.RowItem /template/ ContentPresenter">
+            <Setter Property="BorderThickness" Value="2,0,0,1"/>
+            <Setter Property="BorderBrush" Value="#002a2f38"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+        <Style Selector="ListBoxItem.RowItem:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="#1d2129"/>
+        </Style>
+        <Style Selector="ListBoxItem.RowItem:selected /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource NtBlueDim}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtBlue}"/>
+        </Style>
+        <Style Selector="ListBoxItem.RowItem:selected:focus /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource NtBlueDim}"/>
+        </Style>
+
+        <!-- ListBox container -->
+        <Style Selector="ListBox.Plain">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+
+        <!-- ScrollViewer thin scroll -->
+        <Style Selector="ScrollBar:vertical">
+            <Setter Property="Width" Value="8"/>
+        </Style>
+
+        <!-- ComboBox -->
+        <Style Selector="ComboBox.Diag">
+            <Setter Property="Background" Value="{StaticResource NtPanel}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource NtHairline}"/>
+            <Setter Property="Foreground" Value="{StaticResource NtFg2}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="MinHeight" Value="32"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="Padding" Value="10,5"/>
+        </Style>
+    </UserControl.Styles>
+
+    <Grid ColumnDefinitions="220,2*,3*" Background="{StaticResource NtWindowBg}">
+
+        <!-- ╭───────────── Groups column ─────────────╮ -->
+        <Border Grid.Column="0"
+                Background="{StaticResource NtChromeBg}"
+                BorderBrush="{StaticResource NtHairline}"
+                BorderThickness="0,0,1,0">
+            <Grid RowDefinitions="Auto,Auto,*,Auto">
+                <TextBlock Grid.Row="0"
+                           Classes="SectionHeader"
+                           Text="VIEWS"
+                           Margin="14,16,14,8"/>
+
+                <StackPanel Grid.Row="1" Spacing="0">
+                    <Button Name="BtnGroupAll" Classes="GroupItem active" Click="OnGroupClick" Tag="__all">
+                        <Grid ColumnDefinitions="14,*,Auto">
+                            <PathIcon Grid.Column="0"
+                                      Data="M12,2A10,10 0 1,0 12,22A10,10 0 1,0 12,2M12,4C13.4,5.5 14.3,7.4 14.7,9.5H9.3C9.7,7.4 10.6,5.5 12,4M5.1,10H8C7.9,10.7 7.9,11.3 7.9,12C7.9,12.7 7.9,13.3 8,14H5.1A8,8 0 0,1 5.1,10M5.1,16H8C8.3,17.4 8.7,18.7 9.3,19.8A8,8 0 0,1 5.1,16M9.8,16H14.2C13.8,17.7 13.1,19.2 12,20.4C10.9,19.2 10.2,17.7 9.8,16M9.8,14C9.7,13.3 9.7,12.7 9.7,12C9.7,11.3 9.7,10.7 9.8,10H14.2C14.3,10.7 14.3,11.3 14.3,12C14.3,12.7 14.3,13.3 14.2,14M14.7,19.8C15.3,18.7 15.7,17.4 16,16H18.9A8,8 0 0,1 14.7,19.8M16.1,14C16.2,13.3 16.2,12.7 16.2,12C16.2,11.3 16.2,10.7 16.1,10H19A8,8 0 0,1 19,14"
+                                      Width="14" Height="14"/>
+                            <TextBlock Grid.Column="1" Text="All connections" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                            <TextBlock Name="CountAll" Grid.Column="2" Text="0" FontFamily="{StaticResource NtMono}" FontSize="11" Foreground="{StaticResource NtFg4}" VerticalAlignment="Center"/>
+                        </Grid>
                     </Button>
-                </Grid>
-                <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
-                    <TextBlock Text="Diagnostics" VerticalAlignment="Center" />
-                    <ComboBox Name="DiagnosticsCombo" Width="145" SelectedIndex="0" />
+
+                    <Button Name="BtnGroupFav" Classes="GroupItem" Click="OnGroupClick" Tag="__fav">
+                        <Grid ColumnDefinitions="14,*,Auto">
+                            <PathIcon Grid.Column="0"
+                                      Data="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"
+                                      Width="14" Height="14"
+                                      Foreground="{StaticResource NtYellow}"/>
+                            <TextBlock Grid.Column="1" Text="Favorites" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                            <TextBlock Name="CountFav" Grid.Column="2" Text="0" FontFamily="{StaticResource NtMono}" FontSize="11" Foreground="{StaticResource NtFg4}" VerticalAlignment="Center"/>
+                        </Grid>
+                    </Button>
                 </StackPanel>
-                <TextBlock Grid.Row="3" Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" Text="Favorites are pinned. Use ⭐ to toggle." VerticalAlignment="Top" TextWrapping="Wrap" />
+
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Classes="SectionHeader" Text="GROUPS" Margin="14,16,14,8"/>
+                        <ItemsControl Name="GroupsList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:GroupNode">
+                                    <Button Classes="GroupItem" Tag="{Binding Name}" Click="OnGroupClick">
+                                        <Grid ColumnDefinitions="14,*,Auto">
+                                            <Rectangle Grid.Column="0" Width="8" Height="8" RadiusX="2" RadiusY="2" Fill="{Binding Swatch}" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Count}" FontFamily="{StaticResource NtMono}" FontSize="11" Foreground="{StaticResource NtFg4}" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <TextBlock Classes="SectionHeader" Text="TAGS" Margin="14,16,14,8"/>
+                        <ItemsControl Name="TagsList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="local:TagNode">
+                                    <ToggleButton Classes="RailToggle"
+                                                  Tag="{Binding Name}"
+                                                  IsChecked="{Binding IsSelected}"
+                                                  Click="OnTagClick">
+                                        <Grid ColumnDefinitions="14,*,Auto">
+                                            <Rectangle Grid.Column="0" Width="8" Height="8" RadiusX="2" RadiusY="2" Fill="{Binding Swatch}" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding Count}" FontFamily="{StaticResource NtMono}" FontSize="11" Foreground="{StaticResource NtFg4}" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </ToggleButton>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <Border Grid.Row="3"
+                        BorderBrush="{StaticResource NtHairline}"
+                        BorderThickness="0,1,0,0"
+                        Padding="14,10">
+                    <TextBlock FontSize="11"
+                               Foreground="{StaticResource NtFg4}"
+                               TextWrapping="Wrap"
+                               Text="Credentials stored in OS keychain. Session passwords opt-in only."/>
+                </Border>
             </Grid>
         </Border>
 
-        <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="10,0,0,0">
-            <TextBlock Name="ResultCountText"
-                       Text="0 connections"
-                       Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"
-                       Margin="0,0,0,8" />
-            <ScrollViewer Grid.Row="1">
-                <ItemsControl Name="ConnectionsList">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="sshvm:SshProfileRowViewModel">
-                            <Border Background="{Binding CardBackground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}"
-                                    BorderThickness="1"
-                                    BorderBrush="#333"
-                                    CornerRadius="6"
-                                    Margin="0,0,0,8"
-                                    Padding="10">
-                                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
-                                    <Grid ColumnDefinitions="*,Auto">
-                                        <StackPanel Grid.Column="0" Spacing="2">
-                                            <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="14" />
-                                            <TextBlock Text="{Binding Endpoint}"
-                                                       FontSize="12"
-                                                       Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
-                                            <TextBlock Text="{Binding GroupPath}"
-                                                       FontSize="11"
-                                                       IsVisible="{Binding GroupPath, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                                                       Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
-                                            <Button Content="Open" Width="56" Tag="{Binding}" Click="OnOpenCurrentClick" ToolTip.Tip="Open in current pane" />
-                                            <Button Content="+Tab" Width="52" Tag="{Binding}" Click="OnOpenNewTabClick" ToolTip.Tip="Open in new tab" />
-                                            <Button Content="Split H" Width="62" Tag="{Binding}" Click="OnSplitHorizontalClick" ToolTip.Tip="Open in horizontal split" />
-                                            <Button Content="Split V" Width="62" Tag="{Binding}" Click="OnSplitVerticalClick" ToolTip.Tip="Open in vertical split" />
-                                        </StackPanel>
-                                    </Grid>
+        <!-- ╭───────────── List column ─────────────╮ -->
+        <Grid Grid.Column="1" RowDefinitions="Auto,Auto,*">
+            <Border Grid.Row="0"
+                    BorderBrush="{StaticResource NtHairline}"
+                    BorderThickness="0,0,1,1">
+                <Grid Margin="14,12" ColumnDefinitions="*,Auto,Auto">
+                    <Grid Grid.Column="0">
+                        <TextBox Name="SearchInput"
+                                 Classes="Search"
+                                 PlaceholderText="Search name, host, tags…"/>
+                        <PathIcon Data="M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"
+                                  Width="14" Height="14"
+                                  Margin="10,0,0,0"
+                                  HorizontalAlignment="Left"
+                                  VerticalAlignment="Center"
+                                  Foreground="{StaticResource NtFg4}"
+                                  IsHitTestVisible="False"/>
+                    </Grid>
+                    <Button Name="BtnNewConnection"
+                            Grid.Column="1"
+                            Classes="Primary"
+                            Margin="8,0,0,0"
+                            ToolTip.Tip="Create a new SSH connection"
+                            Click="OnNewConnectionClick">
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <PathIcon Data="M19,13H13V19H11V13H5V11H11V5H13V11H19V13Z" Width="12" Height="12" Foreground="#0a1622"/>
+                            <TextBlock Text="New"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Name="BtnSync"
+                            Grid.Column="2"
+                            Classes="IconBtn"
+                            Margin="4,0,0,0"
+                            ToolTip.Tip="Sync from ~/.ssh/config"
+                            Click="OnSyncClick">
+                        <PathIcon Data="M12,18A6,6 0 0,1 6,12C6,11 6.25,10.03 6.7,9.2L5.24,7.74C4.46,8.97 4,10.43 4,12A8,8 0 0,0 12,20V23L16,19L12,15M12,4V1L8,5L12,9V6A6,6 0 0,1 18,12C18,13 17.75,13.97 17.3,14.8L18.76,16.26C19.54,15.03 20,13.57 20,12A8,8 0 0,0 12,4Z" Width="14" Height="14"/>
+                    </Button>
+                </Grid>
+            </Border>
 
-                                    <ItemsControl Grid.Row="1" ItemsSource="{Binding Tags}">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <StackPanel Orientation="Horizontal" Spacing="4" />
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <Border Background="#005A9E" CornerRadius="3" Padding="4,1">
-                                                    <TextBlock Text="{Binding}" FontSize="10" Foreground="White" />
-                                                </Border>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
+            <!-- Filter chips + result count -->
+            <Border Grid.Row="1"
+                    BorderBrush="{StaticResource NtHairline}"
+                    BorderThickness="0,0,1,1">
+                <Grid Margin="14,8" ColumnDefinitions="*,Auto">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <ToggleButton Name="ChipAll"      Classes="Chip" Content="All"       IsChecked="True" Click="OnStatusFilterClick" Tag="all"/>
+                        <ToggleButton Name="ChipFav"      Classes="Chip" Content="★ Favs"    Click="OnStatusFilterClick" Tag="fav"/>
+                    </StackPanel>
+                    <TextBlock Name="ResultCountText"
+                               Grid.Column="1"
+                               Text="0 connections"
+                               VerticalAlignment="Center"
+                               Foreground="{StaticResource NtFg3}"
+                               FontSize="11"/>
+                </Grid>
+            </Border>
 
-                                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="4">
-                                        <Button Content="⭐"
-                                                Width="32"
-                                                Height="32"
-                                                Padding="0"
-                                                HorizontalContentAlignment="Center"
-                                                VerticalContentAlignment="Center"
-                                                Tag="{Binding}"
-                                                ToolTip.Tip="Toggle favorite"
-                                                Click="OnFavoriteClick" />
-                                        <Button Width="32"
-                                                Height="32"
-                                                Padding="0"
-                                                HorizontalContentAlignment="Center"
-                                                VerticalContentAlignment="Center"
-                                                Background="Transparent"
-                                                BorderThickness="0"
-                                                ToolTip.Tip="Edit connection"
-                                                Tag="{Binding}"
-                                                Click="OnEditClick">
-                                            <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z"
-                                                      Width="14"
-                                                      Height="14"
-                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
-                                        </Button>
-                                        <Button Width="32"
-                                                Height="32"
-                                                Padding="0"
-                                                HorizontalContentAlignment="Center"
-                                                VerticalContentAlignment="Center"
-                                                Background="Transparent"
-                                                BorderThickness="0"
-                                                ToolTip.Tip="Copy launch command"
-                                                Tag="{Binding}"
-                                                Click="OnCopyCommandClick">
-                                            <PathIcon Data="M16,19H8A2,2 0 0,1 6,17V7H8V17H16M18,5A2,2 0 0,1 20,7V15A2,2 0 0,1 18,17H11A2,2 0 0,1 9,15V7A2,2 0 0,1 11,5H18M18,7H11V15H18V7Z"
-                                                      Width="14"
-                                                      Height="14"
-                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
-                                        </Button>
-                                        <Button Width="32"
-                                                Height="32"
-                                                Padding="0"
-                                                HorizontalContentAlignment="Center"
-                                                VerticalContentAlignment="Center"
-                                                Background="Transparent"
-                                                BorderThickness="0"
-                                                ToolTip.Tip="Connection details"
-                                                Tag="{Binding}"
-                                                Click="OnDetailsClick">
-                                            <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"
-                                                      Width="14"
-                                                      Height="14"
-                                                      Foreground="{Binding SecondaryForeground, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type local:ConnectionManager}}}" />
-                                        </Button>
-                                    </StackPanel>
-                                </Grid>
+            <ListBox Name="ConnectionsList"
+                     Grid.Row="2"
+                     Classes="Plain"
+                     SelectionMode="Single"
+                     SelectionChanged="OnSelectionChanged"
+                     DoubleTapped="OnRowDoubleTapped"
+                     BorderBrush="{StaticResource NtHairline}"
+                     BorderThickness="0,0,1,0">
+                <ListBox.ItemContainerTheme>
+                    <ControlTheme TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                        <Setter Property="Classes.RowItem" Value="True"/>
+                    </ControlTheme>
+                </ListBox.ItemContainerTheme>
+                <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="sshvm:SshProfileRowViewModel">
+                        <Grid Margin="12,12" RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
+                            <Grid Grid.Row="0" ColumnDefinitions="Auto,Auto,Auto,*,Auto">
+                                <Ellipse Width="8" Height="8" Fill="{StaticResource NtFg4}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1"
+                                           Margin="8,0,0,0"
+                                           Text="{Binding Name}"
+                                           Foreground="{StaticResource NtFg}"
+                                           FontWeight="SemiBold"
+                                           FontSize="13"
+                                           VerticalAlignment="Center"/>
+                                <PathIcon Grid.Column="2"
+                                          Margin="6,0,0,0"
+                                          Data="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"
+                                          Width="11" Height="11"
+                                          Foreground="{StaticResource NtYellow}"
+                                          IsVisible="{Binding IsFavorite}"
+                                          VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="4"
+                                           Text="{Binding GroupPath}"
+                                           Foreground="{StaticResource NtFg4}"
+                                           FontSize="11"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                            <TextBlock Grid.Row="1"
+                                       Text="{Binding Endpoint}"
+                                       FontFamily="{StaticResource NtMono}"
+                                       FontSize="12"
+                                       Foreground="{StaticResource NtFg3}"/>
+                            <ItemsControl Grid.Row="2"
+                                          ItemsSource="{Binding Tags}"
+                                          IsVisible="{Binding Tags.Count}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="4"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{StaticResource NtBlueFaint}"
+                                                BorderBrush="{StaticResource NtBlueBorder}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="6,1">
+                                            <TextBlock Text="{Binding}"
+                                                       FontSize="10"
+                                                       Foreground="{StaticResource NtBlue}"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
+
+        <!-- ╭───────────── Detail column ─────────────╮ -->
+        <Grid Grid.Column="2" Name="DetailColumn">
+            <!-- Empty state (visible when nothing selected) -->
+            <StackPanel Name="DetailEmptyState"
+                        VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        Spacing="8">
+                <PathIcon Data="M4,6H20V8H4V6M4,10.5H20V12.5H4V10.5M4,15H20V17H4V15Z"
+                          Width="40" Height="40"
+                          Foreground="{StaticResource NtFg4}"/>
+                <TextBlock Text="Select a connection"
+                           FontSize="14"
+                           Foreground="{StaticResource NtFg3}"
+                           HorizontalAlignment="Center"/>
+                <TextBlock Text="Pick from the list, or hit ⌘N to create one."
+                           FontSize="12"
+                           Foreground="{StaticResource NtFg4}"
+                           HorizontalAlignment="Center"/>
+            </StackPanel>
+
+            <!-- Detail content (visible when something selected) -->
+            <Grid Name="DetailContent" IsVisible="False" RowDefinitions="Auto,*">
+
+                <!-- Detail header -->
+                <Border Grid.Row="0"
+                        BorderBrush="{StaticResource NtHairline}"
+                        BorderThickness="0,0,0,1"
+                        Padding="24,20,24,16">
+                    <StackPanel Spacing="6">
+                        <Grid ColumnDefinitions="Auto,Auto,Auto,*,Auto">
+                            <Ellipse Width="10" Height="10" Fill="{StaticResource NtFg4}" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1"
+                                       Name="DetailTitle"
+                                       Margin="10,0,0,0"
+                                       Text="—"
+                                       FontSize="20"
+                                       FontWeight="SemiBold"
+                                       Foreground="{StaticResource NtFg}"
+                                       VerticalAlignment="Center"/>
+                            <PathIcon Grid.Column="2"
+                                      Name="DetailFavStar"
+                                      Margin="10,0,0,0"
+                                      Data="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z"
+                                      Width="16" Height="16"
+                                      Foreground="{StaticResource NtYellow}"
+                                      IsVisible="False"
+                                      VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="4"
+                                        Orientation="Horizontal"
+                                        Spacing="6"
+                                        VerticalAlignment="Center">
+                                <Ellipse Width="8" Height="8" Fill="{StaticResource NtFg4}" VerticalAlignment="Center"/>
+                                <TextBlock Text="IDLE"
+                                           FontSize="11"
+                                           LetterSpacing="1"
+                                           Foreground="{StaticResource NtFg3}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Name="DetailEndpoint"
+                                   Text="—"
+                                   FontFamily="{StaticResource NtMono}"
+                                   FontSize="13"
+                                   Foreground="{StaticResource NtFg3}"/>
+
+                        <!-- Action bar -->
+                        <Grid Margin="0,10,0,0" ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto,Auto,Auto,Auto,Auto">
+                            <Button Grid.Column="0"
+                                    Classes="Primary"
+                                    Click="OnOpenCurrentClick"
+                                    ToolTip.Tip="Open in current pane">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <PathIcon Data="M8,5.14V19.14L19,12.14L8,5.14Z" Width="11" Height="11" Foreground="#0a1622"/>
+                                    <TextBlock Text="Open"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="1" Classes="Pill" Margin="6,0,0,0" Content="+ Tab"     Click="OnOpenNewTabClick"/>
+                            <Button Grid.Column="2" Classes="Pill" Margin="6,0,0,0" Content="Split ⇒"   Click="OnSplitHorizontalClick"/>
+                            <Button Grid.Column="3" Classes="Pill" Margin="6,0,0,0" Content="Split ⇓"   Click="OnSplitVerticalClick"/>
+
+                            <ComboBox Name="DiagnosticsCombo"
+                                      Grid.Column="5"
+                                      Classes="Diag"
+                                      Width="130"
+                                      Margin="6,0,8,0"
+                                      ToolTip.Tip="Diagnostics level"/>
+
+                            <Button Grid.Column="6" Classes="IconBtn" Click="OnFavoriteClick" ToolTip.Tip="Toggle favorite">
+                                <PathIcon Data="M12,17.27L18.18,21L16.54,13.97L22,9.24L14.81,8.62L12,2L9.19,8.62L2,9.24L7.45,13.97L5.82,21L12,17.27Z" Width="14" Height="14"/>
+                            </Button>
+                            <Button Grid.Column="7" Classes="IconBtn" Click="OnEditClick" ToolTip.Tip="Edit connection">
+                                <PathIcon Data="M20.71,7.04C21.1,6.65 21.1,6 20.71,5.63L18.37,3.29C18,2.9 17.35,2.9 16.96,3.29L15.12,5.12L18.87,8.87M3,17.25V21H6.75L17.81,9.93L14.06,6.18L3,17.25Z" Width="14" Height="14"/>
+                            </Button>
+                            <Button Grid.Column="8" Classes="IconBtn" Click="OnCopyCommandClick" ToolTip.Tip="Copy launch command">
+                                <PathIcon Data="M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M19,21H8V7H19V21Z" Width="14" Height="14"/>
+                            </Button>
+                            <Button Grid.Column="9" Classes="IconBtn" Click="OnDetailsClick" ToolTip.Tip="Connection details">
+                                <PathIcon Data="M11,17H13V11H11M12,9A1,1 0 0,0 13,8A1,1 0 0,0 12,7A1,1 0 0,0 11,8A1,1 0 0,0 12,9M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z" Width="14" Height="14"/>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Detail body -->
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="24,20" Spacing="24">
+
+                        <!-- Connection details -->
+                        <StackPanel Spacing="10">
+                            <TextBlock Classes="SectionHeader" Text="CONNECTION"/>
+                            <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,0">
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="Host"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Name="KvHost"  Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Port"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Name="KvPort"  Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="User"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
+                                <TextBlock Grid.Row="2" Grid.Column="1" Name="KvUser"  Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
+                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Group"       Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
+                                <TextBlock Grid.Row="3" Grid.Column="1" Name="KvGroup" Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
+                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Auth"        Foreground="{StaticResource NtFg3}" FontSize="13" Margin="0,4"/>
+                                <TextBlock Grid.Row="4" Grid.Column="1" Name="KvAuth"  Text="—" FontFamily="{StaticResource NtMono}" FontSize="12.5" Foreground="{StaticResource NtFg}" Margin="0,4"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <!-- Tags & notes -->
+                        <StackPanel Spacing="10">
+                            <TextBlock Classes="SectionHeader" Text="TAGS &amp; NOTES"/>
+                            <ItemsControl Name="DetailTags">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal" ItemSpacing="4" LineSpacing="4"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{StaticResource NtBlueFaint}"
+                                                BorderBrush="{StaticResource NtBlueBorder}"
+                                                BorderThickness="1"
+                                                CornerRadius="8"
+                                                Padding="7,1">
+                                            <TextBlock Text="{Binding}" FontSize="10" Foreground="{StaticResource NtBlue}"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Border Name="DetailNotesContainer"
+                                    Padding="0">
+                                <TextBlock Name="DetailNotes"
+                                           Text=""
+                                           FontSize="12.5"
+                                           LineHeight="19"
+                                           Foreground="{StaticResource NtFg2}"
+                                           TextWrapping="Wrap"/>
                             </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+                        </StackPanel>
+
+                        <!-- Launch preview -->
+                        <StackPanel Spacing="10">
+                            <TextBlock Classes="SectionHeader" Text="LAUNCH PREVIEW"/>
+                            <Border Background="{StaticResource NtPanel}"
+                                    BorderBrush="{StaticResource NtHairline}"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="12">
+                                <TextBlock Name="LaunchPreviewText"
+                                           FontFamily="{StaticResource NtMono}"
+                                           FontSize="12"
+                                           Foreground="{StaticResource NtFg2}"
+                                           LineHeight="18"
+                                           TextWrapping="Wrap"
+                                           Text="Selected level: None&#x0a;SSH flags added: none&#x0a;Open, Copy command, and Connection details use this level."/>
+                            </Border>
+                        </StackPanel>
+
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
         </Grid>
     </Grid>
 </UserControl>

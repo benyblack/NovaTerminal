@@ -24,6 +24,8 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     private string _userName = string.Empty;
     private int _port = 22;
     private string _accentColor = string.Empty;
+    private string _group = "General";
+    private string _tagsText = string.Empty;
     private bool _isFavorite;
     private string _notes = string.Empty;
     private NewSshAuthMode _authMode = NewSshAuthMode.Agent;
@@ -83,6 +85,18 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     {
         get => _accentColor;
         set => SetField(ref _accentColor, value);
+    }
+
+    public string Group
+    {
+        get => _group;
+        set => SetField(ref _group, value);
+    }
+
+    public string TagsText
+    {
+        get => _tagsText;
+        set => SetField(ref _tagsText, value);
     }
 
     public bool IsFavorite
@@ -281,9 +295,10 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
             Id = id,
             BackendKind = BackendKind ?? SshBackendKind.OpenSsh,
             Name = name,
+            GroupPath = NormalizeGroup(Group),
             Notes = Notes?.Trim() ?? string.Empty,
             AccentColor = AccentColor?.Trim() ?? string.Empty,
-            Tags = BuildTags(IsFavorite),
+            Tags = BuildTags(TagsText, IsFavorite),
             Host = host,
             User = user,
             Port = port,
@@ -334,6 +349,8 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
             UserName = profile.SshUser,
             Port = profile.SshPort > 0 ? profile.SshPort : 22,
             AccentColor = profile.AccentColor ?? string.Empty,
+            Group = NormalizeGroup(profile.Group),
+            TagsText = FormatTags(profile.Tags),
             IsFavorite = profile.Tags.Any(tag => string.Equals(tag, "favorite", StringComparison.OrdinalIgnoreCase)),
             Notes = profile.Notes ?? string.Empty,
             BackendKind = profile.SshBackendKind,
@@ -369,6 +386,8 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         HostName = sshProfile.Host;
         UserName = sshProfile.User;
         Port = sshProfile.Port > 0 ? sshProfile.Port : 22;
+        Group = NormalizeGroup(sshProfile.GroupPath);
+        TagsText = FormatTags(sshProfile.Tags);
         Notes = sshProfile.Notes ?? string.Empty;
         AccentColor = sshProfile.AccentColor ?? string.Empty;
         IsFavorite = sshProfile.Tags.Any(tag => string.Equals(tag, "favorite", StringComparison.OrdinalIgnoreCase));
@@ -506,14 +525,39 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         return !string.IsNullOrWhiteSpace(host) && int.TryParse(trimmed[(colon + 1)..].Trim(), out port);
     }
 
-    private static List<string> BuildTags(bool isFavorite)
+    private static string NormalizeGroup(string? value)
     {
-        if (!isFavorite)
+        string trimmed = value?.Trim() ?? string.Empty;
+        return string.IsNullOrWhiteSpace(trimmed) ? "General" : trimmed;
+    }
+
+    private static string FormatTags(IEnumerable<string>? tags)
+    {
+        return string.Join(", ", NormalizeGeneralTags(tags));
+    }
+
+    private static List<string> BuildTags(string? tagsText, bool isFavorite)
+    {
+        List<string> tags = NormalizeGeneralTags((tagsText ?? string.Empty)
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        if (isFavorite)
         {
-            return new List<string>();
+            tags.Insert(0, "favorite");
         }
 
-        return new List<string> { "favorite" };
+        return tags;
+    }
+
+    private static List<string> NormalizeGeneralTags(IEnumerable<string>? tags)
+    {
+        return (tags ?? Array.Empty<string>())
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Select(tag => tag.Trim())
+            .Where(tag => !string.Equals(tag, "favorite", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(tag => tag, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
     private bool SetField<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)

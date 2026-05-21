@@ -296,15 +296,8 @@ public sealed class SshLaunchDetails
         merged.WorkingDirectory = incoming.WorkingDirectory;
         merged.Notes = incoming.Notes;
         merged.AccentColor = incoming.AccentColor;
-
-        // Group isn't editable in the minimal dialog yet, so preserve existing if present.
-        if (string.IsNullOrWhiteSpace(merged.GroupPath))
-        {
-            merged.GroupPath = "General";
-        }
-
-        IEnumerable<string> sourceTags = (IEnumerable<string>?)existing?.Tags ?? Array.Empty<string>();
-        merged.Tags = NormalizeTags(sourceTags, favorite);
+        merged.GroupPath = string.IsNullOrWhiteSpace(incoming.GroupPath) ? "General" : incoming.GroupPath;
+        merged.Tags = NormalizeTags(incoming.Tags, favorite);
         return merged;
     }
 
