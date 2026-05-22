@@ -213,21 +213,14 @@ public sealed class RemotePathAutocompleteServiceTests
             CreateSshService(profileId),
             _ => null);
 
-        Task<IReadOnlyList<RemotePathSuggestion>>? returnedTask = null;
-        Task invocation = Task.Run(() =>
-        {
-            returnedTask = service.GetSuggestionsAsync(
-                profileId,
-                sessionId,
-                "~/cod",
-                CancellationToken.None);
-        });
+        Task<IReadOnlyList<RemotePathSuggestion>> returnedTask = service.GetSuggestionsAsync(
+            profileId,
+            sessionId,
+            "~/cod",
+            CancellationToken.None);
 
         Assert.True(interop.Started.Wait(TimeSpan.FromSeconds(10)));
-        Task completed = await Task.WhenAny(invocation, Task.Delay(TimeSpan.FromSeconds(10)));
-        Assert.Same(invocation, completed);
-        Assert.NotNull(returnedTask);
-        Assert.False(returnedTask!.IsCompleted);
+        Assert.False(returnedTask.IsCompleted);
 
         interop.Release.Set();
 
