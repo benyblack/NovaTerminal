@@ -195,7 +195,7 @@ namespace NovaTerminal.Controls
                         System.IO.Directory.CreateDirectory(recordingsDirectory);
                     }
 
-                    string filename = $"nova_rec_{DateTime.Now:yyyyMMdd_HHmmss}.rec";
+                    string filename = BuildRecordingFileName(DateTime.Now, Guid.NewGuid().ToString("N"));
                     string path = System.IO.Path.Combine(recordingsDirectory, filename);
 
                     Session.StartRecording(path);
@@ -223,6 +223,19 @@ namespace NovaTerminal.Controls
             }
 
             RecordingStateChanged?.Invoke(IsRecording);
+        }
+
+        internal static string BuildRecordingFileName(DateTime timestamp, string uniqueSuffix)
+        {
+            string normalizedSuffix = string.IsNullOrWhiteSpace(uniqueSuffix)
+                ? Guid.NewGuid().ToString("N")
+                : uniqueSuffix.Trim().ToLowerInvariant();
+
+            string shortSuffix = normalizedSuffix.Length > 6
+                ? normalizedSuffix[..6]
+                : normalizedSuffix.PadRight(6, '0');
+
+            return $"nova_rec_{timestamp:yyyyMMdd_HHmmss}_{shortSuffix}.rec";
         }
 
         public void UpdateProfile(TerminalProfile profile)

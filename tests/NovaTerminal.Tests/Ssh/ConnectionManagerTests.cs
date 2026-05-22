@@ -8,6 +8,7 @@ using NovaTerminal.Controls;
 using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.ViewModels.Ssh;
+using System.Collections.Specialized;
 using System.Linq;
 
 namespace NovaTerminal.Tests.Ssh;
@@ -83,6 +84,28 @@ public sealed class ConnectionManagerTests
     }
 
     [AvaloniaFact]
+    public void DetailPane_ShowsTypedIdentityFileAuthDescription()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[]
+        {
+            new TerminalProfile
+            {
+                Type = ConnectionType.SSH,
+                Name = "Prod",
+                SshHost = "prod.internal",
+                SshUser = "ops",
+                UseSshAgent = false,
+                IdentityFilePath = @"C:\keys\prod.pem"
+            }
+        });
+
+        SelectFirstRow(control);
+
+        Assert.Equal("identity file · C:\\keys\\prod.pem", FindControl<TextBlock>(control, "KvAuth").Text);
+    }
+
+    [AvaloniaFact]
     public void FavoriteFilter_RemovesRowImmediately_WhenFavoriteIsCleared()
     {
         var control = CreateMeasuredConnectionManager();
@@ -145,6 +168,32 @@ public sealed class ConnectionManagerTests
         var rows = FindControl<ListBox>(control, "ConnectionsList").ItemsSource!.Cast<SshProfileRowViewModel>().Select(row => row.Name).OrderBy(name => name).ToArray();
         Assert.Equal(new[] { "Alpha", "Beta" }, rows);
         Assert.Equal("2 connections", FindControl<TextBlock>(control, "ResultCountText").Text);
+    }
+
+    [AvaloniaFact]
+    public void SearchFilter_ReplacesVisibleRowsWithSingleResetNotification()
+    {
+        var control = CreateMeasuredConnectionManager();
+        control.LoadProfiles(new[]
+        {
+            CreateSshProfile("Alpha", false),
+            CreateSshProfile("Beta", false),
+            CreateSshProfile("Gamma", false)
+        });
+
+        var list = FindControl<ListBox>(control, "ConnectionsList");
+        var notifications = new List<NotifyCollectionChangedAction>();
+        ((INotifyCollectionChanged)list.ItemsSource!).CollectionChanged += (_, args) => notifications.Add(args.Action);
+
+        control.SearchInput.Text = "Alpha";
+        var viewModelField = typeof(ConnectionManager).GetField("_viewModel", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var applyFiltersMethod = typeof(ConnectionManager).GetMethod("ApplyFilters", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+        var viewModel = (SshManagerViewModel)viewModelField!.GetValue(control)!;
+        viewModel.SearchText = "Alpha";
+        applyFiltersMethod!.Invoke(control, null);
+
+        Assert.Equal(new[] { NotifyCollectionChangedAction.Reset }, notifications);
+        Assert.Equal(1, GetListItemCount(control));
     }
 
     [AvaloniaFact]

@@ -39,6 +39,7 @@ public sealed class TerminalPaneRecordingTests
             Assert.True(started.IsRecording);
             Assert.Equal(session.StartedPath, started.FilePath);
             Assert.StartsWith(AppPaths.RecordingsDirectory, started.FilePath!, StringComparison.OrdinalIgnoreCase);
+            Assert.Matches(@"^nova_rec_\d{8}_\d{6}_[0-9a-f]{6}\.rec$", Path.GetFileName(started.FilePath));
 
             var stopped = notifications[1];
             Assert.Equal(RecordingNotificationKind.Stopped, stopped.Kind);
@@ -50,6 +51,21 @@ public sealed class TerminalPaneRecordingTests
         {
             pane.Dispose();
         }
+    }
+
+    [Fact]
+    public void BuildRecordingFileName_AppendsStableUniqueSuffix()
+    {
+        string first = TerminalPane.BuildRecordingFileName(
+            new DateTime(2026, 5, 22, 10, 30, 45),
+            "a1b2c3d4");
+        string second = TerminalPane.BuildRecordingFileName(
+            new DateTime(2026, 5, 22, 10, 30, 45),
+            "f0e1d2c3");
+
+        Assert.Equal("nova_rec_20260522_103045_a1b2c3.rec", first);
+        Assert.Equal("nova_rec_20260522_103045_f0e1d2.rec", second);
+        Assert.NotEqual(first, second);
     }
 
     private static void SetSessionForTest(TerminalPane pane, ITerminalSession session)

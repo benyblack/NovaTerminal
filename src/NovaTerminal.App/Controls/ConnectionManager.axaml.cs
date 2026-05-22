@@ -11,6 +11,8 @@ using NovaTerminal.ViewModels.Ssh;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 
 namespace NovaTerminal.Controls
@@ -32,7 +34,7 @@ namespace NovaTerminal.Controls
         private readonly SshManagerViewModel _viewModel = new();
         private readonly ObservableCollection<GroupNode> _groups = new();
         private readonly ObservableCollection<TagNode> _tags = new();
-        private readonly ObservableCollection<SshProfileRowViewModel> _visibleRows = new();
+        private readonly ResettableObservableCollection<SshProfileRowViewModel> _visibleRows = new();
         private readonly HashSet<string> _selectedTags = new(StringComparer.OrdinalIgnoreCase);
         private string _selectedGroupKey = "__all";
         private string _selectedStatusKey = "all";
@@ -115,8 +117,7 @@ namespace NovaTerminal.Controls
             set => SetValue(SecondaryForegroundProperty, value);
         }
 
-        // Palette is fixed in the new design (matches the mockup). Kept as a no-op
-        // so callers (MainWindow) don't need to change.
+        // Preserved for source compatibility with MainWindow's theme refresh path.
         public void ApplyTheme(TerminalTheme theme)
         {
             UpdatePaletteResources(theme);
@@ -309,14 +310,11 @@ namespace NovaTerminal.Controls
                 rows = rows.Where(row => row.Tags.Any(tag => _selectedTags.Contains(tag)));
             }
 
-            _visibleRows.Clear();
-            foreach (var row in rows)
-            {
-                _visibleRows.Add(row);
-            }
+            var nextRows = rows.ToList();
+            _visibleRows.ReplaceAll(nextRows);
 
             var list = this.FindControl<ListBox>("ConnectionsList");
-            if (_selectedRow != null && _visibleRows.Contains(_selectedRow))
+            if (_selectedRow != null && nextRows.Contains(_selectedRow))
             {
                 if (list != null && !ReferenceEquals(list.SelectedItem, _selectedRow))
                 {
@@ -404,20 +402,12 @@ namespace NovaTerminal.Controls
 
         private static string DescribeAuth(TerminalProfile profile)
         {
-            // Best-effort; the actual profile model may expose richer fields.
-            try
+            if (!profile.UseSshAgent && !string.IsNullOrWhiteSpace(profile.IdentityFilePath))
             {
-                var prop = profile.GetType().GetProperty("AuthMode")
-                          ?? profile.GetType().GetProperty("SshAuthMode");
-                var idProp = profile.GetType().GetProperty("IdentityFilePath");
-                var mode = prop?.GetValue(profile)?.ToString() ?? "agent";
-                var id = idProp?.GetValue(profile) as string;
-                return string.IsNullOrWhiteSpace(id) ? mode : $"{mode} · {id}";
+                return $"identity file · {profile.IdentityFilePath.Trim()}";
             }
-            catch
-            {
-                return "agent";
-            }
+
+            return "agent";
         }
 
         private void UpdateLaunchPreview()
@@ -622,60 +612,25 @@ namespace NovaTerminal.Controls
 
         private void UpdatePaletteResources(TerminalTheme theme)
         {
-            var background = theme.Background.ToAvaloniaColor();
-            var foreground = theme.Foreground.ToAvaloniaColor();
-            bool dark = IsDark(background);
-
-            UpdateBrush("NtWindowBg", background);
-            UpdateBrush("NtChromeBg", Shift(background, dark ? 10 : -10));
-            UpdateBrush("NtPanel", Shift(background, dark ? 18 : -18));
-            UpdateBrush("NtPanelAlt", Shift(background, dark ? 6 : -6));
-            UpdateBrush("NtHairline", Shift(background, dark ? 28 : -28));
-            UpdateBrush("NtFg", foreground);
-            UpdateBrush("NtFg2", WithAlpha(foreground, 0xC8));
-            UpdateBrush("NtFg3", WithAlpha(foreground, 0x9A));
-            UpdateBrush("NtFg4", WithAlpha(foreground, 0x6E));
-            UpdateBrush("NtBlue", theme.Blue.ToAvaloniaColor());
-            UpdateBrush("NtBlueDim", WithAlpha(theme.Blue.ToAvaloniaColor(), 0x24));
-            UpdateBrush("NtBlueFaint", WithAlpha(theme.Blue.ToAvaloniaColor(), 0x15));
-            UpdateBrush("NtBlueBorder", WithAlpha(theme.Blue.ToAvaloniaColor(), 0x4D));
-            UpdateBrush("NtGreen", theme.Green.ToAvaloniaColor());
-            UpdateBrush("NtYellow", theme.Yellow.ToAvaloniaColor());
-            UpdateBrush("NtRed", theme.Red.ToAvaloniaColor());
-            UpdateBrush("NtMagenta", theme.Magenta.ToAvaloniaColor());
+            ThemePaletteResources.Apply(Resources, theme);
         }
 
-        private void UpdateBrush(string key, Color color)
+        private sealed class ResettableObservableCollection<T> : ObservableCollection<T>
         {
-            if (Resources[key] is SolidColorBrush brush)
+            public void ReplaceAll(IEnumerable<T> items)
             {
-                brush.Color = color;
-            }
-            else
-            {
-                Resources[key] = new SolidColorBrush(color);
+                CheckReentrancy();
+                Items.Clear();
+                foreach (var item in items)
+                {
+                    Items.Add(item);
+                }
+
+                OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+                OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+                OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
             }
         }
-
-        private static bool IsDark(Color color)
-        {
-            double luminance = ((0.299 * color.R) + (0.587 * color.G) + (0.114 * color.B)) / 255.0;
-            return luminance < 0.5;
-        }
-
-        private static Color Shift(Color color, int delta)
-        {
-            return Color.FromArgb(
-                color.A,
-                Clamp(color.R + delta),
-                Clamp(color.G + delta),
-                Clamp(color.B + delta));
-        }
-
-        private static Color WithAlpha(Color color, byte alpha) => Color.FromArgb(alpha, color.R, color.G, color.B);
-
-        private static byte Clamp(int value) => (byte)Math.Max(0, Math.Min(255, value));
-
     }
 
     // Public POCO so XAML compiled bindings can resolve it. Used by the
