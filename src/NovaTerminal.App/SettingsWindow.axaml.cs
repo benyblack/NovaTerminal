@@ -1312,6 +1312,7 @@ namespace NovaTerminal
 
             var contrastColor = theme.GetContrastForeground();
             var contrastForeground = new SolidColorBrush(contrastColor.ToAvaloniaColor());
+            UpdatePaletteResources(theme);
 
             this.Background = new Avalonia.Media.SolidColorBrush(theme.Background.ToAvaloniaColor());
             this.Foreground = contrastForeground;
@@ -1325,6 +1326,11 @@ namespace NovaTerminal
             {
                 // Already set Force White in XAML, but good to double check if needed
             }
+        }
+
+        private void UpdatePaletteResources(TerminalTheme theme)
+        {
+            ThemePaletteResources.Apply(Resources, theme);
         }
 
         private void SaveAndClose()

@@ -114,6 +114,24 @@ public sealed class NewSshConnectionViewModelTests
     }
 
     [Fact]
+    public void ToSshProfile_NormalizesGroupAndTagsAlongsideFavorite()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            Name = "Prod",
+            HostName = "prod.internal",
+            Group = "  Prod / API  ",
+            TagsText = " zebra, api, favorite, Api, critical ",
+            IsFavorite = true
+        };
+
+        SshProfile profile = vm.ToSshProfile();
+
+        Assert.Equal("Prod / API", profile.GroupPath);
+        Assert.Equal(new[] { "favorite", "api", "critical", "zebra" }, profile.Tags);
+    }
+
+    [Fact]
     public void ToSshProfile_PreservesZeroControlPersistWhenMuxEnabled()
     {
         var vm = new NewSshConnectionViewModel
@@ -225,6 +243,25 @@ public sealed class NewSshConnectionViewModelTests
         roundTripped.ApplySshProfile(profile);
 
         Assert.Equal(RemoteShellKind.Bash, roundTripped.RemoteShellKind);
+    }
+
+    [Fact]
+    public void ApplySshProfile_ExposesEditableGroupAndNonFavoriteTags()
+    {
+        var vm = new NewSshConnectionViewModel();
+        var profile = new SshProfile
+        {
+            Name = "Prod",
+            Host = "prod.internal",
+            GroupPath = "Prod/API",
+            Tags = new List<string> { "favorite", "api", "critical" }
+        };
+
+        vm.ApplySshProfile(profile);
+
+        Assert.Equal("Prod/API", vm.Group);
+        Assert.Equal("api, critical", vm.TagsText);
+        Assert.True(vm.IsFavorite);
     }
 
     [Fact]

@@ -1,4 +1,9 @@
 using Avalonia.Headless.XUnit;
+using Avalonia.Controls;
+using Avalonia.Media;
+using Avalonia.Threading;
+using NovaTerminal.Core;
+using System.Reflection;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -10,5 +15,199 @@ public sealed class MainWindowStartupTests
         var window = new NovaTerminal.MainWindow();
 
         Assert.NotNull(window);
+    }
+
+    [AvaloniaFact]
+    public void MainWindow_UsesPaletteForSettingsAndOpenRecording_NotTitleBarButtons()
+    {
+        var window = new NovaTerminal.MainWindow();
+
+        Assert.Null(window.FindControl<Button>("SettingsBtn"));
+        Assert.Null(window.FindControl<Button>("BtnOpenRec"));
+
+        var commands = CommandRegistry.GetCommands();
+        Assert.Contains(commands, command => command.Title == "Settings");
+        Assert.Contains(commands, command => command.Title == "Open Recording...");
+        Assert.Contains(commands, command => command.Title == "Open Recordings Folder");
+    }
+
+    [AvaloniaFact]
+    public async Task ExecuteCommand_DefersActionUntilAfterPaletteCloses()
+    {
+        var window = new NovaTerminal.MainWindow();
+        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+        var executeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ExecuteCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        toggleMethod!.Invoke(window, null);
+        var overlay = window.FindControl<Grid>("CommandPaletteOverlay");
+        Assert.NotNull(overlay);
+        Assert.True(overlay!.IsVisible);
+
+        bool actionRan = false;
+        bool overlayWasClosedWhenActionRan = false;
+        var command = new TerminalCommand
+        {
+            Title = "Test Deferred Command",
+            Category = "Test",
+            Action = () =>
+            {
+                actionRan = true;
+                overlayWasClosedWhenActionRan = !overlay.IsVisible;
+            }
+        };
+
+        executeMethod!.Invoke(window, new object[] { command });
+
+        Assert.False(actionRan);
+        Assert.False(overlay.IsVisible);
+
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+
+        Assert.True(actionRan);
+        Assert.True(overlayWasClosedWhenActionRan);
+    }
+
+    [AvaloniaFact]
+    public async Task OpenRecordingPaletteCommand_InvokesAsyncWindowHook()
+    {
+        var window = new RecordingCommandProbeWindow();
+        var executeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ExecuteCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+        var command = CommandRegistry.GetCommands().Single(c => c.Title == "Open Recording...");
+
+        executeMethod!.Invoke(window, new object[] { command });
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+
+        Assert.True(window.WasOpenRecordingInvoked);
+    }
+
+    [Theory]
+    [InlineData(true, @"C:\Users\behna\AppData\Local\NovaTerminal\recordings\nova.rec", @"C:\Users\behna\AppData\Local\NovaTerminal\recordings", "explorer.exe", "/select,")]
+    [InlineData(true, null, @"C:\Users\behna\AppData\Local\NovaTerminal\recordings", @"C:\Users\behna\AppData\Local\NovaTerminal\recordings", "")]
+    [InlineData(false, "/tmp/nova/recordings/nova.rec", "/tmp/nova/recordings", "/tmp/nova/recordings", "")]
+    public void ResolveRecordingRevealRequest_PrefersExactFileOnWindows(
+        bool isWindows,
+        string? filePath,
+        string recordingsDirectory,
+        string expectedFileName,
+        string expectedArgumentsPrefix)
+    {
+        var request = NovaTerminal.MainWindow.ResolveRecordingRevealRequest(filePath, recordingsDirectory, isWindows);
+
+        Assert.Equal(expectedFileName, request.FileName);
+        if (string.IsNullOrEmpty(expectedArgumentsPrefix))
+        {
+            Assert.True(string.IsNullOrEmpty(request.Arguments));
+        }
+        else
+        {
+            Assert.StartsWith(expectedArgumentsPrefix, request.Arguments, StringComparison.Ordinal);
+            Assert.Contains("nova.rec", request.Arguments, StringComparison.Ordinal);
+        }
+    }
+
+    [AvaloniaFact]
+    public void ApplyThemeToUi_LightTheme_UpdatesTabListAndIdleRecordForeground()
+    {
+        var window = new NovaTerminal.MainWindow();
+        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var applyThemeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        var settings = (TerminalSettings)settingsField!.GetValue(window)!;
+
+        settings.ThemeName = "Test Light";
+        settings.ActiveTheme = new TerminalTheme
+        {
+            Name = "Test Light",
+            Background = TermColor.FromRgb(245, 240, 225),
+            Foreground = TermColor.Black
+        };
+
+        applyThemeMethod!.Invoke(window, null);
+
+        var expected = Colors.Black;
+        var btnTabList = window.FindControl<Button>("BtnTabList");
+        var iconTabList = window.FindControl<PathIcon>("IconTabList");
+        var btnRecord = window.FindControl<Button>("BtnRecord");
+        var iconRecord = window.FindControl<PathIcon>("IconRecord");
+
+        Assert.NotNull(btnTabList);
+        Assert.NotNull(iconTabList);
+        Assert.NotNull(btnRecord);
+        Assert.NotNull(iconRecord);
+        Assert.Equal(expected, ((ISolidColorBrush)btnTabList!.Foreground!).Color);
+        Assert.Equal(expected, ((ISolidColorBrush)iconTabList!.Foreground!).Color);
+        Assert.Equal(expected, ((ISolidColorBrush)btnRecord!.Foreground!).Color);
+        Assert.Equal(expected, ((ISolidColorBrush)iconRecord!.Foreground!).Color);
+    }
+
+    [AvaloniaFact]
+    public void ApplyThemeToUi_LightTheme_UpdatesCommandPaletteSearchForeground()
+    {
+        var window = new NovaTerminal.MainWindow();
+        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var applyThemeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        var settings = (TerminalSettings)settingsField!.GetValue(window)!;
+
+        settings.ThemeName = "Test Light";
+        settings.ActiveTheme = new TerminalTheme
+        {
+            Name = "Test Light",
+            Background = TermColor.FromRgb(245, 240, 225),
+            Foreground = TermColor.Black
+        };
+
+        applyThemeMethod!.Invoke(window, null);
+
+        var searchBox = window.FindControl<TextBox>("CommandSearchBox");
+
+        Assert.NotNull(searchBox);
+        Assert.Equal(Colors.Black, ((ISolidColorBrush)searchBox!.Foreground!).Color);
+    }
+
+    [AvaloniaFact]
+    public void ApplySplitterVisualState_LightTheme_StrengthensLineOnHoverAndDrag()
+    {
+        var window = new NovaTerminal.MainWindow();
+        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var applySplitterVisualStateMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplySplitterVisualState", BindingFlags.Instance | BindingFlags.NonPublic);
+        var settings = (TerminalSettings)settingsField!.GetValue(window)!;
+
+        settings.ThemeName = "Test Light";
+        settings.ActiveTheme = new TerminalTheme
+        {
+            Name = "Test Light",
+            Background = TermColor.FromRgb(245, 240, 225),
+            Foreground = TermColor.Black
+        };
+
+        var splitter = new GridSplitter();
+
+        applySplitterVisualStateMethod!.Invoke(window, new object[] { splitter });
+        var idleColor = ((ISolidColorBrush)splitter.Background!).Color;
+
+        splitter.Classes.Add("splitter-hover");
+        applySplitterVisualStateMethod.Invoke(window, new object[] { splitter });
+        var hoverColor = ((ISolidColorBrush)splitter.Background!).Color;
+
+        splitter.Classes.Remove("splitter-hover");
+        splitter.Classes.Add("splitter-dragging");
+        applySplitterVisualStateMethod.Invoke(window, new object[] { splitter });
+        var draggingColor = ((ISolidColorBrush)splitter.Background!).Color;
+
+        Assert.Equal(Colors.Black.R, idleColor.R);
+        Assert.Equal(Colors.Black.G, idleColor.G);
+        Assert.Equal(Colors.Black.B, idleColor.B);
+        Assert.True(idleColor.A < hoverColor.A);
+        Assert.True(hoverColor.A < draggingColor.A);
+    }
+
+    private sealed class RecordingCommandProbeWindow : NovaTerminal.MainWindow
+    {
+        public bool WasOpenRecordingInvoked { get; private set; }
+
+        protected override Task ExecuteOpenRecordingCommandAsync()
+        {
+            WasOpenRecordingInvoked = true;
+            return Task.CompletedTask;
+        }
     }
 }

@@ -27,8 +27,30 @@ namespace NovaTerminal.UI.Replay
         {
             InitializeComponent();
 #if DEBUG
-            Application.Current?.AttachDeveloperTools();
+            TryAttachDeveloperTools(() => Application.Current?.AttachDeveloperTools());
 #endif
+        }
+
+        internal static void TryAttachDeveloperToolsForTest(Action attach)
+        {
+            TryAttachDeveloperTools(attach);
+        }
+
+        private static void TryAttachDeveloperTools(Action? attach)
+        {
+            if (attach == null)
+            {
+                return;
+            }
+
+            try
+            {
+                attach();
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("already been attached", StringComparison.OrdinalIgnoreCase))
+            {
+                // Secondary debug windows can be opened from an app that already attached the dev tools.
+            }
         }
 
         public ReplayWindow(string filePath) : this()

@@ -32,6 +32,10 @@ namespace NovaTerminal
 {
     public partial class MainWindow : Window
     {
+        internal readonly record struct ShellOpenRequest(string FileName, string? Arguments);
+        private const string SplitterHoverClass = "splitter-hover";
+        private const string SplitterDraggingClass = "splitter-dragging";
+
         private TerminalPane? _currentPaneValue;
         private TerminalPane? _currentPane
         {
@@ -72,6 +76,9 @@ namespace NovaTerminal
         private Point _transferOverlayDragStart;
         private Point _transferOverlayOffsetStart;
         private TranslateTransform? _transferOverlayTransform;
+        private readonly DispatcherTimer _recordingToastTimer = new() { Interval = TimeSpan.FromSeconds(6) };
+        private string? _recordingToastFolderPath;
+        private string? _recordingToastFilePath;
 
         private sealed class PaneZoomState
         {
@@ -88,6 +95,13 @@ namespace NovaTerminal
             public bool HasBell { get; set; }
             public DateTime LastBellUtc { get; set; }
             public int? LastExitCode { get; set; }
+        }
+
+        internal enum TabHeaderPointerAction
+        {
+            None,
+            OpenContextMenu,
+            CloseTab
         }
 
         protected override void OnOpened(EventArgs e)
@@ -317,6 +331,46 @@ namespace NovaTerminal
             return GetOrCreateTabState(tab).IsProtected;
         }
 
+        internal static bool CanCloseTab(bool isProtected)
+        {
+            return !isProtected;
+        }
+
+        internal static TabHeaderPointerAction ResolveTabHeaderPointerAction(bool isMiddlePressed, bool isRightPressed)
+        {
+            if (isMiddlePressed)
+            {
+                return TabHeaderPointerAction.CloseTab;
+            }
+
+            if (isRightPressed)
+            {
+                return TabHeaderPointerAction.OpenContextMenu;
+            }
+
+            return TabHeaderPointerAction.None;
+        }
+
+        internal static bool ShouldDeferTabContextMenuOpen(bool wasSelected)
+        {
+            return !wasSelected;
+        }
+
+        internal static bool ShouldSkipTabWhenClosingOthers(bool isPinned, bool isProtected)
+        {
+            return isPinned || isProtected;
+        }
+
+        internal static string GetPinTabActionLabel(bool isPinned)
+        {
+            return isPinned ? "Unpin Tab" : "Pin Tab";
+        }
+
+        internal static string GetProtectTabActionLabel(bool isProtected)
+        {
+            return isProtected ? "Unprotect Tab" : "Protect Tab";
+        }
+
         private void ClearTabAttention(TabItem tab)
         {
             var state = GetOrCreateTabState(tab);
@@ -403,14 +457,172 @@ namespace NovaTerminal
                 : (selectedIndex + 1) % mruCount;
         }
 
+        private static TextBlock? FindTabHeaderTextBlock(object? header)
+        {
+            return header switch
+            {
+                TextBlock tb => tb,
+                Border border => FindTabHeaderTextBlock(border.Child),
+                ContentControl contentControl => FindTabHeaderTextBlock(contentControl.Content),
+                Panel panel => panel.Children.Select(child => FindTabHeaderTextBlock(child)).FirstOrDefault(tb => tb != null),
+                Decorator decorator => FindTabHeaderTextBlock(decorator.Child),
+                _ => null
+            };
+        }
+
         private string GetTabHeaderText(TabItem tab)
         {
-            if (tab.Header is TextBlock tb)
+            if (FindTabHeaderTextBlock(tab.Header) is TextBlock tb)
             {
                 return string.IsNullOrWhiteSpace(tb.Text) ? "Terminal" : tb.Text;
             }
 
             return "Terminal";
+        }
+
+        private Border CreateTabHeaderHost(TabItem tab, string text)
+        {
+            var headerText = new TextBlock
+            {
+                Text = text,
+                Foreground = Brushes.White,
+                FontSize = 12,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            var headerHost = new Border
+            {
+                Background = Brushes.Transparent,
+                Padding = new Thickness(10, 4),
+                Child = headerText
+            };
+
+            headerHost.ContextFlyout = new MenuFlyout();
+            headerHost.PointerPressed += (_, e) => OnTabHeaderPointerPressed(tab, e);
+            ToolTip.SetTip(headerHost, text);
+            return headerHost;
+        }
+
+        private void ConfigureTabHeader(TabItem tab, string text)
+        {
+            tab.Header = CreateTabHeaderHost(tab, text);
+        }
+
+        private void OnTabHeaderPointerPressed(TabItem tab, PointerPressedEventArgs e)
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            bool wasSelected = tabs?.SelectedItem == tab;
+            if (tabs != null && tabs.SelectedItem != tab)
+            {
+                tabs.SelectedItem = tab;
+            }
+
+            var properties = e.GetCurrentPoint(this).Properties;
+            var action = ResolveTabHeaderPointerAction(
+                properties.IsMiddleButtonPressed,
+                properties.IsRightButtonPressed);
+
+            if (action == TabHeaderPointerAction.CloseTab)
+            {
+                e.Handled = true;
+                _ = CloseTabAsync(tab);
+                return;
+            }
+
+            if (action == TabHeaderPointerAction.OpenContextMenu)
+            {
+                if (FindTabHeaderHost(tab) is Control headerHost &&
+                    headerHost.ContextFlyout is MenuFlyout flyout)
+                {
+                    e.Handled = true;
+                    ShowTabContextMenu(tab, headerHost, flyout, ShouldDeferTabContextMenuOpen(wasSelected));
+                }
+            }
+        }
+
+        private void ShowTabContextMenu(TabItem tab, Control headerHost, MenuFlyout flyout, bool defer)
+        {
+            void open()
+            {
+                PopulateTabContextMenu(flyout, tab);
+                flyout.ShowAt(headerHost);
+            }
+
+            if (defer)
+            {
+                Dispatcher.UIThread.Post(open, DispatcherPriority.Input);
+            }
+            else
+            {
+                open();
+            }
+        }
+
+        private void PopulateTabContextMenu(MenuFlyout flyout, TabItem tab)
+        {
+            flyout.Items.Clear();
+            if (!_tabStateByTab.ContainsKey(tab) && !TryEnsureLiveTab(tab))
+            {
+                return;
+            }
+
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs != null && tabs.SelectedItem != tab)
+            {
+                tabs.SelectedItem = tab;
+            }
+
+            var state = GetOrCreateTabState(tab);
+            bool hasClosableOthers = tabs?.Items
+                .Cast<TabItem>()
+                .Any(other => other != tab && !ShouldSkipTabWhenClosingOthers(IsTabPinned(other), IsTabProtected(other))) == true;
+
+            var closeItem = new MenuItem
+            {
+                Header = "Close",
+                IsEnabled = CanCloseTab(state.IsProtected)
+            };
+            closeItem.Click += async (_, __) => await CloseTabAsync(tab);
+            flyout.Items.Add(closeItem);
+
+            var closeOthersItem = new MenuItem
+            {
+                Header = "Close Others",
+                IsEnabled = hasClosableOthers
+            };
+            closeOthersItem.Click += async (_, __) => await CloseOtherTabsAsync(tab);
+            flyout.Items.Add(closeOthersItem);
+
+            flyout.Items.Add(new Separator());
+
+            var renameItem = new MenuItem { Header = "Rename..." };
+            renameItem.Click += async (_, __) => await RenameTabAsync(tab);
+            flyout.Items.Add(renameItem);
+
+            var copyTitleItem = new MenuItem { Header = "Copy Title" };
+            copyTitleItem.Click += async (_, __) => await CopyTabTitleAsync(tab);
+            flyout.Items.Add(copyTitleItem);
+
+            flyout.Items.Add(new Separator());
+
+            var pinItem = new MenuItem { Header = GetPinTabActionLabel(state.IsPinned) };
+            pinItem.Click += (_, __) => TogglePinTab(tab);
+            flyout.Items.Add(pinItem);
+
+            var protectItem = new MenuItem { Header = GetProtectTabActionLabel(state.IsProtected) };
+            protectItem.Click += (_, __) => ToggleProtectTab(tab);
+            flyout.Items.Add(protectItem);
+        }
+
+        private bool TryEnsureLiveTab(TabItem tab)
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            return tabs?.Items.Cast<TabItem>().Contains(tab) == true;
+        }
+
+        private static Control? FindTabHeaderHost(TabItem tab)
+        {
+            return tab.Header as Control;
         }
 
         private string GetTabMenuLabel(TabItem tab, int index)
@@ -598,11 +810,22 @@ namespace NovaTerminal
                 copyTitleItem.Click += async (_, __) => await CopySelectedTabTitleAsync();
                 flyout.Items.Add(copyTitleItem);
 
-                var closeCurrentItem = new MenuItem { Header = "Close Current Tab" };
+                bool canCloseCurrent = tabs.SelectedItem is not TabItem currentTab || CanCloseTab(IsTabProtected(currentTab));
+                var closeCurrentItem = new MenuItem
+                {
+                    Header = "Close Current Tab",
+                    IsEnabled = canCloseCurrent
+                };
                 closeCurrentItem.Click += async (_, __) => await CloseSelectedTabAsync();
                 flyout.Items.Add(closeCurrentItem);
 
-                var closeOthersItem = new MenuItem { Header = "Close Other Tabs" };
+                bool hasClosableOthers = tabs.SelectedItem is TabItem selectedForCloseOthers &&
+                    tabs.Items.Cast<TabItem>().Any(t => t != selectedForCloseOthers && !ShouldSkipTabWhenClosingOthers(IsTabPinned(t), IsTabProtected(t)));
+                var closeOthersItem = new MenuItem
+                {
+                    Header = "Close Other Tabs",
+                    IsEnabled = hasClosableOthers
+                };
                 closeOthersItem.Click += async (_, __) => await CloseOtherTabsAsync();
                 flyout.Items.Add(closeOthersItem);
 
@@ -610,11 +833,11 @@ namespace NovaTerminal
                 {
                     var selectedState = GetOrCreateTabState(selectedTab);
 
-                    var pinItem = new MenuItem { Header = selectedState.IsPinned ? "Unpin Tab" : "Pin Tab" };
+                    var pinItem = new MenuItem { Header = GetPinTabActionLabel(selectedState.IsPinned) };
                     pinItem.Click += (_, __) => TogglePinSelectedTab();
                     flyout.Items.Add(pinItem);
 
-                    var protectItem = new MenuItem { Header = selectedState.IsProtected ? "Unprotect Tab" : "Protect Tab" };
+                    var protectItem = new MenuItem { Header = GetProtectTabActionLabel(selectedState.IsProtected) };
                     protectItem.Click += (_, __) => ToggleProtectSelectedTab();
                     flyout.Items.Add(protectItem);
                 }
@@ -769,7 +992,11 @@ namespace NovaTerminal
         private async Task CopySelectedTabTitleAsync()
         {
             if (!TryGetSelectedTab(out var tab)) return;
+            await CopyTabTitleAsync(tab);
+        }
 
+        private async Task CopyTabTitleAsync(TabItem tab)
+        {
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.Clipboard == null) return;
 
@@ -850,6 +1077,11 @@ namespace NovaTerminal
         private async Task RenameSelectedTabAsync()
         {
             if (!TryGetSelectedTab(out var tab)) return;
+            await RenameTabAsync(tab);
+        }
+
+        private async Task RenameTabAsync(TabItem tab)
+        {
             var state = GetOrCreateTabState(tab);
             string current = state.UserTitle ?? GetTabPrimaryTitle(tab);
             var updated = await ShowTextPromptAsync("Rename Tab", "Tab title", current);
@@ -877,13 +1109,19 @@ namespace NovaTerminal
 
         private async Task CloseOtherTabsAsync()
         {
+            if (!TryGetSelectedTab(out var selected)) return;
+            await CloseOtherTabsAsync(selected);
+        }
+
+        private async Task CloseOtherTabsAsync(TabItem selected)
+        {
             var tabs = this.FindControl<TabControl>("Tabs");
-            if (tabs?.SelectedItem is not TabItem selected) return;
+            if (tabs == null) return;
 
             var others = tabs.Items.Cast<TabItem>().Where(t => t != selected).ToList();
             foreach (var tab in others)
             {
-                if (GetOrCreateTabState(tab).IsPinned) continue;
+                if (ShouldSkipTabWhenClosingOthers(IsTabPinned(tab), IsTabProtected(tab))) continue;
                 await CloseTabAsync(tab);
             }
         }
@@ -891,15 +1129,25 @@ namespace NovaTerminal
         private void TogglePinSelectedTab()
         {
             if (!TryGetSelectedTab(out var tab)) return;
+            TogglePinTab(tab);
+        }
+
+        private void ToggleProtectSelectedTab()
+        {
+            if (!TryGetSelectedTab(out var tab)) return;
+            ToggleProtectTab(tab);
+        }
+
+        private void TogglePinTab(TabItem tab)
+        {
             var state = GetOrCreateTabState(tab);
             state.IsPinned = !state.IsPinned;
             UpdateTabVisuals(tab);
             PopulateTabListMenu();
         }
 
-        private void ToggleProtectSelectedTab()
+        private void ToggleProtectTab(TabItem tab)
         {
-            if (!TryGetSelectedTab(out var tab)) return;
             var state = GetOrCreateTabState(tab);
             state.IsProtected = !state.IsProtected;
             UpdateTabVisuals(tab);
@@ -1613,15 +1861,20 @@ namespace NovaTerminal
                     UpdateTabHeaderViewport();
                     EnsureSelectedTabHeaderVisible();
                     FocusCurrentTerminal(defer: true);
+                    SyncRecordingButtonState();
                 }, DispatcherPriority.Input);
             };
             this.Activated += (s, e) => FocusCurrentTerminal(defer: true);
             this.SizeChanged += (_, __) => Dispatcher.UIThread.Post(UpdateTabHeaderViewport, DispatcherPriority.Background);
+            _recordingToastTimer.Tick += (_, __) =>
+            {
+                _recordingToastTimer.Stop();
+                HideRecordingToast();
+            };
 
             var tabs = this.FindControl<TabControl>("Tabs");
             var btnNew = this.FindControl<Button>("BtnNewTab");
             var btnTabList = this.FindControl<Button>("BtnTabList");
-            var settingsBtn = this.FindControl<Button>("SettingsBtn");
             var titleBar = this.FindControl<Grid>("TitleBar");
             var dragBorder = this.FindControl<Border>("DragBorder");
 
@@ -1697,13 +1950,6 @@ namespace NovaTerminal
                 };
             }
 
-            if (settingsBtn != null) settingsBtn.Click += async (s, e) =>
-            {
-                await OpenSettings(0);
-            };
-
-
-
             if (tabs != null)
             {
                 tabs.SelectionChanged += (s, e) =>
@@ -1766,31 +2012,22 @@ namespace NovaTerminal
                 await ShowNewSshConnectionDialogAsync(null);
             };
 
-            var btnOpenRec = this.FindControl<Button>("BtnOpenRec");
-            if (btnOpenRec != null) btnOpenRec.Click += async (s, e) =>
-            {
-                var topLevel = TopLevel.GetTopLevel(this);
-                if (topLevel == null) return;
-
-                var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-                {
-                    Title = "Open Replay File",
-                    AllowMultiple = false,
-                    FileTypeFilter = new[] { new FilePickerFileType("Nova Recordings") { Patterns = new[] { "*.rec", "*.cast" } } }
-                });
-
-                if (files.Count >= 1)
-                {
-                    var path = files[0].Path.LocalPath;
-                    var replayWin = new NovaTerminal.UI.Replay.ReplayWindow(path);
-                    replayWin.Show();
-                }
-            };
-
             var btnRecord = this.FindControl<Button>("BtnRecord");
             if (btnRecord != null)
             {
                 btnRecord.Click += (s, e) => _currentPane?.ToggleRecording();
+            }
+
+            var recordingToastClose = this.FindControl<Button>("RecordingToastClose");
+            if (recordingToastClose != null)
+            {
+                recordingToastClose.Click += (_, __) => HideRecordingToast();
+            }
+
+            var recordingToastOpenFolder = this.FindControl<Button>("RecordingToastOpenFolder");
+            if (recordingToastOpenFolder != null)
+            {
+                recordingToastOpenFolder.Click += (_, __) => OpenRecordingToastFolder();
             }
 
             // Global Focus Tracking
@@ -2014,6 +2251,7 @@ namespace NovaTerminal
             {
                 GetTabId(item);
                 GetOrCreateTabState(item);
+                ConfigureTabHeader(item, GetTabHeaderText(item));
                 if (item.Content is Control c) WireControlTree(c);
             }
 
@@ -2398,8 +2636,90 @@ namespace NovaTerminal
         private void WireSplitter(GridSplitter splitter, Grid ownerGrid)
         {
             splitter.Tag = ownerGrid;
+            splitter.PointerEntered -= OnSplitterPointerEntered;
+            splitter.PointerExited -= OnSplitterPointerExited;
+            splitter.PointerPressed -= OnSplitterPointerPressed;
+            splitter.PointerReleased -= OnSplitterPointerReleased;
+            splitter.PointerCaptureLost -= OnSplitterPointerCaptureLost;
             splitter.DoubleTapped -= OnSplitterDoubleTapped;
+            splitter.PointerEntered += OnSplitterPointerEntered;
+            splitter.PointerExited += OnSplitterPointerExited;
+            splitter.PointerPressed += OnSplitterPointerPressed;
+            splitter.PointerReleased += OnSplitterPointerReleased;
+            splitter.PointerCaptureLost += OnSplitterPointerCaptureLost;
             splitter.DoubleTapped += OnSplitterDoubleTapped;
+            ApplySplitterVisualState(splitter);
+        }
+
+        private void OnSplitterPointerEntered(object? sender, PointerEventArgs e)
+        {
+            if (sender is GridSplitter splitter)
+            {
+                SetSplitterStateClass(splitter, SplitterHoverClass, true);
+                ApplySplitterVisualState(splitter);
+            }
+        }
+
+        private void OnSplitterPointerExited(object? sender, PointerEventArgs e)
+        {
+            if (sender is GridSplitter splitter && !splitter.Classes.Contains(SplitterDraggingClass))
+            {
+                SetSplitterStateClass(splitter, SplitterHoverClass, false);
+                ApplySplitterVisualState(splitter);
+            }
+        }
+
+        private void OnSplitterPointerPressed(object? sender, PointerPressedEventArgs e)
+        {
+            if (sender is GridSplitter splitter && e.GetCurrentPoint(splitter).Properties.IsLeftButtonPressed)
+            {
+                SetSplitterStateClass(splitter, SplitterHoverClass, true);
+                SetSplitterStateClass(splitter, SplitterDraggingClass, true);
+                ApplySplitterVisualState(splitter);
+            }
+        }
+
+        private void OnSplitterPointerReleased(object? sender, PointerReleasedEventArgs e)
+        {
+            if (sender is GridSplitter splitter)
+            {
+                SetSplitterStateClass(splitter, SplitterDraggingClass, false);
+                SetSplitterStateClass(splitter, SplitterHoverClass, splitter.IsPointerOver);
+                ApplySplitterVisualState(splitter);
+            }
+        }
+
+        private void OnSplitterPointerCaptureLost(object? sender, PointerCaptureLostEventArgs e)
+        {
+            if (sender is GridSplitter splitter)
+            {
+                SetSplitterStateClass(splitter, SplitterDraggingClass, false);
+                SetSplitterStateClass(splitter, SplitterHoverClass, splitter.IsPointerOver);
+                ApplySplitterVisualState(splitter);
+            }
+        }
+
+        private void ApplySplitterVisualState(GridSplitter splitter)
+        {
+            var contrast = _settings.ActiveTheme.GetContrastForeground().ToAvaloniaColor();
+            var alpha = splitter.Classes.Contains(SplitterDraggingClass)
+                ? (byte)0x66
+                : splitter.Classes.Contains(SplitterHoverClass)
+                    ? (byte)0x44
+                    : (byte)0x24;
+
+            splitter.Background = new SolidColorBrush(Color.FromArgb(alpha, contrast.R, contrast.G, contrast.B));
+        }
+
+        private static void SetSplitterStateClass(GridSplitter splitter, string className, bool isActive)
+        {
+            if (isActive)
+            {
+                splitter.Classes.Add(className);
+                return;
+            }
+
+            splitter.Classes.Remove(className);
         }
 
         private void OnSplitterDoubleTapped(object? sender, RoutedEventArgs e)
@@ -2612,6 +2932,7 @@ namespace NovaTerminal
             if (_activePaneByTab.TryGetValue(ti, out var mapped) && _currentPane == mapped)
             {
                 _currentPane.RecordingStateChanged -= OnRecordingStateChanged;
+                _currentPane.RecordingNotification -= OnRecordingNotification;
                 _currentPane = null;
                 OnRecordingStateChanged(false);
             }
@@ -2959,7 +3280,7 @@ namespace NovaTerminal
             if (TryGetSelectedTab(out var selectedTab))
             {
                 _activePaneByTab[selectedTab] = replacementPane;
-                if (selectedTab.Header is TextBlock tabHeader)
+                if (FindTabHeaderTextBlock(selectedTab.Header) is TextBlock tabHeader)
                 {
                     tabHeader.Text = resolvedProfile.Name;
                 }
@@ -3073,11 +3394,8 @@ namespace NovaTerminal
             WirePane(pane);
 
             pane.ApplySettings(_settings);
-            var tabItem = new TabItem
-            {
-                Header = new TextBlock { Text = profile.Name, Foreground = Brushes.White, FontSize = 12, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Padding = new Thickness(10, 4) },
-                Content = pane
-            };
+            var tabItem = new TabItem { Content = pane };
+            ConfigureTabHeader(tabItem, profile.Name);
             tabs.Items.Add(tabItem);
             tabs.SelectedItem = tabItem;
             GetTabId(tabItem);
@@ -3175,10 +3493,15 @@ namespace NovaTerminal
             {
                 ti.BorderBrush = ti.IsSelected ? borderBrush : Brushes.Transparent;
 
-                if (ti.Header is TextBlock tb)
+                if (FindTabHeaderTextBlock(ti.Header) is TextBlock tb)
                 {
                     tb.Foreground = contrastForeground;
                     tb.Text = labels[ti];
+                }
+
+                if (ti.Header is Control headerControl)
+                {
+                    ToolTip.SetTip(headerControl, BuildFullTabLabel(ti));
                 }
             }
 
@@ -3376,12 +3699,24 @@ namespace NovaTerminal
 
             // Apply to Title Bar Buttons
             var btnNew = this.FindControl<Button>("BtnNewTab");
-            var btnSettings = this.FindControl<Button>("SettingsBtn");
+            var btnTabList = this.FindControl<Button>("BtnTabList");
+            var iconTabList = this.FindControl<PathIcon>("IconTabList");
+            var btnRecord = this.FindControl<Button>("BtnRecord");
             var btnConns = this.FindControl<Button>("BtnConnections");
+            var commandSearchBox = this.FindControl<TextBox>("CommandSearchBox");
 
             if (btnNew != null) btnNew.Foreground = contrastForeground;
-            if (btnSettings != null) btnSettings.Foreground = contrastForeground;
+            if (btnTabList != null) btnTabList.Foreground = contrastForeground;
+            if (iconTabList != null) iconTabList.Foreground = contrastForeground;
             if (btnConns != null) btnConns.Foreground = contrastForeground;
+            if (btnRecord != null) btnRecord.Foreground = contrastForeground;
+            if (commandSearchBox != null) commandSearchBox.Foreground = contrastForeground;
+            foreach (var splitter in this.GetVisualDescendants().OfType<GridSplitter>())
+            {
+                ApplySplitterVisualState(splitter);
+            }
+
+            SyncRecordingButtonState();
 
             // Force update of tab borders (blue line) since theme color changed
             UpdateTabVisuals();
@@ -3521,6 +3856,8 @@ namespace NovaTerminal
             {
                 await OpenSettings(0);
             }, "");
+            CommandRegistry.Register("Open Recording...", "General", () => _ = ExecuteUiCommandAsync(ExecuteOpenRecordingCommandAsync, "Open Recording..."), "");
+            CommandRegistry.Register("Open Recordings Folder", "General", () => OpenRecordingsFolder(), "");
 
             // SFTP Actions
             CommandRegistry.Register("SFTP: Toggle Remote Files", "Remote", () => _currentPane?.ToggleRemoteFilesSidebar(), "");
@@ -4217,6 +4554,113 @@ namespace NovaTerminal
             await dialog.ShowDialog(this);
         }
 
+        protected virtual Task ExecuteOpenRecordingCommandAsync()
+        {
+            return OpenRecordingAsync();
+        }
+
+        private async Task OpenRecordingAsync()
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (topLevel?.StorageProvider == null)
+            {
+                await ShowSimpleMessageDialogAsync("Open Recording", "File picker is not available in the current window.");
+                return;
+            }
+
+            var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = "Open Replay File",
+                AllowMultiple = false,
+                FileTypeFilter = new[] { new FilePickerFileType("Nova Recordings") { Patterns = new[] { "*.rec", "*.cast" } } }
+            });
+
+            if (files.Count < 1)
+            {
+                return;
+            }
+
+            var path = files[0].Path.LocalPath;
+            var replayWin = new NovaTerminal.UI.Replay.ReplayWindow(path);
+            replayWin.Show();
+        }
+
+        private async Task ExecuteUiCommandAsync(Func<Task> action, string commandTitle)
+        {
+            try
+            {
+                await action();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error executing command {commandTitle}: {ex.Message}");
+                await ShowSimpleMessageDialogAsync(commandTitle, ex.Message);
+            }
+        }
+
+        private void OpenRecordingsFolder()
+        {
+            try
+            {
+                Directory.CreateDirectory(AppPaths.RecordingsDirectory);
+                OpenPathInShell(new ShellOpenRequest(AppPaths.RecordingsDirectory, null));
+            }
+            catch
+            {
+                ShowRecordingToast(
+                    "Unable to open recordings folder",
+                    AppPaths.RecordingsDirectory,
+                    null,
+                    AppPaths.RecordingsDirectory,
+                    autoHide: true);
+            }
+        }
+
+        private void OpenRecordingToastFolder()
+        {
+            if (string.IsNullOrWhiteSpace(_recordingToastFolderPath))
+            {
+                OpenRecordingsFolder();
+                return;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(_recordingToastFolderPath);
+                var request = ResolveRecordingRevealRequest(_recordingToastFilePath, _recordingToastFolderPath, OperatingSystem.IsWindows());
+                OpenPathInShell(request);
+            }
+            catch
+            {
+                ShowRecordingToast(
+                    "Unable to open recordings folder",
+                    _recordingToastFolderPath,
+                    _recordingToastFilePath,
+                    _recordingToastFolderPath,
+                    autoHide: true);
+            }
+        }
+
+        private static void OpenPathInShell(ShellOpenRequest request)
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = request.FileName,
+                Arguments = request.Arguments,
+                UseShellExecute = true
+            });
+        }
+
+        internal static ShellOpenRequest ResolveRecordingRevealRequest(string? filePath, string recordingsDirectory, bool isWindows)
+        {
+            if (isWindows && !string.IsNullOrWhiteSpace(filePath))
+            {
+                return new ShellOpenRequest("explorer.exe", $"/select,\"{filePath}\"");
+            }
+
+            return new ShellOpenRequest(recordingsDirectory, null);
+        }
+
         private async Task ShowConnectionDetailsDialogAsync(SshLaunchDetails details, SshDiagnosticsLevel diagnosticsLevel)
         {
             var dialog = CreateThemedDialogWindow("Connection details", 760, 340, canResize: false);
@@ -4291,14 +4735,17 @@ namespace NovaTerminal
         private void ExecuteCommand(TerminalCommand cmd)
         {
             ToggleCommandPalette(); // Close first
-            try
+            Dispatcher.UIThread.Post(() =>
             {
-                cmd.Action?.Invoke();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error executing command {cmd.Title}: {ex.Message}");
-            }
+                try
+                {
+                    cmd.Action?.Invoke();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error executing command {cmd.Title}: {ex.Message}");
+                }
+            }, DispatcherPriority.Background);
         }
 
 
@@ -4336,6 +4783,7 @@ namespace NovaTerminal
             if (_currentPane != null)
             {
                 _currentPane.RecordingStateChanged -= OnRecordingStateChanged;
+                _currentPane.RecordingNotification -= OnRecordingNotification;
             }
 
             _currentPane = pane;
@@ -4344,6 +4792,7 @@ namespace NovaTerminal
             if (_currentPane != null)
             {
                 _currentPane.RecordingStateChanged += OnRecordingStateChanged;
+                _currentPane.RecordingNotification += OnRecordingNotification;
             }
 
             // Initial UI sync
@@ -4443,23 +4892,111 @@ namespace NovaTerminal
 
         private void OnRecordingStateChanged(bool isRecording)
         {
+            Dispatcher.UIThread.Post(() =>
+            {
+                UpdateRecordButtonUi(isRecording);
+            });
+        }
+
+        private void OnRecordingNotification(RecordingNotificationEventArgs notification)
+        {
+            Dispatcher.UIThread.Post(() =>
+            {
+                switch (notification.Kind)
+                {
+                    case RecordingNotificationKind.Started:
+                        ShowRecordingToast(
+                            "Recording started",
+                            BuildRecordingToastMessage(notification),
+                            notification.FilePath,
+                            notification.RecordingsDirectory,
+                            autoHide: true);
+                        break;
+                    case RecordingNotificationKind.Stopped:
+                        ShowRecordingToast(
+                            "Recording saved",
+                            BuildRecordingToastMessage(notification),
+                            notification.FilePath,
+                            notification.RecordingsDirectory,
+                            autoHide: true);
+                        break;
+                    case RecordingNotificationKind.Failed:
+                        ShowRecordingToast(
+                            "Recording failed",
+                            notification.ErrorMessage ?? "Unable to start recording.",
+                            notification.FilePath,
+                            notification.RecordingsDirectory,
+                            autoHide: true);
+                        break;
+                }
+            });
+        }
+
+        private static string BuildRecordingToastMessage(RecordingNotificationEventArgs notification)
+        {
+            if (!string.IsNullOrWhiteSpace(notification.FilePath))
+            {
+                return notification.FilePath!;
+            }
+
+            return notification.RecordingsDirectory;
+        }
+
+        private void ShowRecordingToast(string title, string message, string? filePath, string? folderPath, bool autoHide)
+        {
+            var toast = this.FindControl<Border>("RecordingToast");
+            var titleBlock = this.FindControl<TextBlock>("RecordingToastTitle");
+            var messageBlock = this.FindControl<TextBlock>("RecordingToastMessage");
+            if (toast == null || titleBlock == null || messageBlock == null)
+            {
+                return;
+            }
+
+            _recordingToastFilePath = filePath;
+            _recordingToastFolderPath = folderPath;
+            titleBlock.Text = title;
+            messageBlock.Text = message;
+            toast.IsVisible = true;
+
+            _recordingToastTimer.Stop();
+            if (autoHide)
+            {
+                _recordingToastTimer.Start();
+            }
+        }
+
+        private void HideRecordingToast()
+        {
+            _recordingToastTimer.Stop();
+            var toast = this.FindControl<Border>("RecordingToast");
+            if (toast != null)
+            {
+                toast.IsVisible = false;
+            }
+        }
+
+        private void SyncRecordingButtonState()
+        {
+            UpdateRecordButtonUi(_currentPane?.IsRecording ?? false);
+        }
+
+        private void UpdateRecordButtonUi(bool isRecording)
+        {
             var btnRecord = this.FindControl<Button>("BtnRecord");
             var iconRecord = this.FindControl<PathIcon>("IconRecord");
 
-            if (btnRecord == null || iconRecord == null) return;
-
-            Dispatcher.UIThread.Post(() =>
+            if (btnRecord == null || iconRecord == null)
             {
-                if (isRecording)
-                {
-                    btnRecord.Foreground = Brushes.Red;
-                    // Pulse animation or just red for now
-                }
-                else
-                {
-                    btnRecord.Foreground = SolidColorBrush.Parse("#CCCCCC");
-                }
-            });
+                return;
+            }
+
+            var activeBrush = new SolidColorBrush(Color.Parse("#F1636B"));
+            var inactiveBrush = new SolidColorBrush(_settings.ActiveTheme.GetContrastForeground().ToAvaloniaColor());
+
+            btnRecord.Foreground = isRecording ? activeBrush : inactiveBrush;
+            iconRecord.Foreground = isRecording ? activeBrush : inactiveBrush;
+            btnRecord.Background = isRecording ? new SolidColorBrush(Color.Parse("#30F1636B")) : Brushes.Transparent;
+            ToolTip.SetTip(btnRecord, isRecording ? "Stop Recording" : "Record Session");
         }
     }
 }

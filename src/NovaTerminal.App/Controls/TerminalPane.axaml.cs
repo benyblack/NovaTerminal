@@ -45,6 +45,22 @@ namespace NovaTerminal.Controls
         Close
     }
 
+    public enum RecordingNotificationKind
+    {
+        Started,
+        Stopped,
+        Failed
+    }
+
+    public sealed class RecordingNotificationEventArgs : EventArgs
+    {
+        public required RecordingNotificationKind Kind { get; init; }
+        public required bool IsRecording { get; init; }
+        public required string RecordingsDirectory { get; init; }
+        public string? FilePath { get; init; }
+        public string? ErrorMessage { get; init; }
+    }
+
     public readonly record struct SidebarTransferRequest(
         TransferDirection Direction,
         TransferKind Kind,
@@ -62,6 +78,7 @@ namespace NovaTerminal.Controls
 
         public event Action<TerminalPane, SidebarTransferRequest>? RequestRemoteFilesSidebarTransfer;
         public event Action<bool>? RecordingStateChanged;
+        public event Action<RecordingNotificationEventArgs>? RecordingNotification;
         public event Action<TerminalPane, string>? WorkingDirectoryChanged;
         public event Action<TerminalPane, string>? TitleChanged;
         public event Action<TerminalPane, PaneAction>? PaneActionRequested;
@@ -95,6 +112,7 @@ namespace NovaTerminal.Controls
         private IRemoteDirectoryBrowserService _remoteDirectoryBrowserService = new RemoteDirectoryBrowserService();
         private RemoteFilesSidebarViewModel? _remoteFilesSidebarViewModel;
         private bool _isRemoteFilesSidebarTestServiceConfigured;
+        private string? _currentRecordingFilePath;
         private const double CommandAssistBubbleWidth = 420;
         private const double CommandAssistBubbleHeight = 36;
         private const double CommandAssistPopupWidth = 520;
@@ -154,30 +172,70 @@ namespace NovaTerminal.Controls
         {
             if (Session == null) return;
 
+            string recordingsDirectory = AppPaths.RecordingsDirectory;
+
             if (Session.IsRecording)
             {
                 Session.StopRecording();
-                Buffer?.WriteContent("\r\n[Nova] Recording stopped.\r\n", false);
+                RecordingNotification?.Invoke(new RecordingNotificationEventArgs
+                {
+                    Kind = RecordingNotificationKind.Stopped,
+                    IsRecording = Session.IsRecording,
+                    FilePath = _currentRecordingFilePath,
+                    RecordingsDirectory = recordingsDirectory
+                });
+                _currentRecordingFilePath = null;
             }
             else
             {
                 try
                 {
-                    string recDir = AppPaths.RecordingsDirectory;
-                    if (!System.IO.Directory.Exists(recDir)) System.IO.Directory.CreateDirectory(recDir);
+                    if (!System.IO.Directory.Exists(recordingsDirectory))
+                    {
+                        System.IO.Directory.CreateDirectory(recordingsDirectory);
+                    }
 
-                    string filename = $"nova_rec_{DateTime.Now:yyyyMMdd_HHmmss}.rec";
-                    string path = System.IO.Path.Combine(recDir, filename);
+                    string filename = BuildRecordingFileName(DateTime.Now, Guid.NewGuid().ToString("N"));
+                    string path = System.IO.Path.Combine(recordingsDirectory, filename);
 
                     Session.StartRecording(path);
-                    Buffer?.WriteContent($"\r\n[Nova] Recording started: {filename}\r\n", false);
+                    _currentRecordingFilePath = path;
+                    RecordingNotification?.Invoke(new RecordingNotificationEventArgs
+                    {
+                        Kind = RecordingNotificationKind.Started,
+                        IsRecording = Session.IsRecording,
+                        FilePath = path,
+                        RecordingsDirectory = recordingsDirectory
+                    });
                 }
                 catch (Exception ex)
                 {
-                    Buffer?.WriteContent($"\r\n[Nova] Failed to start recording: {ex.Message}\r\n", false);
+                    _currentRecordingFilePath = null;
+                    RecordingNotification?.Invoke(new RecordingNotificationEventArgs
+                    {
+                        Kind = RecordingNotificationKind.Failed,
+                        IsRecording = Session.IsRecording,
+                        FilePath = _currentRecordingFilePath,
+                        RecordingsDirectory = recordingsDirectory,
+                        ErrorMessage = ex.Message
+                    });
                 }
             }
+
             RecordingStateChanged?.Invoke(IsRecording);
+        }
+
+        internal static string BuildRecordingFileName(DateTime timestamp, string uniqueSuffix)
+        {
+            string normalizedSuffix = string.IsNullOrWhiteSpace(uniqueSuffix)
+                ? Guid.NewGuid().ToString("N")
+                : uniqueSuffix.Trim().ToLowerInvariant();
+
+            string shortSuffix = normalizedSuffix.Length > 6
+                ? normalizedSuffix[..6]
+                : normalizedSuffix.PadRight(6, '0');
+
+            return $"nova_rec_{timestamp:yyyyMMdd_HHmmss}_{shortSuffix}.rec";
         }
 
         public void UpdateProfile(TerminalProfile profile)
