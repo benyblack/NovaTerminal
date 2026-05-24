@@ -34,8 +34,10 @@ jobs:
         id: native-bin-cache
         uses: actions/cache@v4
         with:
-          path: src/NovaTerminal.App/native/target/release
-          key: native-bin-ubuntu-latest-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
+          path: |
+            src/NovaTerminal.App/native/target/release
+            src/NovaTerminal.App/native/target_linux/release
+          key: native-bin-v2-ubuntu-latest-${{ hashFiles('src/NovaTerminal.App/native/src/**', 'src/NovaTerminal.App/native/Cargo.toml', 'src/NovaTerminal.App/native/Cargo.lock') }}
 
       - name: Install Rust
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
@@ -49,13 +51,11 @@ jobs:
 
       - name: Build Rust (Linux)
         if: steps.native-bin-cache.outputs.cache-hit != 'true'
-        run: cd src/NovaTerminal.App/native && cargo build --release
-
-      - name: Stage Linux native binary
         run: |
-          mkdir -p src/NovaTerminal.App/native/target_linux/release
-          cp src/NovaTerminal.App/native/target/release/librusty_pty.so \
-             src/NovaTerminal.App/native/target_linux/release/
+          cd src/NovaTerminal.App/native
+          cargo build --release
+          mkdir -p target_linux/release
+          cp target/release/librusty_pty.so target_linux/release/
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
