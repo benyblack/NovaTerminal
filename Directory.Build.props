@@ -5,4 +5,14 @@
     <FileVersion>0.2.0.0</FileVersion>
     <InformationalVersion>0.2.0</InformationalVersion>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Disable the Roslyn compiler server (VBCSCompiler) for every project. The server
+         is a background process that inherits stdout/stderr from the launching dotnet, then
+         outlives it; a parent reading the pipe (test harness, CI runner, Claude Code's Bash
+         tool) never sees EOF and hangs indefinitely. The hang typically surfaces in
+         BuildCliShim because that's the last target to emit output. Disabling this trades
+         a small per-build cost for deterministic shutdown. -->
+    <UseSharedCompilation>false</UseSharedCompilation>
+  </PropertyGroup>
 </Project>
