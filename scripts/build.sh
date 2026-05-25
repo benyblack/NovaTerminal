@@ -22,11 +22,14 @@ if [ $# -eq 0 ]; then
 fi
 
 # Insert -nodeReuse:false immediately after the verb (build/test/publish/etc.) so it
-# applies to the MSBuild driver, not as a project argument.
+# applies to the MSBuild driver, not as a project argument. `restore` and `run` are
+# deliberately omitted: restore does no compilation so the flag is unnecessary, and
+# `dotnet run`'s argument parser splits options across the run/build/app boundaries
+# in ways that make a generic insert here unsafe.
 verb="$1"
 shift
 case "$verb" in
-    build|test|publish|pack|restore|msbuild|clean|run)
+    build|test|publish|pack|msbuild|clean)
         exec dotnet "$verb" -nodeReuse:false "$@"
         ;;
     *)

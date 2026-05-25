@@ -23,10 +23,14 @@ if ($dotnetArgs.Count -eq 0) {
 }
 
 # Insert -nodeReuse:false immediately after the verb (build/test/publish/etc.) so it
-# applies to the MSBuild driver, not as a project argument.
-$verbs = @('build','test','publish','pack','restore','msbuild','clean','run')
+# applies to the MSBuild driver, not as a project argument. `restore` and `run` are
+# deliberately omitted: restore does no compilation so the flag is unnecessary, and
+# `dotnet run`'s argument parser splits options across the run/build/app boundaries
+# in ways that make a generic insert here unsafe.
+$verbs = @('build','test','publish','pack','msbuild','clean')
 if ($verbs -contains $dotnetArgs[0]) {
-    $dotnetArgs = @($dotnetArgs[0], '-nodeReuse:false') + $dotnetArgs[1..($dotnetArgs.Count - 1)]
+    $rest = @($dotnetArgs | Select-Object -Skip 1)
+    $dotnetArgs = @($dotnetArgs[0], '-nodeReuse:false') + $rest
 }
 
 & dotnet @dotnetArgs
