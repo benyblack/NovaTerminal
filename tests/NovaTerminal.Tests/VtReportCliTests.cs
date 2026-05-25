@@ -79,7 +79,7 @@ public sealed class VtReportCliTests
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
-            $"build \"{cliProjectPath}\" -c Release --no-restore -p:BuildProjectReferences=false");
+            $"build \"{cliProjectPath}\" -c Release --no-restore -nodeReuse:false -p:BuildProjectReferences=false");
         (int exitCode, string stdout, string stderr) = RunProcessFromRepository(
             repoRoot,
             cliExecutablePath,
@@ -103,7 +103,7 @@ public sealed class VtReportCliTests
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
-            $"build \"{appProjectPath}\" -c Release --no-restore");
+            $"build \"{appProjectPath}\" -c Release --no-restore -nodeReuse:false");
         (int exitCode, string stdout, string stderr) = RunProcessFromRepository(
             repoRoot,
             appExecutablePath,
@@ -127,7 +127,7 @@ public sealed class VtReportCliTests
         (int buildExitCode, string buildStdOut, string buildStdErr) = RunProcessFromRepository(
             repoRoot,
             "dotnet",
-            $"build \"{appProjectPath}\" -c Release --no-restore");
+            $"build \"{appProjectPath}\" -c Release --no-restore -nodeReuse:false");
 
         Assert.Equal(0, buildExitCode);
         Assert.Equal(string.Empty, buildStdErr);
@@ -185,6 +185,11 @@ public sealed class VtReportCliTests
         // Read stdout and stderr concurrently to avoid the deadlock that occurs
         // on Windows when the subprocess fills the 4KB stderr pipe buffer while
         // we're blocked on ReadToEnd() for stdout.
+        //
+        // Tests that invoke `dotnet build` here must pass `-nodeReuse:false`,
+        // otherwise the MSBuild worker pool outlives the build process and holds
+        // the write end of the redirected pipes — WaitForExit() returns but
+        // ReadToEnd() never sees EOF, causing the test (and Linux CI) to hang.
         var stdoutTask = Task.Run(() => process!.StandardOutput.ReadToEnd());
         var stderrTask = Task.Run(() => process!.StandardError.ReadToEnd());
         process!.WaitForExit();
