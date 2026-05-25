@@ -10,6 +10,35 @@ namespace NovaTerminal.Tests.Core;
 public sealed class SessionManagerTests
 {
     [AvaloniaFact]
+    public void CreateRestoredTabContent_UsesProvidedSettingsForPaneInitialization()
+    {
+        var settings = new TerminalSettings
+        {
+            FontSize = 17
+        };
+
+        var tabSession = new TabSession
+        {
+            Title = "Local",
+            Root = new PaneNode
+            {
+                Type = NodeType.Leaf,
+                Command = "pwsh.exe",
+                Arguments = "-NoLogo",
+                PaneId = Guid.NewGuid().ToString()
+            }
+        };
+
+        var content = SessionManager.CreateRestoredTabContent(tabSession, settings);
+
+        var pane = Assert.IsType<TerminalPane>(content);
+        var termView = pane.FindControl<TerminalView>("TermView");
+
+        Assert.NotNull(termView);
+        Assert.Equal(17, termView!.FontSize);
+    }
+
+    [AvaloniaFact]
     public void RestoreSession_UsesStoreBackedSshProfileAndPreservesBackendKind()
     {
         string storePath = JsonSshProfileStore.GetDefaultStorePath();

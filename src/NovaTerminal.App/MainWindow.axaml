@@ -274,7 +274,7 @@
                     <TextBlock Name="ConnectionTitleText" Text="Connection Manager" VerticalAlignment="Center" Margin="15,0" FontWeight="Bold"/>
                     <Button Name="BtnCloseConnections" Content="✕" HorizontalAlignment="Right" Width="40" Background="Transparent" BorderThickness="0"/>
                 </Grid>
-                <controls:ConnectionManager Name="ConnectionManagerControl" Grid.Row="1"/>
+                <ContentControl Name="ConnectionManagerHost" Grid.Row="1"/>
             </Grid>
         </Border>
 
@@ -290,7 +290,7 @@
                     <TextBlock Text="Recent Transfers" VerticalAlignment="Center" Margin="10,0" FontSize="12" FontWeight="Bold"/>
                     <Button Name="BtnCloseTransfers" Content="✕" HorizontalAlignment="Right" Width="32" Background="Transparent" BorderThickness="0"/>
                 </Grid>
-                <controls:TransferCenter Name="TransferCenterControl" Grid.Row="1"/>
+                <ContentControl Name="TransferCenterHost" Grid.Row="1"/>
             </Grid>
         </Border>
 

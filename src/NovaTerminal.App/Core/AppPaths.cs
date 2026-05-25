@@ -6,6 +6,7 @@ namespace NovaTerminal.Core
     public static class AppPaths
     {
         private const string AppName = "NovaTerminal";
+        private const string RootOverrideEnvVar = "NOVATERM_APPDATA_ROOT";
         private static readonly object InitLock = new();
         private static bool _initialized;
 
@@ -14,9 +15,21 @@ namespace NovaTerminal.Core
             EnsureInitialized();
         }
 
-        public static string RootDirectory => Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            AppName);
+        public static string RootDirectory
+        {
+            get
+            {
+                string? overrideRoot = Environment.GetEnvironmentVariable(RootOverrideEnvVar);
+                if (!string.IsNullOrWhiteSpace(overrideRoot))
+                {
+                    return Path.GetFullPath(overrideRoot);
+                }
+
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    AppName);
+            }
+        }
 
         public static string SettingsFilePath => Path.Combine(RootDirectory, "settings.json");
         public static string ThemesDirectory => Path.Combine(RootDirectory, "themes");

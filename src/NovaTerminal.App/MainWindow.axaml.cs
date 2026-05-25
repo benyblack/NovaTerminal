@@ -55,6 +55,7 @@ namespace NovaTerminal
         private readonly Dictionary<TabItem, Guid> _zoomedPaneIdByTab = new();
         private readonly HashSet<TabItem> _broadcastEnabledTabs = new();
         private readonly Dictionary<TabItem, Guid> _tabIds = new();
+        private readonly Dictionary<TerminalPane, TabItem> _paneOwnerTab = new();
         private readonly Dictionary<TabItem, PaneLayoutModel> _layoutModelByTab = new();
         private readonly List<TabItem> _tabMru = new();
         private readonly Dictionary<TabItem, TabRuntimeState> _tabStateByTab = new();
@@ -79,6 +80,10 @@ namespace NovaTerminal
         private readonly DispatcherTimer _recordingToastTimer = new() { Interval = TimeSpan.FromSeconds(6) };
         private string? _recordingToastFolderPath;
         private string? _recordingToastFilePath;
+        private ConnectionManager? _connectionManagerControl;
+        private TransferCenter? _transferCenterControl;
+        private readonly StartupRestoreCoordinator _startupRestoreCoordinator;
+        private StartupRestorePlan? _pendingStartupRestorePlan;
 
         private sealed class PaneZoomState
         {
@@ -107,6 +112,7 @@ namespace NovaTerminal
         protected override void OnOpened(EventArgs e)
         {
             base.OnOpened(e);
+            StartupPerformanceTracker.Current?.TryMark(StartupPhase.WindowOpened);
             if (_settings.QuakeModeEnabled)
             {
                 try
@@ -126,13 +132,18 @@ namespace NovaTerminal
         private void ToggleConnections()
         {
             var overlay = this.FindControl<Border>("ConnectionOverlay");
-            var connManager = this.FindControl<ConnectionManager>("ConnectionManagerControl");
 
             if (overlay != null)
             {
                 overlay.IsVisible = !overlay.IsVisible;
-                if (overlay.IsVisible && connManager != null)
+                if (overlay.IsVisible)
                 {
+                    var connManager = EnsureConnectionManagerControl();
+                    if (connManager == null)
+                    {
+                        return;
+                    }
+
                     connManager.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
                     // Focus search
                     var search = connManager.FindControl<TextBox>("SearchInput");
@@ -1193,6 +1204,116 @@ namespace NovaTerminal
             SetupCommandPalette();
         }
 
+        private bool TryRestoreStartupSession(TabControl tabs)
+        {
+            if (!SessionManager.TryLoadSavedSession(out NovaSession? session) ||
+                session == null ||
+                session.Tabs.Count == 0)
+            {
+                return false;
+            }
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("StartupRestore.AfterSessionLoad");
+
+            var plan = StartupRestorePlan.Create(session);
+            tabs.Items.Clear();
+
+            for (int index = 0; index < session.Tabs.Count; index++)
+            {
+                TabSession tabSession = session.Tabs[index];
+                TabItem? tabItem = index == plan.ImmediateTab.OriginalIndex
+                    ? SessionManager.CreateRestoredTabItem(tabSession, _settings)
+                    : CreateStartupPlaceholderTab(tabSession);
+
+                if (tabItem != null)
+                {
+                    tabs.Items.Add(tabItem);
+                }
+            }
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("StartupRestore.AfterTabMaterialization");
+
+            if (tabs.Items.Count == 0)
+            {
+                return false;
+            }
+
+            if (plan.ImmediateTab.OriginalIndex >= 0 && plan.ImmediateTab.OriginalIndex < tabs.Items.Count)
+            {
+                tabs.SelectedIndex = plan.ImmediateTab.OriginalIndex;
+            }
+
+            InitializeRestoredTabs(tabs);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("StartupRestore.AfterInitializeRestoredTabs");
+            StartupPerformanceTracker.Current?.TryMark(StartupPhase.SessionRestoreComplete);
+
+            if (plan.DeferredTabs.Count == 0)
+            {
+                StartupPerformanceTracker.Current?.TryMark(StartupPhase.BackgroundRestoreComplete);
+                _pendingStartupRestorePlan = null;
+            }
+            else
+            {
+                _pendingStartupRestorePlan = plan;
+            }
+
+            return true;
+        }
+
+        private TabItem CreateStartupPlaceholderTab(TabSession tabSession)
+        {
+            return new TabItem
+            {
+                Header = new TextBlock
+                {
+                    Text = tabSession.Title,
+                    Foreground = Brushes.White,
+                    FontSize = 12,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Padding = new Thickness(10, 4)
+                },
+                Content = new Border { Background = Brushes.Transparent },
+                Tag = tabSession
+            };
+        }
+
+        private void RunDeferredStartupRestore()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            var plan = _pendingStartupRestorePlan;
+            if (tabs == null || plan == null)
+            {
+                return;
+            }
+
+            _pendingStartupRestorePlan = null;
+            _startupRestoreCoordinator.RunDeferred(
+                plan.DeferredTabs,
+                deferredTab => HydrateDeferredStartupTab(tabs, deferredTab),
+                () => StartupPerformanceTracker.Current?.TryMark(StartupPhase.BackgroundRestoreComplete));
+        }
+
+        private void HydrateDeferredStartupTab(TabControl tabs, StartupRestoreTab deferredTab)
+        {
+            if (deferredTab.OriginalIndex < 0 || deferredTab.OriginalIndex >= tabs.Items.Count)
+            {
+                return;
+            }
+
+            if (tabs.Items[deferredTab.OriginalIndex] is not TabItem tabItem)
+            {
+                return;
+            }
+
+            Control? content = SessionManager.CreateRestoredTabContent(deferredTab.Tab, _settings);
+            if (content == null)
+            {
+                return;
+            }
+
+            tabItem.Content = content;
+            tabItem.Tag = deferredTab.Tab;
+            InitializeRestoredTabs(tabs);
+        }
+
         private async Task SaveWorkspaceInteractiveAsync()
         {
             var tabs = this.FindControl<TabControl>("Tabs");
@@ -1841,15 +1962,19 @@ namespace NovaTerminal
         public MainWindow()
         {
             InitializeComponent();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterInitializeComponent");
             _settings = TerminalSettings.Load();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterSettingsLoad");
             _sshConnectionService = new SshConnectionService();
             _sshInteractionService = new SshInteractionService(() => this, ApplyThemeToDialogWindow);
             _sshLegacyMigrationService = new SshLegacyProfileMigrationService();
+            _startupRestoreCoordinator = new StartupRestoreCoordinator(action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background));
 
             if (_sshLegacyMigrationService.MigrateLegacyProfiles(_settings))
             {
                 _settings.Save();
             }
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterLegacyMigration");
 
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
@@ -1857,11 +1982,17 @@ namespace NovaTerminal
                 // Give layout one more tick to settle
                 Dispatcher.UIThread.Post(() =>
                 {
+                    StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.LoadedPostStart");
                     UpdateTabVisuals();
                     UpdateTabHeaderViewport();
                     EnsureSelectedTabHeaderVisible();
                     FocusCurrentTerminal(defer: true);
                     SyncRecordingButtonState();
+                    PopulateNewTabMenu();
+                    InitializeCommandPaletteUI();
+                    InitializeTransferCenterUI();
+                    StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.LoadedPostUiReady");
+                    StartupPerformanceTracker.Current?.TryMark(StartupPhase.DeferredWorkComplete);
                 }, DispatcherPriority.Input);
             };
             this.Activated += (s, e) => FocusCurrentTerminal(defer: true);
@@ -1914,41 +2045,9 @@ namespace NovaTerminal
 
             var btnConnections = this.FindControl<Button>("BtnConnections");
             var btnCloseConn = this.FindControl<Button>("BtnCloseConnections");
-            var connOverlay = this.FindControl<Border>("ConnectionOverlay");
-            var connManager = this.FindControl<ConnectionManager>("ConnectionManagerControl");
 
             if (btnConnections != null) btnConnections.Click += (s, e) => ToggleConnections();
             if (btnCloseConn != null) btnCloseConn.Click += (s, e) => ToggleConnections();
-
-            if (connManager != null)
-            {
-                connManager.OnQuickOpenRequested += (profile, target, diagnosticsLevel) =>
-                {
-                    HandleSshQuickOpen(profile, target, diagnosticsLevel);
-                    ToggleConnections();
-                };
-                connManager.OnCopyLaunchCommandRequested += (profile, diagnosticsLevel) =>
-                {
-                    _ = CopySshLaunchCommandAsync(profile, diagnosticsLevel);
-                };
-                connManager.OnConnectionDetailsRequested += (profile, diagnosticsLevel) =>
-                {
-                    _ = ShowSshConnectionDetailsAsync(profile, diagnosticsLevel);
-                };
-                connManager.OnProfilesChanged += () =>
-                {
-                    _sshConnectionService.SaveConnectionProfiles(connManager.GetAllProfiles());
-                };
-                connManager.OnSyncRequested += HandleSshSync;
-                connManager.OnNewConnectionRequested += async () =>
-                {
-                    await ShowNewSshConnectionDialogAsync(null);
-                };
-                connManager.OnEditProfile += async (profile) =>
-                {
-                    await ShowNewSshConnectionDialogAsync(profile);
-                };
-            }
 
             if (tabs != null)
             {
@@ -1995,10 +2094,10 @@ namespace NovaTerminal
                     RendererStatistics.RecordTabSwitchTime(sw.ElapsedMilliseconds);
                 };
             }
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterCoreUiWireup");
 
             ApplyThemeToUI();
-
-            PopulateNewTabMenu();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterApplyTheme");
 
             var menuManage = this.FindControl<MenuItem>("MenuManageProfiles");
             if (menuManage != null) menuManage.Click += async (s, e) =>
@@ -2045,26 +2144,25 @@ namespace NovaTerminal
             // Attempt to restore session
             if (tabs != null)
             {
-                SessionManager.RestoreSession(this, tabs, _settings);
-
-                // If restore failed or was empty, load default tab
-                if (tabs.Items.Count == 0)
+                if (!TryRestoreStartupSession(tabs))
                 {
                     AddTab(defaultProfile);
-                }
-                else
-                {
-                    InitializeRestoredTabs(tabs);
+                    StartupPerformanceTracker.Current?.TryMark(StartupPhase.SessionRestoreComplete);
+                    StartupPerformanceTracker.Current?.TryMark(StartupPhase.BackgroundRestoreComplete);
                 }
             }
             else
             {
                 AddTab(defaultProfile);
+                StartupPerformanceTracker.Current?.TryMark(StartupPhase.SessionRestoreComplete);
+                StartupPerformanceTracker.Current?.TryMark(StartupPhase.BackgroundRestoreComplete);
             }
 
-            SetupCommandPalette();
-            InitializeCommandPaletteUI();
-            InitializeTransferCenterUI();
+            if (_pendingStartupRestorePlan != null)
+            {
+                Dispatcher.UIThread.Post(RunDeferredStartupRestore, DispatcherPriority.Background);
+            }
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterInitialTabs");
 
             // Keyboard Shortcuts
             this.AddHandler(KeyDownEvent, (s, e) =>
@@ -2243,6 +2341,7 @@ namespace NovaTerminal
             }, RoutingStrategies.Tunnel);
 
             try { Vault = new VaultService(); } catch { }
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.CtorComplete");
         }
 
         private void InitializeRestoredTabs(TabControl tabs)
@@ -2252,7 +2351,11 @@ namespace NovaTerminal
                 GetTabId(item);
                 GetOrCreateTabState(item);
                 ConfigureTabHeader(item, GetTabHeaderText(item));
-                if (item.Content is Control c) WireControlTree(c);
+                if (item.Content is Control c)
+                {
+                    WireControlTree(c);
+                    RegisterPaneOwners(item, c);
+                }
             }
 
             foreach (var item in tabs.Items.Cast<TabItem>())
@@ -2438,6 +2541,7 @@ namespace NovaTerminal
 
         private void UnwirePane(TerminalPane pane)
         {
+            _paneOwnerTab.Remove(pane);
             pane.RequestRemoteFilesSidebarTransfer -= OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
             pane.TitleChanged -= OnPaneTitleChanged;
@@ -2470,8 +2574,13 @@ namespace NovaTerminal
 
         private void OnPaneOutputReceived(TerminalPane pane)
         {
-            var tab = pane.FindAncestorOfType<TabItem>();
+            var tab = ResolveOwningTabForPane(pane);
             if (tab == null) return;
+
+            if (TryGetSelectedTab(out var selectedTabForStartup) && selectedTabForStartup == tab && ResolvePaneForTab(selectedTabForStartup) == pane)
+            {
+                StartupPerformanceTracker.Current?.TryMark(StartupPhase.FirstTerminalReady);
+            }
 
             if (!TryGetSelectedTab(out var selectedTab) || selectedTab != tab)
             {
@@ -3403,6 +3512,7 @@ namespace NovaTerminal
             TouchTabMru(tabItem);
             _currentPane = pane;
             _activePaneByTab[tabItem] = pane;
+            _paneOwnerTab[pane] = tabItem;
 
             // Defer visual update until layout is complete (ensures template is applied)
             EventHandler? layoutHandler = null;
@@ -3730,11 +3840,7 @@ namespace NovaTerminal
                 dragBorder.Background = headerBrush;
             }
 
-            var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
-            if (connManager != null)
-            {
-                connManager.ApplyTheme(theme);
-            }
+            _connectionManagerControl?.ApplyTheme(theme);
 
             var connTitleBar = this.FindControl<Grid>("ConnectionTitleBar");
             var connTitleText = this.FindControl<TextBlock>("ConnectionTitleText");
@@ -4270,11 +4376,81 @@ namespace NovaTerminal
             }
         }
 
+        private ConnectionManager? EnsureConnectionManagerControl()
+        {
+            if (_connectionManagerControl != null)
+            {
+                return _connectionManagerControl;
+            }
+
+            var host = this.FindControl<ContentControl>("ConnectionManagerHost");
+            if (host == null)
+            {
+                return null;
+            }
+
+            var connManager = new ConnectionManager();
+            connManager.ApplyTheme(_settings.ActiveTheme);
+            connManager.OnQuickOpenRequested += (profile, target, diagnosticsLevel) =>
+            {
+                HandleSshQuickOpen(profile, target, diagnosticsLevel);
+                ToggleConnections();
+            };
+            connManager.OnCopyLaunchCommandRequested += (profile, diagnosticsLevel) =>
+            {
+                _ = CopySshLaunchCommandAsync(profile, diagnosticsLevel);
+            };
+            connManager.OnConnectionDetailsRequested += (profile, diagnosticsLevel) =>
+            {
+                _ = ShowSshConnectionDetailsAsync(profile, diagnosticsLevel);
+            };
+            connManager.OnProfilesChanged += () =>
+            {
+                _sshConnectionService.SaveConnectionProfiles(connManager.GetAllProfiles());
+            };
+            connManager.OnSyncRequested += HandleSshSync;
+            connManager.OnNewConnectionRequested += async () =>
+            {
+                await ShowNewSshConnectionDialogAsync(null);
+            };
+            connManager.OnEditProfile += async (profile) =>
+            {
+                await ShowNewSshConnectionDialogAsync(profile);
+            };
+
+            host.Content = connManager;
+            _connectionManagerControl = connManager;
+            return connManager;
+        }
+
+        private TransferCenter? EnsureTransferCenterControl()
+        {
+            if (_transferCenterControl != null)
+            {
+                return _transferCenterControl;
+            }
+
+            var host = this.FindControl<ContentControl>("TransferCenterHost");
+            if (host == null)
+            {
+                return null;
+            }
+
+            _transferCenterControl = new TransferCenter();
+            host.Content = _transferCenterControl;
+            return _transferCenterControl;
+        }
+
         private void ToggleTransferCenter()
         {
             var overlay = this.FindControl<Border>("TransferOverlay");
             if (overlay != null)
             {
+                if (!overlay.IsVisible)
+                {
+                    _ = EnsureTransferCenterControl();
+                }
+
                 overlay.IsVisible = !overlay.IsVisible;
             }
         }
@@ -4286,6 +4462,7 @@ namespace NovaTerminal
                 var overlay = this.FindControl<Border>("TransferOverlay");
                 if (overlay != null)
                 {
+                    _ = EnsureTransferCenterControl();
                     overlay.IsVisible = true;
                 }
             }
@@ -4437,11 +4614,7 @@ namespace NovaTerminal
                 UpdateTransparencyHints();
 
                 // Refresh Connection Manager if open (or just always update it)
-                var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
-                if (connManager != null)
-                {
-                    connManager.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
-                }
+                _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
             }
         }
 
@@ -4725,11 +4898,7 @@ namespace NovaTerminal
             SetupCommandPalette();
 
             // Refresh Connection Manager if open (or just always update it)
-            var connManager = this.FindControl<NovaTerminal.Controls.ConnectionManager>("ConnectionManagerControl");
-            if (connManager != null)
-            {
-                connManager.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
-            }
+            _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
         }
 
         private void ExecuteCommand(TerminalCommand cmd)
@@ -4772,9 +4941,68 @@ namespace NovaTerminal
             _globalHotkey?.Dispose();
         }
 
+        private void RegisterPaneOwners(TabItem tabItem, Control control)
+        {
+            if (control is TerminalPane pane)
+            {
+                _paneOwnerTab[pane] = tabItem;
+                return;
+            }
+
+            if (control is Panel panel)
+            {
+                foreach (var child in panel.Children.OfType<Control>())
+                {
+                    RegisterPaneOwners(tabItem, child);
+                }
+
+                return;
+            }
+
+            if (control is ContentControl contentControl && contentControl.Content is Control content)
+            {
+                RegisterPaneOwners(tabItem, content);
+            }
+        }
+
+        private TabItem? ResolveOwningTabForPane(TerminalPane pane)
+        {
+            if (_paneOwnerTab.TryGetValue(pane, out var cachedTab))
+            {
+                return cachedTab;
+            }
+
+            var visualTab = pane.FindAncestorOfType<TabItem>();
+            if (visualTab != null)
+            {
+                _paneOwnerTab[pane] = visualTab;
+                return visualTab;
+            }
+
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null)
+            {
+                return null;
+            }
+
+            foreach (var item in tabs.Items.Cast<TabItem>())
+            {
+                if (item.Content is Control content)
+                {
+                    RegisterPaneOwners(item, content);
+                    if (_paneOwnerTab.TryGetValue(pane, out cachedTab))
+                    {
+                        return cachedTab;
+                    }
+                }
+            }
+
+            return null;
+        }
+
         private void UpdateActivePane(TerminalPane pane)
         {
-            var ownerTab = pane.FindAncestorOfType<TabItem>();
+            var ownerTab = ResolveOwningTabForPane(pane);
             if (ownerTab != null) _activePaneByTab[ownerTab] = pane;
 
             if (_currentPane == pane) return;

@@ -132,9 +132,9 @@
                     </Grid>
                 </Grid>
 
-                <controls:RemoteFilesSidebar x:Name="RemoteFilesSidebarHost"
-                                             Grid.Column="1"
-                                             IsVisible="False" />
+                <ContentControl x:Name="RemoteFilesSidebarPresenter"
+                                Grid.Column="1"
+                                IsVisible="False" />
             </Grid>
 
             <!-- Port Forwarding Status Bar -->

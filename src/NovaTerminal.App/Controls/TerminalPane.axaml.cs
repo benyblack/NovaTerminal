@@ -111,6 +111,7 @@ namespace NovaTerminal.Controls
         private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
         private IRemoteDirectoryBrowserService _remoteDirectoryBrowserService = new RemoteDirectoryBrowserService();
         private RemoteFilesSidebarViewModel? _remoteFilesSidebarViewModel;
+        private RemoteFilesSidebar? _remoteFilesSidebarHost;
         private bool _isRemoteFilesSidebarTestServiceConfigured;
         private string? _currentRecordingFilePath;
         private const double CommandAssistBubbleWidth = 420;
@@ -268,35 +269,55 @@ namespace NovaTerminal.Controls
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(null, null, c, r);
-            SetupCommon();
+            SetupCommon(null);
         }
 
         public TerminalPane(string shell)
+            : this(shell, initialSettings: null)
+        {
+        }
+
+        internal TerminalPane(string shell, TerminalSettings? initialSettings)
         {
             InitializeComponent();
             _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(shell, null, c, r);
-            SetupCommon();
+            SetupCommon(initialSettings);
         }
 
         public TerminalPane(string shell, string args)
+            : this(shell, args, initialSettings: null)
+        {
+        }
+
+        internal TerminalPane(string shell, string args, TerminalSettings? initialSettings)
         {
             InitializeComponent();
             _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(shell, null, c, r, args);
-            SetupCommon();
+            SetupCommon(initialSettings);
         }
 
         public TerminalPane(TerminalProfile profile)
-            : this(profile, SshDiagnosticsLevel.None)
+            : this(profile, initialSettings: null, SshDiagnosticsLevel.None, useInitialSettings: false)
         {
         }
 
         public TerminalPane(TerminalProfile profile, SshDiagnosticsLevel sshDiagnosticsLevel)
+            : this(profile, initialSettings: null, sshDiagnosticsLevel, useInitialSettings: false)
+        {
+        }
+
+        internal TerminalPane(TerminalProfile profile, TerminalSettings initialSettings, SshDiagnosticsLevel sshDiagnosticsLevel = SshDiagnosticsLevel.None)
+            : this(profile, initialSettings, sshDiagnosticsLevel, useInitialSettings: true)
+        {
+        }
+
+        private TerminalPane(TerminalProfile profile, TerminalSettings? initialSettings, SshDiagnosticsLevel sshDiagnosticsLevel, bool useInitialSettings)
         {
             Profile = profile;
             InitializeComponent();
@@ -305,10 +326,10 @@ namespace NovaTerminal.Controls
             TermView.SetBuffer(Buffer);
             TermView.ShellOverride = profile.ShellOverride;
             TermView.Ready += (c, r) => InitializeSession(profile.Command, profile, c, r);
-            SetupCommon();
+            SetupCommon(useInitialSettings ? initialSettings : null);
         }
 
-        private void SetupCommon()
+        private void SetupCommon(TerminalSettings? initialSettings)
         {
             TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
             TermView.TextInput += (_, e) =>
@@ -373,10 +394,36 @@ namespace NovaTerminal.Controls
             };
             TermView.CommandAssistAnchorHintChanged += () => UpdateCommandAssistOverlayPlacement();
             SizeChanged += (_, _) => UpdateCommandAssistOverlayPlacement();
+            TermView.TextInputObserved += text =>
+            {
+                if (EnsureCommandAssistInitialized())
+                {
+                    _commandAssistController?.HandleTextInput(text);
+                }
+            };
+            TermView.BackspaceObserved += () =>
+            {
+                if (EnsureCommandAssistInitialized())
+                {
+                    _commandAssistController?.HandleBackspace();
+                }
+            };
+            TermView.EnterObserved += OnCommandAssistEnterObserved;
+            TermView.PasteObserved += text =>
+            {
+                if (EnsureCommandAssistInitialized())
+                {
+                    _commandAssistController?.HandlePastedText(text);
+                }
+            };
+
+            if (Buffer != null)
+            {
+                Buffer.OnScreenSwitched += OnBufferScreenSwitched;
+            }
 
             // Load Settings
-            ApplySettings(TerminalSettings.Load());
-            InitializeCommandAssist();
+            ApplySettings(initialSettings ?? TerminalSettings.Load());
             UpdateMinimumSizeConstraints();
             AutomationProperties.SetName(TermView, "Terminal Pane");
             AutomationProperties.SetName(this, "Terminal Pane");
@@ -466,28 +513,49 @@ namespace NovaTerminal.Controls
                 MenuToggleRemoteFilesSidebar.Click += async (_, _) => await ToggleRemoteFilesSidebarAsync();
             }
 
-            if (RemoteFilesSidebarHost != null)
-            {
-                if (RemoteFilesSidebarHost.FindControl<Button>("BtnUploadFile") is Button uploadFileButton)
-                {
-                    uploadFileButton.Click += (_, _) => RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind.File);
-                }
-
-                if (RemoteFilesSidebarHost.FindControl<Button>("BtnUploadFolder") is Button uploadFolderButton)
-                {
-                    uploadFolderButton.Click += (_, _) => RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind.Folder);
-                }
-
-                if (RemoteFilesSidebarHost.FindControl<Button>("BtnDownloadSelected") is Button downloadSelectedButton)
-                {
-                    downloadSelectedButton.Click += (_, _) => RequestRemoteFilesSidebarTransferForSelectedEntry();
-                }
-            }
-
             UpdateRemoteFilesSidebarHostIdentity();
             UpdateRemoteFilesSidebarCurrentDirectoryState();
             UpdateRemoteFilesSidebarVisibility();
             UpdateRemoteFilesSidebarEntryPointState();
+        }
+
+        private RemoteFilesSidebar EnsureRemoteFilesSidebarHost()
+        {
+            if (_remoteFilesSidebarHost != null)
+            {
+                return _remoteFilesSidebarHost;
+            }
+
+            var host = new RemoteFilesSidebar
+            {
+                IsVisible = false,
+                DataContext = _remoteFilesSidebarViewModel
+            };
+
+            if (host.FindControl<Button>("BtnUploadFile") is Button uploadFileButton)
+            {
+                uploadFileButton.Click += (_, _) => RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind.File);
+            }
+
+            if (host.FindControl<Button>("BtnUploadFolder") is Button uploadFolderButton)
+            {
+                uploadFolderButton.Click += (_, _) => RequestRemoteFilesSidebarUploadForCurrentDirectory(TransferKind.Folder);
+            }
+
+            if (host.FindControl<Button>("BtnDownloadSelected") is Button downloadSelectedButton)
+            {
+                downloadSelectedButton.Click += (_, _) => RequestRemoteFilesSidebarTransferForSelectedEntry();
+            }
+
+            if (RemoteFilesSidebarPresenter != null)
+            {
+                RemoteFilesSidebarPresenter.Content = host;
+                RemoteFilesSidebarPresenter.IsVisible = false;
+            }
+
+            _remoteFilesSidebarHost = host;
+            UpdateRemoteFilesSidebarHostIdentity();
+            return host;
         }
 
         private void SetRemoteFilesSidebarService(IRemoteDirectoryBrowserService directoryBrowserService)
@@ -503,9 +571,9 @@ namespace NovaTerminal.Controls
             _remoteFilesSidebarViewModel = new RemoteFilesSidebarViewModel(directoryBrowserService);
             _remoteFilesSidebarViewModel.PropertyChanged += OnRemoteFilesSidebarViewModelPropertyChanged;
 
-            if (RemoteFilesSidebarHost != null)
+            if (_remoteFilesSidebarHost != null)
             {
-                RemoteFilesSidebarHost.DataContext = _remoteFilesSidebarViewModel;
+                _remoteFilesSidebarHost.DataContext = _remoteFilesSidebarViewModel;
             }
 
             UpdateRemoteFilesSidebarHostIdentity();
@@ -545,20 +613,29 @@ namespace NovaTerminal.Controls
 
         private void UpdateRemoteFilesSidebarVisibility()
         {
-            if (RemoteFilesSidebarHost == null)
-            {
-                return;
-            }
-
-            RemoteFilesSidebarHost.IsVisible =
+            bool shouldShow =
                 _remoteFilesSidebarViewModel?.IsOpen == true &&
                 !(Buffer?.IsAltScreenActive ?? false) &&
                 IsRemoteFilesSidebarSupported();
+
+            if (shouldShow)
+            {
+                EnsureRemoteFilesSidebarHost().IsVisible = true;
+            }
+            else if (_remoteFilesSidebarHost != null)
+            {
+                _remoteFilesSidebarHost.IsVisible = false;
+            }
+
+            if (RemoteFilesSidebarPresenter != null)
+            {
+                RemoteFilesSidebarPresenter.IsVisible = shouldShow;
+            }
         }
 
         private void UpdateRemoteFilesSidebarHostIdentity()
         {
-            RemoteFilesSidebarHost?.SetHostIdentity(
+            _remoteFilesSidebarHost?.SetHostIdentity(
                 string.IsNullOrWhiteSpace(Profile?.Name) ? null : Profile.Name,
                 BuildRemoteFilesSidebarSubtitle(Profile));
         }
@@ -748,34 +825,6 @@ namespace NovaTerminal.Controls
 
             _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
             UpdateCommandAssistContext();
-
-            TermView.TextInputObserved += text =>
-            {
-                if (IsCommandAssistFeatureEnabled())
-                {
-                    _commandAssistController?.HandleTextInput(text);
-                }
-            };
-            TermView.BackspaceObserved += () =>
-            {
-                if (IsCommandAssistFeatureEnabled())
-                {
-                    _commandAssistController?.HandleBackspace();
-                }
-            };
-            TermView.EnterObserved += OnCommandAssistEnterObserved;
-            TermView.PasteObserved += text =>
-            {
-                if (IsCommandAssistFeatureEnabled())
-                {
-                    _commandAssistController?.HandlePastedText(text);
-                }
-            };
-
-            if (Buffer != null)
-            {
-                Buffer.OnScreenSwitched += OnBufferScreenSwitched;
-            }
         }
 
         private void BindCommandAssistViews(CommandAssistBarViewModel? viewModel)
@@ -831,6 +880,17 @@ namespace NovaTerminal.Controls
         {
             return _settings?.CommandAssistEnabled == true &&
                    _settings.CommandAssistHistoryEnabled;
+        }
+
+        private bool EnsureCommandAssistInitialized()
+        {
+            if (!IsCommandAssistFeatureEnabled())
+            {
+                return false;
+            }
+
+            InitializeCommandAssist();
+            return _commandAssistController != null;
         }
 
         private void OnCommandAssistViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -1179,7 +1239,7 @@ namespace NovaTerminal.Controls
 
         private async Task HandleCommandAssistEnterObservedAsync()
         {
-            if (!IsCommandAssistFeatureEnabled() || _commandAssistController == null)
+            if (!EnsureCommandAssistInitialized())
             {
                 return;
             }
@@ -1602,7 +1662,10 @@ namespace NovaTerminal.Controls
             };
 
             TermView.ApplySettings(effectiveSettings);
-            InitializeCommandAssist();
+            if (_commandAssistController != null || !IsCommandAssistFeatureEnabled())
+            {
+                InitializeCommandAssist();
+            }
             UpdateMinimumSizeConstraints();
 
             // Sync metrics to parser after settings change (font size, etc.)
@@ -1732,7 +1795,7 @@ namespace NovaTerminal.Controls
 
         public void ToggleCommandAssist()
         {
-            if (!IsCommandAssistFeatureEnabled())
+            if (!EnsureCommandAssistInitialized())
             {
                 return;
             }
@@ -1742,7 +1805,7 @@ namespace NovaTerminal.Controls
 
         public bool OpenCommandAssistHelp()
         {
-            if (!IsCommandAssistFeatureEnabled())
+            if (!EnsureCommandAssistInitialized())
             {
                 return false;
             }
@@ -1752,7 +1815,7 @@ namespace NovaTerminal.Controls
 
         public bool OpenCommandAssistHistorySearch()
         {
-            if (!IsCommandAssistFeatureEnabled())
+            if (!EnsureCommandAssistInitialized())
             {
                 return false;
             }
@@ -1762,7 +1825,7 @@ namespace NovaTerminal.Controls
 
         public void NotifyCommandAssistPaste(string text)
         {
-            if (!IsCommandAssistFeatureEnabled())
+            if (!EnsureCommandAssistInitialized())
             {
                 return;
             }
@@ -1783,17 +1846,12 @@ namespace NovaTerminal.Controls
             }
 
             string? selectedText = selectedTextOverride ?? TermView.GetSelectedText();
-            return _commandAssistController != null && !string.IsNullOrWhiteSpace(selectedText);
+            return !string.IsNullOrWhiteSpace(selectedText);
         }
 
         internal async Task<bool> ExplainSelectionAsync(string? selectedTextOverride = null)
         {
-            if (!IsCommandAssistFeatureEnabled())
-            {
-                return false;
-            }
-
-            if (_commandAssistController == null)
+            if (!EnsureCommandAssistInitialized())
             {
                 return false;
             }
@@ -1981,7 +2039,7 @@ namespace NovaTerminal.Controls
 
         internal bool IsRemoteFilesSidebarVisibleForTest()
         {
-            return RemoteFilesSidebarHost?.IsVisible == true;
+            return RemoteFilesSidebarPresenter?.IsVisible == true;
         }
 
         internal bool IsRemoteFilesSidebarEntryAvailableForTest()
@@ -2409,12 +2467,7 @@ namespace NovaTerminal.Controls
 
         internal async Task HandleCommandAssistCompletionAsync(int? exitCode)
         {
-            if (!IsCommandAssistFeatureEnabled())
-            {
-                return;
-            }
-
-            if (_commandAssistController == null)
+            if (!EnsureCommandAssistInitialized())
             {
                 return;
             }
@@ -2449,7 +2502,7 @@ namespace NovaTerminal.Controls
 
         private async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
         {
-            if (!IsCommandAssistFeatureEnabled() || _commandAssistController == null)
+            if (!EnsureCommandAssistInitialized())
             {
                 return;
             }
