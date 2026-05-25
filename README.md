@@ -16,6 +16,12 @@ Built with:
 
 Supported platforms: **Windows · Linux · macOS**
 
+<img width="250" alt="3" src="https://github.com/user-attachments/assets/f871a580-9857-4546-98d0-0356b3176dc4" />
+<img width="250" alt="2" src="https://github.com/user-attachments/assets/82d9d37f-5370-446f-9a94-1e58a3665986" />
+<img width="250" alt="1" src="https://github.com/user-attachments/assets/a0c52576-73e5-4bce-a6df-69877b53032f" />
+<img width="250" alt="5" src="https://github.com/user-attachments/assets/ea279510-57af-4af5-9f84-ebff05a34364" />
+<img width="250" alt="4" src="https://github.com/user-attachments/assets/9354d0fb-54ff-4080-a81c-5b49fded6d53" />
+
 ---
 
 ### ✨ Why NovaTerminal?
