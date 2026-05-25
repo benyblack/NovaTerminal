@@ -24,6 +24,17 @@ env:
   CONFIGURATION: Release
   # Opt into Node.js 24 now; GitHub Actions will force this on 2026-06-02.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Prevent dotnet/MSBuild daemons from outliving each step and holding the
+  # GitHub Actions runner's redirected stdout/stderr pipes open. Without these,
+  # Linux Unit Tests has historically hung after tests completed because the
+  # MSBuild worker pool spawned by `dotnet test` (and any nested `dotnet build`
+  # inside tests like VtReportCliTests) kept the pipe alive past the step
+  # timeout. UseSharedCompilation is also disabled globally via
+  # Directory.Build.props, but these env vars cover the driver-level daemons
+  # (MSBuild build server, MSBuild worker node reuse) that project files
+  # cannot influence.
+  DOTNET_CLI_USE_MSBUILD_SERVER: '0'
+  MSBUILDDISABLENODEREUSE: '1'
 
 jobs:
   # Single build job per OS: Rust native + .NET in one step.

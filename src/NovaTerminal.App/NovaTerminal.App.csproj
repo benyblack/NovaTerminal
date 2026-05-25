@@ -122,11 +122,14 @@
     AfterTargets="Build"
     Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true'">
 
-    <!-- UseSharedCompilation=false prevents the Roslyn compiler server from being spawned as a
-         background process that inherits pipe handles from the outer build. Without this, tests
-         that capture stdout/stderr of `dotnet build App` via pipes would hang indefinitely on
-         Linux because VBCSCompiler holds the write end of the pipe after the build exits. -->
-    <Exec Command="dotnet build &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false -p:UseSharedCompilation=false" />
+    <!-- -nodeReuse:false and -p:UseSharedCompilation=false prevent the nested dotnet build
+         from spawning daemons (MSBuild worker nodes and VBCSCompiler) that inherit pipe handles
+         from the outer build. Without these flags, tests that capture stdout/stderr of
+         `dotnet build App` via pipes hang indefinitely because a daemon holds the write end of
+         the pipe after the build exits. UseSharedCompilation is also set globally via
+         Directory.Build.props; the explicit -p: here keeps the nested invocation correct even
+         if that ever changes. -->
+    <Exec Command="dotnet build &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -nodeReuse:false -p:BuildProjectReferences=false -p:UseSharedCompilation=false" />
 
     <ItemGroup>
       <ObsoleteCliShimBuildArtifacts Include="$(OutDir)NovaTerminal.Cli*" />
@@ -154,7 +157,7 @@
     Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(SkipCliShim)' != 'true'">
 
     <MakeDir Directories="$(CliPublishOutputDir)" />
-    <Exec Command="dotnet publish &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -p:BuildProjectReferences=false -o &quot;$(CliPublishOutputDir)&quot;" />
+    <Exec Command="dotnet publish &quot;$(CliProjectPath)&quot; -c $(Configuration) --no-restore -nodeReuse:false -p:BuildProjectReferences=false -p:UseSharedCompilation=false -o &quot;$(CliPublishOutputDir)&quot;" />
 
     <ItemGroup>
       <ObsoleteCliShimPublishArtifacts Include="$(PublishDir)NovaTerminal.Cli*" />
