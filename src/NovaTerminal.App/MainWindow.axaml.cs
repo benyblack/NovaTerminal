@@ -110,6 +110,11 @@ namespace NovaTerminal
             CloseTab
         }
 
+        private sealed class SessionRestoreAbortedException : Exception
+        {
+            public SessionRestoreAbortedException(string message) : base(message) { }
+        }
+
         protected override void OnOpened(EventArgs e)
         {
             base.OnOpened(e);
@@ -1237,7 +1242,7 @@ namespace NovaTerminal
 
                     if (tabs.Items.Count == 0)
                     {
-                        throw new InvalidOperationException(
+                        throw new SessionRestoreAbortedException(
                             "Session restore produced no tab items; aborting restore.");
                     }
 
@@ -1250,7 +1255,7 @@ namespace NovaTerminal
                     _startup.Checkpoint("StartupRestore.AfterInitializeRestoredTabs");
                 });
             }
-            catch (InvalidOperationException ex)
+            catch (SessionRestoreAbortedException ex)
             {
                 TerminalLogger.Log($"TryRestoreStartupSession: aborted ({ex.Message})");
                 return false;

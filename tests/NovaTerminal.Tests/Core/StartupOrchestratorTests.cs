@@ -126,6 +126,21 @@ public sealed class StartupOrchestratorTests
     }
 
     [Fact]
+    public void BeginSessionRestore_CalledTwiceWithDeferredPending_Throws()
+    {
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
+        var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
+        var session = SessionWith(tabCount: 3, activeIndex: 1);
+
+        orchestrator.BeginSessionRestore(session, _ => { });
+        Assert.True(orchestrator.HasPendingDeferredRestore);
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            orchestrator.BeginSessionRestore(session, _ => { }));
+        Assert.Contains("already called", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void CompleteWithoutRestore_MarksBothPhases()
     {
         var (tracker, _) = TestTrackerFactory.CreateTracker();

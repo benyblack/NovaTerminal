@@ -29,6 +29,12 @@ public sealed class StartupOrchestrator
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(materializeImmediate);
 
+        if (_pendingPlan is not null)
+        {
+            throw new InvalidOperationException(
+                "BeginSessionRestore was already called; the previous plan must be drained via DrainDeferred before starting another restore.");
+        }
+
         var plan = StartupRestorePlan.Create(session);
         materializeImmediate(plan.ImmediateTab);
 
