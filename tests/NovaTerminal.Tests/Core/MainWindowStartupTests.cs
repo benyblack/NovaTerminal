@@ -93,6 +93,18 @@ public sealed class MainWindowStartupTests
     }
 
     [AvaloniaFact]
+    public void MainWindow_CommandPaletteIncludesConnections()
+    {
+        CommandRegistry.Clear();
+        var window = new NovaTerminal.MainWindow();
+        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        toggleMethod!.Invoke(window, null);
+
+        Assert.Contains(CommandRegistry.GetCommands(), command => command.Id == "connections" && command.Title == "Connections");
+    }
+
+    [AvaloniaFact]
     public void MainWindow_CommandPalettePrefersMostUsedCommandsWhenOpened()
     {
         CommandRegistry.Clear();

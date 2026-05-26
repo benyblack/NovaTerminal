@@ -3957,6 +3957,7 @@ namespace NovaTerminal
             {
                 await OpenSettings(0);
             }, GetEffectiveShortcutBinding("settings", "Ctrl+,"), "settings");
+            CommandRegistry.Register("Connections", "General", () => ToggleConnections(), "", "connections");
             CommandRegistry.Register("Open Recording...", "General", () => _ = ExecuteUiCommandAsync(ExecuteOpenRecordingCommandAsync, "Open Recording..."), "");
             CommandRegistry.Register("Open Recordings Folder", "General", () => OpenRecordingsFolder(), "");
 
