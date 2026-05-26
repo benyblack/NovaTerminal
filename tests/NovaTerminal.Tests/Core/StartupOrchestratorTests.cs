@@ -227,6 +227,33 @@ public sealed class StartupOrchestratorTests
         Assert.Contains(logged, line => line.Contains("bad-tab", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void DrainDeferred_WithCapturingScheduler_DoesNotMaterializeUntilSchedulerFires()
+    {
+        var (tracker, _) = CreateTracker();
+        var captured = new List<Action>();
+        var coordinator = CreateCapturingCoordinator(captured);
+        var orchestrator = new StartupOrchestrator(tracker, coordinator);
+        var session = SessionWith(tabCount: 3, activeIndex: 0);
+        orchestrator.BeginSessionRestore(session, _ => { });
+        var hydrated = new List<int>();
+
+        orchestrator.DrainDeferred(tab => hydrated.Add(tab.OriginalIndex));
+
+        // Before the scheduler fires the captured action, nothing should have run.
+        Assert.Empty(hydrated);
+        Assert.False(tracker.TryGetElapsedMilliseconds(StartupPhase.BackgroundRestoreComplete, out _));
+        // _pendingPlan must already be cleared so a second DrainDeferred call is a no-op.
+        Assert.False(orchestrator.HasPendingDeferredRestore);
+
+        // Fire the captured action — now the deferred loop and onCompleted should run.
+        Assert.Single(captured);
+        captured[0]();
+
+        Assert.Equal(new[] { 1, 2 }, hydrated);
+        Assert.True(tracker.TryGetElapsedMilliseconds(StartupPhase.BackgroundRestoreComplete, out _));
+    }
+
     [Theory]
     [InlineData(1, 0)]
     [InlineData(2, 0)]
