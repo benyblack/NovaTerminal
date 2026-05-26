@@ -34,6 +34,16 @@ namespace NovaTerminal.Core
         private static long _sessionRestoreTimeMs;
         private static long _sessionRestoreSamples;
         private static long _sessionRestoreBytes;
+        private static long _startupWindowShownTimeMs;
+        private static long _startupWindowShownSamples;
+        private static long _startupFirstTerminalReadyTimeMs;
+        private static long _startupFirstTerminalReadySamples;
+        private static long _startupSessionRestoreCompleteTimeMs;
+        private static long _startupSessionRestoreCompleteSamples;
+        private static long _startupDeferredWorkTimeMs;
+        private static long _startupDeferredWorkSamples;
+        private static long _startupBackgroundRestoreTimeMs;
+        private static long _startupBackgroundRestoreSamples;
         private static long _terminalViewActiveTimerCount;
         private static long _terminalViewPeakTimerCount;
         private static long _hiddenInvalidationRequests;
@@ -67,6 +77,16 @@ namespace NovaTerminal.Core
         public static long SessionRestoreTimeMs => Interlocked.Read(ref _sessionRestoreTimeMs);
         public static long SessionRestoreSamples => Interlocked.Read(ref _sessionRestoreSamples);
         public static long SessionRestoreBytes => Interlocked.Read(ref _sessionRestoreBytes);
+        public static long StartupWindowShownTimeMs => Interlocked.Read(ref _startupWindowShownTimeMs);
+        public static long StartupWindowShownSamples => Interlocked.Read(ref _startupWindowShownSamples);
+        public static long StartupFirstTerminalReadyTimeMs => Interlocked.Read(ref _startupFirstTerminalReadyTimeMs);
+        public static long StartupFirstTerminalReadySamples => Interlocked.Read(ref _startupFirstTerminalReadySamples);
+        public static long StartupSessionRestoreCompleteTimeMs => Interlocked.Read(ref _startupSessionRestoreCompleteTimeMs);
+        public static long StartupSessionRestoreCompleteSamples => Interlocked.Read(ref _startupSessionRestoreCompleteSamples);
+        public static long StartupDeferredWorkTimeMs => Interlocked.Read(ref _startupDeferredWorkTimeMs);
+        public static long StartupDeferredWorkSamples => Interlocked.Read(ref _startupDeferredWorkSamples);
+        public static long StartupBackgroundRestoreTimeMs => Interlocked.Read(ref _startupBackgroundRestoreTimeMs);
+        public static long StartupBackgroundRestoreSamples => Interlocked.Read(ref _startupBackgroundRestoreSamples);
         public static long TerminalViewActiveTimerCount => Interlocked.Read(ref _terminalViewActiveTimerCount);
         public static long TerminalViewPeakTimerCount => Interlocked.Read(ref _terminalViewPeakTimerCount);
         public static long HiddenInvalidationRequests => Interlocked.Read(ref _hiddenInvalidationRequests);
@@ -160,6 +180,36 @@ namespace NovaTerminal.Core
             Interlocked.Add(ref _sessionRestoreBytes, bytes);
         }
 
+        public static void RecordStartupWindowShown(long ms)
+        {
+            Interlocked.Add(ref _startupWindowShownTimeMs, ms);
+            Interlocked.Increment(ref _startupWindowShownSamples);
+        }
+
+        public static void RecordStartupFirstTerminalReady(long ms)
+        {
+            Interlocked.Add(ref _startupFirstTerminalReadyTimeMs, ms);
+            Interlocked.Increment(ref _startupFirstTerminalReadySamples);
+        }
+
+        public static void RecordStartupSessionRestoreComplete(long ms)
+        {
+            Interlocked.Add(ref _startupSessionRestoreCompleteTimeMs, ms);
+            Interlocked.Increment(ref _startupSessionRestoreCompleteSamples);
+        }
+
+        public static void RecordStartupDeferredWork(long ms)
+        {
+            Interlocked.Add(ref _startupDeferredWorkTimeMs, ms);
+            Interlocked.Increment(ref _startupDeferredWorkSamples);
+        }
+
+        public static void RecordStartupBackgroundRestore(long ms)
+        {
+            Interlocked.Add(ref _startupBackgroundRestoreTimeMs, ms);
+            Interlocked.Increment(ref _startupBackgroundRestoreSamples);
+        }
+
         public static void RecordTerminalViewTimersStarted()
         {
             long active = Interlocked.Increment(ref _terminalViewActiveTimerCount);
@@ -229,6 +279,16 @@ namespace NovaTerminal.Core
             Interlocked.Exchange(ref _sessionRestoreTimeMs, 0);
             Interlocked.Exchange(ref _sessionRestoreSamples, 0);
             Interlocked.Exchange(ref _sessionRestoreBytes, 0);
+            Interlocked.Exchange(ref _startupWindowShownTimeMs, 0);
+            Interlocked.Exchange(ref _startupWindowShownSamples, 0);
+            Interlocked.Exchange(ref _startupFirstTerminalReadyTimeMs, 0);
+            Interlocked.Exchange(ref _startupFirstTerminalReadySamples, 0);
+            Interlocked.Exchange(ref _startupSessionRestoreCompleteTimeMs, 0);
+            Interlocked.Exchange(ref _startupSessionRestoreCompleteSamples, 0);
+            Interlocked.Exchange(ref _startupDeferredWorkTimeMs, 0);
+            Interlocked.Exchange(ref _startupDeferredWorkSamples, 0);
+            Interlocked.Exchange(ref _startupBackgroundRestoreTimeMs, 0);
+            Interlocked.Exchange(ref _startupBackgroundRestoreSamples, 0);
             Interlocked.Exchange(ref _terminalViewActiveTimerCount, 0);
             Interlocked.Exchange(ref _terminalViewPeakTimerCount, 0);
             Interlocked.Exchange(ref _hiddenInvalidationRequests, 0);
@@ -243,7 +303,12 @@ namespace NovaTerminal.Core
             long tabAutomationAvg = TabAutomationUpdateSamples > 0 ? TabAutomationUpdateTimeMs / TabAutomationUpdateSamples : 0;
             long sessionSaveAvg = SessionSaveSamples > 0 ? SessionSaveTimeMs / SessionSaveSamples : 0;
             long sessionRestoreAvg = SessionRestoreSamples > 0 ? SessionRestoreTimeMs / SessionRestoreSamples : 0;
-            return $"Frames: {TotalFrames}, Full: {FullRedraws}, Dirty: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}, PicsRec: {RowPicturesRecorded}, RecTime: {RowPictureRecordTimeMs}ms, RenderTime: {FrameRenderTimeMs}ms, PtyDrops: {PtyQueueDrops}, PtyMaxQ: {PtyQueueMaxDepth}, ResizeDispatchAvg: {avgResizeDispatch}ms, TabSwitchAvg: {tabSwitchAvg}ms, TabVisualAvg: {tabVisualAvg}ms, TabAutomationAvg: {tabAutomationAvg}ms, SessionSaveAvg: {sessionSaveAvg}ms/{SessionSaveBytes}B, SessionRestoreAvg: {sessionRestoreAvg}ms/{SessionRestoreBytes}B, TvTimers: {TerminalViewActiveTimerCount}/{TerminalViewPeakTimerCount}, HiddenInvReq: {HiddenInvalidationRequests}";
+            long startupWindowShownAvg = StartupWindowShownSamples > 0 ? StartupWindowShownTimeMs / StartupWindowShownSamples : 0;
+            long startupFirstTerminalReadyAvg = StartupFirstTerminalReadySamples > 0 ? StartupFirstTerminalReadyTimeMs / StartupFirstTerminalReadySamples : 0;
+            long startupRestoreCompleteAvg = StartupSessionRestoreCompleteSamples > 0 ? StartupSessionRestoreCompleteTimeMs / StartupSessionRestoreCompleteSamples : 0;
+            long startupDeferredWorkAvg = StartupDeferredWorkSamples > 0 ? StartupDeferredWorkTimeMs / StartupDeferredWorkSamples : 0;
+            long startupBackgroundRestoreAvg = StartupBackgroundRestoreSamples > 0 ? StartupBackgroundRestoreTimeMs / StartupBackgroundRestoreSamples : 0;
+            return $"Frames: {TotalFrames}, Full: {FullRedraws}, Dirty: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}, PicsRec: {RowPicturesRecorded}, RecTime: {RowPictureRecordTimeMs}ms, RenderTime: {FrameRenderTimeMs}ms, PtyDrops: {PtyQueueDrops}, PtyMaxQ: {PtyQueueMaxDepth}, ResizeDispatchAvg: {avgResizeDispatch}ms, TabSwitchAvg: {tabSwitchAvg}ms, TabVisualAvg: {tabVisualAvg}ms, TabAutomationAvg: {tabAutomationAvg}ms, SessionSaveAvg: {sessionSaveAvg}ms/{SessionSaveBytes}B, SessionRestoreAvg: {sessionRestoreAvg}ms/{SessionRestoreBytes}B, StartupWindowAvg: {startupWindowShownAvg}ms, StartupFirstTerminalAvg: {startupFirstTerminalReadyAvg}ms, StartupRestoreCompleteAvg: {startupRestoreCompleteAvg}ms, StartupDeferredAvg: {startupDeferredWorkAvg}ms, StartupBackgroundRestoreAvg: {startupBackgroundRestoreAvg}ms, TvTimers: {TerminalViewActiveTimerCount}/{TerminalViewPeakTimerCount}, HiddenInvReq: {HiddenInvalidationRequests}";
         }
     }
 }

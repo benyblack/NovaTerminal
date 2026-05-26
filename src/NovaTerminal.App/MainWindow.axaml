@@ -6,7 +6,6 @@
         Width="1200" Height="800"
         MinWidth="400" MinHeight="200"
         x:Name="RootWindow"
-        Icon="avares://NovaTerminal/Assets/nova_icon.png"
         ExtendClientAreaToDecorationsHint="True"
         WindowDecorationsTheme="{StaticResource NovaWindowDecorationsTheme}"
         TransparencyLevelHint=""
@@ -127,7 +126,6 @@
                         ToolTip.Tip="New Tab">
                     <Button.Flyout>
                         <MenuFlyout>
-                            <!-- Populated dynamically -->
                             <Separator />
                             <MenuItem Header="New SSH Connection..." Name="MenuNewSshConnection" />
                             <MenuItem Header="Manage Profiles..." Name="MenuManageProfiles" />
@@ -274,7 +272,7 @@
                     <TextBlock Name="ConnectionTitleText" Text="Connection Manager" VerticalAlignment="Center" Margin="15,0" FontWeight="Bold"/>
                     <Button Name="BtnCloseConnections" Content="✕" HorizontalAlignment="Right" Width="40" Background="Transparent" BorderThickness="0"/>
                 </Grid>
-                <controls:ConnectionManager Name="ConnectionManagerControl" Grid.Row="1"/>
+                <ContentControl Name="ConnectionManagerHost" Grid.Row="1"/>
             </Grid>
         </Border>
 
@@ -290,7 +288,7 @@
                     <TextBlock Text="Recent Transfers" VerticalAlignment="Center" Margin="10,0" FontSize="12" FontWeight="Bold"/>
                     <Button Name="BtnCloseTransfers" Content="✕" HorizontalAlignment="Right" Width="32" Background="Transparent" BorderThickness="0"/>
                 </Grid>
-                <controls:TransferCenter Name="TransferCenterControl" Grid.Row="1"/>
+                <ContentControl Name="TransferCenterHost" Grid.Row="1"/>
             </Grid>
         </Border>
 

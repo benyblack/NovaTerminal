@@ -58,6 +58,30 @@ namespace NovaTerminal.Tests.RenderTests
 
         [Fact]
         [Trait("Category", "RenderMetrics")]
+        public void StartupMetrics_AreRecorded()
+        {
+            RendererStatistics.Reset();
+
+            RendererStatistics.RecordStartupWindowShown(25);
+            RendererStatistics.RecordStartupFirstTerminalReady(70);
+            RendererStatistics.RecordStartupSessionRestoreComplete(140);
+            RendererStatistics.RecordStartupDeferredWork(45);
+            RendererStatistics.RecordStartupBackgroundRestore(60);
+
+            Assert.Equal(25, RendererStatistics.StartupWindowShownTimeMs);
+            Assert.Equal(1, RendererStatistics.StartupWindowShownSamples);
+            Assert.Equal(70, RendererStatistics.StartupFirstTerminalReadyTimeMs);
+            Assert.Equal(1, RendererStatistics.StartupFirstTerminalReadySamples);
+            Assert.Equal(140, RendererStatistics.StartupSessionRestoreCompleteTimeMs);
+            Assert.Equal(1, RendererStatistics.StartupSessionRestoreCompleteSamples);
+            Assert.Equal(45, RendererStatistics.StartupDeferredWorkTimeMs);
+            Assert.Equal(1, RendererStatistics.StartupDeferredWorkSamples);
+            Assert.Equal(60, RendererStatistics.StartupBackgroundRestoreTimeMs);
+            Assert.Equal(1, RendererStatistics.StartupBackgroundRestoreSamples);
+        }
+
+        [Fact]
+        [Trait("Category", "RenderMetrics")]
         public void TerminalViewVisibilityMetrics_AreRecorded()
         {
             RendererStatistics.Reset();

@@ -239,6 +239,7 @@ jobs:
 
       - name: Cache .NET SDK
         uses: actions/cache@v4
+        continue-on-error: true
         with:
           path: ~/.dotnet
           key: dotnet-sdk-${{ runner.os }}-10.0.300
@@ -254,6 +255,22 @@ jobs:
           cache-dependency-path: "**/*.csproj"
 
       - name: Download build artifact
+        id: download_golden_build_artifact
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: dotnet-build-windows-latest
+          path: tests
+
+      - name: Reset partial artifact download
+        if: steps.download_golden_build_artifact.outcome == 'failure'
+        shell: pwsh
+        run: |
+          Remove-Item tests\NovaTerminal.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item tests\NovaTerminal.Core.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Download build artifact (retry)
+        if: steps.download_golden_build_artifact.outcome == 'failure'
         uses: actions/download-artifact@v4
         with:
           name: dotnet-build-windows-latest

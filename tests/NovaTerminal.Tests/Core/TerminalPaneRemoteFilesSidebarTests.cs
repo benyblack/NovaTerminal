@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
@@ -9,6 +10,28 @@ namespace NovaTerminal.Tests.Core;
 
 public sealed class TerminalPaneRemoteFilesSidebarTests
 {
+    [AvaloniaFact]
+    public void RemoteFilesSidebarHost_IsCreatedOnlyWhenOpened()
+    {
+        var pane = new TerminalPane(new TerminalProfile
+        {
+            Name = "Native SSH",
+            Type = ConnectionType.SSH,
+            SshBackendKind = SshBackendKind.Native,
+            SshHost = "server.example",
+            SshUser = "nova"
+        });
+
+        var presenter = pane.FindControl<ContentControl>("RemoteFilesSidebarPresenter");
+
+        Assert.NotNull(presenter);
+        Assert.Null(presenter!.Content);
+
+        pane.ShowRemoteFilesSidebarForTest();
+
+        Assert.IsType<RemoteFilesSidebar>(presenter.Content);
+    }
+
     [AvaloniaFact]
     public void NativeSshPane_ContextMenu_KeepsOnlyRemoteFilesEntry()
     {

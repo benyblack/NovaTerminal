@@ -10,6 +10,19 @@ namespace NovaTerminal.Tests.CommandAssist;
 public sealed class TerminalPaneCommandAssistShortcutTests
 {
     [AvaloniaFact]
+    public void ApplySettings_WhenAssistEnabled_DoesNotEagerlyInitializeController()
+    {
+        var pane = new TerminalPane();
+        var settings = TerminalSettings.Load();
+        settings.CommandAssistEnabled = true;
+        settings.CommandAssistHistoryEnabled = true;
+
+        pane.ApplySettings(settings);
+
+        Assert.Null(pane.CommandAssistViewModel);
+    }
+
+    [AvaloniaFact]
     public void TryToggleCommandAssistPinShortcut_WhenAssistVisibleWithoutSelection_ReturnsFalse()
     {
         var pane = new TerminalPane();

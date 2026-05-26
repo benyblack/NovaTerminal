@@ -170,13 +170,13 @@ namespace NovaTerminal.Core
             int payloadBytes = 0;
             try
             {
-                if (!File.Exists(SessionPath)) return;
+                if (!TryLoadSavedSession(out NovaSession? session, out payloadBytes) ||
+                    session == null ||
+                    session.Tabs.Count == 0)
+                {
+                    return;
+                }
 
-                var json = File.ReadAllText(SessionPath);
-                payloadBytes = System.Text.Encoding.UTF8.GetByteCount(json);
-                var session = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
-
-                if (session == null || session.Tabs.Count == 0) return;
                 RestoreSessionCore(window, tabs, settings, session);
             }
             catch (Exception ex)
@@ -211,6 +211,35 @@ namespace NovaTerminal.Core
             }
         }
 
+        public static bool TryLoadSavedSession(out NovaSession? session)
+        {
+            return TryLoadSavedSession(out session, out _);
+        }
+
+        public static TabItem? CreateRestoredTabItem(TabSession tabSession, TerminalSettings settings)
+        {
+            ArgumentNullException.ThrowIfNull(tabSession);
+            var content = CreateRestoredTabContent(tabSession, settings);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.CreateRestoredTabItem.ContentCreated");
+            if (content == null)
+            {
+                return null;
+            }
+
+            return new TabItem
+            {
+                Header = new TextBlock { Text = tabSession.Title, Foreground = Avalonia.Media.Brushes.White, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 4) },
+                Content = content,
+                Tag = tabSession
+            };
+        }
+
+        public static Control? CreateRestoredTabContent(TabSession tabSession, TerminalSettings settings)
+        {
+            ArgumentNullException.ThrowIfNull(tabSession);
+            return RestorePaneTree(tabSession.Root, settings);
+        }
+
         private static void RestoreSessionCore(Window window, TabControl tabs, TerminalSettings settings, NovaSession session)
         {
             _ = window;
@@ -219,15 +248,9 @@ namespace NovaTerminal.Core
             tabs.Items.Clear();
             foreach (var tabSession in session.Tabs)
             {
-                var content = RestorePaneTree(tabSession.Root, settings);
-                if (content != null)
+                var tabItem = CreateRestoredTabItem(tabSession, settings);
+                if (tabItem != null)
                 {
-                    var tabItem = new TabItem
-                    {
-                        Header = new TextBlock { Text = tabSession.Title, Foreground = Avalonia.Media.Brushes.White, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(10, 4) },
-                        Content = content,
-                        Tag = tabSession
-                    };
                     tabs.Items.Add(tabItem);
                 }
             }
@@ -238,12 +261,29 @@ namespace NovaTerminal.Core
             }
         }
 
+        private static bool TryLoadSavedSession(out NovaSession? session, out int payloadBytes)
+        {
+            session = null;
+            payloadBytes = 0;
+
+            if (!File.Exists(SessionPath))
+            {
+                return false;
+            }
+
+            var json = File.ReadAllText(SessionPath);
+            payloadBytes = System.Text.Encoding.UTF8.GetByteCount(json);
+            session = JsonSerializer.Deserialize(json, SessionSerializationContext.Default.NovaSession);
+            return session != null;
+        }
+
         private static Control? RestorePaneTree(PaneNode? node, TerminalSettings settings)
         {
             if (node == null) return null;
 
             if (node.Type == NodeType.Leaf)
             {
+                StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.RestorePaneTree.LeafStart");
                 // Reconstruct TerminalPane
                 TerminalProfile? profile = ResolveSshProfile(node.SshProfileId);
 
@@ -255,12 +295,12 @@ namespace NovaTerminal.Core
                 TerminalPane pane;
                 if (profile != null)
                 {
-                    pane = new TerminalPane(profile);
+                    pane = new TerminalPane(profile, settings);
                 }
                 else
                 {
                     // Fallback to command args if profile missing
-                    pane = new TerminalPane(node.Command ?? "cmd.exe", node.Arguments ?? "");
+                    pane = new TerminalPane(node.Command ?? "cmd.exe", node.Arguments ?? "", settings);
                 }
 
                 if (!string.IsNullOrWhiteSpace(node.PaneId) && Guid.TryParse(node.PaneId, out var paneId))
@@ -268,7 +308,7 @@ namespace NovaTerminal.Core
                     pane.PaneId = paneId;
                 }
 
-                pane.ApplySettings(settings);
+                StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.RestorePaneTree.LeafCreated");
                 return pane;
             }
             else if (node.Type == NodeType.Split)

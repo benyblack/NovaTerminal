@@ -5,6 +5,28 @@ namespace NovaTerminal.Tests.Core;
 public sealed class AppPathsTests
 {
     [Fact]
+    public void RootDirectory_UsesEnvironmentOverrideWhenSet()
+    {
+        string tempRoot = CreateTempDirectory();
+        string? previous = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+
+            Assert.Equal(Path.GetFullPath(tempRoot), Path.GetFullPath(AppPaths.RootDirectory));
+            Assert.Equal(
+                Path.Combine(Path.GetFullPath(tempRoot), "sessions", "last_session.json"),
+                Path.GetFullPath(AppPaths.SessionFilePath));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previous);
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void RootDirectory_IsUnderLocalApplicationData()
     {
         string localAppData = Path.GetFullPath(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));

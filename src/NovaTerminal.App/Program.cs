@@ -32,6 +32,7 @@ class Program
             // Log startup info
             TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
             TerminalLogger.Log("Log file path: " + AppLogger.GetLogFilePath());
+            StartupPerformanceTracker.StartNewCurrent();
 
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }

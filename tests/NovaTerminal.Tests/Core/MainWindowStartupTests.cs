@@ -18,12 +18,59 @@ public sealed class MainWindowStartupTests
     }
 
     [AvaloniaFact]
-    public void MainWindow_UsesPaletteForSettingsAndOpenRecording_NotTitleBarButtons()
+    public void MainWindow_LoadsWindowIconOnlyAfterDeferredHookRuns()
     {
         var window = new NovaTerminal.MainWindow();
+        var ensureWindowIconLoadedMethod = typeof(NovaTerminal.MainWindow).GetMethod("EnsureWindowIconLoaded", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(ensureWindowIconLoadedMethod);
+        Assert.Null(window.Icon);
+
+        ensureWindowIconLoadedMethod!.Invoke(window, null);
+
+        Assert.NotNull(window.Icon);
+    }
+
+    [AvaloniaFact]
+    public void RegisterPaneOwners_TraversesDecoratorWrappedPane()
+    {
+        var window = new NovaTerminal.MainWindow();
+        var registerPaneOwnersMethod = typeof(NovaTerminal.MainWindow).GetMethod("RegisterPaneOwners", BindingFlags.Instance | BindingFlags.NonPublic);
+        var paneOwnerField = typeof(NovaTerminal.MainWindow).GetField("_paneOwnerTab", BindingFlags.Instance | BindingFlags.NonPublic);
+        var pane = new NovaTerminal.Controls.TerminalPane();
+        var tab = new TabItem { Content = new Border { Child = pane } };
+
+        try
+        {
+            Assert.NotNull(registerPaneOwnersMethod);
+            Assert.NotNull(paneOwnerField);
+
+            registerPaneOwnersMethod!.Invoke(window, new object[] { tab, (Control)tab.Content! });
+
+            var paneOwners = Assert.IsAssignableFrom<System.Collections.IDictionary>(paneOwnerField!.GetValue(window));
+            Assert.True(paneOwners.Contains(pane));
+            Assert.Same(tab, paneOwners[pane]);
+        }
+        finally
+        {
+            pane.Dispose();
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void MainWindow_UsesPaletteForSettingsAndOpenRecording_NotTitleBarButtons()
+    {
+        CommandRegistry.Clear();
+        var window = new NovaTerminal.MainWindow();
+        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
 
         Assert.Null(window.FindControl<Button>("SettingsBtn"));
         Assert.Null(window.FindControl<Button>("BtnOpenRec"));
+
+        Assert.DoesNotContain(CommandRegistry.GetCommands(), command => command.Title == "Settings");
+
+        toggleMethod!.Invoke(window, null);
 
         var commands = CommandRegistry.GetCommands();
         Assert.Contains(commands, command => command.Title == "Settings");
@@ -31,7 +78,6 @@ public sealed class MainWindowStartupTests
         Assert.Contains(commands, command => command.Title == "Open Recordings Folder");
     }
 
-    [AvaloniaFact]
     public async Task ExecuteCommand_DefersActionUntilAfterPaletteCloses()
     {
         var window = new NovaTerminal.MainWindow();
@@ -70,8 +116,12 @@ public sealed class MainWindowStartupTests
     [AvaloniaFact]
     public async Task OpenRecordingPaletteCommand_InvokesAsyncWindowHook()
     {
+        CommandRegistry.Clear();
         var window = new RecordingCommandProbeWindow();
+        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
         var executeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ExecuteCommand", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        toggleMethod!.Invoke(window, null);
         var command = CommandRegistry.GetCommands().Single(c => c.Title == "Open Recording...");
 
         executeMethod!.Invoke(window, new object[] { command });
@@ -145,6 +195,7 @@ public sealed class MainWindowStartupTests
         var window = new NovaTerminal.MainWindow();
         var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
         var applyThemeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
+        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
         var settings = (TerminalSettings)settingsField!.GetValue(window)!;
 
         settings.ThemeName = "Test Light";
@@ -155,6 +206,7 @@ public sealed class MainWindowStartupTests
             Foreground = TermColor.Black
         };
 
+        toggleMethod!.Invoke(window, null);
         applyThemeMethod!.Invoke(window, null);
 
         var searchBox = window.FindControl<TextBox>("CommandSearchBox");
