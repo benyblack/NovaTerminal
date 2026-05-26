@@ -7,19 +7,6 @@ namespace NovaTerminal.Tests.Core;
 
 public sealed class StartupOrchestratorTests
 {
-    private static (StartupPerformanceTracker tracker, long[] clock) CreateTracker()
-    {
-        var clock = new long[] { 0L };
-        Func<long> ticks = () => clock[0];
-        var tracker = (StartupPerformanceTracker)Activator.CreateInstance(
-            typeof(StartupPerformanceTracker),
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
-            null,
-            new object?[] { ticks, 0L, 1000L, null },
-            null)!;
-        return (tracker, clock);
-    }
-
     private static StartupRestoreCoordinator CreateInlineCoordinator()
         => new(action => action());
 
@@ -39,7 +26,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void Mark_DelegatesToTracker()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
 
         orchestrator.Mark(StartupPhase.WindowOpened);
@@ -50,7 +37,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void Checkpoint_DelegatesToTracker()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
 
         orchestrator.Checkpoint("MainWindow.AfterApplyTheme");
@@ -63,7 +50,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void Constructor_ThrowsOnNullDependencies()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var coordinator = CreateInlineCoordinator();
 
         Assert.Throws<ArgumentNullException>(() => new StartupOrchestrator(null!, coordinator));
@@ -73,7 +60,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void BeginSessionRestore_ThrowsOnNullArguments()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
         var session = SessionWith(tabCount: 1, activeIndex: 0);
 
@@ -84,7 +71,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void DrainDeferred_ThrowsOnNullArgument()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
 
         Assert.Throws<ArgumentNullException>(() => orchestrator.DrainDeferred(null!));
@@ -93,7 +80,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void BeginSessionRestore_WithDeferredTabs_CallsMaterializeImmediateOnce_AndStashesPlan()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
         var session = SessionWith(tabCount: 3, activeIndex: 1);
         var materialized = new List<int>();
@@ -109,7 +96,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void BeginSessionRestore_WithSingleTab_MarksBothPhasesAndClearsPending()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
         var session = SessionWith(tabCount: 1, activeIndex: 0);
         var materialized = new List<int>();
@@ -125,7 +112,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void BeginSessionRestore_WhenMaterializeThrows_PropagatesAndLeavesStateUnchanged()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
         var session = SessionWith(tabCount: 3, activeIndex: 1);
 
@@ -141,7 +128,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void CompleteWithoutRestore_MarksBothPhases()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
 
         orchestrator.CompleteWithoutRestore();
@@ -153,7 +140,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void CompleteWithoutRestore_IsIdempotent()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
 
         orchestrator.CompleteWithoutRestore();
@@ -166,7 +153,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void DrainDeferred_WithPendingPlan_RunsAllDeferredTabsInOriginalOrder_AndMarksBackground()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
         var session = SessionWith(tabCount: 4, activeIndex: 1);
         orchestrator.BeginSessionRestore(session, _ => { });
@@ -182,7 +169,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void DrainDeferred_WithoutPendingPlan_IsNoOp()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
         var hydrated = new List<int>();
 
@@ -196,7 +183,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void DrainDeferred_WhenOneTabThrows_StillCompletesAndMarksBackground()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
         var session = SessionWith(tabCount: 4, activeIndex: 1);
         orchestrator.BeginSessionRestore(session, _ => { });
@@ -230,7 +217,7 @@ public sealed class StartupOrchestratorTests
     [Fact]
     public void DrainDeferred_WithCapturingScheduler_DoesNotMaterializeUntilSchedulerFires()
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var captured = new List<Action>();
         var coordinator = CreateCapturingCoordinator(captured);
         var orchestrator = new StartupOrchestrator(tracker, coordinator);
@@ -261,7 +248,7 @@ public sealed class StartupOrchestratorTests
     [InlineData(5, 3)]
     public void Invariant_AfterBeginSessionRestore_BackgroundCompleteImpliesNoPendingPlan(int tabCount, int activeIndex)
     {
-        var (tracker, _) = CreateTracker();
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
         var orchestrator = new StartupOrchestrator(tracker, CreateInlineCoordinator());
         var session = SessionWith(tabCount, activeIndex);
 

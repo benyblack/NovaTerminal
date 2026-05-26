@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using NovaTerminal.Core;
 using Xunit;
@@ -10,13 +9,7 @@ public sealed class AppServicesTests
     [Fact]
     public void Build_ReturnsBundleWithWiredOrchestrator()
     {
-        var clock = new long[] { 0L };
-        var tracker = (StartupPerformanceTracker)Activator.CreateInstance(
-            typeof(StartupPerformanceTracker),
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
-            null,
-            new object?[] { (Func<long>)(() => clock[0]), 0L, 1000L, null },
-            null)!;
+        var (tracker, _) = TestTrackerFactory.CreateTracker();
 
         var bundle = AppServices.Build(tracker, schedule: action => action());
 
