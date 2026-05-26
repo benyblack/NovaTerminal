@@ -265,11 +265,13 @@ namespace NovaTerminal.Controls
         public TerminalPane()
         {
             InitializeComponent();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterInitializeComponent");
             _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(null, null, c, r);
             SetupCommon(null);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
         }
 
         public TerminalPane(string shell)
@@ -280,11 +282,13 @@ namespace NovaTerminal.Controls
         internal TerminalPane(string shell, TerminalSettings? initialSettings)
         {
             InitializeComponent();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterInitializeComponent");
             _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(shell, null, c, r);
             SetupCommon(initialSettings);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
         }
 
         public TerminalPane(string shell, string args)
@@ -295,11 +299,13 @@ namespace NovaTerminal.Controls
         internal TerminalPane(string shell, string args, TerminalSettings? initialSettings)
         {
             InitializeComponent();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterInitializeComponent");
             _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.Ready += (c, r) => InitializeSession(shell, null, c, r, args);
             SetupCommon(initialSettings);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
         }
 
         public TerminalPane(TerminalProfile profile)
@@ -321,12 +327,14 @@ namespace NovaTerminal.Controls
         {
             Profile = profile;
             InitializeComponent();
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterInitializeComponent");
             _sshDiagnosticsLevel = sshDiagnosticsLevel;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.ShellOverride = profile.ShellOverride;
             TermView.Ready += (c, r) => InitializeSession(profile.Command, profile, c, r);
             SetupCommon(useInitialSettings ? initialSettings : null);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
         }
 
         private void SetupCommon(TerminalSettings? initialSettings)

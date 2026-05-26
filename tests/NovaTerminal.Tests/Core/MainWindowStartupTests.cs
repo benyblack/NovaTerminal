@@ -18,6 +18,20 @@ public sealed class MainWindowStartupTests
     }
 
     [AvaloniaFact]
+    public void MainWindow_LoadsWindowIconOnlyAfterDeferredHookRuns()
+    {
+        var window = new NovaTerminal.MainWindow();
+        var ensureWindowIconLoadedMethod = typeof(NovaTerminal.MainWindow).GetMethod("EnsureWindowIconLoaded", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(ensureWindowIconLoadedMethod);
+        Assert.Null(window.Icon);
+
+        ensureWindowIconLoadedMethod!.Invoke(window, null);
+
+        Assert.NotNull(window.Icon);
+    }
+
+    [AvaloniaFact]
     public void MainWindow_UsesPaletteForSettingsAndOpenRecording_NotTitleBarButtons()
     {
         CommandRegistry.Clear();

@@ -220,6 +220,7 @@ namespace NovaTerminal.Core
         {
             ArgumentNullException.ThrowIfNull(tabSession);
             var content = CreateRestoredTabContent(tabSession, settings);
+            StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.CreateRestoredTabItem.ContentCreated");
             if (content == null)
             {
                 return null;
@@ -282,6 +283,7 @@ namespace NovaTerminal.Core
 
             if (node.Type == NodeType.Leaf)
             {
+                StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.RestorePaneTree.LeafStart");
                 // Reconstruct TerminalPane
                 TerminalProfile? profile = ResolveSshProfile(node.SshProfileId);
 
@@ -306,6 +308,7 @@ namespace NovaTerminal.Core
                     pane.PaneId = paneId;
                 }
 
+                StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.RestorePaneTree.LeafCreated");
                 return pane;
             }
             else if (node.Type == NodeType.Split)

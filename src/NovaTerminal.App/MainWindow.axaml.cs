@@ -16,6 +16,7 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Media;
 using Avalonia.Layout;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.Automation;
 using Avalonia.Input.Platform;
@@ -58,6 +59,7 @@ namespace NovaTerminal
         private readonly Dictionary<TerminalPane, TabItem> _paneOwnerTab = new();
         private readonly Dictionary<TabItem, PaneLayoutModel> _layoutModelByTab = new();
         private readonly List<TabItem> _tabMru = new();
+        private bool _windowIconLoaded;
         private readonly Dictionary<TabItem, TabRuntimeState> _tabStateByTab = new();
         private readonly HashSet<TabItem> _pendingVisualRefreshTabs = new();
         private bool _suppressMruTouchOnSelection;
@@ -1993,6 +1995,7 @@ namespace NovaTerminal
                     InitializeTransferCenterUI();
                     StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.LoadedPostUiReady");
                     StartupPerformanceTracker.Current?.TryMark(StartupPhase.DeferredWorkComplete);
+                    Dispatcher.UIThread.Post(EnsureWindowIconLoaded, DispatcherPriority.Background);
                 }, DispatcherPriority.Input);
             };
             this.Activated += (s, e) => FocusCurrentTerminal(defer: true);
@@ -2102,7 +2105,7 @@ namespace NovaTerminal
             var menuManage = this.FindControl<MenuItem>("MenuManageProfiles");
             if (menuManage != null) menuManage.Click += async (s, e) =>
             {
-                await OpenSettings(1); // Open Tab 1 (Profiles)
+                await OpenSettings(1);
             };
 
             var menuNewSsh = this.FindControl<MenuItem>("MenuNewSshConnection");
@@ -3539,8 +3542,6 @@ namespace NovaTerminal
 
             // Clear dynamic items (everything before the separator)
             // Note: Simplest way is to rebuild the Flyout menu items list
-            var items = new Avalonia.Controls.ItemsControl().Items; // Temporary collection
-
             int separatorIndex = -1;
             for (int i = 0; i < flyout.Items.Count; i++)
             {
@@ -3575,6 +3576,18 @@ namespace NovaTerminal
             // Add footer back
             foreach (var footer in footerItems)
                 flyout.Items.Add(footer);
+        }
+
+        private void EnsureWindowIconLoaded()
+        {
+            if (_windowIconLoaded)
+            {
+                return;
+            }
+
+            using var iconStream = AssetLoader.Open(new Uri("avares://NovaTerminal/Assets/nova_icon.png"));
+            Icon = new WindowIcon(iconStream);
+            _windowIconLoaded = true;
         }
 
         internal void UpdateTabVisuals(TabItem? specificTab = null)

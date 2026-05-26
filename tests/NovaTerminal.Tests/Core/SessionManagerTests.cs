@@ -4,11 +4,52 @@ using NovaTerminal.Controls;
 using NovaTerminal.Core;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Storage;
+using System.Threading;
 
 namespace NovaTerminal.Tests.Core;
 
 public sealed class SessionManagerTests
 {
+    [AvaloniaFact]
+    public void CreateRestoredTabItem_RecordsStartupRestoreCheckpoints()
+    {
+        long now = 0;
+        var tracker = new StartupPerformanceTracker(
+            () => Interlocked.Add(ref now, 5),
+            startTimestamp: 0,
+            timestampFrequency: 1000);
+
+        StartupPerformanceTracker.SetCurrentForTests(tracker);
+        try
+        {
+            var settings = new TerminalSettings();
+            var tabSession = new TabSession
+            {
+                Title = "Local",
+                Root = new PaneNode
+                {
+                    Type = NodeType.Leaf,
+                    Command = "pwsh.exe",
+                    Arguments = "-NoLogo",
+                    PaneId = Guid.NewGuid().ToString()
+                }
+            };
+
+            var item = SessionManager.CreateRestoredTabItem(tabSession, settings);
+            StartupMetricsSnapshot snapshot = tracker.CreateSnapshot();
+
+            Assert.NotNull(item);
+            Assert.NotNull(snapshot.Checkpoints);
+            Assert.Contains("SessionManager.RestorePaneTree.LeafStart", snapshot.Checkpoints!.Keys);
+            Assert.Contains("SessionManager.RestorePaneTree.LeafCreated", snapshot.Checkpoints.Keys);
+            Assert.Contains("SessionManager.CreateRestoredTabItem.ContentCreated", snapshot.Checkpoints.Keys);
+        }
+        finally
+        {
+            StartupPerformanceTracker.SetCurrentForTests(null);
+        }
+    }
+
     [AvaloniaFact]
     public void CreateRestoredTabContent_UsesProvidedSettingsForPaneInitialization()
     {
