@@ -32,6 +32,33 @@ public sealed class MainWindowStartupTests
     }
 
     [AvaloniaFact]
+    public void RegisterPaneOwners_TraversesDecoratorWrappedPane()
+    {
+        var window = new NovaTerminal.MainWindow();
+        var registerPaneOwnersMethod = typeof(NovaTerminal.MainWindow).GetMethod("RegisterPaneOwners", BindingFlags.Instance | BindingFlags.NonPublic);
+        var paneOwnerField = typeof(NovaTerminal.MainWindow).GetField("_paneOwnerTab", BindingFlags.Instance | BindingFlags.NonPublic);
+        var pane = new NovaTerminal.Controls.TerminalPane();
+        var tab = new TabItem { Content = new Border { Child = pane } };
+
+        try
+        {
+            Assert.NotNull(registerPaneOwnersMethod);
+            Assert.NotNull(paneOwnerField);
+
+            registerPaneOwnersMethod!.Invoke(window, new object[] { tab, (Control)tab.Content! });
+
+            var paneOwners = Assert.IsAssignableFrom<System.Collections.IDictionary>(paneOwnerField!.GetValue(window));
+            Assert.True(paneOwners.Contains(pane));
+            Assert.Same(tab, paneOwners[pane]);
+        }
+        finally
+        {
+            pane.Dispose();
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void MainWindow_UsesPaletteForSettingsAndOpenRecording_NotTitleBarButtons()
     {
         CommandRegistry.Clear();

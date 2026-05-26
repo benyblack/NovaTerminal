@@ -4972,6 +4972,12 @@ namespace NovaTerminal
                 return;
             }
 
+            if (control is Decorator decorator && decorator.Child is Control childControl)
+            {
+                RegisterPaneOwners(tabItem, childControl);
+                return;
+            }
+
             if (control is ContentControl contentControl && contentControl.Content is Control content)
             {
                 RegisterPaneOwners(tabItem, content);

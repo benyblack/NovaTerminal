@@ -897,7 +897,11 @@ namespace NovaTerminal.Controls
                 return false;
             }
 
-            InitializeCommandAssist();
+            if (_commandAssistController == null)
+            {
+                InitializeCommandAssist();
+            }
+
             return _commandAssistController != null;
         }
 
