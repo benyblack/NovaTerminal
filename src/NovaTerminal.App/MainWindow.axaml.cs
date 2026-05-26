@@ -84,6 +84,7 @@ namespace NovaTerminal
         private string? _recordingToastFilePath;
         private ConnectionManager? _connectionManagerControl;
         private TransferCenter? _transferCenterControl;
+        private readonly StartupOrchestrator _startup;
         private readonly StartupRestoreCoordinator _startupRestoreCoordinator;
         private StartupRestorePlan? _pendingStartupRestorePlan;
 
@@ -1961,8 +1962,16 @@ namespace NovaTerminal
             }
         }
 
-        public MainWindow()
+        // Designer + legacy-test forwarder. Production callers must use the
+        // typed ctor via App.OnFrameworkInitializationCompleted.
+        public MainWindow() : this(AppServices.BuildForDesigner())
         {
+        }
+
+        public MainWindow(AppServiceBundle services)
+        {
+            ArgumentNullException.ThrowIfNull(services);
+            _startup = services.Startup;
             InitializeComponent();
             StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterInitializeComponent");
             _settings = TerminalSettings.Load();
