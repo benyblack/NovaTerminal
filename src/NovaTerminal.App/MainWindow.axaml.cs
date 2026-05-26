@@ -85,8 +85,6 @@ namespace NovaTerminal
         private ConnectionManager? _connectionManagerControl;
         private TransferCenter? _transferCenterControl;
         private readonly StartupOrchestrator _startup;
-        private readonly StartupRestoreCoordinator _startupRestoreCoordinator;
-        private StartupRestorePlan? _pendingStartupRestorePlan;
 
         private sealed class PaneZoomState
         {
@@ -1217,46 +1215,47 @@ namespace NovaTerminal
             }
             _startup.Checkpoint("StartupRestore.AfterSessionLoad");
 
-            var plan = StartupRestorePlan.Create(session);
-            tabs.Items.Clear();
-
-            for (int index = 0; index < session.Tabs.Count; index++)
+            try
             {
-                TabSession tabSession = session.Tabs[index];
-                TabItem? tabItem = index == plan.ImmediateTab.OriginalIndex
-                    ? SessionManager.CreateRestoredTabItem(tabSession, _settings)
-                    : CreateStartupPlaceholderTab(tabSession);
-
-                if (tabItem != null)
+                _startup.BeginSessionRestore(session, immediate =>
                 {
-                    tabs.Items.Add(tabItem);
-                }
-            }
-            _startup.Checkpoint("StartupRestore.AfterTabMaterialization");
+                    tabs.Items.Clear();
 
-            if (tabs.Items.Count == 0)
+                    for (int index = 0; index < session.Tabs.Count; index++)
+                    {
+                        TabSession tabSession = session.Tabs[index];
+                        TabItem? tabItem = index == immediate.OriginalIndex
+                            ? SessionManager.CreateRestoredTabItem(tabSession, _settings)
+                            : CreateStartupPlaceholderTab(tabSession);
+
+                        if (tabItem != null)
+                        {
+                            tabs.Items.Add(tabItem);
+                        }
+                    }
+
+                    if (tabs.Items.Count == 0)
+                    {
+                        throw new InvalidOperationException(
+                            "Session restore produced no tab items; aborting restore.");
+                    }
+
+                    if (immediate.OriginalIndex >= 0 && immediate.OriginalIndex < tabs.Items.Count)
+                    {
+                        tabs.SelectedIndex = immediate.OriginalIndex;
+                    }
+                });
+            }
+            catch (InvalidOperationException ex)
             {
+                TerminalLogger.Log($"TryRestoreStartupSession: aborted ({ex.Message})");
                 return false;
             }
 
-            if (plan.ImmediateTab.OriginalIndex >= 0 && plan.ImmediateTab.OriginalIndex < tabs.Items.Count)
-            {
-                tabs.SelectedIndex = plan.ImmediateTab.OriginalIndex;
-            }
+            _startup.Checkpoint("StartupRestore.AfterTabMaterialization");
 
             InitializeRestoredTabs(tabs);
             _startup.Checkpoint("StartupRestore.AfterInitializeRestoredTabs");
-            _startup.Mark(StartupPhase.SessionRestoreComplete);
-
-            if (plan.DeferredTabs.Count == 0)
-            {
-                _startup.Mark(StartupPhase.BackgroundRestoreComplete);
-                _pendingStartupRestorePlan = null;
-            }
-            else
-            {
-                _pendingStartupRestorePlan = plan;
-            }
 
             return true;
         }
@@ -1276,22 +1275,6 @@ namespace NovaTerminal
                 Content = new Border { Background = Brushes.Transparent },
                 Tag = tabSession
             };
-        }
-
-        private void RunDeferredStartupRestore()
-        {
-            var tabs = this.FindControl<TabControl>("Tabs");
-            var plan = _pendingStartupRestorePlan;
-            if (tabs == null || plan == null)
-            {
-                return;
-            }
-
-            _pendingStartupRestorePlan = null;
-            _startupRestoreCoordinator.RunDeferred(
-                plan.DeferredTabs,
-                deferredTab => HydrateDeferredStartupTab(tabs, deferredTab),
-                () => _startup.Mark(StartupPhase.BackgroundRestoreComplete));
         }
 
         private void HydrateDeferredStartupTab(TabControl tabs, StartupRestoreTab deferredTab)
@@ -1979,7 +1962,6 @@ namespace NovaTerminal
             _sshConnectionService = new SshConnectionService();
             _sshInteractionService = new SshInteractionService(() => this, ApplyThemeToDialogWindow);
             _sshLegacyMigrationService = new SshLegacyProfileMigrationService();
-            _startupRestoreCoordinator = new StartupRestoreCoordinator(action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background));
 
             if (_sshLegacyMigrationService.MigrateLegacyProfiles(_settings))
             {
@@ -2159,20 +2141,26 @@ namespace NovaTerminal
                 if (!TryRestoreStartupSession(tabs))
                 {
                     AddTab(defaultProfile);
-                    _startup.Mark(StartupPhase.SessionRestoreComplete);
-                    _startup.Mark(StartupPhase.BackgroundRestoreComplete);
+                    _startup.CompleteWithoutRestore();
                 }
             }
             else
             {
                 AddTab(defaultProfile);
-                _startup.Mark(StartupPhase.SessionRestoreComplete);
-                _startup.Mark(StartupPhase.BackgroundRestoreComplete);
+                _startup.CompleteWithoutRestore();
             }
 
-            if (_pendingStartupRestorePlan != null)
+            if (_startup.HasPendingDeferredRestore)
             {
-                Dispatcher.UIThread.Post(RunDeferredStartupRestore, DispatcherPriority.Background);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    var tabsControl = this.FindControl<TabControl>("Tabs");
+                    if (tabsControl == null)
+                    {
+                        return;
+                    }
+                    _startup.DrainDeferred(deferredTab => HydrateDeferredStartupTab(tabsControl, deferredTab));
+                }, DispatcherPriority.Background);
             }
             _startup.Checkpoint("MainWindow.AfterInitialTabs");
 
