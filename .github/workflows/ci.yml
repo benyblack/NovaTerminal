@@ -239,6 +239,7 @@ jobs:
 
       - name: Cache .NET SDK
         uses: actions/cache@v4
+        continue-on-error: true
         with:
           path: ~/.dotnet
           key: dotnet-sdk-${{ runner.os }}-10.0.300
