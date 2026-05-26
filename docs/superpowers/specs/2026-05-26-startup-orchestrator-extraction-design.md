@@ -1,7 +1,7 @@
 # StartupOrchestrator Extraction Design
 
 **Date:** 2026-05-26
-**Status:** Spec — awaiting user review before writing implementation plan
+**Status:** Implemented (see docs/superpowers/plans/2026-05-26-startup-orchestrator-extraction-plan.md, branch refactor/startup-orchestrator)
 **Scope:** App layer only. Pure refactor; sets composition-root pattern for future MainWindow-cluster extractions.
 **Owner:** N/A (single-author repo)
 
@@ -245,7 +245,7 @@ public static class AppServices
         return new AppServiceBundle(orchestrator);
     }
 
-    internal static AppServiceBundle BuildForDesigner()
+    public static AppServiceBundle BuildForDesigner()
     {
         var tracker      = new StartupPerformanceTracker();
         var coordinator  = new StartupRestoreCoordinator(action => action());
