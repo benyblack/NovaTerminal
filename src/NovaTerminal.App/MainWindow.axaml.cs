@@ -25,6 +25,7 @@ using SkiaSharp;
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Core.Shortcuts;
 using NovaTerminal.Models;
 using NovaTerminal.ViewModels.Ssh;
 using NovaTerminal.Views.Ssh;
@@ -86,6 +87,8 @@ namespace NovaTerminal
         private TransferCenter? _transferCenterControl;
         private readonly StartupRestoreCoordinator _startupRestoreCoordinator;
         private StartupRestorePlan? _pendingStartupRestorePlan;
+        private readonly CommandPaletteUsageStore _commandPaletteUsageStore;
+        private Dictionary<string, CommandPaletteUsageEntry> _commandPaletteUsage = new(StringComparer.OrdinalIgnoreCase);
 
         private sealed class PaneZoomState
         {
@@ -199,67 +202,19 @@ namespace NovaTerminal
 
         private bool IsShortcut(KeyEventArgs e, string id, string fallback)
         {
-            string binding = fallback;
+            return ShortcutMatcher.Matches(e, GetEffectiveShortcutBinding(id, fallback));
+        }
+
+        private string GetEffectiveShortcutBinding(string id, string fallback)
+        {
             if (_settings.Keybindings != null &&
                 _settings.Keybindings.TryGetValue(id, out var custom) &&
                 !string.IsNullOrWhiteSpace(custom))
             {
-                binding = custom;
+                return custom;
             }
 
-            return ShortcutMatches(e, binding);
-        }
-
-        private static bool ShortcutMatches(KeyEventArgs e, string shortcut)
-        {
-            if (string.IsNullOrWhiteSpace(shortcut)) return false;
-
-            bool wantCtrl = false;
-            bool wantShift = false;
-            bool wantAlt = false;
-            Key? wantKey = null;
-
-            foreach (var raw in shortcut.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            {
-                string token = raw.Trim();
-                if (token.Equals("Ctrl", StringComparison.OrdinalIgnoreCase) || token.Equals("Control", StringComparison.OrdinalIgnoreCase))
-                {
-                    wantCtrl = true;
-                    continue;
-                }
-                if (token.Equals("Shift", StringComparison.OrdinalIgnoreCase))
-                {
-                    wantShift = true;
-                    continue;
-                }
-                if (token.Equals("Alt", StringComparison.OrdinalIgnoreCase))
-                {
-                    wantAlt = true;
-                    continue;
-                }
-
-                wantKey = token.ToLowerInvariant() switch
-                {
-                    "+" => Key.OemPlus,
-                    "-" => Key.OemMinus,
-                    "plus" => Key.OemPlus,
-                    "minus" => Key.OemMinus,
-                    "tab" => Key.Tab,
-                    "space" => Key.Space,
-                    _ => Enum.TryParse<Key>(token, true, out var parsed) ? parsed : null
-                };
-            }
-
-            if (wantKey == null) return false;
-
-            bool hasCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
-            bool hasShift = (e.KeyModifiers & KeyModifiers.Shift) != 0;
-            bool hasAlt = (e.KeyModifiers & KeyModifiers.Alt) != 0;
-
-            return hasCtrl == wantCtrl &&
-                   hasShift == wantShift &&
-                   hasAlt == wantAlt &&
-                   e.Key == wantKey.Value;
+            return fallback;
         }
 
         internal static bool TryHandleCommandAssistHelpShortcut(TerminalPane? pane, Key key, KeyModifiers modifiers)
@@ -1967,6 +1922,8 @@ namespace NovaTerminal
             StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterInitializeComponent");
             _settings = TerminalSettings.Load();
             StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterSettingsLoad");
+            _commandPaletteUsageStore = new CommandPaletteUsageStore(AppPaths.CommandPaletteUsageFilePath);
+            _commandPaletteUsage = new Dictionary<string, CommandPaletteUsageEntry>(_commandPaletteUsageStore.Load(), StringComparer.OrdinalIgnoreCase);
             _sshConnectionService = new SshConnectionService();
             _sshInteractionService = new SshInteractionService(() => this, ApplyThemeToDialogWindow);
             _sshLegacyMigrationService = new SshLegacyProfileMigrationService();
@@ -2200,6 +2157,7 @@ namespace NovaTerminal
 
                 if (IsShortcut(e, "command_assist_toggle", "Ctrl+Space"))
                 {
+                    RecordCommandUsage("command_assist_toggle");
                     _currentPane?.ToggleCommandAssist();
                     e.Handled = true;
                     return;
@@ -2207,6 +2165,7 @@ namespace NovaTerminal
 
                 if (TryHandleCommandAssistHelpShortcut(_currentPane, e.Key, modifiers))
                 {
+                    RecordCommandUsage("command_assist_help");
                     e.Handled = true;
                     return;
                 }
@@ -2215,13 +2174,23 @@ namespace NovaTerminal
                 {
                     if (_currentPane?.OpenCommandAssistHistorySearch() == true)
                     {
+                        RecordCommandUsage("command_assist_history");
                         e.Handled = true;
                         return;
                     }
                 }
 
+                if (IsShortcut(e, "settings", "Ctrl+,"))
+                {
+                    RecordCommandUsage("settings");
+                    _ = OpenSettings(0);
+                    e.Handled = true;
+                    return;
+                }
+
                 if (IsShortcut(e, "font_increase", "Ctrl+OemPlus") || IsShortcut(e, "font_increase_alt", "Ctrl+Add"))
                 {
+                    RecordCommandUsage("font_increase");
                     _settings.FontSize++;
                     ApplySettingsToAllTabs();
                     _settings.Save();
@@ -2230,6 +2199,7 @@ namespace NovaTerminal
                 }
                 if (IsShortcut(e, "font_decrease", "Ctrl+OemMinus") || IsShortcut(e, "font_decrease_alt", "Ctrl+Subtract"))
                 {
+                    RecordCommandUsage("font_decrease");
                     _settings.FontSize = Math.Max(6, _settings.FontSize - 1);
                     ApplySettingsToAllTabs();
                     _settings.Save();
@@ -2238,30 +2208,35 @@ namespace NovaTerminal
                 }
                 if (IsShortcut(e, "new_tab", "Ctrl+Shift+T"))
                 {
+                    RecordCommandUsage("new_tab");
                     AddTab();
                     e.Handled = true;
                     return;
                 }
                 if (IsShortcut(e, "close_tab", "Ctrl+W"))
                 {
+                    RecordCommandUsage("close_tab");
                     _ = CloseSelectedTabAsync();
                     e.Handled = true;
                     return;
                 }
                 if (IsShortcut(e, "close_pane", "Ctrl+Shift+W"))
                 {
+                    RecordCommandUsage("close_pane");
                     CloseActivePane();
                     e.Handled = true;
                     return;
                 }
                 if (IsShortcut(e, "find", "Ctrl+F") || IsShortcut(e, "find_alt", "Ctrl+Shift+F"))
                 {
+                    RecordCommandUsage("find");
                     _currentPane?.ToggleSearch();
                     e.Handled = true;
                     return;
                 }
                 if (IsShortcut(e, "split_vertical", "Ctrl+Shift+D"))
                 {
+                    RecordCommandUsage("split_vertical");
                     // "Split Vertical" means a vertical divider (side-by-side panes).
                     SplitPane(Avalonia.Layout.Orientation.Horizontal);
                     e.Handled = true;
@@ -2269,6 +2244,7 @@ namespace NovaTerminal
                 }
                 if (IsShortcut(e, "split_horizontal", "Ctrl+Shift+E"))
                 {
+                    RecordCommandUsage("split_horizontal");
                     // "Split Horizontal" means a horizontal divider (stacked panes).
                     SplitPane(Avalonia.Layout.Orientation.Vertical);
                     e.Handled = true;
@@ -2276,18 +2252,21 @@ namespace NovaTerminal
                 }
                 if (IsShortcut(e, "equalize_panes", "Ctrl+Shift+G"))
                 {
+                    RecordCommandUsage("equalize_panes");
                     EqualizeCurrentSplit();
                     e.Handled = true;
                     return;
                 }
                 if (IsShortcut(e, "toggle_pane_zoom", "Ctrl+Shift+Z"))
                 {
+                    RecordCommandUsage("toggle_pane_zoom");
                     TogglePaneZoomForCurrentTab();
                     e.Handled = true;
                     return;
                 }
                 if (IsShortcut(e, "toggle_broadcast_input", "Ctrl+Shift+B"))
                 {
+                    RecordCommandUsage("toggle_broadcast_input");
                     ToggleBroadcastForCurrentTab();
                     e.Handled = true;
                     return;
@@ -2296,6 +2275,7 @@ namespace NovaTerminal
                 bool prevTabShortcut = IsShortcut(e, "prev_tab", "Ctrl+Shift+Tab");
                 if (nextTabShortcut || prevTabShortcut)
                 {
+                    RecordCommandUsage(prevTabShortcut ? "prev_tab" : "next_tab");
                     bool switched = SwitchTabByMru(reverse: prevTabShortcut);
                     if (switched)
                     {
@@ -2305,12 +2285,14 @@ namespace NovaTerminal
                 }
                 if (IsShortcut(e, "open_tab_list", "Ctrl+Shift+O"))
                 {
+                    RecordCommandUsage("open_tab_list");
                     PopulateTabListMenu(showFlyout: true);
                     e.Handled = true;
                     return;
                 }
                 if (IsShortcut(e, "paste", "Ctrl+V"))
                 {
+                    RecordCommandUsage("paste");
                     _ = PasteFromClipboardAsync();
                     e.Handled = true;
                     return;
@@ -3876,7 +3858,7 @@ namespace NovaTerminal
             CommandRegistry.Clear();
 
             // 1. Register Default Commands
-            CommandRegistry.Register("New Tab", "General", () => AddTab(), "Ctrl+Shift+T");
+            CommandRegistry.Register("New Tab", "General", () => AddTab(), GetEffectiveShortcutBinding("new_tab", "Ctrl+Shift+T"), "new_tab");
 
             // Dynamic Profile Tabs
             if (_settings.Profiles != null)
@@ -3940,11 +3922,11 @@ namespace NovaTerminal
                 CommandRegistry.Register($"Workspace Template: Apply {capturedTemplate}", "Workspace", () => ApplyWorkspaceTemplateByName(capturedTemplate), "");
             }
 
-            CommandRegistry.Register("Close Tab", "General", () => CloseActiveTab(), "Ctrl+W");
-            CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), "Ctrl+Shift+W");
-            CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), "Ctrl+Tab");
-            CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), "Ctrl+Shift+Tab");
-            CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), "Ctrl+Shift+O");
+            CommandRegistry.Register("Close Tab", "General", () => CloseActiveTab(), GetEffectiveShortcutBinding("close_tab", "Ctrl+W"), "close_tab");
+            CommandRegistry.Register("Close Pane", "General", () => CloseActivePane(), GetEffectiveShortcutBinding("close_pane", "Ctrl+Shift+W"), "close_pane");
+            CommandRegistry.Register("Tab: Next (MRU)", "General", () => SwitchTabByMru(reverse: false), GetEffectiveShortcutBinding("next_tab", "Ctrl+Tab"), "next_tab");
+            CommandRegistry.Register("Tab: Previous (MRU)", "General", () => SwitchTabByMru(reverse: true), GetEffectiveShortcutBinding("prev_tab", "Ctrl+Shift+Tab"), "prev_tab");
+            CommandRegistry.Register("Tab: Open Tab List", "General", () => PopulateTabListMenu(showFlyout: true), GetEffectiveShortcutBinding("open_tab_list", "Ctrl+Shift+O"), "open_tab_list");
             CommandRegistry.Register("Tab: Rename Current", "General", () => _ = RenameSelectedTabAsync(), "");
             CommandRegistry.Register("Tab: Copy Current Title", "General", () => _ = CopySelectedTabTitleAsync(), "");
             CommandRegistry.Register("Tab: Close Others", "General", () => _ = CloseOtherTabsAsync(), "");
@@ -3952,29 +3934,29 @@ namespace NovaTerminal
             CommandRegistry.Register("Tab: Toggle Protect", "General", () => ToggleProtectSelectedTab(), "");
             // Keep command naming aligned with common terminal UX:
             // Vertical split => vertical divider => side-by-side panes.
-            CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), "Ctrl+Shift+D");
+            CommandRegistry.Register("Split Vertical", "View", () => SplitPane(Avalonia.Layout.Orientation.Horizontal), GetEffectiveShortcutBinding("split_vertical", "Ctrl+Shift+D"), "split_vertical");
             // Horizontal split => horizontal divider => stacked panes.
-            CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Vertical), "Ctrl+Shift+E");
-            CommandRegistry.Register("Equalize Panes", "View", () => EqualizeCurrentSplit(), "Ctrl+Shift+G");
-            CommandRegistry.Register("Pane: Toggle Zoom", "View", () => TogglePaneZoomForCurrentTab(), "Ctrl+Shift+Z");
-            CommandRegistry.Register("Pane: Toggle Broadcast Input (Tab)", "View", () => ToggleBroadcastForCurrentTab(), "Ctrl+Shift+B");
+            CommandRegistry.Register("Split Horizontal", "View", () => SplitPane(Avalonia.Layout.Orientation.Vertical), GetEffectiveShortcutBinding("split_horizontal", "Ctrl+Shift+E"), "split_horizontal");
+            CommandRegistry.Register("Equalize Panes", "View", () => EqualizeCurrentSplit(), GetEffectiveShortcutBinding("equalize_panes", "Ctrl+Shift+G"), "equalize_panes");
+            CommandRegistry.Register("Pane: Toggle Zoom", "View", () => TogglePaneZoomForCurrentTab(), GetEffectiveShortcutBinding("toggle_pane_zoom", "Ctrl+Shift+Z"), "toggle_pane_zoom");
+            CommandRegistry.Register("Pane: Toggle Broadcast Input (Tab)", "View", () => ToggleBroadcastForCurrentTab(), GetEffectiveShortcutBinding("toggle_broadcast_input", "Ctrl+Shift+B"), "toggle_broadcast_input");
             CommandRegistry.Register("Pane: Reconnect", "View", () => _currentPane?.Reconnect(), "");
             CommandRegistry.Register("Focus Pane Left", "View", () => NavigatePane(MoveDirection.Left), "Alt+Left");
             CommandRegistry.Register("Focus Pane Right", "View", () => NavigatePane(MoveDirection.Right), "Alt+Right");
             CommandRegistry.Register("Focus Pane Up", "View", () => NavigatePane(MoveDirection.Up), "Alt+Up");
             CommandRegistry.Register("Focus Pane Down", "View", () => NavigatePane(MoveDirection.Down), "Alt+Down");
-            CommandRegistry.Register("Find in Terminal", "Edit", () => _currentPane?.ToggleSearch(), "Ctrl+Shift+F");
+            CommandRegistry.Register("Find in Terminal", "Edit", () => _currentPane?.ToggleSearch(), GetEffectiveShortcutBinding("find", "Ctrl+F"), "find");
             CommandRegistry.Register("Pane: Export Snapshot (Plain Text)", "View", () => _currentPane?.ExportSnapshotAsync("txt"), "");
             CommandRegistry.Register("Pane: Export Snapshot (ANSI)", "View", () => _currentPane?.ExportSnapshotAsync("ansi"), "");
             CommandRegistry.Register("Pane: Export Snapshot (PNG)", "View", () => _currentPane?.ExportSnapshotAsync("png"), "");
             CommandRegistry.Register("Pane: Toggle Render HUD", "View", () => _currentPane?.ToggleRenderHud(), "");
-            CommandRegistry.Register("Paste", "Edit", () => _ = PasteFromClipboardAsync(), "Ctrl+V");
-            CommandRegistry.Register("Font: Increase", "View", () => { _settings.FontSize++; ApplySettingsToAllTabs(); _settings.Save(); }, "Ctrl++");
-            CommandRegistry.Register("Font: Decrease", "View", () => { _settings.FontSize = Math.Max(6, _settings.FontSize - 1); ApplySettingsToAllTabs(); _settings.Save(); }, "Ctrl+-");
+            CommandRegistry.Register("Paste", "Edit", () => _ = PasteFromClipboardAsync(), GetEffectiveShortcutBinding("paste", "Ctrl+V"), "paste");
+            CommandRegistry.Register("Font: Increase", "View", () => { _settings.FontSize++; ApplySettingsToAllTabs(); _settings.Save(); }, GetEffectiveShortcutBinding("font_increase", "Ctrl++"), "font_increase");
+            CommandRegistry.Register("Font: Decrease", "View", () => { _settings.FontSize = Math.Max(6, _settings.FontSize - 1); ApplySettingsToAllTabs(); _settings.Save(); }, GetEffectiveShortcutBinding("font_decrease", "Ctrl+-"), "font_decrease");
             CommandRegistry.Register("Settings", "General", async () =>
             {
                 await OpenSettings(0);
-            }, "");
+            }, GetEffectiveShortcutBinding("settings", "Ctrl+,"), "settings");
             CommandRegistry.Register("Open Recording...", "General", () => _ = ExecuteUiCommandAsync(ExecuteOpenRecordingCommandAsync, "Open Recording..."), "");
             CommandRegistry.Register("Open Recordings Folder", "General", () => OpenRecordingsFolder(), "");
 
@@ -4332,7 +4314,7 @@ namespace NovaTerminal
                     }
                     else
                     {
-                        var results = CommandRegistry.Search(box.Text ?? "");
+                        var results = GetPaletteCommands(box.Text ?? "");
                         list.ItemsSource = results;
                         if (results.Count > 0) list.SelectedIndex = 0;
                     }
@@ -4343,7 +4325,7 @@ namespace NovaTerminal
                 {
                     if (e.Property.Name == "Text")
                     {
-                        var results = CommandRegistry.Search(box.Text ?? "");
+                        var results = GetPaletteCommands(box.Text ?? "");
                         list.ItemsSource = results;
                         if (results.Count > 0) list.SelectedIndex = 0;
                     }
@@ -4377,7 +4359,7 @@ namespace NovaTerminal
                 {
                     SetupCommandPalette();
                     box.Text = "";
-                    list.ItemsSource = CommandRegistry.GetCommands().OrderBy(c => c.Category).ThenBy(c => c.Title).ToList();
+                    list.ItemsSource = GetPaletteCommands("");
                     list.SelectedIndex = 0;
                     box.Focus();
                 }
@@ -4917,6 +4899,7 @@ namespace NovaTerminal
         private void ExecuteCommand(TerminalCommand cmd)
         {
             ToggleCommandPalette(); // Close first
+            RecordCommandUsage(cmd.Id);
             Dispatcher.UIThread.Post(() =>
             {
                 try
@@ -4928,6 +4911,35 @@ namespace NovaTerminal
                     Console.WriteLine($"Error executing command {cmd.Title}: {ex.Message}");
                 }
             }, DispatcherPriority.Background);
+        }
+
+        private List<TerminalCommand> GetPaletteCommands(string query)
+        {
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return CommandPaletteOrdering.OrderForEmptyQuery(CommandRegistry.GetCommands(), _commandPaletteUsage).ToList();
+            }
+
+            return CommandPaletteOrdering.OrderSearchResults(CommandRegistry.Search(query), _commandPaletteUsage).ToList();
+        }
+
+        private void RecordCommandUsage(string commandId)
+        {
+            if (string.IsNullOrWhiteSpace(commandId))
+            {
+                return;
+            }
+
+            try
+            {
+                _commandPaletteUsageStore.RecordUse(commandId, DateTimeOffset.UtcNow);
+                _commandPaletteUsageStore.Save();
+                _commandPaletteUsage = new Dictionary<string, CommandPaletteUsageEntry>(_commandPaletteUsageStore.Load(), StringComparer.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                // Keep command execution resilient if usage persistence is unavailable.
+            }
         }
 
 

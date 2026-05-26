@@ -296,6 +296,12 @@
                                     <TextBlock Grid.Column="1" Text="Shells &amp; Profiles" Margin="6,0,0,0" VerticalAlignment="Center"/>
                                 </Grid>
                             </ListBoxItem>
+                            <ListBoxItem>
+                                <Grid ColumnDefinitions="20,*">
+                                    <TextBlock Grid.Column="0" Text="⌘" FontSize="13" Foreground="{StaticResource NtFg3}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Shortcuts" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                            </ListBoxItem>
                         </ListBox>
 
                         <Border Margin="14,18,14,8"
@@ -755,6 +761,32 @@
                             </StackPanel>
                         </ScrollViewer>
                     </Grid>
+                </TabItem>
+
+                <TabItem Header="Shortcuts">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="32,28,32,28" Spacing="0">
+                            <StackPanel Margin="0,0,0,24">
+                                <TextBlock Classes="H1" Text="Shortcuts"/>
+                                <TextBlock Classes="Subtitle" Margin="0,4,0,0" Text="Manage app, pane, and Command Assist keybindings."/>
+                            </StackPanel>
+
+                            <TextBlock Classes="SectionHeader" Text="KEYBINDINGS" Margin="0,0,0,14"/>
+
+                            <StackPanel Spacing="10" Margin="0,0,0,16">
+                                <TextBox Name="ShortcutSearchInput" PlaceholderText="Search commands, categories, or scopes"/>
+                                <TextBlock Name="ShortcutValidationMessage"
+                                           Foreground="{StaticResource NtRed}"
+                                           FontSize="12"
+                                           IsVisible="False"
+                                           TextWrapping="Wrap"/>
+                                <TextBlock Classes="RowDesc"
+                                           Text="Select a shortcut field and press the new key chord. Reset restores the default binding."/>
+                            </StackPanel>
+
+                            <StackPanel Name="ShortcutBindingsPanel" Spacing="10"/>
+                        </StackPanel>
+                    </ScrollViewer>
                 </TabItem>
             </TabControl>
         </Grid>

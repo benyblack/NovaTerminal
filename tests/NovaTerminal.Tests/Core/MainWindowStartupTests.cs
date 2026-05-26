@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
 using NovaTerminal.Core;
+using NovaTerminal.Core.Shortcuts;
 using System.Reflection;
 
 namespace NovaTerminal.Tests.Core;
@@ -76,6 +77,44 @@ public sealed class MainWindowStartupTests
         Assert.Contains(commands, command => command.Title == "Settings");
         Assert.Contains(commands, command => command.Title == "Open Recording...");
         Assert.Contains(commands, command => command.Title == "Open Recordings Folder");
+    }
+
+    [AvaloniaFact]
+    public void MainWindow_CommandPaletteShowsSettingsShortcut()
+    {
+        CommandRegistry.Clear();
+        var window = new NovaTerminal.MainWindow();
+        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        toggleMethod!.Invoke(window, null);
+
+        TerminalCommand settingsCommand = Assert.Single(CommandRegistry.GetCommands().Where(command => command.Title == "Settings"));
+        Assert.Equal("Ctrl+,", settingsCommand.Shortcut);
+    }
+
+    [AvaloniaFact]
+    public void MainWindow_CommandPalettePrefersMostUsedCommandsWhenOpened()
+    {
+        CommandRegistry.Clear();
+        var window = new NovaTerminal.MainWindow();
+        var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
+        var usageField = typeof(NovaTerminal.MainWindow).GetField("_commandPaletteUsage", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(usageField);
+
+        usageField!.SetValue(
+            window,
+            new Dictionary<string, CommandPaletteUsageEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["settings"] = new("settings", 8, new DateTimeOffset(2026, 5, 26, 12, 0, 0, TimeSpan.Zero)),
+            });
+
+        toggleMethod!.Invoke(window, null);
+
+        var commandList = window.FindControl<ListBox>("CommandList");
+        IReadOnlyList<TerminalCommand> commands = Assert.IsAssignableFrom<IEnumerable<TerminalCommand>>(commandList!.ItemsSource).ToList();
+
+        Assert.Equal("settings", commands[0].Id);
     }
 
     public async Task ExecuteCommand_DefersActionUntilAfterPaletteCloses()

@@ -6,6 +6,7 @@ namespace NovaTerminal.Core
 {
     public class TerminalCommand
     {
+        public string Id { get; set; } = "";
         public string Title { get; set; } = "";
         public string Category { get; set; } = "General";
         public Action Action { get; set; } = () => { };
@@ -18,10 +19,11 @@ namespace NovaTerminal.Core
     {
         private static List<TerminalCommand> _commands = new();
 
-        public static void Register(string title, string category, Action action, string shortcut = "")
+        public static void Register(string title, string category, Action action, string shortcut = "", string id = "")
         {
             _commands.Add(new TerminalCommand
             {
+                Id = string.IsNullOrWhiteSpace(id) ? title : id,
                 Title = title,
                 Category = category,
                 Action = action,
