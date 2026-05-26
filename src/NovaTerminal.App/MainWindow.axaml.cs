@@ -1233,6 +1233,7 @@ namespace NovaTerminal
                             tabs.Items.Add(tabItem);
                         }
                     }
+                    _startup.Checkpoint("StartupRestore.AfterTabMaterialization");
 
                     if (tabs.Items.Count == 0)
                     {
@@ -1244,6 +1245,9 @@ namespace NovaTerminal
                     {
                         tabs.SelectedIndex = immediate.OriginalIndex;
                     }
+
+                    InitializeRestoredTabs(tabs);
+                    _startup.Checkpoint("StartupRestore.AfterInitializeRestoredTabs");
                 });
             }
             catch (InvalidOperationException ex)
@@ -1251,11 +1255,6 @@ namespace NovaTerminal
                 TerminalLogger.Log($"TryRestoreStartupSession: aborted ({ex.Message})");
                 return false;
             }
-
-            _startup.Checkpoint("StartupRestore.AfterTabMaterialization");
-
-            InitializeRestoredTabs(tabs);
-            _startup.Checkpoint("StartupRestore.AfterInitializeRestoredTabs");
 
             return true;
         }
