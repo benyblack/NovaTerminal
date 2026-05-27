@@ -1,3 +1,5 @@
+using NovaTerminal.CommandAssist.Application;
+using NovaTerminal.CommandAssist.ShellIntegration.Bash;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
@@ -56,5 +58,17 @@ public sealed class ShellIntegrationRegistryTests
             profile: new TerminalProfile { Command = "/bin/bash" });
 
         Assert.Null(provider);
+    }
+
+    [Fact]
+    public void GetProvider_ForBashProfile_ReturnsBashProvider()
+    {
+        ShellIntegrationRegistry registry = CommandAssistInfrastructure.GetShellIntegrationRegistry();
+
+        IShellIntegrationProvider? provider = registry.GetProvider(
+            shellKind: "bash",
+            profile: new TerminalProfile { Command = "/bin/bash" });
+
+        Assert.IsType<BashShellIntegrationProvider>(provider);
     }
 }

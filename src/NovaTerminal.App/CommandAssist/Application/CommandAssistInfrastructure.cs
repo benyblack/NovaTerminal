@@ -1,5 +1,6 @@
 using System;
 using NovaTerminal.CommandAssist.Domain;
+using NovaTerminal.CommandAssist.ShellIntegration.Bash;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
@@ -21,7 +22,8 @@ public static class CommandAssistInfrastructure
     private static readonly ISuggestionEngine SuggestionEngineInstance = new CommandAssistSuggestionEngine();
     private static readonly ShellIntegrationRegistry ShellIntegrationRegistryInstance = new(new IShellIntegrationProvider[]
     {
-        new PowerShellShellIntegrationProvider()
+        new PowerShellShellIntegrationProvider(),
+        new BashShellIntegrationProvider()
     });
 
     public static IHistoryStore GetHistoryStore(TerminalSettings settings)
