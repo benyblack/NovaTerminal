@@ -120,6 +120,21 @@ public sealed class OscShellIntegrationTests
     }
 
     [Fact]
+    public void Osc133C_WithBashMultilineHereDoc_RoundTripsThroughBase64()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+        string? acceptedCommand = null;
+        const string command = "for i in 1 2 3; do\n    echo \"$i\"\ndone";
+        string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(command));
+
+        parser.OnCommandAccepted += text => acceptedCommand = text;
+        parser.Process($"\x1b]133;C;{encoded}\x07");
+
+        Assert.Equal(command, acceptedCommand);
+    }
+
+    [Fact]
     public void Osc133D_WithExitCodeAndDuration_RaisesDetailedCommandFinished()
     {
         var buffer = new TerminalBuffer(80, 24);

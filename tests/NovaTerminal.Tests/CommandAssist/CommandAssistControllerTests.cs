@@ -665,6 +665,34 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
+    public async Task HandleShellIntegrationEventAsync_ForBashSessionContext_TagsHistoryEntryWithBashShellKind()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+        controller.UpdateSessionContext(
+            shellKind: "bash",
+            workingDirectory: "/repo",
+            profileId: "profile-bash",
+            sessionId: "session-bash",
+            hostId: null,
+            isRemote: false,
+            isShellIntegrated: true);
+
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandAccepted,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:00+00:00"),
+            CommandText: "ls -la",
+            WorkingDirectory: "/repo",
+            ExitCode: null,
+            Duration: null));
+
+        Assert.Single(historyStore.Entries);
+        Assert.Equal("bash", historyStore.Entries[0].ShellKind);
+        Assert.Equal(CommandCaptureSource.ShellIntegration, historyStore.Entries[0].Source);
+    }
+
+    [Fact]
     public async Task UpdateSessionContext_WhenCommandAcceptedMarkerWasObserved_KeepsStructuredCaptureActive()
     {
         var historyStore = new InMemoryHistoryStore();
