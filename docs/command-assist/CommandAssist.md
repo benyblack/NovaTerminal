@@ -362,21 +362,20 @@ Cons:
 - harder multiline handling
 
 ### Level 2: integrated mode
-Add shell integration scripts/plugins for:
-- PowerShell
-- bash
-- zsh
-- fish
+Shell integration providers ship for:
+- PowerShell (`-File <bootstrap>`)
+- bash (`--rcfile <bootstrap>`)
+- zsh (`ZDOTDIR` env-override + generated `.zshrc`)
+- fish (`XDG_CONFIG_HOME` env-override + generated `config.fish`)
 
-Want structured events for:
-- prompt ready
-- current cwd
-- command accepted
-- command completed
-- exit code
-- optional duration
+Each bootstrap emits the normalized structured events:
+- prompt ready (`OSC 133;A`)
+- current cwd (`OSC 7`)
+- command accepted (`OSC 133;C;<base64-utf8>`)
+- command completed with exit code and duration (`OSC 133;D;<exit>;<durationMs>`)
 
-This enables much better ranking and timing.
+These markers feed the shared lifecycle tracker and Command Assist controller
+without per-shell branching beyond the launch-plan step.
 
 ---
 
@@ -521,15 +520,19 @@ Exit criteria:
 - UX is faster than manual shell history for common cases
 
 ### M3 — shell integration
-Deliver:
-- PowerShell integration first
-- bash/zsh/fish after
-- structured prompt/command events
-- better cwd/exit code tracking
-- robust multiline handling
+Delivered:
+- PowerShell, bash, zsh, and fish providers each emitting the normalized
+  OSC 7 / OSC 133;A/C/D lifecycle (PowerShell via `-File`, bash via
+  `--rcfile`, zsh via `ZDOTDIR` env-override, fish via `XDG_CONFIG_HOME`)
+- structured cwd, accepted-command, and completion events with exit code
+  and duration enrichment
+- base64-encoded accepted-command payloads so multiline submissions survive
+- env-override plumbing through `ShellIntegrationLaunchPlan`, `RustPtySession`,
+  and the `pty_spawn_with_envs` Rust FFI
 
-Exit criteria:
-- command boundaries are trustworthy in integrated shells
+Exit criteria met:
+- command boundaries are trustworthy in integrated shells; heuristic capture
+  remains the fallback for unsupported or user-overridden shell configurations
 
 ### M4 — helper surfaces
 Deliver:

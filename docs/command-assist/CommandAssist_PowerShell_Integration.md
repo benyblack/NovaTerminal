@@ -1,11 +1,12 @@
 # Command Assist PowerShell Integration
 
 ## Scope
-Command Assist M3 integrates PowerShell first:
+Command Assist M3 integrates PowerShell:
 - `pwsh.exe`
 - `powershell.exe`
 
-Other shells still use the existing fallback path described below.
+Bash, Zsh, and Fish providers exist alongside this one; see
+[`CommandAssist_ShellIntegration_Gaps.md`](CommandAssist_ShellIntegration_Gaps.md).
 
 ## Activation
 PowerShell shell integration is enabled when all of the following are true:
@@ -15,47 +16,60 @@ PowerShell shell integration is enabled when all of the following are true:
 - the active shell profile resolves to a supported PowerShell command
 - the PowerShell launch arguments do not already force a user-supplied `-File` script
 
-When those conditions are met, NovaTerminal prepends a Command Assist bootstrap script through the existing App-layer launch-plan path.
+When those conditions are met, NovaTerminal injects a Command Assist bootstrap
+script through the existing App-layer launch-plan path (`-File <bootstrap>`).
 
 ## Marker Flow
-The current PowerShell bootstrap emits these markers:
+The PowerShell bootstrap emits the full structured lifecycle:
 
 - `OSC 7`
   - working directory updates
 - `OSC 133;A`
-  - prompt ready
+  - prompt ready (emitted from the wrapped `prompt` function)
+- `OSC 133;C;<base64-utf8>`
+  - command accepted; the user-entered buffer is base64-encoded so multiline
+    submissions survive transit through the VT byte stream
 - `OSC 133;D;<exitCode>;<durationMs>`
-  - command finished with exit code and duration after an accepted PowerShell submission reaches the idle transition
+  - command finished; emitted from the next `prompt` invocation rather than
+    a `PowerShell.OnIdle` engine event, so it fires exactly once per accepted
+    command and reads a snapshot of `$?` / `$LASTEXITCODE` for that command
 
-These markers are consumed by the existing shell-integration tracker and Command Assist controller. The terminal grid is not used as the source of truth for cwd or finish metadata.
+These markers feed the existing shell-integration tracker and Command Assist
+controller; the terminal grid is not used as a source of truth for cwd or
+command lifecycle metadata.
 
 ## Prompt Behavior
-The bootstrap wraps the existing PowerShell `prompt` function instead of replacing it with a Nova-owned prompt body.
+The bootstrap wraps the existing PowerShell `prompt` function instead of
+replacing it.
 
 That means:
-- NovaTerminal emits cwd and prompt-ready markers before prompt rendering
+- NovaTerminal emits cwd, completion-D, and prompt-ready markers before the
+  user's prompt rendering
 - the original prompt implementation is still invoked
 - custom prompt content remains the shell's responsibility
 
-If NovaTerminal cannot capture the existing prompt implementation, it falls back to a simple prompt string so the shell session remains usable.
+If NovaTerminal cannot capture the existing prompt implementation, it falls
+back to a simple prompt string so the shell session remains usable.
 
 ## Command Capture
-For the current PowerShell integration path:
-- command text still comes from the heuristic Enter-based capture path
-- exit code and duration enrichment come from structured finish events
-- shell integration continues to supply cwd and prompt-ready state
+PowerShell command text is captured at the shell boundary by wrapping
+PSReadLine's `Enter` chord:
 
-If shell integration is configured but no structured accepted-command marker is present, Command Assist keeps heuristic capture active for that pane.
+- the buffer is read via `[Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState`
+- non-empty buffers are base64-encoded and emitted as `OSC 133;C;<payload>`
+- `AcceptLine` is then called so the original Enter behavior runs
+
+Exit code and duration enrichment come from the prompt-driven `OSC 133;D`
+marker on the *next* prompt cycle. The Command Assist controller persists
+the accepted-command entry on `C`, then patches the same entry's exit code
+and duration on `D`.
 
 ## Fallback Behavior
-Fallback remains in place for:
-- unsupported shells
+Fallback to the heuristic capture path remains in place for:
+- unsupported shells (no provider registered for the detected shell kind)
 - sessions with shell integration disabled in settings
 - PowerShell launches that already provide a user `-File` script
 - partial or failed integration where structured markers never appear
-- current PowerShell sessions for command text capture, because the bootstrap does not yet emit safe accepted-command markers
-
-In those cases, Command Assist continues using the heuristic capture path from earlier milestones.
 
 ## Operational Notes
 - This integration is implemented in the App-layer shell-integration subsystem.
