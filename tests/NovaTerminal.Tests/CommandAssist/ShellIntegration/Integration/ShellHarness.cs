@@ -121,6 +121,7 @@ internal static class ShellHarness
         var events = new List<OscEvent>();
         var capture = new StringBuilder();
         object sync = new();
+        long lastOutputTicks = Environment.TickCount64;
 
         parser.OnPromptReady = () =>
         {
@@ -162,6 +163,7 @@ internal static class ShellHarness
         {
             lock (sync) capture.Append(text);
             parser.Process(text);
+            Volatile.Write(ref lastOutputTicks, Environment.TickCount64);
         };
         session.OnExit += code => exitSignal.TrySetResult(code);
 
@@ -177,7 +179,7 @@ internal static class ShellHarness
         // keeps retrying forever and OnExit never fires. Watch the actual
         // OS process by PID and signal exit ourselves once it's gone.
         var watcherCts = new CancellationTokenSource();
-        _ = Task.Run(() =>
+        _ = Task.Run(async () =>
         {
             int? trackedPid = null;
             for (int i = 0; i < 30 && trackedPid is null; i++)
@@ -186,31 +188,38 @@ internal static class ShellHarness
                 trackedPid = session.Pid;
                 if (trackedPid is null)
                 {
-                    try { Task.Delay(100, watcherCts.Token).Wait(); }
-                    catch { return; }
+                    try { await Task.Delay(100, watcherCts.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { return; }
                 }
             }
             if (trackedPid is null) return;
-            while (!watcherCts.Token.IsCancellationRequested)
+
+            System.Diagnostics.Process p;
+            try { p = System.Diagnostics.Process.GetProcessById(trackedPid.Value); }
+            catch (ArgumentException) { exitSignal.TrySetResult(0); return; }
+            using (p)
             {
-                try
+                while (!watcherCts.Token.IsCancellationRequested)
                 {
-                    using var p = System.Diagnostics.Process.GetProcessById(trackedPid.Value);
-                    if (p.HasExited)
+                    try
                     {
-                        exitSignal.TrySetResult(p.ExitCode);
+                        p.Refresh();
+                        if (p.HasExited)
+                        {
+                            exitSignal.TrySetResult(p.ExitCode);
+                            return;
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Process handle is gone -- treat as a clean exit.
+                        exitSignal.TrySetResult(0);
                         return;
                     }
+                    catch { /* transient query failure; retry next tick */ }
+                    try { await Task.Delay(100, watcherCts.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { return; }
                 }
-                catch (ArgumentException)
-                {
-                    // Process is gone -- treat as a clean exit.
-                    exitSignal.TrySetResult(0);
-                    return;
-                }
-                catch { /* transient query failure; retry next tick */ }
-                try { Task.Delay(100, watcherCts.Token).Wait(); }
-                catch { return; }
             }
         }, watcherCts.Token);
 
@@ -238,11 +247,25 @@ internal static class ShellHarness
                 $"Shell {shellPath} did not exit within {timeoutSpan.TotalSeconds:F1}s");
         }
 
-        // Final flush window: ProcessLoop drains the output queue serially,
-        // so by the time OnExit fires every chunk has been delivered to the
-        // parser. A tiny sleep papers over the residual scheduling gap
-        // between the last OnOutputReceived call and our snapshot read.
-        Thread.Sleep(25);
+        // Drain window: the exit signal can fire from the PID watcher
+        // before the PTY ReadLoop -> ProcessLoop -> parser pipeline has
+        // delivered the last few bytes (which may contain the final OSC
+        // 133;C / D markers). Sleeping a fixed N ms is a race on a loaded
+        // CI runner; instead wait until OnOutputReceived has been quiet
+        // for `drainIdleMs` consecutive ms, capped by `drainCapMs` overall
+        // so we don't hang forever if the shell decides to keep printing
+        // after the child reaps.
+        const long drainIdleMs = 200;
+        const long drainCapMs = 2000;
+        long drainStart = Environment.TickCount64;
+        while (true)
+        {
+            long now = Environment.TickCount64;
+            long sinceOutput = now - Volatile.Read(ref lastOutputTicks);
+            long sinceDrainStart = now - drainStart;
+            if (sinceOutput >= drainIdleMs || sinceDrainStart >= drainCapMs) break;
+            Thread.Sleep(25);
+        }
 
         string captured;
         OscEvent[] eventsSnapshot;
