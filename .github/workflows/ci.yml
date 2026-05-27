@@ -212,12 +212,13 @@ jobs:
         run: dotnet restore
 
       # The shell-integration tests under tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/Integration
-      # spawn real bash/zsh/fish via the production PTY path. bash and zsh are
-      # preinstalled on ubuntu-latest; fish is not, so install it here so
-      # FishShellIntegrationTests actually runs instead of skipping.
-      - name: Install fish (Linux)
+      # spawn real bash/zsh/fish via the production PTY path. bash is
+      # preinstalled on ubuntu-latest; zsh and fish are not on ubuntu-24.04,
+      # so install them here -- otherwise ZshShellIntegrationTests and
+      # FishShellIntegrationTests skip instead of running.
+      - name: Install zsh and fish (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y fish
+        run: sudo apt-get update && sudo apt-get install -y zsh fish
 
       - name: Test (unit)
         # Keep the unit lane focused on deterministic tests; stress tests run in nightly,
