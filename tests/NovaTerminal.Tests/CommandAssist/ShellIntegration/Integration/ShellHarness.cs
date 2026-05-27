@@ -41,6 +41,35 @@ internal sealed record OscEvent(string Kind, string? Payload)
 /// </summary>
 internal static class ShellHarness
 {
+    /// <summary>
+    /// Gate for the real-shell integration tests. They reliably pass on
+    /// developer machines (Git Bash on Windows, native bash on Linux/macOS
+    /// with a real terminal context) but on headless CI runners bash -i
+    /// with piped stdin can leak shell processes that never exit, hanging
+    /// the entire job until the 15-minute global timeout fires. We default
+    /// to "skip on CI, run elsewhere" so the tests still catch regressions
+    /// on dev boxes but never block CI; an explicit opt-in
+    /// (NOVA_RUN_SHELL_INTEGRATION_TESTS=1) lets us re-enable them once a
+    /// proper CI-side fix lands.
+    /// </summary>
+    public static bool IsEnabled()
+    {
+        string? explicitOptIn = Environment.GetEnvironmentVariable("NOVA_RUN_SHELL_INTEGRATION_TESTS");
+        if (explicitOptIn == "1" ||
+            string.Equals(explicitOptIn, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        string? ci = Environment.GetEnvironmentVariable("CI");
+        if (string.Equals(ci, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
     public static string? FindBash()
     {
         // Prefer Git Bash on Windows so we get a real GNU bash, not WSL's

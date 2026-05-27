@@ -28,6 +28,11 @@ public sealed class FishShellIntegrationTests : IDisposable
 
     private HarnessResult RunFish(string stdin)
     {
+        if (!ShellHarness.IsEnabled())
+        {
+            Assert.Skip("shell integration tests gated off on this runner (set NOVA_RUN_SHELL_INTEGRATION_TESTS=1 to enable)");
+        }
+
         string? fish = ShellHarness.FindFish();
         if (fish is null)
         {
