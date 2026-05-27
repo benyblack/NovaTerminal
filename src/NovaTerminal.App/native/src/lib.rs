@@ -28,6 +28,7 @@ mod win32 {
         cwd: Option<&str>,
         cols: u16,
         rows: u16,
+        extra_envs: &[(String, String)],
     ) -> Result<(Box<dyn Read + Send>, Box<dyn Write + Send>, HPCON, HANDLE), anyhow::Error> {
         unsafe {
             let mut h_in_read: HANDLE = INVALID_HANDLE_VALUE;
@@ -83,7 +84,19 @@ mod win32 {
             si_ex.lpAttributeList = lp_attr_list;
 
             let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
-            let mut full_cmd = cmd.to_string();
+            // Quote the executable when its path contains whitespace and
+            // isn't already quoted. CreateProcessW with lpApplicationName
+            // NULL uses heuristics to find the exe boundary in lpCommandLine
+            // -- for `C:\Program Files\PowerShell\7\pwsh.exe -NoLogo ...`
+            // it first tries `C:\Program.exe` and only falls back to the
+            // longer prefix if that fails, which breaks for many users.
+            // Wrapping the exe in quotes removes the ambiguity.
+            let needs_quoting = cmd.contains(char::is_whitespace) && !cmd.starts_with('"');
+            let mut full_cmd = if needs_quoting {
+                format!("\"{}\"", cmd)
+            } else {
+                cmd.to_string()
+            };
             if let Some(a) = args {
                 full_cmd.push(' ');
                 full_cmd.push_str(a);
@@ -100,6 +113,11 @@ mod win32 {
             env_map.insert("TERM".to_string(), "xterm-256color".to_string());
             env_map.insert("COLORTERM".to_string(), "truecolor".to_string());
             env_map.insert("TERM_PROGRAM".to_string(), "NovaTerminal".to_string());
+            // Caller-supplied overrides take precedence so shell-integration
+            // providers (e.g. zsh's ZDOTDIR) can steer shell startup.
+            for (k, v) in extra_envs {
+                env_map.insert(k.clone(), v.clone());
+            }
 
             let mut env_block: Vec<u16> = Vec::new();
             for (key, value) in env_map {
@@ -159,6 +177,25 @@ pub struct PtyState {
     pub child: Mutex<Option<Box<dyn portable_pty::Child + Send>>>,
 }
 
+fn parse_env_overrides(envs: *const c_char) -> Vec<(String, String)> {
+    if envs.is_null() {
+        return Vec::new();
+    }
+    let raw = unsafe { CStr::from_ptr(envs).to_string_lossy() };
+    let mut out = Vec::new();
+    // Wire format: newline-separated KEY=VALUE pairs. Lines without '=' are
+    // skipped. Values may contain '=' (only the first one splits).
+    for line in raw.split('\n') {
+        if line.is_empty() {
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            out.push((k.to_string(), v.to_string()));
+        }
+    }
+    out
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_spawn(
     cmd: *const c_char,
@@ -166,6 +203,30 @@ pub extern "C" fn pty_spawn(
     cwd: *const c_char,
     cols: u16,
     rows: u16,
+) -> *mut PtyState {
+    pty_spawn_impl(cmd, args, cwd, cols, rows, &[])
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn pty_spawn_with_envs(
+    cmd: *const c_char,
+    args: *const c_char,
+    cwd: *const c_char,
+    cols: u16,
+    rows: u16,
+    envs: *const c_char,
+) -> *mut PtyState {
+    let overrides = parse_env_overrides(envs);
+    pty_spawn_impl(cmd, args, cwd, cols, rows, &overrides)
+}
+
+fn pty_spawn_impl(
+    cmd: *const c_char,
+    args: *const c_char,
+    cwd: *const c_char,
+    cols: u16,
+    rows: u16,
+    extra_envs: &[(String, String)],
 ) -> *mut PtyState {
     let cmd_str = unsafe {
         if cmd.is_null() {
@@ -196,6 +257,7 @@ pub extern "C" fn pty_spawn(
             cwd_str.as_ref().map(|s| s.as_ref()),
             cols,
             rows,
+            extra_envs,
         ) {
             let state = PtyState {
                 reader: Mutex::new(reader),
@@ -241,6 +303,11 @@ pub extern "C" fn pty_spawn(
     cmd_builder.env("TERM_PROGRAM", "NovaTerminal");
     cmd_builder.env("LC_ALL", "C");
     cmd_builder.env("LANG", "C");
+    // Caller-supplied overrides last so shell-integration providers
+    // (e.g. zsh's ZDOTDIR) can override the baseline.
+    for (k, v) in extra_envs {
+        cmd_builder.env(k.as_str(), v.as_str());
+    }
 
     let child = match pair.slave.spawn_command(cmd_builder) {
         Ok(c) => c,

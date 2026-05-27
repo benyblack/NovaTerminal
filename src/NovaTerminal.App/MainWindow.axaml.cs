@@ -3564,7 +3564,7 @@ namespace NovaTerminal
                 return;
             }
 
-            using var iconStream = AssetLoader.Open(new Uri("avares://NovaTerminal/Assets/nova_icon.png"));
+            using var iconStream = AssetLoader.Open(new Uri("avares://NovaTerminal/Assets/nova_icon.ico"));
             Icon = new WindowIcon(iconStream);
             _windowIconLoaded = true;
         }

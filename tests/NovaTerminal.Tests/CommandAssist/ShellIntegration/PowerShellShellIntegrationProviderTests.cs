@@ -22,6 +22,14 @@ public sealed class PowerShellShellIntegrationProviderTests
         Assert.Contains("-File", plan.ShellArguments);
         Assert.Contains(plan.BootstrapScriptPath!, plan.ShellArguments, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(plan.BootstrapScriptPath);
+        // -File must NOT be wrapped in double quotes: powershell.exe's -File
+        // parser reads the raw command-line tail (no argv splitting), so
+        // surrounding quotes get treated as part of the path value and the
+        // launch fails with "Illegal characters in path".
+        Assert.DoesNotContain(
+            $"\"{plan.BootstrapScriptPath}\"",
+            plan.ShellArguments!,
+            StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

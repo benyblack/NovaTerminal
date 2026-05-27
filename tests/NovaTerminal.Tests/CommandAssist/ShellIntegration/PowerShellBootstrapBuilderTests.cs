@@ -19,7 +19,58 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
 
         Assert.Contains("]7;", script);
         Assert.Contains("]133;A", script);
+        Assert.Contains("]133;C;", script);
         Assert.Contains("]133;D;", script);
+    }
+
+    [Fact]
+    public void BuildScript_EmitsAcceptedCommandMarkerFromEnterKeyHandler()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.Contains("Set-PSReadLineKeyHandler", script);
+        Assert.Contains("-Chord 'Enter'", script);
+        Assert.Contains("GetBufferState", script);
+        Assert.Contains("AcceptLine", script);
+    }
+
+    [Fact]
+    public void BuildScript_GuardsPsReadLineUsageBehindCmdletProbe()
+    {
+        // Regression guard: minimal PowerShell environments don't ship
+        // PSReadLine. With $ErrorActionPreference = 'Stop' set at the top
+        // of the bootstrap, calling Set-PSReadLineKeyHandler unconditionally
+        // would terminate startup. The probe pattern below silently skips
+        // the key handler install when the cmdlet isn't available.
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.Contains("Get-Command Set-PSReadLineKeyHandler -ErrorAction SilentlyContinue", script);
+    }
+
+    [Fact]
+    public void BuildScript_Base64EncodesAcceptedCommandPayload()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.Contains("[Convert]::ToBase64String", script);
+        Assert.Contains("[Text.Encoding]::UTF8", script);
+    }
+
+    [Fact]
+    public void BuildScript_ClearsAcceptedCommandStateAfterCompletionMarker()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.Contains("$script:NovaAcceptedCommandText = $null", script);
+        Assert.Contains("$script:NovaCommandStart = $null", script);
+    }
+
+    [Fact]
+    public void BuildScript_DoesNotRegisterOnIdleEngineEvent()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.DoesNotContain("PowerShell.OnIdle", script);
     }
 
     [Fact]
@@ -46,6 +97,19 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
 
         Assert.DoesNotContain("if ($global:LASTEXITCODE -ne $null -or $?)", script);
         Assert.Contains("if ($script:NovaCommandStart -eq $null) { return }", script);
+    }
+
+    [Fact]
+    public void BuildScript_ReportsFailedCmdletEvenWhenLastExitCodeIsStaleZero()
+    {
+        // Regression guard: PowerShell cmdlets set $? to $false on failure
+        // but do not touch $LASTEXITCODE. If a successful external command
+        // ran first ($LASTEXITCODE=0), then a cmdlet fails ($?=$false), the
+        // bootstrap must NOT report exit 0 -- it must use $LASTEXITCODE
+        // only when nonzero, falling back to 1 otherwise.
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.Contains("$lastExitCode -ne $null -and $lastExitCode -ne 0", script);
     }
 
     [Fact]
