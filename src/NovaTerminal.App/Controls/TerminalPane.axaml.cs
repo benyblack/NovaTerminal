@@ -98,6 +98,7 @@ namespace NovaTerminal.Controls
         private CommandAssistController? _commandAssistController;
         private ShellLifecycleTracker? _shellLifecycleTracker;
         private bool _isShellIntegrationActive;
+        private IReadOnlyDictionary<string, string>? _shellIntegrationEnvOverrides;
         private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
         private readonly CommandAssistAnchorCalculator _commandAssistAnchorCalculator = new();
         private string? _lastRelevantCommandText;
@@ -1511,6 +1512,7 @@ namespace NovaTerminal.Controls
             string args = explicitArgs ?? profile?.Arguments ?? "";
             _shellLifecycleTracker = null;
             _isShellIntegrationActive = false;
+            _shellIntegrationEnvOverrides = null;
 
             // Update SFTP Menu Visibility
             // If it's not an SSH session, detach the context menu entirely to avoid "tiny empty box" artifacts
@@ -1579,7 +1581,8 @@ namespace NovaTerminal.Controls
                     rows,
                     args,
                     startingDir,
-                    skipPowerShellPostLaunchInit: _isShellIntegrationActive);
+                    skipPowerShellPostLaunchInit: _isShellIntegrationActive,
+                    environmentOverrides: _shellIntegrationEnvOverrides);
                 Session.AttachBuffer(Buffer);
 
                 TermView.SetSession(Session);
@@ -2477,6 +2480,7 @@ namespace NovaTerminal.Controls
             effectiveShell = plan.ShellCommand;
             args = plan.ShellArguments ?? string.Empty;
             _isShellIntegrationActive = true;
+            _shellIntegrationEnvOverrides = plan.EnvironmentOverrides;
             _shellLifecycleTracker = new ShellLifecycleTracker();
             _shellLifecycleTracker.EventObserved += OnShellIntegrationEventObserved;
         }

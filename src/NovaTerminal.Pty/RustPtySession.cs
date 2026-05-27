@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -39,6 +40,9 @@ namespace NovaTerminal.Core
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
             public static extern IntPtr pty_spawn(string cmd, string? args, string? cwd, ushort cols, ushort rows);
+
+            [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+            public static extern IntPtr pty_spawn_with_envs(string cmd, string? args, string? cwd, ushort cols, ushort rows, string envs);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
             public static extern int pty_read(IntPtr state, byte[] buffer, int len);
@@ -171,7 +175,8 @@ namespace NovaTerminal.Core
             int rows = 30,
             string? args = null,
             string? cwd = null,
-            bool skipPowerShellPostLaunchInit = false)
+            bool skipPowerShellPostLaunchInit = false,
+            IReadOnlyDictionary<string, string>? environmentOverrides = null)
         {
             ShellCommand = shellCommand;
             ShellArguments = args;
@@ -200,7 +205,22 @@ namespace NovaTerminal.Core
             }
 
             Console.WriteLine($"[RustPtySession] Spawning '{effectiveShell}' args='{combinedArgs}' cwd='{cwd}' at {cols}x{rows}");
-            _ptyState = Native.pty_spawn(effectiveShell, combinedArgs.Trim(), cwd, (ushort)cols, (ushort)rows);
+            if (environmentOverrides != null && environmentOverrides.Count > 0)
+            {
+                // Pack overrides as newline-separated KEY=VALUE pairs. The
+                // Rust side splits on '\n' and the first '=' per line.
+                var sb = new StringBuilder();
+                foreach (var kv in environmentOverrides)
+                {
+                    if (sb.Length > 0) sb.Append('\n');
+                    sb.Append(kv.Key).Append('=').Append(kv.Value);
+                }
+                _ptyState = Native.pty_spawn_with_envs(effectiveShell, combinedArgs.Trim(), cwd, (ushort)cols, (ushort)rows, sb.ToString());
+            }
+            else
+            {
+                _ptyState = Native.pty_spawn(effectiveShell, combinedArgs.Trim(), cwd, (ushort)cols, (ushort)rows);
+            }
 
             if (_ptyState == IntPtr.Zero)
             {
