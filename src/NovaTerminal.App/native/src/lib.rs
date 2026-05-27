@@ -177,6 +177,44 @@ pub struct PtyState {
     pub child: Mutex<Option<Box<dyn portable_pty::Child + Send>>>,
 }
 
+// Tokenize an argument string the way a POSIX-ish shell would: split on
+// whitespace, but keep a double-quoted region as a single token and drop
+// the surrounding quotes. Backslash escapes inside quotes are passed
+// through (Windows paths use backslashes that should remain literal).
+// Good enough for CommandBuilder's argv-style consumption -- we are not
+// running a real shell here, just rebuilding argv from the test caller's
+// pre-formatted argument string.
+fn split_args(input: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut started = false;
+    for ch in input.chars() {
+        if in_quotes {
+            if ch == '"' {
+                in_quotes = false;
+            } else {
+                current.push(ch);
+            }
+        } else if ch == '"' {
+            in_quotes = true;
+            started = true;
+        } else if ch.is_whitespace() {
+            if started {
+                out.push(std::mem::take(&mut current));
+                started = false;
+            }
+        } else {
+            current.push(ch);
+            started = true;
+        }
+    }
+    if started {
+        out.push(current);
+    }
+    out
+}
+
 fn parse_env_overrides(envs: *const c_char) -> Vec<(String, String)> {
     if envs.is_null() {
         return Vec::new();
@@ -251,23 +289,33 @@ fn pty_spawn_impl(
 
     #[cfg(windows)]
     {
-        if let Ok((reader, writer, h_pc, h_process)) = win32::spawn_with_passthrough(
-            cmd_str.as_ref(),
-            args_str.as_ref().map(|s| s.as_ref()),
-            cwd_str.as_ref().map(|s| s.as_ref()),
-            cols,
-            rows,
-            extra_envs,
-        ) {
-            let state = PtyState {
-                reader: Mutex::new(reader),
-                writer: Mutex::new(writer),
-                h_pc: Some(h_pc),
-                h_process: Some(h_process),
-                master: Mutex::new(None),
-                child: Mutex::new(None),
-            };
-            return Arc::into_raw(Arc::new(state)) as *mut PtyState;
+        // Allow callers (notably the xunit test runner, where the
+        // PSEUDOCONSOLE_PASSTHROUGH path silently swallows the child's
+        // stdout when the host has no real console) to force the
+        // portable-pty ConPTY path via env var. Production never sets
+        // this so behavior is unchanged for the app.
+        let skip_passthrough = std::env::var("NOVA_PTY_NO_PASSTHROUGH")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if !skip_passthrough {
+            if let Ok((reader, writer, h_pc, h_process)) = win32::spawn_with_passthrough(
+                cmd_str.as_ref(),
+                args_str.as_ref().map(|s| s.as_ref()),
+                cwd_str.as_ref().map(|s| s.as_ref()),
+                cols,
+                rows,
+                extra_envs,
+            ) {
+                let state = PtyState {
+                    reader: Mutex::new(reader),
+                    writer: Mutex::new(writer),
+                    h_pc: Some(h_pc),
+                    h_process: Some(h_process),
+                    master: Mutex::new(None),
+                    child: Mutex::new(None),
+                };
+                return Arc::into_raw(Arc::new(state)) as *mut PtyState;
+            }
         }
     }
 
@@ -287,7 +335,12 @@ fn pty_spawn_impl(
 
     let mut cmd_builder = CommandBuilder::new(cmd_str.as_ref());
     if let Some(a) = args_str {
-        for arg in a.split_whitespace() {
+        // Plain split_whitespace would keep the surrounding " on a quoted
+        // path like `--rcfile "C:\path with space\foo"`, which then breaks
+        // the child (it tries to open a literal `"C:\path…` file). Parse
+        // the argument string respecting double quotes so the child sees
+        // the same argv it would from a shell.
+        for arg in split_args(a.as_ref()) {
             if !arg.is_empty() {
                 cmd_builder.arg(arg);
             }

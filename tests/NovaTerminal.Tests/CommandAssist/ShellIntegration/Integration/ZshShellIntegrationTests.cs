@@ -28,11 +28,6 @@ public sealed class ZshShellIntegrationTests : IDisposable
 
     private HarnessResult RunZsh(string stdin)
     {
-        if (!ShellHarness.IsEnabled())
-        {
-            Assert.Skip("shell integration tests gated off on this runner (set NOVA_RUN_SHELL_INTEGRATION_TESTS=1 to enable)");
-        }
-
         string? zsh = ShellHarness.FindZsh();
         if (zsh is null)
         {
