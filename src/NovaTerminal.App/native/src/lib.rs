@@ -84,7 +84,19 @@ mod win32 {
             si_ex.lpAttributeList = lp_attr_list;
 
             let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
-            let mut full_cmd = cmd.to_string();
+            // Quote the executable when its path contains whitespace and
+            // isn't already quoted. CreateProcessW with lpApplicationName
+            // NULL uses heuristics to find the exe boundary in lpCommandLine
+            // -- for `C:\Program Files\PowerShell\7\pwsh.exe -NoLogo ...`
+            // it first tries `C:\Program.exe` and only falls back to the
+            // longer prefix if that fails, which breaks for many users.
+            // Wrapping the exe in quotes removes the ambiguity.
+            let needs_quoting = cmd.contains(char::is_whitespace) && !cmd.starts_with('"');
+            let mut full_cmd = if needs_quoting {
+                format!("\"{}\"", cmd)
+            } else {
+                cmd.to_string()
+            };
             if let Some(a) = args {
                 full_cmd.push(' ');
                 full_cmd.push_str(a);
