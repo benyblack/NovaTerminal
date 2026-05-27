@@ -150,7 +150,7 @@ internal static class ShellHarness
         var exitSignal = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         TimeSpan timeoutSpan = timeout ?? TimeSpan.FromSeconds(15);
 
-        using var session = new RustPtySession(
+        var session = new RustPtySession(
             shellPath,
             cols: 120,
             rows: 30,
@@ -237,14 +237,61 @@ internal static class ShellHarness
         string ttyInput = scriptedStdin.Replace("\n", "\r");
         session.SendInput(ttyInput);
 
-        bool exited = exitSignal.Task.Wait(timeoutSpan);
-        watcherCts.Cancel();
+        bool exited;
+        try
+        {
+            exited = exitSignal.Task.Wait(timeoutSpan);
+            watcherCts.Cancel();
+
+            // Belt-and-suspenders: if the shell hasn't terminated on its
+            // own (timeout, or assertion-failure path where exitSignal
+            // fires because we observed exit but the OS process is somehow
+            // still around), kill it explicitly. On Linux, closing the
+            // master fd in pty_close() does NOT unblock RustPtySession's
+            // ReadLoop thread that's already blocked in pty_read on that
+            // same fd; only the child closing its slave end produces the
+            // EOF that lets ReadLoop terminate. Without this, a single
+            // hung zsh `-i` cascades into the xunit host being unable to
+            // shut down, which we observed as a 14-minute silent stall.
+            try
+            {
+                int? pid = session.Pid;
+                if (pid is int p)
+                {
+                    using var proc = System.Diagnostics.Process.GetProcessById(p);
+                    if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+                }
+            }
+            catch { /* process already gone or unkillable -- nothing more we can do */ }
+        }
+        catch
+        {
+            session.Dispose();
+            throw;
+        }
+
         if (!exited)
         {
-            // Dispose() (via using) will kill the child on scope exit;
-            // throw so the test sees a clear failure.
+            string partial;
+            int eventCount;
+            lock (sync)
+            {
+                partial = capture.ToString();
+                eventCount = events.Count;
+            }
+            session.Dispose();
+            var dump = new StringBuilder(partial.Length * 2);
+            foreach (char c in partial)
+            {
+                if (c >= 0x20 && c < 0x7F) dump.Append(c);
+                else if (c == '\n') dump.Append("\\n");
+                else if (c == '\r') dump.Append("\\r");
+                else if (c == '\t') dump.Append("\\t");
+                else dump.Append("\\x").Append(((int)c).ToString("X2"));
+            }
             throw new TimeoutException(
-                $"Shell {shellPath} did not exit within {timeoutSpan.TotalSeconds:F1}s");
+                $"Shell {shellPath} did not exit within {timeoutSpan.TotalSeconds:F1}s. " +
+                $"events={eventCount}, captured ({partial.Length} chars): {dump}");
         }
 
         // Drain window: the exit signal can fire from the PID watcher
@@ -274,6 +321,7 @@ internal static class ShellHarness
             captured = capture.ToString();
             eventsSnapshot = events.ToArray();
         }
+        session.Dispose();
 
         // PTY merges stdout and stderr onto the same master fd, so there is
         // no way to separate the two streams here. Expose the combined
