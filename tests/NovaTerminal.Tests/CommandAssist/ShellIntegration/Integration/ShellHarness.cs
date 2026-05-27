@@ -51,6 +51,10 @@ internal static class ShellHarness
     /// on dev boxes but never block CI; an explicit opt-in
     /// (NOVA_RUN_SHELL_INTEGRATION_TESTS=1) lets us re-enable them once a
     /// proper CI-side fix lands.
+    ///
+    /// TODO(#71): Replace the underlying Process.Start + piped-stdin
+    /// harness with a RustPtySession-backed implementation so bash sees a
+    /// real PTY on CI. When that lands, this gate can be deleted.
     /// </summary>
     public static bool IsEnabled()
     {
