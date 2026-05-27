@@ -15,7 +15,7 @@ public sealed class MainWindowStartupTests
     [AvaloniaFact]
     public void MainWindow_CanBeConstructed()
     {
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
 
         Assert.NotNull(window);
     }
@@ -23,7 +23,7 @@ public sealed class MainWindowStartupTests
     [AvaloniaFact]
     public void MainWindow_LoadsWindowIconOnlyAfterDeferredHookRuns()
     {
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var ensureWindowIconLoadedMethod = typeof(NovaTerminal.MainWindow).GetMethod("EnsureWindowIconLoaded", BindingFlags.Instance | BindingFlags.NonPublic);
 
         Assert.NotNull(ensureWindowIconLoadedMethod);
@@ -37,7 +37,7 @@ public sealed class MainWindowStartupTests
     [AvaloniaFact]
     public void RegisterPaneOwners_TraversesDecoratorWrappedPane()
     {
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var registerPaneOwnersMethod = typeof(NovaTerminal.MainWindow).GetMethod("RegisterPaneOwners", BindingFlags.Instance | BindingFlags.NonPublic);
         var paneOwnerField = typeof(NovaTerminal.MainWindow).GetField("_paneOwnerTab", BindingFlags.Instance | BindingFlags.NonPublic);
         var pane = new NovaTerminal.Controls.TerminalPane();
@@ -65,7 +65,7 @@ public sealed class MainWindowStartupTests
     public void MainWindow_UsesPaletteForSettingsAndOpenRecording_NotTitleBarButtons()
     {
         CommandRegistry.Clear();
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
 
         Assert.Null(window.FindControl<Button>("SettingsBtn"));
@@ -169,7 +169,7 @@ public sealed class MainWindowStartupTests
 
     public async Task ExecuteCommand_DefersActionUntilAfterPaletteCloses()
     {
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
         var executeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ExecuteCommand", BindingFlags.Instance | BindingFlags.NonPublic);
 
@@ -247,7 +247,7 @@ public sealed class MainWindowStartupTests
     [AvaloniaFact]
     public void ApplyThemeToUi_LightTheme_UpdatesTabListAndIdleRecordForeground()
     {
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
         var applyThemeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
         var settings = (TerminalSettings)settingsField!.GetValue(window)!;
@@ -281,7 +281,7 @@ public sealed class MainWindowStartupTests
     [AvaloniaFact]
     public void ApplyThemeToUi_LightTheme_UpdatesCommandPaletteSearchForeground()
     {
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
         var applyThemeMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplyThemeToUI", BindingFlags.Instance | BindingFlags.NonPublic);
         var toggleMethod = typeof(NovaTerminal.MainWindow).GetMethod("ToggleCommandPalette", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -307,7 +307,7 @@ public sealed class MainWindowStartupTests
     [AvaloniaFact]
     public void ApplySplitterVisualState_LightTheme_StrengthensLineOnHoverAndDrag()
     {
-        var window = new NovaTerminal.MainWindow();
+        var window = TestMainWindowFactory.Create();
         var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
         var applySplitterVisualStateMethod = typeof(NovaTerminal.MainWindow).GetMethod("ApplySplitterVisualState", BindingFlags.Instance | BindingFlags.NonPublic);
         var settings = (TerminalSettings)settingsField!.GetValue(window)!;
