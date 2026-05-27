@@ -3,6 +3,7 @@ using NovaTerminal.CommandAssist.ShellIntegration.Bash;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
+using NovaTerminal.CommandAssist.ShellIntegration.Zsh;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
 
@@ -70,5 +71,17 @@ public sealed class ShellIntegrationRegistryTests
             profile: new TerminalProfile { Command = "/bin/bash" });
 
         Assert.IsType<BashShellIntegrationProvider>(provider);
+    }
+
+    [Fact]
+    public void GetProvider_ForZshProfile_ReturnsZshProvider()
+    {
+        ShellIntegrationRegistry registry = CommandAssistInfrastructure.GetShellIntegrationRegistry();
+
+        IShellIntegrationProvider? provider = registry.GetProvider(
+            shellKind: "zsh",
+            profile: new TerminalProfile { Command = "/bin/zsh" });
+
+        Assert.IsType<ZshShellIntegrationProvider>(provider);
     }
 }
