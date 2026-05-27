@@ -45,6 +45,7 @@ namespace NovaTerminal.Core
         public static string WorkspacePolicyFilePath => Path.Combine(PolicyDirectory, "workspace_policy.json");
         public static string WorkspaceAuditLogPath => Path.Combine(LogsDirectory, "workspace_audit.log");
         public static string RecordingsDirectory => Path.Combine(RootDirectory, "recordings");
+        public static string CommandPaletteUsageFilePath => Path.Combine(RootDirectory, "command-palette-usage.json");
         public static string CommandAssistDirectory => Path.Combine(RootDirectory, "command-assist");
         public static string CommandHistoryFilePath => Path.Combine(CommandAssistDirectory, "history.json");
         public static string CommandSnippetsFilePath => Path.Combine(CommandAssistDirectory, "snippets.json");

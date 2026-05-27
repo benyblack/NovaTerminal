@@ -3,6 +3,7 @@ using System;
 using System.Text.Json.Serialization;
 using NovaTerminal.Core;
 using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.Core.Shortcuts;
 
 namespace NovaTerminal.Core
 {
@@ -17,6 +18,7 @@ namespace NovaTerminal.Core
     [JsonSerializable(typeof(List<CommandHistoryEntry>))]
     [JsonSerializable(typeof(List<CommandSnippet>))]
     [JsonSerializable(typeof(Dictionary<string, string>))]
+    [JsonSerializable(typeof(Dictionary<string, CommandPaletteUsageEntry>))]
     [JsonSerializable(typeof(WorkspacePolicyHooks))]
     [JsonSourceGenerationOptions(WriteIndented = true, Converters = new[] { typeof(JsonColorConverter), typeof(TermColorJsonConverter) })]
     public partial class AppJsonContext : JsonSerializerContext

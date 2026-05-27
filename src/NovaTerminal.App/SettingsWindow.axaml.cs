@@ -1,8 +1,10 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using NovaTerminal.Core;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net.NetworkInformation;
 using Avalonia.Threading;
@@ -10,6 +12,7 @@ using Avalonia.Media;
 using Avalonia.Controls.Shapes;
 using Avalonia.Styling;
 using NovaTerminal.Services.Ssh;
+using NovaTerminal.Core.Shortcuts;
 
 namespace NovaTerminal
 {
@@ -20,6 +23,7 @@ namespace NovaTerminal
 
         private TerminalProfile? _selectedProfile;
         private System.Collections.Generic.List<TerminalProfile> _profilesList = new();
+        private Dictionary<string, string> _shortcutDraftBindings = new(StringComparer.OrdinalIgnoreCase);
 
         public event Action<double>? OnOpacityChanged;
         public event Action<string>? OnBlurChanged;
@@ -50,6 +54,7 @@ namespace NovaTerminal
             // Settings editor is local-profiles only; SSH connections are managed in Connection Manager.
             _profilesList = BuildLocalProfilesForEditor(_settings.Profiles);
             _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _profilesList);
+            _shortcutDraftBindings = new Dictionary<string, string>(_settings.Keybindings, StringComparer.OrdinalIgnoreCase);
 
             PopulateFonts();
             PopulateThemes();
@@ -300,6 +305,7 @@ namespace NovaTerminal
 
             LoadCurrentSettings();
             PopulateProfilesList();
+            InitializeShortcutEditor();
             ApplyTheme();
 
             _statusTimer = new DispatcherTimer
@@ -1108,6 +1114,270 @@ namespace NovaTerminal
             RefreshForwardsList();
         }
 
+        internal static IReadOnlyList<ShortcutCatalogEntry> FilterShortcutCatalogEntries(string query)
+        {
+            IEnumerable<ShortcutCatalogEntry> entries = ShortcutCatalog.GetEntries();
+            if (!string.IsNullOrWhiteSpace(query))
+            {
+                string trimmedQuery = query.Trim();
+                entries = entries.Where(entry =>
+                    entry.Title.Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase) ||
+                    entry.Category.Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase) ||
+                    FormatScopeLabel(entry.Scope).Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase) ||
+                    entry.CommandId.Contains(trimmedQuery, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return entries
+                .OrderBy(entry => entry.Scope)
+                .ThenBy(entry => entry.Category, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.Title, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private void InitializeShortcutEditor()
+        {
+            var shortcutSearchInput = this.FindControl<TextBox>("ShortcutSearchInput");
+            if (shortcutSearchInput != null)
+            {
+                shortcutSearchInput.PropertyChanged += (s, e) =>
+                {
+                    if (e.Property.Name == "Text")
+                    {
+                        PopulateShortcutBindingsPanel(shortcutSearchInput.Text ?? "");
+                    }
+                };
+            }
+
+            PopulateShortcutBindingsPanel(shortcutSearchInput?.Text ?? "");
+        }
+
+        private void PopulateShortcutBindingsPanel(string query)
+        {
+            var panel = this.FindControl<StackPanel>("ShortcutBindingsPanel");
+            if (panel == null)
+            {
+                return;
+            }
+
+            panel.Children.Clear();
+            string? activeScope = null;
+            IReadOnlyList<ShortcutCatalogEntry> entries = FilterShortcutCatalogEntries(query);
+            foreach (ShortcutCatalogEntry entry in entries)
+            {
+                string scopeLabel = FormatScopeLabel(entry.Scope);
+                if (!string.Equals(activeScope, scopeLabel, StringComparison.Ordinal))
+                {
+                    panel.Children.Add(new TextBlock
+                    {
+                        Text = scopeLabel.ToUpperInvariant(),
+                        Classes = { "SectionHeader" },
+                        Margin = new Thickness(0, activeScope == null ? 0 : 12, 0, 8),
+                    });
+                    activeScope = scopeLabel;
+                }
+
+                panel.Children.Add(CreateShortcutBindingRow(entry));
+            }
+
+            if (panel.Children.Count == 0)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "No shortcuts match the current filter.",
+                    Classes = { "RowDesc" },
+                });
+            }
+        }
+
+        private Control CreateShortcutBindingRow(ShortcutCatalogEntry entry)
+        {
+            string effectiveBinding = GetEffectiveShortcutBinding(entry);
+            var row = new Border
+            {
+                Background = new SolidColorBrush(Color.Parse("#23272f")),
+                BorderBrush = new SolidColorBrush(Color.Parse("#2a2f38")),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12),
+                Margin = new Thickness(0, 0, 0, 8),
+            };
+
+            var errorText = new TextBlock
+            {
+                Foreground = Brushes.IndianRed,
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                IsVisible = false,
+            };
+
+            var bindingEditor = new TextBox
+            {
+                Text = effectiveBinding,
+                IsReadOnly = true,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                PlaceholderText = "Press shortcut",
+                MinWidth = 180,
+            };
+
+            bindingEditor.KeyDown += (s, e) => HandleShortcutEditorKeyDown(entry, bindingEditor, errorText, e);
+
+            var resetButton = new Button
+            {
+                Content = "Reset",
+                Classes = { "Pill" },
+                HorizontalAlignment = HorizontalAlignment.Right,
+            };
+            resetButton.Click += (s, e) =>
+            {
+                _shortcutDraftBindings.Remove(entry.CommandId);
+                bindingEditor.Text = entry.DefaultBinding;
+                errorText.IsVisible = false;
+                ClearShortcutValidationMessage();
+            };
+
+            row.Child = new StackPanel
+            {
+                Spacing = 8,
+                Children =
+                {
+                    new Grid
+                    {
+                        ColumnDefinitions = new ColumnDefinitions("*,220,Auto"),
+                        ColumnSpacing = 12,
+                        Children =
+                        {
+                            new StackPanel
+                            {
+                                Spacing = 2,
+                                Children =
+                                {
+                                    new TextBlock
+                                    {
+                                        Text = entry.Title,
+                                        Classes = { "RowLabel" },
+                                    },
+                                    new TextBlock
+                                    {
+                                        Text = $"{entry.Category} · {FormatScopeLabel(entry.Scope)} · Default {entry.DefaultBinding}",
+                                        Classes = { "RowDesc" },
+                                    },
+                                },
+                            },
+                            bindingEditor,
+                            resetButton,
+                        }
+                    },
+                    errorText,
+                }
+            };
+
+            Grid.SetColumn(bindingEditor, 1);
+            Grid.SetColumn(resetButton, 2);
+            return row;
+        }
+
+        private void HandleShortcutEditorKeyDown(
+            ShortcutCatalogEntry entry,
+            TextBox bindingEditor,
+            TextBlock errorText,
+            KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                bindingEditor.Text = GetEffectiveShortcutBinding(entry);
+                errorText.IsVisible = false;
+                ClearShortcutValidationMessage();
+                e.Handled = true;
+                return;
+            }
+
+            if (IsModifierKey(e.Key))
+            {
+                e.Handled = true;
+                return;
+            }
+
+            string binding = ShortcutMatcher.Normalize(e);
+            Dictionary<string, string> candidateBindings = new(_shortcutDraftBindings, StringComparer.OrdinalIgnoreCase);
+            if (string.Equals(binding, entry.DefaultBinding, StringComparison.Ordinal))
+            {
+                candidateBindings.Remove(entry.CommandId);
+            }
+            else
+            {
+                candidateBindings[entry.CommandId] = binding;
+            }
+
+            ShortcutBindingResolution resolution = ShortcutBindingResolver.Resolve(ShortcutCatalog.GetDefinitions(), candidateBindings);
+            ShortcutBindingConflict? conflict = resolution.Conflicts.FirstOrDefault(item =>
+                item.Bindings.Any(bindingRecord => string.Equals(bindingRecord.CommandId, entry.CommandId, StringComparison.OrdinalIgnoreCase)));
+
+            if (conflict != null)
+            {
+                string conflictOwner = conflict.Bindings
+                    .Select(bindingRecord => ShortcutCatalog.GetEntries().First(catalogEntry => catalogEntry.CommandId == bindingRecord.CommandId).Title)
+                    .First(title => !string.Equals(title, entry.Title, StringComparison.OrdinalIgnoreCase));
+                errorText.Text = $"{binding} is already assigned to {conflictOwner}.";
+                errorText.IsVisible = true;
+                ShowShortcutValidationMessage("Resolve duplicate shortcuts before saving.");
+                e.Handled = true;
+                return;
+            }
+
+            _shortcutDraftBindings = candidateBindings;
+            bindingEditor.Text = binding;
+            errorText.IsVisible = false;
+            ClearShortcutValidationMessage();
+            e.Handled = true;
+        }
+
+        private static bool IsModifierKey(Key key)
+        {
+            return key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift;
+        }
+
+        private string GetEffectiveShortcutBinding(ShortcutCatalogEntry entry)
+        {
+            return _shortcutDraftBindings.TryGetValue(entry.CommandId, out string? binding) &&
+                   !string.IsNullOrWhiteSpace(binding)
+                ? binding
+                : entry.DefaultBinding;
+        }
+
+        private static string FormatScopeLabel(ShortcutScope scope)
+        {
+            return scope switch
+            {
+                ShortcutScope.App => "Application",
+                ShortcutScope.Pane => "Pane",
+                ShortcutScope.CommandAssist => "Command Assist",
+                _ => scope.ToString(),
+            };
+        }
+
+        private void ShowShortcutValidationMessage(string message)
+        {
+            var validationMessage = this.FindControl<TextBlock>("ShortcutValidationMessage");
+            if (validationMessage == null)
+            {
+                return;
+            }
+
+            validationMessage.Text = message;
+            validationMessage.IsVisible = true;
+        }
+
+        private void ClearShortcutValidationMessage()
+        {
+            var validationMessage = this.FindControl<TextBlock>("ShortcutValidationMessage");
+            if (validationMessage == null)
+            {
+                return;
+            }
+
+            validationMessage.Text = string.Empty;
+            validationMessage.IsVisible = false;
+        }
 
 
         private void LoadCurrentSettings()
@@ -1370,6 +1640,21 @@ namespace NovaTerminal
             if (bgOpacitySlider != null) _settings.BackgroundImageOpacity = bgOpacitySlider.Value;
             if (bgStretchList?.SelectedItem is ComboBoxItem stretchItem)
                 _settings.BackgroundImageStretch = stretchItem.Content?.ToString() ?? "UniformToFill";
+
+            ShortcutBindingResolution shortcutResolution = ShortcutBindingResolver.Resolve(ShortcutCatalog.GetDefinitions(), _shortcutDraftBindings);
+            if (!shortcutResolution.IsValid)
+            {
+                ShowShortcutValidationMessage("Resolve duplicate shortcuts before saving.");
+                var tabs = this.FindControl<TabControl>("MainTabs");
+                if (tabs != null)
+                {
+                    tabs.SelectedIndex = 2;
+                }
+
+                return;
+            }
+
+            _settings.Keybindings = new Dictionary<string, string>(_shortcutDraftBindings, StringComparer.OrdinalIgnoreCase);
 
             // Sync local profiles list back to settings (SSH connections are store-backed separately).
             _settings.Profiles = NormalizeSettingsProfilesForSave(_profilesList);

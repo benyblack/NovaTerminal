@@ -148,30 +148,21 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     }
 
     [AvaloniaFact]
-    public void TryHandleCommandAssistHelpShortcut_WhenPaneOpensHelp_ReturnsTrue()
+    public void TryOpenCommandAssistHelp_WhenPaneOpensHelp_ReturnsTrue()
     {
         var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("git checkout");
 
-        bool handled = NovaTerminal.MainWindow.TryHandleCommandAssistHelpShortcut(
-            pane,
-            Key.H,
-            KeyModifiers.Control | KeyModifiers.Shift);
+        bool handled = NovaTerminal.MainWindow.TryOpenCommandAssistHelp(pane);
 
         Assert.True(handled);
     }
 
     [AvaloniaFact]
-    public void TryHandleCommandAssistHelpShortcut_WhenDifferentShortcut_ReturnsFalse()
+    public void TryOpenCommandAssistHelp_WhenPaneIsMissing_ReturnsFalse()
     {
-        var pane = new TerminalPane();
-        ConfigureCommandAssist(pane);
-
-        bool handled = NovaTerminal.MainWindow.TryHandleCommandAssistHelpShortcut(
-            pane,
-            Key.P,
-            KeyModifiers.Control | KeyModifiers.Shift);
+        bool handled = NovaTerminal.MainWindow.TryOpenCommandAssistHelp(null);
 
         Assert.False(handled);
     }
