@@ -1,3 +1,4 @@
+using System;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -16,8 +17,18 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow();
-            StartupPerformanceTracker.Current?.TryMark(StartupPhase.MainWindowConstructed);
+            var tracker = StartupPerformanceTracker.Current
+                ?? throw new InvalidOperationException(
+                    "StartupPerformanceTracker.StartNewCurrent must run before App init.");
+
+            var services = AppServices.Build(
+                tracker,
+                schedule: action => Avalonia.Threading.Dispatcher.UIThread.Post(
+                    action,
+                    Avalonia.Threading.DispatcherPriority.Background));
+
+            desktop.MainWindow = new MainWindow(services);
+            services.Startup.Mark(StartupPhase.MainWindowConstructed);
 
             // Enable DevTools for debugging - Press F12 to open
 #if DEBUG

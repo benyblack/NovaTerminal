@@ -84,8 +84,7 @@ namespace NovaTerminal
         private string? _recordingToastFilePath;
         private ConnectionManager? _connectionManagerControl;
         private TransferCenter? _transferCenterControl;
-        private readonly StartupRestoreCoordinator _startupRestoreCoordinator;
-        private StartupRestorePlan? _pendingStartupRestorePlan;
+        private readonly StartupOrchestrator _startup;
 
         private sealed class PaneZoomState
         {
@@ -111,10 +110,15 @@ namespace NovaTerminal
             CloseTab
         }
 
+        private sealed class SessionRestoreAbortedException : Exception
+        {
+            public SessionRestoreAbortedException(string message) : base(message) { }
+        }
+
         protected override void OnOpened(EventArgs e)
         {
             base.OnOpened(e);
-            StartupPerformanceTracker.Current?.TryMark(StartupPhase.WindowOpened);
+            _startup.Mark(StartupPhase.WindowOpened);
             if (_settings.QuakeModeEnabled)
             {
                 try
@@ -1214,47 +1218,47 @@ namespace NovaTerminal
             {
                 return false;
             }
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("StartupRestore.AfterSessionLoad");
+            _startup.Checkpoint("StartupRestore.AfterSessionLoad");
 
-            var plan = StartupRestorePlan.Create(session);
-            tabs.Items.Clear();
-
-            for (int index = 0; index < session.Tabs.Count; index++)
+            try
             {
-                TabSession tabSession = session.Tabs[index];
-                TabItem? tabItem = index == plan.ImmediateTab.OriginalIndex
-                    ? SessionManager.CreateRestoredTabItem(tabSession, _settings)
-                    : CreateStartupPlaceholderTab(tabSession);
-
-                if (tabItem != null)
+                _startup.BeginSessionRestore(session, immediate =>
                 {
-                    tabs.Items.Add(tabItem);
-                }
-            }
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("StartupRestore.AfterTabMaterialization");
+                    tabs.Items.Clear();
 
-            if (tabs.Items.Count == 0)
+                    for (int index = 0; index < session.Tabs.Count; index++)
+                    {
+                        TabSession tabSession = session.Tabs[index];
+                        TabItem? tabItem = index == immediate.OriginalIndex
+                            ? SessionManager.CreateRestoredTabItem(tabSession, _settings)
+                            : CreateStartupPlaceholderTab(tabSession);
+
+                        if (tabItem != null)
+                        {
+                            tabs.Items.Add(tabItem);
+                        }
+                    }
+                    _startup.Checkpoint("StartupRestore.AfterTabMaterialization");
+
+                    if (tabs.Items.Count == 0)
+                    {
+                        throw new SessionRestoreAbortedException(
+                            "Session restore produced no tab items; aborting restore.");
+                    }
+
+                    if (immediate.OriginalIndex >= 0 && immediate.OriginalIndex < tabs.Items.Count)
+                    {
+                        tabs.SelectedIndex = immediate.OriginalIndex;
+                    }
+
+                    InitializeRestoredTabs(tabs);
+                    _startup.Checkpoint("StartupRestore.AfterInitializeRestoredTabs");
+                });
+            }
+            catch (SessionRestoreAbortedException ex)
             {
+                TerminalLogger.Log($"TryRestoreStartupSession: aborted ({ex.Message})");
                 return false;
-            }
-
-            if (plan.ImmediateTab.OriginalIndex >= 0 && plan.ImmediateTab.OriginalIndex < tabs.Items.Count)
-            {
-                tabs.SelectedIndex = plan.ImmediateTab.OriginalIndex;
-            }
-
-            InitializeRestoredTabs(tabs);
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("StartupRestore.AfterInitializeRestoredTabs");
-            StartupPerformanceTracker.Current?.TryMark(StartupPhase.SessionRestoreComplete);
-
-            if (plan.DeferredTabs.Count == 0)
-            {
-                StartupPerformanceTracker.Current?.TryMark(StartupPhase.BackgroundRestoreComplete);
-                _pendingStartupRestorePlan = null;
-            }
-            else
-            {
-                _pendingStartupRestorePlan = plan;
             }
 
             return true;
@@ -1275,22 +1279,6 @@ namespace NovaTerminal
                 Content = new Border { Background = Brushes.Transparent },
                 Tag = tabSession
             };
-        }
-
-        private void RunDeferredStartupRestore()
-        {
-            var tabs = this.FindControl<TabControl>("Tabs");
-            var plan = _pendingStartupRestorePlan;
-            if (tabs == null || plan == null)
-            {
-                return;
-            }
-
-            _pendingStartupRestorePlan = null;
-            _startupRestoreCoordinator.RunDeferred(
-                plan.DeferredTabs,
-                deferredTab => HydrateDeferredStartupTab(tabs, deferredTab),
-                () => StartupPerformanceTracker.Current?.TryMark(StartupPhase.BackgroundRestoreComplete));
         }
 
         private void HydrateDeferredStartupTab(TabControl tabs, StartupRestoreTab deferredTab)
@@ -1961,22 +1949,29 @@ namespace NovaTerminal
             }
         }
 
-        public MainWindow()
+        // Designer + legacy-test forwarder. Production callers must use the
+        // typed ctor via App.OnFrameworkInitializationCompleted.
+        public MainWindow() : this(AppServices.BuildForDesigner())
         {
+        }
+
+        public MainWindow(AppServiceBundle services)
+        {
+            ArgumentNullException.ThrowIfNull(services);
+            _startup = services.Startup;
             InitializeComponent();
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterInitializeComponent");
+            _startup.Checkpoint("MainWindow.AfterInitializeComponent");
             _settings = TerminalSettings.Load();
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterSettingsLoad");
+            _startup.Checkpoint("MainWindow.AfterSettingsLoad");
             _sshConnectionService = new SshConnectionService();
             _sshInteractionService = new SshInteractionService(() => this, ApplyThemeToDialogWindow);
             _sshLegacyMigrationService = new SshLegacyProfileMigrationService();
-            _startupRestoreCoordinator = new StartupRestoreCoordinator(action => Dispatcher.UIThread.Post(action, DispatcherPriority.Background));
 
             if (_sshLegacyMigrationService.MigrateLegacyProfiles(_settings))
             {
                 _settings.Save();
             }
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterLegacyMigration");
+            _startup.Checkpoint("MainWindow.AfterLegacyMigration");
 
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
@@ -1984,7 +1979,7 @@ namespace NovaTerminal
                 // Give layout one more tick to settle
                 Dispatcher.UIThread.Post(() =>
                 {
-                    StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.LoadedPostStart");
+                    _startup.Checkpoint("MainWindow.LoadedPostStart");
                     UpdateTabVisuals();
                     UpdateTabHeaderViewport();
                     EnsureSelectedTabHeaderVisible();
@@ -1993,8 +1988,8 @@ namespace NovaTerminal
                     PopulateNewTabMenu();
                     InitializeCommandPaletteUI();
                     InitializeTransferCenterUI();
-                    StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.LoadedPostUiReady");
-                    StartupPerformanceTracker.Current?.TryMark(StartupPhase.DeferredWorkComplete);
+                    _startup.Checkpoint("MainWindow.LoadedPostUiReady");
+                    _startup.Mark(StartupPhase.DeferredWorkComplete);
                     Dispatcher.UIThread.Post(EnsureWindowIconLoaded, DispatcherPriority.Background);
                 }, DispatcherPriority.Input);
             };
@@ -2097,10 +2092,10 @@ namespace NovaTerminal
                     RendererStatistics.RecordTabSwitchTime(sw.ElapsedMilliseconds);
                 };
             }
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterCoreUiWireup");
+            _startup.Checkpoint("MainWindow.AfterCoreUiWireup");
 
             ApplyThemeToUI();
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterApplyTheme");
+            _startup.Checkpoint("MainWindow.AfterApplyTheme");
 
             var menuManage = this.FindControl<MenuItem>("MenuManageProfiles");
             if (menuManage != null) menuManage.Click += async (s, e) =>
@@ -2150,22 +2145,28 @@ namespace NovaTerminal
                 if (!TryRestoreStartupSession(tabs))
                 {
                     AddTab(defaultProfile);
-                    StartupPerformanceTracker.Current?.TryMark(StartupPhase.SessionRestoreComplete);
-                    StartupPerformanceTracker.Current?.TryMark(StartupPhase.BackgroundRestoreComplete);
+                    _startup.CompleteWithoutRestore();
                 }
             }
             else
             {
                 AddTab(defaultProfile);
-                StartupPerformanceTracker.Current?.TryMark(StartupPhase.SessionRestoreComplete);
-                StartupPerformanceTracker.Current?.TryMark(StartupPhase.BackgroundRestoreComplete);
+                _startup.CompleteWithoutRestore();
             }
 
-            if (_pendingStartupRestorePlan != null)
+            if (_startup.HasPendingDeferredRestore)
             {
-                Dispatcher.UIThread.Post(RunDeferredStartupRestore, DispatcherPriority.Background);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    var tabsControl = this.FindControl<TabControl>("Tabs");
+                    if (tabsControl == null)
+                    {
+                        return;
+                    }
+                    _startup.DrainDeferred(deferredTab => HydrateDeferredStartupTab(tabsControl, deferredTab));
+                }, DispatcherPriority.Background);
             }
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.AfterInitialTabs");
+            _startup.Checkpoint("MainWindow.AfterInitialTabs");
 
             // Keyboard Shortcuts
             this.AddHandler(KeyDownEvent, (s, e) =>
@@ -2344,7 +2345,7 @@ namespace NovaTerminal
             }, RoutingStrategies.Tunnel);
 
             try { Vault = new VaultService(); } catch { }
-            StartupPerformanceTracker.Current?.TryMarkCheckpoint("MainWindow.CtorComplete");
+            _startup.Checkpoint("MainWindow.CtorComplete");
         }
 
         private void InitializeRestoredTabs(TabControl tabs)
@@ -2582,7 +2583,7 @@ namespace NovaTerminal
 
             if (TryGetSelectedTab(out var selectedTabForStartup) && selectedTabForStartup == tab && ResolvePaneForTab(selectedTabForStartup) == pane)
             {
-                StartupPerformanceTracker.Current?.TryMark(StartupPhase.FirstTerminalReady);
+                _startup.Mark(StartupPhase.FirstTerminalReady);
             }
 
             if (!TryGetSelectedTab(out var selectedTab) || selectedTab != tab)
