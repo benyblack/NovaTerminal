@@ -1387,13 +1387,15 @@ namespace NovaTerminal.Controls
             return true;
         }
 
-        private static string DetermineShellKind(string? shellCommand)
+        internal static string DetermineShellKind(string? shellCommand)
         {
             if (string.IsNullOrWhiteSpace(shellCommand))
             {
                 return "unknown";
             }
 
+            // Order matters: bash/zsh/fish must be matched before the generic
+            // `sh` fallback because each contains "sh" as a substring.
             if (shellCommand.Contains("pwsh", StringComparison.OrdinalIgnoreCase) ||
                 shellCommand.Contains("powershell", StringComparison.OrdinalIgnoreCase))
             {
@@ -1405,11 +1407,24 @@ namespace NovaTerminal.Controls
                 return "cmd";
             }
 
-            if (shellCommand.Contains("bash", StringComparison.OrdinalIgnoreCase) ||
-                shellCommand.Contains("zsh", StringComparison.OrdinalIgnoreCase) ||
-                shellCommand.Contains("sh", StringComparison.OrdinalIgnoreCase))
+            if (shellCommand.Contains("bash", StringComparison.OrdinalIgnoreCase))
             {
-                return "posix";
+                return "bash";
+            }
+
+            if (shellCommand.Contains("zsh", StringComparison.OrdinalIgnoreCase))
+            {
+                return "zsh";
+            }
+
+            if (shellCommand.Contains("fish", StringComparison.OrdinalIgnoreCase))
+            {
+                return "fish";
+            }
+
+            if (shellCommand.Contains("sh", StringComparison.OrdinalIgnoreCase))
+            {
+                return "sh";
             }
 
             return "unknown";
