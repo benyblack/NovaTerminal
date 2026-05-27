@@ -19,7 +19,45 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
 
         Assert.Contains("]7;", script);
         Assert.Contains("]133;A", script);
+        Assert.Contains("]133;C;", script);
         Assert.Contains("]133;D;", script);
+    }
+
+    [Fact]
+    public void BuildScript_EmitsAcceptedCommandMarkerFromEnterKeyHandler()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.Contains("Set-PSReadLineKeyHandler", script);
+        Assert.Contains("-Chord 'Enter'", script);
+        Assert.Contains("GetBufferState", script);
+        Assert.Contains("AcceptLine", script);
+    }
+
+    [Fact]
+    public void BuildScript_Base64EncodesAcceptedCommandPayload()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.Contains("[Convert]::ToBase64String", script);
+        Assert.Contains("[Text.Encoding]::UTF8", script);
+    }
+
+    [Fact]
+    public void BuildScript_ClearsAcceptedCommandStateAfterCompletionMarker()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.Contains("$script:NovaAcceptedCommandText = $null", script);
+        Assert.Contains("$script:NovaCommandStart = $null", script);
+    }
+
+    [Fact]
+    public void BuildScript_DoesNotRegisterOnIdleEngineEvent()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.DoesNotContain("PowerShell.OnIdle", script);
     }
 
     [Fact]
