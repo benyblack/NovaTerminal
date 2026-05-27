@@ -665,6 +665,43 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
+    public async Task HandleShellIntegrationEventAsync_ForZshSessionContext_TagsHistoryEntryWithZshShellKind()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.SetShellIntegrationEnabled(true);
+        controller.UpdateSessionContext(
+            shellKind: "zsh",
+            workingDirectory: "/repo",
+            profileId: "profile-zsh",
+            sessionId: "session-zsh",
+            hostId: null,
+            isRemote: false,
+            isShellIntegrated: true);
+
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandAccepted,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:00+00:00"),
+            CommandText: "git status",
+            WorkingDirectory: "/repo",
+            ExitCode: null,
+            Duration: null));
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandFinished,
+            Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:01+00:00"),
+            CommandText: null,
+            WorkingDirectory: "/repo",
+            ExitCode: 0,
+            Duration: TimeSpan.FromSeconds(1)));
+
+        Assert.Single(historyStore.Entries);
+        Assert.Equal("zsh", historyStore.Entries[0].ShellKind);
+        Assert.Equal(CommandCaptureSource.ShellIntegration, historyStore.Entries[0].Source);
+        Assert.Equal(0, historyStore.Entries[0].ExitCode);
+        Assert.Equal(1000, historyStore.Entries[0].DurationMs);
+    }
+
+    [Fact]
     public async Task HandleShellIntegrationEventAsync_ForBashSessionContext_TagsHistoryEntryWithBashShellKind()
     {
         var historyStore = new InMemoryHistoryStore();
