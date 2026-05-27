@@ -1,7 +1,9 @@
 using Avalonia.Headless.XUnit;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
+using NovaTerminal.Controls;
 using NovaTerminal.Core;
 using NovaTerminal.Core.Shortcuts;
 using System.Reflection;
@@ -127,6 +129,42 @@ public sealed class MainWindowStartupTests
         IReadOnlyList<TerminalCommand> commands = Assert.IsAssignableFrom<IEnumerable<TerminalCommand>>(commandList!.ItemsSource).ToList();
 
         Assert.Equal("settings", commands[0].Id);
+    }
+
+    [AvaloniaFact]
+    public async Task MainWindow_CustomCommandAssistHelpShortcut_UsesConfiguredBinding()
+    {
+        var window = new NovaTerminal.MainWindow();
+        var settingsField = typeof(NovaTerminal.MainWindow).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic);
+        var currentPaneField = typeof(NovaTerminal.MainWindow).GetField("_currentPaneValue", BindingFlags.Instance | BindingFlags.NonPublic);
+
+        Assert.NotNull(settingsField);
+        Assert.NotNull(currentPaneField);
+
+        var settings = (TerminalSettings)settingsField!.GetValue(window)!;
+        settings.CommandAssistEnabled = true;
+        settings.CommandAssistHistoryEnabled = true;
+        settings.Keybindings["command_assist_help"] = "Ctrl+Alt+H";
+
+        var pane = new TerminalPane();
+        pane.ApplySettings(settings);
+        pane.NotifyCommandAssistPaste("git checkout");
+
+        currentPaneField!.SetValue(window, pane);
+
+        var args = new KeyEventArgs
+        {
+            RoutedEvent = InputElement.KeyDownEvent,
+            Key = Key.H,
+            KeyModifiers = KeyModifiers.Control | KeyModifiers.Alt,
+            Source = window,
+        };
+
+        window.RaiseEvent(args);
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+
+        Assert.True(args.Handled);
+        Assert.True(pane.CommandAssistViewModel?.IsVisible ?? false);
     }
 
     public async Task ExecuteCommand_DefersActionUntilAfterPaletteCloses()

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Avalonia.Input;
 
@@ -6,6 +7,8 @@ namespace NovaTerminal.Core.Shortcuts;
 
 public static class ShortcutMatcher
 {
+    private static readonly ConcurrentDictionary<string, ParsedShortcut?> ParsedShortcutCache = new(StringComparer.OrdinalIgnoreCase);
+
     public static string Normalize(KeyEventArgs e)
     {
         return NormalizeEvent(e);
@@ -18,16 +21,53 @@ public static class ShortcutMatcher
             return false;
         }
 
+        ParsedShortcut? parsed = ParsedShortcutCache.GetOrAdd(shortcut, ParseShortcut);
+        if (parsed is not ParsedShortcut expected)
+        {
+            return false;
+        }
+
+        KeyModifiers modifiers = e.KeyModifiers & (KeyModifiers.Control | KeyModifiers.Alt | KeyModifiers.Shift);
+        return e.Key == expected.Key && modifiers == expected.Modifiers;
+    }
+
+    private static ParsedShortcut? ParseShortcut(string shortcut)
+    {
         try
         {
-            return string.Equals(
-                ShortcutNormalizer.Normalize(shortcut),
-                NormalizeEvent(e),
-                StringComparison.Ordinal);
+            string normalized = ShortcutNormalizer.Normalize(shortcut);
+            string[] tokens = normalized.Split('+', StringSplitOptions.RemoveEmptyEntries);
+            KeyModifiers modifiers = KeyModifiers.None;
+            Key key = Key.None;
+
+            foreach (string token in tokens)
+            {
+                switch (token)
+                {
+                    case "Ctrl":
+                        modifiers |= KeyModifiers.Control;
+                        break;
+                    case "Alt":
+                        modifiers |= KeyModifiers.Alt;
+                        break;
+                    case "Shift":
+                        modifiers |= KeyModifiers.Shift;
+                        break;
+                    default:
+                        if (!TryParseKey(token, out key))
+                        {
+                            return null;
+                        }
+
+                        break;
+                }
+            }
+
+            return key == Key.None ? null : new ParsedShortcut(modifiers, key);
         }
         catch (ArgumentException)
         {
-            return false;
+            return null;
         }
     }
 
@@ -67,4 +107,36 @@ public static class ShortcutMatcher
             _ => key.ToString(),
         };
     }
+
+    private static bool TryParseKey(string token, out Key key)
+    {
+        switch (token)
+        {
+            case ",":
+                key = Key.OemComma;
+                return true;
+            case "OemPlus":
+                key = Key.OemPlus;
+                return true;
+            case "OemMinus":
+                key = Key.OemMinus;
+                return true;
+            case "Space":
+                key = Key.Space;
+                return true;
+            case "Tab":
+                key = Key.Tab;
+                return true;
+        }
+
+        if (token.Length == 1 && char.IsDigit(token[0]))
+        {
+            key = Key.D0 + (token[0] - '0');
+            return true;
+        }
+
+        return Enum.TryParse(token, out key);
+    }
+
+    private readonly record struct ParsedShortcut(KeyModifiers Modifiers, Key Key);
 }

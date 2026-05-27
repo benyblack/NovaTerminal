@@ -217,15 +217,8 @@ namespace NovaTerminal
             return fallback;
         }
 
-        internal static bool TryHandleCommandAssistHelpShortcut(TerminalPane? pane, Key key, KeyModifiers modifiers)
+        internal static bool TryOpenCommandAssistHelp(TerminalPane? pane)
         {
-            bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
-            bool isShift = (modifiers & KeyModifiers.Shift) != 0;
-            if (!isCtrl || !isShift || key != Key.H)
-            {
-                return false;
-            }
-
             return pane?.OpenCommandAssistHelp() == true;
         }
 
@@ -2163,11 +2156,14 @@ namespace NovaTerminal
                     return;
                 }
 
-                if (TryHandleCommandAssistHelpShortcut(_currentPane, e.Key, modifiers))
+                if (IsShortcut(e, "command_assist_help", "Ctrl+Shift+H"))
                 {
-                    RecordCommandUsage("command_assist_help");
-                    e.Handled = true;
-                    return;
+                    if (TryOpenCommandAssistHelp(_currentPane))
+                    {
+                        RecordCommandUsage("command_assist_help");
+                        e.Handled = true;
+                        return;
+                    }
                 }
 
                 if (IsShortcut(e, "command_assist_history", "Ctrl+R"))

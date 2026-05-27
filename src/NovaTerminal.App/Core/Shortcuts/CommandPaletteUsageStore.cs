@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace NovaTerminal.Core.Shortcuts;
 
@@ -9,6 +11,7 @@ public sealed class CommandPaletteUsageStore
 {
     private readonly string _path;
     private Dictionary<string, CommandPaletteUsageEntry>? _entries;
+    private int _saveVersion;
 
     public CommandPaletteUsageStore(string path)
     {
@@ -31,8 +34,12 @@ public sealed class CommandPaletteUsageStore
         try
         {
             string json = File.ReadAllText(_path);
-            _entries = JsonSerializer.Deserialize(json, AppJsonContext.Default.DictionaryStringCommandPaletteUsageEntry)
-                ?? new Dictionary<string, CommandPaletteUsageEntry>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, CommandPaletteUsageEntry>? deserialized = JsonSerializer.Deserialize(
+                json,
+                AppJsonContext.Default.DictionaryStringCommandPaletteUsageEntry);
+            _entries = deserialized is not null
+                ? new Dictionary<string, CommandPaletteUsageEntry>(deserialized, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, CommandPaletteUsageEntry>(StringComparer.OrdinalIgnoreCase);
         }
         catch
         {
@@ -66,14 +73,33 @@ public sealed class CommandPaletteUsageStore
     public void Save()
     {
         Dictionary<string, CommandPaletteUsageEntry> entries = EnsureEntries();
+        Dictionary<string, CommandPaletteUsageEntry> snapshot = new(entries, StringComparer.OrdinalIgnoreCase);
+        string json = JsonSerializer.Serialize(snapshot, AppJsonContext.Default.DictionaryStringCommandPaletteUsageEntry);
+        string path = _path;
         string? directory = Path.GetDirectoryName(_path);
-        if (!string.IsNullOrWhiteSpace(directory))
-        {
-            Directory.CreateDirectory(directory);
-        }
+        int version = Interlocked.Increment(ref _saveVersion);
 
-        string json = JsonSerializer.Serialize(entries, AppJsonContext.Default.DictionaryStringCommandPaletteUsageEntry);
-        File.WriteAllText(_path, json);
+        _ = Task.Run(() =>
+        {
+            if (version != Volatile.Read(ref _saveVersion))
+            {
+                return;
+            }
+
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(directory))
+                {
+                    Directory.CreateDirectory(directory);
+                }
+
+                File.WriteAllText(path, json);
+            }
+            catch
+            {
+                // Keep usage tracking best-effort only.
+            }
+        });
     }
 
     private Dictionary<string, CommandPaletteUsageEntry> EnsureEntries()

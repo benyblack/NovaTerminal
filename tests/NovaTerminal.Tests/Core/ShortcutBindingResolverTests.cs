@@ -85,4 +85,25 @@ public sealed class ShortcutBindingResolverTests
     {
         Assert.Throws<ArgumentException>(() => new ShortcutBindingRecord("settings", ShortcutScope.App, ""));
     }
+
+    [Fact]
+    public void Resolve_WhenOverrideIsInvalid_FallsBackToDefaultBinding()
+    {
+        ShortcutDefinition[] definitions =
+        [
+            new("settings", ShortcutScope.App, "Ctrl+,"),
+            new("command_assist_help", ShortcutScope.CommandAssist, "Ctrl+Shift+H"),
+        ];
+
+        Dictionary<string, string> overrides = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["settings"] = "Ctrl+LaunchMissiles",
+        };
+
+        ShortcutBindingResolution resolution = ShortcutBindingResolver.Resolve(definitions, overrides);
+
+        Assert.True(resolution.IsValid);
+        ShortcutBindingRecord settings = Assert.Single(resolution.Bindings, binding => binding.CommandId == "settings");
+        Assert.Equal("Ctrl+,", settings.Binding);
+    }
 }

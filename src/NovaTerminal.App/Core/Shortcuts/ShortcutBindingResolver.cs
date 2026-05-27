@@ -25,10 +25,20 @@ public static class ShortcutBindingResolver
                 binding = overrideBinding;
             }
 
+            string normalizedBinding;
+            try
+            {
+                normalizedBinding = ShortcutNormalizer.Normalize(binding);
+            }
+            catch (ArgumentException) when (!string.Equals(binding, definition.DefaultBinding, StringComparison.Ordinal))
+            {
+                normalizedBinding = ShortcutNormalizer.Normalize(definition.DefaultBinding);
+            }
+
             bindings.Add(new ShortcutBindingRecord(
                 definition.CommandId,
                 definition.Scope,
-                ShortcutNormalizer.Normalize(binding)));
+                normalizedBinding));
         }
 
         List<ShortcutBindingConflict> conflicts = bindings
