@@ -2,6 +2,7 @@ using System;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.ShellIntegration.Bash;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+using NovaTerminal.CommandAssist.ShellIntegration.Fish;
 using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 using NovaTerminal.CommandAssist.ShellIntegration.Zsh;
@@ -25,7 +26,8 @@ public static class CommandAssistInfrastructure
     {
         new PowerShellShellIntegrationProvider(),
         new BashShellIntegrationProvider(),
-        new ZshShellIntegrationProvider()
+        new ZshShellIntegrationProvider(),
+        new FishShellIntegrationProvider()
     });
 
     public static IHistoryStore GetHistoryStore(TerminalSettings settings)
