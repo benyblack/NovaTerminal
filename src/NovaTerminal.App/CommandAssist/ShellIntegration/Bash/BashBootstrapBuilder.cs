@@ -17,10 +17,26 @@ public static class BashBootstrapBuilder
         b.Append("fi").Append(nl);
         b.Append(nl);
         b.Append("__nova_command_start_ms=\"\"").Append(nl);
-        b.Append("__nova_command_active=0").Append(nl);
+        // Start armed-as-busy so the very first PROMPT_COMMAND cycle (which
+        // runs before any user command is typed) cannot capture the user's
+        // own PROMPT_COMMAND helpers as a phantom "accepted command".
+        // __nova_arm clears this back to 0 at the end of each prompt cycle,
+        // immediately before bash returns to readline for the next input.
+        b.Append("__nova_command_active=1").Append(nl);
         b.Append(nl);
+        // Portable millisecond clock. `date +%s%N` is GNU-only; on
+        // macOS/BSD `date` it leaves a literal "%N" that breaks
+        // arithmetic. Prefer the bash 5+ built-in $EPOCHREALTIME
+        // (microsecond precision, no external process), fall back to
+        // `date +%s` for older bash.
         b.Append("__nova_now_ms() {").Append(nl);
-        b.Append("    printf '%s' \"$(($(date +%s%N)/1000000))\"").Append(nl);
+        b.Append("    if [ -n \"${EPOCHREALTIME:-}\" ]; then").Append(nl);
+        b.Append("        local sec=\"${EPOCHREALTIME%.*}\"").Append(nl);
+        b.Append("        local frac=\"${EPOCHREALTIME#*.}\"").Append(nl);
+        b.Append("        printf '%s%s' \"$sec\" \"${frac:0:3}\"").Append(nl);
+        b.Append("    else").Append(nl);
+        b.Append("        printf '%s000' \"$(date +%s)\"").Append(nl);
+        b.Append("    fi").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
         b.Append("__nova_url_encode_pwd() {").Append(nl);
@@ -43,6 +59,15 @@ public static class BashBootstrapBuilder
         b.Append("    duration_ms=$((now_ms - __nova_command_start_ms))").Append(nl);
         b.Append("    printf '\\033]133;D;%s;%s\\a' \"$exit\" \"$duration_ms\"").Append(nl);
         b.Append("    __nova_command_start_ms=\"\"").Append(nl);
+        // NOTE: deliberately do NOT clear __nova_command_active here.
+        // The user's PROMPT_COMMAND statements run AFTER this function in
+        // the same prompt cycle; if we cleared active here, each of those
+        // statements would fire the DEBUG trap with active=0 and be
+        // captured as the user's "accepted command". __nova_arm (which
+        // runs LAST in PROMPT_COMMAND) is responsible for clearing it.
+        b.Append("}").Append(nl);
+        b.Append(nl);
+        b.Append("__nova_arm() {").Append(nl);
         b.Append("    __nova_command_active=0").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
@@ -73,10 +98,17 @@ public static class BashBootstrapBuilder
         b.Append("}").Append(nl);
         b.Append(nl);
         b.Append("trap '__nova_preexec' DEBUG").Append(nl);
+        // Bracket the user's PROMPT_COMMAND with __nova_precmd (first: emit
+        // the previous command's D + new prompt-ready A) and __nova_arm
+        // (last: release the DEBUG-trap suppression so the user's next typed
+        // command is the first one captured). The DEBUG fires inside this
+        // chain stay suppressed because __nova_command_active is still 1
+        // throughout -- user PROMPT_COMMAND helpers cannot masquerade as
+        // accepted commands.
         b.Append("if [ -n \"$PROMPT_COMMAND\" ]; then").Append(nl);
-        b.Append("    PROMPT_COMMAND=\"__nova_precmd; $PROMPT_COMMAND\"").Append(nl);
+        b.Append("    PROMPT_COMMAND=\"__nova_precmd; $PROMPT_COMMAND; __nova_arm\"").Append(nl);
         b.Append("else").Append(nl);
-        b.Append("    PROMPT_COMMAND='__nova_precmd'").Append(nl);
+        b.Append("    PROMPT_COMMAND='__nova_precmd; __nova_arm'").Append(nl);
         b.Append("fi").Append(nl);
         b.Append(nl);
         b.Append("__nova_emit_prompt_ready").Append(nl);
