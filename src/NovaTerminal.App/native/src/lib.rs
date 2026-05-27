@@ -177,10 +177,8 @@ fn parse_env_overrides(envs: *const c_char) -> Vec<(String, String)> {
         if line.is_empty() {
             continue;
         }
-        if let Some(eq_idx) = line.find('=') {
-            let (k, v) = line.split_at(eq_idx);
-            // v starts with the '=' character; trim it.
-            out.push((k.to_string(), v[1..].to_string()));
+        if let Some((k, v)) = line.split_once('=') {
+            out.push((k.to_string(), v.to_string()));
         }
     }
     out
