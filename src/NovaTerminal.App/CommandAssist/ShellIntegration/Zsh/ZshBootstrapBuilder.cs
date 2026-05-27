@@ -19,9 +19,19 @@ public static class ZshBootstrapBuilder
         b.Append("fi").Append(nl);
         b.Append(nl);
         b.Append("typeset -g __nova_command_start_ms=\"\"").Append(nl);
+        // Load zsh's native datetime module so $EPOCHREALTIME is available
+        // for portable millisecond timing. `date +%s%N` is GNU-only and
+        // leaves a literal "%N" on macOS/BSD, breaking arithmetic.
+        b.Append("zmodload -F zsh/datetime +b:EPOCHREALTIME 2>/dev/null || true").Append(nl);
         b.Append(nl);
         b.Append("__nova_now_ms() {").Append(nl);
-        b.Append("    printf '%s' \"$(($(date +%s%N)/1000000))\"").Append(nl);
+        b.Append("    if (( ${+EPOCHREALTIME} )); then").Append(nl);
+        b.Append("        local sec=\"${EPOCHREALTIME%.*}\"").Append(nl);
+        b.Append("        local frac=\"${EPOCHREALTIME#*.}\"").Append(nl);
+        b.Append("        printf '%s%s' \"$sec\" \"${frac:0:3}\"").Append(nl);
+        b.Append("    else").Append(nl);
+        b.Append("        printf '%s000' \"$(date +%s)\"").Append(nl);
+        b.Append("    fi").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
         b.Append("__nova_url_encode_pwd() {").Append(nl);

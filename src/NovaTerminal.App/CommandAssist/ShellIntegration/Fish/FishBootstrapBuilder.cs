@@ -22,8 +22,17 @@ public static class FishBootstrapBuilder
         b.Append(nl);
         b.Append("set -g __nova_command_start_ms \"\"").Append(nl);
         b.Append(nl);
+        // Portable millisecond clock. `date +%s%N` is GNU-only; macOS/BSD
+        // `date` leaves a literal "%N", which would break the `math` call.
+        // Detect at runtime: if the output is digits-only, treat as
+        // nanoseconds; otherwise fall back to second precision.
         b.Append("function __nova_now_ms").Append(nl);
-        b.Append("    printf '%s' (math (date +%s%N) / 1000000)").Append(nl);
+        b.Append("    set -l raw (date +%s%N 2>/dev/null)").Append(nl);
+        b.Append("    if string match -qr '^[0-9]+$' -- $raw").Append(nl);
+        b.Append("        math \"$raw / 1000000\"").Append(nl);
+        b.Append("    else").Append(nl);
+        b.Append("        math (date +%s) \"* 1000\"").Append(nl);
+        b.Append("    end").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
         b.Append("function __nova_emit_prompt_ready").Append(nl);

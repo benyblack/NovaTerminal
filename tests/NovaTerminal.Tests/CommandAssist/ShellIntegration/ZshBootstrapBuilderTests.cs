@@ -52,6 +52,20 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
     }
 
     [Fact]
+    public void BuildScript_UsesZshDatetimeModuleNotGnuDateNanoseconds()
+    {
+        string script = ZshBootstrapBuilder.BuildScript();
+
+        // Regression guard for the macOS/BSD `date +%s%N` portability bug.
+        // The bootstrap loads zsh/datetime so $EPOCHREALTIME is available
+        // and avoids `+%s%N`, which leaves a literal "%N" on BSD `date`.
+        Assert.Contains("zmodload", script);
+        Assert.Contains("zsh/datetime", script);
+        Assert.Contains("EPOCHREALTIME", script);
+        Assert.DoesNotContain("date +%s%N", script);
+    }
+
+    [Fact]
     public void WriteScript_WritesBootstrapAsZshrcInsideZshSubdirectory()
     {
         // zsh sources $ZDOTDIR/.zshrc on interactive startup, so the bootstrap

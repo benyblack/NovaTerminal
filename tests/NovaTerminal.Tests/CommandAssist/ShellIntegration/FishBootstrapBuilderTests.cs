@@ -46,6 +46,18 @@ public sealed class FishBootstrapBuilderTests : IDisposable
     }
 
     [Fact]
+    public void BuildScript_DetectsBsdDateAndFallsBackToSecondPrecision()
+    {
+        string script = FishBootstrapBuilder.BuildScript();
+
+        // Regression guard for the macOS/BSD `date +%s%N` portability bug.
+        // The bootstrap detects whether `+%N` produced digits and falls
+        // back to plain `date +%s` * 1000 when it didn't.
+        Assert.Contains("string match", script);
+        Assert.Contains("date +%s", script);
+    }
+
+    [Fact]
     public void WriteScript_WritesConfigFishInsideFishConfigSubdirectory()
     {
         // Fish reads config from $XDG_CONFIG_HOME/fish/config.fish. The
