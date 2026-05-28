@@ -4,7 +4,8 @@ using System.Linq;
 using System.Reflection;
 using Xunit;
 using NovaTerminal.Core;
-using NovaTerminal.Core.Storage;
+using NovaTerminal.VT;
+using NovaTerminal.VT.Storage;
 using Avalonia.Media;
 
 namespace NovaTerminal.Tests

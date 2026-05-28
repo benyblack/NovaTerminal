@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     public static class TerminalLogger
     {

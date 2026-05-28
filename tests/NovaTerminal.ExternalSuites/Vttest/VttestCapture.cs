@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.ExternalSuites.Vttest
 {

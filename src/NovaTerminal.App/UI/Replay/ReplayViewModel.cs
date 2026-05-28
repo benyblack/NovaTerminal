@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Replay;
 
 namespace NovaTerminal.UI.Replay

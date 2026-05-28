@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests.Core;
 

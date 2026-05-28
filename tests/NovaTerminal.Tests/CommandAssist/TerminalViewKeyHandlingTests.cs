@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Moq;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests.CommandAssist;
 

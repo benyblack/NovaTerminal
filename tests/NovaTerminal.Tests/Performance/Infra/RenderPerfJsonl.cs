@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Xunit.Sdk;
 
 namespace NovaTerminal.Tests.Performance.Infra

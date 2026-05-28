@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Media;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using SkiaSharp;
 using System;
 using System.Collections.Concurrent;

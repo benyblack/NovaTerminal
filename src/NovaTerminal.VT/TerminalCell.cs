@@ -1,6 +1,6 @@
 
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     [System.Flags]
     public enum TerminalCellFlags : ushort

@@ -1,5 +1,6 @@
 using System;
 using Avalonia.Input;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core
 {

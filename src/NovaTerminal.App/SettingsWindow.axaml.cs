@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using System;
 using System.Collections.Generic;
 using System.Linq;

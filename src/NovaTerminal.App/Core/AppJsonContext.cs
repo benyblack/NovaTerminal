@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System;
 using System.Text.Json.Serialization;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.Core.Shortcuts;
 

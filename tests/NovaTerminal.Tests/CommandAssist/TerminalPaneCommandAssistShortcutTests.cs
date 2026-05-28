@@ -4,6 +4,7 @@ using Avalonia.Input;
 using NovaTerminal.Controls;
 using NovaTerminal.CommandAssist.ViewModels;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests.CommandAssist;
 

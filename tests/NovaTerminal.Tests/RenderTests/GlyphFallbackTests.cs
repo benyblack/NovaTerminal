@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Reflection;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal;
 using SkiaSharp;
 using Xunit;

@@ -1,4 +1,5 @@
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.ViewModels.Ssh;
 

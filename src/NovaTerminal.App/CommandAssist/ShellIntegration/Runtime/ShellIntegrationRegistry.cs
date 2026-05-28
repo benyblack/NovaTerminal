@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 

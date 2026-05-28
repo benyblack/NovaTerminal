@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests.Infra
 {

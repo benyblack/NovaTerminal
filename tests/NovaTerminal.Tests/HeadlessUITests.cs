@@ -1,6 +1,7 @@
 using Xunit;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Avalonia;
 using Avalonia.Media;
 using System.Threading.Tasks;

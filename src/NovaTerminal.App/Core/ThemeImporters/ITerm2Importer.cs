@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Xml.Linq;
 using Avalonia.Media;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core.ThemeImporters
 {

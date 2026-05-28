@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Xunit;
 
 namespace NovaTerminal.Tests

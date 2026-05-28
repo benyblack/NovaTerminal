@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Services.Ssh;

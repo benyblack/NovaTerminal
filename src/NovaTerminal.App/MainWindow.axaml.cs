@@ -7,6 +7,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.VisualTree;
 using Avalonia.Controls.Presenters;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using System;
 using System.Collections.Generic;
 using System.Linq;

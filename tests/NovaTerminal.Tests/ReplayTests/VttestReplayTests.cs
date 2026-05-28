@@ -1,4 +1,5 @@
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Replay;
 using NovaTerminal.Tests.Tools;
 using System.Reflection;
@@ -42,7 +43,7 @@ namespace NovaTerminal.Tests.ReplayTests
             Assert.True(File.Exists(recPath), $"Missing fixture: {recPath}");
 
             var buffer = new TerminalBuffer(80, 24);
-            var parser = new NovaTerminal.Core.AnsiParser(buffer);
+            var parser = new NovaTerminal.VT.AnsiParser(buffer);
 
             var runner = new ReplayRunner(recPath);
             await runner.RunAsync(async (data) =>

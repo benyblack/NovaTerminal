@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal;
 

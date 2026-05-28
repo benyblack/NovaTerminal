@@ -5,18 +5,13 @@ namespace NovaTerminal.Architecture.Tests;
 
 public class LayeringTests
 {
-    private static Assembly Vt        => typeof(global::NovaTerminal.Core.AnsiParser).Assembly;
+    private static Assembly Vt        => typeof(global::NovaTerminal.VT.AnsiParser).Assembly;
     private static Assembly Replay    => typeof(global::NovaTerminal.Core.Replay.ReplayReader).Assembly;
     private static Assembly Rendering => typeof(global::NovaTerminal.Core.GlyphAtlas).Assembly;
     private static Assembly Pty       => typeof(global::NovaTerminal.Core.ITerminalSession).Assembly;
     private static Assembly Core      => typeof(global::NovaTerminal.Core.Input.TerminalInputSender).Assembly;
 
-    // KNOWN VIOLATION: All types in VT currently live in the `NovaTerminal.Core` namespace
-    // (see NamespaceAlignmentTests). NetArchTest's `NotHaveDependencyOnAny("NovaTerminal.Core")`
-    // matches types whose own namespace starts with that prefix, so every VT type gets flagged.
-    // This test becomes meaningful once Phase 3 (VT subphase) renames the namespaces to
-    // `NovaTerminal.VT.*`. Un-skip then.
-    [Fact(Skip = "Blocked by namespace collapse - fixed in Phase 3 (VT subphase) of architecture-foundation-plan")]
+    [Fact]
     public void Vt_must_be_a_leaf_assembly()
     {
         var result = Types.InAssembly(Vt)

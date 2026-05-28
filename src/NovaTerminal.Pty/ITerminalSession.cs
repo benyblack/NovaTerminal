@@ -1,3 +1,4 @@
+using NovaTerminal.VT;
 namespace NovaTerminal.Core
 {
     /// <summary>

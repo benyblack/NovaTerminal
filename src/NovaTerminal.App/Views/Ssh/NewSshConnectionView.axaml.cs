@@ -5,6 +5,7 @@ using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.ViewModels.Ssh;
 

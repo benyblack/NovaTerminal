@@ -1,6 +1,7 @@
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using System.Threading;
 
 namespace NovaTerminal.Tests.Core;

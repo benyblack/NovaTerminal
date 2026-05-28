@@ -1,4 +1,5 @@
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Shortcuts;
 
 namespace NovaTerminal.Tests.Core;

@@ -7,6 +7,7 @@ using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 using NovaTerminal.CommandAssist.ShellIntegration.Zsh;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests.CommandAssist.ShellIntegration;
 

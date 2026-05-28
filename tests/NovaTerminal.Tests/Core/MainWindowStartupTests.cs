@@ -5,6 +5,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Shortcuts;
 using System.Reflection;
 

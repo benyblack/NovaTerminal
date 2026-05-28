@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Xunit;
 
 namespace NovaTerminal.Tests.Core;

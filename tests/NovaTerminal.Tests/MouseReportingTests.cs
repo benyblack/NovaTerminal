@@ -1,5 +1,6 @@
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using System.Text;
 using System.Collections.Generic;
 

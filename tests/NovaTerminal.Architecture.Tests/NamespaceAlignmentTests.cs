@@ -10,10 +10,9 @@ namespace NovaTerminal.Architecture.Tests;
 /// </summary>
 public class NamespaceAlignmentTests
 {
-    private static Assembly LoadByName(string name)
-        => AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == name);
+    private static Assembly LoadByName(string name) => Assembly.Load(name);
 
-    [Fact(Skip = "Known violation - fixed in Phase 3 (VT subphase)")]
+    [Fact]
     public void All_VT_types_use_NovaTerminal_VT_namespace()
     {
         var result = Types.InAssembly(LoadByName("NovaTerminal.VT"))

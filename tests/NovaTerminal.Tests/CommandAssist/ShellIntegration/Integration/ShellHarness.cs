@@ -1,5 +1,6 @@
 using System.Text;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
 

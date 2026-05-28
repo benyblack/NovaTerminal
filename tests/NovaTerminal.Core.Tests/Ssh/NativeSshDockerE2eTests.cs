@@ -5,6 +5,7 @@ using NovaTerminal.Core.Ssh.Sessions;
 using NovaTerminal.Core.Tests.Infra;
 using System.Text;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core.Tests.Ssh;
 

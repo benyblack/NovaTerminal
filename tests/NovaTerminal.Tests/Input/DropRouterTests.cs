@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Moq;
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Paths;
 
 namespace NovaTerminal.Tests.Input

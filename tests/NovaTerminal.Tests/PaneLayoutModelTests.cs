@@ -4,6 +4,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Layout;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Xunit;
 
 namespace NovaTerminal.Tests

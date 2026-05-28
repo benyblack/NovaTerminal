@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Replay;
 using System;
 using System.Globalization;

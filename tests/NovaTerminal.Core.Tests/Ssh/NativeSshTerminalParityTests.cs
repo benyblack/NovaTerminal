@@ -3,6 +3,7 @@ using NovaTerminal.Core.Replay;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Sessions;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core.Tests.Ssh;
 

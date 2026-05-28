@@ -1,6 +1,6 @@
 using System;
 using Xunit;
-using NovaTerminal.Core.Storage;
+using NovaTerminal.VT.Storage;
 
 namespace NovaTerminal.Tests.Storage
 {

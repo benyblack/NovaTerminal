@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.OpenSsh;

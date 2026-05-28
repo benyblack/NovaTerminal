@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Xunit;
 
 namespace NovaTerminal.Tests.RenderTests

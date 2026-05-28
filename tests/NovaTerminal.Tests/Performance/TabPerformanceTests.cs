@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Xunit;
 
 

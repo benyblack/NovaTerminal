@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Moq;
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Input;
 
 namespace NovaTerminal.Tests.Input

@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.Storage;
 

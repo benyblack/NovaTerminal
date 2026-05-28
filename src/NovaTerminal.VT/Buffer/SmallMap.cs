@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Core.Storage
+namespace NovaTerminal.VT.Storage
 {
     /// <summary>
     /// Memory-optimized map for few entries (<= 8).

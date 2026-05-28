@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     public class AnsiParser
     {

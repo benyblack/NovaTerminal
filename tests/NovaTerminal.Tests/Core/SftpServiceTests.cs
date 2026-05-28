@@ -1,5 +1,6 @@
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Storage;

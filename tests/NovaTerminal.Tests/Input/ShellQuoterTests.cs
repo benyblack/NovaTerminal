@@ -1,5 +1,6 @@
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests.Input
 {

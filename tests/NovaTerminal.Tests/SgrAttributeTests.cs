@@ -1,5 +1,6 @@
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Avalonia.Media;
 using System.Linq;
 

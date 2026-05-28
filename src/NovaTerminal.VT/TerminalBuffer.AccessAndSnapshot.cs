@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using NovaTerminal.Core.Replay;
-using NovaTerminal.Core.Storage;
+using NovaTerminal.VT;
+using NovaTerminal.VT.Storage;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     public partial class TerminalBuffer
     {

@@ -1,6 +1,7 @@
 using System;
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Avalonia.Media;
 
 namespace NovaTerminal.Tests

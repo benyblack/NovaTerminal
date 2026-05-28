@@ -1,5 +1,6 @@
 using Xunit;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using System.Linq;
 using System.Reflection;
 

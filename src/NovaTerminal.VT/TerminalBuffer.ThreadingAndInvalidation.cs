@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Core.Storage;
+using NovaTerminal.VT.Storage;
 using System.Diagnostics;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     public partial class TerminalBuffer
     {

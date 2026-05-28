@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core.ThemeImporters
 {

@@ -1,5 +1,6 @@
 using Avalonia.Input;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Xunit;
 
 namespace NovaTerminal.Tests.Input

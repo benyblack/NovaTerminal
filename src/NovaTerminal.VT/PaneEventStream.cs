@@ -3,7 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     public enum PaneAuditEventKind
     {
