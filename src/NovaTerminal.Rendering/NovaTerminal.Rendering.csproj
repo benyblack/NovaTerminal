@@ -9,4 +9,8 @@
     <PackageReference Include="SkiaSharp.HarfBuzz" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="NovaTerminal.Rendering.Tests" />
+  </ItemGroup>
+
 </Project>
