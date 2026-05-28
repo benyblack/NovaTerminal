@@ -30,7 +30,6 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly object _outputHandlerGate = new();
 
     private ReplayWriter? _recorder;
-    private TerminalBuffer? _buffer;
     private NativePortForwardSession? _portForwardSession;
     private IntPtr _sessionHandle;
     private int _cols;
@@ -231,10 +230,6 @@ public sealed class NativeSshSession : ITerminalSession
 
         var recorder = new ReplayWriter(filePath, _cols, _rows, ShellCommand);
         recorder.RecordMarker("START");
-        if (_buffer != null)
-        {
-            recorder.RecordSnapshot(_buffer);
-        }
 
         _recorder = recorder;
     }
@@ -249,17 +244,7 @@ public sealed class NativeSshSession : ITerminalSession
 
         _recorder = null;
         recorder.RecordMarker("END");
-        if (_buffer != null)
-        {
-            recorder.RecordSnapshot(_buffer);
-        }
-
         recorder.Dispose();
-    }
-
-    public void AttachBuffer(TerminalBuffer buffer)
-    {
-        _buffer = buffer;
     }
 
     private NativeSshConnectionOptions CreateConnectionOptions(
@@ -314,13 +299,6 @@ public sealed class NativeSshSession : ITerminalSession
         };
     }
 
-    public void TakeSnapshot()
-    {
-        if (_buffer != null)
-        {
-            _recorder?.RecordSnapshot(_buffer);
-        }
-    }
 
     public void Dispose()
     {

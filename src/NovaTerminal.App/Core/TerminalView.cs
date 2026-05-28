@@ -1052,7 +1052,7 @@ namespace NovaTerminal.Core
             _session = session;
             if (_buffer != null)
             {
-                _session.AttachBuffer(_buffer);
+// _session.AttachBuffer(_buffer);
             }
         }
 

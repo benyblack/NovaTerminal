@@ -65,10 +65,7 @@ public class LayeringTests
             $"Replay may only reference VT. Offenders: {Join(result.FailingTypeNames)}");
     }
 
-    // KNOWN VIOLATION (Section C.2 of the architecture review).
-    // Today, Pty references VT (for `ITerminalSession.AttachBuffer(TerminalBuffer)`).
-    // The fix is Phase 5 (ITerminalSession decomposition). Un-skip then.
-    [Fact(Skip = "Known violation - fixed in Phase 5 of architecture-foundation-plan")]
+    [Fact]
     public void Pty_must_not_depend_on_Vt()
     {
         var result = Types.InAssembly(Pty)

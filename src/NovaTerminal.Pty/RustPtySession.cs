@@ -3,7 +3,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
-using NovaTerminal.VT;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -278,7 +277,6 @@ namespace NovaTerminal.Pty
         }
 
         private NovaTerminal.Replay.ReplayWriter? _recorder;
-        private TerminalBuffer? _buffer;
 
         public bool IsRecording => _recorder != null;
 
@@ -289,14 +287,10 @@ namespace NovaTerminal.Pty
             try
             {
                 recorder.RecordMarker("START");
-                if (_buffer != null)
-                {
-                    recorder.RecordSnapshot(_buffer);
-                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RustPtySession] Recording start marker/snapshot failed: {ex.Message}");
+                Console.WriteLine($"[RustPtySession] Recording start marker failed: {ex.Message}");
             }
 
             _recorder = recorder;
@@ -312,14 +306,10 @@ namespace NovaTerminal.Pty
             try
             {
                 recorder.RecordMarker("END");
-                if (_buffer != null)
-                {
-                    recorder.RecordSnapshot(_buffer);
-                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RustPtySession] Recording stop marker/snapshot failed: {ex.Message}");
+                Console.WriteLine($"[RustPtySession] Recording stop marker failed: {ex.Message}");
             }
 
             try
@@ -332,19 +322,6 @@ namespace NovaTerminal.Pty
             }
 
             Console.WriteLine("[RustPtySession] Recording stopped.");
-        }
-
-        public void AttachBuffer(TerminalBuffer buffer)
-        {
-            _buffer = buffer;
-        }
-
-        public void TakeSnapshot()
-        {
-            if (_buffer != null)
-            {
-                _recorder?.RecordSnapshot(_buffer);
-            }
         }
 
         private void ReadLoop()
