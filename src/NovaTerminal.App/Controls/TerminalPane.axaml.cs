@@ -6,6 +6,7 @@ using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using Avalonia.Controls.Presenters;
 using System;
 using System.Collections.Generic;
@@ -32,6 +33,7 @@ using NovaTerminal.Core.Ssh.Sessions;
 using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.ViewModels.Ssh;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Controls
 {
@@ -1583,7 +1585,6 @@ namespace NovaTerminal.Controls
                     startingDir,
                     skipPowerShellPostLaunchInit: _isShellIntegrationActive,
                     environmentOverrides: _shellIntegrationEnvOverrides);
-                Session.AttachBuffer(Buffer);
 
                 TermView.SetSession(Session);
                 ITerminalSession session = Session;
@@ -2358,14 +2359,14 @@ namespace NovaTerminal.Controls
                 }
                 else if (format.Equals("ansi", StringComparison.OrdinalIgnoreCase))
                 {
-                    string data = NovaTerminal.Core.Export.TerminalExporter.ExportToAnsi(Buffer);
+                    string data = NovaTerminal.VT.Export.TerminalExporter.ExportToAnsi(Buffer);
                     using var stream = await file.OpenWriteAsync();
                     using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8);
                     await writer.WriteAsync(data);
                 }
                 else
                 {
-                    string data = NovaTerminal.Core.Export.TerminalExporter.ExportToPlainText(Buffer);
+                    string data = NovaTerminal.VT.Export.TerminalExporter.ExportToPlainText(Buffer);
                     using var stream = await file.OpenWriteAsync();
                     using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8);
                     await writer.WriteAsync(data);

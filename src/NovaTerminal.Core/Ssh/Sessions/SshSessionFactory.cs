@@ -3,6 +3,7 @@ using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Storage;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Core.Ssh.Sessions;
 

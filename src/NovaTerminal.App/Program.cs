@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Media;
 using System;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal;
 

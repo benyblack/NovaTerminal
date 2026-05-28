@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Pty
 {
     public class RustPtySession : ITerminalSession
     {
@@ -276,26 +276,21 @@ namespace NovaTerminal.Core
             }
         }
 
-        private NovaTerminal.Core.Replay.ReplayWriter? _recorder;
-        private TerminalBuffer? _buffer;
+        private NovaTerminal.Replay.ReplayWriter? _recorder;
 
         public bool IsRecording => _recorder != null;
 
         public void StartRecording(string filePath)
         {
             if (_recorder != null) return; // Already recording
-            var recorder = new NovaTerminal.Core.Replay.ReplayWriter(filePath, _cols, _rows, ShellCommand);
+            var recorder = new NovaTerminal.Replay.ReplayWriter(filePath, _cols, _rows, ShellCommand);
             try
             {
                 recorder.RecordMarker("START");
-                if (_buffer != null)
-                {
-                    recorder.RecordSnapshot(_buffer);
-                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RustPtySession] Recording start marker/snapshot failed: {ex.Message}");
+                Console.WriteLine($"[RustPtySession] Recording start marker failed: {ex.Message}");
             }
 
             _recorder = recorder;
@@ -311,14 +306,10 @@ namespace NovaTerminal.Core
             try
             {
                 recorder.RecordMarker("END");
-                if (_buffer != null)
-                {
-                    recorder.RecordSnapshot(_buffer);
-                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RustPtySession] Recording stop marker/snapshot failed: {ex.Message}");
+                Console.WriteLine($"[RustPtySession] Recording stop marker failed: {ex.Message}");
             }
 
             try
@@ -331,19 +322,6 @@ namespace NovaTerminal.Core
             }
 
             Console.WriteLine("[RustPtySession] Recording stopped.");
-        }
-
-        public void AttachBuffer(TerminalBuffer buffer)
-        {
-            _buffer = buffer;
-        }
-
-        public void TakeSnapshot()
-        {
-            if (_buffer != null)
-            {
-                _recorder?.RecordSnapshot(_buffer);
-            }
         }
 
         private void ReadLoop()

@@ -1,6 +1,6 @@
 using System;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     /// <summary>
     /// Platform-independent color representation using RGBA components.

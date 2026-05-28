@@ -1,7 +1,7 @@
 using System;
 using System.Text.Json.Serialization;
 
-namespace NovaTerminal.Core.Replay
+namespace NovaTerminal.VT
 {
     public class ReplayHeader
     {

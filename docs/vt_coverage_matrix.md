@@ -53,12 +53,12 @@ It is designed to be:
 
 | Feature / Sequence | Spec / Notes | Status | Evidence | Ownership (code) | Known deviations |
 |---|---|---:|---|---|---|
-| C0 controls (BEL, BS, HT, LF, CR) | Basic control chars | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs`; Replay: `tests/Replays/...` | `Core/AnsiParser.cs`, `Core/TerminalBuffer.cs` | HT now follows stored tab stops instead of inserting spaces; broader C0 coverage is still only partially audited |
-| C1 via 7-bit ESC (ESC @.._) | “7-bit C1” translation | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Recognizes CSI/OSC/DCS/APC plus IND/NEL/RI; unsupported `ESC @.._` controls are ignored with recovery rather than fully implemented |
+| C0 controls (BEL, BS, HT, LF, CR) | Basic control chars | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs`; Replay: `tests/Replays/...` | `Core/AnsiParser.cs`, `Core/TerminalBuffer.cs` | HT now follows stored tab stops instead of inserting spaces; broader C0 coverage is still only partially audited |
+| C1 via 7-bit ESC (ESC @.._) | “7-bit C1” translation | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Recognizes CSI/OSC/DCS/APC plus IND/NEL/RI; unsupported `ESC @.._` controls are ignored with recovery rather than fully implemented |
 | 8-bit C1 bytes (0x80–0x9F) | If supported, must be explicit | ❌ Not supported | — | `Core/AnsiParser.cs` | (fill) |
-| String terminators (ST = ESC \\, BEL) | OSC/APC termination rules | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | OSC accepts BEL and ST; DCS/APC also accept BEL as permissive recovery behavior, not strict spec compliance |
-| Unknown sequence handling | Ignore/print/strict? | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Unknown `ESC @.._` sequences are ignored and parser resumes on the next valid escape or printable content |
-| Error recovery on malformed sequences | Robustness | ⚠ Partial | Fuzz/Unit: `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.Tests/AnsiCorpusReplayTests.cs` | `Core/AnsiParser.cs` | Malformed OSC/CSI/DCS/APC recover across chunk boundaries and nested ESC, but this is a best-effort parser policy rather than full conformance coverage |
+| String terminators (ST = ESC \\, BEL) | OSC/APC termination rules | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | OSC accepts BEL and ST; DCS/APC also accept BEL as permissive recovery behavior, not strict spec compliance |
+| Unknown sequence handling | Ignore/print/strict? | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs` | `Core/AnsiParser.cs` | Unknown `ESC @.._` sequences are ignored and parser resumes on the next valid escape or printable content |
+| Error recovery on malformed sequences | Robustness | ⚠ Partial | Fuzz/Unit: `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs`, `tests/NovaTerminal.App.Tests/AnsiCorpusReplayTests.cs` | `Core/AnsiParser.cs` | Malformed OSC/CSI/DCS/APC recover across chunk boundaries and nested ESC, but this is a best-effort parser policy rather than full conformance coverage |
 
 ---
 
@@ -66,13 +66,13 @@ It is designed to be:
 
 | Feature / CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| CUU/CUD/CUF/CUB (A/B/C/D) | Cursor up/down/forward/back | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/PendingWrapTests.cs` | Parser+Buffer | Explicit CUF movement is covered via pending-wrap reset; dedicated CUU/CUD/CUB targeted coverage is still missing |
-| CUP / HVP (H/f) | Positioning, default params | ✅ Supported | Unit + Replay: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs`, `tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs` | Parser+Buffer | |
+| CUU/CUD/CUF/CUB (A/B/C/D) | Cursor up/down/forward/back | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/PendingWrapTests.cs` | Parser+Buffer | Explicit CUF movement is covered via pending-wrap reset; dedicated CUU/CUD/CUB targeted coverage is still missing |
+| CUP / HVP (H/f) | Positioning, default params | ✅ Supported | Unit + Replay: `tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs`, `tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs` | Parser+Buffer | |
 | CHA/CPL/CNL (G/F/E) | Horizontal absolute / prev/next line | ⚠ Partial | Replay | Parser+Buffer | |
-| CHT (I) | Cursor forward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs` | Parser+Buffer | |
-| CBT (Z) | Cursor backward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs` | Parser+Buffer | |
-| VPA/HPA (d/G/`) | Absolute row/col | ✅ Supported | Unit: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
-| HPR/VPR (a/e) | Relative row/col | ✅ Supported | Unit: `tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
+| CHT (I) | Cursor forward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | |
+| CBT (Z) | Cursor backward tabulation | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | |
+| VPA/HPA (d/G/`) | Absolute row/col | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
+| HPR/VPR (a/e) | Relative row/col | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs` | Parser+Buffer | |
 
 ---
 
@@ -80,7 +80,7 @@ It is designed to be:
 
 | Feature / CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| ED (J) | 0/1/2 erase display | ✅ Supported | Replay: `tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs`, `tests/NovaTerminal.Tests/Fixtures/Replay/vttest_cursor.rec`; Unit: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
+| ED (J) | 0/1/2 erase display | ✅ Supported | Replay: `tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs`, `tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec`; Unit: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
 | EL (K) | 0/1/2 erase line | ✅ Supported | Unit: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
 | ICH ( @ ) | Insert chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 | DCH (P) | Delete chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
@@ -95,7 +95,7 @@ It is designed to be:
 |---|---|---:|---|---|---|
 | DECSTBM (CSI t;b r) | Set top/bottom margins | ⚠ Partial | VTTEST: scroll scenario | Parser+Buffer | |
 | IND (ESC D) / RI (ESC M) | Index / Reverse index | ⚠ Partial | Replay | Parser+Buffer | |
-| DECOM (origin mode) | Cursor relative to margins | ✅ Supported | Unit: `tests/NovaTerminal.Tests/DecModeTests.cs` | Parser+Buffer | |
+| DECOM (origin mode) | Cursor relative to margins | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/DecModeTests.cs` | Parser+Buffer | |
 | Wraparound DECAWM | Auto wrap | ⚠ Partial | Replay | Buffer | Wide glyph edge cases |
 | Smooth scroll | Not required for correctness | 🚫 Won’t support | — | — | Renderer concern |
 
@@ -105,13 +105,13 @@ It is designed to be:
 
 | Mode | CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---|---:|---|---|---|
-| Alternate screen | ?1049 / ?47 / ?1047 | Switch + save/restore cursor | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/AlternateScreenTests.cs`; Replay: `tests/NovaTerminal.Tests/ReplayTests/AlternateScreenReplayTests.cs`, `tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs` | Buffer | Main scrollback is preserved and alt-screen output never enters scrollback. `?47` reuses the existing alternate buffer/state without clearing; `?1047` and `?1049` clear and home the alternate buffer on entry. Nested/redundant alt-screen enters are treated as no-op, and a `?1049` save is consumed by the first exit from alt-screen regardless of whether that exit uses `?47l`, `?1047l`, or `?1049l`. |
-| Show cursor | ?25 | | ✅ Supported | Unit: `tests/NovaTerminal.Tests/DecModeTests.cs`; Replay: `tests/NovaTerminal.Tests/ReplayTests/ReplayV2Tests.cs` | Buffer+Renderer | |
+| Alternate screen | ?1049 / ?47 / ?1047 | Switch + save/restore cursor | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/AlternateScreenTests.cs`; Replay: `tests/NovaTerminal.App.Tests/ReplayTests/AlternateScreenReplayTests.cs`, `tests/NovaTerminal.App.Tests/ReplayTests/NativeSshReplayParityTests.cs` | Buffer | Main scrollback is preserved and alt-screen output never enters scrollback. `?47` reuses the existing alternate buffer/state without clearing; `?1047` and `?1049` clear and home the alternate buffer on entry. Nested/redundant alt-screen enters are treated as no-op, and a `?1049` save is consumed by the first exit from alt-screen regardless of whether that exit uses `?47l`, `?1047l`, or `?1049l`. |
+| Show cursor | ?25 | | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/DecModeTests.cs`; Replay: `tests/NovaTerminal.App.Tests/ReplayTests/ReplayV2Tests.cs` | Buffer+Renderer | |
 | Application cursor keys | ?1 | Impacts input mapping | ⚠ Partial | Unit/Code: `ReplayV2Tests`, app input paths | Parser+Input | Parser/UI wiring exists; needs targeted key-mapping tests |
 | Focus event reporting | ?1004 | Emits `CSI I` / `CSI O` on focus transitions | ⚠ Partial | Unit/Code: `DecModeTests`, `TerminalView` | Parser+Input | Mode flag tested; focus emission covered by app path, not headless UI test |
 | Bracketed paste | ?2004 | Input feature | ⚠ Partial | Unit | Input layer | |
 | Mouse reporting | ?1000/1002/1003/1006 etc | | ⚠ Partial | Manual/Unit | Input layer | |
-| Cursor style | CSI Ps SP q | DECSCUSR block/beam/underline + blink state | ✅ Supported | Unit: `tests/NovaTerminal.Tests/OscUxTests.cs` | Parser+Renderer | |
+| Cursor style | CSI Ps SP q | DECSCUSR block/beam/underline + blink state | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+Renderer | |
 
 ---
 
@@ -119,7 +119,7 @@ It is designed to be:
 
 | Feature | CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| Basic SGR (0,1,2,3,4,5,7,9,22,23,24,25,27,29) | | Bold/dim/italic/underline/blink/reverse/strike | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/SgrAttributeTests.cs`; VTTEST: sgr scenario | Parser+Buffer+Renderer | Underline style/color tracked separately |
+| Basic SGR (0,1,2,3,4,5,7,9,22,23,24,25,27,29) | | Bold/dim/italic/underline/blink/reverse/strike | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/SgrAttributeTests.cs`; VTTEST: sgr scenario | Parser+Buffer+Renderer | Underline style/color tracked separately |
 | 8/16 colors | 30–37/90–97, 40–47/100–107 | | ⚠ Partial | Replay | Parser+Buffer | |
 | 256-color | 38;5;N / 48;5;N | | ⚠ Partial | Replay | Parser+Buffer | |
 | Truecolor | 38;2;r;g;b / 48;2;r;g;b | | ⚠ Partial | Replay | Parser+Buffer | |
@@ -131,8 +131,8 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| HT (tab) movement | | ✅ Supported | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs` | Parser+Buffer | Custom tab stops are clipped on width shrink; columns exposed by width growth start with default 8-column tab stops |
-| Tab stops set/clear | ESC H, CSI g | ✅ Supported | Unit: `tests/NovaTerminal.Tests/TabSystemTests.cs` | Parser+Buffer | `CSI g` supports current-stop clear (`0`/default) and clear-all (`3`); other parameters are ignored |
+| HT (tab) movement | | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | Custom tab stops are clipped on width shrink; columns exposed by width growth start with default 8-column tab stops |
+| Tab stops set/clear | ESC H, CSI g | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/TabSystemTests.cs` | Parser+Buffer | `CSI g` supports current-stop clear (`0`/default) and clear-all (`3`); other parameters are ignored |
 
 ---
 
@@ -141,10 +141,10 @@ It is designed to be:
 | OSC | Purpose | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
 | OSC 0/2 | Set title | ⚠ Partial | Manual/Unit | App/UI | |
-| OSC 7 | CWD reporting | ✅ Supported | Unit: `tests/NovaTerminal.Tests/OscUxTests.cs` | Parser+App | |
+| OSC 7 | CWD reporting | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+App | |
 | OSC 52 | Clipboard | ❌ Not supported | — | App/UI | |
-| OSC 8 | Hyperlinks | ✅ Supported | Unit: `tests/NovaTerminal.Tests/OscUxTests.cs` | Parser+Renderer+UI | Ctrl-click open path is app-level |
-| OSC 133 | Shell integration lifecycle | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/OscShellIntegrationTests.cs` | Parser+Command Assist | Supports A/B/C/D markers; broader semantic prompt extensions not audited |
+| OSC 8 | Hyperlinks | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+Renderer+UI | Ctrl-click open path is app-level |
+| OSC 133 | Shell integration lifecycle | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/OscShellIntegrationTests.cs` | Parser+Command Assist | Supports A/B/C/D markers; broader semantic prompt extensions not audited |
 | OSC 1337 | iTerm2 inline images | ⚠ Partial | Manual: `docs/qa/QA_GRAPHICS.md` | Parser+Renderer | Parser support exists, but targeted automated replay/unit coverage for OSC 1337 is still missing |
 | OSC 1339 | Windows conpty tunnel | 🧪 Experimental | Manual | Parser+Win | |
 
@@ -154,7 +154,7 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/NovaTerminal.Tests/GraphicsTests.cs`, `tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs` | Parser+Renderer | |
+| Kitty graphics protocol | APC / OSC forms | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/GraphicsTests.cs`, `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs` | Parser+Renderer | |
 | Placement, z-index, scrolling | Complex interactions | ⚠ Partial | Manual | Buffer+Renderer | |
 
 ---
@@ -174,7 +174,7 @@ It is designed to be:
 |---|---|---:|---|---|---|
 | Selection model | UI behavior | ⚠ Partial | Manual | UI | |
 | Copy on select | Configurable | ❌ Not supported | — | UI | |
-| Hyperlinks | OSC 8 | ✅ Supported | Unit: `tests/NovaTerminal.Tests/OscUxTests.cs` | Parser+UI | Ctrl-click open path is app-level |
+| Hyperlinks | OSC 8 | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+UI | Ctrl-click open path is app-level |
 
 ---
 
@@ -182,9 +182,9 @@ It is designed to be:
 
 | Feature | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| wcwidth-like width | CJK/emoji width | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/WidthTests.cs`, `tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs`; Replay: `tests/NovaTerminal.Tests/Fixtures/Replay/mixed_unicode.rec` | Buffer+Renderer | Deterministic 0/1/2-cell model for combining marks, emoji modifiers, ZWJ emoji, variation selectors, and regional-indicator flags. No Unicode-version pin or full UAX #11 conformance table is documented yet. |
-| Combining marks | Grapheme clusters | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.Tests/SurrogateTests.cs`, `tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs`, `tests/NovaTerminal.Tests/ScrollAndWrapCorrectnessTests.cs` | Buffer+Renderer | Combining/variation attachment is covered for common terminal cases, including pending-wrap boundaries. Full extended-grapheme-cluster conformance is not claimed. |
-| ZWJ emoji sequences | | ⚠ Partial | Unit: `tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.Tests/WidthTests.cs`, `tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs` | Buffer+Renderer | Chunked ZWJ families, emoji modifiers, VS15/VS16, and chunked regional-indicator flag pairs are covered. Remaining gaps: cursor-addressing CSI remains cell-oriented, and width-changing selectors that arrive after a base glyph already placed at the last column are not guaranteed to retroactively reflow. |
+| wcwidth-like width | CJK/emoji width | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/WidthTests.cs`, `tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs`; Replay: `tests/NovaTerminal.App.Tests/Fixtures/Replay/mixed_unicode.rec` | Buffer+Renderer | Deterministic 0/1/2-cell model for combining marks, emoji modifiers, ZWJ emoji, variation selectors, and regional-indicator flags. No Unicode-version pin or full UAX #11 conformance table is documented yet. |
+| Combining marks | Grapheme clusters | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.App.Tests/SurrogateTests.cs`, `tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs`, `tests/NovaTerminal.App.Tests/ScrollAndWrapCorrectnessTests.cs` | Buffer+Renderer | Combining/variation attachment is covered for common terminal cases, including pending-wrap boundaries. Full extended-grapheme-cluster conformance is not claimed. |
+| ZWJ emoji sequences | | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs`, `tests/NovaTerminal.App.Tests/WidthTests.cs`, `tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs` | Buffer+Renderer | Chunked ZWJ families, emoji modifiers, VS15/VS16, and chunked regional-indicator flag pairs are covered. Remaining gaps: cursor-addressing CSI remains cell-oriented, and width-changing selectors that arrive after a base glyph already placed at the last column are not guaranteed to retroactively reflow. |
 
 ---
 

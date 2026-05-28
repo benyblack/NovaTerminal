@@ -7,6 +7,8 @@ using Avalonia.Controls.Primitives;
 using Avalonia.VisualTree;
 using Avalonia.Controls.Presenters;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
+using NovaTerminal.Rendering;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -21,6 +23,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Automation;
 using Avalonia.Input.Platform;
 using SkiaSharp;
+using NovaTerminal.Pty;
 
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
@@ -29,6 +32,7 @@ using NovaTerminal.Core.Shortcuts;
 using NovaTerminal.Models;
 using NovaTerminal.ViewModels.Ssh;
 using NovaTerminal.Views.Ssh;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal
 {

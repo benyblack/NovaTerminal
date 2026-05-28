@@ -1,4 +1,4 @@
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     /// <summary>
     /// Encapsulates terminal mode flags (mouse reporting, auto-wrap, cursor keys, etc.)

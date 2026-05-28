@@ -4,6 +4,7 @@ using System.IO;
 using Avalonia.Media;
 using Avalonia.Platform;
 using SkiaSharp;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core
 {

@@ -1,14 +1,12 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\NovaTerminal.VT\NovaTerminal.VT.csproj" />
+    <!-- VT removed in Phase 5: Pty no longer references TerminalBuffer or any VT type.
+         Enforced at the IL level by LayeringTests.Pty_must_not_depend_on_Vt and at the
+         project-file level by ProjectFileLayeringTests.Pty_csproj_must_not_reference_Vt.
+         Replay stays because RustPtySession still writes raw byte streams to ReplayWriter
+         (no VT type is involved in that path). -->
     <ProjectReference Include="..\NovaTerminal.Replay\NovaTerminal.Replay.csproj" />
   </ItemGroup>
-
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
 
 </Project>

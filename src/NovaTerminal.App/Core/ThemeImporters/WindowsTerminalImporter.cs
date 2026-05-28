@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia.Media;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core.ThemeImporters
 {

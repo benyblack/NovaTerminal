@@ -1,7 +1,7 @@
 using SkiaSharp;
 using System.Threading;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Rendering
 {
     public class SharedSKTypeface
     {

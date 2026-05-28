@@ -1,5 +1,5 @@
 using BenchmarkDotNet.Attributes;
-using NovaTerminal.Core;
+using NovaTerminal.VT;
 using System.Text;
 
 namespace NovaTerminal.Benchmarks

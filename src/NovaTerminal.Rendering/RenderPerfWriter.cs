@@ -2,7 +2,7 @@ using System.Buffers;
 using System.Text.Json;
 using System.Threading;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Rendering
 {
     public sealed class RenderPerfWriter : IDisposable
     {

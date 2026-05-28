@@ -2,7 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using SkiaSharp;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Rendering
 {
     public class ImageRegistry
     {

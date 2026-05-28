@@ -1,6 +1,6 @@
 using System;
 using SharpFuzz;
-using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Benchmarks
 {

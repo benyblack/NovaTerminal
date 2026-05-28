@@ -1,6 +1,6 @@
 
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     /// <summary>
     /// Represents the current cursor state including position and SGR attributes.

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "2eed9f89b6fc771dad0e1da8407a1661381446eaf76553a1f0a15fc6de33c6f1",
+  "matrixSha256": "ba433157df6b5fd6b3cd842c4d25837652e0614cce0d60865fa27680f8c2fd0c",
   "summary": {
     "totalRows": 55,
     "supportedCount": 16,
@@ -106,14 +106,14 @@
       "feature": "C0 controls (BEL, BS, HT, LF, CR)",
       "status": "\u26A0 Partial",
       "specOrNotes": "Basic control chars",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060; Replay: \u0060tests/Replays/...\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060; Replay: \u0060tests/Replays/...\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -128,13 +128,13 @@
       "feature": "C1 via 7-bit ESC (ESC @.._)",
       "status": "\u26A0 Partial",
       "specOrNotes": "\u201C7-bit C1\u201D translation",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         }
       ],
@@ -163,13 +163,13 @@
       "feature": "String terminators (ST = ESC \\\\, BEL)",
       "status": "\u26A0 Partial",
       "specOrNotes": "OSC/APC termination rules",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         }
       ],
@@ -184,13 +184,13 @@
       "feature": "Unknown sequence handling",
       "status": "\u26A0 Partial",
       "specOrNotes": "Ignore/print/strict?",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         }
       ],
@@ -205,7 +205,7 @@
       "feature": "Error recovery on malformed sequences",
       "status": "\u26A0 Partial",
       "specOrNotes": "Robustness",
-      "evidenceText": "Fuzz/Unit: \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.Tests/AnsiCorpusReplayTests.cs\u0060",
+      "evidenceText": "Fuzz/Unit: \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/AnsiCorpusReplayTests.cs\u0060",
       "evidenceKinds": [
         "fuzz",
         "replay",
@@ -213,11 +213,11 @@
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/AnsiCorpusReplayTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/AnsiCorpusReplayTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         }
       ],
@@ -232,13 +232,13 @@
       "feature": "CUU/CUD/CUF/CUB (A/B/C/D)",
       "status": "\u26A0 Partial",
       "specOrNotes": "Cursor up/down/forward/back",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/PendingWrapTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/PendingWrapTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/PendingWrapTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/PendingWrapTests.cs",
           "exists": true
         }
       ],
@@ -253,18 +253,18 @@
       "feature": "CUP / HVP (H/f)",
       "status": "\u2705 Supported",
       "specOrNotes": "Positioning, default params",
-      "evidenceText": "Unit \u002B Replay: \u0060tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs\u0060, \u0060tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs\u0060",
+      "evidenceText": "Unit \u002B Replay: \u0060tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs",
           "exists": true
         }
       ],
@@ -295,13 +295,13 @@
       "feature": "CHT (I)",
       "status": "\u2705 Supported",
       "specOrNotes": "Cursor forward tabulation",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -316,13 +316,13 @@
       "feature": "CBT (Z)",
       "status": "\u2705 Supported",
       "specOrNotes": "Cursor backward tabulation",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -337,13 +337,13 @@
       "feature": "VPA/HPA (d/G/\u0060)",
       "status": "\u2705 Supported",
       "specOrNotes": "Absolute row/col",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs",
           "exists": true
         }
       ],
@@ -358,13 +358,13 @@
       "feature": "HPR/VPR (a/e)",
       "status": "\u2705 Supported",
       "specOrNotes": "Relative row/col",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/CursorPositioningCompletionTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/CursorPositioningCompletionTests.cs",
           "exists": true
         }
       ],
@@ -379,7 +379,7 @@
       "feature": "ED (J)",
       "status": "\u2705 Supported",
       "specOrNotes": "0/1/2 erase display",
-      "evidenceText": "Replay: \u0060tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs\u0060, \u0060tests/NovaTerminal.Tests/Fixtures/Replay/vttest_cursor.rec\u0060; Unit: \u0060tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
+      "evidenceText": "Replay: \u0060tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec\u0060; Unit: \u0060tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
       "evidenceKinds": [
         "external",
         "replay",
@@ -387,15 +387,15 @@
       ],
       "evidenceLinks": [
         {
+          "path": "tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec",
+          "exists": true
+        },
+        {
+          "path": "tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs",
+          "exists": true
+        },
+        {
           "path": "tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs",
-          "exists": true
-        },
-        {
-          "path": "tests/NovaTerminal.Tests/Fixtures/Replay/vttest_cursor.rec",
-          "exists": true
-        },
-        {
-          "path": "tests/NovaTerminal.Tests/ReplayTests/RegressionTests.cs",
           "exists": true
         }
       ],
@@ -527,13 +527,13 @@
       "feature": "DECOM (origin mode)",
       "status": "\u2705 Supported",
       "specOrNotes": "Cursor relative to margins",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/DecModeTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/DecModeTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/DecModeTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/DecModeTests.cs",
           "exists": true
         }
       ],
@@ -578,22 +578,22 @@
       "feature": "Alternate screen",
       "status": "\u26A0 Partial",
       "specOrNotes": "Switch \u002B save/restore cursor",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/AlternateScreenTests.cs\u0060; Replay: \u0060tests/NovaTerminal.Tests/ReplayTests/AlternateScreenReplayTests.cs\u0060, \u0060tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/AlternateScreenTests.cs\u0060; Replay: \u0060tests/NovaTerminal.App.Tests/ReplayTests/AlternateScreenReplayTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/ReplayTests/NativeSshReplayParityTests.cs\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/AlternateScreenTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/AlternateScreenTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/ReplayTests/AlternateScreenReplayTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/ReplayTests/AlternateScreenReplayTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/ReplayTests/NativeSshReplayParityTests.cs",
           "exists": true
         }
       ],
@@ -608,18 +608,18 @@
       "feature": "Show cursor",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/DecModeTests.cs\u0060; Replay: \u0060tests/NovaTerminal.Tests/ReplayTests/ReplayV2Tests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/DecModeTests.cs\u0060; Replay: \u0060tests/NovaTerminal.App.Tests/ReplayTests/ReplayV2Tests.cs\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/DecModeTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/DecModeTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/ReplayTests/ReplayV2Tests.cs",
+          "path": "tests/NovaTerminal.App.Tests/ReplayTests/ReplayV2Tests.cs",
           "exists": true
         }
       ],
@@ -700,13 +700,13 @@
       "feature": "Cursor style",
       "status": "\u2705 Supported",
       "specOrNotes": "DECSCUSR block/beam/underline \u002B blink state",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscUxTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -721,14 +721,14 @@
       "feature": "Basic SGR (0,1,2,3,4,5,7,9,22,23,24,25,27,29)",
       "status": "\u26A0 Partial",
       "specOrNotes": "Bold/dim/italic/underline/blink/reverse/strike",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/SgrAttributeTests.cs\u0060; VTTEST: sgr scenario",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/SgrAttributeTests.cs\u0060; VTTEST: sgr scenario",
       "evidenceKinds": [
         "external",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/SgrAttributeTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/SgrAttributeTests.cs",
           "exists": true
         }
       ],
@@ -805,13 +805,13 @@
       "feature": "HT (tab) movement",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -826,13 +826,13 @@
       "feature": "Tab stops set/clear",
       "status": "\u2705 Supported",
       "specOrNotes": "ESC H, CSI g",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/TabSystemTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/TabSystemTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/TabSystemTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/TabSystemTests.cs",
           "exists": true
         }
       ],
@@ -864,13 +864,13 @@
       "feature": "OSC 7",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscUxTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -899,13 +899,13 @@
       "feature": "OSC 8",
       "status": "\u2705 Supported",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscUxTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -920,13 +920,13 @@
       "feature": "OSC 133",
       "status": "\u26A0 Partial",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscShellIntegrationTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscShellIntegrationTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/OscShellIntegrationTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/OscShellIntegrationTests.cs",
           "exists": true
         }
       ],
@@ -978,17 +978,17 @@
       "feature": "Kitty graphics protocol",
       "status": "\u2705 Supported",
       "specOrNotes": "APC / OSC forms",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/GraphicsTests.cs\u0060, \u0060tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/GraphicsTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/AnsiParserHardeningTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/GraphicsTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/GraphicsTests.cs",
           "exists": true
         }
       ],
@@ -1079,13 +1079,13 @@
       "feature": "Hyperlinks",
       "status": "\u2705 Supported",
       "specOrNotes": "OSC 8",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/OscUxTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/OscUxTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
           "exists": true
         }
       ],
@@ -1100,22 +1100,22 @@
       "feature": "wcwidth-like width",
       "status": "\u26A0 Partial",
       "specOrNotes": "CJK/emoji width",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/WidthTests.cs\u0060, \u0060tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs\u0060; Replay: \u0060tests/NovaTerminal.Tests/Fixtures/Replay/mixed_unicode.rec\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/WidthTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs\u0060; Replay: \u0060tests/NovaTerminal.App.Tests/Fixtures/Replay/mixed_unicode.rec\u0060",
       "evidenceKinds": [
         "replay",
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/Fixtures/Replay/mixed_unicode.rec",
+          "path": "tests/NovaTerminal.App.Tests/Fixtures/Replay/mixed_unicode.rec",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs",
+          "path": "tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/WidthTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/WidthTests.cs",
           "exists": true
         }
       ],
@@ -1130,25 +1130,25 @@
       "feature": "Combining marks",
       "status": "\u26A0 Partial",
       "specOrNotes": "Grapheme clusters",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/NovaTerminal.Tests/SurrogateTests.cs\u0060, \u0060tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs\u0060, \u0060tests/NovaTerminal.Tests/ScrollAndWrapCorrectnessTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/SurrogateTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/ScrollAndWrapCorrectnessTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/ScrollAndWrapCorrectnessTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/ScrollAndWrapCorrectnessTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/SurrogateTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/SurrogateTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs",
+          "path": "tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs",
           "exists": true
         }
       ],
@@ -1163,21 +1163,21 @@
       "feature": "ZWJ emoji sequences",
       "status": "\u26A0 Partial",
       "specOrNotes": "",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/NovaTerminal.Tests/WidthTests.cs\u0060, \u0060tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/WidthTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Tests/GraphemeAttachmentTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/GraphemeAttachmentTests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/UnicodeWidthModelV2Tests.cs",
+          "path": "tests/NovaTerminal.App.Tests/UnicodeWidthModelV2Tests.cs",
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Tests/WidthTests.cs",
+          "path": "tests/NovaTerminal.App.Tests/WidthTests.cs",
           "exists": true
         }
       ],

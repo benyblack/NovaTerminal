@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core.Ssh.Storage;
 

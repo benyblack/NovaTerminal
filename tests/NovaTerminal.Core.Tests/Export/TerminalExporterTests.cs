@@ -1,7 +1,8 @@
 using System.Threading.Tasks;
 using Xunit;
 using NovaTerminal.Core;
-using NovaTerminal.Core.Export;
+using NovaTerminal.VT.Export;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core.Tests.Export
 {

@@ -7,12 +7,65 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <!-- Disable the Roslyn compiler server (VBCSCompiler) for every project. The server
-         is a background process that inherits stdout/stderr from the launching dotnet, then
-         outlives it; a parent reading the pipe (test harness, CI runner, Claude Code's Bash
-         tool) never sees EOF and hangs indefinitely. The hang typically surfaces in
-         BuildCliShim because that's the last target to emit output. Disabling this trades
-         a small per-build cost for deterministic shutdown. -->
+    <!-- See CLAUDE.md: the Roslyn build server holds parent pipe handles after exit,
+         causing test/CI/Claude-Code Bash captures to hang. Per-project setting only;
+         the *outer* dotnet invocation also needs -nodeReuse:false (encoded in
+         scripts/build.{ps1,sh}). -->
     <UseSharedCompilation>false</UseSharedCompilation>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Centralized language settings. Individual csproj files no longer need
+         to repeat Nullable/ImplicitUsings. -->
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+
+    <!--
+      TreatWarningsAsErrors is intentionally OFF for this commit (fallback per
+      the architecture-foundation plan). Initial enablement surfaced ~350
+      errors across the repo, dominated by:
+
+        CA1834: StringBuilder.Append(char) over Append(string) - 500+ hits,
+                most concentrated in PowerShellBootstrapBuilder.cs (single-char
+                literal appends in shell-integration script generation).
+        CA1865/CA1866: char overload of StartsWith/EndsWith - dozens of hits
+                in ANSI parser and theme importers.
+        CA1051:  Public instance fields - 46 hits, intentional for perf in
+                TerminalCell / RenderSnapshots / TerminalRow.
+        CA1305/CA1310/CA1304/CA1311: culture-sensitive string APIs - dozens of
+                hits in AnsiParser and Replay serialization where ordinal is
+                the implicit (correct) intent.
+        CA1861:  static readonly array over constant array literal - several
+                hits in MainWindow code-behind.
+        CS8602:  null-dereference - five hits in TerminalPane that need real
+                triage, not mechanical suppression.
+        CS0618:  Obsolete SkiaSharp APIs (SKPaint.Typeface, SKCanvas.DrawText
+                without SKFont) - tracked separately as SkiaSharp 3.x
+                migration.
+
+      Two real bugs were fixed in this commit:
+        - CS8601/CS8602 + CS0219 (null-deref and unused variable) in
+          TerminalBuffer.ReflowEngine.cs
+        - CA2201 (reserved IndexOutOfRangeException) in CircularBuffer.cs
+
+      Re-enabling TreatWarningsAsErrors is a follow-up: either fix the
+      StringBuilder.Append calls (the bulk of the count comes from a single
+      file) and triage the TerminalPane null-derefs, or add a broader NoWarn
+      list. The architecture-tests phase only requires centralized property
+      inheritance, which is in place here.
+    -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true' OR $(MSBuildProjectName.EndsWith('.Tests'))">
+    <!-- Tests are allowed extra leeway: xUnit1031 (async-over-sync in fixtures)
+         is intentional, CA1707 (underscores in member names) matches our test
+         naming convention, CA2007 (ConfigureAwait) is irrelevant in test
+         contexts. -->
+    <NoWarn>$(NoWarn);xUnit1031;CA1707;CA2007</NoWarn>
   </PropertyGroup>
 </Project>

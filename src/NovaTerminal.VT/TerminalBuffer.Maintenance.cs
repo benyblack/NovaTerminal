@@ -1,6 +1,6 @@
-using NovaTerminal.Core.Storage;
+using NovaTerminal.VT.Storage;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     public partial class TerminalBuffer
     {

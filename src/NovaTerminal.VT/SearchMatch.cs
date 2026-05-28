@@ -1,4 +1,4 @@
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     public struct SearchMatch
     {

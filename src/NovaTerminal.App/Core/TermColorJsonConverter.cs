@@ -2,6 +2,7 @@ using System;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Avalonia.Media;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core
 {

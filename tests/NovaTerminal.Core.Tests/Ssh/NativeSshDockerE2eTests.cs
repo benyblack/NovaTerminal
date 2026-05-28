@@ -1,10 +1,11 @@
-using NovaTerminal.Core.Replay;
+using NovaTerminal.Replay;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.Core.Ssh.Sessions;
 using NovaTerminal.Core.Tests.Infra;
 using System.Text;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.Core.Tests.Ssh;
 
@@ -632,7 +633,6 @@ public sealed class NativeSshDockerE2eTests
             log: logs.Add,
             interactionHandler: handler);
 
-        session.AttachBuffer(buffer);
         session.OnOutputReceived += parser.Process;
 
         await WaitUntilAsync(() => SnapshotContains(buffer, "nova$"), TimeSpan.FromSeconds(20), "initial prompt");
@@ -675,7 +675,6 @@ public sealed class NativeSshDockerE2eTests
             log: logs.Add,
             interactionHandler: handler);
 
-        session.AttachBuffer(buffer);
         session.OnOutputReceived += parser.Process;
 
         await WaitUntilAsync(() => SnapshotContainsExactLine(buffer, "nova$"), TimeSpan.FromSeconds(20), "initial prompt");
@@ -716,7 +715,6 @@ public sealed class NativeSshDockerE2eTests
             log: logs.Add,
             interactionHandler: handler);
 
-        session.AttachBuffer(buffer);
         session.OnOutputReceived += parser.Process;
 
         await WaitUntilAsync(() => SnapshotContainsExactLine(buffer, "nova$"), TimeSpan.FromSeconds(20), "initial prompt");
@@ -771,7 +769,6 @@ public sealed class NativeSshDockerE2eTests
             log: logs.Add,
             interactionHandler: handler);
 
-        session.AttachBuffer(buffer);
         session.OnOutputReceived += text =>
         {
             if (captureScrollOutput)
@@ -887,7 +884,6 @@ public sealed class NativeSshDockerE2eTests
             rows: 30,
             interactionHandler: handler);
 
-        session.AttachBuffer(buffer);
         session.OnOutputReceived += parser.Process;
 
         await WaitUntilAsync(

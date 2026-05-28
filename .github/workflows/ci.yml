@@ -120,7 +120,7 @@ jobs:
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       # Upload only the test output directories. src/*/bin/ is 100% duplicated inside
-      # tests/NovaTerminal.Tests/bin/ (MSBuild copies all referenced DLLs + executables),
+      # tests/NovaTerminal.App.Tests/bin/ (MSBuild copies all referenced DLLs + executables),
       # so including it would double the artifact size for no benefit.
       # VtReportCliTests needs src/NovaTerminal.App/bin/ at runtime — the unit test
       # job restores it from the test output via a symlink/junction (see below).
@@ -133,8 +133,11 @@ jobs:
           # "tests/" is stripped from both entries here. All download-artifact steps
           # compensate by specifying path: tests to restore the prefix.
           path: |
-            tests/NovaTerminal.Tests/bin/${{ env.CONFIGURATION }}
+            tests/NovaTerminal.App.Tests/bin/${{ env.CONFIGURATION }}
             tests/NovaTerminal.Core.Tests/bin/${{ env.CONFIGURATION }}
+            tests/NovaTerminal.Architecture.Tests/bin/${{ env.CONFIGURATION }}
+            tests/NovaTerminal.VT.Tests/bin/${{ env.CONFIGURATION }}
+            tests/NovaTerminal.Rendering.Tests/bin/${{ env.CONFIGURATION }}
 
   build_and_unit_tests:
     name: Unit Tests (${{ matrix.os }})
@@ -193,14 +196,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p src/NovaTerminal.App/bin/Release src/NovaTerminal.Cli/bin/Release
-          cp -rl tests/NovaTerminal.Tests/bin/Release/net10.0 src/NovaTerminal.App/bin/Release/net10.0
-          cp -rl tests/NovaTerminal.Tests/bin/Release/net10.0 src/NovaTerminal.Cli/bin/Release/net10.0
+          cp -rl tests/NovaTerminal.App.Tests/bin/Release/net10.0 src/NovaTerminal.App/bin/Release/net10.0
+          cp -rl tests/NovaTerminal.App.Tests/bin/Release/net10.0 src/NovaTerminal.Cli/bin/Release/net10.0
 
       - name: Reconstruct src bin dirs from test output (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $src = "tests\NovaTerminal.Tests\bin\Release\net10.0"
+          $src = "tests\NovaTerminal.App.Tests\bin\Release\net10.0"
           # robocopy exits 0 (nothing to copy) or 1 (files copied) on success; >=8 is an error
           foreach ($dst in @("src\NovaTerminal.App\bin\Release\net10.0", "src\NovaTerminal.Cli\bin\Release\net10.0")) {
             robocopy $src $dst /E /NJH /NJS /NFL /NDL /NC /NS | Out-Null
@@ -211,7 +214,7 @@ jobs:
       - name: Restore
         run: dotnet restore
 
-      # The shell-integration tests under tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/Integration
+      # The shell-integration tests under tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/Integration
       # spawn real bash/zsh/fish via the production PTY path. bash is
       # preinstalled on ubuntu-latest; zsh and fish are not on ubuntu-24.04,
       # so install them here -- otherwise ZshShellIntegrationTests and
@@ -227,7 +230,7 @@ jobs:
         # call `dotnet build --no-restore` at runtime (rusty_ssh deps aren't available in test jobs).
         env:
           SKIP_RUST_NATIVE_BUILD: '1'
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" --logger "trx;LogFileName=unit_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=unit_tests.trx"
 
       - name: Upload test results
         if: always()
@@ -275,7 +278,7 @@ jobs:
         if: steps.download_golden_build_artifact.outcome == 'failure'
         shell: pwsh
         run: |
-          Remove-Item tests\NovaTerminal.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item tests\NovaTerminal.App.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item tests\NovaTerminal.Core.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Download build artifact (retry)
@@ -289,7 +292,7 @@ jobs:
         run: dotnet restore
 
       - name: Run Golden Shared PNG Tests
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=GoldenSharedPng" --logger "trx;LogFileName=golden_shared_png_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=GoldenSharedPng" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=golden_shared_png_tests.trx"
 
       - name: Upload golden shared PNG test results
         if: always()
@@ -349,7 +352,7 @@ jobs:
       - name: Run Replay Tests
         env:
           PARITY_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/parity
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Replay" --logger "trx;LogFileName=replay_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Replay" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=replay_tests.trx"
 
       - name: Prepare Replay Artifact Bundle
         if: always()
@@ -420,7 +423,7 @@ jobs:
         run: dotnet restore
 
       - name: Run PTY smoke tests
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=PtySmoke" --logger "trx;LogFileName=pty_smoke_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=PtySmoke" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=pty_smoke_tests.trx"
 
       - name: Upload PTY smoke test results
         if: always()
@@ -515,7 +518,7 @@ jobs:
         env:
           WRITE_METRICS_ARTIFACTS: "1"
           METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=RenderMetrics" --logger "trx;LogFileName=render_metrics.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=RenderMetrics" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=render_metrics.trx"
 
       - name: Upload render metrics
         if: always()
@@ -573,7 +576,7 @@ jobs:
         env:
           WRITE_METRICS_ARTIFACTS: "1"
           METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Performance|Category=Latency" --logger "trx;LogFileName=tab_perf_smoke.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Performance|Category=Latency" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=tab_perf_smoke.trx"
 
       - name: Upload tab perf smoke artifacts
         if: always()
@@ -631,7 +634,7 @@ jobs:
         env:
           WRITE_METRICS_ARTIFACTS: "1"
           METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Stress|Category=Performance|Category=Latency|Category=RenderMetrics" --logger "trx;LogFileName=nightly_tab_stress.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Stress|Category=Performance|Category=Latency|Category=RenderMetrics" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=nightly_tab_stress.trx"
 
       - name: Upload nightly stress artifacts
         if: always()

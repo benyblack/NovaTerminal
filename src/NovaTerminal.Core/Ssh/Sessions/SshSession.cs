@@ -1,5 +1,7 @@
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Storage;
+using NovaTerminal.VT;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Core.Ssh.Sessions;
 
@@ -81,7 +83,5 @@ public sealed class SshSession : ITerminalSession
     public void Resize(int cols, int rows) => _inner.Resize(cols, rows);
     public void StartRecording(string filePath) => _inner.StartRecording(filePath);
     public void StopRecording() => _inner.StopRecording();
-    public void AttachBuffer(TerminalBuffer buffer) => _inner.AttachBuffer(buffer);
-    public void TakeSnapshot() => _inner.TakeSnapshot();
     public void Dispose() => _inner.Dispose();
 }

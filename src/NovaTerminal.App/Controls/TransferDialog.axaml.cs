@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Platform.Storage;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;
 

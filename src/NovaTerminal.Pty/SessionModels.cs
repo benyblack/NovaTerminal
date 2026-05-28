@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Pty
 {
     public class NovaSession
     {

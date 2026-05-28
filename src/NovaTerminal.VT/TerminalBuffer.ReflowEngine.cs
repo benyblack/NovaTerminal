@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using NovaTerminal.Core.Storage;
+using NovaTerminal.VT.Storage;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     public partial class TerminalBuffer
     {
@@ -12,7 +12,7 @@ namespace NovaTerminal.Core
         {
             private readonly SavedCursorStates _savedCursors;
             private TerminalRow[] _viewport;
-            private ScrollbackPages? _scrollback;
+            private ScrollbackPages _scrollback;
             private readonly List<TerminalRow> _history;
             private readonly List<TerminalImage> _images;
             private readonly bool _isAltScreen;
@@ -590,8 +590,7 @@ namespace NovaTerminal.Core
 
                     // Create new ScrollbackPages instance
                     var newScrollback = new ScrollbackPages(newCols, _sharedPagePool, _maxScrollbackBytes);
-                    
-                    long prevEvicted = 0;
+
                     for (int i = 0; i < sbCount; i++)
                     {
                         newScrollback.AppendRow(allFlowedRows[i].Cells, allFlowedRows[i].IsWrapped);

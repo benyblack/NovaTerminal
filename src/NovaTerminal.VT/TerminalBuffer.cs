@@ -1,13 +1,13 @@
 
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Core.Storage;
+using NovaTerminal.VT.Storage;
 using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("NovaTerminal.Tests")]
+[assembly: InternalsVisibleTo("NovaTerminal.App.Tests")]
 [assembly: InternalsVisibleTo("NovaTerminal.Replay")]
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.VT
 {
     public partial class TerminalBuffer
     {

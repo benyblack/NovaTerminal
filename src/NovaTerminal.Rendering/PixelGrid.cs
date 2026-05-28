@@ -1,4 +1,4 @@
-namespace NovaTerminal.Core
+namespace NovaTerminal.Rendering
 {
     public readonly struct PixelGrid
     {

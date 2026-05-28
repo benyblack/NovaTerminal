@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using NovaTerminal.Core;
+using NovaTerminal.VT;
 
 namespace NovaTerminal.ViewModels.Ssh;
 

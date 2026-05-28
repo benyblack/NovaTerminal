@@ -1,7 +1,7 @@
 using System;
 using System.Buffers;
 
-namespace NovaTerminal.Core.Storage
+namespace NovaTerminal.VT.Storage
 {
     /// <summary>
     /// A contiguous slab of TerminalCell values for multiple scrollback rows.

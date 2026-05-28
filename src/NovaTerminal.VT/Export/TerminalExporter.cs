@@ -2,7 +2,7 @@ using System;
 using System.Text;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Core.Export
+namespace NovaTerminal.VT.Export
 {
     public static class TerminalExporter
     {

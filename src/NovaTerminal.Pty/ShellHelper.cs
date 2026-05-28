@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Pty
 {
     public static class ShellHelper
     {

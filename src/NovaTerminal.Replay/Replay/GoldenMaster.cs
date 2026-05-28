@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Text;
 
-namespace NovaTerminal.Core.Replay
+namespace NovaTerminal.Replay
 {
     public static class GoldenMaster
     {

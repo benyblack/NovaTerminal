@@ -1,4 +1,4 @@
-namespace NovaTerminal.Core.Replay
+namespace NovaTerminal.Replay
 {
     /// <summary>
     /// Preferred reader API for replay files (v2 with v1 compatibility).
