@@ -122,12 +122,10 @@ internal static class ShellHarness
         var capture = new StringBuilder();
         object sync = new();
         long lastOutputTicks = Environment.TickCount64;
-        using var firstPromptReady = new ManualResetEventSlim(false);
 
         parser.OnPromptReady = () =>
         {
             lock (sync) events.Add(new OscEvent("A", null));
-            firstPromptReady.Set();
         };
         parser.OnCommandAccepted = text =>
         {
@@ -225,16 +223,12 @@ internal static class ShellHarness
             }
         }, watcherCts.Token);
 
-        // Wait for the bootstrap to fire its first OSC 133;A (prompt
-        // ready) before we feed scripted input. Without this, anything
-        // the system shell config does on the way in -- e.g. Ubuntu's
-        // /etc/zsh/zshrc running compinit and prompting "Ignore insecure
-        // directories? [y/n]" -- will consume our scripted stdin as the
-        // answer to its own prompt, leaving the shell wedged on an empty
-        // input buffer. Cap the wait short (2s) since under contention
-        // the PTY ProcessLoop can be slow to fire the callback; if we
-        // miss it we just proceed and let the PTY queue the input.
-        firstPromptReady.Wait(TimeSpan.FromSeconds(2));
+        // Brief settle period before we feed scripted input. Zsh's
+        // compinit-prompting issue on Ubuntu is already neutralized by
+        // ZshShellIntegrationTests passing --no-global-rcs, so we don't
+        // need a synchronous wait-for-prompt-ready here -- which adds
+        // its own thread-scheduling sensitivity under CI parallelism.
+        Thread.Sleep(200);
 
         // Interactive shells (bash -i, zsh -i, fish -i) put the TTY into
         // readline-style raw mode where the Enter key is CR (\r), not LF
