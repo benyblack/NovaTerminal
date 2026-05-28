@@ -9,6 +9,7 @@ namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
 /// .zshrc is the one loaded, mirroring the production launch plan.
 /// </summary>
 [Trait("Category", "ShellIntegration")]
+[Collection(nameof(ShellIntegrationCollection))]
 public sealed class ZshShellIntegrationTests : IDisposable
 {
     private readonly string _tempRoot;

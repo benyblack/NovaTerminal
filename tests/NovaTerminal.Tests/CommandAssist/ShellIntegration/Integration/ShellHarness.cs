@@ -231,10 +231,10 @@ internal static class ShellHarness
         // /etc/zsh/zshrc running compinit and prompting "Ignore insecure
         // directories? [y/n]" -- will consume our scripted stdin as the
         // answer to its own prompt, leaving the shell wedged on an empty
-        // input buffer. Cap the wait at half the overall timeout so we
-        // still produce a useful diagnostic if the bootstrap never
-        // signals readiness.
-        firstPromptReady.Wait(TimeSpan.FromMilliseconds(timeoutSpan.TotalMilliseconds / 2));
+        // input buffer. Cap the wait short (2s) since under contention
+        // the PTY ProcessLoop can be slow to fire the callback; if we
+        // miss it we just proceed and let the PTY queue the input.
+        firstPromptReady.Wait(TimeSpan.FromSeconds(2));
 
         // Interactive shells (bash -i, zsh -i, fish -i) put the TTY into
         // readline-style raw mode where the Enter key is CR (\r), not LF

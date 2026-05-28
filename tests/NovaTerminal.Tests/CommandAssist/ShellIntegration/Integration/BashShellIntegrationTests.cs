@@ -14,6 +14,7 @@ namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
 /// real ~/.bashrc is not sourced.
 /// </summary>
 [Trait("Category", "ShellIntegration")]
+[Collection(nameof(ShellIntegrationCollection))]
 public sealed class BashShellIntegrationTests : IDisposable
 {
     private readonly string _tempRoot;

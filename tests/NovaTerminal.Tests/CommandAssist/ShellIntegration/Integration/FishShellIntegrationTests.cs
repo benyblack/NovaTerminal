@@ -9,6 +9,7 @@ namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
 /// generated <root>/fish/config.fish is the one loaded.
 /// </summary>
 [Trait("Category", "ShellIntegration")]
+[Collection(nameof(ShellIntegrationCollection))]
 public sealed class FishShellIntegrationTests : IDisposable
 {
     private readonly string _tempRoot;
