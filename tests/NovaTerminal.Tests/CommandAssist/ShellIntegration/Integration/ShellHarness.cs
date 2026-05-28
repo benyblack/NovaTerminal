@@ -1,5 +1,5 @@
-using System.Diagnostics;
 using System.Text;
+using NovaTerminal.Core;
 
 namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
 
@@ -35,45 +35,16 @@ internal sealed record OscEvent(string Kind, string? Payload)
 }
 
 /// <summary>
-/// Spawns a real shell with our generated bootstrap and captures the OSC
-/// lifecycle the shell emits. Intended for integration coverage that
-/// the substring-based bootstrap-builder tests cannot reach.
+/// Spawns a real shell with our generated bootstrap through the production
+/// PTY path (<see cref="RustPtySession"/> + <see cref="AnsiParser"/>) and
+/// captures the OSC lifecycle the shell emits via parser callbacks. This
+/// exercises ConPTY/portable-pty end-to-end so the shell sees a real TTY
+/// and bash -i / zsh -i / fish -i behave identically to a user terminal --
+/// unlike the previous Process.Start + piped-stdin scheme, which hung
+/// headless CI runners by leaving job-control-confused bash children alive.
 /// </summary>
 internal static class ShellHarness
 {
-    /// <summary>
-    /// Gate for the real-shell integration tests. They reliably pass on
-    /// developer machines (Git Bash on Windows, native bash on Linux/macOS
-    /// with a real terminal context) but on headless CI runners bash -i
-    /// with piped stdin can leak shell processes that never exit, hanging
-    /// the entire job until the 15-minute global timeout fires. We default
-    /// to "skip on CI, run elsewhere" so the tests still catch regressions
-    /// on dev boxes but never block CI; an explicit opt-in
-    /// (NOVA_RUN_SHELL_INTEGRATION_TESTS=1) lets us re-enable them once a
-    /// proper CI-side fix lands.
-    ///
-    /// TODO(#71): Replace the underlying Process.Start + piped-stdin
-    /// harness with a RustPtySession-backed implementation so bash sees a
-    /// real PTY on CI. When that lands, this gate can be deleted.
-    /// </summary>
-    public static bool IsEnabled()
-    {
-        string? explicitOptIn = Environment.GetEnvironmentVariable("NOVA_RUN_SHELL_INTEGRATION_TESTS");
-        if (explicitOptIn == "1" ||
-            string.Equals(explicitOptIn, "true", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        string? ci = Environment.GetEnvironmentVariable("CI");
-        if (string.Equals(ci, "true", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        return true;
-    }
-
     public static string? FindBash()
     {
         // Prefer Git Bash on Windows so we get a real GNU bash, not WSL's
@@ -119,101 +90,245 @@ internal static class ShellHarness
         IReadOnlyDictionary<string, string>? environmentOverrides = null,
         TimeSpan? timeout = null)
     {
-        var psi = new ProcessStartInfo
-        {
-            FileName = shellPath,
-            Arguments = arguments,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
+        // On Windows, the rusty_pty default path uses ConPTY with the
+        // PSEUDOCONSOLE_PASSTHROUGH flag set. That mode silently drops the
+        // child's stdout when the calling process has no real attached
+        // console -- exactly the case for xunit test hosts -- so we opt the
+        // native side over to the portable-pty fallback (a plain ConPTY
+        // without the passthrough flag) for the duration of this call.
+        // Production (Avalonia app with a real GUI process) does not set
+        // this and continues to use the original passthrough path.
+        Environment.SetEnvironmentVariable("NOVA_PTY_NO_PASSTHROUGH", "1");
 
+        // Force a predictable locale so OSC output isn't disturbed by
+        // user-locale variations on test runners.
+        var env = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["LC_ALL"] = "C",
+            ["LANG"] = "C",
+        };
         if (environmentOverrides is not null)
         {
             foreach (var kv in environmentOverrides)
             {
-                psi.Environment[kv.Key] = kv.Value;
+                env[kv.Key] = kv.Value;
             }
         }
 
-        // Force a predictable locale so OSC output isn't disturbed by
-        // user-locale variations on test runners.
-        psi.Environment["LC_ALL"] = "C";
-        psi.Environment["LANG"] = "C";
+        var buffer = new TerminalBuffer(120, 30);
+        var parser = new AnsiParser(buffer, forceConPtyFiltering: false);
 
-        using var proc = Process.Start(psi) ?? throw new InvalidOperationException($"Failed to start {shellPath}");
-        proc.StandardInput.Write(scriptedStdin);
-        proc.StandardInput.Close();
-
-        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-        var stderrTask = proc.StandardError.ReadToEndAsync();
-
-        if (!proc.WaitForExit((int)(timeout ?? TimeSpan.FromSeconds(15)).TotalMilliseconds))
-        {
-            try { proc.Kill(entireProcessTree: true); } catch { }
-            throw new TimeoutException($"Shell {shellPath} did not exit within timeout");
-        }
-
-        string stdout = stdoutTask.GetAwaiter().GetResult();
-        string stderr = stderrTask.GetAwaiter().GetResult();
-        var events = ParseOsc(stdout);
-        return new HarnessResult(stdout, stderr, proc.ExitCode, events);
-    }
-
-    /// <summary>
-    /// Minimal OSC parser for test consumption. Recognizes ESC ] ... BEL
-    /// and ESC ] ... ESC \ terminators. Only emits events for OSC 7 and
-    /// OSC 133;{A,B,C,D}; ignores other OSC traffic.
-    /// </summary>
-    public static IReadOnlyList<OscEvent> ParseOsc(string stdout)
-    {
         var events = new List<OscEvent>();
-        int i = 0;
-        while (i < stdout.Length)
+        var capture = new StringBuilder();
+        object sync = new();
+        long lastOutputTicks = Environment.TickCount64;
+
+        parser.OnPromptReady = () =>
         {
-            if (stdout[i] != '\x1b' || i + 1 >= stdout.Length || stdout[i + 1] != ']')
+            lock (sync) events.Add(new OscEvent("A", null));
+        };
+        parser.OnCommandAccepted = text =>
+        {
+            // Re-encode to base64 so OscEvent.DecodedCommand round-trips
+            // back to the same text -- matches the on-the-wire format the
+            // bootstrap emits and keeps the OscEvent contract uniform.
+            string b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
+            lock (sync) events.Add(new OscEvent("C", b64));
+        };
+        parser.OnCommandFinishedDetailed = (exit, dur) =>
+        {
+            string payload = $"{exit?.ToString() ?? string.Empty};{dur?.ToString() ?? string.Empty}";
+            lock (sync) events.Add(new OscEvent("D", payload));
+        };
+        parser.OnWorkingDirectoryChanged = cwd =>
+        {
+            // AnsiParser hands us the decoded path; re-prepend the scheme so
+            // tests that look for Payload.StartsWith("file://") still match.
+            lock (sync) events.Add(new OscEvent("7", "file://" + cwd));
+        };
+
+        var exitSignal = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        TimeSpan timeoutSpan = timeout ?? TimeSpan.FromSeconds(15);
+
+        var session = new RustPtySession(
+            shellPath,
+            cols: 120,
+            rows: 30,
+            args: arguments,
+            cwd: null,
+            skipPowerShellPostLaunchInit: true,
+            environmentOverrides: env);
+
+        session.OnOutputReceived += text =>
+        {
+            lock (sync) capture.Append(text);
+            parser.Process(text);
+            Volatile.Write(ref lastOutputTicks, Environment.TickCount64);
+        };
+        session.OnExit += code => exitSignal.TrySetResult(code);
+
+        // Production TerminalPane wires parser responses (cursor-position
+        // DSR replies, device-attribute replies, etc.) back to the session.
+        // Without this, ConPTY can hang waiting on \x1B[6n at startup and
+        // the child never gets to write anything.
+        parser.OnResponse = resp => session.SendInput(resp);
+
+        // RustPtySession.ReadLoop breaks out only when pty_read returns 0
+        // (clean EOF). On Windows ConPTY the master read often errors out
+        // (-1) after the child exits instead of returning 0, so ReadLoop
+        // keeps retrying forever and OnExit never fires. Watch the actual
+        // OS process by PID and signal exit ourselves once it's gone.
+        var watcherCts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            int? trackedPid = null;
+            for (int i = 0; i < 30 && trackedPid is null; i++)
             {
-                i++;
-                continue;
-            }
-
-            int start = i + 2;
-            int end = start;
-            while (end < stdout.Length)
-            {
-                char c = stdout[end];
-                if (c == '\x07') break;
-                if (c == '\x1b' && end + 1 < stdout.Length && stdout[end + 1] == '\\') break;
-                end++;
-            }
-
-            if (end >= stdout.Length) break;
-
-            string body = stdout[start..end];
-            i = end + (stdout[end] == '\x1b' ? 2 : 1);
-
-            // OSC 7: cwd notification, e.g. "7;file://host/path"
-            if (body.StartsWith("7;"))
-            {
-                events.Add(new OscEvent("7", body[2..]));
-                continue;
-            }
-
-            // OSC 133 lifecycle: "133;A", "133;B", "133;C[;payload]", "133;D[;exit[;dur]]"
-            if (body.StartsWith("133;"))
-            {
-                string rest = body[4..];
-                if (rest.Length == 0) continue;
-                char kind = rest[0];
-                if (kind is 'A' or 'B' or 'C' or 'D')
+                if (watcherCts.Token.IsCancellationRequested) return;
+                trackedPid = session.Pid;
+                if (trackedPid is null)
                 {
-                    string? payload = rest.Length > 2 && rest[1] == ';' ? rest[2..] : null;
-                    events.Add(new OscEvent(kind.ToString(), payload));
+                    try { await Task.Delay(100, watcherCts.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { return; }
                 }
             }
+            if (trackedPid is null) return;
+
+            System.Diagnostics.Process p;
+            try { p = System.Diagnostics.Process.GetProcessById(trackedPid.Value); }
+            catch (ArgumentException) { exitSignal.TrySetResult(0); return; }
+            using (p)
+            {
+                while (!watcherCts.Token.IsCancellationRequested)
+                {
+                    try
+                    {
+                        p.Refresh();
+                        if (p.HasExited)
+                        {
+                            exitSignal.TrySetResult(p.ExitCode);
+                            return;
+                        }
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // Process handle is gone -- treat as a clean exit.
+                        exitSignal.TrySetResult(0);
+                        return;
+                    }
+                    catch { /* transient query failure; retry next tick */ }
+                    try { await Task.Delay(100, watcherCts.Token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { return; }
+                }
+            }
+        }, watcherCts.Token);
+
+        // Brief settle period before we feed scripted input. Zsh's
+        // compinit-prompting issue on Ubuntu is already neutralized by
+        // ZshShellIntegrationTests passing --no-global-rcs, so we don't
+        // need a synchronous wait-for-prompt-ready here -- which adds
+        // its own thread-scheduling sensitivity under CI parallelism.
+        Thread.Sleep(200);
+
+        // Interactive shells (bash -i, zsh -i, fish -i) put the TTY into
+        // readline-style raw mode where the Enter key is CR (\r), not LF
+        // (\n). Tests author scripted input as "echo hello\nexit 0\n" for
+        // readability; translate LF -> CR here so each line is actually
+        // submitted instead of sitting in the readline buffer forever.
+        string ttyInput = scriptedStdin.Replace("\n", "\r");
+        session.SendInput(ttyInput);
+
+        bool exited;
+        try
+        {
+            exited = exitSignal.Task.Wait(timeoutSpan);
+            watcherCts.Cancel();
+
+            // Belt-and-suspenders: if the shell hasn't terminated on its
+            // own (timeout, or assertion-failure path where exitSignal
+            // fires because we observed exit but the OS process is somehow
+            // still around), kill it explicitly. On Linux, closing the
+            // master fd in pty_close() does NOT unblock RustPtySession's
+            // ReadLoop thread that's already blocked in pty_read on that
+            // same fd; only the child closing its slave end produces the
+            // EOF that lets ReadLoop terminate. Without this, a single
+            // hung zsh `-i` cascades into the xunit host being unable to
+            // shut down, which we observed as a 14-minute silent stall.
+            try
+            {
+                int? pid = session.Pid;
+                if (pid is int p)
+                {
+                    using var proc = System.Diagnostics.Process.GetProcessById(p);
+                    if (!proc.HasExited) proc.Kill(entireProcessTree: true);
+                }
+            }
+            catch { /* process already gone or unkillable -- nothing more we can do */ }
         }
-        return events;
+        catch
+        {
+            session.Dispose();
+            throw;
+        }
+
+        if (!exited)
+        {
+            string partial;
+            int eventCount;
+            lock (sync)
+            {
+                partial = capture.ToString();
+                eventCount = events.Count;
+            }
+            session.Dispose();
+            var dump = new StringBuilder(partial.Length * 2);
+            foreach (char c in partial)
+            {
+                if (c >= 0x20 && c < 0x7F) dump.Append(c);
+                else if (c == '\n') dump.Append("\\n");
+                else if (c == '\r') dump.Append("\\r");
+                else if (c == '\t') dump.Append("\\t");
+                else dump.Append("\\x").Append(((int)c).ToString("X2"));
+            }
+            throw new TimeoutException(
+                $"Shell {shellPath} did not exit within {timeoutSpan.TotalSeconds:F1}s. " +
+                $"events={eventCount}, captured ({partial.Length} chars): {dump}");
+        }
+
+        // Drain window: the exit signal can fire from the PID watcher
+        // before the PTY ReadLoop -> ProcessLoop -> parser pipeline has
+        // delivered the last few bytes (which may contain the final OSC
+        // 133;C / D markers). Sleeping a fixed N ms is a race on a loaded
+        // CI runner; instead wait until OnOutputReceived has been quiet
+        // for `drainIdleMs` consecutive ms, capped by `drainCapMs` overall
+        // so we don't hang forever if the shell decides to keep printing
+        // after the child reaps.
+        const long drainIdleMs = 200;
+        const long drainCapMs = 2000;
+        long drainStart = Environment.TickCount64;
+        while (true)
+        {
+            long now = Environment.TickCount64;
+            long sinceOutput = now - Volatile.Read(ref lastOutputTicks);
+            long sinceDrainStart = now - drainStart;
+            if (sinceOutput >= drainIdleMs || sinceDrainStart >= drainCapMs) break;
+            Thread.Sleep(25);
+        }
+
+        string captured;
+        OscEvent[] eventsSnapshot;
+        lock (sync)
+        {
+            captured = capture.ToString();
+            eventsSnapshot = events.ToArray();
+        }
+        session.Dispose();
+
+        // PTY merges stdout and stderr onto the same master fd, so there is
+        // no way to separate the two streams here. Expose the combined
+        // capture under both fields: the existing error-pattern tests look
+        // for specific words ("command not found", "syntax error", "%N",
+        // etc.) which don't false-positive against normal PS1/echo traffic.
+        return new HarnessResult(captured, captured, exitSignal.Task.Result, eventsSnapshot);
     }
 }

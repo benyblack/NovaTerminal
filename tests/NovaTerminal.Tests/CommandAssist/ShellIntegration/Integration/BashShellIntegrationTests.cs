@@ -14,6 +14,7 @@ namespace NovaTerminal.Tests.CommandAssist.ShellIntegration.Integration;
 /// real ~/.bashrc is not sourced.
 /// </summary>
 [Trait("Category", "ShellIntegration")]
+[Collection(nameof(ShellIntegrationCollection))]
 public sealed class BashShellIntegrationTests : IDisposable
 {
     private readonly string _tempRoot;
@@ -33,11 +34,6 @@ public sealed class BashShellIntegrationTests : IDisposable
 
     private HarnessResult RunBash(string stdin, string? extraInitLine = null)
     {
-        if (!ShellHarness.IsEnabled())
-        {
-            Assert.Skip("shell integration tests gated off on this runner (set NOVA_RUN_SHELL_INTEGRATION_TESTS=1 to enable)");
-        }
-
         string? bash = ShellHarness.FindBash();
         if (bash is null)
         {

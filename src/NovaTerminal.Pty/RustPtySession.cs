@@ -74,6 +74,16 @@ namespace NovaTerminal.Core
             }
         }
 
+        public int? Pid
+        {
+            get
+            {
+                if (_ptyState == IntPtr.Zero) return null;
+                int pid = Native.pty_get_pid(_ptyState);
+                return pid > 0 ? pid : null;
+            }
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         private struct PROCESSENTRY32
         {
