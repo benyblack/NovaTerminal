@@ -71,6 +71,16 @@ namespace NovaTerminal.Core
             _wndProcDelegate = WndProc;
             IntPtr newWndProcPtr = Marshal.GetFunctionPointerForDelegate(_wndProcDelegate);
             _oldWndProc = SetWindowLongPtr(_handle, GWLP_WNDPROC, newWndProcPtr);
+
+            // GWLP_WNDPROC always has a non-null previous value on a real window, so a zero
+            // return means SetWindowLongPtr failed: the WNDPROC slot was NOT replaced. Drop
+            // the delegate we just rooted — there is no installed thunk backing it, and
+            // RemoveHook (guarded on _oldWndProc != Zero) would otherwise never release it.
+            if (_oldWndProc == IntPtr.Zero)
+            {
+                _wndProcDelegate = null;
+                AppLogger.Log("[GlobalHotkey] SetWindowLongPtr(GWLP_WNDPROC) failed; hotkey hook not installed.");
+            }
         }
 
         private void RemoveHook()
@@ -103,15 +113,16 @@ namespace NovaTerminal.Core
             {
                 // An exception escaping a reverse-P/Invoke WndProc unwinds into native Win32
                 // (DispatchMessage), which is undefined behavior and crashes the process.
-                // Swallow handler exceptions at this boundary; toggling visibility is
-                // best-effort and must never take the app down.
+                // Catch at this boundary so a misbehaving handler can never take the app down;
+                // toggling visibility is best-effort. Log (don't silently swallow) so the
+                // failure is diagnosable in debug.log.
                 try
                 {
                     OnHotkeyPressed?.Invoke();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Intentionally ignored — see comment above.
+                    AppLogger.Log($"[GlobalHotkey] hotkey handler threw: {ex}");
                 }
 
                 return IntPtr.Zero; // Handled
