@@ -1,5 +1,5 @@
 using System.Text;
-using NovaTerminal.Core.Replay;
+using NovaTerminal.Replay;
 using NovaTerminal.Core.Ssh.Interactions;
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Models;

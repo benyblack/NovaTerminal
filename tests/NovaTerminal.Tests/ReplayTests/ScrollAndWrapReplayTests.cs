@@ -3,7 +3,7 @@ using System.Text;
 using System.Threading.Tasks;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Replay;
+using NovaTerminal.Replay;
 using Xunit;
 
 namespace NovaTerminal.Tests.ReplayTests;

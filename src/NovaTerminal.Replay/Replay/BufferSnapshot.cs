@@ -2,7 +2,7 @@ using System.Text;
 using System.Linq;
 using NovaTerminal.VT;
 
-namespace NovaTerminal.Core.Replay
+namespace NovaTerminal.Replay
 {
     public class BufferSnapshot
     {

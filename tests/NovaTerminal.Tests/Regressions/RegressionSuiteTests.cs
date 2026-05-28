@@ -1,6 +1,6 @@
 using NovaTerminal.Core;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Replay;
+using NovaTerminal.Replay;
 using NovaTerminal.Tests.Tools;
 using NovaTerminal.Tests.Infra;
 using System.IO;

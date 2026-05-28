@@ -1,7 +1,7 @@
 using System.Reflection;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Replay;
+using NovaTerminal.Replay;
 using NovaTerminal.Tests.Tools;
 
 namespace NovaTerminal.Tests.ReplayTests;

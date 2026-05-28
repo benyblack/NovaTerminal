@@ -6,7 +6,7 @@ namespace NovaTerminal.Architecture.Tests;
 public class LayeringTests
 {
     private static Assembly Vt        => typeof(global::NovaTerminal.VT.AnsiParser).Assembly;
-    private static Assembly Replay    => typeof(global::NovaTerminal.Core.Replay.ReplayReader).Assembly;
+    private static Assembly Replay    => typeof(global::NovaTerminal.Replay.ReplayReader).Assembly;
     private static Assembly Rendering => typeof(global::NovaTerminal.Core.GlyphAtlas).Assembly;
     private static Assembly Pty       => typeof(global::NovaTerminal.Core.ITerminalSession).Assembly;
     private static Assembly Core      => typeof(global::NovaTerminal.Core.Input.TerminalInputSender).Assembly;
@@ -52,12 +52,7 @@ public class LayeringTests
             $"Rendering may only reference VT + Skia. Offenders: {Join(result.FailingTypeNames)}");
     }
 
-    // KNOWN VIOLATION: All types in Replay currently live in the `NovaTerminal.Core.Replay`
-    // namespace (see NamespaceAlignmentTests). NetArchTest's
-    // `NotHaveDependencyOnAny("NovaTerminal.Core")` matches types whose own namespace starts
-    // with that prefix, so every Replay type gets flagged. This test becomes meaningful once
-    // Phase 3 (Replay subphase) renames the namespaces to `NovaTerminal.Replay.*`. Un-skip then.
-    [Fact(Skip = "Blocked by namespace collapse - fixed in Phase 3 (Replay subphase) of architecture-foundation-plan")]
+    [Fact]
     public void Replay_only_depends_on_Vt()
     {
         var result = Types.InAssembly(Replay)

@@ -277,7 +277,7 @@ namespace NovaTerminal.Core
             }
         }
 
-        private NovaTerminal.Core.Replay.ReplayWriter? _recorder;
+        private NovaTerminal.Replay.ReplayWriter? _recorder;
         private TerminalBuffer? _buffer;
 
         public bool IsRecording => _recorder != null;
@@ -285,7 +285,7 @@ namespace NovaTerminal.Core
         public void StartRecording(string filePath)
         {
             if (_recorder != null) return; // Already recording
-            var recorder = new NovaTerminal.Core.Replay.ReplayWriter(filePath, _cols, _rows, ShellCommand);
+            var recorder = new NovaTerminal.Replay.ReplayWriter(filePath, _cols, _rows, ShellCommand);
             try
             {
                 recorder.RecordMarker("START");

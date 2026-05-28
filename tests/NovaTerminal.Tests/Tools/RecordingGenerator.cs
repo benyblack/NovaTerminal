@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Text;
-using NovaTerminal.Core.Replay;
+using NovaTerminal.Replay;
 
 namespace NovaTerminal.Tests.Tools
 {

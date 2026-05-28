@@ -7,7 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using NovaTerminal.VT;
 
-namespace NovaTerminal.Core.Replay
+namespace NovaTerminal.Replay
 {
     public enum ReplayPlaybackMode
     {

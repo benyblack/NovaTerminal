@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Core.Replay
+namespace NovaTerminal.Replay
 {
     public sealed class ReplayIndexEntry
     {

@@ -1,6 +1,6 @@
 using NovaTerminal.Core;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Replay;
+using NovaTerminal.Replay;
 using System.Text;
 using System.IO;
 using System.Linq;

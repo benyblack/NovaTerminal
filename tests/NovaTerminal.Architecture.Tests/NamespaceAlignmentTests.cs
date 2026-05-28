@@ -27,7 +27,7 @@ public class NamespaceAlignmentTests
             $"VT types not in NovaTerminal.VT.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 
-    [Fact(Skip = "Known violation - fixed in Phase 3 (Replay subphase)")]
+    [Fact]
     public void All_Replay_types_use_NovaTerminal_Replay_namespace()
     {
         var result = Types.InAssembly(LoadByName("NovaTerminal.Replay"))
