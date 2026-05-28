@@ -11,7 +11,7 @@ using System.Diagnostics;
 using System.Threading;
 using SkiaSharp;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Rendering
 {
     public sealed class RowImageCache : IDisposable
     {

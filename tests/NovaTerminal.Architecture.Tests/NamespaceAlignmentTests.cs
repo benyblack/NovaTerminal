@@ -40,7 +40,7 @@ public class NamespaceAlignmentTests
             $"Replay types not in NovaTerminal.Replay.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 
-    [Fact(Skip = "Known violation - fixed in Phase 3 (Rendering subphase)")]
+    [Fact]
     public void All_Rendering_types_use_NovaTerminal_Rendering_namespace()
     {
         var result = Types.InAssembly(LoadByName("NovaTerminal.Rendering"))

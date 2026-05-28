@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using SkiaSharp;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Rendering
 {
     public class GlyphCache : IDisposable
     {

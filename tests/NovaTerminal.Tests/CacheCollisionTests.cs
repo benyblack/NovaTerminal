@@ -2,6 +2,7 @@ using System;
 using Xunit;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
+using NovaTerminal.Rendering;
 using SkiaSharp;
 
 namespace NovaTerminal.Tests

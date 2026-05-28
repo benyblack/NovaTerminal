@@ -6,6 +6,7 @@ using System.Text.Json;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
 using Xunit.Sdk;
+using NovaTerminal.Rendering;
 
 namespace NovaTerminal.Tests.Performance.Infra
 {

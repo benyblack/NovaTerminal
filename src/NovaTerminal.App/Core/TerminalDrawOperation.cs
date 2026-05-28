@@ -13,6 +13,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using NovaTerminal.VT;
+using NovaTerminal.Rendering;
 
 namespace NovaTerminal.Core
 {

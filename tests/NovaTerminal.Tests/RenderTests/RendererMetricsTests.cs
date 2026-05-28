@@ -1,5 +1,6 @@
 using NovaTerminal.Core;
 using NovaTerminal.VT;
+using NovaTerminal.Rendering;
 using System.Threading.Tasks;
 using Xunit;
 using NovaTerminal.Tests.Infra;

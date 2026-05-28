@@ -1,6 +1,6 @@
 using System.Threading;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Rendering
 {
     public static class RendererStatistics
     {

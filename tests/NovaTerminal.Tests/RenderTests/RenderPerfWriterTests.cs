@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
+using NovaTerminal.Rendering;
 using Xunit;
 
 namespace NovaTerminal.Tests.RenderTests

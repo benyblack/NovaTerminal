@@ -3,6 +3,7 @@ using Xunit;
 using SkiaSharp;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
+using NovaTerminal.Rendering;
 
 namespace NovaTerminal.Tests.Rendering
 {

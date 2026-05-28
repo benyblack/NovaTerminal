@@ -8,6 +8,7 @@ using NovaTerminal.Core;
 using NovaTerminal.VT;
 using SkiaSharp;
 using Xunit.Sdk;
+using NovaTerminal.Rendering;
 
 namespace NovaTerminal.Tests.Performance.Infra
 {

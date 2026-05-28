@@ -9,6 +9,7 @@ using Avalonia.Layout;
 using Avalonia;
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
+using NovaTerminal.Rendering;
 
 namespace NovaTerminal.Core
 {

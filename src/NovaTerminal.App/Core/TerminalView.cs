@@ -16,6 +16,7 @@ using System.IO;
 using System.Threading.Tasks;
 using SkiaSharp;
 using NovaTerminal.VT;
+using NovaTerminal.Rendering;
 
 namespace NovaTerminal.Core
 {

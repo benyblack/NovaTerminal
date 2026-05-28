@@ -3,6 +3,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
+using NovaTerminal.Rendering;
 using SkiaSharp;
 using System;
 using System.Collections.Concurrent;

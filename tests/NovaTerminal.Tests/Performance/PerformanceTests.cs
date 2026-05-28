@@ -1,5 +1,6 @@
 using NovaTerminal.Core;
 using NovaTerminal.VT;
+using NovaTerminal.Rendering;
 using System;
 using System.Diagnostics;
 using System.Text;
