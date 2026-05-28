@@ -2,6 +2,11 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- Assembly name keeps the .App.Tests convention so InternalsVisibleTo targets resolve,
+         but the root namespace avoids creating a `NovaTerminal.App` namespace prefix that
+         would shadow the App class defined in `namespace NovaTerminal`. -->
+    <AssemblyName>NovaTerminal.App.Tests</AssemblyName>
+    <RootNamespace>NovaTerminal.AppTests</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>

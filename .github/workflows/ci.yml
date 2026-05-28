@@ -120,7 +120,7 @@ jobs:
         run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       # Upload only the test output directories. src/*/bin/ is 100% duplicated inside
-      # tests/NovaTerminal.Tests/bin/ (MSBuild copies all referenced DLLs + executables),
+      # tests/NovaTerminal.App.Tests/bin/ (MSBuild copies all referenced DLLs + executables),
       # so including it would double the artifact size for no benefit.
       # VtReportCliTests needs src/NovaTerminal.App/bin/ at runtime — the unit test
       # job restores it from the test output via a symlink/junction (see below).
@@ -133,7 +133,7 @@ jobs:
           # "tests/" is stripped from both entries here. All download-artifact steps
           # compensate by specifying path: tests to restore the prefix.
           path: |
-            tests/NovaTerminal.Tests/bin/${{ env.CONFIGURATION }}
+            tests/NovaTerminal.App.Tests/bin/${{ env.CONFIGURATION }}
             tests/NovaTerminal.Core.Tests/bin/${{ env.CONFIGURATION }}
 
   build_and_unit_tests:
@@ -193,14 +193,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           mkdir -p src/NovaTerminal.App/bin/Release src/NovaTerminal.Cli/bin/Release
-          cp -rl tests/NovaTerminal.Tests/bin/Release/net10.0 src/NovaTerminal.App/bin/Release/net10.0
-          cp -rl tests/NovaTerminal.Tests/bin/Release/net10.0 src/NovaTerminal.Cli/bin/Release/net10.0
+          cp -rl tests/NovaTerminal.App.Tests/bin/Release/net10.0 src/NovaTerminal.App/bin/Release/net10.0
+          cp -rl tests/NovaTerminal.App.Tests/bin/Release/net10.0 src/NovaTerminal.Cli/bin/Release/net10.0
 
       - name: Reconstruct src bin dirs from test output (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $src = "tests\NovaTerminal.Tests\bin\Release\net10.0"
+          $src = "tests\NovaTerminal.App.Tests\bin\Release\net10.0"
           # robocopy exits 0 (nothing to copy) or 1 (files copied) on success; >=8 is an error
           foreach ($dst in @("src\NovaTerminal.App\bin\Release\net10.0", "src\NovaTerminal.Cli\bin\Release\net10.0")) {
             robocopy $src $dst /E /NJH /NJS /NFL /NDL /NC /NS | Out-Null
@@ -211,7 +211,7 @@ jobs:
       - name: Restore
         run: dotnet restore
 
-      # The shell-integration tests under tests/NovaTerminal.Tests/CommandAssist/ShellIntegration/Integration
+      # The shell-integration tests under tests/NovaTerminal.App.Tests/CommandAssist/ShellIntegration/Integration
       # spawn real bash/zsh/fish via the production PTY path. bash is
       # preinstalled on ubuntu-latest; zsh and fish are not on ubuntu-24.04,
       # so install them here -- otherwise ZshShellIntegrationTests and
@@ -275,7 +275,7 @@ jobs:
         if: steps.download_golden_build_artifact.outcome == 'failure'
         shell: pwsh
         run: |
-          Remove-Item tests\NovaTerminal.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item tests\NovaTerminal.App.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item tests\NovaTerminal.Core.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Download build artifact (retry)

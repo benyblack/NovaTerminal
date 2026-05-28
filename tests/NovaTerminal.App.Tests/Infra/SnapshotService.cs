@@ -338,9 +338,9 @@ namespace NovaTerminal.Tests.Infra
             var dir = new DirectoryInfo(AppDomain.CurrentDomain.BaseDirectory);
             while (dir != null)
             {
-                if (Directory.Exists(Path.Combine(dir.FullName, "tests", "NovaTerminal.Tests")))
+                if (Directory.Exists(Path.Combine(dir.FullName, "tests", "NovaTerminal.App.Tests")))
                 {
-                    return Path.Combine(dir.FullName, "tests", "NovaTerminal.Tests");
+                    return Path.Combine(dir.FullName, "tests", "NovaTerminal.App.Tests");
                 }
 
                 dir = dir.Parent;

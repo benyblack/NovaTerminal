@@ -224,7 +224,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="NovaTerminal.Tests" />
+    <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
     <InternalsVisibleTo Include="NovaTerminal.Cli" />
   </ItemGroup>
 </Project>

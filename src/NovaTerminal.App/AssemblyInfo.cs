@@ -1,4 +1,4 @@
 using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("NovaTerminal.Tests")]
+[assembly: InternalsVisibleTo("NovaTerminal.App.Tests")]
 [assembly: InternalsVisibleTo("NovaTerminal")]

@@ -17,7 +17,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Replay", "src\
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Tests", "tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj", "{4A93ABB3-6D89-46B7-B976-4C186E1DFFF5}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.App.Tests", "tests\NovaTerminal.App.Tests\NovaTerminal.App.Tests.csproj", "{4A93ABB3-6D89-46B7-B976-4C186E1DFFF5}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Benchmarks", "tests\NovaTerminal.Benchmarks\NovaTerminal.Benchmarks.csproj", "{29FD5B8C-7247-4FA8-881F-3B5BD57B233C}"
 EndProject
