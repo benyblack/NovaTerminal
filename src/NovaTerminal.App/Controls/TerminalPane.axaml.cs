@@ -1585,7 +1585,6 @@ namespace NovaTerminal.Controls
                     startingDir,
                     skipPowerShellPostLaunchInit: _isShellIntegrationActive,
                     environmentOverrides: _shellIntegrationEnvOverrides);
-// Session.AttachBuffer(Buffer);
 
                 TermView.SetSession(Session);
                 ITerminalSession session = Session;

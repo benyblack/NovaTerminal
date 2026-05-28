@@ -12,7 +12,7 @@ namespace NovaTerminal.VT
         {
             private readonly SavedCursorStates _savedCursors;
             private TerminalRow[] _viewport;
-            private ScrollbackPages? _scrollback;
+            private ScrollbackPages _scrollback;
             private readonly List<TerminalRow> _history;
             private readonly List<TerminalImage> _images;
             private readonly bool _isAltScreen;
@@ -45,7 +45,7 @@ namespace NovaTerminal.VT
             public void Apply(TerminalBuffer target)
             {
                 target._viewport = _viewport;
-                target._scrollback = _scrollback!;
+                target._scrollback = _scrollback;
                 target._cursorRow = _cursorRow;
                 target._cursorCol = _cursorCol;
             }
@@ -65,7 +65,7 @@ namespace NovaTerminal.VT
                     if (newCols <= 0 || newRows <= 0) return;
 
                     // 1. Capture Cursor Content Pre-Resize
-                    int absCursorPhysicalIdx = _scrollback!.Count + _cursorRow;
+                    int absCursorPhysicalIdx = _scrollback.Count + _cursorRow;
                     int cursorLogicalIdx = -1;
                     int cursorInLogicalOffset = -1;
 
