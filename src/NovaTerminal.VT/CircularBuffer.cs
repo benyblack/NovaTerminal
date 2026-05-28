@@ -59,7 +59,7 @@ namespace NovaTerminal.Core
             get
             {
                 if (index < 0 || index >= _count)
-                    throw new IndexOutOfRangeException($"Index {index} is out of range [0, {_count})");
+                    throw new ArgumentOutOfRangeException(nameof(index), $"Index {index} is out of range [0, {_count})");
 
                 int physicalIndex = (_tail + index) % _capacity;
                 return _buffer[physicalIndex];

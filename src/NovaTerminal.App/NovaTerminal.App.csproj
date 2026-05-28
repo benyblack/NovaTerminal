@@ -3,8 +3,6 @@
     <RootNamespace>NovaTerminal</RootNamespace>
     <AssemblyName>NovaTerminal</AssemblyName>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
     <ApplicationIcon>Assets\nova_icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
