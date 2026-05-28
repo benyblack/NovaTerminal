@@ -49,7 +49,14 @@ public sealed class ZshShellIntegrationTests : IDisposable
             ["HOME"] = _tempRoot,
         };
 
-        return ShellHarness.Run(zsh, "-i", stdin, env, TimeSpan.FromSeconds(20));
+        // `--no-global-rcs` skips /etc/zsh/* so the system zshrc doesn't run
+        // compinit on us. On a fresh CI runner compinit detects "insecure
+        // directories" and prompts `Ignore? [y/n]` BEFORE our bootstrap
+        // loads -- which then eats the first line of scripted stdin and
+        // leaves zsh wedged on an empty input buffer. With this flag only
+        // $ZDOTDIR/.zshrc (our bootstrap) is sourced, matching how the
+        // bash test isolates via --rcfile.
+        return ShellHarness.Run(zsh, "--no-global-rcs -i", stdin, env, TimeSpan.FromSeconds(20));
     }
 
     [Fact]

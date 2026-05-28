@@ -122,10 +122,12 @@ internal static class ShellHarness
         var capture = new StringBuilder();
         object sync = new();
         long lastOutputTicks = Environment.TickCount64;
+        using var firstPromptReady = new ManualResetEventSlim(false);
 
         parser.OnPromptReady = () =>
         {
             lock (sync) events.Add(new OscEvent("A", null));
+            firstPromptReady.Set();
         };
         parser.OnCommandAccepted = text =>
         {
@@ -223,11 +225,16 @@ internal static class ShellHarness
             }
         }, watcherCts.Token);
 
-        // Give the PTY a moment to settle and the bootstrap to start sourcing
-        // before we feed scripted input -- the read pipeline subscribes
-        // synchronously above, but the shell needs a few ms after spawn
-        // before it's ready to consume keystrokes deterministically.
-        Thread.Sleep(100);
+        // Wait for the bootstrap to fire its first OSC 133;A (prompt
+        // ready) before we feed scripted input. Without this, anything
+        // the system shell config does on the way in -- e.g. Ubuntu's
+        // /etc/zsh/zshrc running compinit and prompting "Ignore insecure
+        // directories? [y/n]" -- will consume our scripted stdin as the
+        // answer to its own prompt, leaving the shell wedged on an empty
+        // input buffer. Cap the wait at half the overall timeout so we
+        // still produce a useful diagnostic if the bootstrap never
+        // signals readiness.
+        firstPromptReady.Wait(TimeSpan.FromMilliseconds(timeoutSpan.TotalMilliseconds / 2));
 
         // Interactive shells (bash -i, zsh -i, fish -i) put the TTY into
         // readline-style raw mode where the Enter key is CR (\r), not LF
