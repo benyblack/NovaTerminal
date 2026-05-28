@@ -33,6 +33,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.ExternalSuites
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Architecture.Tests", "tests\NovaTerminal.Architecture.Tests\NovaTerminal.Architecture.Tests.csproj", "{B62BD46D-4C93-4406-B598-0A58714F1937}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.VT.Tests", "tests\NovaTerminal.VT.Tests\NovaTerminal.VT.Tests.csproj", "{C480ADFF-F69D-4383-9A87-6300FC525F13}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -199,6 +201,18 @@ Global
 		{B62BD46D-4C93-4406-B598-0A58714F1937}.Release|x64.Build.0 = Release|Any CPU
 		{B62BD46D-4C93-4406-B598-0A58714F1937}.Release|x86.ActiveCfg = Release|Any CPU
 		{B62BD46D-4C93-4406-B598-0A58714F1937}.Release|x86.Build.0 = Release|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Debug|x64.Build.0 = Debug|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Debug|x86.Build.0 = Debug|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Release|x64.ActiveCfg = Release|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Release|x64.Build.0 = Release|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Release|x86.ActiveCfg = Release|Any CPU
+		{C480ADFF-F69D-4383-9A87-6300FC525F13}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -217,5 +231,6 @@ Global
 		{74074EA6-AEFE-4950-9061-37D0F7359B77} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{46840AF6-2510-43A4-81D6-6AD53D83DAB7} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 		{B62BD46D-4C93-4406-B598-0A58714F1937} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{C480ADFF-F69D-4383-9A87-6300FC525F13} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 EndGlobal
