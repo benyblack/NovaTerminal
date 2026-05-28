@@ -220,7 +220,12 @@ public sealed class RemotePathAutocompleteServiceTests
             "~/cod",
             CancellationToken.None);
 
-        Assert.True(interop.Started.Wait(TimeSpan.FromSeconds(10)));
+        // 10s was the previous bump (from 1s) per commit fa92df1 'Fix flaky test:
+        // raise timeouts from 1s to 10s for CI thread pool load'. Still flaked on
+        // PR #73's first run (Windows hosted runner under load). Going to 30s -
+        // if the worker scheduling latency exceeds 30s, that's a real CI problem
+        // worth surfacing, not test fragility worth tolerating.
+        Assert.True(interop.Started.Wait(TimeSpan.FromSeconds(30)));
         Assert.False(returnedTask.IsCompleted);
 
         interop.Release.Set();

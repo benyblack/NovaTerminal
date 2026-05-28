@@ -230,7 +230,7 @@ jobs:
         # call `dotnet build --no-restore` at runtime (rusty_ssh deps aren't available in test jobs).
         env:
           SKIP_RUST_NATIVE_BUILD: '1'
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" --logger "trx;LogFileName=unit_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=unit_tests.trx"
 
       - name: Upload test results
         if: always()
@@ -292,7 +292,7 @@ jobs:
         run: dotnet restore
 
       - name: Run Golden Shared PNG Tests
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=GoldenSharedPng" --logger "trx;LogFileName=golden_shared_png_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=GoldenSharedPng" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=golden_shared_png_tests.trx"
 
       - name: Upload golden shared PNG test results
         if: always()
@@ -352,7 +352,7 @@ jobs:
       - name: Run Replay Tests
         env:
           PARITY_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/parity
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Replay" --logger "trx;LogFileName=replay_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Replay" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=replay_tests.trx"
 
       - name: Prepare Replay Artifact Bundle
         if: always()
@@ -423,7 +423,7 @@ jobs:
         run: dotnet restore
 
       - name: Run PTY smoke tests
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=PtySmoke" --logger "trx;LogFileName=pty_smoke_tests.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=PtySmoke" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=pty_smoke_tests.trx"
 
       - name: Upload PTY smoke test results
         if: always()
@@ -518,7 +518,7 @@ jobs:
         env:
           WRITE_METRICS_ARTIFACTS: "1"
           METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=RenderMetrics" --logger "trx;LogFileName=render_metrics.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=RenderMetrics" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=render_metrics.trx"
 
       - name: Upload render metrics
         if: always()
@@ -576,7 +576,7 @@ jobs:
         env:
           WRITE_METRICS_ARTIFACTS: "1"
           METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Performance|Category=Latency" --logger "trx;LogFileName=tab_perf_smoke.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Performance|Category=Latency" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=tab_perf_smoke.trx"
 
       - name: Upload tab perf smoke artifacts
         if: always()
@@ -634,7 +634,7 @@ jobs:
         env:
           WRITE_METRICS_ARTIFACTS: "1"
           METRICS_ARTIFACT_DIR: ${{ github.workspace }}/artifacts/metrics
-        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Stress|Category=Performance|Category=Latency|Category=RenderMetrics" --logger "trx;LogFileName=nightly_tab_stress.trx"
+        run: dotnet test -c ${{ env.CONFIGURATION }} --no-build --no-restore --filter "Category=Stress|Category=Performance|Category=Latency|Category=RenderMetrics" --blame-hang-timeout 8m --blame-hang-dump-type none --logger "trx;LogFileName=nightly_tab_stress.trx"
 
       - name: Upload nightly stress artifacts
         if: always()
