@@ -4,6 +4,7 @@ using System;
 using System.Diagnostics;
 using System.Text.Json;
 using Xunit;
+using NovaTerminal.Pty;
 
 
 namespace NovaTerminal.Tests.Performance

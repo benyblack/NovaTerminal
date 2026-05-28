@@ -1,5 +1,5 @@
 using NovaTerminal.VT;
-namespace NovaTerminal.Core
+namespace NovaTerminal.Pty
 {
     /// <summary>
     /// Interface for terminal sessions to allow sending input.

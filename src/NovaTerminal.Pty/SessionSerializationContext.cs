@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
 using System.Collections.Generic;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Pty
 {
     [JsonSerializable(typeof(NovaSession))]
     [JsonSerializable(typeof(WorkspaceBundlePackage))]

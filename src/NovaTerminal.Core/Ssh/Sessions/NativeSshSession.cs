@@ -5,6 +5,7 @@ using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Native;
 using NovaTerminal.VT;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Core.Ssh.Sessions;
 

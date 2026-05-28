@@ -7,7 +7,7 @@ using NovaTerminal.VT;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace NovaTerminal.Core
+namespace NovaTerminal.Pty
 {
     public class RustPtySession : ITerminalSession
     {

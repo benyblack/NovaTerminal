@@ -10,6 +10,7 @@ using Avalonia;
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Rendering;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Core
 {

@@ -1,4 +1,5 @@
 using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Core.Ssh.Sessions;
 

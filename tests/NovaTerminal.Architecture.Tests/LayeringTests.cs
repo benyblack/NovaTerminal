@@ -8,7 +8,7 @@ public class LayeringTests
     private static Assembly Vt        => typeof(global::NovaTerminal.VT.AnsiParser).Assembly;
     private static Assembly Replay    => typeof(global::NovaTerminal.Replay.ReplayReader).Assembly;
     private static Assembly Rendering => typeof(global::NovaTerminal.Rendering.GlyphAtlas).Assembly;
-    private static Assembly Pty       => typeof(global::NovaTerminal.Core.ITerminalSession).Assembly;
+    private static Assembly Pty       => typeof(global::NovaTerminal.Pty.ITerminalSession).Assembly;
     private static Assembly Core      => typeof(global::NovaTerminal.Core.Input.TerminalInputSender).Assembly;
 
     [Fact]

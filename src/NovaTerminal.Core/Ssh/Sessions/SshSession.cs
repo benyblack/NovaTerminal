@@ -1,6 +1,7 @@
 using NovaTerminal.Core.Ssh.Launch;
 using NovaTerminal.Core.Ssh.Storage;
 using NovaTerminal.VT;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Core.Ssh.Sessions;
 

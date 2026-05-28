@@ -6,6 +6,7 @@ using NovaTerminal.VT;
 using NovaTerminal.Core.Ssh.Models;
 using NovaTerminal.Core.Ssh.Storage;
 using System.Threading;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Tests.Core;
 

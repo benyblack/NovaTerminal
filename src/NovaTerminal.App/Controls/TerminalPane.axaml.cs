@@ -33,6 +33,7 @@ using NovaTerminal.Core.Ssh.Sessions;
 using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.ViewModels.Ssh;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Controls
 {

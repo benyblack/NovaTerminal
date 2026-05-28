@@ -1,4 +1,5 @@
 using System;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Core.Input
 {

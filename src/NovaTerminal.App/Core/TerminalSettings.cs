@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using NovaTerminal.VT;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Core
 {

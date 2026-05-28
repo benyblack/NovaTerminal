@@ -53,7 +53,7 @@ public class NamespaceAlignmentTests
             $"Rendering types not in NovaTerminal.Rendering.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 
-    [Fact(Skip = "Known violation - fixed in Phase 3 (Pty subphase)")]
+    [Fact]
     public void All_Pty_types_use_NovaTerminal_Pty_namespace()
     {
         var result = Types.InAssembly(LoadByName("NovaTerminal.Pty"))

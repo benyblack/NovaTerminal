@@ -6,6 +6,7 @@ using Moq;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Tests.CommandAssist;
 

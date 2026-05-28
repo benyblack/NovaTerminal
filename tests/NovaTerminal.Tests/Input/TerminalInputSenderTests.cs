@@ -5,6 +5,7 @@ using Xunit;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
 using NovaTerminal.Core.Input;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.Tests.Input
 {

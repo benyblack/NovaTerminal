@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using NovaTerminal.Core;
+using NovaTerminal.Pty;
 
 namespace NovaTerminal.ExternalSuites.Vttest
 {

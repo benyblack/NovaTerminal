@@ -6,6 +6,7 @@ using System.Text.Json;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
 using Xunit;
+using NovaTerminal.Pty;
 
 
 namespace NovaTerminal.Tests.Performance
