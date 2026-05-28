@@ -65,4 +65,22 @@ public class NamespaceAlignmentTests
         Assert.True(result.IsSuccessful,
             $"Pty types not in NovaTerminal.Pty.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
+
+    [Fact]
+    public void Only_the_Core_assembly_uses_NovaTerminal_Core_namespace()
+    {
+        foreach (var asmName in new[] { "NovaTerminal.VT", "NovaTerminal.Replay",
+                                         "NovaTerminal.Rendering", "NovaTerminal.Pty" })
+        {
+            var result = Types.InAssembly(LoadByName(asmName))
+                .That().ArePublic()
+                .Should()
+                .NotResideInNamespaceStartingWith("NovaTerminal.Core")
+                .GetResult();
+
+            Assert.True(result.IsSuccessful,
+                $"{asmName} must not use NovaTerminal.Core namespace. " +
+                $"Offenders: {string.Join(", ", result.FailingTypeNames ?? [])}");
+        }
+    }
 }
