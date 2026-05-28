@@ -20,6 +20,7 @@ namespace NovaTerminal.Core
 
         private IntPtr _handle;
         private bool _registered;
+        private bool _disposed;
 
         public event Action? OnHotkeyPressed;
 
@@ -60,10 +61,39 @@ namespace NovaTerminal.Core
         public void SetupHook()
         {
             if (_handle == IntPtr.Zero || !OperatingSystem.IsWindows()) return;
+            if (_oldWndProc != IntPtr.Zero) return; // already hooked
 
-            _wndProcDelegate = WndProc; // Keep reference to prevent GC
+            // _wndProcDelegate must stay rooted for as long as the window's WNDPROC slot
+            // points at its thunk. It is a field, so it lives as long as this instance does.
+            // RemoveHook() restores the original WNDPROC *before* this instance (and the
+            // delegate) can be collected — see the comment there for why that ordering is
+            // load-bearing.
+            _wndProcDelegate = WndProc;
             IntPtr newWndProcPtr = Marshal.GetFunctionPointerForDelegate(_wndProcDelegate);
             _oldWndProc = SetWindowLongPtr(_handle, GWLP_WNDPROC, newWndProcPtr);
+        }
+
+        private void RemoveHook()
+        {
+            // Restore the original window procedure BEFORE dropping the managed delegate.
+            //
+            // Skipping this was a confirmed crash (ExecutionEngineException on the
+            // GlobalHotkey.WndProc -> CallWindowProc frame, captured in a WER dump): on
+            // window teardown the WNDPROC slot still pointed at our managed thunk, and once
+            // this instance became collectable the GC freed _wndProcDelegate. The next window
+            // message Win32 dispatched (WM_DESTROY / WM_NCDESTROY, or a stray WM_HOTKEY) then
+            // called into freed memory and aborted the process with no managed exception.
+            // Heavy terminal output (e.g. an agent streaming) supplies the GC pressure that
+            // collects the delegate, which is why it surfaced as a random
+            // "window vanishes instantly".
+            if (_handle == IntPtr.Zero || _oldWndProc == IntPtr.Zero || !OperatingSystem.IsWindows())
+            {
+                return;
+            }
+
+            SetWindowLongPtr(_handle, GWLP_WNDPROC, _oldWndProc);
+            _oldWndProc = IntPtr.Zero;
+            _wndProcDelegate = null;
         }
 
         private IntPtr WndProc(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam)
@@ -71,7 +101,19 @@ namespace NovaTerminal.Core
             const int WM_HOTKEY = 0x0312;
             if (msg == WM_HOTKEY && wParam.ToInt32() == HOTKEY_ID)
             {
-                OnHotkeyPressed?.Invoke();
+                // An exception escaping a reverse-P/Invoke WndProc unwinds into native Win32
+                // (DispatchMessage), which is undefined behavior and crashes the process.
+                // Swallow handler exceptions at this boundary; toggling visibility is
+                // best-effort and must never take the app down.
+                try
+                {
+                    OnHotkeyPressed?.Invoke();
+                }
+                catch
+                {
+                    // Intentionally ignored — see comment above.
+                }
+
                 return IntPtr.Zero; // Handled
             }
 
@@ -93,7 +135,11 @@ namespace NovaTerminal.Core
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
+
             Unregister();
+            RemoveHook();
         }
     }
 }
