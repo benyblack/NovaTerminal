@@ -20,308 +20,281 @@ All architectural decisions follow from these goals.
 
 ---
 
-## 2. High-Level Architecture
+## 2. Assembly Graph
 
-NovaTerminal is structured as a **strictly layered system**:
+NovaTerminal is structured as eight focused .NET assemblies plus standalone tools. The dependency graph is acyclic. Each assembly's namespace matches its assembly name (enforced by `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests`).
 
-┌──────────────────────────────┐
-│ UI Shell (Avalonia) │ OS-adaptive
-├──────────────────────────────┤
-│ Renderer (Skia) │ GPU-accelerated
-│ - Cell-grid based │
-│ - Incremental redraw │
-├──────────────────────────────┤
-│ Terminal Core (Cross-Platform)│
-│ - VT / ANSI parser │
-│ - Screen buffers │
-│ - Scrollback │
-│ - Reflow & wrapping │
-│ - Search │
-├──────────────────────────────┤
-│ PTY Backend (Rust) │ OS-specific
-└──────────────────────────────┘
+```
+Cli ──► App ──► { Core, VT, Rendering, Pty, Replay }
+                  │       │     │         │     │
+                  └──► Pty │     │         │     │
+                          └─VT◄──┘         │     │
+                                          └─VT◄──┘
+                                                Replay◄─Pty
 
+Conformance  (standalone Exe – vt-report tool)
+```
+
+Concretely, from the `.csproj` graph:
+
+| Assembly | Depends on | Owns |
+|---|---|---|
+| `NovaTerminal.VT` | (leaf) | VT/ANSI parser, terminal buffer state, scrollback, reflow |
+| `NovaTerminal.Replay` | VT | Session recording/playback, snapshots, replay format v2 |
+| `NovaTerminal.Rendering` | VT, SkiaSharp | Skia glyph atlas/cache, pixel grid, sixel decoder |
+| `NovaTerminal.Pty` | Replay | PTY transport: rust-PTY adapter, session contracts. **Does not depend on VT** — see arch test `Pty_must_not_depend_on_Vt` |
+| `NovaTerminal.Core` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
+| `NovaTerminal.App` | Core, VT, Rendering, Pty, Replay | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist |
+| `NovaTerminal.Cli` | App | Headless CLI shim (`vt-report` etc.) |
+| `NovaTerminal.Conformance` | (standalone Exe) | VT conformance matrix tool used by tests and CI |
 
 ### Hard Rule
-> **No OS-specific logic is allowed in the Terminal Core.**
+
+> **No OS-specific logic in `NovaTerminal.VT`.** VT is the leaf — no Avalonia, no Skia, no native interop, no I/O. Enforced by `LayeringTests.Vt_must_be_a_leaf_assembly`.
 
 ---
 
-## 3. Terminal Core
+## 3. Terminal Engine — `NovaTerminal.VT`
 
-The Terminal Core is the **single source of truth** for terminal semantics.
+The terminal engine is the **single source of truth** for terminal semantics. The Avalonia UI is downstream — if the rendered pixels look wrong, the bug is in the VT engine, not the renderer.
 
 ### 3.1 Responsibilities
-- Parse VT / ANSI escape sequences
-- Maintain deterministic screen state
-- Handle alternate screen transitions
-- Manage scrollback
-- Perform lossless reflow on resize
-- Provide read-only snapshots for rendering
+- Parse VT / ANSI escape sequences (`src/NovaTerminal.VT/AnsiParser.cs`)
+- Maintain deterministic screen state in `TerminalBuffer` (`src/NovaTerminal.VT/TerminalBuffer.cs` + partial files)
+- Handle alternate-screen transitions
+- Manage scrollback (`src/NovaTerminal.VT/Buffer/ScrollbackPages.cs`)
+- Perform lossless reflow on resize (`src/NovaTerminal.VT/TerminalBuffer.ReflowEngine.cs`)
+- Provide read-only snapshots for rendering and replay
 
 ### 3.2 Components
 
 #### `AnsiParser`
-- Implements a state machine for:
-  - ESC
-  - CSI
-  - OSC
-  - DEC private modes
-- Emits **semantic operations**, not rendering actions
 
-**Key invariant**
-Same byte stream → same sequence of semantic operations
+State machine for ESC, CSI, OSC, DEC-private modes. Emits **semantic operations** against `TerminalBuffer`, not rendering actions.
 
-
----
+**Key invariant:** Same byte stream → same sequence of semantic operations.
 
 #### `TerminalBuffer`
-- Applies semantic operations to terminal state
-- Maintains:
-  - cursor position
-  - modes
-  - tab stops
-  - margins
-- Owns:
-  - main screen buffer
-  - alternate screen buffer
-  - scrollback
+
+Applies semantic operations to terminal state. Maintains cursor, modes, tab stops, margins. Owns main + alternate screen buffers and scrollback.
 
 **Key invariants**
-- Alternate screen is fully isolated
-- Scrollback is immutable
-- Buffer state is renderer-agnostic
+- Alternate screen is fully isolated from main screen
+- Scrollback is immutable once flushed
+- Buffer state is renderer-agnostic — no Skia, no Avalonia in the type surface
+- All read access requires holding `TerminalBuffer.Lock` (`ReaderWriterLockSlim`); reads without the lock throw `AssertLockHeld`
 
----
+#### `TerminalRow` / `TerminalCell`
 
-#### `TerminalRow`
-- Stores a row of cells
-- Tracks:
-  - hard line breaks
-  - soft wraps (continuations)
-
-Reflow relies entirely on row metadata — **not text measurement**.
-
----
-
-#### `TerminalCell`
-- Represents a single terminal cell
-- Contains:
-  - codepoint(s) or grapheme cluster
-  - foreground/background color
-  - style flags
-
-**Important**
-- Equality is defined only on render-affecting state
-- No renderer-specific data allowed
-
----
+Row/cell semantics. Cell equality is defined only on render-affecting state — no renderer fields allowed.
 
 ### 3.3 Determinism
 
-The Terminal Core must be **purely deterministic**:
+The VT engine is **purely deterministic**:
 
 - No timers
-- No threading assumptions
+- No threading assumptions beyond the documented lock
 - No OS calls
 - No UI interactions
 
-This allows:
-- deterministic replay
-- cross-platform parity testing
-- safe refactoring
+This enables deterministic replay, cross-platform parity testing, and safe refactoring.
 
 ---
 
-## 4. Renderer
+## 4. Recording / Playback — `NovaTerminal.Replay`
 
-The renderer is responsible for **turning a buffer snapshot into pixels**.
+A focused module that owns the record/replay file format and the snapshot/byte-stream coupling. References VT for snapshot types (`BufferSnapshot`), but is independent of Pty, Rendering, and App.
 
-It is intentionally **semantics-free**.
-
-### 4.1 Rendering Model
-
-- Rendering is cell-grid based
-- **GPU-Accelerated Glyph Cache**: Standard glyphs and complex clusters are cached in a **Dual-Atlas** system.
-- **Lock-Free Snapshots**: All drawing is performed on immutable data gathered under a brief read lock, allowing the UI and Render threads to run in parallel without contention.
-- **Batching**: Thousands of glyphs are dispatched in a single hardware-accelerated call via `DrawAtlas`.
-- **"Physics-Perfect" Precision**: Layout is driven by physical resolution mappings to ensure 1:1 pixel clarity.
-- **Work Budgeting**: Frame spikes are mitigated by a "picture build budget" and mass invalidation heuristics.
-- **Stability and Resource Hardening**: Integrated disposal queues and defensive exception handling ensure the renderer remains robust even under extreme stress (e.g., rapid resizing).
-
-### 4.2 Incremental Rendering (Cell-Diff)
-
-NovaTerminal uses **incremental rendering** to avoid flicker:
-
-1. Renderer receives a **read-only snapshot**
-2. Snapshot is diffed against previous frame
-3. Dirty cell ranges are identified
-4. Only dirty ranges are redrawn (utilizing the baked `SKPicture` cache)
-5. Result is composited via a backing surface
-
-**Invariant**
-Renderer output is a pure function of (snapshot, metrics, theme)
+`PtyRecorder`, `ReplayWriter`, `ReplayReader`, `ReplayRunner` live here. Goldens and regression suites consume `ReplayRunner`.
 
 ---
 
-### 4.3 What the Renderer Must NOT Do
+## 5. Renderer Primitives — `NovaTerminal.Rendering`
 
-- Fix buffer mistakes
-- Guess wrapping
-- Reinterpret VT semantics
-- Perform layout heuristics
+Skia-only helpers: glyph atlas (`GlyphAtlas`), glyph cache (`GlyphCache`), pixel grid math (`PixelGrid`), font wrappers (`SharedSKFont`, `SharedSKTypeface`), image registry, sixel decoder, render performance metrics.
 
-If rendering “looks wrong”, the bug is in the **Terminal Core**, not the renderer.
+This module is intentionally **Avalonia-agnostic**. The actual Avalonia `DrawOperation` and viewport (`TerminalDrawOperation`, `TerminalView`) live in `src/NovaTerminal.App/Core/` today — see Known Tech Debt below for the planned extraction.
+
+**Invariants** (enforced by `LayeringTests.Rendering_only_depends_on_Vt_and_Skia`)
+- Rendering is a pure function of (buffer snapshot, metrics, theme).
+- No semantic decisions — if the buffer is wrong, the renderer cannot fix it.
+- No Avalonia in the dependency closure.
 
 ---
 
-## 5. UI Shell (Avalonia)
+## 6. PTY Transport — `NovaTerminal.Pty`
 
-The UI shell orchestrates **presentation and interaction**, not semantics.
+Native OS integration via the Rust PTY library (`rusty_pty.dll`/`.so`/`.dylib`). Defines the session contracts and `RustPtySession` as the canonical implementation.
+
+`ITerminalSession` is a composite of four narrow interfaces:
+
+| Interface | Concern |
+|---|---|
+| `ITerminalIO` | `SendInput(string)`, `OnOutputReceived` event |
+| `ITerminalLifecycle` | `Id`, `Resize`, process state, `OnExit`, `IDisposable` |
+| `ITerminalShellMetadata` | `ShellCommand`, `ShellArguments` |
+| `ITerminalRecorder` | `StartRecording(filePath)`, `StopRecording`, `IsRecording` |
+
+**Invariants** (enforced by `LayeringTests.Pty_must_not_depend_on_Vt`)
+- Pty does not reference VT. The session reports raw byte/string output; parsing it into a `TerminalBuffer` is the consumer's job.
+- IO is bounded and non-blocking.
+- Recording in this layer captures the raw byte stream only — buffer-snapshot recording is an orchestration-layer concern and is not currently wired up.
+
+---
+
+## 7. Platform / SSH — `NovaTerminal.Core`
+
+Despite the name, this is **not** the terminal engine. It's a platform-utilities library: input routing (`Input/`), path mapping (`Paths/WslPathMapper`), the SSH stack (`Ssh/{Native,OpenSsh,Sessions,Storage,Transport}`), and the credential vault. The name is a historical artifact — the original "Core" was renamed to `NovaTerminal.VT` during the namespace alignment work; renaming `NovaTerminal.Core` itself is a planned follow-up.
+
+This is also where session-orchestration helpers (such as a future `SessionBufferBinder`) belong.
+
+---
+
+## 8. UI Shell — `NovaTerminal.App`
+
+Avalonia 12.0.4 application. Hosts windows, controls (`TerminalPane`, `MainWindow`, `SettingsWindow`), view-models, themes, and command-palette. Composes everything below.
 
 ### Responsibilities
 - Window and pane management
-- Input routing
+- Input routing (keyboard, mouse, drag-and-drop)
 - Selection handling
-- Settings UI
-- Command palette
+- Settings UI, theming, profiles
+- Command palette + command-assist (in-process shell-integration helpers)
 - Pane resizing (pixel → row/col calculation)
 
 ### Non-Responsibilities
-- VT parsing
+- VT parsing (delegated to VT)
 - Buffer mutation (except via explicit APIs)
-- Rendering logic
+- Rendering logic (Skia primitives in Rendering; Avalonia binding shell here is intentionally thin — though see Known Tech Debt)
 
 ---
 
-## 6. PTY Backend
+## 9. CLI Shim — `NovaTerminal.Cli`
 
-NovaTerminal uses a **Rust-based PTY backend** to unify platform differences.
-
-### Responsibilities
-- Process creation
-- PTY allocation
-- Read/write loops
-- Resize propagation
-
-### Invariants
-- PTY layer never interprets VT
-- Bytes are delivered verbatim to the core
-- IO is bounded and non-blocking
+Headless tooling entry point used for `vt-report` and other automation use cases. Currently references `NovaTerminal.App`; a `NovaTerminal.Bootstrap` library should mediate so neither side reaches into the other (see Known Tech Debt).
 
 ---
 
-## 7. Deterministic Replay
+## 10. Deterministic Replay (Architectural Feature)
 
 Replay is a **core architectural feature**, not a debug tool.
 
-### 7.1 Purpose
-- Reproduce bugs exactly
-- Enforce cross-platform parity
-- Enable safe refactoring
+```
+PTY byte stream
+   ↓
+[Recorder]                  -- ReplayWriter (NovaTerminal.Replay)
+   ↓
+Replay file
+   ↓
+AnsiParser                  -- NovaTerminal.VT
+   ↓
+TerminalBuffer              -- NovaTerminal.VT
+   ↓
+Buffer snapshot             -- compared in CI
+```
 
-### 7.2 Replay Pipeline
-
-PTY Byte Stream
-↓
-[Recorder]
-↓
-Replay File
-↓
-AnsiParser
-↓
-TerminalBuffer
-↓
-Buffer Snapshot
-
-
-### 7.3 Snapshot Semantics
-Snapshots capture:
-- visible screen content
-- attributes
-- cursor state
-- alt/main screen flag
-- minimal scrollback
-
-Snapshots are **compared in CI**.
+Snapshots capture visible screen content, attributes, cursor state, alt/main flag, and minimal scrollback.
 
 ---
 
-## 8. Cross-Platform Parity
+## 11. Cross-Platform Parity
 
-NovaTerminal enforces **behavioral parity**:
+NovaTerminal enforces **behavioral parity** across OSes:
 
-| Aspect | Must Match Across OSes |
-|------|------------------------|
+| Aspect | Must match across OSes |
+|---|---|
 | VT parsing | Yes |
 | Buffer state | Yes |
 | Wrapping & reflow | Yes |
 | Search semantics | Yes |
 | Rendering semantics | Yes |
 
-Allowed differences:
-- window chrome
-- hotkeys
-- blur/transparency
-- credential storage backend
+Allowed differences: window chrome, hotkeys, blur/transparency, credential storage backend.
 
 ---
 
-## 9. Automated Testing as Architecture
+## 12. Architecture-Tests Safety Net
 
-Automated testing is a **first-class architectural component**.
+`tests/NovaTerminal.Architecture.Tests/` uses [NetArchTest.Rules](https://github.com/BenMorris/NetArchTest) to encode layering and namespace rules as xUnit facts. Today's enforced rules:
 
-### Test Layers
+- `Vt_must_be_a_leaf_assembly`
+- `Replay_only_depends_on_Vt`
+- `Rendering_only_depends_on_Vt_and_Skia`
+- `Pty_must_not_depend_on_Vt`
+- `No_production_assembly_references_test_assemblies`
+- `All_VT_types_use_NovaTerminal_VT_namespace`
+- `All_Replay_types_use_NovaTerminal_Replay_namespace`
+- `All_Rendering_types_use_NovaTerminal_Rendering_namespace`
+- `All_Pty_types_use_NovaTerminal_Pty_namespace`
+- `Only_the_Core_assembly_uses_NovaTerminal_Core_namespace`
 
-1. **Unit tests**
-   - Buffer and parser invariants
-2. **Replay tests**
-   - Real-world byte streams
-3. **Parity tests**
-   - Cross-platform equivalence
-4. **Renderer metrics**
-   - Full redraw count
-   - Dirty cell count
-   - Frame timing
-
-### Rule
-> Tests have veto power over all code changes.
+Adding a new layering invariant means adding a new fact. Reverting one of these accidentally fails CI.
 
 ---
 
-## 10. Failure Modes We Explicitly Design Against
+## 13. Test Layout
 
-- “Looks fine on my machine”
+| Project | What it tests |
+|---|---|
+| `NovaTerminal.VT.Tests` | Fast unit suite for parser/buffer in isolation (no Avalonia, no Skia) |
+| `NovaTerminal.Rendering.Tests` | Skia primitives that don't need a GPU context |
+| `NovaTerminal.Core.Tests` | Platform utilities + SSH; includes Docker-gated E2E (skipped without Docker) |
+| `NovaTerminal.App.Tests` | App-level integration — Avalonia-headless tests, replay regressions, golden PNG comparisons, command-assist |
+| `NovaTerminal.Architecture.Tests` | Layering and namespace rules (Section 12) |
+| `NovaTerminal.Benchmarks` | BenchmarkDotNet perf benchmarks (Exe, not auto-discovered by `dotnet test`) |
+| `NovaTerminal.ExternalSuites` | Vttest and Native-SSH external scenario drivers (Exe) |
+
+App-side tests use xunit.v3 + `Avalonia.Headless.XUnit 12.0.4` (which carries the dispatcher-cleanup fix; **do not downgrade** below 12.0.4 — earlier versions leak headless dispatcher threads and hang `dotnet test` under captured-stdout runners).
+
+---
+
+## 14. Known Tech Debt
+
+These are tracked in follow-up plans under `docs/plans/`:
+
+- **Renderer composition still lives in App.** `src/NovaTerminal.App/Core/TerminalView.cs` (1,912 LOC) and `TerminalDrawOperation.cs` (2,723 LOC) implement the Skia-backed Avalonia renderer. They belong in `NovaTerminal.Rendering` behind a thin Avalonia binding shell. Planned extraction: `2026-MM-DD-renderer-composition-extraction-plan.md`.
+- **SSH is fragmented across Core and App.** `Core/Ssh/` holds the transport, while `App/Services/Ssh/`, `App/ViewModels/Ssh/`, `App/Views/Ssh/`, and `App/Core/{SftpService,VaultService,SshAskPassCommand}.cs` hold the user-facing surface. A `NovaTerminal.Ssh` (or `.Remote`) assembly would consolidate the non-UI portion.
+- **CommandAssist** has its own Application/Domain/Storage layering inside `App/CommandAssist/`. Candidate for `NovaTerminal.CommandAssist` extraction.
+- **CLI ↔ App reference direction.** `Cli` currently references `App` and is built via a nested MSBuild target (`BuildCliShim` in `App.csproj`). A `NovaTerminal.Bootstrap` library should mediate so `Cli → Bootstrap ← App` replaces `Cli → App`.
+- **`NovaTerminal.Core` name.** The assembly is platform/SSH utilities; the name "Core" comes from the era when this project held the terminal engine. Rename to `NovaTerminal.Platform` (or split) is a one-shot find-replace.
+- **Byte vs string at the PTY boundary.** `ITerminalIO.SendInput(string)` and `OnOutputReceived(Action<string>)` lose information at the byte-vs-codepoint boundary (UTF-8 split across reads, embedded NULs, lone surrogates). Migrating to `ReadOnlySpan<byte>` / `Action<ReadOnlyMemory<byte>>` is the planned follow-up to Phase 5.
+- **Buffer-snapshot recording.** Phase 5 removed `ITerminalSession.AttachBuffer` / `TakeSnapshot`. The byte-stream is still recorded; buffer snapshots at recording start/stop are gone. Re-introducing them as an orchestration helper (likely in `Replay` or `Core`) is a small follow-up.
+- **`MainWindow.axaml.cs` is 5,259 LOC, `TerminalPane.axaml.cs` 2,572 LOC, `SettingsWindow.axaml.cs` 1,672 LOC.** These code-behinds contain business logic that should live in services and view-models.
+- **`TerminalBuffer` is split across 10 partial files (~5K LOC).** Several of the partials (`WritePath`, `ReflowEngine`, `ThreadingAndInvalidation`, `TabStops`) want to be collaborators rather than partials.
+
+The 2026-05-28 architecture review (`docs/plans/2026-05-28-architecture-module-boundaries-review.md`) catalogs all of the above and ranks them by leverage.
+
+---
+
+## 15. Failure Modes Designed Against
+
+- "Looks fine on my machine"
 - Resize-induced corruption
-- Alternate screen leakage
+- Alternate-screen leakage
 - Renderer-driven semantic drift
 - Platform-specific behavior divergence
+- Silent assembly-boundary refactors (caught by Section 12 arch tests)
 
 ---
 
-## 11. Why This Architecture
+## 16. Why This Architecture
 
-This architecture is intentionally **boring**.
+This architecture is intentionally **boring**. That is a feature.
 
-That is a feature.
-
-- Ghostty and WezTerm succeed because they are predictable
-- Users forgive missing features
-- Users do not forgive broken terminals
-
-NovaTerminal optimizes for **trust first**, features second.
+- Ghostty and WezTerm succeed because they are predictable.
+- Users forgive missing features. They do not forgive broken terminals.
+- NovaTerminal optimizes for **trust first**, features second.
 
 ---
 
-## 12. Summary
+## 17. Summary
 
 NovaTerminal is:
 - deterministic by design
 - cross-platform by construction
-- test-gated by policy
+- test-gated by policy (arch tests + replay regression suite)
 - incremental by default
 
-> UI attracts users.  
-> Correctness keeps them.
+> UI attracts users. Correctness keeps them.
 
-This document should be read before making architectural changes.
+Read this before making architectural changes. Add an arch test before reaching for documentation as the enforcement mechanism — docs rot, tests don't.
