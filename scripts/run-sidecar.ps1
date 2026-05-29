@@ -13,11 +13,15 @@
 # The running build is identifiable in debug.log via the "Build: sha=... built=... path=..."
 # line (the sidecar path makes it obvious you're on the sidecar, not the repo output).
 #
+# The DLL-lock problem this solves is Windows-specific, but the script runs on Linux/macOS too
+# (rsync/Copy-Item fallback for mirroring, no .exe suffix) so it's usable as a generic
+# always-fresh launcher anywhere.
+#
 # Usage:
 #   scripts/run-sidecar.ps1                 # Debug build, build + mirror + launch
 #   scripts/run-sidecar.ps1 -Configuration Release
 #   scripts/run-sidecar.ps1 -NoBuild        # skip the build; just mirror current output + launch
-#   scripts/run-sidecar.ps1 -SidecarRoot D:\nova-sidecar   # override sidecar location
+#   scripts/run-sidecar.ps1 -SidecarRoot /some/path   # override sidecar location
 
 [CmdletBinding()]
 param(
@@ -29,15 +33,20 @@ param(
     [switch]$NoBuild,
 
     # Default sidecar lives outside the repo so it never collides with repo bin/obj globbing,
-    # IDE file watchers, or `git status`.
-    [string]$SidecarRoot = (Join-Path $env:LOCALAPPDATA 'NovaTerminal-sidecar')
+    # IDE file watchers, or `git status`. $env:LOCALAPPDATA is Windows-only; fall back to the
+    # XDG-ish data dir elsewhere so the script doesn't throw on a null Join-Path argument.
+    [string]$SidecarRoot = $(
+        if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'NovaTerminal-sidecar' }
+        else { Join-Path $HOME '.local/share/NovaTerminal-sidecar' }
+    )
 )
 
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$appProject = Join-Path $repoRoot 'src\NovaTerminal.App'
-$sourceDir = Join-Path $appProject "bin\$Configuration\$TargetFramework"
+# Build path segments with Join-Path (no embedded separators) so they're correct on every OS.
+$appProject = Join-Path $repoRoot 'src' 'NovaTerminal.App'
+$sourceDir = Join-Path $appProject 'bin' $Configuration $TargetFramework
 
 if (-not $NoBuild) {
     Write-Host "[sidecar] Building NovaTerminal.App ($Configuration)..." -ForegroundColor Cyan
@@ -56,23 +65,44 @@ if (-not (Test-Path $sourceDir)) {
     exit 1
 }
 
-$destDir = Join-Path $SidecarRoot "$Configuration\$TargetFramework"
+$destDir = Join-Path $SidecarRoot $Configuration $TargetFramework
 New-Item -ItemType Directory -Force -Path $destDir | Out-Null
 
 Write-Host "[sidecar] Mirroring fresh output -> $destDir" -ForegroundColor Cyan
-# robocopy /MIR mirrors source to dest (adds new, updates changed, deletes stale). Exit codes
-# 0-7 are success (8+ are real errors); robocopy uses bit flags, not the usual 0=ok convention.
-robocopy $sourceDir $destDir /MIR /NJH /NJS /NDL /NP /R:2 /W:1 | Out-Null
-$rc = $LASTEXITCODE
-if ($rc -ge 8) {
-    Write-Error "[sidecar] robocopy failed (exit $rc)."
-    exit $rc
+if ($IsWindows) {
+    # robocopy /MIR mirrors source to dest (adds new, updates changed, deletes stale). Exit
+    # codes 0-7 are success (8+ are real errors); robocopy uses bit flags, not 0=ok.
+    robocopy $sourceDir $destDir /MIR /NJH /NJS /NDL /NP /R:2 /W:1 | Out-Null
+    $rc = $LASTEXITCODE
+    if ($rc -ge 8) {
+        Write-Error "[sidecar] robocopy failed (exit $rc)."
+        exit $rc
+    }
+}
+elseif (Get-Command rsync -ErrorAction SilentlyContinue) {
+    # Trailing slashes => mirror contents of source into dest; --delete removes stale files.
+    rsync -a --delete "$sourceDir/" "$destDir/"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "[sidecar] rsync failed (exit $LASTEXITCODE)."
+        exit $LASTEXITCODE
+    }
+}
+else {
+    # No rsync: clear dest and recopy. Not incremental, but correct.
+    if (Test-Path $destDir) { Remove-Item -Recurse -Force (Join-Path $destDir '*') -ErrorAction SilentlyContinue }
+    Copy-Item -Recurse -Force (Join-Path $sourceDir '*') $destDir
 }
 
-$exe = Join-Path $destDir 'NovaTerminal.exe'
+$exeName = if ($IsWindows) { 'NovaTerminal.exe' } else { 'NovaTerminal' }
+$exe = Join-Path $destDir $exeName
 if (-not (Test-Path $exe)) {
     Write-Error "[sidecar] Expected executable not found after mirror: $exe"
     exit 1
+}
+
+# Zip/copy doesn't always preserve the execute bit on Unix; ensure the host is runnable.
+if (-not $IsWindows) {
+    chmod +x $exe 2>$null
 }
 
 $builtAt = (Get-Item $exe).LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss')
