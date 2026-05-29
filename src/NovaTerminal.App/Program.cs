@@ -33,6 +33,7 @@ class Program
             // Log startup info
             TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
             TerminalLogger.Log("Log file path: " + AppLogger.GetLogFilePath());
+            TerminalLogger.Log("Build: " + DescribeBuild());
             StartupPerformanceTracker.StartNewCurrent();
 
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
@@ -44,6 +45,43 @@ class Program
             System.IO.File.WriteAllText(AppPaths.StartupErrorFilePath, ex.ToString());
             throw;
         }
+    }
+
+    // Identifies exactly which build is running, so a stale side-by-side copy is obvious
+    // in debug.log. Reports git SHA (stamped at compile via the StampGitInfo MSBuild target),
+    // the binary path, and its on-disk build time. This is the line that would have
+    // immediately flagged the "net10.0 - Copy" stale-binary crash incident.
+    private static string DescribeBuild()
+    {
+        var asm = System.Reflection.Assembly.GetExecutingAssembly();
+
+        string sha = "unknown";
+        foreach (var meta in asm.GetCustomAttributes(typeof(System.Reflection.AssemblyMetadataAttribute), false))
+        {
+            if (meta is System.Reflection.AssemblyMetadataAttribute m && m.Key == "GitSha")
+            {
+                sha = string.IsNullOrEmpty(m.Value) ? "unknown" : m.Value;
+                break;
+            }
+        }
+
+        // Environment.ProcessPath is correct under both normal and single-file/AOT hosting,
+        // whereas Assembly.Location is empty for single-file/AOT.
+        string path = Environment.ProcessPath ?? asm.Location;
+        string builtAt = "?";
+        try
+        {
+            if (!string.IsNullOrEmpty(path) && System.IO.File.Exists(path))
+            {
+                builtAt = System.IO.File.GetLastWriteTime(path).ToString("yyyy-MM-dd HH:mm:ss");
+            }
+        }
+        catch
+        {
+            // Best-effort diagnostics only — never let build-info logging break startup.
+        }
+
+        return $"sha={sha} built={builtAt} path={path}";
     }
 
     // Avalonia configuration, don't remove; also used by visual designer.
