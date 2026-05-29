@@ -7,14 +7,27 @@
     <ProjectReference Include="..\..\src\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Content Include="..\..\src\NovaTerminal.App\native\target\release\rusty_pty.dll" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">
-      <Link>rusty_pty.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\src\NovaTerminal.App\native\target_linux\release\librusty_pty.so" Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">
-      <Link>librusty_pty.so</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-  </ItemGroup>
+  <!-- The native rusty_pty lib is built by NovaTerminal.App's BuildRustNative target
+       (or restored from the CI native-binary cache). This project only references
+       NovaTerminal.Pty, so it doesn't build the lib itself. The previous static
+       <Content Include> had no Exists() guard, so when the lib wasn't present at copy
+       time (clean/partial-cache build) the Copy task failed the build with MSB3030.
+       Add the items during execution with an Exists() check (re-evaluated after the
+       solution build has had a chance to produce the lib), so the copy happens when
+       the lib is available and is skipped — rather than failing the build — when it
+       isn't. This project is a manual scenario driver, not part of the CI test lanes. -->
+  <Target Name="IncludeNativeLibrariesInOutput" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <Content Include="..\..\src\NovaTerminal.App\native\target\release\rusty_pty.dll"
+        Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and Exists('..\..\src\NovaTerminal.App\native\target\release\rusty_pty.dll')">
+        <Link>rusty_pty.dll</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <Content Include="..\..\src\NovaTerminal.App\native\target_linux\release\librusty_pty.so"
+        Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and Exists('..\..\src\NovaTerminal.App\native\target_linux\release\librusty_pty.so')">
+        <Link>librusty_pty.so</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+  </Target>
 </Project>
