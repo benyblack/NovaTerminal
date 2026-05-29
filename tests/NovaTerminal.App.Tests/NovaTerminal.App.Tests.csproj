@@ -24,6 +24,10 @@
 
   <ItemGroup>
     <Content Include="corpus\**\*.*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Serializes test collections (parallelizeTestCollections: false) so the single
+         shared Avalonia headless dispatcher isn't hit by concurrent collections.
+         Must be copied to output for the runner to pick it up. See issue #79. -->
+    <None Update="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
