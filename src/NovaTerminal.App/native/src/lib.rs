@@ -2,6 +2,7 @@ use libc::{c_char, c_int};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use std::ffi::CStr;
 use std::io::{Read, Write};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[cfg(windows)]
 mod win32 {
@@ -165,6 +166,16 @@ mod win32 {
 
 use std::sync::{Arc, Mutex};
 
+/// Runs an FFI body, converting any panic into `on_panic` instead of unwinding
+/// across the C boundary (undefined behavior). Asserted unwind-safe: FFI bodies
+/// operate on raw pointers owned by the caller.
+fn ffi_guard<R>(on_panic: R, body: impl FnOnce() -> R) -> R {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(value) => value,
+        Err(_) => on_panic,
+    }
+}
+
 // Structure to hold the PTY session state
 pub struct PtyState {
     pub reader: Mutex<Box<dyn Read + Send>>,
@@ -242,7 +253,9 @@ pub extern "C" fn pty_spawn(
     cols: u16,
     rows: u16,
 ) -> *mut PtyState {
-    pty_spawn_impl(cmd, args, cwd, cols, rows, &[])
+    ffi_guard(std::ptr::null_mut(), || {
+        pty_spawn_impl(cmd, args, cwd, cols, rows, &[])
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -254,8 +267,10 @@ pub extern "C" fn pty_spawn_with_envs(
     rows: u16,
     envs: *const c_char,
 ) -> *mut PtyState {
-    let overrides = parse_env_overrides(envs);
-    pty_spawn_impl(cmd, args, cwd, cols, rows, &overrides)
+    ffi_guard(std::ptr::null_mut(), || {
+        let overrides = parse_env_overrides(envs);
+        pty_spawn_impl(cmd, args, cwd, cols, rows, &overrides)
+    })
 }
 
 fn pty_spawn_impl(
@@ -392,144 +407,170 @@ fn pty_spawn_impl(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut PtyState {
-    pty_spawn(cmd, std::ptr::null(), std::ptr::null(), cols, rows)
+    ffi_guard(std::ptr::null_mut(), || {
+        pty_spawn(cmd, std::ptr::null(), std::ptr::null(), cols, rows)
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_read(state_ptr: *mut PtyState, buffer: *mut u8, len: c_int) -> c_int {
-    if state_ptr.is_null() {
-        return -1;
-    }
-    let state = unsafe {
-        let arc = Arc::from_raw(state_ptr);
-        let cloned = arc.clone();
-        let _ = Arc::into_raw(arc);
-        cloned
-    };
-
-    let buf = unsafe { std::slice::from_raw_parts_mut(buffer, len as usize) };
-    if let Ok(mut reader) = state.reader.lock() {
-        match reader.read(buf) {
-            Ok(n) => n as c_int,
-            Err(_) => -1,
+    ffi_guard(-1, || {
+        if state_ptr.is_null() {
+            return -1;
         }
-    } else {
-        -1
-    }
+        let state = unsafe {
+            let arc = Arc::from_raw(state_ptr);
+            let cloned = arc.clone();
+            let _ = Arc::into_raw(arc);
+            cloned
+        };
+
+        let buf = unsafe { std::slice::from_raw_parts_mut(buffer, len as usize) };
+        if let Ok(mut reader) = state.reader.lock() {
+            match reader.read(buf) {
+                Ok(n) => n as c_int,
+                Err(_) => -1,
+            }
+        } else {
+            -1
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_write(state_ptr: *mut PtyState, buffer: *const u8, len: c_int) -> c_int {
-    if state_ptr.is_null() {
-        return -1;
-    }
-    let state = unsafe {
-        let arc = Arc::from_raw(state_ptr);
-        let cloned = arc.clone();
-        let _ = Arc::into_raw(arc);
-        cloned
-    };
-
-    let buf = unsafe { std::slice::from_raw_parts(buffer, len as usize) };
-    if let Ok(mut writer) = state.writer.lock() {
-        match writer.write(buf) {
-            Ok(n) => n as c_int,
-            Err(_) => -1,
+    ffi_guard(-1, || {
+        if state_ptr.is_null() {
+            return -1;
         }
-    } else {
-        -1
-    }
+        let state = unsafe {
+            let arc = Arc::from_raw(state_ptr);
+            let cloned = arc.clone();
+            let _ = Arc::into_raw(arc);
+            cloned
+        };
+
+        let buf = unsafe { std::slice::from_raw_parts(buffer, len as usize) };
+        if let Ok(mut writer) = state.writer.lock() {
+            match writer.write(buf) {
+                Ok(n) => n as c_int,
+                Err(_) => -1,
+            }
+        } else {
+            -1
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_resize(state_ptr: *mut PtyState, cols: u16, rows: u16) {
-    if state_ptr.is_null() {
-        return;
-    }
-    let state = unsafe {
-        let arc = Arc::from_raw(state_ptr);
-        let cloned = arc.clone();
-        let _ = Arc::into_raw(arc);
-        cloned
-    };
-
-    #[cfg(windows)]
-    {
-        if let Some(h_pc) = state.h_pc {
-            let size = windows_sys::Win32::System::Console::COORD {
-                X: cols as i16,
-                Y: rows as i16,
-            };
-            unsafe {
-                windows_sys::Win32::System::Console::ResizePseudoConsole(h_pc, size);
-            }
+    ffi_guard((), || {
+        if state_ptr.is_null() {
             return;
         }
-    }
+        let state = unsafe {
+            let arc = Arc::from_raw(state_ptr);
+            let cloned = arc.clone();
+            let _ = Arc::into_raw(arc);
+            cloned
+        };
 
-    if let Ok(master_opt) = state.master.lock() {
-        if let Some(ref master) = *master_opt {
-            let size = PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            };
-            let _ = master.resize(size);
+        #[cfg(windows)]
+        {
+            if let Some(h_pc) = state.h_pc {
+                let size = windows_sys::Win32::System::Console::COORD {
+                    X: cols as i16,
+                    Y: rows as i16,
+                };
+                unsafe {
+                    windows_sys::Win32::System::Console::ResizePseudoConsole(h_pc, size);
+                }
+                return;
+            }
         }
-    }
+
+        if let Ok(master_opt) = state.master.lock() {
+            if let Some(ref master) = *master_opt {
+                let size = PtySize {
+                    rows,
+                    cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                };
+                let _ = master.resize(size);
+            }
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_get_pid(state_ptr: *mut PtyState) -> c_int {
-    if state_ptr.is_null() {
-        return -1;
-    }
-    let state = unsafe {
-        let arc = Arc::from_raw(state_ptr);
-        let cloned = arc.clone();
-        let _ = Arc::into_raw(arc);
-        cloned
-    };
+    ffi_guard(-1, || {
+        if state_ptr.is_null() {
+            return -1;
+        }
+        let state = unsafe {
+            let arc = Arc::from_raw(state_ptr);
+            let cloned = arc.clone();
+            let _ = Arc::into_raw(arc);
+            cloned
+        };
 
-    #[cfg(windows)]
-    {
-        if let Some(h_process) = state.h_process {
-            unsafe {
-                return windows_sys::Win32::System::Threading::GetProcessId(h_process) as c_int;
+        #[cfg(windows)]
+        {
+            if let Some(h_process) = state.h_process {
+                unsafe {
+                    return windows_sys::Win32::System::Threading::GetProcessId(h_process) as c_int;
+                }
             }
         }
-    }
 
-    if let Ok(child_opt) = state.child.lock() {
-        if let Some(ref child) = *child_opt {
-            if let Some(pid) = child.process_id() {
-                return pid as c_int;
+        if let Ok(child_opt) = state.child.lock() {
+            if let Some(ref child) = *child_opt {
+                if let Some(pid) = child.process_id() {
+                    return pid as c_int;
+                }
             }
         }
-    }
-    -1
+        -1
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_close(state_ptr: *mut PtyState) {
-    if state_ptr.is_null() {
-        return;
-    }
-    let state = unsafe { Arc::from_raw(state_ptr) };
+    ffi_guard((), || {
+        if state_ptr.is_null() {
+            return;
+        }
+        let state = unsafe { Arc::from_raw(state_ptr) };
 
-    #[cfg(windows)]
-    {
-        if let Some(h_pc) = state.h_pc {
-            unsafe {
-                windows_sys::Win32::System::Console::ClosePseudoConsole(h_pc);
+        #[cfg(windows)]
+        {
+            if let Some(h_pc) = state.h_pc {
+                unsafe {
+                    windows_sys::Win32::System::Console::ClosePseudoConsole(h_pc);
+                }
+            }
+            if let Some(h_process) = state.h_process {
+                unsafe {
+                    windows_sys::Win32::Foundation::CloseHandle(h_process);
+                }
             }
         }
-        if let Some(h_process) = state.h_process {
-            unsafe {
-                windows_sys::Win32::Foundation::CloseHandle(h_process);
-            }
-        }
+        // Drop logic handles the rest (reader, writer, master, child)
+    })
+}
+
+#[cfg(test)]
+mod ffi_guard_tests {
+    use super::*;
+
+    #[test]
+    fn ffi_guard_returns_default_on_panic() {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let rc = ffi_guard(-1, || -> c_int { panic!("boom") });
+        std::panic::set_hook(prev);
+        assert_eq!(rc, -1);
     }
-    // Drop logic handles the rest (reader, writer, master, child)
 }
