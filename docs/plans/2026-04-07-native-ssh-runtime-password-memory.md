@@ -92,9 +92,9 @@ git commit -m "Always offer remember-password for native SSH prompts"
 
 **Files:**
 - Modify: `src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
 - Modify: `tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs`
-- Modify: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSessionInteractionTests.cs`
+- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionInteractionTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -105,7 +105,7 @@ Add tests that assert:
 **Step 2: Run test to verify it fails**
 
 Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~SshInteractionServiceTests"`  
-Run: `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionInteractionTests"`
+Run: `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionInteractionTests"`
 
 Expected: FAIL because runtime reuse is still gated by `RememberPasswordInVault`.
 
@@ -125,7 +125,7 @@ Run the same commands and confirm the new tests pass.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSessionInteractionTests.cs
+git add src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionInteractionTests.cs
 git commit -m "Make native SSH password reuse runtime-driven"
 ```
 
@@ -170,11 +170,11 @@ git commit -m "Preserve saved native SSH passwords on unchecked prompts"
 ### Task 5: Reconcile persisted profile state and backward compatibility
 
 **Files:**
-- Modify: `src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Models/SshProfileNormalizer.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Models/SshProfileNormalizer.cs`
 - Modify: `src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Storage/JsonSshProfileStore.cs`
-- Modify: `tests/NovaTerminal.Platform.Tests/Ssh/JsonSshProfileStoreTests.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Storage/JsonSshProfileStore.cs`
+- Modify: `tests/NovaTerminal.Core.Tests/Ssh/JsonSshProfileStoreTests.cs`
 - Modify: `tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs`
 
 **Step 1: Write the failing test**
@@ -186,7 +186,7 @@ Add tests that assert:
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~JsonSshProfileStoreTests"`  
+Run: `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~JsonSshProfileStoreTests"`  
 Run: `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~SshConnectionServiceTests"`
 
 Expected: FAIL because persistence and editor-service mappings still assume the old preference is active.
@@ -206,7 +206,7 @@ Run the same commands and confirm the new behavior passes.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs src/NovaTerminal.Platform/Ssh/Models/SshProfileNormalizer.cs src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs src/NovaTerminal.Platform/Ssh/Storage/JsonSshProfileStore.cs tests/NovaTerminal.Platform.Tests/Ssh/JsonSshProfileStoreTests.cs tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs
+git add src/NovaTerminal.Core/Ssh/Models/SshProfile.cs src/NovaTerminal.Core/Ssh/Models/SshProfileNormalizer.cs src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs src/NovaTerminal.Core/Ssh/Storage/JsonSshProfileStore.cs tests/NovaTerminal.Core.Tests/Ssh/JsonSshProfileStoreTests.cs tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs
 git commit -m "Decouple native SSH password memory from profile settings"
 ```
 
@@ -220,7 +220,7 @@ git commit -m "Decouple native SSH password memory from profile settings"
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
+dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
 dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~SshInteractionServiceTests|FullyQualifiedName~SshConnectionServiceTests|FullyQualifiedName~NewSshConnectionViewModelTests|FullyQualifiedName~VaultServiceSshKeyTests"
 dotnet build src/NovaTerminal.App/NovaTerminal.App.csproj -c Release -p:SKIP_RUST_NATIVE_BUILD=1
 ```

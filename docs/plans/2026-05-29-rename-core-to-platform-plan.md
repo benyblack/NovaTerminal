@@ -1,10 +1,10 @@
-# Rename `NovaTerminal.Platform` → `NovaTerminal.Platform` Implementation Plan
+# Rename `NovaTerminal.Core` → `NovaTerminal.Platform` Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Eliminate the three-way "Core" name overload by renaming the `NovaTerminal.Platform` assembly to `NovaTerminal.Platform` and the `src/NovaTerminal.App/Core/` folder to `src/NovaTerminal.App/Shell/` (namespace `NovaTerminal.Shell`), and enforce the separation with an architecture test.
+**Goal:** Eliminate the three-way "Core" name overload by renaming the `NovaTerminal.Core` assembly to `NovaTerminal.Platform` and the `src/NovaTerminal.App/Core/` folder to `src/NovaTerminal.App/Shell/` (namespace `NovaTerminal.Shell`), and enforce the separation with an architecture test.
 
-**Architecture:** Two-phase rename that keeps the build green at every commit. **Phase 1** renames the App-side folder/namespace first (`NovaTerminal.Platform*` → `NovaTerminal.Shell*`), which removes the cross-assembly namespace *collision* — after it, the `NovaTerminal.Platform` namespace belongs solely to the production assembly. **Phase 2** is then an unambiguous repo-wide token replace `NovaTerminal.Platform` → `NovaTerminal.Platform` (assembly + its test project together). The compiler/build is the oracle for the one genuinely non-mechanical step: re-pointing each ambiguous `using NovaTerminal.Platform;` to the right namespace.
+**Architecture:** Two-phase rename that keeps the build green at every commit. **Phase 1** renames the App-side folder/namespace first (`NovaTerminal.Core*` → `NovaTerminal.Shell*`), which removes the cross-assembly namespace *collision* — after it, the `NovaTerminal.Core` namespace belongs solely to the production assembly. **Phase 2** is then an unambiguous repo-wide token replace `NovaTerminal.Core` → `NovaTerminal.Platform` (assembly + its test project together). The compiler/build is the oracle for the one genuinely non-mechanical step: re-pointing each ambiguous `using NovaTerminal.Core;` to the right namespace.
 
 **Tech Stack:** .NET 10 / C#, MSBuild, xUnit.v3, NetArchTest.Rules. All builds/tests go through `scripts/build.ps1` (PowerShell wrapper that passes args to `dotnet` with `-nodeReuse:false`).
 
@@ -14,9 +14,9 @@
 
 ## File Structure (what changes)
 
-- `src/NovaTerminal.App/Core/` → `src/NovaTerminal.App/Shell/` — ~50 files, namespaces `NovaTerminal.Platform{,.Shortcuts,.ThemeImporters,.Native}` → `NovaTerminal.Shell{…}`
-- `src/NovaTerminal.Platform/` → `src/NovaTerminal.Platform/` + `NovaTerminal.Platform.csproj` → `NovaTerminal.Platform.csproj`; namespaces `NovaTerminal.Platform{,.Input,.Execution,.Paths,.Ssh.*}` → `NovaTerminal.Platform{…}`
-- `tests/NovaTerminal.Platform.Tests/` → `tests/NovaTerminal.Platform.Tests/` + csproj rename
+- `src/NovaTerminal.App/Core/` → `src/NovaTerminal.App/Shell/` — ~50 files, namespaces `NovaTerminal.Core{,.Shortcuts,.ThemeImporters,.Native}` → `NovaTerminal.Shell{…}`
+- `src/NovaTerminal.Core/` → `src/NovaTerminal.Platform/` + `NovaTerminal.Core.csproj` → `NovaTerminal.Platform.csproj`; namespaces `NovaTerminal.Core{,.Input,.Execution,.Paths,.Ssh.*}` → `NovaTerminal.Platform{…}`
+- `tests/NovaTerminal.Core.Tests/` → `tests/NovaTerminal.Platform.Tests/` + csproj rename
 - Consumers: `src/NovaTerminal.App/**`, `src/NovaTerminal.Cli/**`, `tests/**` — `using`/`clr-namespace`/ProjectReference fixes
 - `NovaTerminal.sln` — two project entries (paths/names; GUIDs unchanged)
 - `tests/NovaTerminal.Architecture.Tests/{LayeringTests,NamespaceAlignmentTests}.cs` — generalized invariant
@@ -61,7 +61,7 @@ rtk git checkout -b feature/issue-76-rename-core-to-platform
 ```powershell
 rtk git add docs/plans/2026-05-29-rename-core-to-platform-design.md docs/plans/2026-05-29-rename-core-to-platform-plan.md
 rtk git commit -m @'
-docs(rename): add design + plan for NovaTerminal.Platform -> NovaTerminal.Platform (#76)
+docs(rename): add design + plan for NovaTerminal.Core -> NovaTerminal.Platform (#76)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 '@
@@ -76,7 +76,7 @@ Expected: build succeeds (0 errors). If it fails, stop — the tree was already 
 
 ## Task 1: Rename `App/Core/` → `App/Shell/` (namespace `NovaTerminal.Shell`)
 
-This phase removes the cross-assembly namespace collision. After it, only the production assembly uses `NovaTerminal.Platform`.
+This phase removes the cross-assembly namespace collision. After it, only the production assembly uses `NovaTerminal.Core`.
 
 **Files:**
 - Move: `src/NovaTerminal.App/Core/` → `src/NovaTerminal.App/Shell/` (~50 `.cs`)
@@ -95,55 +95,55 @@ rtk git mv src/NovaTerminal.App/Core src/NovaTerminal.App/Shell
 
 ```powershell
 $shell = Get-ChildItem -Path src/NovaTerminal.App/Shell -Recurse -Filter *.cs
-Replace-InFiles $shell 'namespace NovaTerminal.Platform' 'namespace NovaTerminal.Shell'
+Replace-InFiles $shell 'namespace NovaTerminal.Core' 'namespace NovaTerminal.Shell'
 ```
 
-This covers file-scoped (`namespace NovaTerminal.Platform;`), block (`namespace NovaTerminal.Platform`), and sub-namespaces (`.Shortcuts`, `.ThemeImporters`, `.Native`) in one pass because they all share the `namespace NovaTerminal.Platform` prefix.
+This covers file-scoped (`namespace NovaTerminal.Core;`), block (`namespace NovaTerminal.Core`), and sub-namespaces (`.Shortcuts`, `.ThemeImporters`, `.Native`) in one pass because they all share the `namespace NovaTerminal.Core` prefix.
 
 - [ ] **Step 3: Rewrite the App-only sub-namespace *references* (unambiguous — these sub-namespaces exist only in the App)**
 
 ```powershell
 $appAndTests = Get-ChildItem -Path src/NovaTerminal.App, tests/NovaTerminal.App.Tests -Recurse -Filter *.cs -ErrorAction SilentlyContinue
-Replace-InFiles $appAndTests 'NovaTerminal.Platform.Shortcuts'     'NovaTerminal.Shell.Shortcuts'
-Replace-InFiles $appAndTests 'NovaTerminal.Platform.ThemeImporters' 'NovaTerminal.Shell.ThemeImporters'
-Replace-InFiles $appAndTests 'NovaTerminal.Platform.Native'         'NovaTerminal.Shell.Native'
+Replace-InFiles $appAndTests 'NovaTerminal.Core.Shortcuts'     'NovaTerminal.Shell.Shortcuts'
+Replace-InFiles $appAndTests 'NovaTerminal.Core.ThemeImporters' 'NovaTerminal.Shell.ThemeImporters'
+Replace-InFiles $appAndTests 'NovaTerminal.Core.Native'         'NovaTerminal.Shell.Native'
 ```
 
-> Safe: the production assembly's only `.Native` namespace is `NovaTerminal.Platform.Ssh.Native`, whose token is `NovaTerminal.Platform.Ssh.Native` — it does **not** match the literal `NovaTerminal.Platform.Native`.
+> Safe: the production assembly's only `.Native` namespace is `NovaTerminal.Core.Ssh.Native`, whose token is `NovaTerminal.Core.Ssh.Native` — it does **not** match the literal `NovaTerminal.Core.Native`.
 
 - [ ] **Step 4: Fix the 4 App-local XAML `clr-namespace` references**
 
 ```powershell
 $axaml = Get-ChildItem -Path src/NovaTerminal.App -Recurse -Filter *.axaml
-Replace-InFiles $axaml 'clr-namespace:NovaTerminal.Platform"' 'clr-namespace:NovaTerminal.Shell"'
+Replace-InFiles $axaml 'clr-namespace:NovaTerminal.Core"' 'clr-namespace:NovaTerminal.Shell"'
 ```
 
-> The trailing `"` makes this match only the assembly-local `xmlns:...="clr-namespace:NovaTerminal.Platform"` declarations (App.axaml, TerminalPane.axaml, TransferCenter.axaml, ReplayWindow.axaml). It deliberately does **not** match `NewSshConnectionView.axaml`'s `clr-namespace:NovaTerminal.Platform.Ssh.Models;assembly=NovaTerminal.Platform` (that's the production assembly — handled in Task 2). The `xmlns:core` *alias* name is left unchanged (cosmetic only).
+> The trailing `"` makes this match only the assembly-local `xmlns:...="clr-namespace:NovaTerminal.Core"` declarations (App.axaml, TerminalPane.axaml, TransferCenter.axaml, ReplayWindow.axaml). It deliberately does **not** match `NewSshConnectionView.axaml`'s `clr-namespace:NovaTerminal.Core.Ssh.Models;assembly=NovaTerminal.Core` (that's the production assembly — handled in Task 2). The `xmlns:core` *alias* name is left unchanged (cosmetic only).
 
 - [ ] **Step 5: Build — let the compiler enumerate the ambiguous consumers**
 
 Run: `scripts/build.ps1 build NovaTerminal.sln`
 Expected: **FAIL** with `CS0246`/`CS0234` ("type or namespace not found") errors. These fall into exactly two buckets:
 
-  1. **Consumers of moved types** (files elsewhere in the App / App.Tests that referenced `SessionManager`, `ThemeManager`, `AppPaths`, `Converters`, `TerminalView`, etc. via `using NovaTerminal.Platform;` or by same-namespace): add `using NovaTerminal.Shell;` (keep any existing `using NovaTerminal.Platform;` — it still resolves the production assembly).
-  2. **Moved files needing production-assembly types** (a Shell file that used the SSH stack / input router / path mapper, previously reachable implicitly because it shared the `NovaTerminal.Platform` namespace name): add `using NovaTerminal.Platform;` to that file.
+  1. **Consumers of moved types** (files elsewhere in the App / App.Tests that referenced `SessionManager`, `ThemeManager`, `AppPaths`, `Converters`, `TerminalView`, etc. via `using NovaTerminal.Core;` or by same-namespace): add `using NovaTerminal.Shell;` (keep any existing `using NovaTerminal.Core;` — it still resolves the production assembly).
+  2. **Moved files needing production-assembly types** (a Shell file that used the SSH stack / input router / path mapper, previously reachable implicitly because it shared the `NovaTerminal.Core` namespace name): add `using NovaTerminal.Core;` to that file.
 
 - [ ] **Step 6: Resolve errors and rebuild until green**
 
 For each error, apply bucket 1 or bucket 2 from Step 5. Re-run `scripts/build.ps1 build NovaTerminal.sln` after each batch. Repeat until:
 Expected: build succeeds (0 errors, 0 new warnings).
 
-> Do **not** rename any `using NovaTerminal.Platform;` here — bare `NovaTerminal.Platform` is still the production assembly until Task 2. Only **add** `using NovaTerminal.Shell;` (bucket 1) or **add** `using NovaTerminal.Platform;` (bucket 2).
+> Do **not** rename any `using NovaTerminal.Core;` here — bare `NovaTerminal.Core` is still the production assembly until Task 2. Only **add** `using NovaTerminal.Shell;` (bucket 1) or **add** `using NovaTerminal.Core;` (bucket 2).
 
 - [ ] **Step 7: Run the full test suite**
 
 Run: `scripts/build.ps1 test NovaTerminal.sln`
-Expected: all tests pass (arch tests included — `Only_the_Core_assembly_uses_NovaTerminal_Core_namespace` still holds, since the production assembly still legitimately owns `NovaTerminal.Platform`).
+Expected: all tests pass (arch tests included — `Only_the_Core_assembly_uses_NovaTerminal_Core_namespace` still holds, since the production assembly still legitimately owns `NovaTerminal.Core`).
 
-- [ ] **Step 8: Verify no `NovaTerminal.Platform` remains in the App folder**
+- [ ] **Step 8: Verify no `NovaTerminal.Core` remains in the App folder**
 
-Run: `rtk grep -rn "NovaTerminal.Platform" src/NovaTerminal.App/Shell`
-Expected: only **bucket-2** `using NovaTerminal.Platform;` lines that point at the production assembly (SSH/input/paths). No `namespace NovaTerminal.Platform` declarations.
+Run: `rtk grep -rn "NovaTerminal.Core" src/NovaTerminal.App/Shell`
+Expected: only **bucket-2** `using NovaTerminal.Core;` lines that point at the production assembly (SSH/input/paths). No `namespace NovaTerminal.Core` declarations.
 
 - [ ] **Step 9: Commit**
 
@@ -153,7 +153,7 @@ rtk git commit -m @'
 refactor(app): rename App/Core -> App/Shell, namespace NovaTerminal.Shell (#76)
 
 Removes the App-side half of the three-way "Core" overload. After this the
-NovaTerminal.Platform namespace is owned solely by the production assembly.
+NovaTerminal.Core namespace is owned solely by the production assembly.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 '@
@@ -161,61 +161,61 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 
 ---
 
-## Task 2: Rename the assembly `NovaTerminal.Platform` → `NovaTerminal.Platform` (and `NovaTerminal.Platform.Tests` → `NovaTerminal.Platform.Tests`)
+## Task 2: Rename the assembly `NovaTerminal.Core` → `NovaTerminal.Platform` (and `NovaTerminal.Core.Tests` → `NovaTerminal.Platform.Tests`)
 
-With the collision gone, `NovaTerminal.Platform` is now unambiguous, so this is a single repo-wide token replace plus folder/csproj/solution renames.
+With the collision gone, `NovaTerminal.Core` is now unambiguous, so this is a single repo-wide token replace plus folder/csproj/solution renames.
 
 **Files:**
-- Move: `src/NovaTerminal.Platform/` → `src/NovaTerminal.Platform/`; `tests/NovaTerminal.Platform.Tests/` → `tests/NovaTerminal.Platform.Tests/`
-- Rename: `NovaTerminal.Platform.csproj` → `NovaTerminal.Platform.csproj`; `NovaTerminal.Platform.Tests.csproj` → `NovaTerminal.Platform.Tests.csproj`
+- Move: `src/NovaTerminal.Core/` → `src/NovaTerminal.Platform/`; `tests/NovaTerminal.Core.Tests/` → `tests/NovaTerminal.Platform.Tests/`
+- Rename: `NovaTerminal.Core.csproj` → `NovaTerminal.Platform.csproj`; `NovaTerminal.Core.Tests.csproj` → `NovaTerminal.Platform.Tests.csproj`
 - Modify (token replace): all `.cs`, `.csproj`, `.axaml` under `src/` and `tests/`, plus `NovaTerminal.sln`
 
 - [ ] **Step 1: Move the production assembly folder + csproj**
 
 ```powershell
-rtk git mv src/NovaTerminal.Platform src/NovaTerminal.Platform
-rtk git mv src/NovaTerminal.Platform/NovaTerminal.Platform.csproj src/NovaTerminal.Platform/NovaTerminal.Platform.csproj
+rtk git mv src/NovaTerminal.Core src/NovaTerminal.Platform
+rtk git mv src/NovaTerminal.Platform/NovaTerminal.Core.csproj src/NovaTerminal.Platform/NovaTerminal.Platform.csproj
 ```
 
 - [ ] **Step 2: Move the test project folder + csproj**
 
 ```powershell
-rtk git mv tests/NovaTerminal.Platform.Tests tests/NovaTerminal.Platform.Tests
-rtk git mv tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj
+rtk git mv tests/NovaTerminal.Core.Tests tests/NovaTerminal.Platform.Tests
+rtk git mv tests/NovaTerminal.Platform.Tests/NovaTerminal.Core.Tests.csproj tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj
 ```
 
 > Neither csproj sets `<AssemblyName>` or `<RootNamespace>`, so renaming the `.csproj` filename renames the assembly. No property edits needed.
 
-- [ ] **Step 3: Repo-wide token replace `NovaTerminal.Platform` → `NovaTerminal.Platform`**
+- [ ] **Step 3: Repo-wide token replace `NovaTerminal.Core` → `NovaTerminal.Platform`**
 
 ```powershell
 $code = Get-ChildItem -Path src, tests -Recurse -Include *.cs,*.csproj,*.axaml |
         Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' }
-Replace-InFiles $code 'NovaTerminal.Platform' 'NovaTerminal.Platform'
+Replace-InFiles $code 'NovaTerminal.Core' 'NovaTerminal.Platform'
 ```
 
 This correctly turns:
-- `namespace NovaTerminal.Platform{,.Input,.Execution,.Paths,.Ssh.*}` → `NovaTerminal.Platform{…}` (definitions)
-- every `using NovaTerminal.Platform;` → `using NovaTerminal.Platform;` (consumers, incl. the bucket-2 usings added in Task 1)
-- `NovaTerminal.Platform.Tests` → `NovaTerminal.Platform.Tests` (test namespaces + the `InternalsVisibleTo` target)
-- ProjectReference paths `..\NovaTerminal.Platform\NovaTerminal.Platform.csproj` → `..\NovaTerminal.Platform\NovaTerminal.Platform.csproj`
-- `NewSshConnectionView.axaml`'s `clr-namespace:NovaTerminal.Platform.Ssh.Models;assembly=NovaTerminal.Platform` → `...Platform.Ssh.Models;assembly=NovaTerminal.Platform`
-- the arch-test string literals + `typeof(global::NovaTerminal.Platform.Input...)` in `LayeringTests.cs` (Task 3 rewrites these properly)
+- `namespace NovaTerminal.Core{,.Input,.Execution,.Paths,.Ssh.*}` → `NovaTerminal.Platform{…}` (definitions)
+- every `using NovaTerminal.Core;` → `using NovaTerminal.Platform;` (consumers, incl. the bucket-2 usings added in Task 1)
+- `NovaTerminal.Core.Tests` → `NovaTerminal.Platform.Tests` (test namespaces + the `InternalsVisibleTo` target)
+- ProjectReference paths `..\NovaTerminal.Core\NovaTerminal.Core.csproj` → `..\NovaTerminal.Platform\NovaTerminal.Platform.csproj`
+- `NewSshConnectionView.axaml`'s `clr-namespace:NovaTerminal.Core.Ssh.Models;assembly=NovaTerminal.Core` → `...Platform.Ssh.Models;assembly=NovaTerminal.Platform`
+- the arch-test string literals + `typeof(global::NovaTerminal.Core.Input...)` in `LayeringTests.cs` (Task 3 rewrites these properly)
 
 > `NovaTerminal.Shell` is a different token and is untouched.
 
 - [ ] **Step 4: Update the solution file**
 
 ```powershell
-Replace-InFiles (Get-ChildItem -Path NovaTerminal.sln) 'NovaTerminal.Platform' 'NovaTerminal.Platform'
+Replace-InFiles (Get-ChildItem -Path NovaTerminal.sln) 'NovaTerminal.Core' 'NovaTerminal.Platform'
 ```
 
-This rewrites both `NovaTerminal.sln:24` (`NovaTerminal.Platform` → `NovaTerminal.Platform`, path `src\NovaTerminal.Platform\NovaTerminal.Platform.csproj` → `src\NovaTerminal.Platform\NovaTerminal.Platform.csproj`) and `:28` (`NovaTerminal.Platform.Tests` → `NovaTerminal.Platform.Tests`, path likewise). Project GUIDs are unchanged.
+This rewrites both `NovaTerminal.sln:24` (`NovaTerminal.Core` → `NovaTerminal.Platform`, path `src\NovaTerminal.Core\NovaTerminal.Core.csproj` → `src\NovaTerminal.Platform\NovaTerminal.Platform.csproj`) and `:28` (`NovaTerminal.Core.Tests` → `NovaTerminal.Platform.Tests`, path likewise). Project GUIDs are unchanged.
 
 - [ ] **Step 5: Build**
 
 Run: `scripts/build.ps1 build NovaTerminal.sln`
-Expected: build succeeds. If `CS0234`/`CS0246` appear, they are leftover references the replace missed (e.g. a fully-qualified `global::NovaTerminal.Platform...` outside the scanned scope) — grep `rtk grep -rn "NovaTerminal.Platform" src tests` and fix each, then rebuild.
+Expected: build succeeds. If `CS0234`/`CS0246` appear, they are leftover references the replace missed (e.g. a fully-qualified `global::NovaTerminal.Core...` outside the scanned scope) — grep `rtk grep -rn "NovaTerminal.Core" src tests` and fix each, then rebuild.
 
 - [ ] **Step 6: Run the full test suite**
 
@@ -227,10 +227,10 @@ Expected: all tests pass. (The existing `Only_the_Core_assembly_uses_NovaTermina
 ```powershell
 rtk git add -A
 rtk git commit -m @'
-refactor(platform): rename NovaTerminal.Platform assembly -> NovaTerminal.Platform (#76)
+refactor(platform): rename NovaTerminal.Core assembly -> NovaTerminal.Platform (#76)
 
-Assembly + NovaTerminal.Platform.Tests -> NovaTerminal.Platform.Tests. Now that the
-App side is NovaTerminal.Shell, the NovaTerminal.Platform token is unambiguous, so
+Assembly + NovaTerminal.Core.Tests -> NovaTerminal.Platform.Tests. Now that the
+App side is NovaTerminal.Shell, the NovaTerminal.Core token is unambiguous, so
 this is a clean repo-wide rename. No more "Core".
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
@@ -348,8 +348,8 @@ Expected: PASS. Confirm no probe remains: `rtk grep -rn "_MutationProbe\|Platfor
 
 - [ ] **Step 4: Confirm `LayeringTests.cs` is correct**
 
-Run: `rtk grep -n "NovaTerminal.Platform\|NovaTerminal.Platform" tests/NovaTerminal.Architecture.Tests/LayeringTests.cs`
-Expected: line 12 reads `typeof(global::NovaTerminal.Platform.Input.TerminalInputSender)`, the layering dependency lists reference `"NovaTerminal.Platform"`, and there are **zero** `NovaTerminal.Platform` hits.
+Run: `rtk grep -n "NovaTerminal.Platform\|NovaTerminal.Core" tests/NovaTerminal.Architecture.Tests/LayeringTests.cs`
+Expected: line 12 reads `typeof(global::NovaTerminal.Platform.Input.TerminalInputSender)`, the layering dependency lists reference `"NovaTerminal.Platform"`, and there are **zero** `NovaTerminal.Core` hits.
 
 - [ ] **Step 5: Commit**
 
@@ -376,12 +376,12 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 
 Edit `docs/ARCHITECTURE.md`:
 - Line ~28 diagram: `Cli ──► App ──► { Core, VT, Rendering, Pty, Replay }` → `Cli ──► App ──► { Platform, VT, Rendering, Pty, Replay }`
-- §7 heading `## 7. Platform / SSH — `NovaTerminal.Platform`` → `## 7. Platform / SSH — `NovaTerminal.Platform``
-- §7 body: delete the sentence "The name is a historical artifact … renaming `NovaTerminal.Platform` itself is a planned follow-up." (it's done now). Replace with: "Renamed from `NovaTerminal.Platform` (issue #76) to end the three-way name overload."
+- §7 heading `## 7. Platform / SSH — `NovaTerminal.Core`` → `## 7. Platform / SSH — `NovaTerminal.Platform``
+- §7 body: delete the sentence "The name is a historical artifact … renaming `NovaTerminal.Core` itself is a planned follow-up." (it's done now). Replace with: "Renamed from `NovaTerminal.Core` (issue #76) to end the three-way name overload."
 
 - [ ] **Step 2: Update §8 to mention the Shell folder**
 
-In §8 (UI Shell), add to Responsibilities/structure: "Shell composition glue (startup, app paths/logging/services, session & workspace managers, theme manager, command registry, profiles, view host) lives in `src/NovaTerminal.App/Shell/`, namespace `NovaTerminal.Shell` (formerly `App/Core/` + `NovaTerminal.Platform`, issue #76)."
+In §8 (UI Shell), add to Responsibilities/structure: "Shell composition glue (startup, app paths/logging/services, session & workspace managers, theme manager, command registry, profiles, view host) lives in `src/NovaTerminal.App/Shell/`, namespace `NovaTerminal.Shell` (formerly `App/Core/` + `NovaTerminal.Core`, issue #76)."
 
 - [ ] **Step 3: Update §12 (rule list) and §13 (test table)**
 
@@ -389,18 +389,18 @@ In §8 (UI Shell), add to Responsibilities/structure: "Shell composition glue (s
   - `- `Leaf_assembly_types_reside_in_its_own_namespace` (VT, Replay, Rendering, Pty, Platform)`
   - `- `No_two_assemblies_share_a_namespace_prefix``
   (Remove the now-redundant per-assembly `All_*_types_use_*` bullets only if you replaced those facts; this plan keeps them, so leave them and just swap the Core bullet.)
-- §13: table row `| `NovaTerminal.Platform.Tests` | Platform utilities + SSH; …` → `| `NovaTerminal.Platform.Tests` | Platform utilities + SSH; …`
+- §13: table row `| `NovaTerminal.Core.Tests` | Platform utilities + SSH; …` → `| `NovaTerminal.Platform.Tests` | Platform utilities + SSH; …`
 
 - [ ] **Step 4: Retire the §14 tech-debt entries that are now done**
 
 In §14:
-- Delete the bullet starting "**`NovaTerminal.Platform` name.**" (resolved by this work).
+- Delete the bullet starting "**`NovaTerminal.Core` name.**" (resolved by this work).
 - Update the "SSH is fragmented across Core and App" bullet: `Core/Ssh/` → `Platform/Ssh/`, and `App/Core/{SftpService,VaultService,SshAskPassCommand}.cs` → `App/Shell/{…}.cs`.
 - Update the renderer bullet: `src/NovaTerminal.App/Core/TerminalView.cs` → `src/NovaTerminal.App/Shell/TerminalView.cs` (and `TerminalDrawOperation.cs` likewise).
 
-- [ ] **Step 5: Verify no stale `NovaTerminal.Platform` / `App/Core` references remain in the doc**
+- [ ] **Step 5: Verify no stale `NovaTerminal.Core` / `App/Core` references remain in the doc**
 
-Run: `rtk grep -n "NovaTerminal.Platform\|App/Core" docs/ARCHITECTURE.md`
+Run: `rtk grep -n "NovaTerminal.Core\|App/Core" docs/ARCHITECTURE.md`
 Expected: zero hits (the only acceptable mentions are historical "(formerly … / renamed from …)" notes you intentionally wrote).
 
 - [ ] **Step 6: Commit**
@@ -420,9 +420,9 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Zero residual `NovaTerminal.Platform` in tracked source/tests/solution**
+- [ ] **Step 1: Zero residual `NovaTerminal.Core` in tracked source/tests/solution**
 
-Run: `rtk grep -rn "NovaTerminal.Platform" src tests NovaTerminal.sln`
+Run: `rtk grep -rn "NovaTerminal.Core" src tests NovaTerminal.sln`
 Expected: **zero** hits. (Hits under `.claude/worktrees/`, `bin/`, `obj/` are out of scope and excluded — if any appear, confirm they are only in those excluded paths.)
 
 - [ ] **Step 2: No folder or assembly named "Core" remains**

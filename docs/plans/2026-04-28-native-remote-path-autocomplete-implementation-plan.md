@@ -145,9 +145,9 @@ git commit -m "feat: track active native ssh sessions for autocomplete"
 ### Task 3: Add native directory-listing interop in C#
 
 **Files:**
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/INativeSshInterop.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshRemotePathInteropTests.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshRemotePathInteropTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -181,7 +181,7 @@ public void DeserializeDirectoryListResponse_ReadsDirectoryFlags()
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshRemotePathInteropTests" --no-restore -m:1 --nologo -v:minimal
+dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshRemotePathInteropTests" --no-restore -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the request/response types and API do not exist yet.
@@ -208,7 +208,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/INativeSshInterop.cs src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSshRemotePathInteropTests.cs
+git add src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshRemotePathInteropTests.cs
 git commit -m "feat: add native remote path listing interop"
 ```
 
@@ -470,7 +470,7 @@ git commit -m "feat: enable remote autocomplete in transfer dialog"
 ### Task 8: Verify the end-to-end NativeSSH autocomplete path
 
 **Files:**
-- Modify: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
 - Optional Docs: `docs/USER_MANUAL.md` if user-facing transfer instructions need one line of update
 
 **Step 1: Write the failing E2E test**
@@ -495,7 +495,7 @@ Run:
 
 ```bash
 $env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_ListDirectory" --no-restore -m:1 --nologo -v:minimal
+dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_ListDirectory" --no-restore -m:1 --nologo -v:minimal
 ```
 
 Expected: FAIL because the E2E coverage does not exist yet.
@@ -513,6 +513,6 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs docs/USER_MANUAL.md
+git add tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs docs/USER_MANUAL.md
 git commit -m "test: cover native remote path autocomplete end to end"
 ```

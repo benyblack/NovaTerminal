@@ -13,9 +13,9 @@
 ### Task 1: Define The Managed Progress Contract
 
 **Files:**
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSftpTransferModels.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/INativeSshInterop.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSftpTransferInteropTests.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSftpTransferModels.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -45,7 +45,7 @@ Also add an interop-focused test scaffold that will fail until `NativeSshInterop
 Run:
 
 ```bash
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests" --no-restore -m:1
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests" --no-restore -m:1
 ```
 
 Expected: FAIL because the callback translation test is not implemented yet.
@@ -65,15 +65,15 @@ Expected: one payload test PASS, callback translation test still FAIL.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/NativeSftpTransferModels.cs src/NovaTerminal.Platform/Ssh/Native/INativeSshInterop.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSftpTransferInteropTests.cs
+git add src/NovaTerminal.Core/Ssh/Native/NativeSftpTransferModels.cs src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs
 git commit -m "test: define native sftp progress contract"
 ```
 
 ### Task 2: Add Managed Native Callback Marshaling
 
 **Files:**
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSftpTransferInteropTests.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -103,7 +103,7 @@ public void NativeProgressCallback_TranslatesPayloadToManagedProgress()
 Run:
 
 ```bash
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests.NativeProgressCallback_TranslatesPayloadToManagedProgress" --no-restore -m:1
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests.NativeProgressCallback_TranslatesPayloadToManagedProgress" --no-restore -m:1
 ```
 
 Expected: FAIL because the helper/callback marshaling does not exist yet.
@@ -125,7 +125,7 @@ Do not redesign the public `INativeSshInterop` surface.
 Run:
 
 ```bash
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests" --no-restore -m:1
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests" --no-restore -m:1
 ```
 
 Expected: PASS.
@@ -133,7 +133,7 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSftpTransferInteropTests.cs
+git add src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs
 git commit -m "feat: marshal native sftp progress callbacks"
 ```
 
@@ -141,8 +141,8 @@ git commit -m "feat: marshal native sftp progress callbacks"
 
 **Files:**
 - Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Write the failing end-to-end test**
 
@@ -167,7 +167,7 @@ Keep it file-based first. Do not start with directory aggregation.
 Run:
 
 ```bash
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_CanReportProgressDuringDownload" --no-restore -m:1
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_CanReportProgressDuringDownload" --no-restore -m:1
 ```
 
 Expected: FAIL because the native layer does not emit callbacks yet, or SKIP if Docker is unavailable locally. If skipped locally, still keep the test as the red test for CI/manual Docker runs.
@@ -197,7 +197,7 @@ Run:
 
 ```bash
 cargo build --manifest-path src\NovaTerminal.App\native\rusty_ssh\Cargo.toml
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests|FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_CanReportProgressDuringDownload" --no-restore -m:1
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests|FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_CanReportProgressDuringDownload" --no-restore -m:1
 ```
 
 Expected: Rust build PASS. Interop tests PASS. Docker progress test PASS when Docker is available.
@@ -205,7 +205,7 @@ Expected: Rust build PASS. Interop tests PASS. Docker progress test PASS when Do
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs
+git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
 git commit -m "feat: emit native sftp file progress"
 ```
 
@@ -214,7 +214,7 @@ git commit -m "feat: emit native sftp file progress"
 **Files:**
 - Modify: `src/NovaTerminal.App/Core/SftpService.cs`
 - Test: `tests/NovaTerminal.Tests/Core/SftpServiceTests.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -247,7 +247,7 @@ Run:
 
 ```bash
 dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c NativeSftpPlanApp --filter "FullyQualifiedName~SftpServiceTests" --no-restore -p:SkipCliShim=true -m:1
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_CanReportProgressDuringDirectoryDownload" --no-restore -m:1
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSshDockerE2eTests.NativeSftp_CanReportProgressDuringDirectoryDownload" --no-restore -m:1
 ```
 
 Expected: service test FAIL until formatting/state behavior matches; Docker directory test FAIL or SKIP until callbacks are observed.
@@ -269,7 +269,7 @@ Run:
 ```bash
 dotnet build src\NovaTerminal.App\NovaTerminal.App.csproj -c NativeSftpPlanApp --no-restore -p:SkipCliShim=true
 dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c NativeSftpPlanApp --filter "FullyQualifiedName~SftpServiceTests" --no-restore -p:SkipCliShim=true -m:1
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests|FullyQualifiedName~NativeSshDockerE2eTests" --no-restore -m:1
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests|FullyQualifiedName~NativeSshDockerE2eTests" --no-restore -m:1
 ```
 
 Expected: build PASS, service tests PASS, native Docker tests PASS when Docker is available.
@@ -277,7 +277,7 @@ Expected: build PASS, service tests PASS, native Docker tests PASS when Docker i
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Core/SftpService.cs tests/NovaTerminal.Tests/Core/SftpServiceTests.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs
+git add src/NovaTerminal.App/Core/SftpService.cs tests/NovaTerminal.Tests/Core/SftpServiceTests.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
 git commit -m "test: verify native sftp progress propagation"
 ```
 

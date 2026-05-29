@@ -374,7 +374,7 @@ Projections derived from replay + index:
 
 ```
 src/
-  NovaTerminal.Platform/           (Terminal core, events, replay contracts)
+  NovaTerminal.Core/           (Terminal core, events, replay contracts)
   NovaTerminal.Rendering/      (GPU renderer, glyph cache, overlays)
   NovaTerminal.Replay/         (reader/player/index)
   NovaTerminal.Shell/          (shell integration snippets + helpers)

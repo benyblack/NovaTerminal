@@ -13,8 +13,8 @@
 ### Task 1: Lock native forwarding scope with failing tests
 
 **Files:**
-- Modify: `d:\projects\nova2\tests\NovaTerminal.Platform.Tests\Ssh\NativeSshSessionTests.cs`
-- Modify: `d:\projects\nova2\tests\NovaTerminal.Platform.Tests\Ssh\NativePortForwardSessionTests.cs`
+- Modify: `d:\projects\nova2\tests\NovaTerminal.Core.Tests\Ssh\NativeSshSessionTests.cs`
+- Modify: `d:\projects\nova2\tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs`
 
 **Step 1: Write the failing tests**
 
@@ -29,7 +29,7 @@ Add tests that prove:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests|FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests|FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 Expected:
@@ -40,14 +40,14 @@ Expected:
 **Step 3: Commit**
 
 ```powershell
-git add tests\NovaTerminal.Platform.Tests\Ssh\NativeSshSessionTests.cs tests\NovaTerminal.Platform.Tests\Ssh\NativePortForwardSessionTests.cs
+git add tests\NovaTerminal.Core.Tests\Ssh\NativeSshSessionTests.cs tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs
 git commit -m "test: capture native dynamic forwarding expectations"
 ```
 
 ### Task 2: Allow native sessions to accept dynamic forwards
 
 **Files:**
-- Modify: `d:\projects\nova2\src\NovaTerminal.Platform\Ssh\Sessions\NativeSshSession.cs`
+- Modify: `d:\projects\nova2\src\NovaTerminal.Core\Ssh\Sessions\NativeSshSession.cs`
 
 **Step 1: Write the minimal implementation**
 
@@ -63,7 +63,7 @@ Keep the rest of session construction unchanged.
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"
 ```
 
 Expected:
@@ -74,15 +74,15 @@ Expected:
 **Step 3: Commit**
 
 ```powershell
-git add src\NovaTerminal.Platform\Ssh\Sessions\NativeSshSession.cs tests\NovaTerminal.Platform.Tests\Ssh\NativeSshSessionTests.cs
+git add src\NovaTerminal.Core\Ssh\Sessions\NativeSshSession.cs tests\NovaTerminal.Core.Tests\Ssh\NativeSshSessionTests.cs
 git commit -m "feat: allow dynamic forwards in native ssh session setup"
 ```
 
 ### Task 3: Add SOCKS5 negotiation support to native forwarding
 
 **Files:**
-- Modify: `d:\projects\nova2\src\NovaTerminal.Platform\Ssh\Native\NativePortForwardSession.cs`
-- Modify: `d:\projects\nova2\tests\NovaTerminal.Platform.Tests\Ssh\NativePortForwardSessionTests.cs`
+- Modify: `d:\projects\nova2\src\NovaTerminal.Core\Ssh\Native\NativePortForwardSession.cs`
+- Modify: `d:\projects\nova2\tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs`
 
 **Step 1: Write the failing protocol tests**
 
@@ -100,7 +100,7 @@ Use real loopback sockets against the existing test fake interop so the tests ex
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 Expected:
@@ -135,7 +135,7 @@ Prefer small private helpers for:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 Expected:
@@ -145,15 +145,15 @@ Expected:
 **Step 5: Commit**
 
 ```powershell
-git add src\NovaTerminal.Platform\Ssh\Native\NativePortForwardSession.cs tests\NovaTerminal.Platform.Tests\Ssh\NativePortForwardSessionTests.cs
+git add src\NovaTerminal.Core\Ssh\Native\NativePortForwardSession.cs tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs
 git commit -m "feat: add socks5 dynamic forwarding to native ssh"
 ```
 
 ### Task 4: Harden dynamic forwarding shutdown and mixed-forward behavior
 
 **Files:**
-- Modify: `d:\projects\nova2\src\NovaTerminal.Platform\Ssh\Native\NativePortForwardSession.cs`
-- Modify: `d:\projects\nova2\tests\NovaTerminal.Platform.Tests\Ssh\NativePortForwardSessionTests.cs`
+- Modify: `d:\projects\nova2\src\NovaTerminal.Core\Ssh\Native\NativePortForwardSession.cs`
+- Modify: `d:\projects\nova2\tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs`
 
 **Step 1: Add failing shutdown and coexistence tests**
 
@@ -169,7 +169,7 @@ Cover:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 **Step 3: Implement the hardening**
@@ -185,13 +185,13 @@ Keep the implementation additive:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"
 ```
 
 **Step 5: Commit**
 
 ```powershell
-git add src\NovaTerminal.Platform\Ssh\Native\NativePortForwardSession.cs tests\NovaTerminal.Platform.Tests\Ssh\NativePortForwardSessionTests.cs
+git add src\NovaTerminal.Core\Ssh\Native\NativePortForwardSession.cs tests\NovaTerminal.Core.Tests\Ssh\NativePortForwardSessionTests.cs
 git commit -m "test: harden native dynamic forward teardown"
 ```
 
@@ -273,7 +273,7 @@ git commit -m "docs: record native dynamic forwarding scope"
 **Step 1: Run core SSH tests**
 
 ```powershell
-dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
+dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
 ```
 
 Expected:

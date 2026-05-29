@@ -2,7 +2,7 @@
 
 ## Allowed
 - `src/NovaTerminal.Replay/**` (index + seek)
-- `src/NovaTerminal.Platform/**` (event contracts only if strictly needed)
+- `src/NovaTerminal.Core/**` (event contracts only if strictly needed)
 - `tests/**`
 - `src/NovaTerminal.Cli/**` (optional: add a seek test command)
 

@@ -6,7 +6,7 @@ Date: 2026-04-08
 
 Executed in this repo on the native SSH dynamic forwarding branch:
 
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false`
   Result: PASS, 71/71
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false`
   Result: PASS, 76/76

@@ -27,13 +27,13 @@ The README's mermaid graph reflects today's reality; the architecture document d
 
 This is a major source of confusion:
 
-1. **The `NovaTerminal.Platform` *project*** — actually a platform-utilities library: Input routing, path mapping (WSL), Process abstraction, and an entire SSH stack (`Ssh/Interactions`, `Launch`, `Models`, `Native`, `OpenSsh`, `Sessions`, `Storage`, `Transport`). Should be named something like `NovaTerminal.Platform` or split.
+1. **The `NovaTerminal.Core` *project*** — actually a platform-utilities library: Input routing, path mapping (WSL), Process abstraction, and an entire SSH stack (`Ssh/Interactions`, `Launch`, `Models`, `Native`, `OpenSsh`, `Sessions`, `Storage`, `Transport`). Should be named something like `NovaTerminal.Platform` or split.
 2. **The `App/Core/` *folder*** — semantic glue inside the UI shell: `TerminalView`, `TerminalDrawOperation`, `SessionManager`, `WorkspaceManager`, 8 `Startup*` files, `VaultService`, `SftpService`, `SshAskPassCommand`, `BundledFontCatalog`, `ThemeManager`, `ProfileImporter`, `CommandRegistry`, etc.
-3. **The `NovaTerminal.Platform` *namespace*** — declared by **5 of 6 libraries**: VT, Core, Pty, Rendering, and Replay all put types into `namespace NovaTerminal.Platform` (and sub-namespaces). The assembly boundary is invisible at the language level — you cannot tell from a `using` whether a type came from VT, Pty, or Rendering.
+3. **The `NovaTerminal.Core` *namespace*** — declared by **5 of 6 libraries**: VT, Core, Pty, Rendering, and Replay all put types into `namespace NovaTerminal.Core` (and sub-namespaces). The assembly boundary is invisible at the language level — you cannot tell from a `using` whether a type came from VT, Pty, or Rendering.
 
 Consequences:
-- `ITerminalSession.cs` lives in `src/NovaTerminal.Pty/` but declares `namespace NovaTerminal.Platform` — the file moved between projects in a refactor and the namespace was never updated.
-- Sub-namespaces are scattered inconsistently: `NovaTerminal.Platform.Replay` lives in *both* the VT project and the Replay project; `NovaTerminal.Platform.Storage` lives in VT only; `NovaTerminal.Platform.Execution` lives in the Core project but no folder matches.
+- `ITerminalSession.cs` lives in `src/NovaTerminal.Pty/` but declares `namespace NovaTerminal.Core` — the file moved between projects in a refactor and the namespace was never updated.
+- Sub-namespaces are scattered inconsistently: `NovaTerminal.Core.Replay` lives in *both* the VT project and the Replay project; `NovaTerminal.Core.Storage` lives in VT only; `NovaTerminal.Core.Execution` lives in the Core project but no folder matches.
 - Refactor moves between projects are "free" (no rename required), which is exactly what got us here.
 
 ## C. The PTY/VT/Core/Replay layering is inverted from the documented intent
@@ -53,7 +53,7 @@ Cli             → App
 
 Specific concerns:
 
-1. **`Core → Pty`** inverts the documented "Core is cross-platform pure / Pty is OS-specific" stack. Today, `NovaTerminal.Platform` (which contains SSH transport, OpenSSH bridge, native interop) sits **above** the rust-PTY adapter. That is defensible for *this* Core (it's the platform layer), but it makes the name lie even worse.
+1. **`Core → Pty`** inverts the documented "Core is cross-platform pure / Pty is OS-specific" stack. Today, `NovaTerminal.Core` (which contains SSH transport, OpenSSH bridge, native interop) sits **above** the rust-PTY adapter. That is defensible for *this* Core (it's the platform layer), but it makes the name lie even worse.
 2. **`Pty → VT, Replay`** violates the documented invariant "PTY layer never interprets VT / Bytes delivered verbatim." `ITerminalSession` defines `AttachBuffer(TerminalBuffer)` and `StartRecording(path)` — so the session is responsible for plumbing bytes into the parser *and* writing recordings. That belongs in an orchestration layer, not the PTY adapter.
 3. **`Replay → VT`** is fine, but combined with `Pty → Replay → VT` it means a session, a recorder, and a parser are all in the same dependency cluster with no seam. There's nowhere to mock the parser to test the recorder, or vice versa.
 4. **No "Engine" or "Session" assembly**. The thing that owns "bytes-in → parsed → buffer mutated → snapshot out" is split across `Pty.RustPtySession`, `VT.AnsiParser`, `VT.TerminalBuffer`, and `App.Core.SessionManager`/`App.Core.TerminalView`. There is no single module representing a terminal session as a unit.
@@ -97,8 +97,8 @@ public interface ITerminalSession : IDisposable {
 ## F. Solution and test-project hygiene
 
 1. **`NovaTerminal.sln` is missing two real projects:** `src/NovaTerminal.Conformance` and `tests/NovaTerminal.ExternalSuites` exist on disk but are not in the sln. They won't be built or tested by IDE-driven workflows; they get built only if someone references them directly.
-2. **Two xUnit majors in one sln:** `NovaTerminal.Tests` uses `xunit.v3 3.2.2`; `NovaTerminal.Platform.Tests` uses `xunit 2.9.3`. Different attribute models, different runner contracts, different fact/theory semantics. One should be picked.
-3. **Test-name vs. test-content mismatch:** `NovaTerminal.Tests` references `App` + `Cli` + `Conformance` — i.e. it's an *App* integration suite. `NovaTerminal.Platform.Tests` references `Core` + `Conformance` — Core unit suite. Either rename `NovaTerminal.Tests` → `NovaTerminal.App.Tests`, or align naming per-assembly (`*.VT.Tests`, `*.Rendering.Tests` are missing entirely).
+2. **Two xUnit majors in one sln:** `NovaTerminal.Tests` uses `xunit.v3 3.2.2`; `NovaTerminal.Core.Tests` uses `xunit 2.9.3`. Different attribute models, different runner contracts, different fact/theory semantics. One should be picked.
+3. **Test-name vs. test-content mismatch:** `NovaTerminal.Tests` references `App` + `Cli` + `Conformance` — i.e. it's an *App* integration suite. `NovaTerminal.Core.Tests` references `Core` + `Conformance` — Core unit suite. Either rename `NovaTerminal.Tests` → `NovaTerminal.App.Tests`, or align naming per-assembly (`*.VT.Tests`, `*.Rendering.Tests` are missing entirely).
 4. **No `*.VT.Tests` or `*.Rendering.Tests` projects.** The single most important assembly (the parser/buffer in VT) is tested only indirectly through `NovaTerminal.Tests` which transitively pulls in Avalonia, Skia, and the rust PTY. There is no thin unit-test project for VT alone — meaning a tiny parser change rebuilds the world.
 5. **No central package management.** No `Directory.Packages.props`. Versions are duplicated (e.g. `SkiaSharp` is `3.116.1` in `Rendering` but `3.119.4-preview.1.1` in `App` — different majors of skia loaded depending on entry point; if both are loaded, undefined behavior).
 6. **`Directory.Build.props` is nearly empty** (just version + `UseSharedCompilation=false`). No common LangVersion pin, no `TreatWarningsAsErrors`, no analyzer/style enforcement, no nullable defaults centralized (each csproj repeats them). This is where layering rules could be encoded via NetArchTest or `BannedSymbols`.
@@ -119,7 +119,7 @@ The deeper issue: a CLI shim shouldn't reference a WinExe/Avalonia app. The real
 
 - No `ProjectReference` (it's a standalone `OutputType=Exe`).
 - Not in the `.sln`.
-- Yet `NovaTerminal.Tests` and `NovaTerminal.Platform.Tests` both reference it as a project dep. So it's a build-time tool with no clear ownership, and the architecture doc treats it as a peer of the libraries.
+- Yet `NovaTerminal.Tests` and `NovaTerminal.Core.Tests` both reference it as a project dep. So it's a build-time tool with no clear ownership, and the architecture doc treats it as a peer of the libraries.
 - Either it should be inside the sln (so the IDE/test runners can discover it) or be relocated under `tools/` to signal it's a developer tool, not a library.
 
 ## I. Missing modules that the codebase has *grown* but never created
@@ -143,4 +143,4 @@ Based on code distribution and folder structure, the following are de facto modu
 
 ## Most concentrated risk
 
-If I had to point at one thing: **the namespace collapse (section B/C)**. As long as VT, Core, Pty, Rendering, and Replay all live in `namespace NovaTerminal.Platform`, no automated rule can enforce layering — every type in every assembly looks the same to a `using` statement, and refactors silently move types across assembly lines. Until namespaces match assemblies, every other finding here will keep regressing.
+If I had to point at one thing: **the namespace collapse (section B/C)**. As long as VT, Core, Pty, Rendering, and Replay all live in `namespace NovaTerminal.Core`, no automated rule can enforce layering — every type in every assembly looks the same to a `using` statement, and refactors silently move types across assembly lines. Until namespaces match assemblies, every other finding here will keep regressing.

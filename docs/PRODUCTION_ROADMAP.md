@@ -120,7 +120,7 @@ gantt
 - ⬇️ ~100 call sites to update. Mechanical but tedious
 - ⚠️ Must not regress color fidelity (ensure lossless roundtrip)
 
-**Exit criteria**: `NovaTerminal.Platform` namespace compiles without `using Avalonia.Media` (except `TerminalView` and `TerminalDrawOperation` which remain in the renderer layer).
+**Exit criteria**: `NovaTerminal.Core` namespace compiles without `using Avalonia.Media` (except `TerminalView` and `TerminalDrawOperation` which remain in the renderer layer).
 
 ---
 

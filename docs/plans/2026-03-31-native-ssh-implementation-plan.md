@@ -14,27 +14,27 @@
 
 - Do not create a new top-level `native/` tree. Put the new crate at `src/NovaTerminal.App/native/rusty_ssh/` and build/copy it alongside the existing `rusty_pty` crate.
 - Do not push native SSH through `RustPtySession`. `NativeSshSession` should implement `ITerminalSession` directly.
-- Do not put Avalonia dialog types into `NovaTerminal.Platform`. Core should expose small interaction request/response contracts; App should implement them.
+- Do not put Avalonia dialog types into `NovaTerminal.Core`. Core should expose small interaction request/response contracts; App should implement them.
 - Do not change VT parsing or rendering code unless a bug proves it is necessary.
 
 ### Task 1: Backend Split Foundation (PR1)
 
 **Files:**
-- Create: `src/NovaTerminal.Platform/Ssh/Models/SshBackendKind.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Sessions/ISshSessionFactory.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Sessions/OpenSshSession.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Transport/IRemoteTerminalTransport.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Storage/JsonSshProfileStore.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Storage/SshJsonContext.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Models/SshBackendKind.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Sessions/ISshSessionFactory.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Sessions/OpenSshSession.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Transport/IRemoteTerminalTransport.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Storage/JsonSshProfileStore.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Storage/SshJsonContext.cs`
 - Modify: `src/NovaTerminal.App/Core/TerminalProfile.cs`
 - Modify: `src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs`
 - Modify: `src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs`
 - Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/SshSessionFactoryTests.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/JsonSshProfileStoreTests.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/SshSessionFactoryTests.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/JsonSshProfileStoreTests.cs`
 - Test: `tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs`
 - Test: `tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs`
 
@@ -49,8 +49,8 @@ Add tests that assert:
 **Step 2: Run tests to verify failure**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~JsonSshProfileStoreTests"`
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~SshSessionFactoryTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~JsonSshProfileStoreTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~SshSessionFactoryTests"`
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~SshConnectionServiceTests|FullyQualifiedName~NewSshConnectionViewModelTests"`
 
 Expected: FAIL because backend selection does not exist yet.
@@ -70,7 +70,7 @@ Implement:
 **Step 4: Run tests to verify pass**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~JsonSshProfileStoreTests|FullyQualifiedName~SshSessionFactoryTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~JsonSshProfileStoreTests|FullyQualifiedName~SshSessionFactoryTests"`
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~SshConnectionServiceTests|FullyQualifiedName~NewSshConnectionViewModelTests"`
 
 Expected: PASS and existing SSH launch behavior remains OpenSSH-backed.
@@ -78,21 +78,21 @@ Expected: PASS and existing SSH launch behavior remains OpenSSH-backed.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Models/SshBackendKind.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/ISshSessionFactory.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/OpenSshSession.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs \
-        src/NovaTerminal.Platform/Ssh/Transport/IRemoteTerminalTransport.cs \
-        src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs \
-        src/NovaTerminal.Platform/Ssh/Storage/JsonSshProfileStore.cs \
-        src/NovaTerminal.Platform/Ssh/Storage/SshJsonContext.cs \
+git add src/NovaTerminal.Core/Ssh/Models/SshBackendKind.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/ISshSessionFactory.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/OpenSshSession.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs \
+        src/NovaTerminal.Core/Ssh/Transport/IRemoteTerminalTransport.cs \
+        src/NovaTerminal.Core/Ssh/Models/SshProfile.cs \
+        src/NovaTerminal.Core/Ssh/Storage/JsonSshProfileStore.cs \
+        src/NovaTerminal.Core/Ssh/Storage/SshJsonContext.cs \
         src/NovaTerminal.App/Core/TerminalProfile.cs \
         src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs \
         src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs \
         src/NovaTerminal.App/Controls/TerminalPane.axaml.cs \
-        tests/NovaTerminal.Platform.Tests/Ssh/SshSessionFactoryTests.cs \
-        tests/NovaTerminal.Platform.Tests/Ssh/JsonSshProfileStoreTests.cs \
+        tests/NovaTerminal.Core.Tests/Ssh/SshSessionFactoryTests.cs \
+        tests/NovaTerminal.Core.Tests/Ssh/JsonSshProfileStoreTests.cs \
         tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs \
         tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs
 git commit -m "Split SSH backends behind a factory"
@@ -168,13 +168,13 @@ git commit -m "Add native SSH Rust spike with poll-based ABI"
 ### Task 3: Native SSH Session Wrapper (PR3)
 
 **Files:**
-- Create: `src/NovaTerminal.Platform/Ssh/Native/INativeSshInterop.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Native/NativeSshEvent.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Native/NativeSshConnectionOptions.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSessionTests.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/NativeSshEvent.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/NativeSshConnectionOptions.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs`
 
 **Step 1: Write failing tests for the C# wrapper session lifecycle**
 
@@ -190,7 +190,7 @@ Use a fake `INativeSshInterop` in tests; do not depend on live Rust/DLL loading 
 **Step 2: Run tests to verify failure**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"`
 
 Expected: FAIL because the wrapper session and interop abstraction do not exist yet.
 
@@ -209,30 +209,30 @@ Implement:
 **Step 4: Run tests to verify pass**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests|FullyQualifiedName~SshSessionFactoryTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests|FullyQualifiedName~SshSessionFactoryTests"`
 
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/INativeSshInterop.cs \
-        src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs \
-        src/NovaTerminal.Platform/Ssh/Native/NativeSshEvent.cs \
-        src/NovaTerminal.Platform/Ssh/Native/NativeSshConnectionOptions.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs \
-        tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSessionTests.cs
+git add src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs \
+        src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs \
+        src/NovaTerminal.Core/Ssh/Native/NativeSshEvent.cs \
+        src/NovaTerminal.Core/Ssh/Native/NativeSshConnectionOptions.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs \
+        tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs
 git commit -m "Wrap native SSH crate behind NativeSshSession"
 ```
 
 ### Task 4: SSH Interaction UX Service (PR4)
 
 **Files:**
-- Create: `src/NovaTerminal.Platform/Ssh/Interactions/SshInteractionKind.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Interactions/SshInteractionRequest.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Interactions/SshInteractionResponse.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Interactions/ISshInteractionHandler.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Interactions/SshInteractionKind.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Interactions/SshInteractionRequest.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Interactions/SshInteractionResponse.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Interactions/ISshInteractionHandler.cs`
 - Create: `src/NovaTerminal.App/Services/Ssh/ISshInteractionService.cs`
 - Create: `src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs`
 - Create: `src/NovaTerminal.App/ViewModels/Ssh/HostKeyPromptViewModel.cs`
@@ -241,10 +241,10 @@ git commit -m "Wrap native SSH crate behind NativeSshSession"
 - Create: `src/NovaTerminal.App/Views/Ssh/HostKeyPromptDialog.axaml.cs`
 - Create: `src/NovaTerminal.App/Views/Ssh/AuthPromptDialog.axaml`
 - Create: `src/NovaTerminal.App/Views/Ssh/AuthPromptDialog.axaml.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
 - Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
 - Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSessionInteractionTests.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionInteractionTests.cs`
 - Test: `tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs`
 
 **Step 1: Write failing tests for request/response prompting**
@@ -257,7 +257,7 @@ Add tests that assert:
 **Step 2: Run tests to verify failure**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionInteractionTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionInteractionTests"`
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~SshInteractionServiceTests"`
 
 Expected: FAIL because the interaction contracts and service do not exist yet.
@@ -278,7 +278,7 @@ Implement:
 **Step 4: Run tests to verify pass**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionInteractionTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionInteractionTests"`
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~SshInteractionServiceTests"`
 
 Expected: PASS.
@@ -286,10 +286,10 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Interactions/SshInteractionKind.cs \
-        src/NovaTerminal.Platform/Ssh/Interactions/SshInteractionRequest.cs \
-        src/NovaTerminal.Platform/Ssh/Interactions/SshInteractionResponse.cs \
-        src/NovaTerminal.Platform/Ssh/Interactions/ISshInteractionHandler.cs \
+git add src/NovaTerminal.Core/Ssh/Interactions/SshInteractionKind.cs \
+        src/NovaTerminal.Core/Ssh/Interactions/SshInteractionRequest.cs \
+        src/NovaTerminal.Core/Ssh/Interactions/SshInteractionResponse.cs \
+        src/NovaTerminal.Core/Ssh/Interactions/ISshInteractionHandler.cs \
         src/NovaTerminal.App/Services/Ssh/ISshInteractionService.cs \
         src/NovaTerminal.App/Services/Ssh/SshInteractionService.cs \
         src/NovaTerminal.App/ViewModels/Ssh/HostKeyPromptViewModel.cs \
@@ -298,10 +298,10 @@ git add src/NovaTerminal.Platform/Ssh/Interactions/SshInteractionKind.cs \
         src/NovaTerminal.App/Views/Ssh/HostKeyPromptDialog.axaml.cs \
         src/NovaTerminal.App/Views/Ssh/AuthPromptDialog.axaml \
         src/NovaTerminal.App/Views/Ssh/AuthPromptDialog.axaml.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs \
         src/NovaTerminal.App/Controls/TerminalPane.axaml.cs \
         src/NovaTerminal.App/MainWindow.axaml.cs \
-        tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSessionInteractionTests.cs \
+        tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionInteractionTests.cs \
         tests/NovaTerminal.Tests/Ssh/SshInteractionServiceTests.cs
 git commit -m "Add native SSH interaction service and dialogs"
 ```
@@ -309,14 +309,14 @@ git commit -m "Add native SSH interaction service and dialogs"
 ### Task 5: Known Hosts And Backend-Safe Persistence (PR5)
 
 **Files:**
-- Create: `src/NovaTerminal.Platform/Ssh/Native/KnownHostEntry.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Native/HostKeyFingerprintFormatter.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Native/NativeKnownHostsStore.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/KnownHostEntry.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/HostKeyFingerprintFormatter.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/NativeKnownHostsStore.cs`
 - Modify: `src/NovaTerminal.App/Core/AppPaths.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Storage/JsonSshProfileStore.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Storage/SshJsonContext.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Storage/JsonSshProfileStore.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Storage/SshJsonContext.cs`
 - Modify: `src/NovaTerminal.App/Core/SessionManager.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeKnownHostsStoreTests.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeKnownHostsStoreTests.cs`
 - Test: `tests/NovaTerminal.Tests/Core/AppPathsTests.cs`
 
 **Step 1: Write failing tests for trust persistence and restore behavior**
@@ -331,7 +331,7 @@ Add tests that assert:
 **Step 2: Run tests to verify failure**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeKnownHostsStoreTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeKnownHostsStoreTests"`
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~AppPathsTests|FullyQualifiedName~SessionManager"`
 
 Expected: FAIL because native known-hosts storage does not exist yet.
@@ -348,7 +348,7 @@ Implement:
 **Step 4: Run tests to verify pass**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeKnownHostsStoreTests|FullyQualifiedName~JsonSshProfileStoreTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeKnownHostsStoreTests|FullyQualifiedName~JsonSshProfileStoreTests"`
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~AppPathsTests"`
 
 Expected: PASS.
@@ -356,14 +356,14 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/KnownHostEntry.cs \
-        src/NovaTerminal.Platform/Ssh/Native/HostKeyFingerprintFormatter.cs \
-        src/NovaTerminal.Platform/Ssh/Native/NativeKnownHostsStore.cs \
+git add src/NovaTerminal.Core/Ssh/Native/KnownHostEntry.cs \
+        src/NovaTerminal.Core/Ssh/Native/HostKeyFingerprintFormatter.cs \
+        src/NovaTerminal.Core/Ssh/Native/NativeKnownHostsStore.cs \
         src/NovaTerminal.App/Core/AppPaths.cs \
-        src/NovaTerminal.Platform/Ssh/Storage/JsonSshProfileStore.cs \
-        src/NovaTerminal.Platform/Ssh/Storage/SshJsonContext.cs \
+        src/NovaTerminal.Core/Ssh/Storage/JsonSshProfileStore.cs \
+        src/NovaTerminal.Core/Ssh/Storage/SshJsonContext.cs \
         src/NovaTerminal.App/Core/SessionManager.cs \
-        tests/NovaTerminal.Platform.Tests/Ssh/NativeKnownHostsStoreTests.cs \
+        tests/NovaTerminal.Core.Tests/Ssh/NativeKnownHostsStoreTests.cs \
         tests/NovaTerminal.Tests/Core/AppPathsTests.cs
 git commit -m "Persist native SSH host trust and backend restore state"
 ```
@@ -371,11 +371,11 @@ git commit -m "Persist native SSH host trust and backend restore state"
 ### Task 6: Local Port Forwarding Parity (PR6)
 
 **Files:**
-- Create: `src/NovaTerminal.Platform/Ssh/Native/NativePortForwardSession.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Transport/PortForwardModels.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/NativePortForwardSession.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Transport/PortForwardModels.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
 - Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativePortForwardSessionTests.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativePortForwardSessionTests.cs`
 
 **Step 1: Write failing tests for forward lifecycle**
 
@@ -388,7 +388,7 @@ Add tests that assert:
 **Step 2: Run tests to verify failure**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"`
 
 Expected: FAIL because native forwarding orchestration does not exist yet.
 
@@ -405,7 +405,7 @@ Implement:
 **Step 4: Run tests to verify pass**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativePortForwardSessionTests"`
 - `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml --release`
 
 Expected: PASS.
@@ -413,23 +413,23 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/NativePortForwardSession.cs \
-        src/NovaTerminal.Platform/Ssh/Transport/PortForwardModels.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs \
+git add src/NovaTerminal.Core/Ssh/Native/NativePortForwardSession.cs \
+        src/NovaTerminal.Core/Ssh/Transport/PortForwardModels.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs \
         src/NovaTerminal.App/native/rusty_ssh/src/lib.rs \
-        tests/NovaTerminal.Platform.Tests/Ssh/NativePortForwardSessionTests.cs
+        tests/NovaTerminal.Core.Tests/Ssh/NativePortForwardSessionTests.cs
 git commit -m "Add native SSH local port forwarding"
 ```
 
 ### Task 7: Jump Host Support (PR7)
 
 **Files:**
-- Create: `src/NovaTerminal.Platform/Ssh/Native/JumpHostConnectPlan.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Native/NativeJumpHostConnector.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/JumpHostConnectPlan.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/NativeJumpHostConnector.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs`
 - Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/JumpHostConnectPlanTests.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/JumpHostConnectPlanTests.cs`
 
 **Step 1: Write failing tests for one-hop jump planning**
 
@@ -441,7 +441,7 @@ Add tests that assert:
 **Step 2: Run tests to verify failure**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~JumpHostConnectPlanTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~JumpHostConnectPlanTests"`
 
 Expected: FAIL because native jump-host planning does not exist yet.
 
@@ -456,7 +456,7 @@ Implement:
 **Step 4: Run tests to verify pass**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~JumpHostConnectPlanTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~JumpHostConnectPlanTests"`
 - `cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml --release`
 
 Expected: PASS.
@@ -464,28 +464,28 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/JumpHostConnectPlan.cs \
-        src/NovaTerminal.Platform/Ssh/Native/NativeJumpHostConnector.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs \
+git add src/NovaTerminal.Core/Ssh/Native/JumpHostConnectPlan.cs \
+        src/NovaTerminal.Core/Ssh/Native/NativeJumpHostConnector.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs \
         src/NovaTerminal.App/native/rusty_ssh/src/lib.rs \
-        tests/NovaTerminal.Platform.Tests/Ssh/JumpHostConnectPlanTests.cs
+        tests/NovaTerminal.Core.Tests/Ssh/JumpHostConnectPlanTests.cs
 git commit -m "Add one-hop jump host support for native SSH"
 ```
 
 ### Task 8: Hardening, Diagnostics, And Rollout Controls (PR8)
 
 **Files:**
-- Create: `src/NovaTerminal.Platform/Ssh/Native/NativeSshMetrics.cs`
-- Create: `src/NovaTerminal.Platform/Ssh/Native/NativeSshFailureClassifier.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/NativeSshMetrics.cs`
+- Create: `src/NovaTerminal.Core/Ssh/Native/NativeSshFailureClassifier.cs`
 - Modify: `src/NovaTerminal.App/Core/TerminalSettings.cs`
 - Modify: `src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs`
 - Modify: `src/NovaTerminal.App/Views/Ssh/NewSshConnectionView.axaml`
 - Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
 - Modify: `src/NovaTerminal.App/MainWindow.axaml.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs`
-- Modify: `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
-- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshFailureClassifierTests.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs`
+- Modify: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshFailureClassifierTests.cs`
 - Test: `tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs`
 
 **Step 1: Write failing tests for backend selection and rollout gating**
@@ -498,7 +498,7 @@ Add tests that assert:
 **Step 2: Run tests to verify failure**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshFailureClassifierTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshFailureClassifierTests"`
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~NewSshConnectionViewModelTests"`
 
 Expected: FAIL because backend selector, gating, and classifier do not exist yet.
@@ -522,7 +522,7 @@ Implement:
 **Step 4: Run tests to verify pass**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshFailureClassifierTests|FullyQualifiedName~NativeSshSessionTests"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshFailureClassifierTests|FullyQualifiedName~NativeSshSessionTests"`
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~NewSshConnectionViewModelTests|FullyQualifiedName~SshConnectionServiceTests"`
 
 Expected: PASS.
@@ -530,16 +530,16 @@ Expected: PASS.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Platform/Ssh/Native/NativeSshMetrics.cs \
-        src/NovaTerminal.Platform/Ssh/Native/NativeSshFailureClassifier.cs \
+git add src/NovaTerminal.Core/Ssh/Native/NativeSshMetrics.cs \
+        src/NovaTerminal.Core/Ssh/Native/NativeSshFailureClassifier.cs \
         src/NovaTerminal.App/Core/TerminalSettings.cs \
         src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs \
         src/NovaTerminal.App/Views/Ssh/NewSshConnectionView.axaml \
         src/NovaTerminal.App/Controls/TerminalPane.axaml.cs \
         src/NovaTerminal.App/MainWindow.axaml.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs \
-        src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs \
-        tests/NovaTerminal.Platform.Tests/Ssh/NativeSshFailureClassifierTests.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs \
+        src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs \
+        tests/NovaTerminal.Core.Tests/Ssh/NativeSshFailureClassifierTests.cs \
         tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs
 git commit -m "Add native SSH rollout controls and diagnostics"
 ```
@@ -549,12 +549,12 @@ git commit -m "Add native SSH rollout controls and diagnostics"
 **Files:**
 - Modify: `docs/SSH_ROADMAP.md`
 - Create: `docs/native-ssh/Native_SSH_Test_Matrix.md`
-- Verify only: `src/NovaTerminal.Platform/Ssh/**`, `src/NovaTerminal.App/Views/Ssh/**`, `src/NovaTerminal.App/native/rusty_ssh/**`
+- Verify only: `src/NovaTerminal.Core/Ssh/**`, `src/NovaTerminal.App/Views/Ssh/**`, `src/NovaTerminal.App/native/rusty_ssh/**`
 
 **Step 1: Run focused .NET SSH suites**
 
 Run:
-- `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"`
+- `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"`
 - `dotnet test tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"`
 
 Expected: PASS.

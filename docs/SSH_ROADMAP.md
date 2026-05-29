@@ -73,7 +73,7 @@ _Preserved for context. All items below are shipped._
 
 **Outcome:** Create a profile and connect via OpenSSH reliably.
 
-- `NovaTerminal.Platform.Ssh` project/module
+- `NovaTerminal.Core.Ssh` project/module
 - Domain models: `SshProfile`, `PortForward`, `SshJumpHop`, `SshMuxOptions`
 - `ISshProfileStore` with JSON persistence + schema version
 - `SshSession` implements `ITerminalSession` (spawns `ssh` in PTY)

@@ -1,7 +1,7 @@
 # Pack P2 — File Ownership Fence (Snapshot Export)
 
 ## Allowed
-- `src/NovaTerminal.Platform/**` (snapshot model + serialization only)
+- `src/NovaTerminal.Core/**` (snapshot model + serialization only)
 - `src/NovaTerminal.Rendering/**` (PNG render/export path only)
 - `src/NovaTerminal.Cli/**` OR `src/NovaTerminal.App/**` (pick ONE minimal trigger surface)
 - `tests/**`
