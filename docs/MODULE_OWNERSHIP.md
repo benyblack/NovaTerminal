@@ -59,7 +59,7 @@ invariant changes.
 - Snapshot format is forward-compatible within v2
 
 **Test authority**
-- `tests/NovaTerminal.Core.Tests/Replay/`
+- `tests/NovaTerminal.Platform.Tests/Replay/`
 - `tests/NovaTerminal.App.Tests/ReplayTests/`
 - `tests/NovaTerminal.App.Tests/Regressions/` (Midnight Commander, regression suite)
 
@@ -117,9 +117,9 @@ invariant changes.
 
 ---
 
-## NovaTerminal.Core (`src/NovaTerminal.Core/`)
+## NovaTerminal.Platform (`src/NovaTerminal.Platform/`)
 
-**Namespace:** `NovaTerminal.Core` (+ `.Input`, `.Paths`, `.Process`, `.Execution`, plus the SSH sub-tree)
+**Namespace:** `NovaTerminal.Platform` (+ `.Input`, `.Paths`, `.Process`, `.Execution`, plus the SSH sub-tree)
 **Depends on:** Pty
 **Public surface:** `TerminalInputSender`, path mappers, process abstractions, the SSH stack (`Ssh/{Interactions,Launch,Models,Native,OpenSsh,Sessions,Storage,Transport}`)
 
@@ -136,8 +136,8 @@ invariant changes.
 - SSH transports must satisfy `IRemoteTerminalTransport` so all SSH session implementations are interchangeable
 
 **Test authority**
-- Primary: `tests/NovaTerminal.Core.Tests/`
-- Docker-gated E2E: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs` (skipped without Docker)
+- Primary: `tests/NovaTerminal.Platform.Tests/`
+- Docker-gated E2E: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs` (skipped without Docker)
 - App-side integration: `tests/NovaTerminal.App.Tests/Ssh/`, `tests/NovaTerminal.App.Tests/Input/`
 
 ---
@@ -210,7 +210,7 @@ invariant changes.
 - The shipped `vt-conformance-report.json` artifact's `matrixSha256` must match a fresh re-run on `vt_coverage_matrix.md` — verified by `tests/NovaTerminal.App.Tests/VtReportCliTests.ShippedArtifact_MatchesFreshToolOutput`
 
 **Test authority**
-- `tests/NovaTerminal.Core.Tests/Conformance/VtConformanceToolTests.cs`
+- `tests/NovaTerminal.Platform.Tests/Conformance/VtConformanceToolTests.cs`
 - `tests/NovaTerminal.App.Tests/VtReportCliTests.cs`
 
 ---
@@ -225,7 +225,7 @@ invariant changes.
 
 **Own** the fast unit suites for VT and Rendering — designed to run in seconds, no Avalonia in the dependency closure, suitable for tight inner-loop iteration.
 
-### `tests/NovaTerminal.Core.Tests/` + `tests/NovaTerminal.App.Tests/`
+### `tests/NovaTerminal.Platform.Tests/` + `tests/NovaTerminal.App.Tests/`
 
 **Own** integration coverage. Core.Tests is the SSH + platform-utilities suite; App.Tests is the full Avalonia-headless integration suite (replay regressions, golden PNGs, command-assist harnesses, shell-integration tests).
 

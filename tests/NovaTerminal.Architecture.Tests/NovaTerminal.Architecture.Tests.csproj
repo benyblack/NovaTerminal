@@ -20,7 +20,7 @@
     <ProjectReference Include="..\..\src\NovaTerminal.Replay\NovaTerminal.Replay.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Core\NovaTerminal.Core.csproj" />
+    <ProjectReference Include="..\..\src\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Cli\NovaTerminal.Cli.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj" />

@@ -24,7 +24,7 @@ Add a native-SSH-only way to remember a password securely so repeat connections 
 
 ## Existing Context
 
-- The new SSH profile flow is built around `NovaTerminal.Core.Ssh.Models.SshProfile` and `NewSshConnectionViewModel`.
+- The new SSH profile flow is built around `NovaTerminal.Platform.Ssh.Models.SshProfile` and `NewSshConnectionViewModel`.
 - `SshProfile` currently has no password field.
 - `VaultService` already supports storing and resolving SSH passwords by profile id through `GetCanonicalSshProfileKey`, `GetSshPasswordForProfile`, and `SetSshPasswordForProfile`.
 - The native SSH runtime prompt path goes through `SshInteractionService`.

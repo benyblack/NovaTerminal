@@ -26,11 +26,11 @@ Restore VT-correct behavior for native SSH sessions, starting with deterministic
 
 ## Existing Context
 
-- Native SSH does not reuse the PTY session path. It emits terminal output from [NativeSshSession.cs](/d:/projects/nova2/src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs) directly through `OnOutputReceived`.
-- OpenSSH-backed SSH sessions reuse the PTY-backed `ITerminalSession` behavior through [OpenSshSession.cs](/d:/projects/nova2/src/NovaTerminal.Core/Ssh/Sessions/OpenSshSession.cs) and [RustPtySession.cs](/d:/projects/nova2/src/NovaTerminal.Pty/RustPtySession.cs).
+- Native SSH does not reuse the PTY session path. It emits terminal output from [NativeSshSession.cs](/d:/projects/nova2/src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs) directly through `OnOutputReceived`.
+- OpenSSH-backed SSH sessions reuse the PTY-backed `ITerminalSession` behavior through [OpenSshSession.cs](/d:/projects/nova2/src/NovaTerminal.Platform/Ssh/Sessions/OpenSshSession.cs) and [RustPtySession.cs](/d:/projects/nova2/src/NovaTerminal.Pty/RustPtySession.cs).
 - The terminal UI consumes session output by calling `Parser.Process(text)` in [TerminalPane.axaml.cs](/d:/projects/nova2/src/NovaTerminal.App/Controls/TerminalPane.axaml.cs).
 - Existing VT correctness coverage already defines the desired alternate-screen and resize behavior, including [AlternateScreenTests.cs](/d:/projects/nova2/tests/NovaTerminal.Tests/AlternateScreenTests.cs) and [MidnightCommanderTests.cs](/d:/projects/nova2/tests/NovaTerminal.Tests/Regressions/MidnightCommanderTests.cs).
-- Native SSH already has some core tests in [NativeSshSessionTests.cs](/d:/projects/nova2/tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs), including incremental UTF-8 decoding and resize forwarding, but it does not yet pin fullscreen chunking, post-command newline behavior, or non-fatal resize failure semantics.
+- Native SSH already has some core tests in [NativeSshSessionTests.cs](/d:/projects/nova2/tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSessionTests.cs), including incremental UTF-8 decoding and resize forwarding, but it does not yet pin fullscreen chunking, post-command newline behavior, or non-fatal resize failure semantics.
 
 ## Problem
 

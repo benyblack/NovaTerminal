@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using Xunit.Sdk;
 using NovaTerminal.Rendering;

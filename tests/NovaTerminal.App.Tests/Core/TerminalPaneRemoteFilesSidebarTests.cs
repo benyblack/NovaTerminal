@@ -2,9 +2,9 @@ using NovaTerminal.Shell;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Controls;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Platform.Ssh.Models;
 using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;
 

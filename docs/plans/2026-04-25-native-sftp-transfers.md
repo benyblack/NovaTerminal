@@ -69,19 +69,19 @@ git commit -m "build: add native sftp dependency"
 ## Task 2: Define Native Transfer FFI Contract
 
 **Files:**
-- Modify: `src/NovaTerminal.Core/Ssh/Native/INativeSshInterop.cs`
-- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
-- Create: `src/NovaTerminal.Core/Ssh/Native/NativeSftpTransferModels.cs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs`
+- Modify: `src/NovaTerminal.Platform/Ssh/Native/INativeSshInterop.cs`
+- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs`
+- Create: `src/NovaTerminal.Platform/Ssh/Native/NativeSftpTransferModels.cs`
+- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSftpTransferInteropTests.cs`
 
 **Step 1: Write failing model/interop tests**
 
 Create tests for DTO defaults and interop argument validation:
 
 ```csharp
-using NovaTerminal.Core.Ssh.Native;
+using NovaTerminal.Platform.Ssh.Native;
 
-namespace NovaTerminal.Core.Tests.Ssh;
+namespace NovaTerminal.Platform.Tests.Ssh;
 
 public sealed class NativeSftpTransferInteropTests
 {
@@ -101,7 +101,7 @@ Run:
 
 ```powershell
 $env:SKIP_RUST_NATIVE_BUILD='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests" --no-restore -m:1
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpPlan --filter "FullyQualifiedName~NativeSftpTransferInteropTests" --no-restore -m:1
 ```
 
 Expected: compile failure because the model does not exist.
@@ -111,7 +111,7 @@ Expected: compile failure because the model does not exist.
 Create `NativeSftpTransferModels.cs`:
 
 ```csharp
-namespace NovaTerminal.Core.Ssh.Native;
+namespace NovaTerminal.Platform.Ssh.Native;
 
 public enum NativeSftpTransferDirection
 {
@@ -194,7 +194,7 @@ Expected: tests compile/pass.
 **Step 8: Commit**
 
 ```powershell
-git add src/NovaTerminal.Core/Ssh/Native tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs
+git add src/NovaTerminal.Platform/Ssh/Native tests/NovaTerminal.Platform.Tests/Ssh/NativeSftpTransferInteropTests.cs
 git commit -m "feat: define native sftp transfer interop contract"
 ```
 
@@ -309,7 +309,7 @@ git commit -m "feat: route native ssh transfers to native sftp backend"
 
 **Files:**
 - Modify: `src/NovaTerminal.App/Core/SftpService.cs`
-- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeJumpHostConnector.cs` if needed
+- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeJumpHostConnector.cs` if needed
 - Test: `tests/NovaTerminal.Tests/Core/SftpServiceTests.cs`
 
 **Step 1: Write failing options test**
@@ -355,7 +355,7 @@ Expected: pass.
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/Core/SftpService.cs src/NovaTerminal.Core/Ssh/Native/NativeJumpHostConnector.cs tests/NovaTerminal.Tests/Core/SftpServiceTests.cs
+git add src/NovaTerminal.App/Core/SftpService.cs src/NovaTerminal.Platform/Ssh/Native/NativeJumpHostConnector.cs tests/NovaTerminal.Tests/Core/SftpServiceTests.cs
 git commit -m "feat: build native transfer connection options"
 ```
 
@@ -363,8 +363,8 @@ git commit -m "feat: build native transfer connection options"
 
 **Files:**
 - Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs`
+- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs`
+- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSftpTransferInteropTests.cs`
 
 **Step 1: Write failing interop call test with fake invalid args**
 
@@ -424,7 +424,7 @@ Expected: validation tests pass; not-implemented test can assert clear `NotImple
 **Step 7: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSftpTransferInteropTests.cs
+git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSftpTransferInteropTests.cs
 git commit -m "feat: add native sftp ffi skeleton"
 ```
 
@@ -432,8 +432,8 @@ git commit -m "feat: add native sftp ffi skeleton"
 
 **Files:**
 - Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Modify: `src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs`
+- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Add Docker E2E failing test**
 
@@ -496,7 +496,7 @@ Expected: pass.
 **Step 6: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.Core/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
+git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs src/NovaTerminal.Platform/Ssh/Native/NativeSshInterop.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs
 git commit -m "feat: support native sftp file download"
 ```
 
@@ -504,7 +504,7 @@ git commit -m "feat: support native sftp file download"
 
 **Files:**
 - Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Add failing upload E2E test**
 
@@ -531,7 +531,7 @@ Expected: pass.
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
+git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs
 git commit -m "feat: support native sftp file upload"
 ```
 
@@ -611,7 +611,7 @@ git commit -m "feat: wire native sftp transfers into service"
 
 **Files:**
 - Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Add failing directory download test**
 
@@ -644,7 +644,7 @@ Expected: pass.
 **Step 5: Commit**
 
 ```powershell
-git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
+git add src/NovaTerminal.App/native/rusty_ssh/src/lib.rs tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs
 git commit -m "feat: support native sftp directory transfers"
 ```
 
@@ -654,7 +654,7 @@ git commit -m "feat: support native sftp directory transfers"
 - Modify: `src/NovaTerminal.App/Core/SftpService.cs`
 - Modify: `src/NovaTerminal.App/native/rusty_ssh/src/lib.rs`
 - Test: `tests/NovaTerminal.Tests/Core/SftpServiceTests.cs`
-- Test: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Test: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
 
 **Step 1: Add cancellation tests at service level**
 
@@ -765,7 +765,7 @@ Run:
 ```powershell
 $env:SKIP_RUST_NATIVE_BUILD='1'
 dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c NativeSftpFinal --filter "FullyQualifiedName~SftpServiceTests" --no-restore -p:SkipCliShim=true -m:1
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpFinal --filter "FullyQualifiedName~NativeSftp|FullyQualifiedName~NativeSshDockerE2eTests" --no-restore -m:1
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpFinal --filter "FullyQualifiedName~NativeSftp|FullyQualifiedName~NativeSshDockerE2eTests" --no-restore -m:1
 ```
 
 Expected: all focused tests pass.
@@ -790,7 +790,7 @@ Before claiming completion:
 ```powershell
 $env:SKIP_RUST_NATIVE_BUILD='1'
 dotnet test tests\NovaTerminal.Tests\NovaTerminal.Tests.csproj -c NativeSftpFinal --no-restore -p:SkipCliShim=true -m:1
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c NativeSftpFinal --no-restore -m:1
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c NativeSftpFinal --no-restore -m:1
 ```
 
 Expected: all tests pass, or any unrelated failures are documented with exact test names and failure messages.

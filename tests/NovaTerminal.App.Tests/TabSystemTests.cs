@@ -1,6 +1,6 @@
 using NovaTerminal.Shell;
 using System.Linq;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests;

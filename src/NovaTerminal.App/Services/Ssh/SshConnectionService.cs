@@ -2,12 +2,12 @@ using NovaTerminal.Shell;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Launch;
-using NovaTerminal.Core.Ssh.Models;
-using NovaTerminal.Core.Ssh.OpenSsh;
-using NovaTerminal.Core.Ssh.Storage;
+using NovaTerminal.Platform.Ssh.Launch;
+using NovaTerminal.Platform.Ssh.Models;
+using NovaTerminal.Platform.Ssh.OpenSsh;
+using NovaTerminal.Platform.Ssh.Storage;
 using NovaTerminal.ViewModels.Ssh;
 
 namespace NovaTerminal.Services.Ssh;

@@ -1,5 +1,5 @@
 using Avalonia.Media;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.Shell

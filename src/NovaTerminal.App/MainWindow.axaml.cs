@@ -7,7 +7,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.VisualTree;
 using Avalonia.Controls.Presenters;
 using NovaTerminal.Shell;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Rendering;
 using System;
@@ -28,7 +28,7 @@ using NovaTerminal.Pty;
 
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
-using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Platform.Ssh.Launch;
 using NovaTerminal.Shell.Shortcuts;
 using NovaTerminal.Models;
 using NovaTerminal.ViewModels.Ssh;
@@ -3745,7 +3745,7 @@ namespace NovaTerminal
                     {
                         // Normalize line endings to avoid double newlines on paste
                         _currentPane.NotifyCommandAssistPaste(text);
-                        text = NovaTerminal.Core.Input.TerminalInputSender.PreparePaste(
+                        text = NovaTerminal.Platform.Input.TerminalInputSender.PreparePaste(
                             text,
                             _currentPane.Buffer?.Modes.IsBracketedPasteMode == true);
 
@@ -4619,7 +4619,7 @@ namespace NovaTerminal
         private async Task ShowNewSshConnectionDialogAsync(TerminalProfile? existingProfile)
         {
             var vm = _sshConnectionService.CreateEditorViewModel(existingProfile);
-            vm.BackendKind ??= NovaTerminal.Core.Ssh.Models.SshBackendKind.OpenSsh;
+            vm.BackendKind ??= NovaTerminal.Platform.Ssh.Models.SshBackendKind.OpenSsh;
             vm.ExperimentalNativeSshEnabled = _settings.ExperimentalNativeSshEnabled;
             var dialog = new NewSshConnectionView(vm);
             ApplyThemeToDialogWindow(dialog);
@@ -4639,7 +4639,7 @@ namespace NovaTerminal
 
                 if (vm.ConnectAfterSave)
                 {
-                    if (profile.SshBackendKind == NovaTerminal.Core.Ssh.Models.SshBackendKind.Native &&
+                    if (profile.SshBackendKind == NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native &&
                         !_settings.ExperimentalNativeSshEnabled)
                     {
                         await ShowSimpleMessageDialogAsync(

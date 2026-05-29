@@ -258,23 +258,23 @@ Proposed file / module map
 
 ### Core / services
 
--   `src/NovaTerminal.Core/Input/DropRouter.cs`
+-   `src/NovaTerminal.Platform/Input/DropRouter.cs`
 
--   `src/NovaTerminal.Core/Input/TerminalInputSender.cs` (writes to PTY)
+-   `src/NovaTerminal.Platform/Input/TerminalInputSender.cs` (writes to PTY)
 
--   `src/NovaTerminal.Core/Sessions/SessionContext.cs`
+-   `src/NovaTerminal.Platform/Sessions/SessionContext.cs`
 
--   `src/NovaTerminal.Core/Shell/IShellQuoter.cs`
+-   `src/NovaTerminal.Platform/Shell/IShellQuoter.cs`
 
--   `src/NovaTerminal.Core/Shell/PwshQuoter.cs`
+-   `src/NovaTerminal.Platform/Shell/PwshQuoter.cs`
 
--   `src/NovaTerminal.Core/Shell/CmdQuoter.cs`
+-   `src/NovaTerminal.Platform/Shell/CmdQuoter.cs`
 
--   `src/NovaTerminal.Core/Shell/PosixShQuoter.cs`
+-   `src/NovaTerminal.Platform/Shell/PosixShQuoter.cs`
 
--   `src/NovaTerminal.Core/VT/TerminalModes.cs` (or wherever ECHO mode is tracked)
+-   `src/NovaTerminal.Platform/VT/TerminalModes.cs` (or wherever ECHO mode is tracked)
 
--   `src/NovaTerminal.Core/UI/ToastService.cs` (or existing notification mechanism)
+-   `src/NovaTerminal.Platform/UI/ToastService.cs` (or existing notification mechanism)
 
 ### Tests
 
@@ -435,17 +435,17 @@ Suggested code structure
 
 ### Core
 
--   `src/NovaTerminal.Core/Paths/IPathMapper.cs`
+-   `src/NovaTerminal.Platform/Paths/IPathMapper.cs`
 
--   `src/NovaTerminal.Core/Paths/IdentityPathMapper.cs`
+-   `src/NovaTerminal.Platform/Paths/IdentityPathMapper.cs`
 
--   `src/NovaTerminal.Core/Paths/WslPathMapper.cs`
+-   `src/NovaTerminal.Platform/Paths/WslPathMapper.cs`
 
--   `src/NovaTerminal.Core/Paths/WslPathMapperCache.cs` (or internal LRU)
+-   `src/NovaTerminal.Platform/Paths/WslPathMapperCache.cs` (or internal LRU)
 
--   `src/NovaTerminal.Core/Process/IProcessRunner.cs` (abstract spawning)
+-   `src/NovaTerminal.Platform/Process/IProcessRunner.cs` (abstract spawning)
 
--   `src/NovaTerminal.Core/Sessions/SessionContext.cs` (add `WslDistroName?`)
+-   `src/NovaTerminal.Platform/Sessions/SessionContext.cs` (add `WslDistroName?`)
 
 ### DropRouter change
 

@@ -14,7 +14,7 @@ Split the current single-project structure into:
 
 ## Critical Constraints
 1) Preserve existing behavior (no feature removals).
-2) Keep namespaces stable at first if that reduces churn (it’s fine if file namespaces remain NovaTerminal.Core initially).
+2) Keep namespaces stable at first if that reduces churn (it’s fine if file namespaces remain NovaTerminal.Platform initially).
 3) Enforce dependency DAG:
    - VT has no dependency on App/Rendering/Pty/Replay.
    - Rendering depends on VT only.
@@ -160,7 +160,7 @@ Build.
 
 ## Step 7 — Fix Namespaces + Internals (Churn Control)
 After everything compiles:
-- Decide whether to keep legacy namespaces (NovaTerminal.Core.*) or rename to NovaTerminal.VT / Rendering / Pty / Replay gradually.
+- Decide whether to keep legacy namespaces (NovaTerminal.Platform.*) or rename to NovaTerminal.VT / Rendering / Pty / Replay gradually.
 - Avoid huge rename diffs in this refactor; only do minimal changes needed.
 
 Where needed, add `InternalsVisibleTo` to allow tests access to VT internals without exposing too much public API.

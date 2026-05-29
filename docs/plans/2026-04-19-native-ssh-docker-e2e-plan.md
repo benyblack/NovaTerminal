@@ -59,7 +59,7 @@ git commit -m "Add Docker SSH fixture for native end-to-end tests"
 ### Task 2: Add a live native SSH interaction handler for test auth flow
 
 **Files:**
-- Create: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTestInteractionHandler.cs`
+- Create: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTestInteractionHandler.cs`
 
 **Step 1: Write the failing test seam**
 
@@ -73,7 +73,7 @@ Add a small interaction handler suitable for tests that:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSsh"
+dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSsh"
 ```
 
 Expected: the helper does not exist yet.
@@ -89,15 +89,15 @@ Run the same command and confirm the new helper compiles cleanly with the native
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Core.Tests/Ssh/NativeSshTestInteractionHandler.cs
+git add tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTestInteractionHandler.cs
 git commit -m "Add native SSH test interaction handler"
 ```
 
 ### Task 3: Add the first live Docker end-to-end native SSH test
 
 **Files:**
-- Create: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
-- Modify: `tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj` if any package/reference/category metadata is needed
+- Create: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj` if any package/reference/category metadata is needed
 
 **Step 1: Write the failing test**
 
@@ -116,7 +116,7 @@ Add a test that:
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
+dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
 ```
 
 Expected: FAIL because the live lane is not wired yet or the fixture is incomplete.
@@ -138,14 +138,14 @@ Run the same command and confirm the live Docker test passes when Docker is avai
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj
+git add tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj
 git commit -m "Add live Docker native SSH end-to-end test"
 ```
 
 ### Task 4: Add clean gating for Docker-capable CI
 
 **Files:**
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
 - Modify: CI configuration only if needed later
 
 **Step 1: Write the failing gating expectation**
@@ -169,7 +169,7 @@ Prefer an explicit skip path with a clear reason over hidden silent pass behavio
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
+dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
 ```
 
 Expected:
@@ -179,7 +179,7 @@ Expected:
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs
+git add tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs
 git commit -m "Gate live Docker native SSH tests for CI"
 ```
 
@@ -194,7 +194,7 @@ git commit -m "Gate live Docker native SSH tests for CI"
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
+dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
 ```
 
 Expected: PASS.
@@ -204,7 +204,7 @@ Expected: PASS.
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
+dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
 ```
 
 Expected: PASS when Docker is available and the gate is enabled.

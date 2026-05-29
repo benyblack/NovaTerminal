@@ -52,7 +52,7 @@ Implement support for:
 - matching views/dialogs
 
 ### Suggested files to modify
-- `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+- `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
 - `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`
 - dialog host / main window wiring as needed
 
@@ -95,16 +95,16 @@ Implement:
 - preserve backend on session restore
 
 ### Suggested files to add
-- `src/NovaTerminal.Core/Ssh/Native/NativeKnownHostsStore.cs`
-- `src/NovaTerminal.Core/Ssh/Native/HostKeyFingerprintFormatter.cs`
-- `src/NovaTerminal.Core/Ssh/Native/KnownHostEntry.cs` (optional)
+- `src/NovaTerminal.Platform/Ssh/Native/NativeKnownHostsStore.cs`
+- `src/NovaTerminal.Platform/Ssh/Native/HostKeyFingerprintFormatter.cs`
+- `src/NovaTerminal.Platform/Ssh/Native/KnownHostEntry.cs` (optional)
 - tests for known host matching and mismatch
 
 ### Suggested files to modify
-- `src/NovaTerminal.Core/Ssh/Storage/JsonSshProfileStore.cs`
-- `src/NovaTerminal.Core/Ssh/Storage/SshJsonContext.cs`
+- `src/NovaTerminal.Platform/Ssh/Storage/JsonSshProfileStore.cs`
+- `src/NovaTerminal.Platform/Ssh/Storage/SshJsonContext.cs`
 - `src/NovaTerminal.App/Core/SessionManager.cs`
-- `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs` if migration or metadata is needed
+- `src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs` if migration or metadata is needed
 
 ## Acceptance criteria
 - Trusted native hosts are remembered across app restarts.
@@ -142,13 +142,13 @@ Implement:
 - safe teardown on disconnect or close
 
 ### Suggested files to add
-- `src/NovaTerminal.Core/Ssh/Native/NativePortForwardSession.cs`
-- `src/NovaTerminal.Core/Ssh/Transport/PortForwardModels.cs` if needed
+- `src/NovaTerminal.Platform/Ssh/Native/NativePortForwardSession.cs`
+- `src/NovaTerminal.Platform/Ssh/Transport/PortForwardModels.cs` if needed
 - tests or harness support for forward setup validation
 
 ### Suggested files to modify
-- `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
-- `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs` only if required
+- `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
+- `src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs` only if required
 - Rust crate in `native/rusty_ssh/` to support direct-tcpip or equivalent forwarding channels
 
 ## Acceptance criteria
@@ -184,14 +184,14 @@ Implement first:
 - clear error/fallback messaging
 
 ### Suggested files to add
-- `src/NovaTerminal.Core/Ssh/Native/NativeJumpHostConnector.cs`
-- `src/NovaTerminal.Core/Ssh/Native/JumpHostConnectPlan.cs`
+- `src/NovaTerminal.Platform/Ssh/Native/NativeJumpHostConnector.cs`
+- `src/NovaTerminal.Platform/Ssh/Native/JumpHostConnectPlan.cs`
 - tests around profile translation to jump-host connect plan
 
 ### Suggested files to modify
-- `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
-- `src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs`
-- `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs` only if native-specific metadata is required
+- `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
+- `src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs`
+- `src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs` only if native-specific metadata is required
 - Rust crate in `native/rusty_ssh/` for tunneled/chained connection support
 
 ## Acceptance criteria
@@ -228,8 +228,8 @@ Implement:
 - clear fallback path to OpenSSH
 
 ### Suggested files to add
-- `src/NovaTerminal.Core/Ssh/Native/NativeSshMetrics.cs`
-- `src/NovaTerminal.Core/Ssh/Native/NativeSshFailureClassifier.cs`
+- `src/NovaTerminal.Platform/Ssh/Native/NativeSshMetrics.cs`
+- `src/NovaTerminal.Platform/Ssh/Native/NativeSshFailureClassifier.cs`
 - optional settings model additions
 - optional diagnostics view model / UI elements
 
@@ -237,8 +237,8 @@ Implement:
 - `src/NovaTerminal.App/ViewModels/Ssh/*`
 - `src/NovaTerminal.App/Views/Ssh/*`
 - `src/NovaTerminal.App/SettingsWindow*` or equivalent
-- `src/NovaTerminal.Core/Ssh/Sessions/SshSessionFactory.cs`
-- `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+- `src/NovaTerminal.Platform/Ssh/Sessions/SshSessionFactory.cs`
+- `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
 
 ## Suggested metrics
 - connect latency

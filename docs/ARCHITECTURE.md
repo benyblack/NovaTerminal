@@ -43,7 +43,7 @@ Concretely, from the `.csproj` graph:
 | `NovaTerminal.Replay` | VT | Session recording/playback, snapshots, replay format v2 |
 | `NovaTerminal.Rendering` | VT, SkiaSharp | Skia glyph atlas/cache, pixel grid, sixel decoder |
 | `NovaTerminal.Pty` | Replay | PTY transport: rust-PTY adapter, session contracts. **Does not depend on VT** — see arch test `Pty_must_not_depend_on_Vt` |
-| `NovaTerminal.Core` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
+| `NovaTerminal.Platform` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
 | `NovaTerminal.App` | Core, VT, Rendering, Pty, Replay | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist |
 | `NovaTerminal.Cli` | App | Headless CLI shim (`vt-report` etc.) |
 | `NovaTerminal.Conformance` | (standalone Exe) | VT conformance matrix tool used by tests and CI |
@@ -142,9 +142,9 @@ Native OS integration via the Rust PTY library (`rusty_pty.dll`/`.so`/`.dylib`).
 
 ---
 
-## 7. Platform / SSH — `NovaTerminal.Core`
+## 7. Platform / SSH — `NovaTerminal.Platform`
 
-Despite the name, this is **not** the terminal engine. It's a platform-utilities library: input routing (`Input/`), path mapping (`Paths/WslPathMapper`), the SSH stack (`Ssh/{Native,OpenSsh,Sessions,Storage,Transport}`), and the credential vault. The name is a historical artifact — the original "Core" was renamed to `NovaTerminal.VT` during the namespace alignment work; renaming `NovaTerminal.Core` itself is a planned follow-up.
+Despite the name, this is **not** the terminal engine. It's a platform-utilities library: input routing (`Input/`), path mapping (`Paths/WslPathMapper`), the SSH stack (`Ssh/{Native,OpenSsh,Sessions,Storage,Transport}`), and the credential vault. The name is a historical artifact — the original "Core" was renamed to `NovaTerminal.VT` during the namespace alignment work; renaming `NovaTerminal.Platform` itself is a planned follow-up.
 
 This is also where session-orchestration helpers (such as a future `SessionBufferBinder`) belong.
 
@@ -238,7 +238,7 @@ Adding a new layering invariant means adding a new fact. Reverting one of these 
 |---|---|
 | `NovaTerminal.VT.Tests` | Fast unit suite for parser/buffer in isolation (no Avalonia, no Skia) |
 | `NovaTerminal.Rendering.Tests` | Skia primitives that don't need a GPU context |
-| `NovaTerminal.Core.Tests` | Platform utilities + SSH; includes Docker-gated E2E (skipped without Docker) |
+| `NovaTerminal.Platform.Tests` | Platform utilities + SSH; includes Docker-gated E2E (skipped without Docker) |
 | `NovaTerminal.App.Tests` | App-level integration — Avalonia-headless tests, replay regressions, golden PNG comparisons, command-assist |
 | `NovaTerminal.Architecture.Tests` | Layering and namespace rules (Section 12) |
 | `NovaTerminal.Benchmarks` | BenchmarkDotNet perf benchmarks (Exe, not auto-discovered by `dotnet test`) |
@@ -256,7 +256,7 @@ These are tracked in follow-up plans under `docs/plans/`:
 - **SSH is fragmented across Core and App.** `Core/Ssh/` holds the transport, while `App/Services/Ssh/`, `App/ViewModels/Ssh/`, `App/Views/Ssh/`, and `App/Core/{SftpService,VaultService,SshAskPassCommand}.cs` hold the user-facing surface. A `NovaTerminal.Ssh` (or `.Remote`) assembly would consolidate the non-UI portion.
 - **CommandAssist** has its own Application/Domain/Storage layering inside `App/CommandAssist/`. Candidate for `NovaTerminal.CommandAssist` extraction.
 - **CLI ↔ App reference direction.** `Cli` currently references `App` and is built via a nested MSBuild target (`BuildCliShim` in `App.csproj`). A `NovaTerminal.Bootstrap` library should mediate so `Cli → Bootstrap ← App` replaces `Cli → App`.
-- **`NovaTerminal.Core` name.** The assembly is platform/SSH utilities; the name "Core" comes from the era when this project held the terminal engine. Rename to `NovaTerminal.Platform` (or split) is a one-shot find-replace.
+- **`NovaTerminal.Platform` name.** The assembly is platform/SSH utilities; the name "Core" comes from the era when this project held the terminal engine. Rename to `NovaTerminal.Platform` (or split) is a one-shot find-replace.
 - **Byte vs string at the PTY boundary.** `ITerminalIO.SendInput(string)` and `OnOutputReceived(Action<string>)` lose information at the byte-vs-codepoint boundary (UTF-8 split across reads, embedded NULs, lone surrogates). Migrating to `ReadOnlySpan<byte>` / `Action<ReadOnlyMemory<byte>>` is the planned follow-up to Phase 5.
 - **Buffer-snapshot recording.** Phase 5 removed `ITerminalSession.AttachBuffer` / `TakeSnapshot`. The byte-stream is still recorded; buffer snapshots at recording start/stop are gone. Re-introducing them as an orchestration helper (likely in `Replay` or `Core`) is a small follow-up.
 - **`MainWindow.axaml.cs` is 5,259 LOC, `TerminalPane.axaml.cs` 2,572 LOC, `SettingsWindow.axaml.cs` 1,672 LOC.** These code-behinds contain business logic that should live in services and view-models.

@@ -2,7 +2,7 @@ using NovaTerminal.Shell;
 using Avalonia;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Rendering;
 using SkiaSharp;

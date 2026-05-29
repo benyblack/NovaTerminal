@@ -2,7 +2,7 @@ using NovaTerminal.Shell;
 using System;
 using Xunit;
 using SkiaSharp;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Rendering;
 

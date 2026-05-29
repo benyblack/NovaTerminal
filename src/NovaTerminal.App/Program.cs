@@ -2,7 +2,7 @@ using NovaTerminal.Shell;
 using Avalonia;
 using Avalonia.Media;
 using System;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal;

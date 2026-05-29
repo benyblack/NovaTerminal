@@ -1,7 +1,7 @@
 using NovaTerminal.Shell;
 using System;
 using Xunit;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using Avalonia.Media;
 

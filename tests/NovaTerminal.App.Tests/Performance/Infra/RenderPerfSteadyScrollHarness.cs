@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using Avalonia;
 using Avalonia.Media;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using SkiaSharp;
 using Xunit.Sdk;

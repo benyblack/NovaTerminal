@@ -10,8 +10,8 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
-using NovaTerminal.Core.Ssh.Launch;
-using NovaTerminal.Core.Ssh.Native;
+using NovaTerminal.Platform.Ssh.Launch;
+using NovaTerminal.Platform.Ssh.Native;
 using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Shell
@@ -421,7 +421,7 @@ namespace NovaTerminal.Shell
         {
             ArgumentNullException.ThrowIfNull(profile);
 
-            return profile.SshBackendKind == NovaTerminal.Core.Ssh.Models.SshBackendKind.Native
+            return profile.SshBackendKind == NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native
                 ? SftpTransferBackend.NativeSftp
                 : SftpTransferBackend.ExternalScp;
         }
@@ -640,7 +640,7 @@ namespace NovaTerminal.Shell
                 KnownHostsFilePath = effectiveKnownHostsPath,
                 JumpHost = baseOptions.JumpHost == null
                     ? null
-                    : new NovaTerminal.Core.Ssh.Models.SshJumpHop
+                    : new NovaTerminal.Platform.Ssh.Models.SshJumpHop
                     {
                         Host = baseOptions.JumpHost.Host,
                         User = baseOptions.JumpHost.User,

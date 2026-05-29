@@ -23,7 +23,7 @@
 **Step 1: Write the failing test**
 
 ```csharp
-using NovaTerminal.Core.Shortcuts;
+using NovaTerminal.Platform.Shortcuts;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -61,7 +61,7 @@ Expected: FAIL because the shortcut domain classes and resolver do not exist yet
 **Step 3: Write minimal implementation**
 
 ```csharp
-namespace NovaTerminal.Core.Shortcuts;
+namespace NovaTerminal.Platform.Shortcuts;
 
 public enum ShortcutScope
 {
@@ -144,7 +144,7 @@ git commit -m "feat: add shared shortcut binding resolver"
 **Step 1: Write the failing test**
 
 ```csharp
-using NovaTerminal.Core.Shortcuts;
+using NovaTerminal.Platform.Shortcuts;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -171,7 +171,7 @@ Expected: FAIL because the catalog does not exist and `CommandRegistry` does not
 **Step 3: Write minimal implementation**
 
 ```csharp
-namespace NovaTerminal.Core.Shortcuts;
+namespace NovaTerminal.Platform.Shortcuts;
 
 public static class ShortcutCatalog
 {
@@ -229,7 +229,7 @@ git commit -m "feat: add bindable shortcut catalog"
 **Step 1: Write the failing test**
 
 ```csharp
-using NovaTerminal.Core.Shortcuts;
+using NovaTerminal.Platform.Shortcuts;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -315,7 +315,7 @@ git commit -m "feat: persist command palette usage"
 ```csharp
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -398,8 +398,8 @@ git commit -m "feat: route shortcuts through shared catalog"
 **Step 1: Write the failing test**
 
 ```csharp
-using NovaTerminal.Core;
-using NovaTerminal.Core.Shortcuts;
+using NovaTerminal.Platform;
+using NovaTerminal.Platform.Shortcuts;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -485,7 +485,7 @@ git commit -m "feat: rank command palette by persisted usage"
 
 ```csharp
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 
 namespace NovaTerminal.Tests.Core;
 

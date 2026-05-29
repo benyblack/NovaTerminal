@@ -98,13 +98,13 @@ Affected files (verified during review):
 - `src/NovaTerminal.App/NovaTerminal.App.csproj` — Avalonia*, AvaloniaUI.DiagnosticsSupport, SkiaSharp*, System.Security.Cryptography.ProtectedData
 - `src/NovaTerminal.Rendering/NovaTerminal.Rendering.csproj` — SkiaSharp, SkiaSharp.HarfBuzz
 - `tests/NovaTerminal.Tests/NovaTerminal.Tests.csproj` — Avalonia.Headless.XUnit, coverlet.collector, Microsoft.NET.Test.Sdk, Moq, xunit.v3, xunit.runner.visualstudio
-- `tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj` — same set but currently pinned to xunit 2.9.3
+- `tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj` — same set but currently pinned to xunit 2.9.3
 - `tests/NovaTerminal.Benchmarks/NovaTerminal.Benchmarks.csproj` — inspect and update
 - `tests/NovaTerminal.ExternalSuites/NovaTerminal.ExternalSuites.csproj` — inspect and update
 
-- [ ] **Step 3: Change `NovaTerminal.Core.Tests` to use xunit.v3**
+- [ ] **Step 3: Change `NovaTerminal.Platform.Tests` to use xunit.v3**
 
-Edit `tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj`. Replace:
+Edit `tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj`. Replace:
 
 ```xml
 <PackageReference Include="xunit" />
@@ -119,7 +119,7 @@ with:
 If any test file imports `Xunit.Sdk` or uses `[Theory(Skip=...)]` quirks that changed in v3, fix them now. Run:
 
 ```powershell
-scripts/build.ps1 build tests/NovaTerminal.Core.Tests
+scripts/build.ps1 build tests/NovaTerminal.Platform.Tests
 ```
 
 Expected: build succeeds. If it doesn't, the compile errors point at the v2→v3 API drift. Common fixes documented at https://xunit.net/docs/getting-started/v3/migration.
@@ -311,7 +311,7 @@ This is the single most leverage-dense phase. After it lands, no PR can re-intro
     <ProjectReference Include="..\..\src\NovaTerminal.Replay\NovaTerminal.Replay.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
-    <ProjectReference Include="..\..\src\NovaTerminal.Core\NovaTerminal.Core.csproj" />
+    <ProjectReference Include="..\..\src\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Cli\NovaTerminal.Cli.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj" />
@@ -329,11 +329,11 @@ namespace NovaTerminal.Architecture.Tests;
 
 public class LayeringTests
 {
-    private static Assembly Vt        => typeof(global::NovaTerminal.Core.AnsiParser).Assembly; // namespace fixed in Phase 3
-    private static Assembly Replay    => typeof(global::NovaTerminal.Core.Replay.ReplayReader).Assembly;
-    private static Assembly Rendering => typeof(global::NovaTerminal.Core.GlyphAtlas).Assembly;
-    private static Assembly Pty       => typeof(global::NovaTerminal.Core.ITerminalSession).Assembly;
-    private static Assembly Core      => typeof(global::NovaTerminal.Core.Input.TerminalInputSender).Assembly;
+    private static Assembly Vt        => typeof(global::NovaTerminal.Platform.AnsiParser).Assembly; // namespace fixed in Phase 3
+    private static Assembly Replay    => typeof(global::NovaTerminal.Platform.Replay.ReplayReader).Assembly;
+    private static Assembly Rendering => typeof(global::NovaTerminal.Platform.GlyphAtlas).Assembly;
+    private static Assembly Pty       => typeof(global::NovaTerminal.Platform.ITerminalSession).Assembly;
+    private static Assembly Core      => typeof(global::NovaTerminal.Platform.Input.TerminalInputSender).Assembly;
 
     [Fact]
     public void Vt_must_be_a_leaf_assembly()
@@ -344,7 +344,7 @@ public class LayeringTests
                 "NovaTerminal.Replay",
                 "NovaTerminal.Rendering",
                 "NovaTerminal.Pty",
-                "NovaTerminal.Core",
+                "NovaTerminal.Platform",
                 "NovaTerminal.App",
                 "Avalonia",
                 "SkiaSharp")
@@ -362,7 +362,7 @@ public class LayeringTests
             .NotHaveDependencyOnAny(
                 "NovaTerminal.Replay",
                 "NovaTerminal.Pty",
-                "NovaTerminal.Core",
+                "NovaTerminal.Platform",
                 "NovaTerminal.App",
                 "Avalonia")
             .GetResult();
@@ -379,7 +379,7 @@ public class LayeringTests
             .NotHaveDependencyOnAny(
                 "NovaTerminal.Rendering",
                 "NovaTerminal.Pty",
-                "NovaTerminal.Core",
+                "NovaTerminal.Platform",
                 "NovaTerminal.App",
                 "Avalonia",
                 "SkiaSharp")
@@ -437,7 +437,7 @@ namespace NovaTerminal.Architecture.Tests;
 
 /// <summary>
 /// Each production assembly should put its types in a namespace that matches its assembly name.
-/// Today, 5 of 6 production assemblies all use "NovaTerminal.Core" as their root namespace.
+/// Today, 5 of 6 production assemblies all use "NovaTerminal.Platform" as their root namespace.
 /// Phase 3 fixes this one assembly at a time.
 /// </summary>
 public class NamespaceAlignmentTests
@@ -534,8 +534,8 @@ git commit -m "test: add NetArchTest scaffold with current violations captured a
 **Procedure for every sub-phase:**
 
 1. Enumerate the namespace declarations in the target assembly (`grep -rn '^namespace ' src/NovaTerminal.<X>`).
-2. Map old → new (`NovaTerminal.Core` → `NovaTerminal.<X>`, sub-namespaces preserved).
-3. Do a project-scoped find-replace on `namespace ` declarations and any explicit cross-references (`using NovaTerminal.Core.<Sub>;` referring to the renamed sub-namespace).
+2. Map old → new (`NovaTerminal.Platform` → `NovaTerminal.<X>`, sub-namespaces preserved).
+3. Do a project-scoped find-replace on `namespace ` declarations and any explicit cross-references (`using NovaTerminal.Platform.<Sub>;` referring to the renamed sub-namespace).
 4. In every *consumer* project, add `using NovaTerminal.<X>;` (or fully qualify) where compile errors appear.
 5. Build solution.
 6. Run all tests.
@@ -545,7 +545,7 @@ git commit -m "test: add NetArchTest scaffold with current violations captured a
 
 The find-replace is mechanical but huge. Use one IDE refactor per sub-phase to keep the diff reviewable.
 
-### Task 3.1 — Rename VT namespace (`NovaTerminal.Core` → `NovaTerminal.VT`)
+### Task 3.1 — Rename VT namespace (`NovaTerminal.Platform` → `NovaTerminal.VT`)
 
 **Files:**
 - Modify: every `*.cs` under `src/NovaTerminal.VT/`
@@ -564,25 +564,25 @@ Get-ChildItem -Recurse -Path src/NovaTerminal.VT -Filter *.cs `
 Expected output (from the review):
 
 ```
-namespace NovaTerminal.Core
-namespace NovaTerminal.Core.Export
-namespace NovaTerminal.Core.Replay
-namespace NovaTerminal.Core.Storage
-namespace NovaTerminal.Core;
+namespace NovaTerminal.Platform
+namespace NovaTerminal.Platform.Export
+namespace NovaTerminal.Platform.Replay
+namespace NovaTerminal.Platform.Storage
+namespace NovaTerminal.Platform;
 ```
 
 Mapping:
 
 | Old | New |
 |---|---|
-| `NovaTerminal.Core` | `NovaTerminal.VT` |
-| `NovaTerminal.Core.Export` | `NovaTerminal.VT.Export` |
-| `NovaTerminal.Core.Storage` | `NovaTerminal.VT.Storage` |
-| `NovaTerminal.Core.Replay` (when *defined* in VT) | **stays as `NovaTerminal.Core.Replay`** — see step 2 |
+| `NovaTerminal.Platform` | `NovaTerminal.VT` |
+| `NovaTerminal.Platform.Export` | `NovaTerminal.VT.Export` |
+| `NovaTerminal.Platform.Storage` | `NovaTerminal.VT.Storage` |
+| `NovaTerminal.Platform.Replay` (when *defined* in VT) | **stays as `NovaTerminal.Platform.Replay`** — see step 2 |
 
-- [ ] **Step 2: Handle the `NovaTerminal.Core.Replay` ambiguity first**
+- [ ] **Step 2: Handle the `NovaTerminal.Platform.Replay` ambiguity first**
 
-Both the VT project and the Replay project declare types in `NovaTerminal.Core.Replay`. **Find which types are in which.**
+Both the VT project and the Replay project declare types in `NovaTerminal.Platform.Replay`. **Find which types are in which.**
 
 ```powershell
 Get-ChildItem -Recurse -Path src/NovaTerminal.VT -Filter *.cs | `
@@ -595,18 +595,18 @@ Get-ChildItem -Recurse -Path src/NovaTerminal.Replay -Filter *.cs | `
 
 Inspect each file. Types that *describe* a replay (snapshot models, replay-formatted data) belong in the **Replay** namespace. Types that are general buffer state happen to be used during replay belong in **VT**.
 
-In VT: rename the namespace of any `NovaTerminal.Core.Replay`-namespaced file to `NovaTerminal.VT` (if it's general-purpose) or `NovaTerminal.VT.Replay` (if it's specifically replay-shaped data owned by VT). Document the call in the commit message.
+In VT: rename the namespace of any `NovaTerminal.Platform.Replay`-namespaced file to `NovaTerminal.VT` (if it's general-purpose) or `NovaTerminal.VT.Replay` (if it's specifically replay-shaped data owned by VT). Document the call in the commit message.
 
 In Replay (Task 3.2 territory, but flagged now to plan): files there will become `NovaTerminal.Replay`.
 
 - [ ] **Step 3: Rename namespaces in VT files**
 
 For every `.cs` under `src/NovaTerminal.VT/`:
-- `namespace NovaTerminal.Core` → `namespace NovaTerminal.VT`
-- `namespace NovaTerminal.Core;` → `namespace NovaTerminal.VT;`
-- `namespace NovaTerminal.Core.Export` → `namespace NovaTerminal.VT.Export`
-- `namespace NovaTerminal.Core.Storage` → `namespace NovaTerminal.VT.Storage`
-- `namespace NovaTerminal.Core.Replay` (in VT) → `namespace NovaTerminal.VT` or `namespace NovaTerminal.VT.Replay` per step 2
+- `namespace NovaTerminal.Platform` → `namespace NovaTerminal.VT`
+- `namespace NovaTerminal.Platform;` → `namespace NovaTerminal.VT;`
+- `namespace NovaTerminal.Platform.Export` → `namespace NovaTerminal.VT.Export`
+- `namespace NovaTerminal.Platform.Storage` → `namespace NovaTerminal.VT.Storage`
+- `namespace NovaTerminal.Platform.Replay` (in VT) → `namespace NovaTerminal.VT` or `namespace NovaTerminal.VT.Replay` per step 2
 
 A safe approach: use the IDE's "rename namespace" refactor, file by file. Avoid global sed — it will catch namespace strings inside string literals (replay format strings, log messages) and break them.
 
@@ -626,7 +626,7 @@ scripts/build.ps1 build NovaTerminal.sln
 
 Expected: many errors of the form `The type or namespace 'TerminalBuffer' could not be found`. For each file flagged, add `using NovaTerminal.VT;` (and `using NovaTerminal.VT.Export;` / `.Storage;` as appropriate).
 
-Do **not** remove existing `using NovaTerminal.Core;` lines yet — other assemblies still use that namespace until later sub-phases.
+Do **not** remove existing `using NovaTerminal.Platform;` lines yet — other assemblies still use that namespace until later sub-phases.
 
 - [ ] **Step 6: Run all tests**
 
@@ -650,16 +650,16 @@ Expected: passes.
 
 ```powershell
 git add src/NovaTerminal.VT/ src/**/*.cs tests/**/*.cs tests/NovaTerminal.Architecture.Tests/
-git commit -m "refactor(vt): align namespace to assembly (NovaTerminal.Core -> NovaTerminal.VT)"
+git commit -m "refactor(vt): align namespace to assembly (NovaTerminal.Platform -> NovaTerminal.VT)"
 ```
 
-### Task 3.2 — Rename Replay namespace (`NovaTerminal.Core.Replay` → `NovaTerminal.Replay`)
+### Task 3.2 — Rename Replay namespace (`NovaTerminal.Platform.Replay` → `NovaTerminal.Replay`)
 
 Same procedure as Task 3.1, scoped to `src/NovaTerminal.Replay/`. Mapping:
 
 | Old | New |
 |---|---|
-| `NovaTerminal.Core.Replay` (defined in Replay project only) | `NovaTerminal.Replay` |
+| `NovaTerminal.Platform.Replay` (defined in Replay project only) | `NovaTerminal.Replay` |
 
 - [ ] **Step 1: Confirm no other namespace patterns exist in Replay**
 
@@ -668,11 +668,11 @@ Get-ChildItem -Recurse -Path src/NovaTerminal.Replay -Filter *.cs | `
   Select-String -Pattern '^namespace ' | Select-Object -ExpandProperty Line | Sort-Object -Unique
 ```
 
-Expected (per review): only `namespace NovaTerminal.Core.Replay`.
+Expected (per review): only `namespace NovaTerminal.Platform.Replay`.
 
 - [ ] **Step 2: Rename namespace declarations**
 
-`namespace NovaTerminal.Core.Replay` → `namespace NovaTerminal.Replay`.
+`namespace NovaTerminal.Platform.Replay` → `namespace NovaTerminal.Replay`.
 
 - [ ] **Step 3: Build and fix consumer `using` errors**
 
@@ -702,14 +702,14 @@ Expected: passes.
 
 ```powershell
 git add src/NovaTerminal.Replay/ src/**/*.cs tests/**/*.cs tests/NovaTerminal.Architecture.Tests/
-git commit -m "refactor(replay): align namespace to assembly (NovaTerminal.Core.Replay -> NovaTerminal.Replay)"
+git commit -m "refactor(replay): align namespace to assembly (NovaTerminal.Platform.Replay -> NovaTerminal.Replay)"
 ```
 
-### Task 3.3 — Rename Rendering namespace (`NovaTerminal.Core` → `NovaTerminal.Rendering`)
+### Task 3.3 — Rename Rendering namespace (`NovaTerminal.Platform` → `NovaTerminal.Rendering`)
 
-Same procedure. Per review, every file in `src/NovaTerminal.Rendering/` uses `namespace NovaTerminal.Core`.
+Same procedure. Per review, every file in `src/NovaTerminal.Rendering/` uses `namespace NovaTerminal.Platform`.
 
-- [ ] **Step 1: Rename `namespace NovaTerminal.Core` → `namespace NovaTerminal.Rendering` in every file under `src/NovaTerminal.Rendering/`**
+- [ ] **Step 1: Rename `namespace NovaTerminal.Platform` → `namespace NovaTerminal.Rendering` in every file under `src/NovaTerminal.Rendering/`**
 
 - [ ] **Step 2: Build solution, fix consumer `using` errors**
 
@@ -729,17 +729,17 @@ scripts/build.ps1 test
 git commit -m "refactor(rendering): align namespace to assembly"
 ```
 
-### Task 3.4 — Rename Pty namespace (`NovaTerminal.Core` → `NovaTerminal.Pty`)
+### Task 3.4 — Rename Pty namespace (`NovaTerminal.Platform` → `NovaTerminal.Pty`)
 
 Same procedure. Affects 6 files under `src/NovaTerminal.Pty/`.
 
 **Note:** `ITerminalSession.cs` keeps its current shape for now — Phase 5 will redesign the interface. Only the namespace changes here.
 
-- [ ] **Step 1: Rename `namespace NovaTerminal.Core` → `namespace NovaTerminal.Pty` in every file under `src/NovaTerminal.Pty/`**
+- [ ] **Step 1: Rename `namespace NovaTerminal.Platform` → `namespace NovaTerminal.Pty` in every file under `src/NovaTerminal.Pty/`**
 
 - [ ] **Step 2: Build solution, fix consumer `using` errors**
 
-Heavy consumer: `NovaTerminal.Core` (because `Core → Pty`), plus `App`.
+Heavy consumer: `NovaTerminal.Platform` (because `Core → Pty`), plus `App`.
 
 - [ ] **Step 3: Run tests, un-skip Pty namespace test, commit**
 
@@ -747,11 +747,11 @@ Heavy consumer: `NovaTerminal.Core` (because `Core → Pty`), plus `App`.
 git commit -m "refactor(pty): align namespace to assembly"
 ```
 
-### Task 3.5 — Audit `NovaTerminal.Core` namespace
+### Task 3.5 — Audit `NovaTerminal.Platform` namespace
 
-After tasks 3.1–3.4, the only project legitimately using `NovaTerminal.Core` as its namespace is the `NovaTerminal.Core` assembly itself.
+After tasks 3.1–3.4, the only project legitimately using `NovaTerminal.Platform` as its namespace is the `NovaTerminal.Platform` assembly itself.
 
-- [ ] **Step 1: Sanity-check that no other assembly still uses `NovaTerminal.Core`**
+- [ ] **Step 1: Sanity-check that no other assembly still uses `NovaTerminal.Platform`**
 
 ```powershell
 foreach ($p in 'NovaTerminal.VT','NovaTerminal.Replay','NovaTerminal.Rendering','NovaTerminal.Pty') {
@@ -777,11 +777,11 @@ public void Only_the_Core_assembly_uses_NovaTerminal_Core_namespace()
         var result = Types.InAssembly(LoadByName(asmName))
             .That().ArePublic()
             .Should()
-            .NotResideInNamespaceStartingWith("NovaTerminal.Core")
+            .NotResideInNamespaceStartingWith("NovaTerminal.Platform")
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            $"{asmName} must not use NovaTerminal.Core namespace. " +
+            $"{asmName} must not use NovaTerminal.Platform namespace. " +
             $"Offenders: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 }
@@ -1129,7 +1129,7 @@ namespace NovaTerminal.Pty;
 /// New code should depend on the narrowest sub-interface it actually needs
 /// (ITerminalIO, ITerminalLifecycle, ITerminalShellMetadata, ITerminalRecorder).
 /// `AttachBuffer` and `TakeSnapshot` have moved to the orchestration layer
-/// (NovaTerminal.Core's session-wiring code) and are NOT part of this contract.
+/// (NovaTerminal.Platform's session-wiring code) and are NOT part of this contract.
 /// </summary>
 public interface ITerminalSession
     : ITerminalIO, ITerminalLifecycle, ITerminalShellMetadata, ITerminalRecorder
@@ -1204,10 +1204,10 @@ Expected: callers in `App` / `Core` will now break. Fix in the next task.
 
 ### Task 5.3 — Move buffer-wiring out of the session
 
-The deleted `AttachBuffer` / `TakeSnapshot` logic was the seam between bytes and parsed state. It now lives in an *orchestration* layer — `NovaTerminal.Core` (which already references Pty and VT, so this is its natural home).
+The deleted `AttachBuffer` / `TakeSnapshot` logic was the seam between bytes and parsed state. It now lives in an *orchestration* layer — `NovaTerminal.Platform` (which already references Pty and VT, so this is its natural home).
 
 **Files:**
-- Create: `src/NovaTerminal.Core/SessionBufferBinder.cs`
+- Create: `src/NovaTerminal.Platform/SessionBufferBinder.cs`
 - Modify: `src/NovaTerminal.App/Core/SessionManager.cs` (or wherever sessions are instantiated)
 
 - [ ] **Step 1: Create `SessionBufferBinder`**
@@ -1216,7 +1216,7 @@ The deleted `AttachBuffer` / `TakeSnapshot` logic was the seam between bytes and
 using NovaTerminal.Pty;
 using NovaTerminal.VT;
 
-namespace NovaTerminal.Core;
+namespace NovaTerminal.Platform;
 
 /// <summary>
 /// Wires a raw byte session (ITerminalIO) into an AnsiParser/TerminalBuffer pair.
@@ -1320,7 +1320,7 @@ Expected: all pass.
 - [ ] **Step 3: Commit the whole phase as a single coherent change**
 
 ```powershell
-git add src/NovaTerminal.Pty/ src/NovaTerminal.Core/SessionBufferBinder.cs src/NovaTerminal.App/ tests/NovaTerminal.Architecture.Tests/
+git add src/NovaTerminal.Pty/ src/NovaTerminal.Platform/SessionBufferBinder.cs src/NovaTerminal.App/ tests/NovaTerminal.Architecture.Tests/
 git commit -m "refactor(pty): split ITerminalSession; move buffer wiring out of Pty; remove Pty->VT dependency"
 ```
 
@@ -1338,7 +1338,7 @@ git commit -m "refactor(pty): split ITerminalSession; move buffer wiring out of 
 - [ ] **Step 1: Rewrite the layering diagram to match reality**
 
 Replace the 4-layer ASCII diagram with the 8-assembly graph from `README.md` (or update the README's graph if it's stale). Key updates:
-- `NovaTerminal.Core` is a **platform-utilities** library (Input, Paths, Process, SSH), not the terminal engine.
+- `NovaTerminal.Platform` is a **platform-utilities** library (Input, Paths, Process, SSH), not the terminal engine.
 - `NovaTerminal.VT` is the terminal engine (parser + buffer state).
 - `NovaTerminal.Pty` is the byte transport; it no longer interprets VT (post-Phase 5).
 - `NovaTerminal.Rendering` holds Skia primitives; the Avalonia renderer (`TerminalView`, `TerminalDrawOperation`) lives in `App` today and is slated for extraction in a follow-up.
@@ -1428,7 +1428,7 @@ The remaining findings require their own detailed plans. Each is a multi-day eff
 **Plan filename:** `docs/plans/YYYY-MM-DD-ssh-module-extraction-plan.md`
 **Scope:**
 - Create `src/NovaTerminal.Ssh/` (or `.Remote/`).
-- Pull together: `src/NovaTerminal.Core/Ssh/{Interactions,Launch,Models,Native,OpenSsh,Sessions,Storage,Transport}`, `src/NovaTerminal.App/Services/Ssh/`, `src/NovaTerminal.App/Core/{SftpService,VaultService,SshAskPassCommand}.cs`.
+- Pull together: `src/NovaTerminal.Platform/Ssh/{Interactions,Launch,Models,Native,OpenSsh,Sessions,Storage,Transport}`, `src/NovaTerminal.App/Services/Ssh/`, `src/NovaTerminal.App/Core/{SftpService,VaultService,SshAskPassCommand}.cs`.
 - Keep Avalonia/UI types out of this assembly. ViewModels and Views stay in App.
 - The new module references VT for snapshot-related types (SSH session feeds a buffer through the same path) and Pty for `ITerminalIO`/`ITerminalLifecycle`.
 - Add architecture test: `NovaTerminal.Ssh` may not reference `Avalonia`.
@@ -1456,7 +1456,7 @@ The remaining findings require their own detailed plans. Each is a multi-day eff
 ### Phase 11 — Cleanups Roll-up
 **Plan filename:** `docs/plans/YYYY-MM-DD-architecture-cleanups-rollup-plan.md`
 **Scope:**
-- Decide whether `NovaTerminal.Core` should be renamed to `NovaTerminal.Platform` (it's a platform-utilities library, not the terminal core). One-shot find-replace.
+- Decide whether `NovaTerminal.Platform` should be renamed to `NovaTerminal.Platform` (it's a platform-utilities library, not the terminal core). One-shot find-replace.
 - Review `src/NovaTerminal.VT/TerminalBuffer.*.cs` (10 partial files, ~5K LOC) and propose splitting into collaborators (`WritePath`, `ReflowEngine`, `ThreadingAndInvalidation`, `TabStops` are obvious candidates).
 - Decompose the three giant code-behinds: `MainWindow.axaml.cs` (5,259 LOC), `TerminalPane.axaml.cs` (2,572 LOC), `SettingsWindow.axaml.cs` (1,672 LOC) into proper ViewModels + Services. Each likely deserves its own plan.
 - Consolidate `App/Services/` / `App/Models/` / `App/UI/` conventions or collapse the empty subfolders.
@@ -1487,4 +1487,4 @@ The remaining findings require their own detailed plans. Each is a multi-day eff
 
 **Placeholder scan:** No "TBD" / "implement later". Two adapt-to-reality callouts (Task 4.2 step 2 and 4.3 step 2) tell the engineer to match real public APIs rather than invent them — those are signal-generating tests, not placeholders.
 
-**Open question for the executor:** When Phase 3 renames the VT namespace, the `NovaTerminal.Core.Replay` namespace conflict (Task 3.1 step 2) needs a content-driven decision the executor makes by inspecting the files. That's documented in the task; do not skip the inspection.
+**Open question for the executor:** When Phase 3 renames the VT namespace, the `NovaTerminal.Platform.Replay` namespace conflict (Task 3.1 step 2) needs a content-driven decision the executor makes by inspecting the files. That's documented in the task; do not skip the inspection.

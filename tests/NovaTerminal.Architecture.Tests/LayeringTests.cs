@@ -9,7 +9,7 @@ public class LayeringTests
     private static Assembly Replay    => typeof(global::NovaTerminal.Replay.ReplayReader).Assembly;
     private static Assembly Rendering => typeof(global::NovaTerminal.Rendering.GlyphAtlas).Assembly;
     private static Assembly Pty       => typeof(global::NovaTerminal.Pty.ITerminalSession).Assembly;
-    private static Assembly Core      => typeof(global::NovaTerminal.Core.Input.TerminalInputSender).Assembly;
+    private static Assembly Core      => typeof(global::NovaTerminal.Platform.Input.TerminalInputSender).Assembly;
 
     [Fact]
     public void Vt_must_be_a_leaf_assembly()
@@ -20,7 +20,7 @@ public class LayeringTests
                 "NovaTerminal.Replay",
                 "NovaTerminal.Rendering",
                 "NovaTerminal.Pty",
-                "NovaTerminal.Core",
+                "NovaTerminal.Platform",
                 "NovaTerminal.App",
                 "Avalonia",
                 "SkiaSharp")
@@ -38,7 +38,7 @@ public class LayeringTests
             .NotHaveDependencyOnAny(
                 "NovaTerminal.Replay",
                 "NovaTerminal.Pty",
-                "NovaTerminal.Core",
+                "NovaTerminal.Platform",
                 "NovaTerminal.App",
                 "Avalonia")
             .GetResult();
@@ -55,7 +55,7 @@ public class LayeringTests
             .NotHaveDependencyOnAny(
                 "NovaTerminal.Rendering",
                 "NovaTerminal.Pty",
-                "NovaTerminal.Core",
+                "NovaTerminal.Platform",
                 "NovaTerminal.App",
                 "Avalonia",
                 "SkiaSharp")

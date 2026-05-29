@@ -1,5 +1,5 @@
 using NovaTerminal.Shell;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Rendering;
 using System.Threading.Tasks;

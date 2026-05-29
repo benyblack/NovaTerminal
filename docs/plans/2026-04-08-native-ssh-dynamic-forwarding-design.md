@@ -10,7 +10,7 @@ Add native SSH support for dynamic port forwarding (`SOCKS` proxy mode) for dire
 
 - The SSH profile model already supports `PortForwardKind.Dynamic`.
 - OpenSSH already supports dynamic forwarding through argument/config generation.
-- Native SSH explicitly rejects any non-local forward in [NativeSshSession.cs](/d:/projects/nova2/src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs) and [NativePortForwardSession.cs](/d:/projects/nova2/src/NovaTerminal.Core/Ssh/Native/NativePortForwardSession.cs).
+- Native SSH explicitly rejects any non-local forward in [NativeSshSession.cs](/d:/projects/nova2/src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs) and [NativePortForwardSession.cs](/d:/projects/nova2/src/NovaTerminal.Platform/Ssh/Native/NativePortForwardSession.cs).
 - The native Rust crate already supports opening `direct-tcpip` channels, which is sufficient for SOCKS `CONNECT`.
 
 ## Chosen Approach
@@ -52,11 +52,11 @@ That should be tracked explicitly so it is not lost after the first direct-host 
 
 ### Session Layer
 
-[NativeSshSession.cs](/d:/projects/nova2/src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs) should stop rejecting `Dynamic` forwards. It should continue to reject unsupported native forward kinds, which after this change will only be `Remote`.
+[NativeSshSession.cs](/d:/projects/nova2/src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs) should stop rejecting `Dynamic` forwards. It should continue to reject unsupported native forward kinds, which after this change will only be `Remote`.
 
 ### Forwarding Layer
 
-[NativePortForwardSession.cs](/d:/projects/nova2/src/NovaTerminal.Core/Ssh/Native/NativePortForwardSession.cs) becomes the main host for both native forward types:
+[NativePortForwardSession.cs](/d:/projects/nova2/src/NovaTerminal.Platform/Ssh/Native/NativePortForwardSession.cs) becomes the main host for both native forward types:
 
 - `Local`: current fixed-destination listener behavior
 - `Dynamic`: a local SOCKS server that negotiates the target per client connection

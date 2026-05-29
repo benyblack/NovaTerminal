@@ -12,7 +12,7 @@ You may modify **ONLY** the following areas:
 - `src/NovaTerminal.App/Features/**` (registration only)
 
 ## Not Allowed
-- `src/NovaTerminal.Core/**`
+- `src/NovaTerminal.Platform/**`
 - `src/NovaTerminal.Replay/**`
 - Any recording/index format code
 - Any global refactor across many files

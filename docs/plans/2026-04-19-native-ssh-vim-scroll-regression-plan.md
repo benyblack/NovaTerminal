@@ -13,8 +13,8 @@
 ### Task 1: Document the Existing Native SSH and Vim Test Surface
 
 **Files:**
-- Inspect: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
-- Inspect: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
+- Inspect: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Inspect: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs`
 - Inspect: `tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs`
 - Inspect: `tests/NovaTerminal.Tests/AlternateScreenTests.cs`
 - Inspect: `tests/NovaTerminal.Tests/Regressions/MidnightCommanderTests.cs`
@@ -38,7 +38,7 @@ No commit for this inspection-only task.
 ### Task 2: Add a Deterministic Failing Repro for Vim-Style Downward Scroll
 
 **Files:**
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
+- Modify: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs`
 - Reference: `src/NovaTerminal.VT/AnsiParser.cs`
 - Reference: `src/NovaTerminal.VT/TerminalBuffer.WritePath.cs`
 - Reference: `src/NovaTerminal.VT/TerminalBuffer.AccessAndSnapshot.cs`
@@ -59,7 +59,7 @@ The test should:
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
 ```
 
 Expected: the new test fails and reveals whether the VT path already reproduces the bug.
@@ -79,8 +79,8 @@ Do not commit yet. Keep the failing test uncommitted until the fix path is under
 ### Task 3: Decide the Fix Boundary From the Deterministic Result
 
 **Files:**
-- Inspect: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
-- Inspect: `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+- Inspect: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs`
+- Inspect: `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
 - Inspect: `src/NovaTerminal.VT/AnsiParser.cs`
 - Inspect: `src/NovaTerminal.VT/TerminalBuffer.WritePath.cs`
 
@@ -106,10 +106,10 @@ No commit in this analysis task.
 ### Task 4: Add a Live Docker Vim Repro Test
 
 **Files:**
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs`
+- Modify: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs`
 - Modify: `tests/NovaTerminal.ExternalSuites/NativeSsh/Dockerfile` if `vim` is not available
-- Reference: `tests/NovaTerminal.Core.Tests/Ssh/DockerSshFixture.cs`
-- Reference: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTestInteractionHandler.cs`
+- Reference: `tests/NovaTerminal.Platform.Tests/Ssh/DockerSshFixture.cs`
+- Reference: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTestInteractionHandler.cs`
 
 **Step 1: Write the failing live test**
 
@@ -128,7 +128,7 @@ Run:
 
 ```powershell
 $env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests"
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests"
 ```
 
 Expected: the new vim scenario fails before the fix.
@@ -149,7 +149,7 @@ Do not commit yet. The live test should stay part of the red-green cycle.
 
 **Files:**
 - Modify exactly one of:
-  - `src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs`
+  - `src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs`
   - `src/NovaTerminal.VT/AnsiParser.cs`
   - `src/NovaTerminal.VT/TerminalBuffer.WritePath.cs`
   - `src/NovaTerminal.App/Core/TerminalDrawOperation.cs`
@@ -169,7 +169,7 @@ Implement only the minimal code required to make the deterministic and live vim 
 Run:
 
 ```powershell
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshTerminalParityTests"
 ```
 
 Expected: the new vim regression test passes.
@@ -180,7 +180,7 @@ Run:
 
 ```powershell
 $env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests"
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests"
 ```
 
 Expected: the new vim scenario passes.
@@ -188,7 +188,7 @@ Expected: the new vim scenario passes.
 **Step 5: Commit**
 
 ```bash
-git add src/NovaTerminal.Core/Ssh/Sessions/NativeSshSession.cs src/NovaTerminal.VT/AnsiParser.cs src/NovaTerminal.VT/TerminalBuffer.WritePath.cs src/NovaTerminal.App/Core/TerminalDrawOperation.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs tests/NovaTerminal.ExternalSuites/NativeSsh/Dockerfile
+git add src/NovaTerminal.Platform/Ssh/Sessions/NativeSshSession.cs src/NovaTerminal.VT/AnsiParser.cs src/NovaTerminal.VT/TerminalBuffer.WritePath.cs src/NovaTerminal.App/Core/TerminalDrawOperation.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs tests/NovaTerminal.ExternalSuites/NativeSsh/Dockerfile
 git commit -m "fix native ssh vim downward scroll regression"
 ```
 
@@ -203,7 +203,7 @@ Stage only the files actually touched.
 
 ```powershell
 $env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
 ```
 
 Expected: all SSH-focused tests pass.

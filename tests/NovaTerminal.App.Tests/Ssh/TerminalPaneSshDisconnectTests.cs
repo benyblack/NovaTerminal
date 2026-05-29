@@ -1,7 +1,7 @@
 using NovaTerminal.Shell;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Controls;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Pty;
 

@@ -6,7 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using Avalonia.Controls.Presenters;
 using System;
@@ -27,10 +27,10 @@ using NovaTerminal.CommandAssist.ViewModels;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
-using NovaTerminal.Core.Ssh.Launch;
-using NovaTerminal.Core.Ssh.Interactions;
-using NovaTerminal.Core.Ssh.Models;
-using NovaTerminal.Core.Ssh.Sessions;
+using NovaTerminal.Platform.Ssh.Launch;
+using NovaTerminal.Platform.Ssh.Interactions;
+using NovaTerminal.Platform.Ssh.Models;
+using NovaTerminal.Platform.Ssh.Sessions;
 using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.ViewModels.Ssh;
@@ -475,7 +475,7 @@ namespace NovaTerminal.Controls
                     try
                     {
                         string content = await System.IO.File.ReadAllTextAsync(_pendingPasteFilePath);
-                        NovaTerminal.Core.Input.TerminalInputSender.SendBracketedPaste(Session, content);
+                        NovaTerminal.Platform.Input.TerminalInputSender.SendBracketedPaste(Session, content);
                     }
                     catch (Exception ex)
                     {

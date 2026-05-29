@@ -160,7 +160,7 @@ Three decisions, taken in brainstorming:
 ### `StartupOrchestrator` (new — `src/NovaTerminal.App/Core/StartupOrchestrator.cs`)
 
 ```csharp
-namespace NovaTerminal.Core;
+namespace NovaTerminal.Platform;
 
 public sealed class StartupOrchestrator
 {
@@ -216,7 +216,7 @@ Behavior:
 ### `AppServiceBundle` (new — `src/NovaTerminal.App/Core/AppServiceBundle.cs`)
 
 ```csharp
-namespace NovaTerminal.Core;
+namespace NovaTerminal.Platform;
 
 public sealed record AppServiceBundle(StartupOrchestrator Startup);
 ```
@@ -232,7 +232,7 @@ public sealed record AppServiceBundle(
 ### `AppServices` (new — `src/NovaTerminal.App/Core/AppServices.cs`)
 
 ```csharp
-namespace NovaTerminal.Core;
+namespace NovaTerminal.Platform;
 
 public static class AppServices
 {

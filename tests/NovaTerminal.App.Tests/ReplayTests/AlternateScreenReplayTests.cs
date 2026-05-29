@@ -2,7 +2,7 @@ using NovaTerminal.Shell;
 using System.IO;
 using System.Text;
 using System.Threading.Tasks;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Replay;
 using Xunit;

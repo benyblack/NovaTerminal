@@ -80,8 +80,8 @@ It is designed to be:
 
 | Feature / CSI | Notes | Status | Evidence | Ownership | Known deviations |
 |---|---|---:|---|---|---|
-| ED (J) | 0/1/2 erase display | ✅ Supported | Replay: `tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs`, `tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec`; Unit: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
-| EL (K) | 0/1/2 erase line | ✅ Supported | Unit: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
+| ED (J) | 0/1/2 erase display | ✅ Supported | Replay: `tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs`, `tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec`; Unit: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
+| EL (K) | 0/1/2 erase line | ✅ Supported | Unit: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs` | Parser+Buffer | |
 | ICH ( @ ) | Insert chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 | DCH (P) | Delete chars | ⚠ Partial | Code path | Parser+Buffer | Implemented in parser/buffer; needs targeted unit coverage |
 | IL (L) / DL (M) | Insert/delete lines | ⚠ Partial | Replay | Buffer | Scroll region interactions |

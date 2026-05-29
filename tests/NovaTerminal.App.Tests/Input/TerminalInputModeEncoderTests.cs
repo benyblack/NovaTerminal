@@ -1,6 +1,6 @@
 using NovaTerminal.Shell;
 using Avalonia.Input;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using Xunit;
 

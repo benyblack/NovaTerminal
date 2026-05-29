@@ -3,9 +3,9 @@ using System;
 using System.Collections.Generic;
 using Moq;
 using Xunit;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Input;
+using NovaTerminal.Platform.Input;
 using NovaTerminal.Pty;
 
 namespace NovaTerminal.Tests.Input

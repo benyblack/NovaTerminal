@@ -1,4 +1,4 @@
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -425,7 +425,7 @@ namespace NovaTerminal.Shell
                         ShellOverride = this.ShellOverride
                     };
 
-                    var mapper = new NovaTerminal.Core.Paths.WslPathMapper(new NovaTerminal.Core.Execution.DefaultProcessRunner(), distroName);
+                    var mapper = new NovaTerminal.Platform.Paths.WslPathMapper(new NovaTerminal.Platform.Execution.DefaultProcessRunner(), distroName);
                     var result = await DropRouter.HandleDropAsync(ctx, paths, isAlt, mapper);
                     if (result.Handled)
                     {
@@ -438,7 +438,7 @@ namespace NovaTerminal.Shell
                         }
 
                         // Fire smart action event if only 1 text file was dropped
-                        if (paths.Count == 1 && NovaTerminal.Core.Input.TextFileDetector.IsTextFile(paths[0]))
+                        if (paths.Count == 1 && NovaTerminal.Platform.Input.TextFileDetector.IsTextFile(paths[0]))
                         {
                             var args = new TextFileDroppedEventArgs
                             {

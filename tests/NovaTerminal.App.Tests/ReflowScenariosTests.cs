@@ -1,6 +1,6 @@
 using NovaTerminal.Shell;
 using Xunit;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.VT.Storage;
 using System.Text;

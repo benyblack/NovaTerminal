@@ -1,6 +1,6 @@
 using NovaTerminal.Shell;
 using System.Text;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Pty;
 

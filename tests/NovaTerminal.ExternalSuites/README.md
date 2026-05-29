@@ -134,7 +134,7 @@ Run the live Docker native SSH VT tests:
 
 ``` powershell
 $env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
 ```
 
 Force a rebuild of the Docker SSH fixture image before running:
@@ -142,7 +142,7 @@ Force a rebuild of the Docker SSH fixture image before running:
 ``` powershell
 $env:NOVATERM_ENABLE_DOCKER_E2E='1'
 $env:NOVATERM_REBUILD_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshDockerE2eTests" /nodeReuse:false
 ```
 
 Run the broader native SSH core slice, including the live Docker tests
@@ -150,7 +150,7 @@ when enabled:
 
 ``` powershell
 $env:NOVATERM_ENABLE_DOCKER_E2E='1'
-dotnet test tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
+dotnet test tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh" /nodeReuse:false
 ```
 
 Current live coverage:
@@ -163,7 +163,7 @@ Current live coverage:
 
 Deterministic VT parity coverage remains in:
 
--   `tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs`
+-   `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs`
 -   `tests/NovaTerminal.Tests/ReplayTests/NativeSshReplayParityTests.cs`
 
 ------------------------------------------------------------------------

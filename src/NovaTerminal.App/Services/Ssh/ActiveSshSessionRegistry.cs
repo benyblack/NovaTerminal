@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Concurrent;
-using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Platform.Ssh.Models;
 
 namespace NovaTerminal.Services.Ssh;
 

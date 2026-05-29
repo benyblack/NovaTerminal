@@ -1,7 +1,7 @@
 using NovaTerminal.Shell;
 using System;
 using System.IO;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Rendering;
 

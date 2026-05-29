@@ -2,10 +2,10 @@ using NovaTerminal.Shell;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Interactions;
-using NovaTerminal.Core.Ssh.Native;
+using NovaTerminal.Platform.Ssh.Interactions;
+using NovaTerminal.Platform.Ssh.Native;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.ViewModels.Ssh;
 
@@ -347,7 +347,7 @@ public sealed class SshInteractionServiceTests
             ActiveSshSessionRegistry.Instance.Register(new ActiveSshSessionDescriptor(
                 sessionId,
                 profileId,
-                NovaTerminal.Core.Ssh.Models.SshBackendKind.Native));
+                NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native));
 
             var service = new SshInteractionService(
                 vaultService: vault,

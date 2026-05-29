@@ -1,7 +1,7 @@
 using NovaTerminal.Shell;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Platform.Ssh.Launch;
 using NovaTerminal.ViewModels.Ssh;
 
 namespace NovaTerminal.Tests.Ssh;

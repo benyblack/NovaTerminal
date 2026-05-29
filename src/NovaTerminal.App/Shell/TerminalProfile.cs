@@ -1,6 +1,6 @@
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using System;
-using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Platform.Ssh.Models;
 
 namespace NovaTerminal.Shell
 {

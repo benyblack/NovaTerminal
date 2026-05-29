@@ -5,7 +5,7 @@ namespace NovaTerminal.Architecture.Tests;
 
 /// <summary>
 /// Each production assembly should put its types in a namespace that matches its assembly name.
-/// Today, 5 of 6 production assemblies all use "NovaTerminal.Core" as their root namespace.
+/// Today, 5 of 6 production assemblies all use "NovaTerminal.Platform" as their root namespace.
 /// Phase 3 fixes this one assembly at a time.
 /// </summary>
 public class NamespaceAlignmentTests
@@ -75,11 +75,11 @@ public class NamespaceAlignmentTests
             var result = Types.InAssembly(LoadByName(asmName))
                 .That().ArePublic()
                 .Should()
-                .NotResideInNamespaceStartingWith("NovaTerminal.Core")
+                .NotResideInNamespaceStartingWith("NovaTerminal.Platform")
                 .GetResult();
 
             Assert.True(result.IsSuccessful,
-                $"{asmName} must not use NovaTerminal.Core namespace. " +
+                $"{asmName} must not use NovaTerminal.Platform namespace. " +
                 $"Offenders: {string.Join(", ", result.FailingTypeNames ?? [])}");
         }
     }

@@ -1,5 +1,5 @@
 using NovaTerminal.Shell;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Contracts;

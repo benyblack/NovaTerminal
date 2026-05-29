@@ -4,7 +4,7 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using NovaTerminal.Controls;
 using NovaTerminal.CommandAssist.ViewModels;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests.CommandAssist;

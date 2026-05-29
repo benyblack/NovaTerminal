@@ -103,7 +103,7 @@ This removes repeated file I/O and duplicated settings object construction durin
 
 ### Primary collector
 
-Extend `NovaTerminal.Core.RendererStatistics` with startup-specific counters and per-launch timings so startup measurements reuse the existing app-side metrics surface.
+Extend `NovaTerminal.Platform.RendererStatistics` with startup-specific counters and per-launch timings so startup measurements reuse the existing app-side metrics surface.
 
 ### Required startup metrics
 

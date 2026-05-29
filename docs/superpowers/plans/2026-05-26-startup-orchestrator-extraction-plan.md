@@ -27,7 +27,7 @@ Create `tests/NovaTerminal.Tests/Core/StartupOrchestratorTests.cs` with the full
 ```csharp
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using Xunit;
 
 namespace NovaTerminal.Tests.Core;
@@ -290,7 +290,7 @@ Create `src/NovaTerminal.App/Core/StartupOrchestrator.cs`:
 ```csharp
 using System;
 
-namespace NovaTerminal.Core;
+namespace NovaTerminal.Platform;
 
 public sealed class StartupOrchestrator
 {
@@ -400,7 +400,7 @@ Create `tests/NovaTerminal.Tests/Core/AppServicesTests.cs`:
 ```csharp
 using System;
 using System.Collections.Generic;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using Xunit;
 
 namespace NovaTerminal.Tests.Core;
@@ -457,7 +457,7 @@ Expected: build failure with `error CS0103: The name 'AppServices' does not exis
 Create `src/NovaTerminal.App/Core/AppServiceBundle.cs`:
 
 ```csharp
-namespace NovaTerminal.Core;
+namespace NovaTerminal.Platform;
 
 public sealed record AppServiceBundle(StartupOrchestrator Startup);
 ```
@@ -469,7 +469,7 @@ Create `src/NovaTerminal.App/Core/AppServices.cs`:
 ```csharp
 using System;
 
-namespace NovaTerminal.Core;
+namespace NovaTerminal.Platform;
 
 public static class AppServices
 {
@@ -604,7 +604,7 @@ using System;
 Create `tests/NovaTerminal.Tests/Core/TestMainWindowFactory.cs`:
 
 ```csharp
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -627,10 +627,10 @@ new_string: TestMainWindowFactory.Create()
 Then add the using directive at the top of the test file if not already present:
 
 ```csharp
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 ```
 
-(The `NovaTerminal.Core` namespace contains `AppServices` and the orchestrator; the factory file in the same namespace doesn't need a using directive itself.)
+(The `NovaTerminal.Platform` namespace contains `AppServices` and the orchestrator; the factory file in the same namespace doesn't need a using directive itself.)
 
 The `RecordingCommandProbeWindow` private nested class at the bottom of the file derives from `NovaTerminal.MainWindow` with no explicit ctor — it inherits the parameterless ctor unchanged. Leave that class alone.
 

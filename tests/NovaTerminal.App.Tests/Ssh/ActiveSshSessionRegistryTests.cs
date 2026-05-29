@@ -1,4 +1,4 @@
-using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Platform.Ssh.Models;
 using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Tests.Ssh;

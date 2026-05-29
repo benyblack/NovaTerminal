@@ -5,9 +5,9 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Platform.Ssh.Launch;
 
 namespace NovaTerminal.ViewModels.Ssh;
 

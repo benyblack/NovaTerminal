@@ -8,7 +8,7 @@ using NovaTerminal.Controls;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ViewModels;
 using NovaTerminal.CommandAssist.Views;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.Tests.CommandAssist;

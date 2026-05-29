@@ -16,7 +16,7 @@
 - Modify: `tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs`
 - Modify: `tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs`
 - Modify: `src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs`
-- Modify: `src/NovaTerminal.Core/Ssh/Models/SshProfile.cs`
+- Modify: `src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs`
 
 **Step 1: Write the failing test**
 
@@ -46,7 +46,7 @@ Run the same command and confirm the new tests pass.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs src/NovaTerminal.Core/Ssh/Models/SshProfile.cs src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs
+git add tests/NovaTerminal.Tests/Ssh/NewSshConnectionViewModelTests.cs tests/NovaTerminal.Tests/Ssh/SshConnectionServiceTests.cs src/NovaTerminal.App/ViewModels/Ssh/NewSshConnectionViewModel.cs src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs src/NovaTerminal.App/Services/Ssh/SshConnectionService.cs
 git commit -m "Add native SSH remember-password profile flag"
 ```
 

@@ -1,6 +1,6 @@
 using NovaTerminal.Shell;
 using NovaTerminal.Tests.Infra;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Pty;
 

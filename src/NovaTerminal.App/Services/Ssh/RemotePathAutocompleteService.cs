@@ -4,11 +4,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Models;
-using NovaTerminal.Core.Ssh.Native;
-using NovaTerminal.Core.Ssh.Storage;
+using NovaTerminal.Platform.Ssh.Models;
+using NovaTerminal.Platform.Ssh.Native;
+using NovaTerminal.Platform.Ssh.Storage;
 using NovaTerminal.Models;
 
 namespace NovaTerminal.Services.Ssh;

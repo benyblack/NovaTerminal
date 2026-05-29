@@ -7,7 +7,7 @@ using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.Themes.Fluent;
 using NovaTerminal.Shell;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal;

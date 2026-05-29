@@ -13,7 +13,7 @@
 ### Task 1: Pin the native-side resize intent in core tests
 
 **Files:**
-- Modify: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs`
+- Modify: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSessionTests.cs`
 
 **Step 1: Write the failing test**
 
@@ -21,7 +21,7 @@ Add or extend a test that issues multiple `Resize(...)` calls on `NativeSshSessi
 
 **Step 2: Run test to verify it fails**
 
-Run: `dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"`
+Run: `dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~NativeSshSessionTests"`
 
 Expected: FAIL if the current test suite does not yet pin burst-resize intent clearly enough.
 
@@ -36,7 +36,7 @@ Run the same command and confirm the targeted test passes.
 **Step 5: Commit**
 
 ```bash
-git add tests/NovaTerminal.Core.Tests/Ssh/NativeSshSessionTests.cs
+git add tests/NovaTerminal.Platform.Tests/Ssh/NativeSshSessionTests.cs
 git commit -m "Add native SSH burst resize intent test"
 ```
 
@@ -116,7 +116,7 @@ git commit -m "Coalesce native SSH resize commands"
 Run:
 
 ```bash
-dotnet test tests/NovaTerminal.Core.Tests/NovaTerminal.Core.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
+dotnet test tests/NovaTerminal.Platform.Tests/NovaTerminal.Platform.Tests.csproj -c Release --filter "FullyQualifiedName~Ssh"
 ```
 
 Expected: PASS
