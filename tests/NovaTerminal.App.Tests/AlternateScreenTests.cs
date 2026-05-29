@@ -1,8 +1,9 @@
+using NovaTerminal.Shell;
 using System;
 using System.Linq;
 using System.Reflection;
 using Xunit;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.VT.Storage;
 

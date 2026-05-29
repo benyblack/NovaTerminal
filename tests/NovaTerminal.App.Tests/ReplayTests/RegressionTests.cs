@@ -1,4 +1,5 @@
-using NovaTerminal.Core;
+using NovaTerminal.Shell;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Replay;
 using NovaTerminal.Tests.Tools;

@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using System;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.ShellIntegration.Bash;
@@ -7,7 +8,7 @@ using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 using NovaTerminal.CommandAssist.ShellIntegration.Zsh;
 using NovaTerminal.CommandAssist.Storage;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.Application;

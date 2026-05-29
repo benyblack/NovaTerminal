@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -5,9 +6,9 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using NovaTerminal.Controls;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Launch;
+using NovaTerminal.Platform.Ssh.Launch;
 using NovaTerminal.ViewModels.Ssh;
 using System.Collections.Specialized;
 using System.Linq;

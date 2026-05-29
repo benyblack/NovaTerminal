@@ -1,6 +1,7 @@
-using NovaTerminal.Core;
+using NovaTerminal.Shell;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Storage;
+using NovaTerminal.Platform.Ssh.Storage;
 using NovaTerminal.Services.Ssh;
 
 namespace NovaTerminal.Tests.Ssh;

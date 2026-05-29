@@ -1,5 +1,6 @@
+using NovaTerminal.Shell;
 using System.Collections.Generic;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using Xunit;
 using NovaTerminal.Pty;

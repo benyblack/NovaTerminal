@@ -1,12 +1,13 @@
+using NovaTerminal.Shell;
 using System;
 using System.Collections.Generic;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Models;
+using NovaTerminal.Platform.Ssh.Models;
 using NovaTerminal.ViewModels.Ssh;
 
 namespace NovaTerminal.Views.Ssh;

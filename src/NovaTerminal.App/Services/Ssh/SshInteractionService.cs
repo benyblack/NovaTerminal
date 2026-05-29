@@ -1,12 +1,13 @@
+using NovaTerminal.Shell;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Threading;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Interactions;
-using NovaTerminal.Core.Ssh.Native;
+using NovaTerminal.Platform.Ssh.Interactions;
+using NovaTerminal.Platform.Ssh.Native;
 using NovaTerminal.ViewModels.Ssh;
 using NovaTerminal.Views.Ssh;
 

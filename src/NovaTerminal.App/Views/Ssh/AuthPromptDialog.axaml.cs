@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
-using NovaTerminal.Core.Ssh.Interactions;
+using NovaTerminal.Platform.Ssh.Interactions;
 using NovaTerminal.ViewModels.Ssh;
 
 namespace NovaTerminal.Views.Ssh;

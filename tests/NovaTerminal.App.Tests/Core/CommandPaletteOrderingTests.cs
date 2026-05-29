@@ -1,6 +1,7 @@
-using NovaTerminal.Core;
+using NovaTerminal.Shell;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Shortcuts;
+using NovaTerminal.Shell.Shortcuts;
 
 namespace NovaTerminal.Tests.Core;
 

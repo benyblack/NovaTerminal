@@ -1,4 +1,4 @@
-using NovaTerminal.Core.Ssh.Interactions;
+using NovaTerminal.Platform.Ssh.Interactions;
 
 namespace NovaTerminal.Services.Ssh;
 

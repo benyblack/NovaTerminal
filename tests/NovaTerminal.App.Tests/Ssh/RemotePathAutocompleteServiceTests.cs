@@ -1,8 +1,9 @@
-using NovaTerminal.Core;
+using NovaTerminal.Shell;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Ssh.Models;
-using NovaTerminal.Core.Ssh.Native;
-using NovaTerminal.Core.Ssh.Storage;
+using NovaTerminal.Platform.Ssh.Models;
+using NovaTerminal.Platform.Ssh.Native;
+using NovaTerminal.Platform.Ssh.Storage;
 using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;
 

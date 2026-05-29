@@ -1,11 +1,12 @@
+using NovaTerminal.Shell;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Moq;
 using Xunit;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Paths;
+using NovaTerminal.Platform.Paths;
 
 namespace NovaTerminal.Tests.Input
 {

@@ -1,8 +1,9 @@
+using NovaTerminal.Shell;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Fish;

@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -21,11 +21,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.App.Tests", "t
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Benchmarks", "tests\NovaTerminal.Benchmarks\NovaTerminal.Benchmarks.csproj", "{29FD5B8C-7247-4FA8-881F-3B5BD57B233C}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Core", "src\NovaTerminal.Core\NovaTerminal.Core.csproj", "{8B42DC16-B2C8-4618-8854-D90570AD3BEA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Platform", "src\NovaTerminal.Platform\NovaTerminal.Platform.csproj", "{8B42DC16-B2C8-4618-8854-D90570AD3BEA}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Cli", "src\NovaTerminal.Cli\NovaTerminal.Cli.csproj", "{C1B18C34-97C2-4A49-9D4D-6DD1E4420A5F}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Core.Tests", "tests\NovaTerminal.Core.Tests\NovaTerminal.Core.Tests.csproj", "{ABA0C905-4895-4725-B271-DAD27C2DD189}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Platform.Tests", "tests\NovaTerminal.Platform.Tests\NovaTerminal.Platform.Tests.csproj", "{ABA0C905-4895-4725-B271-DAD27C2DD189}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NovaTerminal.Conformance", "src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj", "{74074EA6-AEFE-4950-9061-37D0F7359B77}"
 EndProject

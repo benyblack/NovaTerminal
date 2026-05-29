@@ -4,83 +4,68 @@ using NetArchTest.Rules;
 namespace NovaTerminal.Architecture.Tests;
 
 /// <summary>
-/// Each production assembly should put its types in a namespace that matches its assembly name.
-/// Today, 5 of 6 production assemblies all use "NovaTerminal.Core" as their root namespace.
-/// Phase 3 fixes this one assembly at a time.
+/// Each production assembly puts its types in a namespace that matches its assembly name,
+/// and no two assemblies share a namespace prefix. The App assembly is the composition
+/// root: it owns the bare "NovaTerminal" root plus app-specific buckets (Shell, Controls,
+/// Services, Models, ViewModels, Views, UI, CommandAssist) and must not reach into a leaf
+/// assembly's reserved prefix.
 /// </summary>
 public class NamespaceAlignmentTests
 {
     private static Assembly LoadByName(string name) => Assembly.Load(name);
 
-    [Fact]
-    public void All_VT_types_use_NovaTerminal_VT_namespace()
+    // Leaf assemblies, each owning exactly "NovaTerminal.<Name>.*".
+    private static readonly string[] LeafAssemblies =
+        { "NovaTerminal.VT", "NovaTerminal.Replay", "NovaTerminal.Rendering",
+          "NovaTerminal.Pty", "NovaTerminal.Platform" };
+
+    [Theory]
+    [InlineData("NovaTerminal.VT")]
+    [InlineData("NovaTerminal.Replay")]
+    [InlineData("NovaTerminal.Rendering")]
+    [InlineData("NovaTerminal.Pty")]
+    [InlineData("NovaTerminal.Platform")]
+    public void Leaf_assembly_types_reside_in_its_own_namespace(string asmName)
     {
-        var result = Types.InAssembly(LoadByName("NovaTerminal.VT"))
+        var result = Types.InAssembly(LoadByName(asmName))
             .That()
             .DoNotResideInNamespace("System.Runtime.CompilerServices")
             .And().ArePublic()
             .Should()
-            .ResideInNamespaceStartingWith("NovaTerminal.VT")
+            .ResideInNamespaceStartingWith(asmName)
             .GetResult();
 
         Assert.True(result.IsSuccessful,
-            $"VT types not in NovaTerminal.VT.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
+            $"{asmName} types not in {asmName}.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
     }
 
     [Fact]
-    public void All_Replay_types_use_NovaTerminal_Replay_namespace()
+    public void No_two_assemblies_share_a_namespace_prefix()
     {
-        var result = Types.InAssembly(LoadByName("NovaTerminal.Replay"))
-            .That().ArePublic()
-            .Should()
-            .ResideInNamespaceStartingWith("NovaTerminal.Replay")
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            $"Replay types not in NovaTerminal.Replay.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
-    }
-
-    [Fact]
-    public void All_Rendering_types_use_NovaTerminal_Rendering_namespace()
-    {
-        var result = Types.InAssembly(LoadByName("NovaTerminal.Rendering"))
-            .That().ArePublic()
-            .Should()
-            .ResideInNamespaceStartingWith("NovaTerminal.Rendering")
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            $"Rendering types not in NovaTerminal.Rendering.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
-    }
-
-    [Fact]
-    public void All_Pty_types_use_NovaTerminal_Pty_namespace()
-    {
-        var result = Types.InAssembly(LoadByName("NovaTerminal.Pty"))
-            .That().ArePublic()
-            .Should()
-            .ResideInNamespaceStartingWith("NovaTerminal.Pty")
-            .GetResult();
-
-        Assert.True(result.IsSuccessful,
-            $"Pty types not in NovaTerminal.Pty.*: {string.Join(", ", result.FailingTypeNames ?? [])}");
-    }
-
-    [Fact]
-    public void Only_the_Core_assembly_uses_NovaTerminal_Core_namespace()
-    {
-        foreach (var asmName in new[] { "NovaTerminal.VT", "NovaTerminal.Replay",
-                                         "NovaTerminal.Rendering", "NovaTerminal.Pty" })
+        // Each leaf's reserved prefix must be used by no other assembly (leaf or App).
+        // The App project emits assembly name "NovaTerminal" (not "NovaTerminal.App").
+        var others = new List<(string Label, string AsmName)>(
+            LeafAssemblies.Select(n => (n, n)))
         {
-            var result = Types.InAssembly(LoadByName(asmName))
-                .That().ArePublic()
-                .Should()
-                .NotResideInNamespaceStartingWith("NovaTerminal.Core")
-                .GetResult();
+            ("NovaTerminal.App", "NovaTerminal")
+        };
 
-            Assert.True(result.IsSuccessful,
-                $"{asmName} must not use NovaTerminal.Core namespace. " +
-                $"Offenders: {string.Join(", ", result.FailingTypeNames ?? [])}");
+        foreach (var owner in LeafAssemblies)
+        {
+            foreach (var (label, asmName) in others)
+            {
+                if (label == owner) continue;
+
+                var result = Types.InAssembly(LoadByName(asmName))
+                    .That().ArePublic()
+                    .Should()
+                    .NotResideInNamespaceStartingWith(owner)
+                    .GetResult();
+
+                Assert.True(result.IsSuccessful,
+                    $"{label} must not use the {owner} namespace prefix. " +
+                    $"Offenders: {string.Join(", ", result.FailingTypeNames ?? [])}");
+            }
         }
     }
 }

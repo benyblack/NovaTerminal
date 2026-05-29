@@ -1,7 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:NovaTerminal.Controls"
-        xmlns:core="clr-namespace:NovaTerminal.Core"
+        xmlns:core="clr-namespace:NovaTerminal.Shell"
         xmlns:local="clr-namespace:NovaTerminal.UI.Replay"
         x:Class="NovaTerminal.UI.Replay.ReplayWindow"
         x:DataType="local:ReplayViewModel"

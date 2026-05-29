@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using System;
 using System.Collections.Generic;
 using Avalonia;
@@ -5,7 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Input;
 using Avalonia.Platform.Storage;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Models;
 using NovaTerminal.Services.Ssh;

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "ba433157df6b5fd6b3cd842c4d25837652e0614cce0d60865fa27680f8c2fd0c",
+  "matrixSha256": "bbfc633258d80584c48d47b42ea5d05ff76a1547a7efab8f7dd19fedb86d6de6",
   "summary": {
     "totalRows": 55,
     "supportedCount": 16,
@@ -379,7 +379,7 @@
       "feature": "ED (J)",
       "status": "\u2705 Supported",
       "specOrNotes": "0/1/2 erase display",
-      "evidenceText": "Replay: \u0060tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec\u0060; Unit: \u0060tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
+      "evidenceText": "Replay: \u0060tests/NovaTerminal.App.Tests/ReplayTests/RegressionTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Fixtures/Replay/vttest_cursor.rec\u0060; Unit: \u0060tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
       "evidenceKinds": [
         "external",
         "replay",
@@ -395,7 +395,7 @@
           "exists": true
         },
         {
-          "path": "tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs",
+          "path": "tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs",
           "exists": true
         }
       ],
@@ -410,13 +410,13 @@
       "feature": "EL (K)",
       "status": "\u2705 Supported",
       "specOrNotes": "0/1/2 erase line",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
-          "path": "tests/NovaTerminal.Core.Tests/Ssh/NativeSshTerminalParityTests.cs",
+          "path": "tests/NovaTerminal.Platform.Tests/Ssh/NativeSshTerminalParityTests.cs",
           "exists": true
         }
       ],

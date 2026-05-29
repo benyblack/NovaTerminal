@@ -134,7 +134,7 @@ jobs:
           # compensate by specifying path: tests to restore the prefix.
           path: |
             tests/NovaTerminal.App.Tests/bin/${{ env.CONFIGURATION }}
-            tests/NovaTerminal.Core.Tests/bin/${{ env.CONFIGURATION }}
+            tests/NovaTerminal.Platform.Tests/bin/${{ env.CONFIGURATION }}
             tests/NovaTerminal.Architecture.Tests/bin/${{ env.CONFIGURATION }}
             tests/NovaTerminal.VT.Tests/bin/${{ env.CONFIGURATION }}
             tests/NovaTerminal.Rendering.Tests/bin/${{ env.CONFIGURATION }}
@@ -279,7 +279,7 @@ jobs:
         shell: pwsh
         run: |
           Remove-Item tests\NovaTerminal.App.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
-          Remove-Item tests\NovaTerminal.Core.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item tests\NovaTerminal.Platform.Tests\bin -Recurse -Force -ErrorAction SilentlyContinue
 
       - name: Download build artifact (retry)
         if: steps.download_golden_build_artifact.outcome == 'failure'

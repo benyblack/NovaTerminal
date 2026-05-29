@@ -1,6 +1,7 @@
 using System;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Core;
+using NovaTerminal.Shell;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Bash;

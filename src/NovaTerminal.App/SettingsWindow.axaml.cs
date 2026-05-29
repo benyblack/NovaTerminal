@@ -2,7 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Layout;
-using NovaTerminal.Core;
+using NovaTerminal.Shell;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using System;
 using System.Collections.Generic;
@@ -13,7 +14,7 @@ using Avalonia.Media;
 using Avalonia.Controls.Shapes;
 using Avalonia.Styling;
 using NovaTerminal.Services.Ssh;
-using NovaTerminal.Core.Shortcuts;
+using NovaTerminal.Shell.Shortcuts;
 
 namespace NovaTerminal
 {

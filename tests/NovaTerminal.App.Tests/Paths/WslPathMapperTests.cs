@@ -2,8 +2,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Moq;
 using Xunit;
-using NovaTerminal.Core.Paths;
-using NovaTerminal.Core.Execution;
+using NovaTerminal.Platform.Paths;
+using NovaTerminal.Platform.Execution;
 
 namespace NovaTerminal.Tests.Paths
 {

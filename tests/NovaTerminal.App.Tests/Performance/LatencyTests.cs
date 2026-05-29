@@ -1,4 +1,5 @@
-using NovaTerminal.Core;
+using NovaTerminal.Shell;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using System;
 using System.Diagnostics;

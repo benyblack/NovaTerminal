@@ -1,5 +1,6 @@
+using NovaTerminal.Shell;
 using Avalonia.Headless.XUnit;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Models;
 
@@ -23,7 +24,7 @@ public sealed class MainWindowTransferFlowTests
                 Id = Guid.Parse("4f13d6d8-ea72-4d88-9430-fc5d5f2490c7"),
                 Name = "server3",
                 Type = ConnectionType.SSH,
-                SshBackendKind = NovaTerminal.Core.Ssh.Models.SshBackendKind.Native,
+                SshBackendKind = NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native,
                 DefaultRemoteDir = "~/downloads"
             },
             Guid.Parse("35ef4c9d-8cc3-4a4f-a2f1-ef7e5215ad7d"),
@@ -178,7 +179,7 @@ public sealed class MainWindowTransferFlowTests
             Id = Guid.Parse("4f13d6d8-ea72-4d88-9430-fc5d5f2490c7"),
             Name = "server3",
             Type = ConnectionType.SSH,
-            SshBackendKind = NovaTerminal.Core.Ssh.Models.SshBackendKind.Native,
+            SshBackendKind = NovaTerminal.Platform.Ssh.Models.SshBackendKind.Native,
             DefaultRemoteDir = "~/downloads"
         };
     }

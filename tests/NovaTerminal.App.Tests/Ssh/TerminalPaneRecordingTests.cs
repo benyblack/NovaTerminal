@@ -1,7 +1,8 @@
+using NovaTerminal.Shell;
 using System.Reflection;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Controls;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Pty;
 

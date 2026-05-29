@@ -1,7 +1,8 @@
+using NovaTerminal.Shell;
 using System.Collections.Generic;
 using System.Linq;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Core;
+using NovaTerminal.Platform;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Runtime;

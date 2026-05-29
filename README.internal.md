@@ -40,7 +40,7 @@ Any change that weakens determinism, parity, or replayability is rejected.
 The solution keeps terminal semantics isolated behind small project boundaries so the VT core remains pure and reusable:
 
 - **NovaTerminal.App** owns Avalonia UI, interaction, and app composition.
-- **NovaTerminal.Core** owns shared application/domain services and orchestration outside the VT parser/buffer.
+- **NovaTerminal.Platform** owns platform-integration utilities (input routing, path mapping, process abstraction, SSH) and the credential vault.
 - **NovaTerminal.VT** owns terminal state, parsing, buffer semantics, and reflow.
 - **NovaTerminal.Rendering** owns Skia-based drawing from immutable buffer snapshots.
 - **NovaTerminal.Pty** owns OS/process and stream integration.

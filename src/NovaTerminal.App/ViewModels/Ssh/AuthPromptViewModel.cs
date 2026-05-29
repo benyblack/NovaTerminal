@@ -2,7 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using NovaTerminal.Core.Ssh.Interactions;
+using NovaTerminal.Platform.Ssh.Interactions;
 
 namespace NovaTerminal.ViewModels.Ssh;
 
