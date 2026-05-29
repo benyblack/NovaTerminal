@@ -117,7 +117,7 @@ NovaTerminal is organized into focused class libraries under `src/` with an
 acyclic dependency graph.
 
 - **[`src/NovaTerminal.App`](src/NovaTerminal.App/)** — Avalonia/UI layer: windows, themes, settings, orchestration.
-- **[`src/NovaTerminal.Core`](src/NovaTerminal.Core/)** — Shared runtime primitives: input, paths, process, SSH.
+- **[`src/NovaTerminal.Platform`](src/NovaTerminal.Platform/)** — Shared runtime primitives: input, paths, process, SSH.
 - **[`src/NovaTerminal.VT`](src/NovaTerminal.VT/)** — Virtual Terminal engine: frame-agnostic parser logic and buffer state.
 - **[`src/NovaTerminal.Rendering`](src/NovaTerminal.Rendering/)** — SkiaSharp rendering: framework-agnostic text shaping and GPU glyph caching.
 - **[`src/NovaTerminal.Pty`](src/NovaTerminal.Pty/)** — Native OS integration and PTY session management.
@@ -133,7 +133,7 @@ Validation:
 ```mermaid
 graph TD
     Cli[NovaTerminal.Cli] --> App[NovaTerminal.App]
-    App --> Core[NovaTerminal.Core]
+    App --> Platform[NovaTerminal.Platform]
     App --> VT[NovaTerminal.VT]
     App --> Rendering[NovaTerminal.Rendering]
     App --> Pty[NovaTerminal.Pty]
