@@ -8,6 +8,7 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::{CStr, CString};
 use std::future::Future;
 use std::io::Cursor;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::ptr;
 use std::sync::{Arc, Condvar, Mutex, mpsc as std_mpsc};
@@ -98,6 +99,17 @@ pub const NOVA_SSH_RESULT_CLOSED: c_int = -3;
 pub const NOVA_SSH_RESULT_CHANNEL_OPEN_FAILED: c_int = -4;
 pub const NOVA_SSH_RESULT_NOT_IMPLEMENTED: c_int = -5;
 pub const NOVA_SSH_RESULT_CANCELED: c_int = -6;
+pub const NOVA_SSH_RESULT_PANIC: c_int = -7;
+
+/// Runs an FFI body, converting any panic into `on_panic` instead of unwinding
+/// across the C boundary (which is undefined behavior). The body is asserted
+/// unwind-safe because FFI bodies operate on raw pointers owned by the caller.
+fn ffi_guard<R>(on_panic: R, body: impl FnOnce() -> R) -> R {
+    match catch_unwind(AssertUnwindSafe(body)) {
+        Ok(value) => value,
+        Err(_) => on_panic,
+    }
+}
 
 const NOVA_SSH_EVENT_FLAG_JSON: u32 = 1;
 const NOVA_SSH_EVENT_FLAG_BINARY: u32 = 2;
@@ -3377,5 +3389,26 @@ fn build_client_config(config: &ConnectConfig) -> client::Config {
         )),
         keepalive_max: config.keepalive_count_max as usize,
         ..<_>::default()
+    }
+}
+
+#[cfg(test)]
+mod ffi_guard_tests {
+    use super::*;
+
+    #[test]
+    fn ffi_guard_returns_default_on_panic() {
+        // Silence the default panic hook so the captured panic doesn't spam test output.
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let rc = ffi_guard(NOVA_SSH_RESULT_PANIC, || -> c_int { panic!("boom") });
+        std::panic::set_hook(prev);
+        assert_eq!(rc, NOVA_SSH_RESULT_PANIC);
+    }
+
+    #[test]
+    fn ffi_guard_passes_through_normal_return() {
+        let rc = ffi_guard(NOVA_SSH_RESULT_PANIC, || -> c_int { NOVA_SSH_RESULT_OK });
+        assert_eq!(rc, NOVA_SSH_RESULT_OK);
     }
 }
