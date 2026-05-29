@@ -227,4 +227,31 @@
     <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
     <InternalsVisibleTo Include="NovaTerminal.Cli" />
   </ItemGroup>
+
+  <!-- Stamp the git short-SHA (with a +dirty marker for uncommitted changes) into an
+       assembly metadata attribute so the running binary can report exactly which commit
+       it was built from. Surfaced at startup in Program.Main (see "Build:" log line).
+       Resilient: if git is absent or this isn't a repo, the SHA falls back to "unknown"
+       and the build still succeeds. No build timestamp is embedded (that would break
+       deterministic builds and force rebuilds); Program.Main reads the exe's file
+       last-write-time at runtime instead. -->
+  <Target Name="StampGitInfo" BeforeTargets="GetAssemblyAttributes" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec Command="git rev-parse --short HEAD"
+          ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitShaRaw" />
+      <Output TaskParameter="ExitCode" PropertyName="_GitShaExit" />
+    </Exec>
+    <Exec Command="git status --porcelain --untracked-files=no"
+          ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low" StandardErrorImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_GitDirtyRaw" />
+    </Exec>
+    <PropertyGroup>
+      <_GitSha Condition="'$(_GitShaExit)' == '0' and '$(_GitShaRaw)' != ''">$(_GitShaRaw)</_GitSha>
+      <_GitSha Condition="'$(_GitSha)' == ''">unknown</_GitSha>
+      <_GitDirtySuffix Condition="'$(_GitDirtyRaw)' != ''">+dirty</_GitDirtySuffix>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyMetadata Include="GitSha" Value="$(_GitSha)$(_GitDirtySuffix)" />
+    </ItemGroup>
+  </Target>
 </Project>
