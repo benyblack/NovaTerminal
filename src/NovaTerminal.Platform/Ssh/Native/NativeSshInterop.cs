@@ -15,6 +15,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     private const int ResultBufferTooSmall = -2;
     private const int ResultClosed = -3;
     private const int ResultCanceled = -6;
+    private const int ResultPanic = -7;
     private static readonly NativeSftpTransferProgressCallback SftpTransferProgressCallback = OnNativeSftpTransferProgress;
     private static readonly IntPtr SftpTransferProgressCallbackPointer =
         Marshal.GetFunctionPointerForDelegate(SftpTransferProgressCallback);
@@ -184,6 +185,11 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                 throw new OperationCanceledException(BuildSftpTransferFailureMessage(rc, responseJson), cancellationToken);
             }
 
+            if (rc == ResultPanic)
+            {
+                throw new InvalidOperationException("Native SSH operation failed: the native layer caught an internal panic at the FFI boundary (operation aborted safely).");
+            }
+
             if (rc != ResultOk)
             {
                 throw new InvalidOperationException(BuildSftpTransferFailureMessage(rc, responseJson));
@@ -256,6 +262,11 @@ public sealed partial class NativeSshInterop : INativeSshInterop
             if (rc == ResultCanceled)
             {
                 throw new OperationCanceledException(BuildRemotePathListFailureMessage(rc, responseJson), cancellationToken);
+            }
+
+            if (rc == ResultPanic)
+            {
+                throw new InvalidOperationException("Native SSH operation failed: the native layer caught an internal panic at the FFI boundary (operation aborted safely).");
             }
 
             if (rc != ResultOk)
