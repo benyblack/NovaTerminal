@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using NovaTerminal.CommandAssist.ShellIntegration.Bash;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.Core;

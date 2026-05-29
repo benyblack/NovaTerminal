@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using Avalonia.Headless.XUnit;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -6,7 +7,7 @@ using Avalonia.Threading;
 using NovaTerminal.Controls;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
-using NovaTerminal.Core.Shortcuts;
+using NovaTerminal.Shell.Shortcuts;
 using System.Reflection;
 
 namespace NovaTerminal.Tests.Core;

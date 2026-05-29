@@ -1,4 +1,5 @@
 using System;
+using NovaTerminal.Shell;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
 

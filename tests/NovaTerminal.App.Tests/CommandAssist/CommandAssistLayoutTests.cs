@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -471,7 +472,7 @@ public sealed class CommandAssistLayoutTests
         pane.Measure(new Size(900, 500));
         pane.Arrange(new Rect(0, 0, 900, 500));
 
-        var terminalView = pane.FindControl<NovaTerminal.Core.TerminalView>("TermView");
+        var terminalView = pane.FindControl<NovaTerminal.Shell.TerminalView>("TermView");
         Assert.NotNull(terminalView);
         double baselineHeight = terminalView.Bounds.Height;
 

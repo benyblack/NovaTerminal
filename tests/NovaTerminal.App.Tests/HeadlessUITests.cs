@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using Xunit;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Core;

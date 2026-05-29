@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using System.Linq;
 using NovaTerminal.Core;
 using NovaTerminal.VT;

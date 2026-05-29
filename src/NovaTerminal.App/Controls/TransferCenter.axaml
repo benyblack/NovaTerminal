@@ -1,6 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:core="clr-namespace:NovaTerminal.Core"
+             xmlns:core="clr-namespace:NovaTerminal.Shell"
              x:Class="NovaTerminal.Controls.TransferCenter">
     <Grid RowDefinitions="Auto,*">
         <Border Background="#252526" BorderBrush="#333333" BorderThickness="0,0,0,1" Padding="10,8">

@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using System.Text.Json;
 using NovaTerminal.Core;
 using NovaTerminal.VT;

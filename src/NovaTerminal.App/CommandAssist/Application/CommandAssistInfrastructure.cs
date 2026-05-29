@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using System;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.ShellIntegration.Bash;

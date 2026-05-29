@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using System;
 using Xunit;
 using NovaTerminal.Core;

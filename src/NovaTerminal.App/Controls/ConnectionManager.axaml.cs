@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using NovaTerminal.Shell;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
 using NovaTerminal.Core.Ssh.Launch;

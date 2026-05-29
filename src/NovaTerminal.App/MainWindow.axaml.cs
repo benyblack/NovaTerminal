@@ -6,6 +6,7 @@ using Avalonia.Threading;
 using Avalonia.Controls.Primitives;
 using Avalonia.VisualTree;
 using Avalonia.Controls.Presenters;
+using NovaTerminal.Shell;
 using NovaTerminal.Core;
 using NovaTerminal.VT;
 using NovaTerminal.Rendering;
@@ -28,7 +29,7 @@ using NovaTerminal.Pty;
 using NovaTerminal.Controls;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Core.Ssh.Launch;
-using NovaTerminal.Core.Shortcuts;
+using NovaTerminal.Shell.Shortcuts;
 using NovaTerminal.Models;
 using NovaTerminal.ViewModels.Ssh;
 using NovaTerminal.Views.Ssh;
@@ -2404,7 +2405,7 @@ namespace NovaTerminal
         {
             try
             {
-                var importedProfiles = NovaTerminal.Core.ProfileImporter.ImportSshConfig();
+                var importedProfiles = NovaTerminal.Shell.ProfileImporter.ImportSshConfig();
                 int changed = _sshConnectionService.MergeImportedProfiles(importedProfiles);
                 if (changed > 0)
                 {

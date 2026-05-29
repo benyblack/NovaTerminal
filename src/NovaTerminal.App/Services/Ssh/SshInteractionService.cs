@@ -1,3 +1,4 @@
+using NovaTerminal.Shell;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
