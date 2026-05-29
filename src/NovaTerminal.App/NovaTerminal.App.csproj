@@ -179,37 +179,56 @@
       Condition="'@(CliShimPublishArtifacts)' != ''" />
   </Target>
 
+  <!-- Native Rust libraries (rusty_pty / rusty_ssh) are produced during the build by
+       BuildRustNative / BuildRustSshNative, or restored from the CI native-binary cache.
+       They must be added to Content during EXECUTION, not evaluation. A static
+       <Content Include Condition="Exists(...)"> is evaluated before those targets run, so on a
+       clean or partial-cache build the file does not exist yet at evaluation time and is
+       silently dropped from the output. That is exactly how rusty_pty.dll went missing from the
+       Windows test artifact and produced DllNotFoundException in CI: a cache hit restored an
+       incomplete target/release, evaluation saw no dll and dropped the item, then BuildRustNative
+       compiled the dll a moment later, too late for the already-evaluated item.
+       DependsOnTargets guarantees the libs are built/restored first; BeforeTargets="AssignTargetPaths"
+       is the last point before Content is collected for copy-to-output, so re-checking Exists()
+       here sees the freshly built files. -->
+  <Target Name="IncludeNativeLibrariesInOutput"
+    DependsOnTargets="BuildRustNative;BuildRustSshNative"
+    BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <Content Include="native\target\release\rusty_pty.dll"
+        Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and Exists('native\target\release\rusty_pty.dll')">
+        <Link>rusty_pty.dll</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <Content Include="native\target_linux\release\librusty_pty.so"
+        Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and Exists('native\target_linux\release\librusty_pty.so')">
+        <Link>librusty_pty.so</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <Content Include="native\target\release\librusty_pty.dylib"
+        Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and Exists('native\target\release\librusty_pty.dylib')">
+        <Link>librusty_pty.dylib</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <Content Include="native\rusty_ssh\target\release\rusty_ssh.dll"
+        Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and Exists('native\rusty_ssh\target\release\rusty_ssh.dll')">
+        <Link>rusty_ssh.dll</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <Content Include="native\rusty_ssh\target\release\librusty_ssh.so"
+        Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and Exists('native\rusty_ssh\target\release\librusty_ssh.so')">
+        <Link>librusty_ssh.so</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+      <Content Include="native\rusty_ssh\target\release\librusty_ssh.dylib"
+        Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and Exists('native\rusty_ssh\target\release\librusty_ssh.dylib')">
+        <Link>librusty_ssh.dylib</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </Content>
+    </ItemGroup>
+  </Target>
+
   <ItemGroup>
-    <Content Include="native\target\release\rusty_pty.dll"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and Exists('native\target\release\rusty_pty.dll')">
-      <Link>rusty_pty.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="native\target_linux\release\librusty_pty.so"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and Exists('native\target_linux\release\librusty_pty.so')">
-      <Link>librusty_pty.so</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="native\target\release\librusty_pty.dylib"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and Exists('native\target\release\librusty_pty.dylib')">
-      <Link>librusty_pty.dylib</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="native\rusty_ssh\target\release\rusty_ssh.dll"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows))) and Exists('native\rusty_ssh\target\release\rusty_ssh.dll')">
-      <Link>rusty_ssh.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="native\rusty_ssh\target\release\librusty_ssh.so"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux))) and Exists('native\rusty_ssh\target\release\librusty_ssh.so')">
-      <Link>librusty_ssh.so</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="native\rusty_ssh\target\release\librusty_ssh.dylib"
-      Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX))) and Exists('native\rusty_ssh\target\release\librusty_ssh.dylib')">
-      <Link>librusty_ssh.dylib</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
     <Content Include="themes\**">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
