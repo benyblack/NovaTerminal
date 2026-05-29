@@ -25,12 +25,12 @@ All architectural decisions follow from these goals.
 NovaTerminal is structured as eight focused .NET assemblies plus standalone tools. The dependency graph is acyclic. Each assembly's namespace matches its assembly name (enforced by `tests/NovaTerminal.Architecture.Tests/NamespaceAlignmentTests`).
 
 ```
-Cli ──► App ──► { Core, VT, Rendering, Pty, Replay }
-                  │       │     │         │     │
-                  └──► Pty │     │         │     │
-                          └─VT◄──┘         │     │
-                                          └─VT◄──┘
-                                                Replay◄─Pty
+Cli ──► App ──► { Platform, VT, Rendering, Pty, Replay }
+                  │          │     │         │     │
+                  └──► Pty   │     │         │     │
+                             └─VT◄──┘        │     │
+                                            └─VT◄──┘
+                                                  Replay◄─Pty
 
 Conformance  (standalone Exe – vt-report tool)
 ```
@@ -43,8 +43,8 @@ Concretely, from the `.csproj` graph:
 | `NovaTerminal.Replay` | VT | Session recording/playback, snapshots, replay format v2 |
 | `NovaTerminal.Rendering` | VT, SkiaSharp | Skia glyph atlas/cache, pixel grid, sixel decoder |
 | `NovaTerminal.Pty` | Replay | PTY transport: rust-PTY adapter, session contracts. **Does not depend on VT** — see arch test `Pty_must_not_depend_on_Vt` |
-| `NovaTerminal.Core` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
-| `NovaTerminal.App` | Core, VT, Rendering, Pty, Replay | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist |
+| `NovaTerminal.Platform` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
+| `NovaTerminal.App` | Platform, VT, Rendering, Pty, Replay | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist |
 | `NovaTerminal.Cli` | App | Headless CLI shim (`vt-report` etc.) |
 | `NovaTerminal.Conformance` | (standalone Exe) | VT conformance matrix tool used by tests and CI |
 
@@ -113,7 +113,7 @@ A focused module that owns the record/replay file format and the snapshot/byte-s
 
 Skia-only helpers: glyph atlas (`GlyphAtlas`), glyph cache (`GlyphCache`), pixel grid math (`PixelGrid`), font wrappers (`SharedSKFont`, `SharedSKTypeface`), image registry, sixel decoder, render performance metrics.
 
-This module is intentionally **Avalonia-agnostic**. The actual Avalonia `DrawOperation` and viewport (`TerminalDrawOperation`, `TerminalView`) live in `src/NovaTerminal.App/Core/` today — see Known Tech Debt below for the planned extraction.
+This module is intentionally **Avalonia-agnostic**. The actual Avalonia `DrawOperation` and viewport (`TerminalDrawOperation`, `TerminalView`) live in `src/NovaTerminal.App/Shell/` today — see Known Tech Debt below for the planned extraction.
 
 **Invariants** (enforced by `LayeringTests.Rendering_only_depends_on_Vt_and_Skia`)
 - Rendering is a pure function of (buffer snapshot, metrics, theme).
@@ -142,9 +142,9 @@ Native OS integration via the Rust PTY library (`rusty_pty.dll`/`.so`/`.dylib`).
 
 ---
 
-## 7. Platform / SSH — `NovaTerminal.Core`
+## 7. Platform / SSH — `NovaTerminal.Platform`
 
-Despite the name, this is **not** the terminal engine. It's a platform-utilities library: input routing (`Input/`), path mapping (`Paths/WslPathMapper`), the SSH stack (`Ssh/{Native,OpenSsh,Sessions,Storage,Transport}`), and the credential vault. The name is a historical artifact — the original "Core" was renamed to `NovaTerminal.VT` during the namespace alignment work; renaming `NovaTerminal.Core` itself is a planned follow-up.
+This is **not** the terminal engine. It's a platform-utilities library: input routing (`Input/`), path mapping (`Paths/WslPathMapper`), the SSH stack (`Ssh/{Native,OpenSsh,Sessions,Storage,Transport}`), and the credential vault. It was renamed from `NovaTerminal.Core` to `NovaTerminal.Platform` (issue #76) to end the three-way "Core" name overload; the original "Core" terminal engine had earlier been renamed to `NovaTerminal.VT` during the namespace-alignment work.
 
 This is also where session-orchestration helpers (such as a future `SessionBufferBinder`) belong.
 
@@ -153,6 +153,8 @@ This is also where session-orchestration helpers (such as a future `SessionBuffe
 ## 8. UI Shell — `NovaTerminal.App`
 
 Avalonia 12.0.4 application. Hosts windows, controls (`TerminalPane`, `MainWindow`, `SettingsWindow`), view-models, themes, and command-palette. Composes everything below.
+
+Shell composition glue (startup orchestration, app paths/logging/services, session & workspace managers, theme manager, command registry, profiles, the Avalonia view host) lives in `src/NovaTerminal.App/Shell/`, namespace `NovaTerminal.Shell` — renamed from `App/Core/` + `NovaTerminal.Core` (issue #76).
 
 ### Responsibilities
 - Window and pane management
@@ -217,16 +219,22 @@ Allowed differences: window chrome, hotkeys, blur/transparency, credential stora
 
 `tests/NovaTerminal.Architecture.Tests/` uses [NetArchTest.Rules](https://github.com/BenMorris/NetArchTest) to encode layering and namespace rules as xUnit facts. Today's enforced rules:
 
+**`LayeringTests`**
 - `Vt_must_be_a_leaf_assembly`
 - `Replay_only_depends_on_Vt`
 - `Rendering_only_depends_on_Vt_and_Skia`
 - `Pty_must_not_depend_on_Vt`
 - `No_production_assembly_references_test_assemblies`
-- `All_VT_types_use_NovaTerminal_VT_namespace`
-- `All_Replay_types_use_NovaTerminal_Replay_namespace`
-- `All_Rendering_types_use_NovaTerminal_Rendering_namespace`
-- `All_Pty_types_use_NovaTerminal_Pty_namespace`
-- `Only_the_Core_assembly_uses_NovaTerminal_Core_namespace`
+
+**`NamespaceAlignmentTests`**
+- `Leaf_assembly_types_reside_in_its_own_namespace` (Theory: VT, Replay, Rendering, Pty, Platform)
+- `No_two_assemblies_share_a_namespace_prefix`
+
+**`ProjectFileLayeringTests`**
+- `Pty_csproj_must_not_reference_Vt`
+- `Replay_csproj_only_references_Vt`
+- `Rendering_csproj_only_references_Vt`
+- `Vt_csproj_must_have_no_project_references`
 
 Adding a new layering invariant means adding a new fact. Reverting one of these accidentally fails CI.
 
@@ -238,7 +246,7 @@ Adding a new layering invariant means adding a new fact. Reverting one of these 
 |---|---|
 | `NovaTerminal.VT.Tests` | Fast unit suite for parser/buffer in isolation (no Avalonia, no Skia) |
 | `NovaTerminal.Rendering.Tests` | Skia primitives that don't need a GPU context |
-| `NovaTerminal.Core.Tests` | Platform utilities + SSH; includes Docker-gated E2E (skipped without Docker) |
+| `NovaTerminal.Platform.Tests` | Platform utilities + SSH; includes Docker-gated E2E (skipped without Docker) |
 | `NovaTerminal.App.Tests` | App-level integration — Avalonia-headless tests, replay regressions, golden PNG comparisons, command-assist |
 | `NovaTerminal.Architecture.Tests` | Layering and namespace rules (Section 12) |
 | `NovaTerminal.Benchmarks` | BenchmarkDotNet perf benchmarks (Exe, not auto-discovered by `dotnet test`) |
@@ -252,13 +260,12 @@ App-side tests use xunit.v3 + `Avalonia.Headless.XUnit 12.0.4` (which carries th
 
 These are tracked in follow-up plans under `docs/plans/`:
 
-- **Renderer composition still lives in App.** `src/NovaTerminal.App/Core/TerminalView.cs` (1,912 LOC) and `TerminalDrawOperation.cs` (2,723 LOC) implement the Skia-backed Avalonia renderer. They belong in `NovaTerminal.Rendering` behind a thin Avalonia binding shell. Planned extraction: `2026-MM-DD-renderer-composition-extraction-plan.md`.
-- **SSH is fragmented across Core and App.** `Core/Ssh/` holds the transport, while `App/Services/Ssh/`, `App/ViewModels/Ssh/`, `App/Views/Ssh/`, and `App/Core/{SftpService,VaultService,SshAskPassCommand}.cs` hold the user-facing surface. A `NovaTerminal.Ssh` (or `.Remote`) assembly would consolidate the non-UI portion.
+- **Renderer composition still lives in App.** `src/NovaTerminal.App/Shell/TerminalView.cs` (1,912 LOC) and `TerminalDrawOperation.cs` (2,723 LOC) implement the Skia-backed Avalonia renderer. They belong in `NovaTerminal.Rendering` behind a thin Avalonia binding shell. Planned extraction: `2026-MM-DD-renderer-composition-extraction-plan.md`.
+- **SSH is fragmented across Platform and App.** `Platform/Ssh/` holds the transport, while `App/Services/Ssh/`, `App/ViewModels/Ssh/`, `App/Views/Ssh/`, and `App/Shell/{SftpService,VaultService,SshAskPassCommand}.cs` hold the user-facing surface. A `NovaTerminal.Ssh` (or `.Remote`) assembly would consolidate the non-UI portion.
 - **CommandAssist** has its own Application/Domain/Storage layering inside `App/CommandAssist/`. Candidate for `NovaTerminal.CommandAssist` extraction.
 - **CLI ↔ App reference direction.** `Cli` currently references `App` and is built via a nested MSBuild target (`BuildCliShim` in `App.csproj`). A `NovaTerminal.Bootstrap` library should mediate so `Cli → Bootstrap ← App` replaces `Cli → App`.
-- **`NovaTerminal.Core` name.** The assembly is platform/SSH utilities; the name "Core" comes from the era when this project held the terminal engine. Rename to `NovaTerminal.Platform` (or split) is a one-shot find-replace.
 - **Byte vs string at the PTY boundary.** `ITerminalIO.SendInput(string)` and `OnOutputReceived(Action<string>)` lose information at the byte-vs-codepoint boundary (UTF-8 split across reads, embedded NULs, lone surrogates). Migrating to `ReadOnlySpan<byte>` / `Action<ReadOnlyMemory<byte>>` is the planned follow-up to Phase 5.
-- **Buffer-snapshot recording.** Phase 5 removed `ITerminalSession.AttachBuffer` / `TakeSnapshot`. The byte-stream is still recorded; buffer snapshots at recording start/stop are gone. Re-introducing them as an orchestration helper (likely in `Replay` or `Core`) is a small follow-up.
+- **Buffer-snapshot recording.** Phase 5 removed `ITerminalSession.AttachBuffer` / `TakeSnapshot`. The byte-stream is still recorded; buffer snapshots at recording start/stop are gone. Re-introducing them as an orchestration helper (likely in `Replay` or `Platform`) is a small follow-up.
 - **`MainWindow.axaml.cs` is 5,259 LOC, `TerminalPane.axaml.cs` 2,572 LOC, `SettingsWindow.axaml.cs` 1,672 LOC.** These code-behinds contain business logic that should live in services and view-models.
 - **`TerminalBuffer` is split across 10 partial files (~5K LOC).** Several of the partials (`WritePath`, `ReflowEngine`, `ThreadingAndInvalidation`, `TabStops`) want to be collaborators rather than partials.
 
