@@ -415,8 +415,11 @@ pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut P
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_read(state_ptr: *mut PtyState, buffer: *mut u8, len: c_int) -> c_int {
     ffi_guard(-1, || {
-        if state_ptr.is_null() {
+        if state_ptr.is_null() || buffer.is_null() || len < 0 {
             return -1;
+        }
+        if len == 0 {
+            return 0;
         }
         let state = unsafe {
             let arc = Arc::from_raw(state_ptr);
@@ -440,8 +443,11 @@ pub extern "C" fn pty_read(state_ptr: *mut PtyState, buffer: *mut u8, len: c_int
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_write(state_ptr: *mut PtyState, buffer: *const u8, len: c_int) -> c_int {
     ffi_guard(-1, || {
-        if state_ptr.is_null() {
+        if state_ptr.is_null() || buffer.is_null() || len < 0 {
             return -1;
+        }
+        if len == 0 {
+            return 0;
         }
         let state = unsafe {
             let arc = Arc::from_raw(state_ptr);
