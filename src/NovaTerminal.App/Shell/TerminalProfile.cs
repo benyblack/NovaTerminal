@@ -1,4 +1,3 @@
-using NovaTerminal.Shell;
 using NovaTerminal.Core;
 using System;
 using NovaTerminal.Core.Ssh.Models;

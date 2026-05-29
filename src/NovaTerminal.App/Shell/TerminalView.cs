@@ -1,4 +1,3 @@
-using NovaTerminal.Shell;
 using NovaTerminal.Core;
 using Avalonia;
 using Avalonia.Controls;

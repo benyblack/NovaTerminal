@@ -1,4 +1,3 @@
-using NovaTerminal.Shell;
 using System.Collections.Generic;
 using System;
 using System.Text.Json.Serialization;

@@ -1,4 +1,3 @@
-using NovaTerminal.Shell;
 using System;
 using System.Globalization;
 using Avalonia.Data.Converters;
