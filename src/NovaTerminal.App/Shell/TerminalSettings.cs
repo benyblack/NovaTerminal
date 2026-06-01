@@ -24,6 +24,11 @@ namespace NovaTerminal.Shell
         public bool BellAudioEnabled { get; set; } = true;
         public bool BellVisualEnabled { get; set; } = true;
         public bool SmoothScrolling { get; set; } = true;
+        // Scroll units forwarded per wheel notch. For own-buffer scrolling this is lines
+        // per notch; for a mouse-reporting TUI it is wheel clicks per notch. Higher =
+        // smoother/finer (more steps per notch), lower = coarser. Matters most for
+        // high-resolution touchpads, which emit many sub-notch wheel events.
+        public double WheelLinesPerNotch { get; set; } = 3.0;
         public string PaneClosePolicy { get; set; } = "Confirm";
         public System.Collections.Generic.Dictionary<string, string> Keybindings { get; set; } = new();
         public System.Collections.Generic.List<TabTemplateRule> TabTemplateRules { get; set; } = new();
