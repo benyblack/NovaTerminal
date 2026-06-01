@@ -36,5 +36,65 @@ namespace NovaTerminal.Platform.Input
             bool hasWhitespace = path.IndexOf(' ') >= 0 || path.IndexOf('\t') >= 0;
             return hasWhitespace ? "\"" + path + "\" " : path + " ";
         }
+
+        /// <summary>
+        /// Converts a Windows path to its default WSL mount form (e.g. C:\Users\me\x.png ->
+        /// /mnt/c/Users/me/x.png) so a Linux CLI in a WSL session can resolve it. Paths that
+        /// already look POSIX are returned with separators normalized. Custom WSL mount points
+        /// are not handled; the default /mnt/&lt;drive&gt; scheme covers temp files under a drive root.
+        /// </summary>
+        public static string ToWslMountPath(string windowsPath)
+        {
+            if (string.IsNullOrEmpty(windowsPath))
+            {
+                return windowsPath ?? string.Empty;
+            }
+
+            if (windowsPath.Length >= 2 && windowsPath[1] == ':' && char.IsLetter(windowsPath[0]))
+            {
+                char drive = char.ToLowerInvariant(windowsPath[0]);
+                string rest = windowsPath.Substring(2).Replace('\\', '/');
+                if (!rest.StartsWith("/", StringComparison.Ordinal))
+                {
+                    rest = "/" + rest;
+                }
+
+                return "/mnt/" + drive + rest;
+            }
+
+            return windowsPath.Replace('\\', '/');
+        }
+
+        /// <summary>
+        /// Deletes leftover temp clipboard images (nova-clip-*) older than the given threshold.
+        /// Best-effort; failures are swallowed. Intended to be called once at startup.
+        /// </summary>
+        public static void CleanUpOldTempImages(TimeSpan threshold)
+        {
+            try
+            {
+                var directory = new DirectoryInfo(Path.GetTempPath());
+                DateTime cutoff = DateTime.UtcNow - threshold;
+
+                foreach (var file in directory.EnumerateFiles("nova-clip-*"))
+                {
+                    try
+                    {
+                        if (file.LastWriteTimeUtc < cutoff)
+                        {
+                            file.Delete();
+                        }
+                    }
+                    catch
+                    {
+                        // Skip files we can't stat/delete (e.g. in use); keep cleaning the rest.
+                    }
+                }
+            }
+            catch
+            {
+                // Non-fatal cleanup failure.
+            }
+        }
     }
 }

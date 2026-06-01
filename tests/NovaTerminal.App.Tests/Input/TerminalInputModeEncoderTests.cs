@@ -101,6 +101,33 @@ namespace NovaTerminal.Tests.Input
         }
 
         [Fact]
+        public void EncodeAltKey_AltBackspace_EmitsEscapeThenDelete()
+        {
+            // readline backward-kill-word (M-DEL): ESC followed by DEL (0x7f).
+            Assert.Equal("\x1b\x7f", TerminalInputModeEncoder.EncodeAltKey(Key.Back, KeyModifiers.Alt));
+        }
+
+        [Fact]
+        public void EncodeAltKey_AltEnter_EmitsEscapeThenCarriageReturn()
+        {
+            Assert.Equal("\x1b\r", TerminalInputModeEncoder.EncodeAltKey(Key.Enter, KeyModifiers.Alt));
+        }
+
+        [Fact]
+        public void EncodeAltKey_AltPeriod_EmitsEscapeThenPeriod()
+        {
+            // readline yank-last-arg (M-.)
+            Assert.Equal("\x1b.", TerminalInputModeEncoder.EncodeAltKey(Key.OemPeriod, KeyModifiers.Alt));
+        }
+
+        [Fact]
+        public void EncodeAltKey_AltShiftPeriod_ReturnsNull()
+        {
+            // Shifted OemPeriod is '>' on most layouts, not '.'; don't mis-encode it.
+            Assert.Null(TerminalInputModeEncoder.EncodeAltKey(Key.OemPeriod, KeyModifiers.Alt | KeyModifiers.Shift));
+        }
+
+        [Fact]
         public void EncodeAltKey_WithoutAlt_ReturnsNull()
         {
             Assert.Null(TerminalInputModeEncoder.EncodeAltKey(Key.V, KeyModifiers.None));

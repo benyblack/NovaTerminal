@@ -141,6 +141,10 @@ namespace NovaTerminal
             }
 
             FocusCurrentTerminal(defer: true);
+
+            // Reap leftover clipboard-paste temp images from previous runs (best-effort).
+            System.Threading.Tasks.Task.Run(() =>
+                NovaTerminal.Platform.Input.ClipboardImage.CleanUpOldTempImages(TimeSpan.FromHours(24)));
         }
 
         private void ToggleConnections()
@@ -3767,7 +3771,14 @@ namespace NovaTerminal
                     {
                         string path = NovaTerminal.Platform.Input.ClipboardImage.GetTempImagePath(".png");
                         bitmap.Save(path);
-                        _currentPane.Session.SendInput(NovaTerminal.Platform.Input.ClipboardImage.QuotePathForInput(path));
+
+                        // In a WSL session the Linux CLI can't resolve a C:\ path, so map it to
+                        // its /mnt/<drive> form — mirroring the file-drop path handling.
+                        bool isWsl = _currentPane.Session.ShellCommand?.Contains("wsl", StringComparison.OrdinalIgnoreCase) ?? false;
+                        string sendPath = isWsl
+                            ? NovaTerminal.Platform.Input.ClipboardImage.ToWslMountPath(path)
+                            : path;
+                        _currentPane.Session.SendInput(NovaTerminal.Platform.Input.ClipboardImage.QuotePathForInput(sendPath));
                     }
                     finally
                     {

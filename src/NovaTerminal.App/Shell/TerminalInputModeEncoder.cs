@@ -103,6 +103,17 @@ namespace NovaTerminal.Shell
                 return "\x1b" + c;
             }
 
+            // Common non-alphanumeric meta keys (layout-independent), used by readline/emacs.
+            switch (key)
+            {
+                case Key.Back:
+                    return "\x1b\x7f";  // M-DEL: backward-kill-word
+                case Key.Enter:
+                    return "\x1b\r";
+                case Key.OemPeriod when !shift:
+                    return "\x1b.";     // M-.: yank-last-arg
+            }
+
             return null;
         }
 

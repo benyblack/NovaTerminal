@@ -68,6 +68,22 @@ public sealed class TerminalViewKeyHandlingTests
     }
 
     [AvaloniaFact]
+    public void HandleKeyDownCore_WhenAltBackspacePressed_SendsEscDeleteNotBareDelete()
+    {
+        // Regression: the unconditional Key.Back switch case must not swallow Alt+Backspace
+        // before meta-encoding runs. Expect ESC + DEL (readline backward-kill-word).
+        var session = new Mock<ITerminalSession>();
+        var view = new TerminalView();
+        view.SetSession(session.Object);
+
+        bool handled = view.HandleKeyDownCore(Key.Back, KeyModifiers.Alt);
+
+        Assert.True(handled);
+        session.Verify(x => x.SendInput("\x1b\x7f"), Times.Once);
+        session.Verify(x => x.SendInput("\x7f"), Times.Never);
+    }
+
+    [AvaloniaFact]
     public void AltVKeyPress_RoutesThroughRealInputPipeline_SendsEscapePrefixedV()
     {
         // End-to-end: dispatch a real Alt+V key event through Avalonia's full input pipeline

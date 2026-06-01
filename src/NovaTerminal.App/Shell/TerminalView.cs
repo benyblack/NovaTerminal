@@ -133,6 +133,18 @@ namespace NovaTerminal.Shell
             // Logic copied from MainWindow
             bool isCtrl = (keyModifiers & KeyModifiers.Control) != 0;
 
+            // Alt/Meta-sends-ESC must run BEFORE the unconditional Enter/Back/Tab/Escape cases
+            // below, which would otherwise swallow Alt+<those> and send the bare control byte.
+            if ((keyModifiers & KeyModifiers.Alt) != 0)
+            {
+                string? altSequence = TerminalInputModeEncoder.EncodeAltKey(key, keyModifiers);
+                if (altSequence != null)
+                {
+                    _session.SendInput(altSequence);
+                    return true;
+                }
+            }
+
             switch (key)
             {
                 case Key.Enter:
@@ -196,13 +208,6 @@ namespace NovaTerminal.Shell
                     break;
 
                 // Arrows
-            }
-
-            string? altSequence = TerminalInputModeEncoder.EncodeAltKey(key, keyModifiers);
-            if (altSequence != null)
-            {
-                _session.SendInput(altSequence);
-                return true;
             }
 
             string? sequence = TerminalInputModeEncoder.EncodeSpecialKey(key, _buffer?.Modes);
