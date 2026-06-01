@@ -1,5 +1,6 @@
 using NovaTerminal.Shell;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -51,6 +52,38 @@ public sealed class TerminalViewKeyHandlingTests
 
         Assert.True(handled);
         session.Verify(x => x.SendInput("\t"), Times.Once);
+    }
+
+    [AvaloniaFact]
+    public void HandleKeyDownCore_WhenAltLetterPressed_SendsEscapePrefixedSequence()
+    {
+        var session = new Mock<ITerminalSession>();
+        var view = new TerminalView();
+        view.SetSession(session.Object);
+
+        bool handled = view.HandleKeyDownCore(Key.V, KeyModifiers.Alt);
+
+        Assert.True(handled);
+        session.Verify(x => x.SendInput("\x1bv"), Times.Once);
+    }
+
+    [AvaloniaFact]
+    public void AltVKeyPress_RoutesThroughRealInputPipeline_SendsEscapePrefixedV()
+    {
+        // End-to-end: dispatch a real Alt+V key event through Avalonia's full input pipeline
+        // (incl. the access-key handler) to confirm it is not swallowed before reaching the
+        // terminal's key handler, and emerges as ESC v — Claude Code's paste-image trigger.
+        var session = new Mock<ITerminalSession>();
+        var view = new TerminalView { Focusable = true };
+        view.SetSession(session.Object);
+
+        var window = new Window { Content = view, Width = 400, Height = 300 };
+        window.Show();
+        view.Focus();
+
+        window.KeyPress(Key.V, RawInputModifiers.Alt, PhysicalKey.V, "v");
+
+        session.Verify(x => x.SendInput("\x1bv"), Times.AtLeastOnce);
     }
 
     [AvaloniaFact]

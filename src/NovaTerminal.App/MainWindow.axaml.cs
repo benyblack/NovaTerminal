@@ -3738,18 +3738,40 @@ namespace NovaTerminal
             try
             {
                 var topLevel = TopLevel.GetTopLevel(this);
-                if (topLevel?.Clipboard != null)
+                if (topLevel?.Clipboard == null || _currentPane?.Session == null)
                 {
-                    var text = await topLevel.Clipboard.TryGetTextAsync();
-                    if (!string.IsNullOrEmpty(text) && _currentPane?.Session != null)
-                    {
-                        // Normalize line endings to avoid double newlines on paste
-                        _currentPane.NotifyCommandAssistPaste(text);
-                        text = NovaTerminal.Platform.Input.TerminalInputSender.PreparePaste(
-                            text,
-                            _currentPane.Buffer?.Modes.IsBracketedPasteMode == true);
+                    return;
+                }
 
-                        _currentPane.Session.SendInput(text);
+                var clipboard = topLevel.Clipboard;
+                var text = await clipboard.TryGetTextAsync();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    // Normalize line endings to avoid double newlines on paste
+                    _currentPane.NotifyCommandAssistPaste(text);
+                    text = NovaTerminal.Platform.Input.TerminalInputSender.PreparePaste(
+                        text,
+                        _currentPane.Buffer?.Modes.IsBracketedPasteMode == true);
+
+                    _currentPane.Session.SendInput(text);
+                    return;
+                }
+
+                // No text on the clipboard. If it holds an image (e.g. a screenshot), save it
+                // to a temp PNG and send the path so a running CLI such as Claude Code can read
+                // the image. This mirrors NovaTerminal's existing file-drop behavior.
+                var bitmap = await clipboard.TryGetBitmapAsync();
+                if (bitmap != null)
+                {
+                    try
+                    {
+                        string path = NovaTerminal.Platform.Input.ClipboardImage.GetTempImagePath(".png");
+                        bitmap.Save(path);
+                        _currentPane.Session.SendInput(NovaTerminal.Platform.Input.ClipboardImage.QuotePathForInput(path));
+                    }
+                    finally
+                    {
+                        bitmap.Dispose();
                     }
                 }
             }

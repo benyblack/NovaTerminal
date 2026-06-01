@@ -198,6 +198,13 @@ namespace NovaTerminal.Shell
                 // Arrows
             }
 
+            string? altSequence = TerminalInputModeEncoder.EncodeAltKey(key, keyModifiers);
+            if (altSequence != null)
+            {
+                _session.SendInput(altSequence);
+                return true;
+            }
+
             string? sequence = TerminalInputModeEncoder.EncodeSpecialKey(key, _buffer?.Modes);
             if (sequence != null)
             {
