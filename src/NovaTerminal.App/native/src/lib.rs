@@ -11,7 +11,7 @@ mod win32 {
     use std::ptr::{null, null_mut};
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Console::{
-        ClosePseudoConsole, CreatePseudoConsole, COORD, HPCON,
+        ClosePseudoConsole, CreatePseudoConsole, GetConsoleWindow, COORD, HPCON,
     };
     use windows_sys::Win32::System::Pipes::CreatePipe;
     use windows_sys::Win32::System::Threading::{
@@ -22,6 +22,14 @@ mod win32 {
 
     pub const PSEUDOCONSOLE_PASSTHROUGH: u32 = 0x8;
     pub const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x00020016;
+
+    /// True when this process is attached to a real console window. A GUI (WinExe)
+    /// app returns false even when launched from a terminal, since it never allocates
+    /// a console. Used to avoid the PSEUDOCONSOLE_PASSTHROUGH path, which drops child
+    /// stdout when no real console is present.
+    pub fn host_has_real_console() -> bool {
+        (unsafe { GetConsoleWindow() }) != 0
+    }
 
     pub fn spawn_with_passthrough(
         cmd: &str,
@@ -245,6 +253,17 @@ fn parse_env_overrides(envs: *const c_char) -> Vec<(String, String)> {
     out
 }
 
+/// Decide whether to bypass the Windows `PSEUDOCONSOLE_PASSTHROUGH` spawn path.
+///
+/// Passthrough silently drops a child's direct stdout writes (e.g. PowerShell 7's
+/// VT prompt) when the host process has no real console -- which is always the case
+/// for the GUI (WinExe) app, leaving pwsh tabs blank. Skip it then so we take the
+/// portable-pty path whose pipe captures all child output. `env_opt_out` is the
+/// explicit `NOVA_PTY_NO_PASSTHROUGH` override and always wins.
+fn should_skip_passthrough(env_opt_out: bool, has_real_console: bool) -> bool {
+    env_opt_out || !has_real_console
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_spawn(
     cmd: *const c_char,
@@ -304,14 +323,15 @@ fn pty_spawn_impl(
 
     #[cfg(windows)]
     {
-        // Allow callers (notably the xunit test runner, where the
-        // PSEUDOCONSOLE_PASSTHROUGH path silently swallows the child's
-        // stdout when the host has no real console) to force the
-        // portable-pty ConPTY path via env var. Production never sets
-        // this so behavior is unchanged for the app.
-        let skip_passthrough = std::env::var("NOVA_PTY_NO_PASSTHROUGH")
+        // PSEUDOCONSOLE_PASSTHROUGH silently swallows the child's stdout when the
+        // host has no real console -- which is always true for the GUI (WinExe) app
+        // and the xunit test runner, leaving e.g. pwsh 7 tabs blank. Take the
+        // portable-pty path in that case. NOVA_PTY_NO_PASSTHROUGH stays as an
+        // explicit override.
+        let env_opt_out = std::env::var("NOVA_PTY_NO_PASSTHROUGH")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
+        let skip_passthrough = should_skip_passthrough(env_opt_out, win32::host_has_real_console());
         if !skip_passthrough {
             if let Ok((reader, writer, h_pc, h_process)) = win32::spawn_with_passthrough(
                 cmd_str.as_ref(),
@@ -578,5 +598,29 @@ mod ffi_guard_tests {
         let rc = ffi_guard(-1, || -> c_int { panic!("boom") });
         std::panic::set_hook(prev);
         assert_eq!(rc, -1);
+    }
+}
+
+#[cfg(test)]
+mod passthrough_decision_tests {
+    use super::*;
+
+    // PSEUDOCONSOLE_PASSTHROUGH drops a child's direct stdout writes (e.g. pwsh 7's
+    // VT prompt) when the host process has no real console. A GUI (WinExe) app never
+    // has one, so it must take the portable-pty path; otherwise pwsh tabs render blank.
+    #[test]
+    fn uses_passthrough_only_when_a_real_console_exists_and_not_opted_out() {
+        assert!(!should_skip_passthrough(false, true), "console host, no opt-out -> keep passthrough");
+    }
+
+    #[test]
+    fn skips_passthrough_when_no_real_console() {
+        assert!(should_skip_passthrough(false, false), "GUI app (no console) -> must skip passthrough");
+    }
+
+    #[test]
+    fn env_opt_out_always_skips() {
+        assert!(should_skip_passthrough(true, true));
+        assert!(should_skip_passthrough(true, false));
     }
 }
