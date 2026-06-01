@@ -28,7 +28,7 @@ mod win32 {
     /// a console. Used to avoid the PSEUDOCONSOLE_PASSTHROUGH path, which drops child
     /// stdout when no real console is present.
     pub fn host_has_real_console() -> bool {
-        (unsafe { GetConsoleWindow() } as isize) != 0
+        (unsafe { GetConsoleWindow() }) != 0
     }
 
     pub fn spawn_with_passthrough(
