@@ -656,7 +656,14 @@ namespace NovaTerminal.Shell
                 _bellAudioEnabled = settings.BellAudioEnabled;
                 _bellVisualEnabled = settings.BellVisualEnabled;
                 _enableSmoothScrolling = settings.SmoothScrolling;
-                _wheelLinesPerNotch = settings.WheelLinesPerNotch > 0 ? settings.WheelLinesPerNotch : 3.0;
+                // Fall back to the default for non-positive/NaN values; clamp the upper
+                // bound so a wild settings value can't drive runaway scroll steps.
+                double wheelLinesPerNotch = settings.WheelLinesPerNotch;
+                if (double.IsNaN(wheelLinesPerNotch) || wheelLinesPerNotch <= 0)
+                {
+                    wheelLinesPerNotch = 3.0;
+                }
+                _wheelLinesPerNotch = Math.Min(wheelLinesPerNotch, 100.0);
                 if (!_cursorBlinkEnabled) _cursorBlinkPhase = true;
                 EnsureFallbackChain();
 
@@ -1554,7 +1561,11 @@ namespace NovaTerminal.Shell
             // (which otherwise floods a TUI with scroll commands -> runaway scrolling).
             if (_buffer.IsMouseReportingActive())
             {
-                int notches = _wheelReportAccumulator.Accumulate(e.Delta.Y, _wheelLinesPerNotch);
+                // Classic stepped wheel (full notch) forwards 1 event per notch so
+                // list/menu TUIs advance one item; only sub-notch precision devices get
+                // the smoothing multiplier.
+                double reportUnitsPerNotch = WheelStepAccumulator.ReportUnitsPerNotch(e.Delta.Y, _wheelLinesPerNotch);
+                int notches = _wheelReportAccumulator.Accumulate(e.Delta.Y, reportUnitsPerNotch);
                 if (notches != 0)
                 {
                     var point = e.GetCurrentPoint(this);

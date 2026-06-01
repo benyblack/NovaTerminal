@@ -24,14 +24,29 @@ namespace NovaTerminal.Shell
         /// call. Reversing scroll direction discards the stale remainder so the
         /// reversal registers immediately instead of after "climbing back" through it.
         /// </summary>
+        // Largest accumulated magnitude allowed before the int cast. A single wheel
+        // event never legitimately approaches this; it only guards a pathological delta
+        // from casting to int.MinValue (negative overflow saturates there on .NET),
+        // which would make a caller's Math.Abs(steps) throw OverflowException.
+        private const double MaxAccumulation = 10_000.0;
+
         public int Accumulate(double value)
         {
-            if (value != 0 && _remainder != 0 && Math.Sign(value) != Math.Sign(_remainder))
+            // Drop non-finite deltas: Math.Sign(NaN) throws and (int)Infinity is
+            // garbage. A bad device reading must not crash scrolling.
+            if (double.IsNaN(value) || double.IsInfinity(value))
+            {
+                return 0;
+            }
+
+            // Reverse direction -> discard the stale remainder so the reversal
+            // registers immediately. Sign comparison avoids Math.Sign (NaN-safe).
+            if (value != 0 && _remainder != 0 && (value > 0) != (_remainder > 0))
             {
                 _remainder = 0;
             }
 
-            _remainder += value;
+            _remainder = Math.Clamp(_remainder + value, -MaxAccumulation, MaxAccumulation);
             int steps = (int)_remainder; // truncate toward zero; keep the fraction
             _remainder -= steps;
             return steps;
@@ -44,6 +59,17 @@ namespace NovaTerminal.Shell
         /// </summary>
         public int Accumulate(double normalizedDelta, double unitsPerNotch)
             => Accumulate(normalizedDelta * unitsPerNotch);
+
+        /// <summary>
+        /// Per-notch sensitivity for forwarding wheel events to a mouse-reporting TUI.
+        /// A full-notch event (|delta| &gt;= 1.0, i.e. a classic stepped wheel) forwards
+        /// 1:1 so list/menu TUIs advance one item per notch; sub-notch events (precision
+        /// touchpad / hi-res wheel) use the configured multiplier so scrolling stays
+        /// smooth. Non-finite deltas fall through to <paramref name="configuredUnitsPerNotch"/>
+        /// and are dropped later by <see cref="Accumulate(double)"/>.
+        /// </summary>
+        public static double ReportUnitsPerNotch(double normalizedDelta, double configuredUnitsPerNotch)
+            => Math.Abs(normalizedDelta) >= 1.0 ? 1.0 : configuredUnitsPerNotch;
 
         /// <summary>Drops any pending fraction (e.g. when scrolling context changes).</summary>
         public void Reset() => _remainder = 0;

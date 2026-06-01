@@ -94,4 +94,53 @@ public sealed class WheelStepAccumulatorTests
         // "climb back" before a down-step registers; reversal feels immediate.
         Assert.Equal(-1, acc.Accumulate(-1.0));
     }
+
+    [Theory]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    [InlineData(double.NegativeInfinity)]
+    public void NonFiniteInput_IsIgnored_AndDoesNotThrow(double value)
+    {
+        var acc = new WheelStepAccumulator();
+
+        // Math.Sign(NaN) throws ArithmeticException, and (int)Infinity yields a
+        // garbage value; a non-finite delta must be dropped, not crash scrolling.
+        Assert.Equal(0, acc.Accumulate(value));
+        // Accumulator stays healthy afterwards.
+        Assert.Equal(1, acc.Accumulate(1.0));
+    }
+
+    [Theory]
+    // Full-notch events (classic stepped wheel) forward 1:1 so a TUI moves one item
+    // per notch, regardless of the configured smoothing multiplier.
+    [InlineData(1.0, 3.0, 1.0)]
+    [InlineData(-1.0, 3.0, 1.0)]
+    [InlineData(2.0, 3.0, 1.0)]
+    // Sub-notch events (precision touchpad / hi-res wheel) use the multiplier so
+    // scrolling stays smooth.
+    [InlineData(0.0083, 3.0, 3.0)]
+    [InlineData(-0.5, 3.0, 3.0)]
+    [InlineData(0.5, 8.0, 8.0)]
+    public void ReportUnitsPerNotch_FullNotchForwards1to1_SubNotchUsesMultiplier(
+        double delta, double configured, double expected)
+    {
+        Assert.Equal(expected, WheelStepAccumulator.ReportUnitsPerNotch(delta, configured));
+    }
+
+    [Theory]
+    [InlineData(1e18)]
+    [InlineData(-1e18)]
+    public void HugeFiniteValue_DoesNotOverflowIntCast(double value)
+    {
+        var acc = new WheelStepAccumulator();
+
+        // A pathological delta must not produce int.MinValue (negative overflow
+        // saturates there on .NET), which would make the caller's Math.Abs(notches)
+        // throw OverflowException.
+        int steps = acc.Accumulate(value);
+
+        Assert.NotEqual(int.MinValue, steps);
+        // Safe to take the absolute value (as the mouse-reporting path does).
+        Assert.True(Math.Abs(steps) >= 0);
+    }
 }
