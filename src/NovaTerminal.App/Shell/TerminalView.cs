@@ -226,6 +226,12 @@ namespace NovaTerminal.Shell
         private bool _isBellFlashActive;
         private bool _enableSmoothScrolling = true;
         private int _targetScrollOffset;
+        // Carry fractional high-resolution wheel deltas so precision touchpads / hi-res
+        // wheels (which emit sub-notch micro-events) produce one step per notch instead
+        // of one per micro-event. Separate accumulators for the two wheel code paths.
+        private readonly WheelStepAccumulator _wheelScrollAccumulator = new();
+        private readonly WheelStepAccumulator _wheelReportAccumulator = new();
+        private double _wheelLinesPerNotch = 3.0;
         private CursorStyle _preferredCursorStyle = CursorStyle.Underline;
         private int _lastCursorRow = -1;
         private int _lastCursorCol = -1;
@@ -650,6 +656,14 @@ namespace NovaTerminal.Shell
                 _bellAudioEnabled = settings.BellAudioEnabled;
                 _bellVisualEnabled = settings.BellVisualEnabled;
                 _enableSmoothScrolling = settings.SmoothScrolling;
+                // Fall back to the default for non-positive/NaN values; clamp the upper
+                // bound so a wild settings value can't drive runaway scroll steps.
+                double wheelLinesPerNotch = settings.WheelLinesPerNotch;
+                if (double.IsNaN(wheelLinesPerNotch) || wheelLinesPerNotch <= 0)
+                {
+                    wheelLinesPerNotch = 3.0;
+                }
+                _wheelLinesPerNotch = Math.Min(wheelLinesPerNotch, 100.0);
                 if (!_cursorBlinkEnabled) _cursorBlinkPhase = true;
                 EnsureFallbackChain();
 
@@ -1541,38 +1555,56 @@ namespace NovaTerminal.Shell
             base.OnPointerWheelChanged(e);
             if (_buffer == null) return;
 
-            // If mouse reporting is active, send wheel events to the session
+            // If mouse reporting is active, forward wheel notches to the session.
+            // Accumulate fractional deltas so a high-resolution device emits one
+            // WheelUp/WheelDown per notch rather than one per sub-notch micro-event
+            // (which otherwise floods a TUI with scroll commands -> runaway scrolling).
             if (_buffer.IsMouseReportingActive())
             {
-                var point = e.GetCurrentPoint(this);
-                var (row, col) = ScreenToTerminal(point.Position);
-                var mouseEvent = new TerminalMouseEvent(
-                    TerminalMouseEventKind.Wheel,
-                    e.Delta.Y > 0 ? TerminalMouseButton.WheelUp : TerminalMouseButton.WheelDown,
-                    col + 1,
-                    row + 1,
-                    e.KeyModifiers);
-                SendMouseEvent(mouseEvent);
+                // Classic stepped wheel (full notch) forwards 1 event per notch so
+                // list/menu TUIs advance one item; only sub-notch precision devices get
+                // the smoothing multiplier.
+                double reportUnitsPerNotch = WheelStepAccumulator.ReportUnitsPerNotch(e.Delta.Y, _wheelLinesPerNotch);
+                int notches = _wheelReportAccumulator.Accumulate(e.Delta.Y, reportUnitsPerNotch);
+                if (notches != 0)
+                {
+                    var point = e.GetCurrentPoint(this);
+                    var (row, col) = ScreenToTerminal(point.Position);
+                    var button = notches > 0 ? TerminalMouseButton.WheelUp : TerminalMouseButton.WheelDown;
+                    for (int i = 0; i < Math.Abs(notches); i++)
+                    {
+                        SendMouseEvent(new TerminalMouseEvent(
+                            TerminalMouseEventKind.Wheel,
+                            button,
+                            col + 1,
+                            row + 1,
+                            e.KeyModifiers));
+                    }
+                }
                 e.Handled = true;
                 return;
             }
 
-            // Standard scrolling
-            // Scroll up (positive) -> Increase Offset
-            // Scroll down (negative) -> Decrease Offset
-            int delta = (int)(e.Delta.Y * 3); // 3 lines per notch
-            if (_enableSmoothScrolling)
+            // Standard scrolling. Accumulate fractional deltas (lines per notch) so
+            // sub-notch micro-events are summed line-by-line instead of being truncated
+            // to zero each event.
+            // Scroll up (positive) -> Increase Offset; scroll down (negative) -> Decrease.
+            int delta = _wheelScrollAccumulator.Accumulate(e.Delta.Y, _wheelLinesPerNotch);
+            if (delta != 0)
             {
-                int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
-                _targetScrollOffset = Math.Clamp(_targetScrollOffset + delta, 0, maxScroll);
-                if (!_scrollAnimationTimer.IsEnabled)
+                if (_enableSmoothScrolling)
                 {
-                    _scrollAnimationTimer.Start();
+                    int maxScroll = Math.Max(0, _buffer.TotalLines - _buffer.Rows);
+                    _targetScrollOffset = Math.Clamp(_targetScrollOffset + delta, 0, maxScroll);
+                    if (!_scrollAnimationTimer.IsEnabled)
+                    {
+                        _scrollAnimationTimer.Start();
+                    }
                 }
-            }
-            else
-            {
-                ScrollOffset += delta;
+                else
+                {
+                    ScrollOffset += delta;
+                }
             }
         }
 
