@@ -141,6 +141,10 @@ namespace NovaTerminal
             }
 
             FocusCurrentTerminal(defer: true);
+
+            // Reap leftover clipboard-paste temp images from previous runs (best-effort).
+            System.Threading.Tasks.Task.Run(() =>
+                NovaTerminal.Platform.Input.ClipboardImage.CleanUpOldTempImages(TimeSpan.FromHours(24)));
         }
 
         private void ToggleConnections()
@@ -3738,18 +3742,47 @@ namespace NovaTerminal
             try
             {
                 var topLevel = TopLevel.GetTopLevel(this);
-                if (topLevel?.Clipboard != null)
+                if (topLevel?.Clipboard == null || _currentPane?.Session == null)
                 {
-                    var text = await topLevel.Clipboard.TryGetTextAsync();
-                    if (!string.IsNullOrEmpty(text) && _currentPane?.Session != null)
-                    {
-                        // Normalize line endings to avoid double newlines on paste
-                        _currentPane.NotifyCommandAssistPaste(text);
-                        text = NovaTerminal.Platform.Input.TerminalInputSender.PreparePaste(
-                            text,
-                            _currentPane.Buffer?.Modes.IsBracketedPasteMode == true);
+                    return;
+                }
 
-                        _currentPane.Session.SendInput(text);
+                var clipboard = topLevel.Clipboard;
+                var text = await clipboard.TryGetTextAsync();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    // Normalize line endings to avoid double newlines on paste
+                    _currentPane.NotifyCommandAssistPaste(text);
+                    text = NovaTerminal.Platform.Input.TerminalInputSender.PreparePaste(
+                        text,
+                        _currentPane.Buffer?.Modes.IsBracketedPasteMode == true);
+
+                    _currentPane.Session.SendInput(text);
+                    return;
+                }
+
+                // No text on the clipboard. If it holds an image (e.g. a screenshot), save it
+                // to a temp PNG and send the path so a running CLI such as Claude Code can read
+                // the image. This mirrors NovaTerminal's existing file-drop behavior.
+                var bitmap = await clipboard.TryGetBitmapAsync();
+                if (bitmap != null)
+                {
+                    try
+                    {
+                        string path = NovaTerminal.Platform.Input.ClipboardImage.GetTempImagePath(".png");
+                        bitmap.Save(path);
+
+                        // In a WSL session the Linux CLI can't resolve a C:\ path, so map it to
+                        // its /mnt/<drive> form — mirroring the file-drop path handling.
+                        bool isWsl = _currentPane.Session.ShellCommand?.Contains("wsl", StringComparison.OrdinalIgnoreCase) ?? false;
+                        string sendPath = isWsl
+                            ? NovaTerminal.Platform.Input.ClipboardImage.ToWslMountPath(path)
+                            : path;
+                        _currentPane.Session.SendInput(NovaTerminal.Platform.Input.ClipboardImage.QuotePathForInput(sendPath));
+                    }
+                    finally
+                    {
+                        bitmap.Dispose();
                     }
                 }
             }

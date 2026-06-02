@@ -63,6 +63,60 @@ namespace NovaTerminal.Shell
             };
         }
 
+        /// <summary>
+        /// Encodes an Alt/Meta + printable key as an ESC-prefixed sequence, matching the
+        /// standard xterm "metaSendsEscape" behavior (e.g. Alt+V -> ESC v). This restores
+        /// readline/emacs Alt keybindings and is the trigger Claude Code listens for to
+        /// paste an image from the clipboard. Returns null when the combination should not
+        /// be meta-encoded (no Alt, Ctrl+Alt/AltGr, or a non-printable key).
+        /// </summary>
+        public static string? EncodeAltKey(Key key, KeyModifiers modifiers)
+        {
+            if ((modifiers & KeyModifiers.Alt) == 0)
+            {
+                return null;
+            }
+
+            // Ctrl+Alt is AltGr on many keyboard layouts and produces real text input;
+            // meta-encoding it here would double-handle the key.
+            if ((modifiers & KeyModifiers.Control) != 0)
+            {
+                return null;
+            }
+
+            bool shift = (modifiers & KeyModifiers.Shift) != 0;
+
+            if (key >= Key.A && key <= Key.Z)
+            {
+                char c = (char)('a' + (key - Key.A));
+                if (shift)
+                {
+                    c = char.ToUpperInvariant(c);
+                }
+
+                return "\x1b" + c;
+            }
+
+            if (!shift && key >= Key.D0 && key <= Key.D9)
+            {
+                char c = (char)('0' + (key - Key.D0));
+                return "\x1b" + c;
+            }
+
+            // Common non-alphanumeric meta keys (layout-independent), used by readline/emacs.
+            switch (key)
+            {
+                case Key.Back:
+                    return "\x1b\x7f";  // M-DEL: backward-kill-word
+                case Key.Enter:
+                    return "\x1b\r";
+                case Key.OemPeriod when !shift:
+                    return "\x1b.";     // M-.: yank-last-arg
+            }
+
+            return null;
+        }
+
         public static string? EncodeFocusChanged(ModeState? modes, bool isFocused)
         {
             if (modes?.IsFocusEventReporting != true)

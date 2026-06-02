@@ -78,6 +78,77 @@ namespace NovaTerminal.Tests.Input
         }
 
         [Fact]
+        public void EncodeAltKey_AltLetter_EmitsEscapePrefixedLowercase()
+        {
+            // xterm "metaSendsEscape": Alt+<letter> sends ESC followed by the character.
+            // Claude Code relies on Alt+V (ESC v) as its paste-image trigger.
+            // Build ESC via concatenation: "\x1b" is a complete escape (the closing quote
+            // ends it), avoiding \x greediness that would fold a trailing hex char into it.
+            Assert.Equal("\x1b" + "v", TerminalInputModeEncoder.EncodeAltKey(Key.V, KeyModifiers.Alt));
+            Assert.Equal("\x1b" + "b", TerminalInputModeEncoder.EncodeAltKey(Key.B, KeyModifiers.Alt));
+        }
+
+        [Fact]
+        public void EncodeAltKey_AltShiftLetter_EmitsEscapePrefixedUppercase()
+        {
+            Assert.Equal("\x1b" + "V", TerminalInputModeEncoder.EncodeAltKey(Key.V, KeyModifiers.Alt | KeyModifiers.Shift));
+        }
+
+        [Fact]
+        public void EncodeAltKey_AltDigit_EmitsEscapePrefixedDigit()
+        {
+            Assert.Equal("\x1b" + "5", TerminalInputModeEncoder.EncodeAltKey(Key.D5, KeyModifiers.Alt));
+        }
+
+        [Fact]
+        public void EncodeAltKey_AltBackspace_EmitsEscapeThenDelete()
+        {
+            // readline backward-kill-word (M-DEL): ESC followed by DEL (0x7f).
+            Assert.Equal("\x1b\x7f", TerminalInputModeEncoder.EncodeAltKey(Key.Back, KeyModifiers.Alt));
+        }
+
+        [Fact]
+        public void EncodeAltKey_AltEnter_EmitsEscapeThenCarriageReturn()
+        {
+            Assert.Equal("\x1b\r", TerminalInputModeEncoder.EncodeAltKey(Key.Enter, KeyModifiers.Alt));
+        }
+
+        [Fact]
+        public void EncodeAltKey_AltPeriod_EmitsEscapeThenPeriod()
+        {
+            // readline yank-last-arg (M-.)
+            Assert.Equal("\x1b.", TerminalInputModeEncoder.EncodeAltKey(Key.OemPeriod, KeyModifiers.Alt));
+        }
+
+        [Fact]
+        public void EncodeAltKey_AltShiftPeriod_ReturnsNull()
+        {
+            // Shifted OemPeriod is '>' on most layouts, not '.'; don't mis-encode it.
+            Assert.Null(TerminalInputModeEncoder.EncodeAltKey(Key.OemPeriod, KeyModifiers.Alt | KeyModifiers.Shift));
+        }
+
+        [Fact]
+        public void EncodeAltKey_WithoutAlt_ReturnsNull()
+        {
+            Assert.Null(TerminalInputModeEncoder.EncodeAltKey(Key.V, KeyModifiers.None));
+        }
+
+        [Fact]
+        public void EncodeAltKey_CtrlAltCombo_ReturnsNull()
+        {
+            // Ctrl+Alt is AltGr on many layouts and produces real text input;
+            // encoding it here would double-handle the key.
+            Assert.Null(TerminalInputModeEncoder.EncodeAltKey(Key.V, KeyModifiers.Alt | KeyModifiers.Control));
+        }
+
+        [Fact]
+        public void EncodeAltKey_NonPrintableKey_ReturnsNull()
+        {
+            Assert.Null(TerminalInputModeEncoder.EncodeAltKey(Key.Up, KeyModifiers.Alt));
+            Assert.Null(TerminalInputModeEncoder.EncodeAltKey(Key.F5, KeyModifiers.Alt));
+        }
+
+        [Fact]
         public void EncodeFocusChanged_RequiresFocusReportingMode()
         {
             Assert.Null(TerminalInputModeEncoder.EncodeFocusChanged(new ModeState(), isFocused: true));
