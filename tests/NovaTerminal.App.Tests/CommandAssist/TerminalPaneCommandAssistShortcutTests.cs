@@ -14,7 +14,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public void ApplySettings_WhenAssistEnabled_DoesNotEagerlyInitializeController()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         var settings = TerminalSettings.Load();
         settings.CommandAssistEnabled = true;
         settings.CommandAssistHistoryEnabled = true;
@@ -27,7 +27,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public void TryToggleCommandAssistPinShortcut_WhenAssistVisibleWithoutSelection_ReturnsFalse()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.ToggleCommandAssist();
 
@@ -39,7 +39,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public void TryHandleCommandAssistKey_WhenAssistVisible_DoesNotConsumeTab()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.ToggleCommandAssist();
 
@@ -51,7 +51,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public void OpenCommandAssistHelp_WhenDisabledInSettings_ReturnsFalse()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         var settings = TerminalSettings.Load();
         settings.CommandAssistEnabled = false;
         settings.CommandAssistHistoryEnabled = true;
@@ -66,7 +66,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public async Task OpenCommandAssistHelp_WhenQueryPresent_UsesPaneInfrastructure()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("Get-ChildItem");
 
@@ -83,7 +83,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public async Task HandleCommandAssistCompletionAsync_WhenNonZeroExit_OpensFixModeForTrackedCommand()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("gti status");
 
@@ -98,7 +98,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public async Task HandleCommandAssistCompletionAsync_WhenZeroExit_DoesNotOpenFixMode()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("gti status");
 
@@ -112,7 +112,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public async Task HandleCommandAssistCompletionAsync_WhenKnownCommandFails_DoesNotOpenTypoFixMode()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("git commit");
 
@@ -127,7 +127,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public void CanExplainSelection_WhenSelectionIsEmpty_ReturnsFalse()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
 
         Assert.False(pane.CanExplainSelection());
@@ -136,7 +136,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public async Task ExplainSelectionAsync_WhenSelectionTextProvided_OpensHelp()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
 
         bool canExplain = pane.CanExplainSelection("fatal: not a git repository");
@@ -152,7 +152,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     [AvaloniaFact]
     public void TryOpenCommandAssistHelp_WhenPaneOpensHelp_ReturnsTrue()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("git checkout");
 

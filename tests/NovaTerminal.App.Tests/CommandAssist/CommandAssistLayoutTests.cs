@@ -52,7 +52,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public void TerminalPane_HostsBubbleAndPopupAsOverlayViews()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         var bubbleView = pane.FindControl<CommandAssistBubbleView>("CommandAssistBubble");
         var popupView = pane.FindControl<CommandAssistPopupView>("CommandAssistPopup");
@@ -68,7 +68,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public async Task TerminalPane_WhenHelpModeIsOpen_BindsBubbleAndPopupState()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("Get-ChildItem");
         pane.OpenCommandAssistHelp();
@@ -97,7 +97,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public async Task TerminalPane_WhenHelperModeHasNoSuggestions_ShowsPopupEmptyState()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("frobnicate");
         pane.OpenCommandAssistHelp();
@@ -117,7 +117,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public async Task TerminalPane_WhenSuggestModeIsCollapsed_KeepsPopupHidden()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
         pane.NotifyCommandAssistPaste("git st");
         await Task.Delay(50);
@@ -134,7 +134,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public async Task TerminalPane_WhenPaneIsNarrow_HidesBubbleQueryText()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 420,
             Height = 420
@@ -157,7 +157,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public void TerminalPane_WhenPaneIsMediumWidth_UsesReducedOverlayWidths()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 700,
             Height = 420
@@ -175,7 +175,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public async Task TerminalPane_WhenPaneIsShort_ConstrainsPopupHeight()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 700,
             Height = 220
@@ -198,7 +198,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public async Task TerminalPane_WhenBubbleIsVisible_KeepsBubbleAbovePromptAnchor()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 500
@@ -225,7 +225,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public void TerminalPane_WhenRemoteShellIsNotIntegrated_UsesFallbackAnchorInsteadOfPromptAnchor()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 500
@@ -257,7 +257,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public void TerminalPane_WhenRemoteShellCursorIsSettledLow_UsesCursorBandFallbackNearInput()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 500
@@ -291,7 +291,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public void TerminalPane_WhenSshStartupHasTransientTermViewBounds_UsesPaneBoundsForFallbackLayout()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 500
@@ -323,7 +323,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public void TerminalPane_WhenRemotePromptIsInUpperBandOnShortPane_SuppressesConservativeAssistLayout()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 220
@@ -353,7 +353,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public void TerminalPane_WhenRemotePromptSettlesLowOnShortPane_ResumesConservativeAssistLayout()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 220
@@ -383,7 +383,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public void TerminalPane_WhenRemotePromptHintRowsLagPaneHeight_UsesPaneEstimatedRowsForConservativeFallback()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 500
@@ -415,7 +415,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public async Task TerminalPane_WhenPopupIsVisible_AnchorsPopupTopToCalculatedRect()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 500
@@ -438,7 +438,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public async Task TerminalPane_WhenPopupIsNarrow_UsesCompactPopupLayout()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 420,
             Height = 420
@@ -463,7 +463,7 @@ public sealed class CommandAssistLayoutTests
     [AvaloniaFact]
     public async Task TerminalPane_WhenAssistBecomesVisible_DoesNotChangeTerminalRowHeight()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 500

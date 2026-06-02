@@ -21,7 +21,7 @@ public sealed class TerminalPaneStartupInstrumentationTests
         StartupPerformanceTracker.SetCurrentForTests(tracker);
         try
         {
-            var pane = new TerminalPane("pwsh.exe");
+            using var pane = new TerminalPane("pwsh.exe");
             StartupMetricsSnapshot snapshot = tracker.CreateSnapshot();
 
             Assert.NotNull(pane);

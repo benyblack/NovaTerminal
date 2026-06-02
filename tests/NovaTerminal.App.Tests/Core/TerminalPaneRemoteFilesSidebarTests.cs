@@ -15,7 +15,7 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     [AvaloniaFact]
     public void RemoteFilesSidebarHost_IsCreatedOnlyWhenOpened()
     {
-        var pane = new TerminalPane(new TerminalProfile
+        using var pane = new TerminalPane(new TerminalProfile
         {
             Name = "Native SSH",
             Type = ConnectionType.SSH,
@@ -37,7 +37,7 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     [AvaloniaFact]
     public void NativeSshPane_ContextMenu_KeepsOnlyRemoteFilesEntry()
     {
-        var pane = new TerminalPane(new TerminalProfile
+        using var pane = new TerminalPane(new TerminalProfile
         {
             Name = "Native SSH",
             Type = ConnectionType.SSH,
@@ -54,7 +54,7 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     [AvaloniaFact]
     public void Sidebar_HidesImmediately_WhenAltScreenBecomesActive()
     {
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
 
         pane.ShowRemoteFilesSidebarForTest();
         pane.HandleAltScreenChangedForTest(true);
@@ -65,7 +65,7 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     [AvaloniaFact]
     public void SidebarEntryPoint_IsUnavailable_ForLocalPane()
     {
-        var pane = new TerminalPane(new TerminalProfile
+        using var pane = new TerminalPane(new TerminalProfile
         {
             Name = "PowerShell",
             Type = ConnectionType.Local,
@@ -78,7 +78,7 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     [AvaloniaFact]
     public void SidebarEntryPoint_IsUnavailable_ForOpenSshPane()
     {
-        var pane = new TerminalPane(new TerminalProfile
+        using var pane = new TerminalPane(new TerminalProfile
         {
             Name = "OpenSSH",
             Type = ConnectionType.SSH,
@@ -95,7 +95,7 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     {
         var service = new RecordingRemoteDirectoryBrowserService(
             RemoteSidebarListingResult.Success("/srv/app", Array.Empty<RemoteSidebarEntry>()));
-        var pane = new TerminalPane(new TerminalProfile
+        using var pane = new TerminalPane(new TerminalProfile
         {
             Name = "Native SSH",
             Type = ConnectionType.SSH,
@@ -119,7 +119,7 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     {
         var service = new RecordingRemoteDirectoryBrowserService(
             RemoteSidebarListingResult.Success("~/downloads", Array.Empty<RemoteSidebarEntry>()));
-        var pane = new TerminalPane(new TerminalProfile
+        using var pane = new TerminalPane(new TerminalProfile
         {
             Name = "Native SSH",
             Type = ConnectionType.SSH,
@@ -142,7 +142,7 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     {
         var service = new RecordingRemoteDirectoryBrowserService(
             RemoteSidebarListingResult.Success("~/downloads", Array.Empty<RemoteSidebarEntry>()));
-        var pane = new TerminalPane(new TerminalProfile
+        using var pane = new TerminalPane(new TerminalProfile
         {
             Name = "Native SSH",
             Type = ConnectionType.SSH,
@@ -165,7 +165,7 @@ public sealed class TerminalPaneRemoteFilesSidebarTests
     [AvaloniaFact]
     public void SessionExit_KeepsSidebarVisibleInDisconnectedState()
     {
-        var pane = new TerminalPane(new TerminalProfile
+        using var pane = new TerminalPane(new TerminalProfile
         {
             Name = "Native SSH",
             Type = ConnectionType.SSH,

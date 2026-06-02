@@ -1,6 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <!-- Test hooks: RustPtySession exposes the read/process loop threads as `internal`
+         so tests can assert they run on dedicated background threads (never threadpool
+         threads), guarding the #81 pool-starvation regression. -->
+    <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- VT removed in Phase 5: Pty no longer references TerminalBuffer or any VT type.
          Enforced at the IL level by LayeringTests.Pty_must_not_depend_on_Vt and at the
          project-file level by ProjectFileLayeringTests.Pty_csproj_must_not_reference_Vt.

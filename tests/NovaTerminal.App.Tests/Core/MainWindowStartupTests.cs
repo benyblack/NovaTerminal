@@ -148,7 +148,7 @@ public sealed class MainWindowStartupTests
         settings.CommandAssistHistoryEnabled = true;
         settings.Keybindings["command_assist_help"] = "Ctrl+Alt+H";
 
-        var pane = new TerminalPane();
+        using var pane = new TerminalPane();
         pane.ApplySettings(settings);
         pane.NotifyCommandAssistPaste("git checkout");
 

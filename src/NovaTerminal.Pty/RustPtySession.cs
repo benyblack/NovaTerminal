@@ -13,8 +13,13 @@ namespace NovaTerminal.Pty
         public Guid Id { get; } = Guid.NewGuid();
         private IntPtr _ptyState;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
-        private Task? _readTask;
-        private Task? _processTask;
+        // The read/process loops run on these dedicated threads. Exposed to tests to
+        // assert they are background, non-threadpool threads — a leaked session must
+        // not consume the threadpool (#81).
+        private Thread? _readLoopThread;
+        private Thread? _processLoopThread;
+        internal Thread? ReadLoopThread => _readLoopThread;
+        internal Thread? ProcessLoopThread => _processLoopThread;
         private int _exitNotified;
         private int _isExited;
         private int? _exitCode;
@@ -237,9 +242,16 @@ namespace NovaTerminal.Pty
                 throw new InvalidOperationException("Failed to create Rust PTY session.");
             }
 
-            // Start reading and processing in background
-            _readTask = Task.Run(ReadLoop);
-            _processTask = Task.Run(ProcessLoop);
+            // Start reading and processing on DEDICATED background threads, not the
+            // threadpool. These loops make blocking native calls (pty_read) and an
+            // outright-blocking consuming enumerator; on the threadpool a leaked or
+            // slow-to-close session would tie up pool threads and, on low-core CI,
+            // starve the test-run completion -> testhost teardown hang (#81). Dedicated
+            // IsBackground threads never consume the pool and never block process exit.
+            _readLoopThread = new Thread(ReadLoop) { IsBackground = true, Name = $"PtyRead-{Id:N}" };
+            _processLoopThread = new Thread(ProcessLoop) { IsBackground = true, Name = $"PtyProcess-{Id:N}" };
+            _readLoopThread.Start();
+            _processLoopThread.Start();
 
             // POST-LAUNCH INJECTION for PowerShell
             if (!skipPowerShellPostLaunchInit &&
