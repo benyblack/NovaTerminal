@@ -13,8 +13,13 @@ namespace NovaTerminal.Pty
         public Guid Id { get; } = Guid.NewGuid();
         private IntPtr _ptyState;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
-        private Task? _readTask;
-        private Task? _processTask;
+        // The read/process loops run on these dedicated threads. Exposed to tests to
+        // assert they are background, non-threadpool threads — a leaked session must
+        // not consume the threadpool (#81).
+        private Thread? _readLoopThread;
+        private Thread? _processLoopThread;
+        internal Thread? ReadLoopThread => _readLoopThread;
+        internal Thread? ProcessLoopThread => _processLoopThread;
         private int _exitNotified;
         private int _isExited;
         private int? _exitCode;
@@ -237,9 +242,16 @@ namespace NovaTerminal.Pty
                 throw new InvalidOperationException("Failed to create Rust PTY session.");
             }
 
-            // Start reading and processing in background
-            _readTask = Task.Run(ReadLoop);
-            _processTask = Task.Run(ProcessLoop);
+            // Start reading and processing on DEDICATED background threads, not the
+            // threadpool. These loops make blocking native calls (pty_read) and an
+            // outright-blocking consuming enumerator; on the threadpool a leaked or
+            // slow-to-close session would tie up pool threads and, on low-core CI,
+            // starve the test-run completion -> testhost teardown hang (#81). Dedicated
+            // IsBackground threads never consume the pool and never block process exit.
+            _readLoopThread = new Thread(ReadLoop) { IsBackground = true, Name = $"PtyRead-{Id:N}" };
+            _processLoopThread = new Thread(ProcessLoop) { IsBackground = true, Name = $"PtyProcess-{Id:N}" };
+            _readLoopThread.Start();
+            _processLoopThread.Start();
 
             // POST-LAUNCH INJECTION for PowerShell
             if (!skipPowerShellPostLaunchInit &&
@@ -329,50 +341,65 @@ namespace NovaTerminal.Pty
             byte[] buffer = new byte[4096];
             char[] charBuffer = new char[4096]; // For decoded characters
 
-            while (!_cts.Token.IsCancellationRequested && _ptyState != IntPtr.Zero)
+            // This runs on a dedicated thread, so an unhandled exception would crash the
+            // whole process (unlike the old Task.Run, whose unobserved exceptions were
+            // swallowed). Contain it so a decode/recorder failure can't take down the host.
+            try
             {
-                int read = Native.pty_read(_ptyState, buffer, buffer.Length);
-                if (read > 0)
+                while (!_cts.Token.IsCancellationRequested && _ptyState != IntPtr.Zero)
                 {
-                    // Record raw bytes before any processing
-                    _recorder?.RecordChunk(buffer, read);
-
-                    // Use the stateful decoder - it will hold incomplete multi-byte sequences
-                    // until more bytes arrive, preventing U+FFFD replacement characters
-                    int charCount = _utf8Decoder.GetChars(buffer, 0, read, charBuffer, 0);
-                    if (charCount > 0)
+                    int read = Native.pty_read(_ptyState, buffer, buffer.Length);
+                    if (read > 0)
                     {
-                        string text = new string(charBuffer, 0, charCount);
-                        try
+                        // Record raw bytes before any processing
+                        _recorder?.RecordChunk(buffer, read);
+
+                        // Use the stateful decoder - it will hold incomplete multi-byte sequences
+                        // until more bytes arrive, preventing U+FFFD replacement characters
+                        int charCount = _utf8Decoder.GetChars(buffer, 0, read, charBuffer, 0);
+                        if (charCount > 0)
                         {
-                            // Block when the queue is full so we apply back-pressure instead of dropping output.
-                            _outputQueue.Add(text, _cts.Token);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            break;
-                        }
-                        catch (InvalidOperationException)
-                        {
-                            break;
+                            string text = new string(charBuffer, 0, charCount);
+                            try
+                            {
+                                // Block when the queue is full so we apply back-pressure instead of dropping output.
+                                _outputQueue.Add(text, _cts.Token);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                break;
+                            }
+                            catch (InvalidOperationException)
+                            {
+                                break;
+                            }
                         }
                     }
-                }
-                else if (read == 0) // EOF
-                {
-                    Console.WriteLine("[RustPtySession] EOF received.");
-                    break;
-                }
-                else // Error
-                {
-                    // Reset decoder state on error to prevent corruption
-                    _utf8Decoder.Reset();
-                    Thread.Sleep(50);
+                    else if (read == 0) // EOF
+                    {
+                        Console.WriteLine("[RustPtySession] EOF received.");
+                        break;
+                    }
+                    else // Error
+                    {
+                        // Reset decoder state on error to prevent corruption
+                        _utf8Decoder.Reset();
+                        Thread.Sleep(50);
+                    }
                 }
             }
-            if (!_outputQueue.IsAddingCompleted)
+            catch (Exception ex)
             {
-                _outputQueue.CompleteAdding();
+                Console.WriteLine($"[RustPtySession] ReadLoop terminated by unhandled exception: {ex}");
+            }
+            finally
+            {
+                // Always signal the consumer so ProcessLoop's GetConsumingEnumerable
+                // unblocks and that thread can exit, even if the loop above threw.
+                if (!_outputQueue.IsAddingCompleted)
+                {
+                    _outputQueue.CompleteAdding();
+                }
             }
         }
 
@@ -388,6 +415,13 @@ namespace NovaTerminal.Pty
             catch (OperationCanceledException)
             {
                 // Normal shutdown
+            }
+            catch (Exception ex)
+            {
+                // Dedicated thread: OnOutputReceived runs arbitrary subscriber code, and
+                // an unhandled exception here would crash the process. Contain + log so a
+                // misbehaving subscriber can't take down the host; still notify exit below.
+                Console.WriteLine($"[RustPtySession] ProcessLoop terminated by unhandled exception: {ex}");
             }
             TryNotifyExit(0);
         }

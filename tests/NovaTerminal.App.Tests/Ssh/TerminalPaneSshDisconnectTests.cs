@@ -31,7 +31,7 @@ public sealed class TerminalPaneSshDisconnectTests
             SshHost = "server.example",
             SshUser = "nova"
         };
-        var pane = new TerminalPane(profile);
+        using var pane = new TerminalPane(profile);
 
         pane.HandleSessionExitForTesting(17);
 
@@ -50,7 +50,7 @@ public sealed class TerminalPaneSshDisconnectTests
             Type = ConnectionType.Local,
             Command = "pwsh.exe"
         };
-        var pane = new TerminalPane(profile);
+        using var pane = new TerminalPane(profile);
 
         pane.HandleSessionExitForTesting(5);
 

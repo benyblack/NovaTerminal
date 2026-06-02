@@ -166,7 +166,7 @@ public sealed class TerminalViewKeyHandlingTests
     [AvaloniaFact]
     public void PromptHintAndPaneAnchorLayout_WhenCursorRowOrMetricsChange_UpdateWithoutBufferMutation()
     {
-        var pane = new TerminalPane
+        using var pane = new TerminalPane
         {
             Width = 900,
             Height = 500

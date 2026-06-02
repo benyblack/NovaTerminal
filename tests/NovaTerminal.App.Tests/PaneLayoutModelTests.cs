@@ -15,8 +15,8 @@ namespace NovaTerminal.Tests
         [AvaloniaFact]
         public void FromControl_BuildsSplitTree_WithPaneIds()
         {
-            var left = new TerminalPane { PaneId = Guid.NewGuid() };
-            var right = new TerminalPane { PaneId = Guid.NewGuid() };
+            using var left = new TerminalPane { PaneId = Guid.NewGuid() };
+            using var right = new TerminalPane { PaneId = Guid.NewGuid() };
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition(1, GridUnitType.Star));
             grid.ColumnDefinitions.Add(new ColumnDefinition(3, GridUnitType.Pixel));
@@ -40,8 +40,8 @@ namespace NovaTerminal.Tests
         [AvaloniaFact]
         public void FromControl_NormalizesRatios_ForStarColumns()
         {
-            var first = new TerminalPane { PaneId = Guid.NewGuid() };
-            var second = new TerminalPane { PaneId = Guid.NewGuid() };
+            using var first = new TerminalPane { PaneId = Guid.NewGuid() };
+            using var second = new TerminalPane { PaneId = Guid.NewGuid() };
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition(3, GridUnitType.Star));
             grid.ColumnDefinitions.Add(new ColumnDefinition(3, GridUnitType.Pixel));
