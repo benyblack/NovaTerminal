@@ -40,7 +40,9 @@ namespace NovaTerminal.Shell
 
         public bool QuakeModeEnabled { get; set; } = true;
         public string GlobalHotkey { get; set; } = "Alt+OemTilde";
-        public bool CommandAssistEnabled { get; set; } = true;
+        // Disabled by default as of 0.3: the Command Assist feature isn't production-ready
+        // yet. This master flag gates the whole feature; users can opt in via Settings.
+        public bool CommandAssistEnabled { get; set; } = false;
         public bool CommandAssistHistoryEnabled { get; set; } = true;
         public int CommandAssistMaxHistoryEntries { get; set; } = 5000;
         public bool CommandAssistAutoHideInAltScreen { get; set; } = true;
