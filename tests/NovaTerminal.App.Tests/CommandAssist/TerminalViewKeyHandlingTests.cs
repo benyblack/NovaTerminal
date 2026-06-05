@@ -55,6 +55,38 @@ public sealed class TerminalViewKeyHandlingTests
     }
 
     [AvaloniaFact]
+    public void HandleKeyDownCore_WhenSessionNotRunning_DoesNotConsumeEnter_SoPaneCanReconnect()
+    {
+        // Regression: after an SSH disconnect the dead session object is kept around so the
+        // "[Press Enter to reconnect]" banner works. TerminalView (the focused child) must not
+        // swallow Enter into the dead PTY — it has to bubble up to TerminalPane.OnKeyDown, which
+        // owns the reconnect-on-Enter logic. Consuming it here is what made reconnect impossible.
+        var session = new Mock<ITerminalSession>();
+        session.SetupGet(x => x.IsProcessRunning).Returns(false);
+        var view = new TerminalView();
+        view.SetSession(session.Object);
+
+        bool handled = view.HandleKeyDownCore(Key.Enter, KeyModifiers.None);
+
+        Assert.False(handled);
+        session.Verify(x => x.SendInput(It.IsAny<string>()), Times.Never);
+    }
+
+    [AvaloniaFact]
+    public void HandleKeyDownCore_WhenSessionRunning_ForwardsEnterToSession()
+    {
+        var session = new Mock<ITerminalSession>();
+        session.SetupGet(x => x.IsProcessRunning).Returns(true);
+        var view = new TerminalView();
+        view.SetSession(session.Object);
+
+        bool handled = view.HandleKeyDownCore(Key.Enter, KeyModifiers.None);
+
+        Assert.True(handled);
+        session.Verify(x => x.SendInput("\r"), Times.Once);
+    }
+
+    [AvaloniaFact]
     public void HandleKeyDownCore_WhenAltLetterPressed_SendsEscapePrefixedSequence()
     {
         var session = new Mock<ITerminalSession>();
