@@ -56,4 +56,22 @@ public class UrlDetectorTests
         var s = Assert.Single(Detector.Detect("see https://en.wikipedia.org/wiki/Foo_(bar) here"));
         Assert.Equal("https://en.wikipedia.org/wiki/Foo_(bar)", s.Uri);
     }
+
+    [Fact]
+    public void Detects_email_as_mailto()
+    {
+        var s = Assert.Single(Detector.Detect("contact me@example.com please"));
+        Assert.Equal("mailto:me@example.com", s.Uri);
+        Assert.Equal(8, s.StartChar);
+        Assert.Equal(22, s.EndChar);
+    }
+
+    [Fact]
+    public void Does_not_treat_email_inside_a_url_as_separate_link()
+    {
+        // The scheme rule wins; we should not get a duplicate mailto span overlapping it.
+        var spans = Detector.Detect("https://host/path?u=me@example.com");
+        Assert.Single(spans);
+        Assert.StartsWith("https://", spans[0].Uri);
+    }
 }

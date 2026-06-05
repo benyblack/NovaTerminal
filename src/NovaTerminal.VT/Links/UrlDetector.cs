@@ -18,6 +18,11 @@ namespace NovaTerminal.VT.Links
                 new Regex(@"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]+", RegexOptions.Compiled),
                 text => text,
                 trimTrailingPunctuation: true),
+            new LinkRule(
+                "email",
+                new Regex(@"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b", RegexOptions.Compiled),
+                text => "mailto:" + text,
+                trimTrailingPunctuation: false),
         };
 
         public IReadOnlyList<LinkSpan> Detect(string line)
