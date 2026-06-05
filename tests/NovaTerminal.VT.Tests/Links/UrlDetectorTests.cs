@@ -37,4 +37,23 @@ public class UrlDetectorTests
         Assert.Empty(Detector.Detect(""));
         Assert.Empty(Detector.Detect(null!));
     }
+
+    [Theory]
+    [InlineData("(see https://example.com).", "https://example.com")]
+    [InlineData("go to https://example.com/path!", "https://example.com/path")]
+    [InlineData("ref [https://example.com/a]", "https://example.com/a")]
+    [InlineData("end https://example.com,", "https://example.com")]
+    public void Trims_trailing_punctuation_and_unbalanced_brackets(string line, string expectedUri)
+    {
+        var s = Assert.Single(Detector.Detect(line));
+        Assert.Equal(expectedUri, s.Uri);
+    }
+
+    [Fact]
+    public void Keeps_balanced_parens_inside_url()
+    {
+        // Wikipedia-style URL with balanced parens should be preserved.
+        var s = Assert.Single(Detector.Detect("see https://en.wikipedia.org/wiki/Foo_(bar) here"));
+        Assert.Equal("https://en.wikipedia.org/wiki/Foo_(bar)", s.Uri);
+    }
 }
