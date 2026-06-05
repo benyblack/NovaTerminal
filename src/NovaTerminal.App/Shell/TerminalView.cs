@@ -849,6 +849,14 @@ namespace NovaTerminal.Shell
 
         // Selection state
         private readonly SelectionState _selection = new SelectionState();
+        private readonly NovaTerminal.VT.Links.UrlDetector _urlDetector = new NovaTerminal.VT.Links.UrlDetector();
+        // Hovered link overlay state (transient UI state, never written to the buffer).
+        private (int AbsRow, int StartCol, int EndCol, string Uri)? _hoveredLink;
+        // One-row memo so we only re-run detection when the pointer moves to a new row.
+        private int _hoverScanRow = -1;
+        private System.Collections.Generic.IReadOnlyList<NovaTerminal.VT.Links.LinkSpan> _hoverScanSpans =
+            System.Array.Empty<NovaTerminal.VT.Links.LinkSpan>();
+        private int[] _hoverScanMap = System.Array.Empty<int>();
         private bool _isSelecting = false;
         private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(100, 51, 153, 255));
 
@@ -1731,6 +1739,11 @@ namespace NovaTerminal.Shell
                 return;
             }
 
+            if (!_isSelecting)
+            {
+                UpdateHoveredLink(e.GetCurrentPoint(this).Position);
+            }
+
             if (_isSelecting)
             {
                 var point = e.GetCurrentPoint(this);
@@ -1791,6 +1804,68 @@ namespace NovaTerminal.Shell
                     InvalidateVisual();
                 }
             }
+        }
+
+        private void UpdateHoveredLink(Avalonia.Point position)
+        {
+            if (_buffer == null) return;
+
+            var (absRow, col) = ScreenToTerminal(position);
+
+            // 1) Explicit OSC 8 link on this cell always takes precedence.
+            string? osc8 = _buffer.GetHyperlinkAbsolute(col, absRow);
+            if (!string.IsNullOrWhiteSpace(osc8))
+            {
+                SetHoveredLink((absRow, col, col, osc8));
+                return;
+            }
+
+            // 2) Auto-detected link, if detection is enabled.
+            if (_enableLinkDetection)
+            {
+                if (absRow != _hoverScanRow)
+                {
+                    var (text, map) = NovaTerminal.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
+                    _hoverScanSpans = _urlDetector.Detect(text);
+                    _hoverScanMap = map;
+                    _hoverScanRow = absRow;
+                }
+
+                foreach (var span in _hoverScanSpans)
+                {
+                    var (startCol, endCol) = NovaTerminal.VT.Links.RowTextExtractor.SpanToColumns(span, _hoverScanMap);
+                    if (col >= startCol && col <= endCol)
+                    {
+                        SetHoveredLink((absRow, startCol, endCol, span.Uri));
+                        return;
+                    }
+                }
+            }
+
+            ClearHoveredLink();
+        }
+
+        private void SetHoveredLink((int AbsRow, int StartCol, int EndCol, string Uri) link)
+        {
+            if (_hoveredLink.Equals(link)) return; // no change -> no repaint
+            _hoveredLink = link;
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+            InvalidateVisual();
+        }
+
+        private void ClearHoveredLink()
+        {
+            if (_hoveredLink == null) return;
+            _hoveredLink = null;
+            Cursor = Avalonia.Input.Cursor.Default;
+            InvalidateVisual();
+        }
+
+        protected override void OnPointerExited(Avalonia.Input.PointerEventArgs e)
+        {
+            base.OnPointerExited(e);
+            _hoverScanRow = -1;
+            ClearHoveredLink();
         }
 
         private void SendMouseEvent(TerminalMouseEvent mouseEvent)
