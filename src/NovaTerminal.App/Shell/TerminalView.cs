@@ -1684,27 +1684,13 @@ namespace NovaTerminal.Shell
                 // Normal mode: Handle selection
                 var (row, col) = ScreenToTerminal(point.Position);
 
-                bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
-                if (isCtrl && _buffer != null)
+                if (IsLinkActivationModifier(e.KeyModifiers) && _buffer != null)
                 {
-                    string? hyperlink = _buffer.GetHyperlinkAbsolute(col, row);
-                    if (!string.IsNullOrWhiteSpace(hyperlink) &&
-                        Uri.TryCreate(hyperlink, UriKind.Absolute, out var linkUri))
+                    string? uri = ResolveLinkAt(row, col);
+                    if (TryOpenLink(uri))
                     {
-                        try
-                        {
-                            Process.Start(new ProcessStartInfo
-                            {
-                                FileName = linkUri.ToString(),
-                                UseShellExecute = true
-                            });
-                            e.Handled = true;
-                            return;
-                        }
-                        catch
-                        {
-                            // Ignore failed launch attempts.
-                        }
+                        e.Handled = true;
+                        return;
                     }
                 }
 
@@ -1875,6 +1861,53 @@ namespace NovaTerminal.Shell
             _hoveredLink = null;
             Cursor = Avalonia.Input.Cursor.Default;
             InvalidateVisual();
+        }
+
+        private static bool IsLinkActivationModifier(KeyModifiers modifiers)
+        {
+            // Cmd (Meta) on macOS, Ctrl elsewhere — matches platform conventions.
+            return OperatingSystem.IsMacOS()
+                ? (modifiers & KeyModifiers.Meta) != 0
+                : (modifiers & KeyModifiers.Control) != 0;
+        }
+
+        private bool TryOpenLink(string? uri)
+        {
+            if (!NovaTerminal.VT.Links.LinkSchemes.IsAllowed(uri)) return false;
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var linkUri)) return false;
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = linkUri.ToString(),
+                    UseShellExecute = true
+                });
+                return true;
+            }
+            catch
+            {
+                // Ignore failed launch attempts.
+                return false;
+            }
+        }
+
+        // Resolves the link under (absRow, col): OSC 8 first, then a detected span.
+        private string? ResolveLinkAt(int absRow, int col)
+        {
+            if (_buffer == null) return null;
+
+            string? osc8 = _buffer.GetHyperlinkAbsolute(col, absRow);
+            if (!string.IsNullOrWhiteSpace(osc8)) return osc8;
+
+            if (!_enableLinkDetection) return null;
+
+            var (text, map) = NovaTerminal.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
+            foreach (var span in _urlDetector.Detect(text))
+            {
+                var (startCol, endCol) = NovaTerminal.VT.Links.RowTextExtractor.SpanToColumns(span, map);
+                if (col >= startCol && col <= endCol) return span.Uri;
+            }
+            return null;
         }
 
         protected override void OnPointerExited(Avalonia.Input.PointerEventArgs e)
