@@ -1,4 +1,3 @@
-using System.Linq;
 using NovaTerminal.VT.Links;
 
 namespace NovaTerminal.VT.Tests.Links;

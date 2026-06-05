@@ -19,8 +19,8 @@ namespace NovaTerminal.VT.Links
         public LinkRule(string name, Regex pattern, Func<string, string> resolve, bool trimTrailingPunctuation = false)
         {
             Name = name;
-            Pattern = pattern;
-            Resolve = resolve;
+            Pattern = pattern ?? throw new ArgumentNullException(nameof(pattern));
+            Resolve = resolve ?? throw new ArgumentNullException(nameof(resolve));
             TrimTrailingPunctuation = trimTrailingPunctuation;
         }
     }

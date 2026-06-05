@@ -15,7 +15,7 @@ namespace NovaTerminal.VT.Links
         {
             new LinkRule(
                 "scheme",
-                new Regex(@"\b[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]+", RegexOptions.Compiled),
+                new Regex(@"[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]+", RegexOptions.Compiled),
                 text => text,
                 trimTrailingPunctuation: true),
         };
@@ -55,7 +55,7 @@ namespace NovaTerminal.VT.Links
             while (end > start)
             {
                 char c = line[end - 1];
-                if (punct.IndexOf(c) >= 0) { end--; continue; }
+                if (punct.Contains(c)) { end--; continue; }
                 if (c == ')' && CountChar(line, start, end, '(') < CountChar(line, start, end, ')')) { end--; continue; }
                 if (c == ']' && CountChar(line, start, end, '[') < CountChar(line, start, end, ']')) { end--; continue; }
                 if (c == '}' && CountChar(line, start, end, '{') < CountChar(line, start, end, '}')) { end--; continue; }
