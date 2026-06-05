@@ -86,16 +86,23 @@ public sealed class TerminalPaneSshDisconnectTests
         view!.SetSession(deadSession.Object);
 
         var window = new Window { Content = pane, Width = 600, Height = 400 };
-        window.Show();
-        view.Focus();
-        Assert.True(pane.IsKeyboardFocusWithin);
+        try
+        {
+            window.Show();
+            view.Focus();
+            Assert.True(pane.IsKeyboardFocusWithin);
 
-        window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, "\r");
+            window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, "\r");
 
-        // Enter was not forwarded to the dead session...
-        deadSession.Verify(x => x.SendInput(It.IsAny<string>()), Times.Never);
-        // ...and the pane's reconnect path ran.
-        Assert.Contains("Reconnecting", GetVisiblePlainText(pane.Buffer!), StringComparison.Ordinal);
+            // Enter was not forwarded to the dead session...
+            deadSession.Verify(x => x.SendInput(It.IsAny<string>()), Times.Never);
+            // ...and the pane's reconnect path ran.
+            Assert.Contains("Reconnecting", GetVisiblePlainText(pane.Buffer!), StringComparison.Ordinal);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     private static string GetVisiblePlainText(TerminalBuffer buffer)
