@@ -1,5 +1,9 @@
 using NovaTerminal.Shell;
+using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
+using Moq;
 using NovaTerminal.Controls;
 using NovaTerminal.Platform;
 using NovaTerminal.VT;
@@ -57,6 +61,48 @@ public sealed class TerminalPaneSshDisconnectTests
         string visibleText = GetVisiblePlainText(pane.Buffer!);
         Assert.Equal(5, pane.LastExitCode);
         Assert.DoesNotContain("SSH session disconnected", visibleText, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public void RealEnterKeyPress_AfterDisconnect_BubblesToPaneAndTriggersReconnect()
+    {
+        // End-to-end through Avalonia's real input pipeline: a dead session is left attached to
+        // the focused TerminalView (as happens after an SSH disconnect). Pressing Enter must NOT
+        // be swallowed into the dead PTY — it has to bubble TerminalView -> TerminalPane.OnKeyDown,
+        // whose reconnect handler runs Reconnect(), which writes a "[Reconnecting...]" marker.
+        var profile = new TerminalProfile
+        {
+            Name = "Native SSH",
+            Type = ConnectionType.SSH,
+            SshHost = "server.example",
+            SshUser = "nova"
+        };
+        var deadSession = new Mock<ITerminalSession>();
+        deadSession.SetupGet(x => x.IsProcessRunning).Returns(false);
+
+        using var pane = new TerminalPane(profile);
+        var view = pane.FindControl<TerminalView>("TermView");
+        Assert.NotNull(view);
+        view!.SetSession(deadSession.Object);
+
+        var window = new Window { Content = pane, Width = 600, Height = 400 };
+        try
+        {
+            window.Show();
+            view.Focus();
+            Assert.True(pane.IsKeyboardFocusWithin);
+
+            window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, "\r");
+
+            // Enter was not forwarded to the dead session...
+            deadSession.Verify(x => x.SendInput(It.IsAny<string>()), Times.Never);
+            // ...and the pane's reconnect path ran.
+            Assert.Contains("Reconnecting", GetVisiblePlainText(pane.Buffer!), StringComparison.Ordinal);
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     private static string GetVisiblePlainText(TerminalBuffer buffer)

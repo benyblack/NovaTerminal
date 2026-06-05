@@ -148,6 +148,14 @@ namespace NovaTerminal.Shell
             switch (key)
             {
                 case Key.Enter:
+                    if (!_session.IsProcessRunning)
+                    {
+                        // The session has exited (e.g. SSH disconnected) but the dead session
+                        // object is kept around so the "[Press Enter to reconnect]" banner works.
+                        // Don't swallow Enter into the dead PTY — let it bubble up to
+                        // TerminalPane.OnKeyDown, which owns the reconnect-on-Enter logic.
+                        return false;
+                    }
                     _session.SendInput("\r");
                     EnterObserved?.Invoke();
                     return true;
