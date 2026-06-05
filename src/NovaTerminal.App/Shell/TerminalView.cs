@@ -1571,6 +1571,22 @@ namespace NovaTerminal.Shell
                 _showRenderHud
             ));
 
+            if (_hoveredLink is { } link && _metrics.CellWidth > 0 && _metrics.CellHeight > 0)
+            {
+                int displayStart = Math.Max(0, totalLines - buffer.Rows - ScrollOffset);
+                int visualRow = link.AbsRow - displayStart;
+                if (visualRow >= 0 && visualRow < buffer.Rows)
+                {
+                    double x = link.StartCol * _metrics.CellWidth;
+                    double width = (link.EndCol - link.StartCol + 1) * _metrics.CellWidth;
+                    double y = (visualRow + 1) * _metrics.CellHeight - 1.0;
+                    var color = buffer.Theme.Foreground.ToAvaloniaColor();
+                    context.FillRectangle(
+                        new SolidColorBrush(color, _windowOpacity),
+                        new Rect(x, y, width, 1.0));
+                }
+            }
+
             if (_isBellFlashActive)
             {
                 context.FillRectangle(
