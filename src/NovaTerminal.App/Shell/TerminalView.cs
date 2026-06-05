@@ -1818,7 +1818,12 @@ namespace NovaTerminal.Shell
             string? osc8 = _buffer.GetHyperlinkAbsolute(col, absRow);
             if (!string.IsNullOrWhiteSpace(osc8))
             {
-                SetHoveredLink((absRow, col, col, osc8));
+                // Only show as clickable if it would actually open (mirror the click allowlist),
+                // so non-openable schemes (e.g. ftp://) don't underline or show the hand cursor.
+                if (NovaTerminal.VT.Links.LinkSchemes.IsAllowed(osc8))
+                    SetHoveredLink((absRow, col, col, osc8));
+                else
+                    ClearHoveredLink();
                 return;
             }
 
@@ -1838,7 +1843,11 @@ namespace NovaTerminal.Shell
                     var (startCol, endCol) = NovaTerminal.VT.Links.RowTextExtractor.SpanToColumns(span, _hoverScanMap);
                     if (col >= startCol && col <= endCol)
                     {
-                        SetHoveredLink((absRow, startCol, endCol, span.Uri));
+                        // Mirror the click allowlist: don't underline schemes that can't open.
+                        if (NovaTerminal.VT.Links.LinkSchemes.IsAllowed(span.Uri))
+                            SetHoveredLink((absRow, startCol, endCol, span.Uri));
+                        else
+                            ClearHoveredLink();
                         return;
                     }
                 }
