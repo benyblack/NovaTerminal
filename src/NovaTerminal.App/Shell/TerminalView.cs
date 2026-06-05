@@ -544,6 +544,7 @@ namespace NovaTerminal.Shell
         private bool _hasBackgroundImage = false;
         private bool _enableLigatures = false;
         private bool _enableComplexShaping = true;
+        private bool _enableLinkDetection = true;
         private readonly GlyphCache _glyphCache = new();
         private double _lastRenderScalingForRowCache = -1.0;
         private TopLevel? _cachedTopLevel;
@@ -676,6 +677,7 @@ namespace NovaTerminal.Shell
                 _bellAudioEnabled = settings.BellAudioEnabled;
                 _bellVisualEnabled = settings.BellVisualEnabled;
                 _enableSmoothScrolling = settings.SmoothScrolling;
+                _enableLinkDetection = settings.EnableLinkDetection;
                 // Fall back to the default for non-positive/NaN values; clamp the upper
                 // bound so a wild settings value can't drive runaway scroll steps.
                 double wheelLinesPerNotch = settings.WheelLinesPerNotch;
