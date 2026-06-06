@@ -74,4 +74,19 @@ public class UrlDetectorTests
         Assert.Single(spans);
         Assert.StartsWith("https://", spans[0].Uri);
     }
+
+    [Fact]
+    public void Longest_match_wins_when_two_rules_share_a_start()
+    {
+        // Two rules match at index 0 with different lengths; dedup must keep the longer span.
+        var rules = new[]
+        {
+            new LinkRule("short", new System.Text.RegularExpressions.Regex("foo"), t => "S:" + t),
+            new LinkRule("long", new System.Text.RegularExpressions.Regex("foobar"), t => "L:" + t),
+        };
+        var s = Assert.Single(new UrlDetector(rules).Detect("foobar"));
+        Assert.Equal("L:foobar", s.Uri);
+        Assert.Equal(0, s.StartChar);
+        Assert.Equal(6, s.EndChar);
+    }
 }

@@ -43,8 +43,9 @@ namespace NovaTerminal.VT.Links
                 }
             }
 
-            // Deterministic order, then drop overlaps (earliest span wins).
-            spans.Sort((a, b) => a.StartChar != b.StartChar ? a.StartChar - b.StartChar : a.EndChar - b.EndChar);
+            // Deterministic order, then drop overlaps. Sort by start ascending; for spans sharing
+            // a start, longest first (EndChar descending) so the longest match wins the dedup.
+            spans.Sort((a, b) => a.StartChar != b.StartChar ? a.StartChar - b.StartChar : b.EndChar - a.EndChar);
             var result = new List<LinkSpan>();
             int lastEnd = -1;
             foreach (var s in spans)

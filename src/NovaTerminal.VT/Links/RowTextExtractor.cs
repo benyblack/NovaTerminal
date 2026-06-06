@@ -12,12 +12,16 @@ namespace NovaTerminal.VT.Links
     {
         public static (string Text, int[] CharToCol) Extract(TerminalBuffer buffer, int absRow)
         {
+            if (buffer == null) return (string.Empty, System.Array.Empty<int>());
+
             var sb = new StringBuilder();
             var map = new List<int>();
 
             buffer.Lock.EnterReadLock();
             try
             {
+                if (absRow < 0 || absRow >= buffer.TotalLines) return (string.Empty, System.Array.Empty<int>());
+
                 int cols = buffer.Cols;
                 for (int col = 0; col < cols; col++)
                 {
