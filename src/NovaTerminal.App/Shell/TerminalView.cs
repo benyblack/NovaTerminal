@@ -544,6 +544,7 @@ namespace NovaTerminal.Shell
         private bool _hasBackgroundImage = false;
         private bool _enableLigatures = false;
         private bool _enableComplexShaping = true;
+        private bool _enableLinkDetection = true;
         private readonly GlyphCache _glyphCache = new();
         private double _lastRenderScalingForRowCache = -1.0;
         private TopLevel? _cachedTopLevel;
@@ -676,6 +677,7 @@ namespace NovaTerminal.Shell
                 _bellAudioEnabled = settings.BellAudioEnabled;
                 _bellVisualEnabled = settings.BellVisualEnabled;
                 _enableSmoothScrolling = settings.SmoothScrolling;
+                _enableLinkDetection = settings.EnableLinkDetection;
                 // Fall back to the default for non-positive/NaN values; clamp the upper
                 // bound so a wild settings value can't drive runaway scroll steps.
                 double wheelLinesPerNotch = settings.WheelLinesPerNotch;
@@ -847,6 +849,14 @@ namespace NovaTerminal.Shell
 
         // Selection state
         private readonly SelectionState _selection = new SelectionState();
+        private readonly NovaTerminal.VT.Links.UrlDetector _urlDetector = new NovaTerminal.VT.Links.UrlDetector();
+        // Hovered link overlay state (transient UI state, never written to the buffer).
+        private (int AbsRow, int StartCol, int EndCol, string Uri)? _hoveredLink;
+        // One-row memo so we only re-run detection when the pointer moves to a new row.
+        private int _hoverScanRow = -1;
+        private System.Collections.Generic.IReadOnlyList<NovaTerminal.VT.Links.LinkSpan> _hoverScanSpans =
+            System.Array.Empty<NovaTerminal.VT.Links.LinkSpan>();
+        private int[] _hoverScanMap = System.Array.Empty<int>();
         private bool _isSelecting = false;
         private static readonly IBrush SelectionBrush = new SolidColorBrush(Color.FromArgb(100, 51, 153, 255));
 
@@ -1561,6 +1571,22 @@ namespace NovaTerminal.Shell
                 _showRenderHud
             ));
 
+            if (_hoveredLink is { } link && _metrics.CellWidth > 0 && _metrics.CellHeight > 0)
+            {
+                int displayStart = Math.Max(0, totalLines - buffer.Rows - ScrollOffset);
+                int visualRow = link.AbsRow - displayStart;
+                if (visualRow >= 0 && visualRow < buffer.Rows)
+                {
+                    double x = link.StartCol * _metrics.CellWidth;
+                    double width = (link.EndCol - link.StartCol + 1) * _metrics.CellWidth;
+                    double y = (visualRow + 1) * _metrics.CellHeight - 1.0;
+                    var color = buffer.Theme.Foreground.ToAvaloniaColor();
+                    context.FillRectangle(
+                        new SolidColorBrush(color, _windowOpacity),
+                        new Rect(x, y, width, 1.0));
+                }
+            }
+
             if (_isBellFlashActive)
             {
                 context.FillRectangle(
@@ -1658,27 +1684,13 @@ namespace NovaTerminal.Shell
                 // Normal mode: Handle selection
                 var (row, col) = ScreenToTerminal(point.Position);
 
-                bool isCtrl = (e.KeyModifiers & KeyModifiers.Control) != 0;
-                if (isCtrl && _buffer != null)
+                if (IsLinkActivationModifier(e.KeyModifiers) && _buffer != null)
                 {
-                    string? hyperlink = _buffer.GetHyperlinkAbsolute(col, row);
-                    if (!string.IsNullOrWhiteSpace(hyperlink) &&
-                        Uri.TryCreate(hyperlink, UriKind.Absolute, out var linkUri))
+                    string? uri = ResolveLinkAt(row, col);
+                    if (TryOpenLink(uri))
                     {
-                        try
-                        {
-                            Process.Start(new ProcessStartInfo
-                            {
-                                FileName = linkUri.ToString(),
-                                UseShellExecute = true
-                            });
-                            e.Handled = true;
-                            return;
-                        }
-                        catch
-                        {
-                            // Ignore failed launch attempts.
-                        }
+                        e.Handled = true;
+                        return;
                     }
                 }
 
@@ -1727,6 +1739,11 @@ namespace NovaTerminal.Shell
 
                 e.Handled = true;
                 return;
+            }
+
+            if (!_isSelecting)
+            {
+                UpdateHoveredLink(e.GetCurrentPoint(this).Position);
             }
 
             if (_isSelecting)
@@ -1789,6 +1806,124 @@ namespace NovaTerminal.Shell
                     InvalidateVisual();
                 }
             }
+        }
+
+        private void UpdateHoveredLink(Avalonia.Point position)
+        {
+            if (_buffer == null) return;
+
+            var (absRow, col) = ScreenToTerminal(position);
+
+            // 1) Explicit OSC 8 link on this cell always takes precedence.
+            string? osc8 = _buffer.GetHyperlinkAbsolute(col, absRow);
+            if (!string.IsNullOrWhiteSpace(osc8))
+            {
+                // Only show as clickable if it would actually open (mirror the click allowlist),
+                // so non-openable schemes (e.g. ftp://) don't underline or show the hand cursor.
+                if (NovaTerminal.VT.Links.LinkSchemes.IsAllowed(osc8))
+                    SetHoveredLink((absRow, col, col, osc8));
+                else
+                    ClearHoveredLink();
+                return;
+            }
+
+            // 2) Auto-detected link, if detection is enabled.
+            if (_enableLinkDetection)
+            {
+                if (absRow != _hoverScanRow)
+                {
+                    var (text, map) = NovaTerminal.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
+                    _hoverScanSpans = _urlDetector.Detect(text);
+                    _hoverScanMap = map;
+                    _hoverScanRow = absRow;
+                }
+
+                foreach (var span in _hoverScanSpans)
+                {
+                    var (startCol, endCol) = NovaTerminal.VT.Links.RowTextExtractor.SpanToColumns(span, _hoverScanMap);
+                    if (col >= startCol && col <= endCol)
+                    {
+                        // Mirror the click allowlist: don't underline schemes that can't open.
+                        if (NovaTerminal.VT.Links.LinkSchemes.IsAllowed(span.Uri))
+                            SetHoveredLink((absRow, startCol, endCol, span.Uri));
+                        else
+                            ClearHoveredLink();
+                        return;
+                    }
+                }
+            }
+
+            ClearHoveredLink();
+        }
+
+        private void SetHoveredLink((int AbsRow, int StartCol, int EndCol, string Uri) link)
+        {
+            if (_hoveredLink.Equals(link)) return; // no change -> no repaint
+            _hoveredLink = link;
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
+            InvalidateVisual();
+        }
+
+        private void ClearHoveredLink()
+        {
+            if (_hoveredLink == null) return;
+            _hoveredLink = null;
+            Cursor = Avalonia.Input.Cursor.Default;
+            InvalidateVisual();
+        }
+
+        private static bool IsLinkActivationModifier(KeyModifiers modifiers)
+        {
+            // Cmd (Meta) on macOS, Ctrl elsewhere — matches platform conventions.
+            return OperatingSystem.IsMacOS()
+                ? (modifiers & KeyModifiers.Meta) != 0
+                : (modifiers & KeyModifiers.Control) != 0;
+        }
+
+        private bool TryOpenLink(string? uri)
+        {
+            if (!NovaTerminal.VT.Links.LinkSchemes.IsAllowed(uri)) return false;
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out var linkUri)) return false;
+            try
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = linkUri.ToString(),
+                    UseShellExecute = true
+                });
+                return true;
+            }
+            catch
+            {
+                // Ignore failed launch attempts.
+                return false;
+            }
+        }
+
+        // Resolves the link under (absRow, col): OSC 8 first, then a detected span.
+        private string? ResolveLinkAt(int absRow, int col)
+        {
+            if (_buffer == null) return null;
+
+            string? osc8 = _buffer.GetHyperlinkAbsolute(col, absRow);
+            if (!string.IsNullOrWhiteSpace(osc8)) return osc8;
+
+            if (!_enableLinkDetection) return null;
+
+            var (text, map) = NovaTerminal.VT.Links.RowTextExtractor.Extract(_buffer, absRow);
+            foreach (var span in _urlDetector.Detect(text))
+            {
+                var (startCol, endCol) = NovaTerminal.VT.Links.RowTextExtractor.SpanToColumns(span, map);
+                if (col >= startCol && col <= endCol) return span.Uri;
+            }
+            return null;
+        }
+
+        protected override void OnPointerExited(Avalonia.Input.PointerEventArgs e)
+        {
+            base.OnPointerExited(e);
+            _hoverScanRow = -1;
+            ClearHoveredLink();
         }
 
         private void SendMouseEvent(TerminalMouseEvent mouseEvent)

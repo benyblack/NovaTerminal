@@ -1683,6 +1683,7 @@ namespace NovaTerminal.Controls
                 BellAudioEnabled = settings.BellAudioEnabled,
                 BellVisualEnabled = settings.BellVisualEnabled,
                 SmoothScrolling = settings.SmoothScrolling,
+                EnableLinkDetection = settings.EnableLinkDetection,
                 CommandAssistEnabled = settings.CommandAssistEnabled,
                 CommandAssistHistoryEnabled = settings.CommandAssistHistoryEnabled,
                 CommandAssistMaxHistoryEntries = settings.CommandAssistMaxHistoryEntries,
