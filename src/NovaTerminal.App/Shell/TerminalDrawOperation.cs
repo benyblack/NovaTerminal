@@ -35,7 +35,6 @@ namespace NovaTerminal.Shell
         private readonly ConcurrentDictionary<string, SKTypeface?> _fallbackCache;
         private readonly SKTypeface[] _fallbackChain;
         private readonly float _opacity;
-        private readonly bool _transparentBackground;
         private readonly bool _hideCursor;
         private readonly double _renderScaling;
         private readonly int _bufferRows;
@@ -171,7 +170,6 @@ namespace NovaTerminal.Shell
             ConcurrentDictionary<string, SKTypeface?> fallbackCache,
             SKTypeface[] fallbackChain,
             double opacity,
-            bool transparentBackground,
             bool hideCursor,
             double renderScaling = 1.0,
             int snapshotRows = 0,
@@ -202,7 +200,6 @@ namespace NovaTerminal.Shell
             _fallbackCache = fallbackCache;
             _fallbackChain = fallbackChain;
             _opacity = (float)Math.Clamp(opacity, 0.0, 1.0);
-            _transparentBackground = transparentBackground;
             _hideCursor = hideCursor;
             _renderScaling = renderScaling;
             _bufferRows = snapshotRows;
@@ -2678,12 +2675,35 @@ namespace NovaTerminal.Shell
         private SKColor ResolveCellBackground(RenderCellSnapshot cell, SKColor themeBg, byte alpha, RenderThemeSnapshot themeSnapshot)
         {
             if (cell.IsDefaultBackground) return themeBg;
+
+            SKColor resolved;
             if (cell.BgIndex >= 0)
             {
                 var c = ResolvePaletteIndex(cell.BgIndex, themeSnapshot);
-                return new SKColor(c.R, c.G, c.B, 255);
+                resolved = new SKColor(c.R, c.G, c.B, 255);
             }
-            return new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, 255);
+            else
+            {
+                resolved = new SKColor(cell.Background.R, cell.Background.G, cell.Background.B, 255);
+            }
+
+            // Under window transparency (alpha < 255), an explicit background whose color is
+            // identical to the theme background must stay just as transparent as a default-background
+            // cell. Remote programs routinely paint the default color explicitly — e.g. SGR 40 on a
+            // dark theme where Background == ANSI black, or an erase-line/-screen issued while a
+            // default-equal background is active. Returning the alpha-baked themeBg here (instead of
+            // an opaque copy) lets the existing `bg != themeBg` draw guard skip the fill, so these
+            // cells show the see-through theme layer rather than an opaque island. This is the
+            // "solid block at the top of a fresh SSH session" bug.
+            if (alpha != 255 &&
+                resolved.Red == themeBg.Red &&
+                resolved.Green == themeBg.Green &&
+                resolved.Blue == themeBg.Blue)
+            {
+                return themeBg;
+            }
+
+            return resolved;
         }
 
         private static TermColor ResolvePaletteIndex(int index, RenderThemeSnapshot themeSnapshot)

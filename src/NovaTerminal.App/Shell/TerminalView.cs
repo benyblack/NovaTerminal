@@ -1557,7 +1557,6 @@ namespace NovaTerminal.Shell
                 _fallbackCache,
                 FallbackChain.ToArray(),
                 _windowOpacity,
-                _windowOpacity < 1.0,
                 hideCursor,
                 scaling,
                 snapshotRows,

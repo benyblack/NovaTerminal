@@ -128,7 +128,6 @@ namespace NovaTerminal.Tests.Performance.Infra
                         fallbackCache: new ConcurrentDictionary<string, SKTypeface?>(),
                         fallbackChain: Array.Empty<SKTypeface>(),
                         opacity: 1.0,
-                        transparentBackground: false,
                         hideCursor: true,
                         renderScaling: 1.0,
                         snapshotRows: buffer.Rows,
