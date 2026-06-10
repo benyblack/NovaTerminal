@@ -93,6 +93,9 @@ namespace NovaTerminal.Controls
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
+        private bool _disposed;
+        private Action<int, int>? _onTermViewResize;
+        private Action<float, float>? _onTermViewMetricsChanged;
         private DispatcherTimer? _statusTimer;
         private bool _hasUserInteraction;
         private readonly SshDiagnosticsLevel _sshDiagnosticsLevel;
@@ -1625,28 +1628,32 @@ namespace NovaTerminal.Controls
                 Session.SendInput(response);
             };
 
-            // Wire up Resize
-            TermView.OnResize += (c, r) =>
+            // Wire up Resize (idempotent across InitializeSession re-runs — TermView is reused).
+            _onTermViewResize ??= (c, r) =>
             {
                 if (Parser != null)
                 {
-                    float cw = TermView.Metrics.CellWidth;
-                    float ch = TermView.Metrics.CellHeight;
-                    if (cw > 0) Parser.CellWidth = cw;
-                    if (ch > 0) Parser.CellHeight = ch;
+                    float cwResize = TermView.Metrics.CellWidth;
+                    float chResize = TermView.Metrics.CellHeight;
+                    if (cwResize > 0) Parser.CellWidth = cwResize;
+                    if (chResize > 0) Parser.CellHeight = chResize;
                 }
                 Session?.Resize(c, r);
             };
+            TermView.OnResize -= _onTermViewResize;
+            TermView.OnResize += _onTermViewResize;
 
-            // Metrics changed handling
-            TermView.MetricsChanged += (cw, ch) =>
+            // Metrics changed handling (idempotent — TermView is reused).
+            _onTermViewMetricsChanged ??= (cwMetric, chMetric) =>
             {
-                if (Parser != null && cw > 0 && ch > 0)
+                if (Parser != null && cwMetric > 0 && chMetric > 0)
                 {
-                    Parser.CellWidth = cw;
-                    Parser.CellHeight = ch;
+                    Parser.CellWidth = cwMetric;
+                    Parser.CellHeight = chMetric;
                 }
             };
+            TermView.MetricsChanged -= _onTermViewMetricsChanged;
+            TermView.MetricsChanged += _onTermViewMetricsChanged;
         }
 
         private void HandleWorkingDirectoryChanged(string cwd)
@@ -2182,7 +2189,14 @@ namespace NovaTerminal.Controls
 
         public void Dispose()
         {
+            if (_disposed) return;
+            _disposed = true;
+
             CloseRemoteFilesSidebar();
+
+            // Detach handlers on the reused TermView so a disposed pane stops reacting.
+            if (_onTermViewResize != null) TermView.OnResize -= _onTermViewResize;
+            if (_onTermViewMetricsChanged != null) TermView.MetricsChanged -= _onTermViewMetricsChanged;
 
             if (Buffer != null)
             {
