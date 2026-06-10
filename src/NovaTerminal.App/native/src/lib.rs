@@ -189,9 +189,9 @@ pub struct PtyState {
     pub reader: Mutex<Box<dyn Read + Send>>,
     pub writer: Mutex<Box<dyn Write + Send>>,
     #[cfg(windows)]
-    pub h_pc: Option<windows_sys::Win32::System::Console::HPCON>,
+    pub h_pc: Mutex<Option<windows_sys::Win32::System::Console::HPCON>>,
     #[cfg(windows)]
-    pub h_process: Option<windows_sys::Win32::Foundation::HANDLE>,
+    pub h_process: Mutex<Option<windows_sys::Win32::Foundation::HANDLE>>,
     pub master: Mutex<Option<Box<dyn portable_pty::MasterPty + Send>>>,
     pub child: Mutex<Option<Box<dyn portable_pty::Child + Send>>>,
 }
@@ -344,8 +344,8 @@ fn pty_spawn_impl(
                 let state = PtyState {
                     reader: Mutex::new(reader),
                     writer: Mutex::new(writer),
-                    h_pc: Some(h_pc),
-                    h_process: Some(h_process),
+                    h_pc: Mutex::new(Some(h_pc)),
+                    h_process: Mutex::new(Some(h_process)),
                     master: Mutex::new(None),
                     child: Mutex::new(None),
                 };
@@ -415,9 +415,9 @@ fn pty_spawn_impl(
         reader: Mutex::new(reader),
         writer: Mutex::new(writer),
         #[cfg(windows)]
-        h_pc: None,
+        h_pc: Mutex::new(None),
         #[cfg(windows)]
-        h_process: None,
+        h_process: Mutex::new(None),
         master: Mutex::new(Some(pair.master)),
         child: Mutex::new(Some(child)),
     };
@@ -503,15 +503,17 @@ pub extern "C" fn pty_resize(state_ptr: *mut PtyState, cols: u16, rows: u16) {
 
         #[cfg(windows)]
         {
-            if let Some(h_pc) = state.h_pc {
-                let size = windows_sys::Win32::System::Console::COORD {
-                    X: cols as i16,
-                    Y: rows as i16,
-                };
-                unsafe {
-                    windows_sys::Win32::System::Console::ResizePseudoConsole(h_pc, size);
+            if let Ok(h_pc_opt) = state.h_pc.lock() {
+                if let Some(h_pc) = *h_pc_opt {
+                    let size = windows_sys::Win32::System::Console::COORD {
+                        X: cols as i16,
+                        Y: rows as i16,
+                    };
+                    unsafe {
+                        windows_sys::Win32::System::Console::ResizePseudoConsole(h_pc, size);
+                    }
+                    return;
                 }
-                return;
             }
         }
 
@@ -544,9 +546,11 @@ pub extern "C" fn pty_get_pid(state_ptr: *mut PtyState) -> c_int {
 
         #[cfg(windows)]
         {
-            if let Some(h_process) = state.h_process {
-                unsafe {
-                    return windows_sys::Win32::System::Threading::GetProcessId(h_process) as c_int;
+            if let Ok(h_process_opt) = state.h_process.lock() {
+                if let Some(h_process) = *h_process_opt {
+                    unsafe {
+                        return windows_sys::Win32::System::Threading::GetProcessId(h_process) as c_int;
+                    }
                 }
             }
         }
@@ -572,14 +576,18 @@ pub extern "C" fn pty_close(state_ptr: *mut PtyState) {
 
         #[cfg(windows)]
         {
-            if let Some(h_pc) = state.h_pc {
-                unsafe {
-                    windows_sys::Win32::System::Console::ClosePseudoConsole(h_pc);
+            if let Ok(mut h_pc_opt) = state.h_pc.lock() {
+                if let Some(h_pc) = h_pc_opt.take() {
+                    unsafe {
+                        windows_sys::Win32::System::Console::ClosePseudoConsole(h_pc);
+                    }
                 }
             }
-            if let Some(h_process) = state.h_process {
-                unsafe {
-                    windows_sys::Win32::Foundation::CloseHandle(h_process);
+            if let Ok(mut h_process_opt) = state.h_process.lock() {
+                if let Some(h_process) = h_process_opt.take() {
+                    unsafe {
+                        windows_sys::Win32::Foundation::CloseHandle(h_process);
+                    }
                 }
             }
         }
