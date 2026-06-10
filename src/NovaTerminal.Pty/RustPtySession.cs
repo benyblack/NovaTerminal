@@ -99,7 +99,9 @@ namespace NovaTerminal.Pty
             get
             {
                 if (_handle.IsClosed || _handle.IsInvalid) return false;
-                int pid = Native.pty_get_pid(_handle);
+                int pid;
+                try { pid = Native.pty_get_pid(_handle); }
+                catch (ObjectDisposedException) { return false; }
                 if (pid <= 0) return false;
                 return HasChildProcesses(pid, ShellCommand);
             }
@@ -110,8 +112,12 @@ namespace NovaTerminal.Pty
             get
             {
                 if (_handle.IsClosed || _handle.IsInvalid) return null;
-                int pid = Native.pty_get_pid(_handle);
-                return pid > 0 ? pid : null;
+                try
+                {
+                    int pid = Native.pty_get_pid(_handle);
+                    return pid > 0 ? pid : null;
+                }
+                catch (ObjectDisposedException) { return null; }
             }
         }
 
@@ -463,7 +469,8 @@ namespace NovaTerminal.Pty
             _recorder?.RecordInput(input);
 
             byte[] data = Encoding.UTF8.GetBytes(input);
-            Native.pty_write(_handle, data, data.Length);
+            try { Native.pty_write(_handle, data, data.Length); }
+            catch (ObjectDisposedException) { /* session disposed mid-call — drop the write */ }
         }
 
         public void Resize(int cols, int rows)
@@ -472,7 +479,8 @@ namespace NovaTerminal.Pty
             _cols = cols;
             _rows = rows;
             Console.WriteLine($"[RustPtySession] Resizing to {cols}x{rows}");
-            Native.pty_resize(_handle, (ushort)cols, (ushort)rows);
+            try { Native.pty_resize(_handle, (ushort)cols, (ushort)rows); }
+            catch (ObjectDisposedException) { /* session disposed mid-call — ignore resize */ }
             _recorder?.RecordResize(cols, rows);
         }
 
