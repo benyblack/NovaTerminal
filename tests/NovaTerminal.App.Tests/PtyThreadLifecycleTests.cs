@@ -38,6 +38,50 @@ namespace NovaTerminal.Tests
             Assert.True(process.IsBackground, "ProcessLoop thread must be a background thread");
         }
 
+        [Fact]
+        [Trait("Category", "PtySmoke")]
+        public async Task Dispose_WhileReadBlocked_JoinsLoopThreadsPromptly()
+        {
+            string shell = ShellHelper.GetDefaultShell();
+            var session = new RustPtySession(shell, 80, 24);
+
+            await WaitUntilAsync(
+                () => session.ReadLoopThread is not null && session.ProcessLoopThread is not null,
+                TimeSpan.FromSeconds(5));
+
+            Thread read = session.ReadLoopThread!;
+            Thread process = session.ProcessLoopThread!;
+
+            // Let the shell go idle (read parked in native pty_read).
+            await Task.Delay(500);
+
+            var sw = Stopwatch.StartNew();
+            session.Dispose();
+            sw.Stop();
+
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5),
+                $"Dispose took {sw.Elapsed.TotalSeconds:F1}s — cancel/join did not unblock the read");
+            Assert.False(read.IsAlive, "ReadLoop thread should have exited after Dispose");
+            Assert.False(process.IsAlive, "ProcessLoop thread should have exited after Dispose");
+        }
+
+        [Fact]
+        [Trait("Category", "PtySmoke")]
+        public void Dispose_IsIdempotent()
+        {
+            string shell = ShellHelper.GetDefaultShell();
+            var session = new RustPtySession(shell, 80, 24);
+
+            var ex = Record.Exception(() =>
+            {
+                session.Dispose();
+                session.Dispose();
+                session.Dispose();
+            });
+
+            Assert.Null(ex);
+        }
+
         private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
         {
             var sw = Stopwatch.StartNew();
