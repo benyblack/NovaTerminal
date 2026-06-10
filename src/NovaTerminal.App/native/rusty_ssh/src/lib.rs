@@ -11,7 +11,7 @@ use std::io::Cursor;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc as std_mpsc};
 use std::thread;
 use std::time::Duration;
@@ -123,6 +123,22 @@ pub struct NovaSshSession {
 
 static SESSION_REGISTRY: OnceLock<Mutex<HashMap<u64, Arc<NovaSshSession>>>> = OnceLock::new();
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(debug_assertions)]
+static OUTSTANDING_FFI_STRINGS: AtomicI64 = AtomicI64::new(0);
+
+// Convert an owned String into a C string handed to the caller. In debug builds,
+// tracks the outstanding count so tests can assert alloc/free balance.
+fn ffi_string_into_raw(value: String) -> *mut c_char {
+    match CString::new(value) {
+        Ok(c) => {
+            #[cfg(debug_assertions)]
+            OUTSTANDING_FFI_STRINGS.fetch_add(1, Ordering::SeqCst);
+            c.into_raw()
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
 
 fn session_registry() -> &'static Mutex<HashMap<u64, Arc<NovaSshSession>>> {
     SESSION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
@@ -1058,12 +1074,10 @@ pub extern "C" fn nova_ssh_sftp_list_directory(
 #[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_string_free(value: *mut c_char) {
     ffi_guard((), || {
-        if value.is_null() {
-            return;
-        }
-
-        unsafe {
-            drop(CString::from_raw(value));
+        if !value.is_null() {
+            #[cfg(debug_assertions)]
+            OUTSTANDING_FFI_STRINGS.fetch_sub(1, Ordering::SeqCst);
+            drop(unsafe { CString::from_raw(value) });
         }
     })
 }
@@ -1286,13 +1300,14 @@ fn write_sftp_response_json(
         Err(_) => return result,
     };
 
-    match CString::new(json) {
-        Ok(value) => unsafe {
-            *response_json = value.into_raw();
-            result
-        },
-        Err(_) => result,
+    let raw = ffi_string_into_raw(json);
+    if raw.is_null() {
+        return result;
     }
+    unsafe {
+        *response_json = raw;
+    }
+    result
 }
 
 fn write_remote_path_list_response_json(
@@ -1312,13 +1327,14 @@ fn write_remote_path_list_response_json(
         Err(_) => return result,
     };
 
-    match CString::new(json) {
-        Ok(value) => unsafe {
-            *response_json = value.into_raw();
-            result
-        },
-        Err(_) => result,
+    let raw = ffi_string_into_raw(json);
+    if raw.is_null() {
+        return result;
     }
+    unsafe {
+        *response_json = raw;
+    }
+    result
 }
 
 fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
@@ -3493,5 +3509,95 @@ mod ffi_guard_tests {
     fn poll_event_rejects_null_without_panic() {
         let rc = nova_ssh_poll_event(0, std::ptr::null_mut(), std::ptr::null_mut(), 0);
         assert_eq!(rc, NOVA_SSH_RESULT_INVALID_ARGUMENT);
+    }
+}
+
+#[cfg(test)]
+fn stub_session() -> NovaSshSession {
+    NovaSshSession {
+        shared: Arc::new(SharedState::new()),
+        command_tx: Mutex::new(None),
+        worker: Mutex::new(None),
+    }
+}
+
+#[cfg(test)]
+mod handle_abuse_tests {
+    use super::*;
+
+    #[test]
+    fn calls_after_close_fail_closed() {
+        let handle = registry_insert(stub_session()) as usize;
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+
+        let mut event = NovaSshEvent::default();
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_poll_event(handle, &mut event, std::ptr::null_mut(), 0)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_write(handle, [1u8].as_ptr(), 1)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_resize(handle, 80, 24)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_channel_eof(handle, 0)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_submit_response(handle, 2, br#"{}"#.as_ptr(), 2)
+        );
+    }
+
+    #[test]
+    fn double_close_is_rejected() {
+        let handle = registry_insert(stub_session()) as usize;
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, nova_ssh_close(handle));
+    }
+
+    #[test]
+    fn concurrent_poll_and_close_never_crashes() {
+        for _ in 0..200 {
+            let handle = registry_insert(stub_session()) as usize;
+            let poller = std::thread::spawn(move || {
+                let mut event = NovaSshEvent::default();
+                for _ in 0..50 {
+                    let rc = nova_ssh_poll_event(handle, &mut event, std::ptr::null_mut(), 0);
+                    assert!(matches!(
+                        rc,
+                        NOVA_SSH_RESULT_OK
+                            | NOVA_SSH_RESULT_EVENT_READY
+                            | NOVA_SSH_RESULT_INVALID_ARGUMENT
+                    ));
+                }
+            });
+            let closer = std::thread::spawn(move || nova_ssh_close(handle));
+            poller.join().unwrap();
+            let _ = closer.join().unwrap();
+        }
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod alloc_balance_tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn malformed_list_request_frees_its_response_string() {
+        let before = OUTSTANDING_FFI_STRINGS.load(Ordering::SeqCst);
+        let bad = CString::new("{ not json").unwrap();
+        let mut response: *mut c_char = std::ptr::null_mut();
+        let _ = nova_ssh_sftp_list_directory(bad.as_ptr(), &mut response);
+        if !response.is_null() {
+            nova_ssh_string_free(response);
+        }
+        let after = OUTSTANDING_FFI_STRINGS.load(Ordering::SeqCst);
+        assert_eq!(before, after, "every FFI-allocated string must be freed");
     }
 }
