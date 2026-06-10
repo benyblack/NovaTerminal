@@ -763,6 +763,7 @@ namespace NovaTerminal.Shell
             base.OnAttachedToVisualTree(e);
             _isAttachedToVisualTree = true;
             RefreshUiTimerState();
+            if (!_metricsTimer.IsEnabled) _metricsTimer.Start();
 
             _cachedTopLevel = TopLevel.GetTopLevel(this);
             if (_cachedTopLevel != null)
@@ -787,6 +788,7 @@ namespace NovaTerminal.Shell
             _isAttachedToVisualTree = false;
             _isUiRenderable = false;
             StopUiTimers();
+            _metricsTimer.Stop();
 
             if (_cachedTopLevel != null)
             {

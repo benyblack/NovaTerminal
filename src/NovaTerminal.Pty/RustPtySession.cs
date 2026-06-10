@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,7 +12,7 @@ namespace NovaTerminal.Pty
     public class RustPtySession : ITerminalSession
     {
         public Guid Id { get; } = Guid.NewGuid();
-        private IntPtr _ptyState;
+        private readonly PtySafeHandle _handle;
         private readonly CancellationTokenSource _cts = new CancellationTokenSource();
         // The read/process loops run on these dedicated threads. Exposed to tests to
         // assert they are background, non-threadpool threads — a leaked session must
@@ -24,6 +25,12 @@ namespace NovaTerminal.Pty
         private int _isExited;
         private int? _exitCode;
 
+        // Quick first join: if the shell already exited (EOF), the read loop is
+        // already unwinding and we never need the (potentially ~1s-spinning) cancel.
+        private static readonly TimeSpan QuickJoinTimeout = TimeSpan.FromMilliseconds(250);
+        private static readonly TimeSpan DisposeJoinTimeout = TimeSpan.FromSeconds(2);
+        private int _disposed;
+
         // Bounded queue for back-pressure - prevents OOM on high-throughput output
         private readonly BlockingCollection<string> _outputQueue = new BlockingCollection<string>(boundedCapacity: 100);
 
@@ -32,7 +39,7 @@ namespace NovaTerminal.Pty
 
         public event Action<string>? OnOutputReceived;
         public event Action<int>? OnExit;
-        public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && _ptyState != IntPtr.Zero;
+        public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && !_handle.IsClosed && !_handle.IsInvalid;
         public int? ExitCode => _exitCode;
 
         // DllImport definitions
@@ -41,28 +48,47 @@ namespace NovaTerminal.Pty
             const string LibName = "rusty_pty";
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern IntPtr pty_create(string cmd, ushort cols, ushort rows);
+            public static extern PtySafeHandle pty_create(string cmd, ushort cols, ushort rows);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern IntPtr pty_spawn(string cmd, string? args, string? cwd, ushort cols, ushort rows);
+            public static extern PtySafeHandle pty_spawn(string cmd, string? args, string? cwd, ushort cols, ushort rows);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern IntPtr pty_spawn_with_envs(string cmd, string? args, string? cwd, ushort cols, ushort rows, string envs);
+            public static extern PtySafeHandle pty_spawn_with_envs(string cmd, string? args, string? cwd, ushort cols, ushort rows, string envs);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern int pty_read(IntPtr state, byte[] buffer, int len);
+            public static extern int pty_read(PtySafeHandle state, byte[] buffer, int len);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern int pty_write(IntPtr state, byte[] buffer, int len);
+            public static extern int pty_write(PtySafeHandle state, byte[] buffer, int len);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern void pty_resize(IntPtr state, ushort cols, ushort rows);
+            public static extern void pty_resize(PtySafeHandle state, ushort cols, ushort rows);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern int pty_get_pid(IntPtr state);
+            public static extern int pty_get_pid(PtySafeHandle state);
 
+            [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+            public static extern void pty_cancel_read(PtySafeHandle state);
+
+            // Raw overload used only by PtySafeHandle.ReleaseHandle().
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
             public static extern void pty_close(IntPtr state);
+        }
+
+        // Owns the *mut PtyState returned by pty_spawn. Passing this to every
+        // pty_* P/Invoke makes the marshaller AddRef before / Release after the
+        // call, so pty_close (ReleaseHandle) can never run while a pty_read (or
+        // any other call) is in flight — closing the #118 use-after-free window.
+        internal sealed class PtySafeHandle : SafeHandleZeroOrMinusOneIsInvalid
+        {
+            public PtySafeHandle() : base(ownsHandle: true) { }
+
+            protected override bool ReleaseHandle()
+            {
+                Native.pty_close(handle);
+                return true;
+            }
         }
 
         public string ShellCommand { get; }
@@ -72,8 +98,10 @@ namespace NovaTerminal.Pty
         {
             get
             {
-                if (_ptyState == IntPtr.Zero) return false;
-                int pid = Native.pty_get_pid(_ptyState);
+                if (_handle.IsClosed || _handle.IsInvalid) return false;
+                int pid;
+                try { pid = Native.pty_get_pid(_handle); }
+                catch (ObjectDisposedException) { return false; }
                 if (pid <= 0) return false;
                 return HasChildProcesses(pid, ShellCommand);
             }
@@ -83,9 +111,13 @@ namespace NovaTerminal.Pty
         {
             get
             {
-                if (_ptyState == IntPtr.Zero) return null;
-                int pid = Native.pty_get_pid(_ptyState);
-                return pid > 0 ? pid : null;
+                if (_handle.IsClosed || _handle.IsInvalid) return null;
+                try
+                {
+                    int pid = Native.pty_get_pid(_handle);
+                    return pid > 0 ? pid : null;
+                }
+                catch (ObjectDisposedException) { return null; }
             }
         }
 
@@ -230,14 +262,14 @@ namespace NovaTerminal.Pty
                     if (sb.Length > 0) sb.Append('\n');
                     sb.Append(kv.Key).Append('=').Append(kv.Value);
                 }
-                _ptyState = Native.pty_spawn_with_envs(effectiveShell, combinedArgs.Trim(), cwd, (ushort)cols, (ushort)rows, sb.ToString());
+                _handle = Native.pty_spawn_with_envs(effectiveShell, combinedArgs.Trim(), cwd, (ushort)cols, (ushort)rows, sb.ToString());
             }
             else
             {
-                _ptyState = Native.pty_spawn(effectiveShell, combinedArgs.Trim(), cwd, (ushort)cols, (ushort)rows);
+                _handle = Native.pty_spawn(effectiveShell, combinedArgs.Trim(), cwd, (ushort)cols, (ushort)rows);
             }
 
-            if (_ptyState == IntPtr.Zero)
+            if (_handle.IsInvalid)
             {
                 throw new InvalidOperationException("Failed to create Rust PTY session.");
             }
@@ -346,9 +378,9 @@ namespace NovaTerminal.Pty
             // swallowed). Contain it so a decode/recorder failure can't take down the host.
             try
             {
-                while (!_cts.Token.IsCancellationRequested && _ptyState != IntPtr.Zero)
+                while (!_cts.Token.IsCancellationRequested && !_handle.IsInvalid)
                 {
-                    int read = Native.pty_read(_ptyState, buffer, buffer.Length);
+                    int read = Native.pty_read(_handle, buffer, buffer.Length);
                     if (read > 0)
                     {
                         // Record raw bytes before any processing
@@ -387,6 +419,10 @@ namespace NovaTerminal.Pty
                         Thread.Sleep(50);
                     }
                 }
+            }
+            catch (ObjectDisposedException)
+            {
+                // _handle was disposed by Dispose() — normal shutdown.
             }
             catch (Exception ex)
             {
@@ -428,26 +464,31 @@ namespace NovaTerminal.Pty
 
         public void SendInput(string input)
         {
-            if (_ptyState == IntPtr.Zero) return;
+            if (_handle.IsClosed || _handle.IsInvalid) return;
 
             _recorder?.RecordInput(input);
 
             byte[] data = Encoding.UTF8.GetBytes(input);
-            Native.pty_write(_ptyState, data, data.Length);
+            try { Native.pty_write(_handle, data, data.Length); }
+            catch (ObjectDisposedException) { /* session disposed mid-call — drop the write */ }
         }
 
         public void Resize(int cols, int rows)
         {
-            if (_ptyState == IntPtr.Zero || cols <= 0 || rows <= 0) return;
+            if (_handle.IsClosed || _handle.IsInvalid || cols <= 0 || rows <= 0) return;
             _cols = cols;
             _rows = rows;
             Console.WriteLine($"[RustPtySession] Resizing to {cols}x{rows}");
-            Native.pty_resize(_ptyState, (ushort)cols, (ushort)rows);
+            try { Native.pty_resize(_handle, (ushort)cols, (ushort)rows); }
+            catch (ObjectDisposedException) { /* session disposed mid-call — ignore resize */ }
             _recorder?.RecordResize(cols, rows);
         }
 
         public void Dispose()
         {
+            // Idempotent: only the first caller runs teardown.
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
             if (_recorder != null)
             {
                 try
@@ -460,17 +501,43 @@ namespace NovaTerminal.Pty
                 }
             }
 
-            if (_ptyState != IntPtr.Zero)
+            // 1. Stop the loops re-entering native calls, and let the process loop drain.
+            _cts.Cancel();
+            if (!_outputQueue.IsAddingCompleted)
             {
-                _cts.Cancel();
-                if (!_outputQueue.IsAddingCompleted)
-                {
-                    _outputQueue.CompleteAdding();
-                }
-                Native.pty_close(_ptyState);
-                _ptyState = IntPtr.Zero;
-                TryNotifyExit(0);
+                _outputQueue.CompleteAdding();
             }
+
+            // 2. Quick join. If the shell already exited (EOF), the read loop is
+            //    already unwinding — no cancel needed, and we avoid pty_cancel_read's
+            //    bounded retry spinning when no read is actually blocked.
+            bool readExited = _readLoopThread?.Join(QuickJoinTimeout) ?? true;
+
+            // 3. Only if the read is genuinely still blocked: unblock it, then join hard.
+            if (!readExited)
+            {
+                if (!_handle.IsInvalid)
+                {
+                    try { Native.pty_cancel_read(_handle); }
+                    catch (ObjectDisposedException) { /* already gone */ }
+                }
+                if (!(_readLoopThread?.Join(DisposeJoinTimeout) ?? true))
+                {
+                    Console.WriteLine("[RustPtySession] ReadLoop did not exit within join timeout.");
+                }
+            }
+
+            // 4. Join the process loop (it exits once the queue is completed/cancelled).
+            if (!(_processLoopThread?.Join(DisposeJoinTimeout) ?? true))
+            {
+                Console.WriteLine("[RustPtySession] ProcessLoop did not exit within join timeout.");
+            }
+
+            // 5. Release the handle. SafeHandle guarantees pty_close runs only once
+            //    no pty_* call is in flight, so this is UAF-safe even if a join timed out.
+            _handle.Dispose();
+
+            TryNotifyExit(0);
         }
 
         private void TryNotifyExit(int code)
