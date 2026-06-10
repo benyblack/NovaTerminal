@@ -660,6 +660,9 @@ Expected: build FAIL (the old `Dispose` still references `_ptyState`) — or, if
 Add near the other fields:
 
 ```csharp
+        // Quick first join: if the shell already exited (EOF), the read loop is
+        // already unwinding and we never need the (potentially ~1s-spinning) cancel.
+        private static readonly TimeSpan QuickJoinTimeout = TimeSpan.FromMilliseconds(250);
         private static readonly TimeSpan DisposeJoinTimeout = TimeSpan.FromSeconds(2);
         private int _disposed;
 ```
@@ -684,27 +687,33 @@ Replace `Dispose()` (449–474) with:
                 }
             }
 
-            // 1. Stop the loops re-entering native calls.
+            // 1. Stop the loops re-entering native calls, and let the process loop drain.
             _cts.Cancel();
-
-            // 2. Unblock the in-flight native read so the read thread can exit.
-            if (!_handle.IsInvalid)
-            {
-                try { Native.pty_cancel_read(_handle); }
-                catch (ObjectDisposedException) { /* already gone */ }
-            }
-
-            // 3. Let the process loop drain and exit.
             if (!_outputQueue.IsAddingCompleted)
             {
                 _outputQueue.CompleteAdding();
             }
 
-            // 4. Join (bounded) so there are no late callbacks and no thread inside a pty_* call.
-            if (!(_readLoopThread?.Join(DisposeJoinTimeout) ?? true))
+            // 2. Quick join. If the shell already exited (EOF), the read loop is
+            //    already unwinding — no cancel needed, and we avoid pty_cancel_read's
+            //    bounded retry spinning when no read is actually blocked.
+            bool readExited = _readLoopThread?.Join(QuickJoinTimeout) ?? true;
+
+            // 3. Only if the read is genuinely still blocked: unblock it, then join hard.
+            if (!readExited)
             {
-                Console.WriteLine("[RustPtySession] ReadLoop did not exit within join timeout.");
+                if (!_handle.IsInvalid)
+                {
+                    try { Native.pty_cancel_read(_handle); }
+                    catch (ObjectDisposedException) { /* already gone */ }
+                }
+                if (!(_readLoopThread?.Join(DisposeJoinTimeout) ?? true))
+                {
+                    Console.WriteLine("[RustPtySession] ReadLoop did not exit within join timeout.");
+                }
             }
+
+            // 4. Join the process loop (it exits once the queue is completed/cancelled).
             if (!(_processLoopThread?.Join(DisposeJoinTimeout) ?? true))
             {
                 Console.WriteLine("[RustPtySession] ProcessLoop did not exit within join timeout.");
@@ -717,6 +726,8 @@ Replace `Dispose()` (449–474) with:
             TryNotifyExit(0);
         }
 ```
+
+> Why quick-join-then-cancel: `pty_cancel_read`'s Windows retry loop can spin up to ~1s when no read is currently blocked (e.g. the shell already exited and the read loop is unwinding). Joining briefly first means the common tab-close path (shell already gone) never pays that cost; the cancel only runs when the read is truly parked on a live, idle child.
 
 - [ ] **Step 4: Build the native lib + app dependency, then run the tests**
 
