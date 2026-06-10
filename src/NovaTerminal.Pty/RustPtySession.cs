@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -63,6 +64,21 @@ namespace NovaTerminal.Pty
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
             public static extern void pty_close(IntPtr state);
+        }
+
+        // Owns the *mut PtyState returned by pty_spawn. Passing this to every
+        // pty_* P/Invoke makes the marshaller AddRef before / Release after the
+        // call, so pty_close (ReleaseHandle) can never run while a pty_read (or
+        // any other call) is in flight — closing the #118 use-after-free window.
+        internal sealed class PtySafeHandle : SafeHandleZeroOrMinusOneIsInvalid
+        {
+            public PtySafeHandle() : base(ownsHandle: true) { }
+
+            protected override bool ReleaseHandle()
+            {
+                Native.pty_close(handle);
+                return true;
+            }
         }
 
         public string ShellCommand { get; }
