@@ -76,15 +76,33 @@ teardown contract.
 Unblocks the read that is parked inside `reader.read()` while holding the
 `state.reader` mutex. The cancel path therefore must **never** touch `reader`.
 
-- **Portable path (Unix + Windows non-passthrough):** lock `state.child`, call
-  `child.kill()`. Child exit closes the slave → master read returns EOF.
-- **Windows passthrough path:** close the `HPCON` and set it to `None`. Closing
-  the pseudoconsole breaks the output pipe → `read()` on `h_out_read` returns.
-  Because `pty_close` also closes the `HPCON`, `h_pc`/`h_process` move from plain
-  `Option<…>` to `Mutex<Option<…>>` and both functions `take()` so neither
-  double-frees. `pty_close` already guards on the `Option`.
-- Wrapped in `ffi_guard`; null-safe; idempotent (second call is a no-op once
-  handles are `None` / child already killed).
+> **Implementation discovery (2026-06-10):** the originally-specified kill-to-EOF
+> mechanism does **not** unblock the read on the Windows **portable-pty path** —
+> which is the path the GUI app always takes (no real console). There, `reader`
+> is a *duplicated* pipe handle from `try_clone_reader()`; killing the child or
+> dropping the master does not close it, and it only closes at `pty_close`. With
+> `PtySafeHandle` deferring `pty_close` until the read returns, that is a cycle.
+> The Windows portable path therefore uses `CancelSynchronousIo` against the
+> read thread (the Win32-canonical cancel for a blocking synchronous read).
+
+Per-platform mechanism:
+
+- **Unix (portable):** lock `state.child`, call `child.kill()`. Child exit closes
+  the slave → master read returns EOF. (Standard pty behavior.)
+- **Windows passthrough path:** `take()` and close the `HPCON`
+  (`ClosePseudoConsole`) → breaks the output pipe → `read()` on `h_out_read`
+  returns. Because `pty_close` also closes the `HPCON`, `h_pc`/`h_process` are
+  `Mutex<Option<…>>` and both functions `take()`, so neither double-frees.
+- **Windows portable path:** `pty_read` records the current OS thread id
+  (`GetCurrentThreadId`) in a `PtyState` field around each blocking read;
+  `pty_cancel_read` opens that thread (`OpenThread(THREAD_TERMINATE, …)`) and
+  calls `CancelSynchronousIo` on it, retrying within a bounded window to cover
+  the race where the read has not yet entered `ReadFile`. The aborted `ReadFile`
+  makes `reader.read()` return an error → `pty_read` returns -1. `child.kill()`
+  still runs to reap the child. Because `Dispose` calls `_cts.Cancel()` *before*
+  `pty_cancel_read`, the C# read loop exits on the next condition check rather
+  than retrying the errored read.
+- Wrapped in `ffi_guard`; null-safe; idempotent.
 
 ### `PtySafeHandle : SafeHandle`
 - `IsInvalid => handle == IntPtr.Zero`.
@@ -163,10 +181,11 @@ the Mode-B headless flake.
 
 ## G. Risks to validate during implementation
 
-- **ConPTY EOF semantics:** whether killing the child alone breaks the
-  passthrough read or `ClosePseudoConsole` is required. The design routes
-  passthrough-cancel through closing the `HPCON`; the Rust test in (F) confirms
-  the read actually returns.
+- **ConPTY EOF semantics** (RESOLVED during implementation): killing the child
+  does **not** unblock the read on the Windows portable-pty path; that path now
+  uses `CancelSynchronousIo` on the read thread (see §B). Passthrough uses
+  `ClosePseudoConsole`; Unix uses `child.kill()`. The Rust test in (F) guards all
+  of this by asserting the read thread returns promptly after cancel.
 - **`Dispose` off the UI thread:** it runs via `Task.Run`. Confirm
   `CloseRemoteFilesSidebar` and any other step touch no UI-thread-only state, or
   marshal them.

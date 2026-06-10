@@ -161,8 +161,10 @@ git commit -m "refactor(pty): make h_pc/h_process interior-mutable for cancel/cl
 
 ### Task 2: Add `pty_cancel_read` with a Rust test
 
+> **Revised mechanism (2026-06-10):** the original kill-to-EOF plan does not unblock the read on the Windows portable-pty path (the GUI app's path) — `reader` is a duplicated pipe handle that only closes at `pty_close`, which `PtySafeHandle` defers until the read returns (a cycle). So the Windows portable path cancels the blocking `ReadFile` directly via `CancelSynchronousIo` against the read thread. Unix still uses `child.kill()`; Windows passthrough still uses `ClosePseudoConsole`. See spec §B.
+
 **Files:**
-- Modify: `src/NovaTerminal.App/native/src/lib.rs` (new export after `pty_get_pid`; new test module at end)
+- Modify: `src/NovaTerminal.App/native/src/lib.rs` (add `read_thread_id` field to `PtyState` + init at both construction sites; record/clear it in `pty_read`; new `pty_cancel_read` export after `pty_get_pid`; new test module at end)
 
 - [ ] **Step 1: Write the failing Rust test**
 
@@ -175,8 +177,11 @@ mod cancel_read_tests {
     use std::ffi::CString;
     use std::time::Instant;
 
-    // A blocking pty_read on a child with no output must return promptly once
-    // pty_cancel_read is called (kill-to-EOF). Guards #119 / the Dispose join.
+    // After pty_cancel_read, a blocked pty_read must return promptly so the read
+    // thread can be joined (guards #119 / the Dispose join). The reader loops and
+    // drains any ConPTY startup chatter (e.g. an ESC[6n DSR query); once the child
+    // is idle the read blocks, and only a working cancel ends the loop. Without a
+    // working cancel the loop blocks forever and join() never completes.
     #[test]
     fn cancel_read_unblocks_a_pending_read() {
         // A shell that just sleeps so it produces no output on its own.
@@ -196,20 +201,26 @@ mod cancel_read_tests {
         );
         assert!(!state.is_null(), "spawn failed");
 
-        // Reader thread: a single blocking read that should return after cancel.
+        // Reader loop: keep reading (draining startup output) until a read returns
+        // <= 0 (EOF, or aborted/errored by the cancel).
         let state_addr = state as usize;
         let reader = std::thread::spawn(move || {
             let ptr = state_addr as *mut PtyState;
             let mut buf = [0u8; 256];
-            pty_read(ptr, buf.as_mut_ptr(), buf.len() as c_int)
+            loop {
+                let rc = pty_read(ptr, buf.as_mut_ptr(), buf.len() as c_int);
+                if rc <= 0 {
+                    return rc;
+                }
+            }
         });
 
-        // Give the read time to block, then cancel.
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        // Let startup output flush; the reader is now blocked on an idle child.
+        std::thread::sleep(std::time::Duration::from_millis(1000));
         let start = Instant::now();
         pty_cancel_read(state);
 
-        // The read must return within a couple of seconds, not in ~30s.
+        // The blocked read must return within a few seconds, not in ~30s.
         let rc = reader.join().expect("reader thread panicked");
         assert!(
             start.elapsed() < std::time::Duration::from_secs(5),
@@ -228,18 +239,68 @@ mod cancel_read_tests {
 Run: `cargo test --manifest-path src/NovaTerminal.App/native/Cargo.toml cancel_read`
 Expected: FAIL — `cannot find function pty_cancel_read in this scope`.
 
-- [ ] **Step 3: Implement `pty_cancel_read`**
+- [ ] **Step 3: Add the read-thread-id field, capture it in `pty_read`, and implement `pty_cancel_read`**
 
-Add after `pty_get_pid` (before `pty_close`):
+**(a) Add a Windows-only atomic field to `PtyState`.** Near the top imports add:
+
+```rust
+#[cfg(windows)]
+use std::sync::atomic::{AtomicU32, Ordering};
+```
+
+In `pub struct PtyState { … }` add:
+
+```rust
+    // OS thread id of the thread currently blocked in pty_read's native ReadFile
+    // (Windows portable path), or 0. pty_cancel_read uses it with
+    // CancelSynchronousIo to unblock the read — killing the child / dropping the
+    // master does NOT close the cloned reader handle on this path.
+    #[cfg(windows)]
+    pub read_thread_id: AtomicU32,
+```
+
+Initialize it at BOTH `PtyState { … }` construction sites (passthrough and portable):
+
+```rust
+        #[cfg(windows)]
+        read_thread_id: AtomicU32::new(0),
+```
+
+**(b) Record/clear the thread id in `pty_read`.** Replace the read body (the `if let Ok(mut reader) = state.reader.lock() { … }` block) with:
+
+```rust
+        let buf = unsafe { std::slice::from_raw_parts_mut(buffer, len as usize) };
+        if let Ok(mut reader) = state.reader.lock() {
+            #[cfg(windows)]
+            state.read_thread_id.store(
+                unsafe { windows_sys::Win32::System::Threading::GetCurrentThreadId() },
+                Ordering::SeqCst,
+            );
+            let result = match reader.read(buf) {
+                Ok(n) => n as c_int,
+                Err(_) => -1,
+            };
+            #[cfg(windows)]
+            state.read_thread_id.store(0, Ordering::SeqCst);
+            result
+        } else {
+            -1
+        }
+```
+
+**(c) Add `pty_cancel_read`** after `pty_get_pid` (before `pty_close`):
 
 ```rust
 /// Unblock an in-flight `pty_read` so the caller's read thread can be joined.
 ///
 /// The blocked read holds `state.reader`'s lock, so we must NEVER touch `reader`
-/// here. Instead we break the pty from the other side: close the pseudoconsole
-/// (Windows passthrough) and/or kill the child (portable path), which makes the
-/// pending `read()` return EOF/error. Idempotent and safe to call before
-/// `pty_close` (it `take()`s the HPCON so close won't double-free).
+/// here. We break the read from the other side, per platform/path:
+///   * Windows passthrough: close the pseudoconsole (breaks the output pipe).
+///   * Windows portable: the cloned reader handle is NOT closed by killing the
+///     child or dropping the master, so cancel the blocking ReadFile directly via
+///     CancelSynchronousIo against the recorded read thread.
+///   * Unix: kill the child so the slave closes and the master read returns EOF.
+/// Idempotent; safe to call before pty_close (it take()s the HPCON).
 #[unsafe(no_mangle)]
 pub extern "C" fn pty_cancel_read(state_ptr: *mut PtyState) {
     ffi_guard((), || {
@@ -254,11 +315,11 @@ pub extern "C" fn pty_cancel_read(state_ptr: *mut PtyState) {
             cloned
         };
 
-        // Windows passthrough: closing the pseudoconsole breaks the output pipe so
-        // the in-flight ReadFile on h_out_read returns. take() => pty_close won't
-        // double-close.
         #[cfg(windows)]
         {
+            // Passthrough: closing the pseudoconsole breaks the output pipe so the
+            // in-flight ReadFile on h_out_read returns. take() => pty_close won't
+            // double-close.
             if let Ok(mut h_pc_opt) = state.h_pc.lock() {
                 if let Some(h_pc) = h_pc_opt.take() {
                     unsafe {
@@ -266,10 +327,39 @@ pub extern "C" fn pty_cancel_read(state_ptr: *mut PtyState) {
                     }
                 }
             }
+
+            // Portable: cancel the blocking ReadFile on the recorded read thread.
+            // Retry within a bounded window to cover the race where the read has
+            // not yet entered ReadFile (CancelSynchronousIo => ERROR_NOT_FOUND).
+            use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_NOT_FOUND};
+            use windows_sys::Win32::System::Threading::{OpenThread, THREAD_TERMINATE};
+            use windows_sys::Win32::System::IO::CancelSynchronousIo;
+            for _ in 0..100 {
+                let tid = state.read_thread_id.load(Ordering::SeqCst);
+                if tid == 0 {
+                    // Not currently in a blocking read; brief wait then re-check.
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    continue;
+                }
+                let h_thread = unsafe { OpenThread(THREAD_TERMINATE, 0, tid) };
+                if h_thread == 0 {
+                    break;
+                }
+                let cancelled = unsafe { CancelSynchronousIo(h_thread) };
+                let last_err = unsafe { GetLastError() };
+                unsafe { CloseHandle(h_thread) };
+                if cancelled != 0 {
+                    break; // an in-flight read was aborted
+                }
+                if last_err != ERROR_NOT_FOUND {
+                    break; // unexpected; stop retrying
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
         }
 
-        // Portable path (Unix + Windows non-passthrough): kill the child so the
-        // slave closes and the master read returns EOF.
+        // Kill the child. On Unix this closes the slave so the master read returns
+        // EOF; on Windows it reaps the child after the read has been cancelled.
         if let Ok(mut child_opt) = state.child.lock() {
             if let Some(child) = child_opt.as_mut() {
                 let _ = child.kill();
@@ -278,6 +368,8 @@ pub extern "C" fn pty_cancel_read(state_ptr: *mut PtyState) {
     })
 }
 ```
+
+> If `windows_sys` does not expose `CancelSynchronousIo` / `OpenThread` / `THREAD_TERMINATE` / `ERROR_NOT_FOUND` under these exact paths, locate the correct module (they live under `Win32::System::IO`, `Win32::System::Threading`, and `Win32::Foundation` respectively) — do not change the mechanism. If a needed feature is missing from the `windows-sys` features in `Cargo.toml`, add the minimal feature and note it in your report.
 
 - [ ] **Step 4: Run the test to verify it passes**
 
