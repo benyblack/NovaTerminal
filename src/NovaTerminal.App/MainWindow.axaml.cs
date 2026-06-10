@@ -5036,6 +5036,7 @@ namespace NovaTerminal
             {
                 SessionManager.SaveSession(this, tabs);
             }
+            _recordingToastTimer.Stop();
             _globalHotkey?.Dispose();
         }
 
