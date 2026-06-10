@@ -20,7 +20,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     private static readonly IntPtr SftpTransferProgressCallbackPointer =
         Marshal.GetFunctionPointerForDelegate(SftpTransferProgressCallback);
 
-    public IntPtr Connect(NativeSshConnectionOptions options)
+    public NovaSshSafeHandle Connect(NativeSshConnectionOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
@@ -94,9 +94,10 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                     FishCwdBootstrap = fishCwdBootstrapPtr
                 };
 
-                IntPtr handle = NativeMethods.nova_ssh_connect(in args);
-                if (handle == IntPtr.Zero)
+                NovaSshSafeHandle handle = NativeMethods.nova_ssh_connect(in args);
+                if (handle.IsInvalid)
                 {
+                    handle.Dispose();
                     throw new InvalidOperationException("Failed to create native SSH session.");
                 }
 
@@ -291,9 +292,9 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         }
     }
 
-    public NativeSshEvent? PollEvent(IntPtr sessionHandle)
+    public NativeSshEvent? PollEvent(NovaSshSafeHandle sessionHandle)
     {
-        if (sessionHandle == IntPtr.Zero)
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
         {
             return null;
         }
@@ -301,71 +302,90 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         byte[] buffer = Array.Empty<byte>();
         NativeEventHeader header = default;
 
-        while (true)
+        try
         {
-            int rc = NativeMethods.nova_ssh_poll_event(sessionHandle, out header, buffer, (nuint)buffer.Length);
-            if (rc == ResultOk)
+            while (true)
             {
-                return null;
-            }
+                int rc = NativeMethods.nova_ssh_poll_event(sessionHandle, out header, buffer, (nuint)buffer.Length);
+                if (rc == ResultOk)
+                {
+                    return null;
+                }
 
-            if (rc == ResultBufferTooSmall)
-            {
-                buffer = new byte[header.PayloadLength];
-                continue;
-            }
+                if (rc == ResultBufferTooSmall)
+                {
+                    buffer = new byte[header.PayloadLength];
+                    continue;
+                }
 
-            if (rc == ResultEventReady)
-            {
-                int payloadLength = checked((int)header.PayloadLength);
-                byte[] payload = payloadLength == 0
-                    ? Array.Empty<byte>()
-                    : buffer[..payloadLength];
-                return new NativeSshEvent((NativeSshEventKind)header.Kind, payload, header.StatusCode, (NativeSshEventFlags)header.Flags);
-            }
+                if (rc == ResultEventReady)
+                {
+                    int payloadLength = checked((int)header.PayloadLength);
+                    byte[] payload = payloadLength == 0
+                        ? Array.Empty<byte>()
+                        : buffer[..payloadLength];
+                    return new NativeSshEvent((NativeSshEventKind)header.Kind, payload, header.StatusCode, (NativeSshEventFlags)header.Flags);
+                }
 
-            throw new InvalidOperationException($"Native SSH poll failed with result {rc}.");
+                throw new InvalidOperationException($"Native SSH poll failed with result {rc}.");
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
         }
     }
 
-    public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data)
+    public void Write(NovaSshSafeHandle sessionHandle, ReadOnlySpan<byte> data)
     {
-        if (sessionHandle == IntPtr.Zero)
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
         {
             return;
         }
 
         byte[] payload = data.ToArray();
-        int rc = NativeMethods.nova_ssh_write(sessionHandle, payload, (nuint)payload.Length);
-        if (rc is ResultOk or ResultInvalidArgument)
+        try
         {
-            return;
-        }
+            int rc = NativeMethods.nova_ssh_write(sessionHandle, payload, (nuint)payload.Length);
+            if (rc is ResultOk or ResultInvalidArgument)
+            {
+                return;
+            }
 
-        throw new InvalidOperationException($"Native SSH write failed with result {rc}.");
+            throw new InvalidOperationException($"Native SSH write failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
-    public void Resize(IntPtr sessionHandle, int cols, int rows)
+    public void Resize(NovaSshSafeHandle sessionHandle, int cols, int rows)
     {
-        if (sessionHandle == IntPtr.Zero || cols <= 0 || rows <= 0)
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed || cols <= 0 || rows <= 0)
         {
             return;
         }
 
-        int rc = NativeMethods.nova_ssh_resize(sessionHandle, checked((ushort)cols), checked((ushort)rows));
-        if (rc is ResultOk or ResultInvalidArgument)
+        try
         {
-            return;
-        }
+            int rc = NativeMethods.nova_ssh_resize(sessionHandle, checked((ushort)cols), checked((ushort)rows));
+            if (rc is ResultOk or ResultInvalidArgument)
+            {
+                return;
+            }
 
-        throw new InvalidOperationException($"Native SSH resize failed with result {rc}.");
+            throw new InvalidOperationException($"Native SSH resize failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
-    public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options)
+    public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (sessionHandle == IntPtr.Zero)
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
         {
             throw new InvalidOperationException("Cannot open a native port-forward channel without a session handle.");
         }
@@ -394,6 +414,10 @@ public sealed partial class NativeSshInterop : INativeSshInterop
 
             throw new InvalidOperationException($"Native SSH direct-tcpip open failed with result {channelId}.");
         }
+        catch (ObjectDisposedException)
+        {
+            return -1;
+        }
         finally
         {
             FreeUtf8(hostPtr);
@@ -401,86 +425,101 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         }
     }
 
-    public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data)
+    public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
     {
-        if (sessionHandle == IntPtr.Zero || channelId < 0)
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed || channelId < 0)
         {
             return;
         }
 
         byte[] payload = data.ToArray();
-        int rc = NativeMethods.nova_ssh_channel_write(sessionHandle, checked((uint)channelId), payload, (nuint)payload.Length);
-        if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+        try
         {
-            return;
-        }
+            int rc = NativeMethods.nova_ssh_channel_write(sessionHandle, checked((uint)channelId), payload, (nuint)payload.Length);
+            if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+            {
+                return;
+            }
 
-        throw new InvalidOperationException($"Native SSH channel write failed with result {rc}.");
+            throw new InvalidOperationException($"Native SSH channel write failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
-    public void SendChannelEof(IntPtr sessionHandle, int channelId)
+    public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId)
     {
-        if (sessionHandle == IntPtr.Zero || channelId < 0)
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed || channelId < 0)
         {
             return;
         }
 
-        int rc = NativeMethods.nova_ssh_channel_eof(sessionHandle, checked((uint)channelId));
-        if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+        try
         {
-            return;
-        }
+            int rc = NativeMethods.nova_ssh_channel_eof(sessionHandle, checked((uint)channelId));
+            if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+            {
+                return;
+            }
 
-        throw new InvalidOperationException($"Native SSH channel EOF failed with result {rc}.");
+            throw new InvalidOperationException($"Native SSH channel EOF failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
-    public void CloseChannel(IntPtr sessionHandle, int channelId)
+    public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId)
     {
-        if (sessionHandle == IntPtr.Zero || channelId < 0)
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed || channelId < 0)
         {
             return;
         }
 
-        int rc = NativeMethods.nova_ssh_channel_close(sessionHandle, checked((uint)channelId));
-        if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+        try
         {
-            return;
-        }
+            int rc = NativeMethods.nova_ssh_channel_close(sessionHandle, checked((uint)channelId));
+            if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
+            {
+                return;
+            }
 
-        throw new InvalidOperationException($"Native SSH channel close failed with result {rc}.");
+            throw new InvalidOperationException($"Native SSH channel close failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
-    public void Close(IntPtr sessionHandle)
+    public void Close(NovaSshSafeHandle sessionHandle)
     {
-        if (sessionHandle == IntPtr.Zero)
-        {
-            return;
-        }
-
-        int rc = NativeMethods.nova_ssh_close(sessionHandle);
-        if (rc is ResultOk or ResultInvalidArgument)
-        {
-            return;
-        }
-
-        throw new InvalidOperationException($"Native SSH close failed with result {rc}.");
+        // Disposing the SafeHandle runs ReleaseHandle -> nova_ssh_close exactly once,
+        // after any in-flight call's AddRef has been released.
+        sessionHandle?.Dispose();
     }
 
-    public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
+    public void SubmitResponse(NovaSshSafeHandle sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
     {
-        if (sessionHandle == IntPtr.Zero)
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
         {
             return;
         }
 
         byte[] payload = data.ToArray();
-        int rc = NativeMethods.nova_ssh_submit_response(sessionHandle, (uint)responseKind, payload, (nuint)payload.Length);
-        if (rc is ResultOk or ResultInvalidArgument)
+        try
         {
-            return;
-        }
+            int rc = NativeMethods.nova_ssh_submit_response(sessionHandle, (uint)responseKind, payload, (nuint)payload.Length);
+            if (rc is ResultOk or ResultInvalidArgument)
+            {
+                return;
+            }
 
-        throw new InvalidOperationException($"Native SSH submit response failed with result {rc}.");
+            throw new InvalidOperationException($"Native SSH submit response failed with result {rc}.");
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     internal static void InvokeManagedProgressCallbackForTest(
@@ -753,7 +792,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeConnectArgs
+    internal struct NativeConnectArgs
     {
         public IntPtr Host;
         public IntPtr User;
@@ -775,7 +814,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeEventHeader
+    internal struct NativeEventHeader
     {
         public uint Kind;
         public uint PayloadLength;
@@ -784,7 +823,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct NativeDirectTcpIpOpenArgs
+    internal struct NativeDirectTcpIpOpenArgs
     {
         public IntPtr HostToConnect;
         public ushort PortToConnect;
@@ -912,40 +951,41 @@ public sealed partial class NativeSshInterop : INativeSshInterop
         public Action<NativeSftpTransferProgress> Progress { get; }
     }
 
-    private static class NativeMethods
+    internal static class NativeMethods
     {
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_connect")]
-        public static extern IntPtr nova_ssh_connect(in NativeConnectArgs args);
+        public static extern NovaSshSafeHandle nova_ssh_connect(in NativeConnectArgs args);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_poll_event")]
-        public static extern int nova_ssh_poll_event(IntPtr session, out NativeEventHeader @event, byte[] payload, nuint payloadCapacity);
+        public static extern int nova_ssh_poll_event(NovaSshSafeHandle session, out NativeEventHeader @event, byte[] payload, nuint payloadCapacity);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_write")]
-        public static extern int nova_ssh_write(IntPtr session, byte[] data, nuint dataLength);
+        public static extern int nova_ssh_write(NovaSshSafeHandle session, byte[] data, nuint dataLength);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_resize")]
-        public static extern int nova_ssh_resize(IntPtr session, ushort cols, ushort rows);
+        public static extern int nova_ssh_resize(NovaSshSafeHandle session, ushort cols, ushort rows);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_sftp_list_directory")]
         public static extern int nova_ssh_sftp_list_directory(IntPtr requestJson, out IntPtr responseJson);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_open_direct_tcpip")]
-        public static extern int nova_ssh_open_direct_tcpip(IntPtr session, in NativeDirectTcpIpOpenArgs args);
+        public static extern int nova_ssh_open_direct_tcpip(NovaSshSafeHandle session, in NativeDirectTcpIpOpenArgs args);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_write")]
-        public static extern int nova_ssh_channel_write(IntPtr session, uint channelId, byte[] data, nuint dataLength);
+        public static extern int nova_ssh_channel_write(NovaSshSafeHandle session, uint channelId, byte[] data, nuint dataLength);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_eof")]
-        public static extern int nova_ssh_channel_eof(IntPtr session, uint channelId);
+        public static extern int nova_ssh_channel_eof(NovaSshSafeHandle session, uint channelId);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_channel_close")]
-        public static extern int nova_ssh_channel_close(IntPtr session, uint channelId);
+        public static extern int nova_ssh_channel_close(NovaSshSafeHandle session, uint channelId);
 
+        // Raw close used only by NovaSshSafeHandle.ReleaseHandle().
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_close")]
-        public static extern int nova_ssh_close(IntPtr session);
+        public static extern int nova_ssh_close_raw(IntPtr session);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_submit_response")]
-        public static extern int nova_ssh_submit_response(IntPtr session, uint responseKind, byte[] data, nuint dataLength);
+        public static extern int nova_ssh_submit_response(NovaSshSafeHandle session, uint responseKind, byte[] data, nuint dataLength);
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "nova_ssh_sftp_transfer")]
         public static extern int nova_ssh_sftp_transfer(
