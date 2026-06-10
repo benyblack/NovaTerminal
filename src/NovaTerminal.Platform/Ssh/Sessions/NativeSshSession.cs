@@ -525,7 +525,10 @@ public sealed class NativeSshSession : ITerminalSession
     private void CloseNativeHandle()
     {
         NovaSshSafeHandle? handle = Interlocked.Exchange(ref _sessionHandle, null);
-        handle?.Dispose();
+        if (handle != null)
+        {
+            _interop.Close(handle);
+        }
     }
 
     private static bool IsCriticalException(Exception ex)

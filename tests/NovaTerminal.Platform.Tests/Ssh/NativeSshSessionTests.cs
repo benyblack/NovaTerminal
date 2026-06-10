@@ -243,11 +243,11 @@ public sealed class NativeSshSessionTests
         public NativeSshConnectionOptions? LastConnectOptions { get; private set; }
         public Exception? ResizeException { get; set; }
 
-        public IntPtr Connect(NativeSshConnectionOptions options)
+        public NovaSshSafeHandle Connect(NativeSshConnectionOptions options)
         {
             ArgumentNullException.ThrowIfNull(options);
             LastConnectOptions = options;
-            return new IntPtr(_nextHandle++);
+            return new NovaSshSafeHandle(new IntPtr(_nextHandle++), ownsHandle: false);
         }
 
         public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken)
@@ -260,9 +260,9 @@ public sealed class NativeSshSessionTests
             throw new NotSupportedException();
         }
 
-        public NativeSshEvent? PollEvent(IntPtr sessionHandle)
+        public NativeSshEvent? PollEvent(NovaSshSafeHandle sessionHandle)
         {
-            if (sessionHandle == IntPtr.Zero)
+            if (sessionHandle is null || sessionHandle.IsInvalid)
             {
                 throw new InvalidOperationException("Unexpected null handle.");
             }
@@ -272,12 +272,12 @@ public sealed class NativeSshSessionTests
                 : null;
         }
 
-        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data)
+        public void Write(NovaSshSafeHandle sessionHandle, ReadOnlySpan<byte> data)
         {
             Writes.Add(data.ToArray());
         }
 
-        public void Resize(IntPtr sessionHandle, int cols, int rows)
+        public void Resize(NovaSshSafeHandle sessionHandle, int cols, int rows)
         {
             if (ResizeException != null)
             {
@@ -287,29 +287,29 @@ public sealed class NativeSshSessionTests
             Resizes.Add((cols, rows));
         }
 
-        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options)
+        public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options)
         {
             return 1;
         }
 
-        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
         {
         }
 
-        public void SendChannelEof(IntPtr sessionHandle, int channelId)
+        public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId)
         {
         }
 
-        public void CloseChannel(IntPtr sessionHandle, int channelId)
+        public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId)
         {
         }
 
-        public void Close(IntPtr sessionHandle)
+        public void Close(NovaSshSafeHandle sessionHandle)
         {
             CloseCallCount++;
         }
 
-        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
+        public void SubmitResponse(NovaSshSafeHandle sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
         {
         }
 

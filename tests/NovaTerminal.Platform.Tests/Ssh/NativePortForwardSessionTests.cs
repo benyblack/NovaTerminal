@@ -19,7 +19,7 @@ public sealed class NativePortForwardSessionTests
         int secondPort = GetFreePort();
 
         using var session = new NativePortForwardSession(
-            new IntPtr(7),
+            FakeHandle(7),
             [
                 CreateForward(firstPort, "svc-one.internal", 8080),
                 CreateForward(secondPort, "svc-two.internal", 9090)
@@ -50,7 +50,7 @@ public sealed class NativePortForwardSessionTests
         int listenPort = GetFreePort();
 
         using var session = new NativePortForwardSession(
-            new IntPtr(9),
+            FakeHandle(9),
             [CreateForward(listenPort, "svc.internal", 7000)],
             interop);
 
@@ -68,7 +68,7 @@ public sealed class NativePortForwardSessionTests
         int listenPort = GetFreePort();
 
         var session = new NativePortForwardSession(
-            new IntPtr(11),
+            FakeHandle(11),
             [CreateForward(listenPort, "svc.internal", 5432)],
             interop);
 
@@ -94,7 +94,7 @@ public sealed class NativePortForwardSessionTests
 
         InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() =>
             new NativePortForwardSession(
-                new IntPtr(13),
+                FakeHandle(13),
                 [
                     CreateForward(firstPort, "svc-one.internal", 80),
                     CreateForward(occupiedPort, "svc-two.internal", 81)
@@ -114,7 +114,7 @@ public sealed class NativePortForwardSessionTests
         int listenPort = GetFreePort();
 
         using var session = new NativePortForwardSession(
-            new IntPtr(15),
+            FakeHandle(15),
             [CreateDynamicForward(listenPort)],
             interop);
 
@@ -142,7 +142,7 @@ public sealed class NativePortForwardSessionTests
         int listenPort = GetFreePort();
 
         using var session = new NativePortForwardSession(
-            new IntPtr(16),
+            FakeHandle(16),
             [CreateDynamicForward(listenPort)],
             interop);
 
@@ -169,7 +169,7 @@ public sealed class NativePortForwardSessionTests
         int listenPort = GetFreePort();
 
         using var session = new NativePortForwardSession(
-            new IntPtr(18),
+            FakeHandle(18),
             [CreateDynamicForward(listenPort)],
             interop);
 
@@ -195,7 +195,7 @@ public sealed class NativePortForwardSessionTests
         int listenPort = GetFreePort();
 
         using var session = new NativePortForwardSession(
-            new IntPtr(19),
+            FakeHandle(19),
             [CreateDynamicForward(listenPort)],
             interop);
 
@@ -220,7 +220,7 @@ public sealed class NativePortForwardSessionTests
         int dynamicPort = GetFreePort();
 
         var session = new NativePortForwardSession(
-            new IntPtr(20),
+            FakeHandle(20),
             [CreateDynamicForward(dynamicPort)],
             interop);
 
@@ -248,7 +248,7 @@ public sealed class NativePortForwardSessionTests
         int dynamicPort = GetFreePort();
 
         using var session = CreateSessionWithReplyWriter(
-            new IntPtr(21),
+            FakeHandle(21),
             [CreateDynamicForward(dynamicPort)],
             interop,
             (_, _, _) => throw new IOException("Injected reply write failure."));
@@ -275,7 +275,7 @@ public sealed class NativePortForwardSessionTests
         int dynamicPort = GetFreePort();
 
         using var session = new NativePortForwardSession(
-            new IntPtr(22),
+            FakeHandle(22),
             [
                 CreateForward(localPort, "svc-local.internal", 8080),
                 CreateDynamicForward(dynamicPort)
@@ -326,7 +326,7 @@ public sealed class NativePortForwardSessionTests
         int dynamicPort = GetFreePort();
 
         using var session = new NativePortForwardSession(
-            new IntPtr(17),
+            FakeHandle(17),
             [
                 CreateForward(localPort, "svc-one.internal", 8080),
                 CreateDynamicForward(dynamicPort)
@@ -491,7 +491,7 @@ public sealed class NativePortForwardSessionTests
         public List<NativePortForwardOpenOptions> OpenRequests { get; } = [];
         public List<int> ClosedChannelIds { get; } = [];
 
-        public IntPtr Connect(NativeSshConnectionOptions options) => new(1);
+        public NovaSshSafeHandle Connect(NativeSshConnectionOptions options) => new(new IntPtr(1), ownsHandle: false);
 
         public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken)
         {
@@ -503,51 +503,54 @@ public sealed class NativePortForwardSessionTests
             throw new NotSupportedException();
         }
 
-        public NativeSshEvent? PollEvent(IntPtr sessionHandle)
+        public NativeSshEvent? PollEvent(NovaSshSafeHandle sessionHandle)
         {
             return _events.TryDequeue(out NativeSshEvent? nextEvent)
                 ? nextEvent
                 : null;
         }
 
-        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data)
+        public void Write(NovaSshSafeHandle sessionHandle, ReadOnlySpan<byte> data)
         {
         }
 
-        public void Resize(IntPtr sessionHandle, int cols, int rows)
+        public void Resize(NovaSshSafeHandle sessionHandle, int cols, int rows)
         {
         }
 
-        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
+        public void SubmitResponse(NovaSshSafeHandle sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
         {
         }
 
-        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options)
+        public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options)
         {
             OpenRequests.Add(options);
             return Interlocked.Increment(ref _nextChannelId);
         }
 
-        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
         {
         }
 
-        public void SendChannelEof(IntPtr sessionHandle, int channelId)
+        public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId)
         {
         }
 
-        public void CloseChannel(IntPtr sessionHandle, int channelId)
+        public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId)
         {
             ClosedChannelIds.Add(channelId);
         }
 
-        public void Close(IntPtr sessionHandle)
+        public void Close(NovaSshSafeHandle sessionHandle)
         {
         }
     }
 
+    private static NovaSshSafeHandle FakeHandle(int value) =>
+        new(new IntPtr(value), ownsHandle: false);
+
     private static NativePortForwardSession CreateSessionWithReplyWriter(
-        IntPtr sessionHandle,
+        NovaSshSafeHandle sessionHandle,
         IReadOnlyList<PortForward> forwards,
         INativeSshInterop interop,
         Func<NetworkStream, byte[], CancellationToken, Task> replyWriter)
@@ -556,7 +559,7 @@ public sealed class NativePortForwardSessionTests
             BindingFlags.Instance | BindingFlags.NonPublic,
             binder: null,
             [
-                typeof(IntPtr),
+                typeof(NovaSshSafeHandle),
                 typeof(IReadOnlyList<PortForward>),
                 typeof(INativeSshInterop),
                 typeof(Action<string>),

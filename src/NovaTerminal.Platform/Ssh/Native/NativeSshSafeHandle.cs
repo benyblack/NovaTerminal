@@ -11,6 +11,13 @@ public sealed class NovaSshSafeHandle : SafeHandleZeroOrMinusOneIsInvalid
 {
     public NovaSshSafeHandle() : base(ownsHandle: true) { }
 
+    // Test-only: wrap a fabricated, non-owned handle value so fakes can return a
+    // non-invalid handle whose disposal does NOT call the native ReleaseHandle.
+    internal NovaSshSafeHandle(nint value, bool ownsHandle) : base(ownsHandle)
+    {
+        SetHandle(value);
+    }
+
     protected override bool ReleaseHandle()
     {
         NativeSshInterop.NativeMethods.nova_ssh_close_raw(handle);
