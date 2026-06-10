@@ -39,7 +39,7 @@ namespace NovaTerminal.Pty
 
         public event Action<string>? OnOutputReceived;
         public event Action<int>? OnExit;
-        public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && !_handle.IsInvalid;
+        public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && !_handle.IsClosed && !_handle.IsInvalid;
         public int? ExitCode => _exitCode;
 
         // DllImport definitions
@@ -98,7 +98,7 @@ namespace NovaTerminal.Pty
         {
             get
             {
-                if (_handle.IsInvalid) return false;
+                if (_handle.IsClosed || _handle.IsInvalid) return false;
                 int pid = Native.pty_get_pid(_handle);
                 if (pid <= 0) return false;
                 return HasChildProcesses(pid, ShellCommand);
@@ -109,7 +109,7 @@ namespace NovaTerminal.Pty
         {
             get
             {
-                if (_handle.IsInvalid) return null;
+                if (_handle.IsClosed || _handle.IsInvalid) return null;
                 int pid = Native.pty_get_pid(_handle);
                 return pid > 0 ? pid : null;
             }
@@ -458,7 +458,7 @@ namespace NovaTerminal.Pty
 
         public void SendInput(string input)
         {
-            if (_handle.IsInvalid) return;
+            if (_handle.IsClosed || _handle.IsInvalid) return;
 
             _recorder?.RecordInput(input);
 
@@ -468,7 +468,7 @@ namespace NovaTerminal.Pty
 
         public void Resize(int cols, int rows)
         {
-            if (_handle.IsInvalid || cols <= 0 || rows <= 0) return;
+            if (_handle.IsClosed || _handle.IsInvalid || cols <= 0 || rows <= 0) return;
             _cols = cols;
             _rows = rows;
             Console.WriteLine($"[RustPtySession] Resizing to {cols}x{rows}");
