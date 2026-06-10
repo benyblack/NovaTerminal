@@ -65,6 +65,7 @@ Panes allow you to split a single tab into multiple terminal windows.
 NovaTerminal supports high-performance SSH sessions integrated directly into the terminal, with built-in remote file management.
 
 ### 4.1 SSH Profiles and Connection Manager
+- Toggle the **Connection Manager** overlay with `Ctrl+Shift+K` (or the toolbar button).
 - Easily maintain local and SSH profiles in your Settings.
 - **Security:** Credentials use secure platform vault backends. No unexpected password injections triggered by terminal output are allowed for your safety. Fast reconnects and config caching simplify remote work.
 
@@ -136,13 +137,19 @@ Export the current terminal state containing text, colors, and styles.
 - **ANSI:** `Pane: Export Snapshot (ANSI)` (Preserves original styling & colors).
 - **PNG:** `Pane: Export Snapshot (PNG)`
 
-### 6.2 Render Performance HUD
+### 6.2 Session Recording
+Capture the active pane's session to a replayable recording.
+- **Toggle Recording:** `Ctrl+Shift+R` (or the toolbar record button, or `Toggle Recording` in the command palette) starts/stops recording the active pane.
+- **Open a recording:** `Open Recording...` from the command palette.
+- **Browse recordings:** `Open Recordings Folder`.
+
+### 6.3 Render Performance HUD
 - **Toggle Render HUD:** Enables a real-time overlay showing frame time, dirty rows/cells, draw calls, and glyph cache hit rates. Use this when experiencing degraded visual performance.
 
-### 6.3 Debug Screens
+### 6.4 Debug Screens
 - **Box Drawing Test:** Accessible via `Debug: Box Drawing Test Screen` to verify font rendering, gaps, and line alignments.
 
-### 6.4 VT Conformance Report CLI
+### 6.5 VT Conformance Report CLI
 
 NovaTerminal ships a machine-readable VT conformance report derived from its
 coverage matrix. Run the terminal executable with:
