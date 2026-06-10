@@ -20,22 +20,22 @@ fn invalid_handles_are_rejected_cleanly() {
 
     assert_eq!(
         NOVA_SSH_RESULT_INVALID_ARGUMENT,
-        nova_ssh_poll_event(std::ptr::null_mut(), &mut event, std::ptr::null_mut(), 0)
+        nova_ssh_poll_event(0, &mut event, std::ptr::null_mut(), 0)
     );
     assert_eq!(
         NOVA_SSH_RESULT_INVALID_ARGUMENT,
-        nova_ssh_resize(std::ptr::null_mut(), 120, 30)
+        nova_ssh_resize(0, 120, 30)
     );
     assert_eq!(
         NOVA_SSH_RESULT_INVALID_ARGUMENT,
-        nova_ssh_write(std::ptr::null_mut(), [1u8].as_ptr(), 1)
+        nova_ssh_write(0, [1u8].as_ptr(), 1)
     );
     assert_eq!(
         NOVA_SSH_RESULT_INVALID_ARGUMENT,
-        nova_ssh_submit_response(std::ptr::null_mut(), 1, br#"{}"#.as_ptr(), 2)
+        nova_ssh_submit_response(0, 1, br#"{}"#.as_ptr(), 2)
     );
     assert_eq!(
         NOVA_SSH_RESULT_INVALID_ARGUMENT,
-        nova_ssh_close(std::ptr::null_mut())
+        nova_ssh_close(0)
     );
 }

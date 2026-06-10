@@ -55,7 +55,7 @@ fn main() {
     };
 
     let session = nova_ssh_connect(&connect_args);
-    if session.is_null() {
+    if session == 0 {
         eprintln!("Failed to create SSH session");
         std::process::exit(1);
     }
