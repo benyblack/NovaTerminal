@@ -31,7 +31,7 @@ public sealed class NativeSshSession : ITerminalSession
 
     private ReplayWriter? _recorder;
     private NativePortForwardSession? _portForwardSession;
-    private IntPtr _sessionHandle;
+    private NovaSshSafeHandle? _sessionHandle;
     private int _cols;
     private int _rows;
     private int _isRunning;
@@ -192,7 +192,7 @@ public sealed class NativeSshSession : ITerminalSession
 
     public void SendInput(string input)
     {
-        if (_sessionHandle == IntPtr.Zero || string.IsNullOrEmpty(input))
+        if (_sessionHandle is null || _sessionHandle.IsInvalid || _sessionHandle.IsClosed || string.IsNullOrEmpty(input))
         {
             return;
         }
@@ -203,7 +203,7 @@ public sealed class NativeSshSession : ITerminalSession
 
     public void Resize(int cols, int rows)
     {
-        if (_sessionHandle == IntPtr.Zero || cols <= 0 || rows <= 0)
+        if (_sessionHandle is null || _sessionHandle.IsInvalid || _sessionHandle.IsClosed || cols <= 0 || rows <= 0)
         {
             return;
         }
@@ -524,11 +524,8 @@ public sealed class NativeSshSession : ITerminalSession
 
     private void CloseNativeHandle()
     {
-        IntPtr handle = Interlocked.Exchange(ref _sessionHandle, IntPtr.Zero);
-        if (handle != IntPtr.Zero)
-        {
-            _interop.Close(handle);
-        }
+        NovaSshSafeHandle? handle = Interlocked.Exchange(ref _sessionHandle, null);
+        handle?.Dispose();
     }
 
     private static bool IsCriticalException(Exception ex)
