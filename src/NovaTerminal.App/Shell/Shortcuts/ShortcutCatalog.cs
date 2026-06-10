@@ -9,6 +9,7 @@ public static class ShortcutCatalog
     [
         new("command_palette", "Command Palette", "General", ShortcutScope.App, "Ctrl+Shift+P"),
         new("settings", "Settings", "General", ShortcutScope.App, "Ctrl+,"),
+        new("connections", "Connection Manager", "General", ShortcutScope.App, "Ctrl+Shift+K"),
         new("new_tab", "New Tab", "General", ShortcutScope.App, "Ctrl+Shift+T"),
         new("close_tab", "Close Tab", "General", ShortcutScope.App, "Ctrl+W"),
         new("next_tab", "Tab: Next (MRU)", "General", ShortcutScope.App, "Ctrl+Tab"),
@@ -23,6 +24,7 @@ public static class ShortcutCatalog
         new("equalize_panes", "Equalize Panes", "View", ShortcutScope.Pane, "Ctrl+Shift+G"),
         new("toggle_pane_zoom", "Pane: Toggle Zoom", "View", ShortcutScope.Pane, "Ctrl+Shift+Z"),
         new("toggle_broadcast_input", "Pane: Toggle Broadcast Input (Tab)", "View", ShortcutScope.Pane, "Ctrl+Shift+B"),
+        new("toggle_recording", "Toggle Recording", "Pane", ShortcutScope.Pane, "Ctrl+Shift+R"),
         new("find", "Find in Terminal", "Edit", ShortcutScope.Pane, "Ctrl+F"),
         new("find_alt", "Find in Terminal (Alt)", "Edit", ShortcutScope.Pane, "Ctrl+Shift+F"),
         new("close_pane", "Close Pane", "General", ShortcutScope.Pane, "Ctrl+Shift+W"),

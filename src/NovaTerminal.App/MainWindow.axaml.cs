@@ -2127,6 +2127,10 @@ namespace NovaTerminal
             }
             _startup.Checkpoint("MainWindow.AfterInitialTabs");
 
+            // SetupCommandPalette() is lazy (runs on palette open / settings save), so
+            // prime the toolbar shortcut tooltips here for the initial window state.
+            UpdateShortcutTooltips();
+
             // Keyboard Shortcuts
             this.AddHandler(KeyDownEvent, (s, e) =>
             {
@@ -2190,6 +2194,22 @@ namespace NovaTerminal
                 {
                     RecordCommandUsage("settings");
                     _ = OpenSettings(0);
+                    e.Handled = true;
+                    return;
+                }
+
+                if (IsShortcut(e, "connections", "Ctrl+Shift+K"))
+                {
+                    RecordCommandUsage("connections");
+                    ToggleConnections();
+                    e.Handled = true;
+                    return;
+                }
+
+                if (IsShortcut(e, "toggle_recording", "Ctrl+Shift+R"))
+                {
+                    RecordCommandUsage("toggle_recording");
+                    _currentPane?.ToggleRecording();
                     e.Handled = true;
                     return;
                 }
@@ -3992,7 +4012,8 @@ namespace NovaTerminal
             {
                 await OpenSettings(0);
             }, GetEffectiveShortcutBinding("settings", "Ctrl+,"), "settings");
-            CommandRegistry.Register("Connections", "General", () => ToggleConnections(), "", "connections");
+            CommandRegistry.Register("Connections", "General", () => ToggleConnections(), GetEffectiveShortcutBinding("connections", "Ctrl+Shift+K"), "connections");
+            CommandRegistry.Register("Toggle Recording", "General", () => _currentPane?.ToggleRecording(), GetEffectiveShortcutBinding("toggle_recording", "Ctrl+Shift+R"), "toggle_recording");
             CommandRegistry.Register("Open Recording...", "General", () => _ = ExecuteUiCommandAsync(ExecuteOpenRecordingCommandAsync, "Open Recording..."), "");
             CommandRegistry.Register("Open Recordings Folder", "General", () => OpenRecordingsFolder(), "");
 
@@ -4021,6 +4042,22 @@ namespace NovaTerminal
             // Scrolling UX
             CommandRegistry.Register("Scroll: Toggle Smooth", "View", () => { _settings.SmoothScrolling = !_settings.SmoothScrolling; ApplySettingsToAllTabs(); _settings.Save(); }, "");
             CommandRegistry.Register("Debug: Box Drawing Test Screen", "Debug", () => ShowBoxDrawingTestScreen(), "");
+
+            // Keep toolbar tooltips in sync with the (possibly rebound) shortcuts.
+            UpdateShortcutTooltips();
+        }
+
+        private void UpdateShortcutTooltips()
+        {
+            var btnConnections = this.FindControl<Button>("BtnConnections");
+            if (btnConnections != null)
+            {
+                ToolTip.SetTip(btnConnections, $"Connections ({GetEffectiveShortcutBinding("connections", "Ctrl+Shift+K")})");
+            }
+
+            // The record button's tooltip embeds the recording shortcut and is
+            // produced by UpdateRecordButtonUi; re-sync it to pick up rebindings.
+            SyncRecordingButtonState();
         }
 
         private void ShowBoxDrawingTestScreen()
@@ -5291,7 +5328,10 @@ namespace NovaTerminal
             btnRecord.Foreground = isRecording ? activeBrush : inactiveBrush;
             iconRecord.Foreground = isRecording ? activeBrush : inactiveBrush;
             btnRecord.Background = isRecording ? new SolidColorBrush(Color.Parse("#30F1636B")) : Brushes.Transparent;
-            ToolTip.SetTip(btnRecord, isRecording ? "Stop Recording" : "Record Session");
+            var recordingShortcut = GetEffectiveShortcutBinding("toggle_recording", "Ctrl+Shift+R");
+            ToolTip.SetTip(btnRecord, isRecording
+                ? $"Stop Recording ({recordingShortcut})"
+                : $"Record Session ({recordingShortcut})");
         }
     }
 }
