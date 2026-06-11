@@ -2351,7 +2351,23 @@ namespace NovaTerminal
                 }
             }, RoutingStrategies.Tunnel);
 
-            try { Vault = new VaultService(); } catch { }
+            try
+            {
+                Vault = new VaultService();
+                if (!Vault.PersistenceAvailable)
+                {
+                    ShowRecordingToast(
+                        "Credential storage unavailable",
+                        "No system keychain was found, so SSH passwords won't be saved this session.",
+                        filePath: null,
+                        folderPath: null,
+                        autoHide: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Vault] Init failed: {ex.Message}");
+            }
             _startup.Checkpoint("MainWindow.CtorComplete");
         }
 
@@ -5289,6 +5305,13 @@ namespace NovaTerminal
             _recordingToastFolderPath = folderPath;
             titleBlock.Text = title;
             messageBlock.Text = message;
+
+            var openFolderButton = this.FindControl<Button>("RecordingToastOpenFolder");
+            if (openFolderButton != null)
+            {
+                openFolderButton.IsVisible = !string.IsNullOrWhiteSpace(folderPath);
+            }
+
             toast.IsVisible = true;
 
             _recordingToastTimer.Stop();
