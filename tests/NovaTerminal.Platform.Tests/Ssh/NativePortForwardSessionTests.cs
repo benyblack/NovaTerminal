@@ -467,9 +467,13 @@ public sealed class NativePortForwardSessionTests
         return port;
     }
 
-    private static async Task WaitUntilAsync(Func<bool> predicate)
+    // Generous default ceiling: the predicate flips in milliseconds on an unloaded
+    // box, so a large timeout only affects wall time on a genuine failure. The old
+    // 3s ceiling flaked on loaded CI runners where the accept -> OpenDirectTcpIp
+    // pipeline lagged behind the connect (issue #130).
+    private static async Task WaitUntilAsync(Func<bool> predicate, int timeoutSeconds = 30)
     {
-        DateTime deadline = DateTime.UtcNow.AddSeconds(3);
+        DateTime deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
         while (DateTime.UtcNow < deadline)
         {
             if (predicate())
