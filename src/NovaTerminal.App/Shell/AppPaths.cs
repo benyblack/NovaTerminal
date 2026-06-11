@@ -52,6 +52,9 @@ namespace NovaTerminal.Shell
         public static string SshDirectory => Path.Combine(RootDirectory, "ssh");
         public static string NativeKnownHostsFilePath => Path.Combine(SshDirectory, "native_known_hosts.json");
 
+        /// <summary>Path of the pre-#100 weakly-encrypted vault file, kept only so it can be deleted.</summary>
+        public static string LegacyVaultFilePath => Path.Combine(RootDirectory, "vault.dat");
+
         public static void EnsureInitialized()
         {
             if (_initialized) return;

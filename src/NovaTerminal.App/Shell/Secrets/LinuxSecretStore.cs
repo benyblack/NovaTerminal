@@ -36,6 +36,12 @@ namespace NovaTerminal.Shell.Secrets
 
         private readonly IntPtr _schema;
 
+        // ANSI string allocations owned by _schema (the schema name and the "key"
+        // attribute name). Captured so the finalizer can free them; otherwise they
+        // leak once per LinuxSecretStore instance.
+        private readonly IntPtr _schemaNamePtr;
+        private readonly IntPtr _keyAttrNamePtr;
+
         // glib comparison/hash function pointers, resolved lazily so that a machine
         // without glib does not fault during *static* initialization (which would
         // surface as TypeInitializationException, defeating the ctor's catch blocks).
@@ -54,7 +60,7 @@ namespace NovaTerminal.Shell.Secrets
                 _gStrHash = NativeLibrary.GetExport(glib, "g_str_hash");
                 _gStrEqual = NativeLibrary.GetExport(glib, "g_str_equal");
 
-                _schema = BuildSchema();
+                _schema = BuildSchema(out _schemaNamePtr, out _keyAttrNamePtr);
 
                 // Probe the Secret Service. A missing native lib throws (caught);
                 // a present lib with no running keyring sets a GError, which we treat
@@ -65,6 +71,36 @@ namespace NovaTerminal.Shell.Secrets
             catch (DllNotFoundException) { _available = false; }
             catch (EntryPointNotFoundException) { _available = false; }
             catch (BadImageFormatException) { _available = false; }
+        }
+
+        // Frees the native heap allocations made in BuildSchema. ISecretStore is not
+        // IDisposable (and we don't want to widen it), so cleanup happens here.
+        // Finalizers must never throw; each free is zero-guarded and the whole body
+        // is wrapped so a partially-constructed instance (ctor failed before
+        // allocation) frees only what was allocated.
+        ~LinuxSecretStore()
+        {
+            try
+            {
+                if (_keyAttrNamePtr != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(_keyAttrNamePtr);
+                }
+
+                if (_schemaNamePtr != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(_schemaNamePtr);
+                }
+
+                if (_schema != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(_schema);
+                }
+            }
+            catch
+            {
+                // Finalizers must not throw.
+            }
         }
 
         public bool IsAvailable => _available;
@@ -217,8 +253,11 @@ namespace NovaTerminal.Shell.Secrets
         // offset 16. Each attribute element is { pointer; int } = 12 bytes of data
         // padded to a 16-byte stride. A NULL `name` on the first unused entry
         // terminates the list, which is why the trailing entries are left zeroed.
-        private static IntPtr BuildSchema()
+        private static IntPtr BuildSchema(out IntPtr schemaNamePtr, out IntPtr keyAttrNamePtr)
         {
+            schemaNamePtr = IntPtr.Zero;
+            keyAttrNamePtr = IntPtr.Zero;
+
             int pointerSize = IntPtr.Size;
             int intSize = sizeof(int);
 
@@ -242,15 +281,16 @@ namespace NovaTerminal.Shell.Secrets
                 Marshal.WriteByte(schema, i, 0);
             }
 
-            // name (heap ANSI string; ASCII-only so ANSI == UTF-8 here). This lives for
-            // the lifetime of the schema, which lives for the process lifetime of the
-            // store, so it is intentionally never freed (single, bounded allocation).
-            Marshal.WriteIntPtr(schema, 0, Marshal.StringToHGlobalAnsi(SchemaName));
+            // name (heap ANSI string; ASCII-only so ANSI == UTF-8 here). The pointer is
+            // returned via schemaNamePtr so the instance can free it in its finalizer.
+            schemaNamePtr = Marshal.StringToHGlobalAnsi(SchemaName);
+            Marshal.WriteIntPtr(schema, 0, schemaNamePtr);
             Marshal.WriteInt32(schema, pointerSize, SecretSchemaNone);
 
             // attributes[0] = { "key", SECRET_SCHEMA_ATTRIBUTE_STRING }
             int attr0 = headerPadded;
-            Marshal.WriteIntPtr(schema, attr0, Marshal.StringToHGlobalAnsi(KeyAttribute));
+            keyAttrNamePtr = Marshal.StringToHGlobalAnsi(KeyAttribute);
+            Marshal.WriteIntPtr(schema, attr0, keyAttrNamePtr);
             Marshal.WriteInt32(schema, attr0 + pointerSize, SecretSchemaAttributeString);
 
             return schema;

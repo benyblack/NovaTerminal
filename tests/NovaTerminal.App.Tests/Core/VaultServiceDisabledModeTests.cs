@@ -1,3 +1,5 @@
+using System;
+using System.IO;
 using NovaTerminal.Shell;
 using NovaTerminal.Shell.Secrets;
 
@@ -50,5 +52,30 @@ public class VaultServiceDisabledModeTests
         Assert.Equal("v", vault.GetSecret("k"));
         Assert.True(vault.RemoveSecret("k"));
         Assert.Null(vault.GetSecret("k"));
+    }
+
+    [Fact]
+    public void DeleteLegacyVaultFile_RemovesFile_WhenPresent()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "nova-legacy-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        string legacy = Path.Combine(dir, "vault.dat");
+        File.WriteAllBytes(legacy, new byte[] { 1, 2, 3 });
+        try
+        {
+            NovaTerminal.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(legacy);
+            Assert.False(File.Exists(legacy));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void DeleteLegacyVaultFile_DoesNotThrow_WhenAbsent()
+    {
+        NovaTerminal.Shell.Secrets.SecretStore.DeleteLegacyVaultFile(
+            Path.Combine(Path.GetTempPath(), "nova-missing-" + Guid.NewGuid().ToString("N"), "vault.dat"));
     }
 }
