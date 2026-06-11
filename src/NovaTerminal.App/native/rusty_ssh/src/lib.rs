@@ -11,7 +11,8 @@ use std::io::Cursor;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::ptr;
-use std::sync::{Arc, Condvar, Mutex, mpsc as std_mpsc};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc as std_mpsc};
 use std::thread;
 use std::time::Duration;
 use tokio::fs::File as TokioFile;
@@ -116,8 +117,72 @@ const NOVA_SSH_EVENT_FLAG_BINARY: u32 = 2;
 
 pub struct NovaSshSession {
     shared: Arc<SharedState>,
-    command_tx: Option<mpsc::UnboundedSender<WorkerCommand>>,
-    worker: Option<thread::JoinHandle<()>>,
+    command_tx: Mutex<Option<mpsc::UnboundedSender<WorkerCommand>>>,
+    worker: Mutex<Option<thread::JoinHandle<()>>>,
+}
+
+static SESSION_REGISTRY: OnceLock<Mutex<HashMap<u64, Arc<NovaSshSession>>>> = OnceLock::new();
+static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(debug_assertions)]
+static OUTSTANDING_FFI_STRINGS: AtomicI64 = AtomicI64::new(0);
+
+// Convert an owned String into a C string handed to the caller. In debug builds,
+// tracks the outstanding count so tests can assert alloc/free balance.
+fn ffi_string_into_raw(value: String) -> *mut c_char {
+    match CString::new(value) {
+        Ok(c) => {
+            #[cfg(debug_assertions)]
+            OUTSTANDING_FFI_STRINGS.fetch_add(1, Ordering::SeqCst);
+            c.into_raw()
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+fn session_registry() -> &'static Mutex<HashMap<u64, Arc<NovaSshSession>>> {
+    SESSION_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn lock_registry() -> std::sync::MutexGuard<'static, HashMap<u64, Arc<NovaSshSession>>> {
+    session_registry().lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Insert a session, returning a fresh non-zero handle id (0 is never issued).
+fn registry_insert(session: NovaSshSession) -> u64 {
+    let id = NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst);
+    lock_registry().insert(id, Arc::new(session));
+    id
+}
+
+/// Look up a live session by handle token. None ⇒ unknown/closed/stale handle.
+fn registry_get(handle: usize) -> Option<Arc<NovaSshSession>> {
+    let id = handle as u64;
+    if id == 0 {
+        return None;
+    }
+    lock_registry().get(&id).cloned()
+}
+
+/// Remove (close) a session, returning it if present. Second call ⇒ None (double-close).
+fn registry_remove(handle: usize) -> Option<Arc<NovaSshSession>> {
+    let id = handle as u64;
+    if id == 0 {
+        return None;
+    }
+    lock_registry().remove(&id)
+}
+
+/// Sends a command to the session's worker, returning OK or CLOSED.
+fn send_command(session: &NovaSshSession, command: WorkerCommand) -> c_int {
+    let guard = session.command_tx.lock().unwrap_or_else(|p| p.into_inner());
+    match guard.as_ref() {
+        Some(tx) => tx
+            .send(command)
+            .map(|_| NOVA_SSH_RESULT_OK)
+            .unwrap_or(NOVA_SSH_RESULT_CLOSED),
+        None => NOVA_SSH_RESULT_CLOSED,
+    }
 }
 
 struct SharedState {
@@ -553,11 +618,11 @@ impl client::Handler for TransferClientHandler {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nova_ssh_connect(args: *const NovaSshConnectArgs) -> *mut NovaSshSession {
-    ffi_guard(std::ptr::null_mut(), || {
+pub extern "C" fn nova_ssh_connect(args: *const NovaSshConnectArgs) -> usize {
+    ffi_guard(0, || {
         let config = match ConnectConfig::from_args(args) {
             Some(config) => config,
-            None => return ptr::null_mut(),
+            None => return 0,
         };
 
         let shared = Arc::new(SharedState::new());
@@ -591,27 +656,30 @@ pub extern "C" fn nova_ssh_connect(args: *const NovaSshConnectArgs) -> *mut Nova
 
         let session = NovaSshSession {
             shared,
-            command_tx: Some(command_tx),
-            worker: Some(worker),
+            command_tx: Mutex::new(Some(command_tx)),
+            worker: Mutex::new(Some(worker)),
         };
 
-        Box::into_raw(Box::new(session))
+        registry_insert(session) as usize
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_poll_event(
-    session: *mut NovaSshSession,
+    handle: usize,
     event: *mut NovaSshEvent,
     payload: *mut u8,
     payload_capacity: usize,
 ) -> c_int {
     ffi_guard(NOVA_SSH_RESULT_PANIC, || {
-        if session.is_null() || event.is_null() {
+        if event.is_null() {
             return NOVA_SSH_RESULT_INVALID_ARGUMENT;
         }
 
-        let session = unsafe { &mut *session };
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
         let queued = match session.shared.peek_event() {
             Some(event_value) => event_value,
             None => return NOVA_SSH_RESULT_OK,
@@ -641,19 +709,18 @@ pub extern "C" fn nova_ssh_poll_event(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_write(
-    session: *mut NovaSshSession,
+    handle: usize,
     data: *const u8,
     data_len: usize,
 ) -> c_int {
     ffi_guard(NOVA_SSH_RESULT_PANIC, || {
-        if session.is_null() || (data.is_null() && data_len != 0) {
+        if data.is_null() && data_len != 0 {
             return NOVA_SSH_RESULT_INVALID_ARGUMENT;
         }
 
-        let session = unsafe { &mut *session };
-        let tx = match &session.command_tx {
-            Some(sender) => sender,
-            None => return NOVA_SSH_RESULT_CLOSED,
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
         };
 
         let bytes = if data_len == 0 {
@@ -662,38 +729,33 @@ pub extern "C" fn nova_ssh_write(
             unsafe { std::slice::from_raw_parts(data, data_len) }.to_vec()
         };
 
-        tx.send(WorkerCommand::Write(bytes))
-            .map(|_| NOVA_SSH_RESULT_OK)
-            .unwrap_or(NOVA_SSH_RESULT_CLOSED)
+        send_command(&session, WorkerCommand::Write(bytes))
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nova_ssh_resize(session: *mut NovaSshSession, cols: u16, rows: u16) -> c_int {
+pub extern "C" fn nova_ssh_resize(handle: usize, cols: u16, rows: u16) -> c_int {
     ffi_guard(NOVA_SSH_RESULT_PANIC, || {
-        if session.is_null() || cols == 0 || rows == 0 {
+        if cols == 0 || rows == 0 {
             return NOVA_SSH_RESULT_INVALID_ARGUMENT;
         }
 
-        let session = unsafe { &mut *session };
-        let tx = match &session.command_tx {
-            Some(sender) => sender,
-            None => return NOVA_SSH_RESULT_CLOSED,
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
         };
 
-        tx.send(WorkerCommand::Resize { cols, rows })
-            .map(|_| NOVA_SSH_RESULT_OK)
-            .unwrap_or(NOVA_SSH_RESULT_CLOSED)
+        send_command(&session, WorkerCommand::Resize { cols, rows })
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_open_direct_tcpip(
-    session: *mut NovaSshSession,
+    handle: usize,
     args: *const NovaSshDirectTcpIpArgs,
 ) -> c_int {
     ffi_guard(NOVA_SSH_RESULT_PANIC, || {
-        if session.is_null() || args.is_null() {
+        if args.is_null() {
             return NOVA_SSH_RESULT_INVALID_ARGUMENT;
         }
 
@@ -705,10 +767,9 @@ pub extern "C" fn nova_ssh_open_direct_tcpip(
         let originator_address =
             read_c_string(args.originator_address).unwrap_or_else(|| "127.0.0.1".to_owned());
 
-        let session = unsafe { &mut *session };
-        let tx = match &session.command_tx {
-            Some(sender) => sender,
-            None => return NOVA_SSH_RESULT_CLOSED,
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
         };
 
         let (reply_tx, reply_rx) = std_mpsc::channel();
@@ -724,8 +785,16 @@ pub extern "C" fn nova_ssh_open_direct_tcpip(
             reply: reply_tx,
         };
 
-        if tx.send(command).is_err() {
-            return NOVA_SSH_RESULT_CLOSED;
+        {
+            let guard = session.command_tx.lock().unwrap_or_else(|p| p.into_inner());
+            match guard.as_ref() {
+                Some(tx) => {
+                    if tx.send(command).is_err() {
+                        return NOVA_SSH_RESULT_CLOSED;
+                    }
+                }
+                None => return NOVA_SSH_RESULT_CLOSED,
+            }
         }
 
         match reply_rx.recv() {
@@ -738,20 +807,19 @@ pub extern "C" fn nova_ssh_open_direct_tcpip(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_channel_write(
-    session: *mut NovaSshSession,
+    handle: usize,
     channel_id: u32,
     data: *const u8,
     data_len: usize,
 ) -> c_int {
     ffi_guard(NOVA_SSH_RESULT_PANIC, || {
-        if session.is_null() || (data.is_null() && data_len != 0) {
+        if data.is_null() && data_len != 0 {
             return NOVA_SSH_RESULT_INVALID_ARGUMENT;
         }
 
-        let session = unsafe { &mut *session };
-        let tx = match &session.command_tx {
-            Some(sender) => sender,
-            None => return NOVA_SSH_RESULT_CLOSED,
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
         };
 
         let bytes = if data_len == 0 {
@@ -760,62 +828,49 @@ pub extern "C" fn nova_ssh_channel_write(
             unsafe { std::slice::from_raw_parts(data, data_len) }.to_vec()
         };
 
-        tx.send(WorkerCommand::WriteForwardChannel {
-            channel_id,
-            data: bytes,
-        })
-        .map(|_| NOVA_SSH_RESULT_OK)
-        .unwrap_or(NOVA_SSH_RESULT_CLOSED)
+        send_command(
+            &session,
+            WorkerCommand::WriteForwardChannel {
+                channel_id,
+                data: bytes,
+            },
+        )
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nova_ssh_channel_eof(session: *mut NovaSshSession, channel_id: u32) -> c_int {
+pub extern "C" fn nova_ssh_channel_eof(handle: usize, channel_id: u32) -> c_int {
     ffi_guard(NOVA_SSH_RESULT_PANIC, || {
-        if session.is_null() {
-            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
-        }
-
-        let session = unsafe { &mut *session };
-        let tx = match &session.command_tx {
-            Some(sender) => sender,
-            None => return NOVA_SSH_RESULT_CLOSED,
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
         };
 
-        tx.send(WorkerCommand::ForwardChannelEof { channel_id })
-            .map(|_| NOVA_SSH_RESULT_OK)
-            .unwrap_or(NOVA_SSH_RESULT_CLOSED)
+        send_command(&session, WorkerCommand::ForwardChannelEof { channel_id })
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nova_ssh_channel_close(session: *mut NovaSshSession, channel_id: u32) -> c_int {
+pub extern "C" fn nova_ssh_channel_close(handle: usize, channel_id: u32) -> c_int {
     ffi_guard(NOVA_SSH_RESULT_PANIC, || {
-        if session.is_null() {
-            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
-        }
-
-        let session = unsafe { &mut *session };
-        let tx = match &session.command_tx {
-            Some(sender) => sender,
-            None => return NOVA_SSH_RESULT_CLOSED,
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
         };
 
-        tx.send(WorkerCommand::CloseForwardChannel { channel_id })
-            .map(|_| NOVA_SSH_RESULT_OK)
-            .unwrap_or(NOVA_SSH_RESULT_CLOSED)
+        send_command(&session, WorkerCommand::CloseForwardChannel { channel_id })
     })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_submit_response(
-    session: *mut NovaSshSession,
+    handle: usize,
     response_kind: u32,
     data: *const u8,
     data_len: usize,
 ) -> c_int {
     ffi_guard(NOVA_SSH_RESULT_PANIC, || {
-        if session.is_null() || (data.is_null() && data_len != 0) {
+        if data.is_null() && data_len != 0 {
             return NOVA_SSH_RESULT_INVALID_ARGUMENT;
         }
 
@@ -827,7 +882,10 @@ pub extern "C" fn nova_ssh_submit_response(
             _ => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
         };
 
-        let session = unsafe { &mut *session };
+        let session = match registry_get(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
         let payload = if data_len == 0 {
             Vec::new()
         } else {
@@ -844,21 +902,30 @@ pub extern "C" fn nova_ssh_submit_response(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn nova_ssh_close(session: *mut NovaSshSession) -> c_int {
+pub extern "C" fn nova_ssh_close(handle: usize) -> c_int {
     ffi_guard(NOVA_SSH_RESULT_PANIC, || {
-        if session.is_null() {
-            return NOVA_SSH_RESULT_INVALID_ARGUMENT;
-        }
+        let session = match registry_remove(handle) {
+            Some(s) => s,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
 
-        let mut session = unsafe { Box::from_raw(session) };
-
-        if let Some(tx) = session.command_tx.take() {
+        if let Some(tx) = session
+            .command_tx
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+        {
             let _ = tx.send(WorkerCommand::Close);
         }
 
         session.shared.mark_closed();
 
-        if let Some(worker) = session.worker.take() {
+        if let Some(worker) = session
+            .worker
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+        {
             let _ = worker.join();
         }
 
@@ -1007,12 +1074,10 @@ pub extern "C" fn nova_ssh_sftp_list_directory(
 #[unsafe(no_mangle)]
 pub extern "C" fn nova_ssh_string_free(value: *mut c_char) {
     ffi_guard((), || {
-        if value.is_null() {
-            return;
-        }
-
-        unsafe {
-            drop(CString::from_raw(value));
+        if !value.is_null() {
+            #[cfg(debug_assertions)]
+            OUTSTANDING_FFI_STRINGS.fetch_sub(1, Ordering::SeqCst);
+            drop(unsafe { CString::from_raw(value) });
         }
     })
 }
@@ -1235,13 +1300,14 @@ fn write_sftp_response_json(
         Err(_) => return result,
     };
 
-    match CString::new(json) {
-        Ok(value) => unsafe {
-            *response_json = value.into_raw();
-            result
-        },
-        Err(_) => result,
+    let raw = ffi_string_into_raw(json);
+    if raw.is_null() {
+        return result;
     }
+    unsafe {
+        *response_json = raw;
+    }
+    result
 }
 
 fn write_remote_path_list_response_json(
@@ -1261,13 +1327,14 @@ fn write_remote_path_list_response_json(
         Err(_) => return result,
     };
 
-    match CString::new(json) {
-        Ok(value) => unsafe {
-            *response_json = value.into_raw();
-            result
-        },
-        Err(_) => result,
+    let raw = ffi_string_into_raw(json);
+    if raw.is_null() {
+        return result;
     }
+    unsafe {
+        *response_json = raw;
+    }
+    result
 }
 
 fn sftp_request_has_blank_fields(request: &SftpTransferRequest) -> bool {
@@ -2803,7 +2870,7 @@ fn wait_keyboard_responses(shared: &Arc<SharedState>) -> anyhow::Result<Vec<Stri
 }
 
 #[cfg(test)]
-fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> *mut NovaSshSession {
+fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> usize {
     let shared = Arc::new(SharedState::new());
     shared.queue_event(QueuedEvent {
         kind,
@@ -2812,11 +2879,11 @@ fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> *mu
         flags: NOVA_SSH_EVENT_FLAG_JSON,
     });
 
-    Box::into_raw(Box::new(NovaSshSession {
+    registry_insert(NovaSshSession {
         shared,
-        command_tx: None,
-        worker: None,
-    }))
+        command_tx: Mutex::new(None),
+        worker: Mutex::new(None),
+    }) as usize
 }
 
 #[cfg(test)]
@@ -2825,22 +2892,22 @@ mod tests {
 
     #[test]
     fn null_handle_operations_return_invalid_argument() {
-        let resize = nova_ssh_resize(ptr::null_mut(), 120, 30);
-        let write = nova_ssh_write(ptr::null_mut(), [1u8, 2, 3].as_ptr(), 3);
+        let resize = nova_ssh_resize(0, 120, 30);
+        let write = nova_ssh_write(0, [1u8, 2, 3].as_ptr(), 3);
         let forward_args = NovaSshDirectTcpIpArgs {
             host_to_connect: ptr::null(),
             port_to_connect: 80,
             originator_address: ptr::null(),
             originator_port: 1000,
         };
-        let open = nova_ssh_open_direct_tcpip(ptr::null_mut(), &forward_args);
-        let channel_write = nova_ssh_channel_write(ptr::null_mut(), 1, [1u8, 2, 3].as_ptr(), 3);
-        let channel_eof = nova_ssh_channel_eof(ptr::null_mut(), 1);
-        let channel_close = nova_ssh_channel_close(ptr::null_mut(), 1);
-        let respond = nova_ssh_submit_response(ptr::null_mut(), 1, br#"{}"#.as_ptr(), 2);
+        let open = nova_ssh_open_direct_tcpip(0, &forward_args);
+        let channel_write = nova_ssh_channel_write(0, 1, [1u8, 2, 3].as_ptr(), 3);
+        let channel_eof = nova_ssh_channel_eof(0, 1);
+        let channel_close = nova_ssh_channel_close(0, 1);
+        let respond = nova_ssh_submit_response(0, 1, br#"{}"#.as_ptr(), 2);
         let mut sftp_response = ptr::null_mut();
         let sftp = nova_ssh_sftp_transfer(ptr::null(), None, ptr::null_mut(), &mut sftp_response);
-        let close = nova_ssh_close(ptr::null_mut());
+        let close = nova_ssh_close(0);
 
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, resize);
         assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, write);
@@ -2936,7 +3003,7 @@ mod tests {
     fn poll_reports_required_payload_length_before_copying() {
         let payload = br#"{"host":"example.internal","fingerprint":"SHA256:test"}"#;
         let session = create_test_session_with_event(NovaSshEventKind::HostKeyPrompt, payload);
-        assert!(!session.is_null());
+        assert_ne!(0, session);
 
         let mut event = NovaSshEvent::default();
         let mut tiny = [0u8; 8];
@@ -2954,7 +3021,7 @@ mod tests {
     fn poll_copies_payload_when_buffer_is_large_enough() {
         let payload = b"hello from ssh";
         let session = create_test_session_with_event(NovaSshEventKind::Data, payload);
-        assert!(!session.is_null());
+        assert_ne!(0, session);
 
         let mut event = NovaSshEvent::default();
         let mut buffer = [0u8; 64];
@@ -2973,11 +3040,11 @@ mod tests {
     fn submit_response_queues_prompt_data_even_before_worker_loop_runs() {
         let shared = Arc::new(SharedState::new());
         let (command_tx, _command_rx) = mpsc::unbounded_channel();
-        let session = Box::into_raw(Box::new(NovaSshSession {
+        let session = registry_insert(NovaSshSession {
             shared: shared.clone(),
-            command_tx: Some(command_tx),
-            worker: None,
-        }));
+            command_tx: Mutex::new(Some(command_tx)),
+            worker: Mutex::new(None),
+        }) as usize;
 
         let payload = br#"{"accept":true}"#;
         let rc = nova_ssh_submit_response(
@@ -3440,7 +3507,97 @@ mod ffi_guard_tests {
 
     #[test]
     fn poll_event_rejects_null_without_panic() {
-        let rc = nova_ssh_poll_event(std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), 0);
+        let rc = nova_ssh_poll_event(0, std::ptr::null_mut(), std::ptr::null_mut(), 0);
         assert_eq!(rc, NOVA_SSH_RESULT_INVALID_ARGUMENT);
+    }
+}
+
+#[cfg(test)]
+fn stub_session() -> NovaSshSession {
+    NovaSshSession {
+        shared: Arc::new(SharedState::new()),
+        command_tx: Mutex::new(None),
+        worker: Mutex::new(None),
+    }
+}
+
+#[cfg(test)]
+mod handle_abuse_tests {
+    use super::*;
+
+    #[test]
+    fn calls_after_close_fail_closed() {
+        let handle = registry_insert(stub_session()) as usize;
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+
+        let mut event = NovaSshEvent::default();
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_poll_event(handle, &mut event, std::ptr::null_mut(), 0)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_write(handle, [1u8].as_ptr(), 1)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_resize(handle, 80, 24)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_channel_eof(handle, 0)
+        );
+        assert_eq!(
+            NOVA_SSH_RESULT_INVALID_ARGUMENT,
+            nova_ssh_submit_response(handle, 2, br#"{}"#.as_ptr(), 2)
+        );
+    }
+
+    #[test]
+    fn double_close_is_rejected() {
+        let handle = registry_insert(stub_session()) as usize;
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(handle));
+        assert_eq!(NOVA_SSH_RESULT_INVALID_ARGUMENT, nova_ssh_close(handle));
+    }
+
+    #[test]
+    fn concurrent_poll_and_close_never_crashes() {
+        for _ in 0..200 {
+            let handle = registry_insert(stub_session()) as usize;
+            let poller = std::thread::spawn(move || {
+                let mut event = NovaSshEvent::default();
+                for _ in 0..50 {
+                    let rc = nova_ssh_poll_event(handle, &mut event, std::ptr::null_mut(), 0);
+                    assert!(matches!(
+                        rc,
+                        NOVA_SSH_RESULT_OK
+                            | NOVA_SSH_RESULT_EVENT_READY
+                            | NOVA_SSH_RESULT_INVALID_ARGUMENT
+                    ));
+                }
+            });
+            let closer = std::thread::spawn(move || nova_ssh_close(handle));
+            poller.join().unwrap();
+            let _ = closer.join().unwrap();
+        }
+    }
+}
+
+#[cfg(all(test, debug_assertions))]
+mod alloc_balance_tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn malformed_list_request_frees_its_response_string() {
+        let before = OUTSTANDING_FFI_STRINGS.load(Ordering::SeqCst);
+        let bad = CString::new("{ not json").unwrap();
+        let mut response: *mut c_char = std::ptr::null_mut();
+        let _ = nova_ssh_sftp_list_directory(bad.as_ptr(), &mut response);
+        if !response.is_null() {
+            nova_ssh_string_free(response);
+        }
+        let after = OUTSTANDING_FFI_STRINGS.load(Ordering::SeqCst);
+        assert_eq!(before, after, "every FFI-allocated string must be freed");
     }
 }

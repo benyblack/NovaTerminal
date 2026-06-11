@@ -37,6 +37,28 @@ env:
   MSBUILDDISABLENODEREUSE: '1'
 
 jobs:
+  # Native FFI unit/integration tests (handle registry, abuse suite, alloc balance).
+  # The per-OS build job only `cargo build`s the crates; the cargo test suites
+  # (rusty_ssh fail-closed handle tests + rusty_pty cancel tests) run here.
+  rust-ffi-tests:
+    name: Rust FFI Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Rust incremental build cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src/NovaTerminal.App/native
+            src/NovaTerminal.App/native/rusty_ssh
+      - name: rusty_ssh FFI tests (registry, abuse suite, alloc balance)
+        run: cargo test --manifest-path src/NovaTerminal.App/native/rusty_ssh/Cargo.toml
+      - name: rusty_pty FFI tests
+        run: cargo test --manifest-path src/NovaTerminal.App/native/Cargo.toml
+
   # Single build job per OS: Rust native + .NET in one step.
   # Eliminates the artifact round-trip that the old build_native → build_dotnet split required.
   build:

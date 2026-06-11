@@ -170,7 +170,7 @@ public sealed class NativeSshSessionInteractionTests
         public int PollCallCount { get; private set; }
         public List<(NativeSshResponseKind Kind, string PayloadJson)> Submissions { get; } = new();
 
-        public IntPtr Connect(NativeSshConnectionOptions options) => new(1);
+        public NovaSshSafeHandle Connect(NativeSshConnectionOptions options) => new(new IntPtr(1), ownsHandle: false);
 
         public void RunSftpTransfer(NativeSshConnectionOptions connectionOptions, NativeSftpTransferOptions transferOptions, Action<NativeSftpTransferProgress>? progress, CancellationToken cancellationToken)
         {
@@ -182,7 +182,7 @@ public sealed class NativeSshSessionInteractionTests
             throw new NotSupportedException();
         }
 
-        public NativeSshEvent? PollEvent(IntPtr sessionHandle)
+        public NativeSshEvent? PollEvent(NovaSshSafeHandle sessionHandle)
         {
             PollCallCount++;
             return _events.TryDequeue(out NativeSshEvent? nextEvent)
@@ -190,34 +190,34 @@ public sealed class NativeSshSessionInteractionTests
                 : null;
         }
 
-        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data)
+        public void Write(NovaSshSafeHandle sessionHandle, ReadOnlySpan<byte> data)
         {
         }
 
-        public void Resize(IntPtr sessionHandle, int cols, int rows)
+        public void Resize(NovaSshSafeHandle sessionHandle, int cols, int rows)
         {
         }
 
-        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options) => 1;
+        public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options) => 1;
 
-        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
         {
         }
 
-        public void SendChannelEof(IntPtr sessionHandle, int channelId)
+        public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId)
         {
         }
 
-        public void CloseChannel(IntPtr sessionHandle, int channelId)
+        public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId)
         {
         }
 
-        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
+        public void SubmitResponse(NovaSshSafeHandle sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data)
         {
             Submissions.Add((responseKind, Encoding.UTF8.GetString(data)));
         }
 
-        public void Close(IntPtr sessionHandle)
+        public void Close(NovaSshSafeHandle sessionHandle)
         {
         }
 

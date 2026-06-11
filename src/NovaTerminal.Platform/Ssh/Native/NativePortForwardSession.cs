@@ -20,7 +20,7 @@ public sealed class NativePortForwardSession : IDisposable
     private const byte SocksReplyCommandNotSupported = 0x07;
     private const byte SocksReplyAddressTypeNotSupported = 0x08;
 
-    private readonly IntPtr _sessionHandle;
+    private readonly NovaSshSafeHandle _sessionHandle;
     private readonly INativeSshInterop _interop;
     private readonly Action<string> _log;
     private readonly Func<NetworkStream, byte[], CancellationToken, Task> _socksReplyWriter;
@@ -30,7 +30,7 @@ public sealed class NativePortForwardSession : IDisposable
     private int _disposed;
 
     public NativePortForwardSession(
-        IntPtr sessionHandle,
+        NovaSshSafeHandle sessionHandle,
         IReadOnlyList<PortForward> forwards,
         INativeSshInterop interop,
         Action<string>? log = null)
@@ -39,13 +39,13 @@ public sealed class NativePortForwardSession : IDisposable
     }
 
     private NativePortForwardSession(
-        IntPtr sessionHandle,
+        NovaSshSafeHandle sessionHandle,
         IReadOnlyList<PortForward> forwards,
         INativeSshInterop interop,
         Action<string>? log,
         Func<NetworkStream, byte[], CancellationToken, Task> socksReplyWriter)
     {
-        if (sessionHandle == IntPtr.Zero)
+        if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed)
         {
             throw new ArgumentException("Native port forwarding requires a valid SSH session handle.", nameof(sessionHandle));
         }

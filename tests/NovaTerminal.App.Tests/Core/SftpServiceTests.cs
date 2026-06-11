@@ -756,7 +756,7 @@ public sealed class SftpServiceTests
         public string? ListedRemotePath { get; private set; }
         public CancellationToken CancellationToken { get; private set; }
 
-        public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
+        public NovaSshSafeHandle Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
 
         public void RunSftpTransfer(
             NativeSshConnectionOptions connectionOptions,
@@ -780,15 +780,15 @@ public sealed class SftpServiceTests
             return [];
         }
 
-        public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();
-        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
-        public void Resize(IntPtr sessionHandle, int cols, int rows) => throw new NotSupportedException();
-        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options) => throw new NotSupportedException();
-        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data) => throw new NotSupportedException();
-        public void SendChannelEof(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
-        public void CloseChannel(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
-        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data) => throw new NotSupportedException();
-        public void Close(IntPtr sessionHandle) => throw new NotSupportedException();
+        public NativeSshEvent? PollEvent(NovaSshSafeHandle sessionHandle) => throw new NotSupportedException();
+        public void Write(NovaSshSafeHandle sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Resize(NovaSshSafeHandle sessionHandle, int cols, int rows) => throw new NotSupportedException();
+        public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options) => throw new NotSupportedException();
+        public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId) => throw new NotSupportedException();
+        public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId) => throw new NotSupportedException();
+        public void SubmitResponse(NovaSshSafeHandle sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Close(NovaSshSafeHandle sessionHandle) => throw new NotSupportedException();
     }
 
     private sealed class BlockingNativeSshInterop : INativeSshInterop
@@ -796,7 +796,7 @@ public sealed class SftpServiceTests
         public ManualResetEventSlim Started { get; } = new(false);
         public ManualResetEventSlim Release { get; } = new(false);
 
-        public IntPtr Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
+        public NovaSshSafeHandle Connect(NativeSshConnectionOptions options) => throw new NotSupportedException();
 
         public void RunSftpTransfer(
             NativeSshConnectionOptions connectionOptions,
@@ -813,14 +813,14 @@ public sealed class SftpServiceTests
             string remotePath,
             CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public NativeSshEvent? PollEvent(IntPtr sessionHandle) => throw new NotSupportedException();
-        public void Write(IntPtr sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
-        public void Resize(IntPtr sessionHandle, int cols, int rows) => throw new NotSupportedException();
-        public int OpenDirectTcpIp(IntPtr sessionHandle, NativePortForwardOpenOptions options) => throw new NotSupportedException();
-        public void WriteChannel(IntPtr sessionHandle, int channelId, ReadOnlySpan<byte> data) => throw new NotSupportedException();
-        public void SendChannelEof(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
-        public void CloseChannel(IntPtr sessionHandle, int channelId) => throw new NotSupportedException();
-        public void SubmitResponse(IntPtr sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data) => throw new NotSupportedException();
-        public void Close(IntPtr sessionHandle) => throw new NotSupportedException();
+        public NativeSshEvent? PollEvent(NovaSshSafeHandle sessionHandle) => throw new NotSupportedException();
+        public void Write(NovaSshSafeHandle sessionHandle, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Resize(NovaSshSafeHandle sessionHandle, int cols, int rows) => throw new NotSupportedException();
+        public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options) => throw new NotSupportedException();
+        public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId) => throw new NotSupportedException();
+        public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId) => throw new NotSupportedException();
+        public void SubmitResponse(NovaSshSafeHandle sessionHandle, NativeSshResponseKind responseKind, ReadOnlySpan<byte> data) => throw new NotSupportedException();
+        public void Close(NovaSshSafeHandle sessionHandle) => throw new NotSupportedException();
     }
 }
