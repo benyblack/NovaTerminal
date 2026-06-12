@@ -69,8 +69,9 @@ namespace NovaTerminal.Shell.Secrets
 
                 // Probe Keychain Services. A missing framework throws (caught below);
                 // a present framework with nothing stored returns errSecItemNotFound,
-                // which Read maps to null without throwing.
-                _ = Read("__novaterminal_probe__");
+                // which ReadInternal maps to null without throwing. Call ReadInternal
+                // (not Read) because _available is not set yet.
+                _ = ReadInternal("__novaterminal_probe__");
                 _available = true;
             }
             catch (DllNotFoundException) { _available = false; }
@@ -81,6 +82,18 @@ namespace NovaTerminal.Shell.Secrets
         public bool IsAvailable => _available;
 
         public string? Read(string key)
+        {
+            if (!_available)
+            {
+                return null;
+            }
+
+            return ReadInternal(key);
+        }
+
+        // Performs the actual keychain lookup. Called by the constructor probe before
+        // _available is set, so it must not be gated on _available.
+        private string? ReadInternal(string key)
         {
             IntPtr query = BuildQuery(key, forReturnData: true);
             try
