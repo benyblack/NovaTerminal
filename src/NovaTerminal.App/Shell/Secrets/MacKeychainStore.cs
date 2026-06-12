@@ -127,12 +127,12 @@ namespace NovaTerminal.Shell.Secrets
                 }
                 finally
                 {
-                    CFRelease(dataRef);
+                    SafeCFRelease(dataRef);
                 }
             }
             finally
             {
-                CFRelease(query);
+                SafeCFRelease(query);
             }
         }
 
@@ -163,15 +163,15 @@ namespace NovaTerminal.Shell.Secrets
                     }
                     finally
                     {
-                        CFRelease(addQuery);
+                        SafeCFRelease(addQuery);
                     }
                 }
             }
             finally
             {
-                CFRelease(valueData);
-                CFRelease(attrsToUpdate);
-                CFRelease(matchQuery);
+                SafeCFRelease(valueData);
+                SafeCFRelease(attrsToUpdate);
+                SafeCFRelease(matchQuery);
             }
         }
 
@@ -190,7 +190,7 @@ namespace NovaTerminal.Shell.Secrets
             }
             finally
             {
-                CFRelease(query);
+                SafeCFRelease(query);
             }
         }
 
@@ -207,8 +207,8 @@ namespace NovaTerminal.Shell.Secrets
             IntPtr account = CFStr(key);
             CFDictionaryAddValue(dict, _kSecAttrService, service);
             CFDictionaryAddValue(dict, _kSecAttrAccount, account);
-            CFRelease(service);
-            CFRelease(account);
+            SafeCFRelease(service);
+            SafeCFRelease(account);
 
             if (forReturnData)
             {
@@ -273,6 +273,16 @@ namespace NovaTerminal.Shell.Secrets
 
         [DllImport(CF)]
         private static extern void CFRelease(IntPtr cf);
+
+        // CFRelease(NULL) is a documented runtime error that crashes the process, so a
+        // CF object that failed to create (IntPtr.Zero) must never be passed to it.
+        private static void SafeCFRelease(IntPtr cf)
+        {
+            if (cf != IntPtr.Zero)
+            {
+                CFRelease(cf);
+            }
+        }
 
         // CA2101: the parameter is explicitly UTF-8 marshalled per-parameter; the
         // BestFitMapping/ThrowOnUnmappableChar pair satisfies the analyzer.

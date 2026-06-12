@@ -42,11 +42,13 @@ namespace NovaTerminal.Shell.Secrets
         private readonly IntPtr _schemaNamePtr;
         private readonly IntPtr _keyAttrNamePtr;
 
-        // glib comparison/hash function pointers, resolved lazily so that a machine
-        // without glib does not fault during *static* initialization (which would
-        // surface as TypeInitializationException, defeating the ctor's catch blocks).
+        // glib hash/compare/free function pointers, resolved in the constructor (not a
+        // static initializer) so that a machine without glib does not fault during
+        // *static* initialization (which would surface as TypeInitializationException,
+        // defeating the ctor's catch blocks).
         private readonly IntPtr _gStrHash;
         private readonly IntPtr _gStrEqual;
+        private readonly IntPtr _gFree;
 
         private readonly bool _available;
 
@@ -59,6 +61,7 @@ namespace NovaTerminal.Shell.Secrets
                 IntPtr glib = NativeLibrary.Load(Glib);
                 _gStrHash = NativeLibrary.GetExport(glib, "g_str_hash");
                 _gStrEqual = NativeLibrary.GetExport(glib, "g_str_equal");
+                _gFree = NativeLibrary.GetExport(glib, "g_free");
 
                 _schema = BuildSchema(out _schemaNamePtr, out _keyAttrNamePtr);
 
@@ -112,7 +115,12 @@ namespace NovaTerminal.Shell.Secrets
                 return null;
             }
 
-            return LookupRaw(key, out _);
+            string? result = LookupRaw(key, out _);
+            // Keep this instance alive past the native call: the finalizer frees
+            // _schema (and the name strings it points to), so it must not run while
+            // libsecret is still dereferencing the schema.
+            GC.KeepAlive(this);
+            return result;
         }
 
         public void Write(string key, string value)
@@ -138,6 +146,10 @@ namespace NovaTerminal.Shell.Secrets
             {
                 DestroyAttributes(attrs);
             }
+
+            // Keep this instance alive past the native call so the finalizer cannot
+            // free _schema while libsecret is still dereferencing it.
+            GC.KeepAlive(this);
         }
 
         public bool Delete(string key)
@@ -148,16 +160,22 @@ namespace NovaTerminal.Shell.Secrets
             }
 
             IntPtr attrs = BuildAttributes(key);
+            bool removed;
             try
             {
-                int removed = secret_password_clearv_sync(_schema, attrs, IntPtr.Zero, out IntPtr error);
+                int cleared = secret_password_clearv_sync(_schema, attrs, IntPtr.Zero, out IntPtr error);
                 FreeError(error);
-                return removed != 0;
+                removed = cleared != 0;
             }
             finally
             {
                 DestroyAttributes(attrs);
             }
+
+            // Keep this instance alive past the native call so the finalizer cannot
+            // free _schema while libsecret is still dereferencing it.
+            GC.KeepAlive(this);
+            return removed;
         }
 
         private string? LookupRaw(string key, out bool serviceError)
@@ -348,13 +366,5 @@ namespace NovaTerminal.Shell.Secrets
 
         [DllImport(Glib)]
         private static extern void g_error_free(IntPtr error);
-
-        // g_free function pointer, resolved on first use for the GHashTable destroy
-        // notifies. Resolved lazily (not in a static initializer) so a glib-less box
-        // never faults at type load — see the class remarks.
-        private IntPtr _gFreeCache;
-        private IntPtr _gFree => _gFreeCache != IntPtr.Zero
-            ? _gFreeCache
-            : (_gFreeCache = NativeLibrary.GetExport(NativeLibrary.Load(Glib), "g_free"));
     }
 }
