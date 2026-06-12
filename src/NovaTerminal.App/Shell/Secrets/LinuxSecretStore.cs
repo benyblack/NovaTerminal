@@ -262,8 +262,10 @@ namespace NovaTerminal.Shell.Secrets
         //           const gchar *name;        // 8 bytes
         //           SecretSchemaAttributeType type; // 4 bytes, +4 tail padding
         //       } attributes[32];             // 16-byte stride per element
-        //       /* glib-private reserved fields follow; zeroing the whole block and
-        //          terminating attributes with a NULL name is sufficient. */
+        //
+        //       /*< private >*/
+        //       gint reserved;                // refcount sentinel for dynamic schemas
+        //       gpointer reserved1 .. reserved7; // 7 reserved pointers
         //   };
         //
         // The header (name + flags) is 12 bytes but the attribute array needs 8-byte
@@ -271,6 +273,12 @@ namespace NovaTerminal.Shell.Secrets
         // offset 16. Each attribute element is { pointer; int } = 12 bytes of data
         // padded to a 16-byte stride. A NULL `name` on the first unused entry
         // terminates the list, which is why the trailing entries are left zeroed.
+        //
+        // We allocate the FULL struct including the private reserved tail, not just up
+        // to the attributes array: libsecret's schema ref-counting inspects
+        // `schema->reserved`, and a zeroed tail (reserved == 0) marks this as a static,
+        // non-ref-counted schema. Stopping after the array would let libsecret read
+        // (or write) past the allocation. See PR review (#100).
         private static IntPtr BuildSchema(out IntPtr schemaNamePtr, out IntPtr keyAttrNamePtr)
         {
             schemaNamePtr = IntPtr.Zero;
@@ -289,7 +297,12 @@ namespace NovaTerminal.Shell.Secrets
             int attrStride = Align(pointerSize + intSize, pointerSize);
             const int attrCount = 32;
 
-            int size = headerPadded + (attrStride * attrCount);
+            // Private reserved tail: gint reserved (padded to pointer alignment) + 7
+            // reserved pointers. Included so libsecret never touches unallocated memory.
+            const int reservedPointerCount = 7;
+            int reservedTail = Align(intSize, pointerSize) + (reservedPointerCount * pointerSize);
+
+            int size = headerPadded + (attrStride * attrCount) + reservedTail;
             IntPtr schema = Marshal.AllocHGlobal(size);
 
             // Zero the whole block: NONE flags, STRING attribute type (== 0), and the
