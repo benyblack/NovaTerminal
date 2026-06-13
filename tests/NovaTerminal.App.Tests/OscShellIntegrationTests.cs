@@ -137,6 +137,62 @@ public sealed class OscShellIntegrationTests
     }
 
     [Fact]
+    public void Osc133A_PromptReady_ClearsLeakedMouseTrackingModes()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        // A TUI (e.g. Claude Code) turns on mouse tracking, then exits uncleanly
+        // (Ctrl+C / crash) without sending the disable sequences.
+        parser.Process("\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h");
+        Assert.True(buffer.Modes.MouseModeAnyEvent);
+        Assert.True(buffer.Modes.MouseModeSGR);
+
+        // The shell draws its next prompt. That is proof no TUI is holding mouse
+        // capture, so the leaked mouse modes must be cleared (otherwise every mouse
+        // move floods the prompt with ESC[<..M reports).
+        parser.Process("\x1b]133;A\x07");
+
+        Assert.False(buffer.Modes.MouseModeX10);
+        Assert.False(buffer.Modes.MouseModeButtonEvent);
+        Assert.False(buffer.Modes.MouseModeAnyEvent);
+        Assert.False(buffer.Modes.MouseModeSGR);
+    }
+
+    [Fact]
+    public void Osc133A_PromptReady_ClearsLeakedFocusEventReporting()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        parser.Process("\x1b[?1004h");
+        Assert.True(buffer.Modes.IsFocusEventReporting);
+
+        parser.Process("\x1b]133;A\x07");
+
+        Assert.False(buffer.Modes.IsFocusEventReporting);
+    }
+
+    [Fact]
+    public void Osc133A_PromptReady_PreservesShellOwnedModes()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        // PSReadLine owns bracketed paste and application cursor keys at the prompt;
+        // clearing these on every prompt would break paste and arrow keys.
+        parser.Process("\x1b[?2004h\x1b[?1h");
+        Assert.True(buffer.Modes.IsBracketedPasteMode);
+        Assert.True(buffer.Modes.IsApplicationCursorKeys);
+
+        parser.Process("\x1b]133;A\x07");
+
+        Assert.True(buffer.Modes.IsBracketedPasteMode);
+        Assert.True(buffer.Modes.IsApplicationCursorKeys);
+        Assert.True(buffer.Modes.IsAutoWrapMode);
+    }
+
+    [Fact]
     public void Osc133D_WithExitCodeAndDuration_RaisesDetailedCommandFinished()
     {
         var buffer = new TerminalBuffer(80, 24);

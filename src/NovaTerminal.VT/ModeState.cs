@@ -24,6 +24,23 @@ namespace NovaTerminal.VT
         public bool IsLineFeedNewLineMode { get; set; }   // 20 - LNM (Line Feed New Line Mode)
         public bool IsEchoEnabled { get; set; } = true;   // 12 - SRM (Send/Receive Mode)
 
+        /// <summary>
+        /// Clears the input-reporting modes a full-screen application turns on for itself
+        /// (mouse tracking and focus reporting). Called when the shell signals a fresh prompt
+        /// so a TUI that exited uncleanly — Ctrl+C, crash, or output dropped during PTY
+        /// teardown — can't leave mouse reporting on and flood the prompt with ESC[&lt;..M
+        /// reports on every pointer move. Shell-owned modes (bracketed paste, application
+        /// cursor keys, auto-wrap) are intentionally left untouched.
+        /// </summary>
+        public void ResetTransientInputReporting()
+        {
+            MouseModeX10 = false;
+            MouseModeButtonEvent = false;
+            MouseModeAnyEvent = false;
+            MouseModeSGR = false;
+            IsFocusEventReporting = false;
+        }
+
         public ModeState Clone()
         {
             return new ModeState

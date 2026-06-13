@@ -1445,6 +1445,10 @@ namespace NovaTerminal.VT
                 string marker = parts[0];
                 if (string.Equals(marker, "A", StringComparison.Ordinal))
                 {
+                    // We're back at a shell prompt: clear any mouse/focus reporting a TUI
+                    // left enabled after an unclean exit, so pointer moves don't flood the
+                    // prompt with leaked ESC[<..M reports.
+                    _buffer.Modes.ResetTransientInputReporting();
                     OnPromptReady?.Invoke();
                 }
                 else if (string.Equals(marker, "B", StringComparison.Ordinal))
