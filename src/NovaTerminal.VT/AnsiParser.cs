@@ -29,6 +29,15 @@ namespace NovaTerminal.VT
         private int _paramLen = 0;
         private const int MaxCsiParamChars = 65536;
 
+        // Hard safety cap on string-type control sequences (OSC/DCS/APC) to bound memory
+        // against a hostile or runaway stream that never sends a terminator. Unlike CSI
+        // params, these legitimately carry large payloads — iTerm2 (OSC 1337) and tunneled
+        // (OSC 1339) inline images, Sixel images (DCS), and Kitty graphics (APC) — so the
+        // cap is generous rather than the 64 KiB used for CSI. Past the cap we stop
+        // accumulating and let the sequence terminate (a truncated image simply fails to
+        // decode), mirroring how CSI params stop growing at MaxCsiParamChars.
+        internal const int MaxStringSequenceChars = 16 * 1024 * 1024; // 16 Mi chars (~32 MB UTF-16)
+
         // ConPTY Sync Fix: Track vertical offset caused by inline images that ConPTY doesn't see.
         // This effectively "scrolls" the PTY's logical cursor to match our visual cursor.
         private int _verticalOffset = 0;
@@ -384,7 +393,8 @@ namespace NovaTerminal.VT
                                 }
                                 else
                                 {
-                                    _oscStringBuffer.Add(c);
+                                    if (_oscStringBuffer.Count < MaxStringSequenceChars)
+                                        _oscStringBuffer.Add(c);
                                 }
                                 break;
 
@@ -415,7 +425,8 @@ namespace NovaTerminal.VT
                                 }
                                 else
                                 {
-                                    _dcsStringBuffer.Add(c);
+                                    if (_dcsStringBuffer.Count < MaxStringSequenceChars)
+                                        _dcsStringBuffer.Add(c);
                                 }
                                 break;
 
@@ -444,7 +455,8 @@ namespace NovaTerminal.VT
                                 }
                                 else
                                 {
-                                    _apcStringBuffer.Add(c);
+                                    if (_apcStringBuffer.Count < MaxStringSequenceChars)
+                                        _apcStringBuffer.Add(c);
                                 }
                                 break;
 
@@ -1563,8 +1575,14 @@ namespace NovaTerminal.VT
                 }
             }
 
-            // Accumulate payload
-            _kittyPayloadBuffer.Append(payload);
+            // Accumulate payload. Bounded so a hostile stream that keeps sending m=1
+            // continuation chunks (and never the final m=0) cannot grow this unboundedly;
+            // per-sequence APC accumulation is already capped, but the cross-chunk total
+            // needs its own guard. Over the cap we stop appending (the image fails to decode).
+            if (_kittyPayloadBuffer.Length + payload.Length <= MaxStringSequenceChars)
+            {
+                _kittyPayloadBuffer.Append(payload);
+            }
 
             // Check if more chunks are coming (m=1)
             bool more = false;
