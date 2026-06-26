@@ -87,6 +87,7 @@ public class ReflowEdgeCaseTests
         buffer.Resize(10, 4);
 
         AssertInvariants(buffer, 10, 4);
+        Assert.Contains("hello", CombinedText(buffer), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -114,8 +115,11 @@ public class ReflowEdgeCaseTests
     [Fact]
     public void Resize_RewrapOverflowingScrollback_TrimsToBudget_AndKeepsRecentContent()
     {
-        // Tight scrollback budget so narrowing (which multiplies wrapped rows) forces eviction.
-        var buffer = new TerminalBuffer(80, 4) { MaxScrollbackBytes = 16 * 1024 };
+        // Tight scrollback so narrowing (which multiplies wrapped rows) forces eviction.
+        // The budget is derived from MaxHistory * Cols, and the width-change path recomputes it
+        // from MaxHistory — so a small MaxHistory (not a raw MaxScrollbackBytes, which would be
+        // overwritten on resize) is what actually keeps the budget tight here.
+        var buffer = new TerminalBuffer(80, 4) { MaxHistory = 20 };
         for (int i = 1; i <= 200; i++)
         {
             buffer.Write($"row{i:D3}-{new string('x', 60)}\r\n");
@@ -124,8 +128,12 @@ public class ReflowEdgeCaseTests
         buffer.Resize(10, 4); // heavy rewrap → many more physical rows → eviction
         AssertInvariants(buffer, 10, 4);
 
-        // Most recent content is retained; the buffer is not corrupted.
-        Assert.Contains("row200", CombinedText(buffer), StringComparison.Ordinal);
+        string combined = CombinedText(buffer);
+        // Oldest content was evicted (the budget actually bit) ...
+        Assert.DoesNotContain("row001", combined, StringComparison.Ordinal);
+        // ... and the budget held: rewrapping 200 wide lines to 10 cols would produce well over
+        // 1000 physical rows; the trim keeps scrollback near MaxHistory, not unbounded.
+        Assert.True(buffer.Scrollback.Count <= 64, $"scrollback not trimmed: {buffer.Scrollback.Count} rows");
     }
 
     // --- helpers ---
