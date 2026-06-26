@@ -29,6 +29,13 @@ namespace NovaTerminal.VT
         private int _paramLen = 0;
         private const int MaxCsiParamChars = 65536;
 
+        // Upper bound on a single parsed CSI numeric parameter. Operations like Scroll Up/Down
+        // (CSI Ps S/T), Repeat (CSI Ps b), and Insert/Delete Lines/Chars loop or process Ps times,
+        // so an unbounded value (e.g. CSI 333333261 S) lets a hostile stream wedge the parser for
+        // tens of seconds — a DoS. 65535 is far beyond any real screen dimension yet keeps every
+        // such loop trivially fast, and also prevents int overflow during digit accumulation.
+        private const int MaxCsiParamValue = 65535;
+
         // Hard safety cap on string-type control sequences (OSC/DCS/APC) to bound memory
         // against a hostile or runaway stream that never sends a terminator. Unlike CSI
         // params, these legitimately carry large payloads — iTerm2 (OSC 1337) and tunneled
@@ -584,7 +591,12 @@ namespace NovaTerminal.VT
                 char c = paramPart[i];
                 if (c >= '0' && c <= '9')
                 {
-                    currentVal = (currentVal * 10) + (c - '0');
+                    // Clamp during accumulation: bounds DoS-prone counts (scroll/repeat/insert)
+                    // and avoids int overflow on absurdly long digit runs.
+                    if (currentVal < MaxCsiParamValue)
+                    {
+                        currentVal = Math.Min(MaxCsiParamValue, (currentVal * 10) + (c - '0'));
+                    }
                     hasVal = true;
                 }
                 else if (c == ';' || c == ':')
