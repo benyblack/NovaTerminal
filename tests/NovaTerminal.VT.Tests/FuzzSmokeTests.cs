@@ -32,7 +32,8 @@ public class FuzzSmokeTests
     private static void ParseAndResize(ReadOnlySpan<byte> data)
     {
         var buffer = new TerminalBuffer(80, 24);
-        var parser = new AnsiParser(buffer);
+        // Mock decoder so image sequences exercise layout/cursor/scroll paths, not an early return.
+        var parser = new AnsiParser(buffer) { ImageDecoder = MockImageDecoder.Instance };
 
         int i = 0;
         while (i < data.Length)
@@ -69,5 +70,24 @@ public class FuzzSmokeTests
         }
         Assert.InRange(buffer.CursorRow, 0, buffer.Rows - 1);
         Assert.InRange(buffer.CursorCol, 0, buffer.Cols);
+    }
+
+    private sealed class MockImageDecoder : IImageDecoder
+    {
+        public static readonly MockImageDecoder Instance = new();
+
+        public object? DecodeImageBytes(byte[] imageData, out int pixelWidth, out int pixelHeight)
+        {
+            pixelWidth = 100;
+            pixelHeight = 100;
+            return Instance;
+        }
+
+        public object? DecodeSixel(string sixelData, out int pixelWidth, out int pixelHeight)
+        {
+            pixelWidth = 100;
+            pixelHeight = 100;
+            return Instance;
+        }
     }
 }

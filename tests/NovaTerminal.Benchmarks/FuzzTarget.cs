@@ -33,7 +33,9 @@ namespace NovaTerminal.Benchmarks
         public static void FuzzParser(ReadOnlySpan<byte> data)
         {
             var buffer = new TerminalBuffer(80, 24);
-            var parser = new AnsiParser(buffer);
+            // A non-null decoder makes Sixel/Kitty/iTerm2 sequences exercise the image layout,
+            // cursor-advance, and scroll paths instead of returning early.
+            var parser = new AnsiParser(buffer) { ImageDecoder = MockImageDecoder.Instance };
             parser.Process(Encoding.UTF8.GetString(data));
         }
 
@@ -44,7 +46,7 @@ namespace NovaTerminal.Benchmarks
         public static void FuzzParseAndResize(ReadOnlySpan<byte> data)
         {
             var buffer = new TerminalBuffer(80, 24);
-            var parser = new AnsiParser(buffer);
+            var parser = new AnsiParser(buffer) { ImageDecoder = MockImageDecoder.Instance };
 
             int i = 0;
             while (i < data.Length)
@@ -92,6 +94,27 @@ namespace NovaTerminal.Benchmarks
                 throw new InvalidOperationException($"cursor row {buffer.CursorRow} out of [0,{buffer.Rows})");
             if (buffer.CursorCol < 0 || buffer.CursorCol > buffer.Cols)
                 throw new InvalidOperationException($"cursor col {buffer.CursorCol} out of [0,{buffer.Cols}]");
+        }
+
+        // Returns dummy dimensions + a non-null handle so image control sequences drive the
+        // layout/cursor/scroll paths during fuzzing instead of bailing out at a null decoder.
+        private sealed class MockImageDecoder : IImageDecoder
+        {
+            public static readonly MockImageDecoder Instance = new();
+
+            public object? DecodeImageBytes(byte[] imageData, out int pixelWidth, out int pixelHeight)
+            {
+                pixelWidth = 100;
+                pixelHeight = 100;
+                return Instance;
+            }
+
+            public object? DecodeSixel(string sixelData, out int pixelWidth, out int pixelHeight)
+            {
+                pixelWidth = 100;
+                pixelHeight = 100;
+                return Instance;
+            }
         }
     }
 }
