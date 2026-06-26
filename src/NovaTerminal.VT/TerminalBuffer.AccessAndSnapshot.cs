@@ -23,6 +23,18 @@ namespace NovaTerminal.VT
             return GetCellAbsolute(col, actualIndex);
         }
 
+        /// <summary>
+        /// Returns the <see cref="TerminalRow"/> at an absolute row index (scrollback + viewport),
+        /// or <c>null</c> when no persistent row object exists at that index. Requires the read
+        /// lock (see <see cref="AssertLockHeld"/>).
+        /// </summary>
+        /// <remarks>
+        /// Returns <c>null</c> for: negative indices, out-of-range viewport rows, and — importantly —
+        /// any <b>scrollback</b> row. Scrollback is stored paged in <c>ScrollbackPages</c>, not as
+        /// <see cref="TerminalRow"/> objects, so it has no row to hand back. To read scrollback
+        /// content use <see cref="GetCellAbsolute"/> / <see cref="GetGraphemeAbsolute"/>, which page
+        /// it in. Callers that assume a non-null row for scrollback indices will dereference null.
+        /// </remarks>
         public TerminalRow? GetRowAbsolute(int absRow)
         {
             AssertLockHeld();

@@ -73,6 +73,17 @@ namespace NovaTerminal.VT
             finally { ExitWriteLockIfNeeded(Lock, lockTaken); }
         }
 
+        /// <summary>
+        /// Acquires a read lock only if this thread does not already hold one. <see cref="Lock"/>
+        /// is a non-recursive <see cref="System.Threading.ReaderWriterLockSlim"/>, so re-entering
+        /// would throw.
+        /// </summary>
+        /// <returns>
+        /// <c>true</c> if this call acquired the read lock (the caller owns it and must release it),
+        /// <c>false</c> if a read or write lock was already held (the caller acquired nothing and
+        /// must NOT release it). Pass the result to <see cref="ExitReadLockIfNeeded"/>; treating a
+        /// <c>false</c> return as "locked" double-unlocks or releases an outer caller's lock.
+        /// </returns>
         private bool EnterReadLockIfNeeded()
         {
             if (Lock.IsWriteLockHeld || Lock.IsReadLockHeld) return false;
@@ -85,6 +96,18 @@ namespace NovaTerminal.VT
             if (lockTaken) rwLock.ExitReadLock();
         }
 
+        /// <summary>
+        /// Acquires a write lock only if this thread does not already hold one. Only the *write*
+        /// lock is checked: if the current thread holds a <b>read</b> lock, this throws
+        /// <see cref="System.Threading.LockRecursionException"/> (the non-recursive
+        /// <see cref="System.Threading.ReaderWriterLockSlim"/> does not support upgrading a read
+        /// lock to a write lock) — it does not return <c>false</c>.
+        /// </summary>
+        /// <returns>
+        /// <c>true</c> if this call acquired the write lock (the caller must release it via
+        /// <see cref="ExitWriteLockIfNeeded"/>), <c>false</c> if the write lock was already held
+        /// (the caller acquired nothing and must NOT release it).
+        /// </returns>
         private bool EnterWriteLockIfNeeded()
         {
             if (Lock.IsWriteLockHeld) return false;
