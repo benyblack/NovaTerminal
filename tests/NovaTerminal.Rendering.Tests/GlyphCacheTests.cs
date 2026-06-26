@@ -1,0 +1,83 @@
+using NovaTerminal.Rendering;
+using SkiaSharp;
+
+namespace NovaTerminal.Rendering.Tests;
+
+// Regression tests for #125: an atlas overflow must not wipe the entire glyph cache (which forced
+// the whole visible glyph set to be re-rasterized on the next frame). Overflow now keeps the
+// most-recently-used working set and is surfaced via RendererStatistics.GlyphAtlasResets.
+public class GlyphCacheTests
+{
+    // GlyphCache requires the SkiaSharp native library. It is present on Windows CI / dev
+    // machines but not on the Linux "non-headless" gating runner, so skip there rather than fail.
+    private static readonly bool SkiaAvailable = CheckSkiaAvailable();
+
+    private static bool CheckSkiaAvailable()
+    {
+        try
+        {
+            using var surface = SKSurface.Create(new SKImageInfo(1, 1, SKColorType.Rgba8888));
+            return surface != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    [Fact]
+    public void NormalGlyph_IsCachedAndReused_WithoutAtlasReset()
+    {
+        Assert.SkipUnless(SkiaAvailable, "SkiaSharp native library not available on this platform.");
+
+        long resetsBefore = RendererStatistics.GlyphAtlasResets;
+
+        using var cache = new GlyphCache();
+        using var typeface = SKTypeface.Default;
+        using var font = new SKFont(typeface, 16);
+
+        var first = cache.GetOrAdd("A", font, 1.0f);
+        var second = cache.GetOrAdd("A", font, 1.0f); // cache hit
+
+        Assert.NotNull(first);
+        Assert.Equal(first, second);
+        Assert.Equal(1, cache.EntryCount);
+        Assert.Equal(resetsBefore, RendererStatistics.GlyphAtlasResets); // no overflow for one glyph
+    }
+
+    [Fact]
+    public void AtlasOverflow_RetainsHotWorkingSet_InsteadOfFullWipe()
+    {
+        Assert.SkipUnless(SkiaAvailable, "SkiaSharp native library not available on this platform.");
+
+        long resetsBefore = RendererStatistics.GlyphAtlasResets;
+
+        using var cache = new GlyphCache();
+        using var typeface = SKTypeface.Default;
+
+        // Add many large, distinct glyphs (size is part of the cache key) to overflow the
+        // 1024x1024 atlas. Detect the overflow locally — when EntryCount stops growing, a rebuild
+        // dropped entries — rather than watching the global stat, which a parallel test could move.
+        int added = 0;
+        int lastEntryCount = 0;
+        for (int i = 0; i < 2000; i++)
+        {
+            float size = 100 + (i % 80); // large glyphs so the atlas fills quickly
+            char c = (char)('A' + (i % 26));
+            using var font = new SKFont(typeface, size);
+            cache.GetOrAdd(c.ToString(), font, 1.0f);
+            added++;
+
+            int currentEntryCount = cache.EntryCount;
+            if (currentEntryCount <= lastEntryCount) break; // a rebuild dropped entries → overflow
+            lastEntryCount = currentEntryCount;
+        }
+
+        // The atlas overflowed at least once (recorded relative to our own baseline) ...
+        Assert.True(RendererStatistics.GlyphAtlasResets > resetsBefore, "expected an atlas overflow to be recorded");
+        // ... and the hot working set survived rather than being wiped to a single entry (the old
+        // ClearInternal behaviour would have left ~1 entry right after the reset).
+        Assert.True(cache.EntryCount > 1, $"hot working set not retained after overflow: {cache.EntryCount} entries");
+        Assert.True(cache.EntryCount < added, "some cold glyphs should have been dropped on overflow");
+    }
+}

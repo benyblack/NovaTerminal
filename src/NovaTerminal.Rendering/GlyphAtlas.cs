@@ -59,23 +59,32 @@ namespace NovaTerminal.Rendering
             int pw = w + 1;
             int ph = h + 1;
 
-            if (nextX + pw > AtlasSize)
+            // Compute placement on local copies first, and only commit the cursor state if the
+            // glyph actually fits. Mutating on failure would advance the shelf cursor even when
+            // returning null, "poisoning" the atlas so a subsequent smaller glyph that would have
+            // fit the previous shelf's remaining space gets forced into a full reset instead.
+            int x = nextX;
+            int y = shelfY;
+            int shelfHeight = maxShelfHeight;
+
+            if (x + pw > AtlasSize)
             {
-                // Move to next shelf
-                shelfY += maxShelfHeight;
-                nextX = 0;
-                maxShelfHeight = 0;
+                // Would overflow this shelf — move to the next one.
+                y += shelfHeight;
+                x = 0;
+                shelfHeight = 0;
             }
 
-            if (shelfY + ph > AtlasSize)
+            if (y + ph > AtlasSize)
             {
-                // Atlas Full - we need a reset strategy (for now just return null)
+                // Atlas full — leave the cursor untouched so the caller can evict and retry.
                 return null;
             }
 
-            var rect = SKRect.Create(nextX, shelfY, w, h);
-            nextX += pw;
-            if (ph > maxShelfHeight) maxShelfHeight = ph;
+            var rect = SKRect.Create(x, y, w, h);
+            nextX = x + pw;
+            shelfY = y;
+            maxShelfHeight = ph > shelfHeight ? ph : shelfHeight;
 
             return rect;
         }

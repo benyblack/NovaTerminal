@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using SkiaSharp;
 
 namespace NovaTerminal.Rendering
@@ -83,56 +84,28 @@ namespace NovaTerminal.Rendering
                     return (entry.Rect, entry.Type);
                 }
 
-                bool isColor = false;
-                foreach (var rune in text.EnumerateRunes())
+                var packed = RasterizeAndPack(key);
+                if (packed == null)
                 {
-                    int cp = rune.Value;
-                    if ((cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF))
+                    // Atlas overflow. Rather than wiping every cached glyph (the old behaviour,
+                    // which forced the whole visible set to be re-rasterized next frame — #125),
+                    // rebuild keeping the most-recently-used half so the hot working set stays
+                    // warm. Fall back to a full wipe only if even that can't make room.
+                    RebuildRetainingHotEntries();
+                    packed = RasterizeAndPack(key);
+                    if (packed == null)
                     {
-                        isColor = true;
-                        break;
+                        ClearInternal();
+                        RendererStatistics.RecordGlyphAtlasReset();
+                        packed = RasterizeAndPack(key);
+                        if (packed == null) return null;
                     }
                 }
 
-                var type = isColor ? AtlasType.Color : AtlasType.Alpha8;
-
-                // Use physically scaled font for the atlas to ensure bit-perfect sharpness
-                float physicalSize = font.Size * scale;
-                using var physFont = new SKFont(font.Typeface, physicalSize);
-                physFont.Edging = SKFontEdging.Antialias;
-                physFont.Hinting = SKFontHinting.Full;
-                physFont.Subpixel = true;
-
-                // Measure the glyph at physical size
-                float width = physFont.MeasureText(text);
-                var metrics = physFont.Metrics;
-                int h = (int)Math.Ceiling(metrics.Descent - metrics.Ascent);
-                int w = (int)Math.Ceiling(width);
-
-                if (w == 0) w = 1;
-
-                var rect = _atlas.Pack(w, h, type);
-                if (rect == null)
-                {
-                    ClearInternal();
-                    rect = _atlas.Pack(w, h, type);
-                    if (rect == null) return null;
-                }
-
-                _atlas.DrawGlyph(rect.Value, (canvas) =>
-                {
-                    using var paint = new SKPaint
-                    {
-                        IsAntialias = true,
-                        Color = SKColors.White,
-                    };
-                    canvas.DrawText(text, 0, (float)Math.Round(-metrics.Ascent), physFont, paint);
-                }, type);
-
                 var newEntry = new CacheEntry
                 {
-                    Rect = rect.Value,
-                    Type = type,
+                    Rect = packed.Value.Rect,
+                    Type = packed.Value.Type,
                     LastUsed = ++_usageCounter
                 };
 
@@ -140,6 +113,91 @@ namespace NovaTerminal.Rendering
                 _needsUpdate = true;
                 return (newEntry.Rect, newEntry.Type);
             }
+        }
+
+        // Measures, packs, and rasterizes a glyph into the atlas. Returns null (without touching
+        // _entries) when the atlas has no room, so callers can decide how to evict. Must be called
+        // under _lock.
+        private (SKRect Rect, AtlasType Type)? RasterizeAndPack(GlyphKey key)
+        {
+            string text = key.Text;
+
+            bool isColor = false;
+            foreach (var rune in text.EnumerateRunes())
+            {
+                int cp = rune.Value;
+                if ((cp >= 0x1F300 && cp <= 0x1FAFF) || (cp >= 0x2600 && cp <= 0x27BF))
+                {
+                    isColor = true;
+                    break;
+                }
+            }
+
+            var type = isColor ? AtlasType.Color : AtlasType.Alpha8;
+
+            // Use physically scaled font for the atlas to ensure bit-perfect sharpness
+            float physicalSize = key.Size * key.Scale;
+            using var physFont = new SKFont(key.Typeface, physicalSize);
+            physFont.Edging = SKFontEdging.Antialias;
+            physFont.Hinting = SKFontHinting.Full;
+            physFont.Subpixel = true;
+
+            // Measure the glyph at physical size
+            float width = physFont.MeasureText(text);
+            var metrics = physFont.Metrics;
+            int h = (int)Math.Ceiling(metrics.Descent - metrics.Ascent);
+            int w = (int)Math.Ceiling(width);
+
+            if (w == 0) w = 1;
+
+            var rect = _atlas.Pack(w, h, type);
+            if (rect == null) return null;
+
+            _atlas.DrawGlyph(rect.Value, (canvas) =>
+            {
+                using var paint = new SKPaint
+                {
+                    IsAntialias = true,
+                    Color = SKColors.White,
+                };
+                canvas.DrawText(text, 0, (float)Math.Round(-metrics.Ascent), physFont, paint);
+            }, type);
+
+            return (rect.Value, type);
+        }
+
+        // Reset the atlas and re-pack only the most-recently-used half of the cached glyphs,
+        // dropping the cold remainder. Bounds the overflow cost to ~half the working set instead
+        // of re-rasterizing everything, while keeping hot glyphs resident. Must be called under _lock.
+        private void RebuildRetainingHotEntries()
+        {
+            List<KeyValuePair<GlyphKey, CacheEntry>> kept = _entries
+                .OrderByDescending(kv => kv.Value.LastUsed)
+                .Take(Math.Max(1, _entries.Count / 2))
+                .ToList();
+
+            _atlas.Reset();
+            _entries.Clear();
+
+            foreach (var kv in kept)
+            {
+                var packed = RasterizeAndPack(kv.Key);
+                if (packed == null) break; // ran out of room again — drop the rest (coldest first)
+                _entries[kv.Key] = new CacheEntry
+                {
+                    Rect = packed.Value.Rect,
+                    Type = packed.Value.Type,
+                    LastUsed = kv.Value.LastUsed
+                };
+            }
+
+            if (_alphaSnapshot != null) _disposalQueue.Add(_alphaSnapshot);
+            if (_colorSnapshot != null) _disposalQueue.Add(_colorSnapshot);
+            _alphaSnapshot = null;
+            _colorSnapshot = null;
+            _needsUpdate = true;
+
+            RendererStatistics.RecordGlyphAtlasReset();
         }
 
         private bool _needsUpdate = true;
