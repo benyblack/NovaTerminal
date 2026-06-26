@@ -97,8 +97,11 @@ namespace NovaTerminal.VT
         }
 
         /// <summary>
-        /// Acquires a write lock only if this thread does not already hold one (see the
-        /// re-entrancy note on <see cref="EnterReadLockIfNeeded"/>).
+        /// Acquires a write lock only if this thread does not already hold one. Only the *write*
+        /// lock is checked: if the current thread holds a <b>read</b> lock, this throws
+        /// <see cref="System.Threading.LockRecursionException"/> (the non-recursive
+        /// <see cref="System.Threading.ReaderWriterLockSlim"/> does not support upgrading a read
+        /// lock to a write lock) — it does not return <c>false</c>.
         /// </summary>
         /// <returns>
         /// <c>true</c> if this call acquired the write lock (the caller must release it via
