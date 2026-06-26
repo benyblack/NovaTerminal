@@ -31,6 +31,8 @@ invariant changes.
 - Lossless reflow — resize never silently drops content
 - Alternate-screen isolation — main buffer is preserved across alt entries/exits
 - All read access requires holding `TerminalBuffer.Lock`; reads without the lock throw via `AssertLockHeld`
+- **Lock re-entrancy contract:** `Lock` is a non-recursive `ReaderWriterLockSlim`. The internal `EnterReadLockIfNeeded()` / `EnterWriteLockIfNeeded()` helpers return `false` (and acquire nothing) when this thread already holds a lock, and `true` when they actually acquired it. The returned `bool` says *whether this call took the lock* — callers must pass it to the matching `Exit…IfNeeded(..., lockTaken)` and must **not** unlock when it is `false`. Treating a `false` return as "lock acquired" double-unlocks (or unlocks a caller's outer lock).
+- **`GetRowAbsolute()` null contract:** returns `null` for any absolute row that has no persistent `TerminalRow` — including **paged-out scrollback rows** (scrollback lives in `ScrollbackPages`, not as row objects), out-of-range rows, and negative indices. To read scrollback content use the cell/grapheme accessors (`GetCellAbsolute`, `GetGraphemeAbsolute`), which page it in; callers that assume a non-null row for scrollback indices will NRE.
 - No OS, PTY, rendering, or UI logic in this assembly (`Vt_must_be_a_leaf_assembly` arch test)
 - All types in `NovaTerminal.VT.*` namespace (`All_VT_types_use_NovaTerminal_VT_namespace`)
 
