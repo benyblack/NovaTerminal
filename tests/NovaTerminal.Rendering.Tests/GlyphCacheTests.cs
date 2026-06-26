@@ -35,19 +35,24 @@ public class GlyphCacheTests
         using var typeface = SKTypeface.Default;
 
         // Add many large, distinct glyphs (size is part of the cache key) to overflow the
-        // 1024x1024 atlas. Stop as soon as the first overflow/reset is recorded so EntryCount
-        // reflects the state immediately after the rebuild.
+        // 1024x1024 atlas. Detect the overflow locally — when EntryCount stops growing, a rebuild
+        // dropped entries — rather than watching the global stat, which a parallel test could move.
         int added = 0;
-        for (int i = 0; i < 2000 && RendererStatistics.GlyphAtlasResets == resetsBefore; i++)
+        int lastEntryCount = 0;
+        for (int i = 0; i < 2000; i++)
         {
             float size = 100 + (i % 80); // large glyphs so the atlas fills quickly
             char c = (char)('A' + (i % 26));
             using var font = new SKFont(typeface, size);
             cache.GetOrAdd(c.ToString(), font, 1.0f);
             added++;
+
+            int currentEntryCount = cache.EntryCount;
+            if (currentEntryCount <= lastEntryCount) break; // a rebuild dropped entries → overflow
+            lastEntryCount = currentEntryCount;
         }
 
-        // The atlas overflowed at least once ...
+        // The atlas overflowed at least once (recorded relative to our own baseline) ...
         Assert.True(RendererStatistics.GlyphAtlasResets > resetsBefore, "expected an atlas overflow to be recorded");
         // ... and the hot working set survived rather than being wiped to a single entry (the old
         // ClearInternal behaviour would have left ~1 entry right after the reset).
