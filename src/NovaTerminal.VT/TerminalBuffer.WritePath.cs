@@ -592,6 +592,13 @@ NormalWrite:
         {
             if (_cursorRow < 0 || _cursorRow >= Rows) return;
 
+            // Clamp to the columns available from the cursor. Without this, a count larger than
+            // the line width (e.g. CSI 9999 P, or the parser's max parameter) makes endCol go
+            // negative and the fill loop below index Cells[-n] → IndexOutOfRangeException.
+            int maxDeletable = Cols - _cursorCol;
+            if (maxDeletable <= 0) return;
+            if (count > maxDeletable) count = maxDeletable;
+
             int endCol = Cols - count;
             var row = _viewport[_cursorRow];
 
