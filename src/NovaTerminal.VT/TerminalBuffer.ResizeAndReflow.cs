@@ -28,6 +28,12 @@ namespace NovaTerminal.VT
 
         public void Resize(int newCols, int newRows)
         {
+            // Ignore degenerate dimensions. A transient 0/negative size (e.g. a window
+            // momentarily reporting zero width) must not corrupt the buffer or throw; keep the
+            // last valid size and let the next real resize take effect. Without this guard the
+            // width-change path indexes tab-stop/cell arrays with a non-positive length and throws.
+            if (newCols <= 0 || newRows <= 0) return;
+
             Lock.EnterWriteLock();
             try
             {
