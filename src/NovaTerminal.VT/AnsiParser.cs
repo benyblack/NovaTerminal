@@ -29,6 +29,17 @@ namespace NovaTerminal.VT
         private int _paramLen = 0;
         private const int MaxCsiParamChars = 65536;
 
+        // Hard safety cap on string-type control sequences (OSC/DCS/APC) to bound memory
+        // against a hostile or runaway stream that never sends a terminator. Unlike CSI
+        // params, these legitimately carry large payloads — iTerm2 (OSC 1337) and tunneled
+        // (OSC 1339) inline images, Sixel images (DCS), and Kitty graphics (APC) — so the
+        // cap is generous rather than the 64 KiB used for CSI. Past the cap we stop
+        // accumulating and let the sequence terminate (a truncated image simply fails to
+        // decode), mirroring how CSI params stop growing at MaxCsiParamChars.
+        // Settable so tests can drive the cap with small payloads instead of allocating
+        // tens of MB; the default is the production value.
+        public int MaxStringSequenceChars { get; set; } = 16 * 1024 * 1024; // 16 Mi chars (~32 MB UTF-16)
+
         // ConPTY Sync Fix: Track vertical offset caused by inline images that ConPTY doesn't see.
         // This effectively "scrolls" the PTY's logical cursor to match our visual cursor.
         private int _verticalOffset = 0;
@@ -37,6 +48,7 @@ namespace NovaTerminal.VT
         private List<char> _apcStringBuffer = new List<char>();
         private List<char> _dcsStringBuffer = new List<char>();
         private System.Text.StringBuilder _kittyPayloadBuffer = new System.Text.StringBuilder();
+        private bool _kittyPayloadOverflow; // set once a chunked Kitty payload exceeds the cap
         private Dictionary<string, string> _kittyPendingParams = new();
         private readonly bool _isConPtyFilteringLikely;
 
@@ -384,7 +396,8 @@ namespace NovaTerminal.VT
                                 }
                                 else
                                 {
-                                    _oscStringBuffer.Add(c);
+                                    if (_oscStringBuffer.Count < MaxStringSequenceChars)
+                                        _oscStringBuffer.Add(c);
                                 }
                                 break;
 
@@ -415,7 +428,8 @@ namespace NovaTerminal.VT
                                 }
                                 else
                                 {
-                                    _dcsStringBuffer.Add(c);
+                                    if (_dcsStringBuffer.Count < MaxStringSequenceChars)
+                                        _dcsStringBuffer.Add(c);
                                 }
                                 break;
 
@@ -444,7 +458,8 @@ namespace NovaTerminal.VT
                                 }
                                 else
                                 {
-                                    _apcStringBuffer.Add(c);
+                                    if (_apcStringBuffer.Count < MaxStringSequenceChars)
+                                        _apcStringBuffer.Add(c);
                                 }
                                 break;
 
@@ -1563,8 +1578,23 @@ namespace NovaTerminal.VT
                 }
             }
 
-            // Accumulate payload
-            _kittyPayloadBuffer.Append(payload);
+            // Accumulate payload. Bounded so a hostile stream that keeps sending m=1
+            // continuation chunks (and never the final m=0) cannot grow this unboundedly;
+            // per-sequence APC accumulation is already capped, but the cross-chunk total
+            // needs its own guard.
+            if (!_kittyPayloadOverflow && _kittyPayloadBuffer.Length + payload.Length <= MaxStringSequenceChars)
+            {
+                _kittyPayloadBuffer.Append(payload);
+            }
+            else if (!_kittyPayloadOverflow)
+            {
+                // Payload exceeded the cap mid-stream: abort this image. Free the buffer now
+                // rather than holding up to the cap across further continuation chunks, and
+                // remember to skip the (truncated, undecodable) payload at the terminator
+                // instead of spending CPU base64-decoding garbage.
+                _kittyPayloadOverflow = true;
+                _kittyPayloadBuffer.Clear();
+            }
 
             // Check if more chunks are coming (m=1)
             bool more = false;
@@ -1581,6 +1611,14 @@ namespace NovaTerminal.VT
             // Process finalized image
             try
             {
+                if (_kittyPayloadOverflow)
+                {
+                    // The payload blew past the cap mid-stream; discard it rather than
+                    // decoding a truncated buffer. The finally below resets state.
+                    TerminalLogger.Log("[ANSI_PARSER] Kitty image discarded: payload exceeded size cap.");
+                    return;
+                }
+
                 string action = _kittyPendingParams.TryGetValue("a", out var aVal) ? aVal : "t";
                 TerminalLogger.Log($"[ANSI_PARSER] Kitty finalizing image. Action={action}, TotalPayload={_kittyPayloadBuffer.Length}");
 
@@ -1738,6 +1776,7 @@ namespace NovaTerminal.VT
         {
             _kittyPayloadBuffer.Clear();
             _kittyPendingParams.Clear();
+            _kittyPayloadOverflow = false;
         }
 
         private void HandleITerm2Image(string osc)
