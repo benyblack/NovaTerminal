@@ -20,6 +20,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
 using Avalonia.Platform.Storage;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Models;
@@ -897,6 +898,10 @@ namespace NovaTerminal.Controls
                    _settings.CommandAssistHistoryEnabled;
         }
 
+        // When this returns true the controller is guaranteed non-null; the attribute lets
+        // the compiler's null-flow analysis see that, so callers can dereference
+        // _commandAssistController directly after the guard without CS8602.
+        [MemberNotNullWhen(true, nameof(_commandAssistController))]
         private bool EnsureCommandAssistInitialized()
         {
             if (!IsCommandAssistFeatureEnabled())
