@@ -8,9 +8,28 @@ namespace NovaTerminal.Rendering.Tests;
 // most-recently-used working set and is surfaced via RendererStatistics.GlyphAtlasResets.
 public class GlyphCacheTests
 {
+    // GlyphCache requires the SkiaSharp native library. It is present on Windows CI / dev
+    // machines but not on the Linux "non-headless" gating runner, so skip there rather than fail.
+    private static readonly bool SkiaAvailable = CheckSkiaAvailable();
+
+    private static bool CheckSkiaAvailable()
+    {
+        try
+        {
+            using var surface = SKSurface.Create(new SKImageInfo(1, 1, SKColorType.Rgba8888));
+            return surface != null;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     [Fact]
     public void NormalGlyph_IsCachedAndReused_WithoutAtlasReset()
     {
+        Assert.SkipUnless(SkiaAvailable, "SkiaSharp native library not available on this platform.");
+
         long resetsBefore = RendererStatistics.GlyphAtlasResets;
 
         using var cache = new GlyphCache();
@@ -29,6 +48,8 @@ public class GlyphCacheTests
     [Fact]
     public void AtlasOverflow_RetainsHotWorkingSet_InsteadOfFullWipe()
     {
+        Assert.SkipUnless(SkiaAvailable, "SkiaSharp native library not available on this platform.");
+
         long resetsBefore = RendererStatistics.GlyphAtlasResets;
 
         using var cache = new GlyphCache();
