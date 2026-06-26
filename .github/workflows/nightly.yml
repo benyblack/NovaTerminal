@@ -82,6 +82,71 @@ jobs:
             artifacts/**
             **/*replay_stress.trx
 
+  fuzz_vt:
+    name: Fuzz VT (AnsiParser + reflow)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The fuzz target only references NovaTerminal.VT — no native/Rust build needed.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Install clang (libFuzzer driver)
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      - name: Install SharpFuzz tool
+        run: dotnet tool install --global SharpFuzz.CommandLine
+
+      - name: Build libfuzzer-dotnet driver
+        run: |
+          wget -q https://raw.githubusercontent.com/Metalnem/libfuzzer-dotnet/master/libfuzzer-dotnet.cc
+          clang -fsanitize=fuzzer libfuzzer-dotnet.cc -o libfuzzer-dotnet
+
+      - name: Publish fuzz project
+        run: dotnet publish tests/NovaTerminal.Benchmarks -c ${{ env.CONFIGURATION }} -o fuzz-bin
+
+      - name: Instrument NovaTerminal.VT
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          sharpfuzz fuzz-bin/NovaTerminal.VT.dll
+
+      # Persist the corpus between nightly runs so coverage accumulates.
+      - name: Restore fuzz corpus
+        uses: actions/cache@v4
+        with:
+          path: |
+            corpus-parser
+            corpus-resize
+          key: fuzz-corpus-v1-${{ github.run_id }}
+          restore-keys: fuzz-corpus-v1-
+
+      - name: Fuzz AnsiParser (parser target, 10 min)
+        run: |
+          mkdir -p corpus-parser crashes
+          ./libfuzzer-dotnet --target_path=fuzz-bin/NovaTerminal.Benchmarks --target_arg=--fuzz \
+            -timeout=25 -max_total_time=600 -artifact_prefix=crashes/parser- corpus-parser
+
+      - name: Fuzz parse + resize (reflow target, 10 min)
+        run: |
+          mkdir -p corpus-resize crashes
+          ./libfuzzer-dotnet --target_path=fuzz-bin/NovaTerminal.Benchmarks --target_arg=--fuzz-resize \
+            -timeout=25 -max_total_time=600 -artifact_prefix=crashes/resize- corpus-resize
+
+      # Any libFuzzer crash/hang fails the step above and leaves a reproducing input in crashes/.
+      - name: Upload crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          retention-days: 14
+          if-no-files-found: ignore
+          path: crashes/
+
   stress_replay_extra:
     name: Stress Replay Suite (${{ matrix.os }})
     if: github.event_name == 'workflow_dispatch' && inputs.full_matrix
