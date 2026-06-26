@@ -726,6 +726,15 @@ namespace NovaTerminal.VT
                     _cursorRow = 0;
                     _cursorCol = 0;
                 }
+                finally
+                {
+                    // Return the pooled arrays. clearArray: true because the rows hold cell
+                    // structs with string references; not clearing would pin them in the pool.
+                    if (allPhysicalRows is not null)
+                        System.Buffers.ArrayPool<TerminalRow>.Shared.Return(allPhysicalRows, clearArray: true);
+                    if (logicalCells is not null)
+                        System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText)>.Shared.Return(logicalCells, clearArray: true);
+                }
             }
         }
     }
