@@ -53,6 +53,49 @@ public class McpServerStdioE2ETests
         Assert.Equal(expected, actual);
     }
 
+    private const string ValidTheme = """
+        {
+          "Name": "Dracula",
+          "Foreground": "#F8F8F2", "Background": "#282A36", "CursorColor": "#F8F8F2",
+          "Black": "#21222C", "Red": "#FF5555", "Green": "#50FA7B", "Yellow": "#F1FA8C",
+          "Blue": "#BD93F9", "Magenta": "#FF79C6", "Cyan": "#8BE9FD", "White": "#F8F8F2",
+          "BrightBlack": "#6272A4", "BrightRed": "#FF6E6E", "BrightGreen": "#69FF94",
+          "BrightYellow": "#FFFFA5", "BrightBlue": "#D6ACFF", "BrightMagenta": "#FF92DF",
+          "BrightCyan": "#A4FFFF", "BrightWhite": "#FFFFFF"
+        }
+        """;
+
+    [Fact]
+    [Trait("Category", "E2E")]
+    public async Task CallTool_ValidateThemeJson_ReturnsValid()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        await using var client = await StartClientAsync(cts.Token);
+
+        var result = await client.CallToolAsync(
+            "novaterminal.validate_theme_json",
+            new Dictionary<string, object?> { ["themeJson"] = ValidTheme },
+            cancellationToken: cts.Token);
+
+        string text = result.Content.OfType<TextContentBlock>().First().Text;
+        Assert.StartsWith("VALID", text);
+    }
+
+    [Fact]
+    [Trait("Category", "E2E")]
+    public async Task CallTool_ListDocs_ReadsRepoDocs()
+    {
+        using var cts = new CancellationTokenSource(Timeout);
+        await using var client = await StartClientAsync(cts.Token);
+
+        var result = await client.CallToolAsync(
+            "novaterminal.list_docs",
+            cancellationToken: cts.Token);
+
+        string text = result.Content.OfType<TextContentBlock>().First().Text;
+        Assert.Contains("mcp/tools.md", text);
+    }
+
     private static async Task<McpClient> StartClientAsync(CancellationToken ct)
     {
         var transport = new StdioClientTransport(new StdioClientTransportOptions
