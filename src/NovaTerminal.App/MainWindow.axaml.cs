@@ -1823,7 +1823,7 @@ namespace NovaTerminal
             {
                 case Key.Enter: sequence = "\r"; return true;
                 case Key.Back: sequence = "\x7f"; return true;
-                case Key.Tab: sequence = "\t"; return true;
+                case Key.Tab: sequence = isShift ? "\x1b[Z" : "\t"; return true;
                 case Key.Escape: sequence = "\x1b"; return true;
             }
 
