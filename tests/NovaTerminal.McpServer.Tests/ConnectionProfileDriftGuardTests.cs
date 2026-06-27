@@ -34,6 +34,11 @@ public class ConnectionProfileDriftGuardTests
     public void MuxFields_MatchSshMuxOptions() =>
         Assert.Equal(PropNames(typeof(SshMuxOptions)), Sorted(ConnectionProfileTools.MuxFields));
 
+    // SshProfileStoreSnapshot is a public proxy for the actually-serialized (internal)
+    // SshStoreDocument; both must stay structurally identical ({ SchemaVersion, Profiles }).
+    // SshStoreDocument is internal to NovaTerminal.Platform and unreachable here, so we guard
+    // DocumentFields against the snapshot. If you add a field to SshStoreDocument, mirror it on
+    // SshProfileStoreSnapshot (and in ConnectionProfileTools.DocumentFields) or this guard goes stale.
     [Fact]
     public void DocumentFields_MatchSnapshot() =>
         Assert.Equal(PropNames(typeof(SshProfileStoreSnapshot)), Sorted(ConnectionProfileTools.DocumentFields));
