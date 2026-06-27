@@ -43,12 +43,14 @@ The server speaks MCP over **stdio**, so it is normally launched by an MCP clien
 hand). It locates the repository automatically by walking up to `NovaTerminal.sln`; you can
 override that with the `NOVATERMINAL_REPO_ROOT` environment variable.
 
-To sanity-check it manually:
+Build once, then run the built DLL (clients should point at the DLL, **not** `dotnet run` —
+`run` emits build/restore output to stdout, which corrupts the JSON-RPC stream):
 
 ```bash
 # from the repo root
-dotnet run --project src/NovaTerminal.McpServer
-# then type/pipe newline-delimited JSON-RPC (initialize, notifications/initialized, tools/list)
+dotnet build -c Release src/NovaTerminal.McpServer
+dotnet src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll
+# then pipe newline-delimited JSON-RPC (initialize, notifications/initialized, tools/list)
 ```
 
 ### Client configuration

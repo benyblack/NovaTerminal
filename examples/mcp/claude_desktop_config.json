@@ -1,13 +1,13 @@
 {
   "//": "Claude Desktop MCP config for the NovaTerminal MCP Dev Companion (read-only, local).",
+  "//build": "Build once first: dotnet build -c Release src/NovaTerminal.McpServer",
   "//paths": "Replace /absolute/path/to/nova2 with your local clone path.",
+  "//why-not-dotnet-run": "Use the built DLL, not 'dotnet run' — run emits build/restore output to stdout, which corrupts the MCP JSON-RPC stream.",
   "mcpServers": {
     "novaterminal-dev": {
       "command": "dotnet",
       "args": [
-        "run",
-        "--project",
-        "/absolute/path/to/nova2/src/NovaTerminal.McpServer"
+        "/absolute/path/to/nova2/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"
       ],
       "env": {
         "NOVATERMINAL_REPO_ROOT": "/absolute/path/to/nova2"

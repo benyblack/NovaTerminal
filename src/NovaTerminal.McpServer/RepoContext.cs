@@ -116,6 +116,23 @@ public sealed class RepoContext
             return false;
         }
 
+        // A symlink that lives under docs/ can still point outside it, bypassing the prefix check
+        // above. Resolve the final link target and confirm it too stays within docs/.
+        try
+        {
+            var finalTarget = new FileInfo(full).ResolveLinkTarget(returnFinalTarget: true);
+            if (finalTarget is not null &&
+                !Path.GetFullPath(finalTarget.FullName).StartsWith(docsPrefix, comparison))
+            {
+                error = "Path resolves through a symlink to outside the docs/ directory and was rejected.";
+                return false;
+            }
+        }
+        catch (System.IO.IOException)
+        {
+            // Not a link / not resolvable — fall through to a normal read.
+        }
+
         content = File.ReadAllText(full);
         return true;
     }
