@@ -37,5 +37,9 @@
 
     <!-- Architecture testing (added in Phase 2 but reserved here for one-shot CPM) -->
     <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />
+
+    <!-- MCP Dev Companion (NovaTerminal.McpServer) -->
+    <PackageVersion Include="ModelContextProtocol" Version="1.4.0" />
+    <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,17 @@
+{
+  "//": "VS Code MCP config (.vscode/mcp.json) for the NovaTerminal MCP Dev Companion.",
+  "//build": "Build once first: dotnet build -c Release src/NovaTerminal.McpServer",
+  "//why-not-dotnet-run": "Use the built DLL, not 'dotnet run' — run emits build/restore output to stdout, which corrupts the MCP JSON-RPC stream.",
+  "servers": {
+    "novaterminal-dev": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": [
+        "${workspaceFolder}/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"
+      ],
+      "env": {
+        "NOVATERMINAL_REPO_ROOT": "${workspaceFolder}"
+      }
+    }
+  }
+}
