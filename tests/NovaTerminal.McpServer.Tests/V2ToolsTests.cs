@@ -43,6 +43,24 @@ public class ExplainEscapeSequenceTests
     }
 
     [Fact]
+    public void CsiIntermediateBytes_AreSurfaced()
+    {
+        // A real (punctuation) intermediate byte must be surfaced, e.g. DECSTR `CSI ! p`.
+        var result = VtTools.ExplainEscapeSequence("CSI ! p");
+        Assert.Contains("intermediate", result, System.StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("!", result, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormattingSpaces_AreNotTreatedAsIntermediates()
+    {
+        // "CSI 2 J" has only a formatting space; it must resolve to ED with no intermediate note.
+        var result = VtTools.ExplainEscapeSequence("CSI 2 J");
+        Assert.Contains("ED", result, System.StringComparison.Ordinal);
+        Assert.DoesNotContain("intermediate byte", result, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void UnknownCsiFinalByte_IsReportedGracefully()
     {
         var result = VtTools.ExplainEscapeSequence("CSI 1 ~");

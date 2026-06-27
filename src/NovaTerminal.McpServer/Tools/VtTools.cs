@@ -111,14 +111,23 @@ public static class VtTools
         else if (upper.StartsWith("CSI", System.StringComparison.Ordinal)) csiBody = s.Substring(3);
         if (csiBody is not null)
         {
-            // Final byte is the last non-space char in the body.
-            string body = csiBody.Trim();
+            // Strip whitespace the user added for readability ("CSI 2 J") so it isn't mistaken for
+            // an intermediate byte. Real intermediates are punctuation (0x21–0x2F) and survive.
+            string body = new string(csiBody.Where(c => !char.IsWhiteSpace(c)).ToArray());
             if (body.Length == 0) return "Incomplete CSI sequence (no final byte).";
             char finalByte = body[^1];
-            string key = "CSI:" + finalByte;
-            return SequenceTable.TryGetValue(key, out var desc)
-                ? $"CSI sequence, final byte '{finalByte}': {desc}"
-                : $"CSI sequence with final byte '{finalByte}': not in the curated table. Params: '{body[..^1]}'.";
+            string prefix = body[..^1]; // leader/params + any intermediate bytes
+
+            // The curated table is keyed by final byte only, but intermediate bytes can select a
+            // different function (e.g. DECSCUSR is `CSI Ps SP q`), so surface them explicitly.
+            string intermediates = new string(prefix.Where(c => c >= '\x21' && c <= '\x2F').ToArray());
+            string note = intermediates.Length > 0
+                ? $" [intermediate byte(s) '{intermediates}' present — may select a different function than the bare final byte]"
+                : string.Empty;
+
+            return SequenceTable.TryGetValue("CSI:" + finalByte, out var desc)
+                ? $"CSI sequence, final byte '{finalByte}'{note}: {desc}"
+                : $"CSI sequence with final byte '{finalByte}'{note}: not in the curated table. Params/intermediates: '{prefix}'.";
         }
 
         // OSC: "ESC]", "ESC ]" or "OSC"
