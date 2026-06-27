@@ -36,6 +36,9 @@ public static class WorkflowTools
         [Description("Short title of the issue/task, e.g. 'Improve SSH key authentication UX'.")] string title,
         [Description("Optional fuller description / acceptance notes for the task.")] string description = "")
     {
+        // External client input may be null despite the signature — normalize defensively.
+        title ??= string.Empty;
+        description ??= string.Empty;
         string haystack = (title + " " + description).ToLowerInvariant();
         var areas = AreaHints
             .Where(h => h.Keywords.Any(k => haystack.Contains(k, System.StringComparison.Ordinal)))

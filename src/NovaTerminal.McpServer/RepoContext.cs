@@ -82,11 +82,29 @@ public sealed class RepoContext
         }
 
         // Resolve and confirm the result stays inside docs/ (block ../ traversal, absolute paths).
-        var full = Path.GetFullPath(Path.Combine(docsDir, relativePath));
+        // GetFullPath can throw on malformed client input (invalid chars, too long) — treat as a
+        // rejected path rather than crashing the server.
+        string full;
+        try
+        {
+            full = Path.GetFullPath(Path.Combine(docsDir, relativePath));
+        }
+        catch (System.Exception ex) when (ex is System.ArgumentException
+            or System.IO.PathTooLongException or System.NotSupportedException)
+        {
+            error = "The provided path is invalid.";
+            return false;
+        }
+
         var docsPrefix = docsDir.EndsWith(Path.DirectorySeparatorChar)
             ? docsDir
             : docsDir + Path.DirectorySeparatorChar;
-        if (!full.StartsWith(docsPrefix, System.StringComparison.Ordinal))
+        // Windows/macOS file systems are case-insensitive, so use a platform-appropriate comparison
+        // to avoid rejecting valid paths that differ only in casing (e.g. drive letter).
+        var comparison = System.OperatingSystem.IsWindows() || System.OperatingSystem.IsMacOS()
+            ? System.StringComparison.OrdinalIgnoreCase
+            : System.StringComparison.Ordinal;
+        if (!full.StartsWith(docsPrefix, comparison))
         {
             error = "Path is outside the docs/ directory and was rejected.";
             return false;

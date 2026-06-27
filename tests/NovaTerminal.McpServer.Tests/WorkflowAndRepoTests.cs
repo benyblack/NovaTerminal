@@ -41,6 +41,13 @@ public class WorkflowToolsTests
     {
         Assert.Contains("NovaTerminal", ProjectTools.GetProjectSummary());
     }
+
+    [Fact]
+    public void NullInputs_DoNotThrow()
+    {
+        var prompt = WorkflowTools.GenerateCodexPromptForIssue(null!, null!);
+        Assert.Contains("# Implementation prompt:", prompt);
+    }
 }
 
 public class RepoContextTests
@@ -68,6 +75,10 @@ public class RepoContextTests
             // Missing file reports cleanly.
             Assert.False(repo.TryReadDoc("Nope.md", out _, out var missingError));
             Assert.Contains("was not found", missingError);
+
+            // Malformed path (embedded null) is rejected gracefully, not thrown.
+            Assert.False(repo.TryReadDoc("bad\0name.md", out _, out var badError));
+            Assert.Contains("invalid", badError);
 
             // Listing finds the doc.
             Assert.Contains("Hello.md", repo.ListDocs());
