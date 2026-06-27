@@ -735,7 +735,7 @@ namespace NovaTerminal.Shell
             }
             catch (Exception ex)
             {
-                try { System.IO.File.AppendAllText("error.log", "\n--- ApplySettings Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
+                TerminalLogger.Error("ApplySettings failed. " + ex);
             }
         }
 
@@ -1393,7 +1393,7 @@ namespace NovaTerminal.Shell
             }
             catch (Exception ex)
             {
-                try { System.IO.File.AppendAllText("error.log", "\n--- OnSizeChanged Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
+                TerminalLogger.Error("OnSizeChanged failed. " + ex);
             }
         }
 
@@ -1425,7 +1425,7 @@ namespace NovaTerminal.Shell
             }
             catch (Exception ex)
             {
-                try { System.IO.File.AppendAllText("error.log", "\n--- SendThrottledResize Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
+                TerminalLogger.Error("SendThrottledResize failed. " + ex);
             }
         }
 

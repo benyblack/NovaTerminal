@@ -718,7 +718,7 @@ namespace NovaTerminal.VT
                 }
                 catch (Exception ex)
                 {
-                    try { System.IO.File.AppendAllText("error.log", "\n--- Reflow Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
+                    TerminalLogger.Error("Reflow failed; buffer reset to a clean state. " + ex);
                     // Failsafe: if reflow crashes, we just reset the buffer to a clean state to avoid permanent hang
                     _scrollback = new ScrollbackPages(newCols, _sharedPagePool, _maxScrollbackBytes);
                     _viewport = new TerminalRow[newRows];
