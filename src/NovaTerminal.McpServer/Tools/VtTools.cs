@@ -104,9 +104,10 @@ public static class VtTools
 
         string upper = s.ToUpperInvariant();
 
-        // CSI: "ESC[" or "CSI"
+        // CSI: "ESC[", "ESC [" or "CSI"
         string? csiBody = null;
         if (upper.StartsWith("ESC[", System.StringComparison.Ordinal)) csiBody = s.Substring(4);
+        else if (upper.StartsWith("ESC [", System.StringComparison.Ordinal)) csiBody = s.Substring(5);
         else if (upper.StartsWith("CSI", System.StringComparison.Ordinal)) csiBody = s.Substring(3);
         if (csiBody is not null)
         {
@@ -120,9 +121,10 @@ public static class VtTools
                 : $"CSI sequence with final byte '{finalByte}': not in the curated table. Params: '{body[..^1]}'.";
         }
 
-        // OSC: "ESC]" or "OSC"
+        // OSC: "ESC]", "ESC ]" or "OSC"
         string? oscBody = null;
         if (upper.StartsWith("ESC]", System.StringComparison.Ordinal)) oscBody = s.Substring(4);
+        else if (upper.StartsWith("ESC ]", System.StringComparison.Ordinal)) oscBody = s.Substring(5);
         else if (upper.StartsWith("OSC", System.StringComparison.Ordinal)) oscBody = s.Substring(3);
         if (oscBody is not null)
         {
@@ -137,7 +139,20 @@ public static class VtTools
                 : $"OSC sequence (code '{code}'): not in the curated table.";
         }
 
-        // ESC Fe / simple ESC sequences: "ESC c", "ESC 7", "ESC M"
+        // DCS: literal "DCS" or the 7-bit introducer ESC P ("ESCP" / "ESC P"). Check before the
+        // generic ESC handling so the 'P' isn't misread as a simple ESC sequence.
+        if (upper.StartsWith("DCS", System.StringComparison.Ordinal)
+            || upper.StartsWith("ESCP", System.StringComparison.Ordinal)
+            || upper.StartsWith("ESC P", System.StringComparison.Ordinal))
+            return "DCS: " + SequenceTable["DCS"];
+
+        // APC: literal "APC" or the 7-bit introducer ESC _ ("ESC_" / "ESC _").
+        if (upper.StartsWith("APC", System.StringComparison.Ordinal)
+            || upper.StartsWith("ESC_", System.StringComparison.Ordinal)
+            || upper.StartsWith("ESC _", System.StringComparison.Ordinal))
+            return "APC: " + SequenceTable["APC"];
+
+        // Other ESC Fe / simple ESC sequences: "ESC c", "ESC 7", "ESC M".
         if (upper.StartsWith("ESC", System.StringComparison.Ordinal))
         {
             string rest = s.Substring(3).Trim();
@@ -148,9 +163,6 @@ public static class VtTools
                     return $"ESC {rest[0]}: {desc}";
             }
         }
-
-        if (upper.StartsWith("DCS", System.StringComparison.Ordinal)) return "DCS: " + SequenceTable["DCS"];
-        if (upper.StartsWith("APC", System.StringComparison.Ordinal)) return "APC: " + SequenceTable["APC"];
 
         return $"Unrecognized sequence '{sequence}'. Use forms like 'ESC[2J', 'CSI ?25h', 'OSC 7', 'ESC c', 'DCS', or 'APC'.";
     }

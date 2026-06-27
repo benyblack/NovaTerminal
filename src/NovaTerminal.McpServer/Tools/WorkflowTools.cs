@@ -116,7 +116,7 @@ public static class WorkflowTools
             "tests/NovaTerminal.VT.Tests/CsiParamClampTests.cs" }),
         (new[] { "theme", "color", "palette" }, new[] {
             "src/NovaTerminal.VT/TerminalTheme.cs",
-            "src/NovaTerminal.App/Core/ThemeManager.cs",
+            "src/NovaTerminal.App/Shell/ThemeManager.cs",
             "docs/ThemeSystem.md" }),
         (new[] { "glyph", "atlas", "render", "draw", "paint" }, new[] {
             "src/NovaTerminal.Rendering/GlyphCache.cs",

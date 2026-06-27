@@ -14,6 +14,12 @@ public class ExplainEscapeSequenceTests
     [InlineData("OSC 7", "working directory")]
     [InlineData("OSC 8", "Hyperlink")]
     [InlineData("ESC c", "RIS")]
+    [InlineData("ESC [ 2 J", "ED")]          // space form
+    [InlineData("ESC ] 7", "working directory")]
+    [InlineData("ESC P q", "DCS")]           // 7-bit DCS introducer
+    [InlineData("ESCP", "DCS")]              // no-space DCS introducer
+    [InlineData("ESC _ G", "APC")]           // 7-bit APC introducer
+    [InlineData("ESC_Ga=T", "APC")]          // no-space APC (Kitty)
     public void RecognizesCommonSequences(string seq, string expectedSubstring)
     {
         Assert.Contains(expectedSubstring, VtTools.ExplainEscapeSequence(seq), System.StringComparison.OrdinalIgnoreCase);
@@ -65,6 +71,7 @@ public class SuggestRelevantFilesTests
     [InlineData("glyph atlas overflow", "GlyphAtlas.cs")]
     [InlineData("ssh key auth", "TerminalProfile.cs")]
     [InlineData("OSC parser sequence", "AnsiParser.cs")]
+    [InlineData("theme validation", "src/NovaTerminal.App/Shell/ThemeManager.cs")] // correct path
     public void MapsTopicToFiles(string topic, string expectedFile)
     {
         Assert.Contains(expectedFile, WorkflowTools.SuggestRelevantFiles(topic), System.StringComparison.Ordinal);
