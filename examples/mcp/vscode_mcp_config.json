@@ -1,0 +1,18 @@
+{
+  "//": "VS Code MCP config (.vscode/mcp.json) for the NovaTerminal MCP Dev Companion.",
+  "//paths": "Uses ${workspaceFolder}; works when the repo is opened as the workspace root.",
+  "servers": {
+    "novaterminal-dev": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/src/NovaTerminal.McpServer"
+      ],
+      "env": {
+        "NOVATERMINAL_REPO_ROOT": "${workspaceFolder}"
+      }
+    }
+  }
+}

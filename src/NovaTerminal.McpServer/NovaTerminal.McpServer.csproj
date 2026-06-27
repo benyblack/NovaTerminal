@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NovaTerminal MCP Dev Companion (#97): a local, read-only stdio MCP server that exposes
+    project knowledge to AI coding agents. Intentionally dependency-free of the rest of the
+    solution (no ProjectReferences) — it reads repo docs and validates JSON against a
+    self-contained schema, and must never touch terminal sessions, SSH, or credentials.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>NovaTerminal.McpServer</RootNamespace>
+    <AssemblyName>NovaTerminal.McpServer</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NovaTerminal.McpServer.Tests" />
+  </ItemGroup>
+
+</Project>
