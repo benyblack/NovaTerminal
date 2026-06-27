@@ -29,13 +29,10 @@ See [mcp/security.md](mcp/security.md) for the full security model.
 
 ## Tools
 
-See [mcp/tools.md](mcp/tools.md). v0.1 exposes:
+See [mcp/tools.md](mcp/tools.md) for the authoritative list. As of v0.3 this includes the
+connection-profile tools:
 
-`novaterminal.get_project_summary`, `novaterminal.get_architecture_map`,
-`novaterminal.list_docs`, `novaterminal.read_doc`,
-`novaterminal.get_vt_conformance_summary`,
-`novaterminal.get_theme_schema`, `novaterminal.validate_theme_json`,
-`novaterminal.generate_codex_prompt_for_issue`.
+`novaterminal.get_connection_profile_schema`, `novaterminal.validate_connection_profile_json`.
 
 ## How to run it locally
 

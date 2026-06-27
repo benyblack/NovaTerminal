@@ -1,4 +1,4 @@
-# NovaTerminal MCP Dev Companion — tools (v0.1)
+# NovaTerminal MCP Dev Companion — tools (v0.3)
 
 All tools are **read-only**. None execute commands, touch credentials, or access live sessions.
 
@@ -13,6 +13,8 @@ All tools are **read-only**. None execute commands, touch credentials, or access
 | `novaterminal.generate_vt_test_plan` | `feature` | Generates a structured VT/ANSI test plan (cases, where tests live, verification) for a parser/rendering feature. |
 | `novaterminal.get_theme_schema` | — | The theme JSON schema: required fields, accepted color formats, and an example. |
 | `novaterminal.validate_theme_json` | `themeJson` | Validates a theme JSON string against the schema; reports missing fields, invalid colors, and unknown fields. |
+| `novaterminal.get_connection_profile_schema` | — | The SSH connection-profile JSON schema: PascalCase fields by area, integer enum mappings, defaults, and an example. Accepts a single profile or a full `profiles.json` document. |
+| `novaterminal.validate_connection_profile_json` | `profileJson` | Validates a connection-profile JSON (single profile or full document; auto-detected); reports wrong types, out-of-range integer enums/ports, missing `Name`/`Host`, and warns on unknown fields and any stray `Password`. |
 | `novaterminal.generate_codex_prompt_for_issue` | `title`, `description?` | Generates a structured implementation prompt (relevant areas, constraints, PR size, steps, tests, acceptance, risks) tailored to NovaTerminal conventions. |
 | `novaterminal.suggest_relevant_files` | `topic` | Suggests the concrete source/test files most relevant to a topic/task (e.g. `reflow`, `glyph atlas`, `ssh key auth`). |
 
@@ -25,10 +27,6 @@ All tools are **read-only**. None execute commands, touch credentials, or access
 
 ## Still deferred
 
-- **Connection-profile schema/validation** (`get_connection_profile_schema`,
-  `validate_connection_profile_json`): unlike themes, the profile format has no stable documented
-  schema, is large (~37 fields incl. enums/nested rules), and contains a sensitive `Password`
-  field — deferred until a documented profile schema exists, to avoid drift and over-coupling.
 - **`generate_test_plan_for_change`**: largely covered by `generate_codex_prompt_for_issue`
   (its "tests to update" section) and `generate_vt_test_plan`.
 - **Running-app bridge tools** (`list_open_tabs`, `get_active_profile_metadata`,
