@@ -1,0 +1,85 @@
+using NovaTerminal.McpServer.Tools;
+
+namespace NovaTerminal.McpServer.Tests;
+
+public class ExplainEscapeSequenceTests
+{
+    [Theory]
+    [InlineData("ESC[2J", "ED")]
+    [InlineData("\\x1b[2J", "ED")]
+    [InlineData("CSI 2 J", "ED")]
+    [InlineData("CSI H", "CUP")]
+    [InlineData("CSI ?25h", "DECSET")]      // final byte 'h'
+    [InlineData("CSI m", "SGR")]
+    [InlineData("OSC 7", "working directory")]
+    [InlineData("OSC 8", "Hyperlink")]
+    [InlineData("ESC c", "RIS")]
+    public void RecognizesCommonSequences(string seq, string expectedSubstring)
+    {
+        Assert.Contains(expectedSubstring, VtTools.ExplainEscapeSequence(seq), System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UnknownCsiFinalByte_IsReportedGracefully()
+    {
+        var result = VtTools.ExplainEscapeSequence("CSI 1 ~");
+        Assert.Contains("final byte", result, System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Empty_PromptsForInput()
+    {
+        Assert.Contains("Provide a sequence", VtTools.ExplainEscapeSequence(""));
+    }
+
+    [Fact]
+    public void Garbage_IsRejectedGracefully()
+    {
+        Assert.Contains("Unrecognized", VtTools.ExplainEscapeSequence("hello world"));
+    }
+}
+
+public class VtTestPlanTests
+{
+    [Fact]
+    public void TestPlan_IncludesKeySectionsAndFeature()
+    {
+        var plan = VtTools.GenerateVtTestPlan("OSC 8 hyperlinks");
+        Assert.Contains("OSC 8 hyperlinks", plan, System.StringComparison.Ordinal);
+        Assert.Contains("## Cases to cover", plan, System.StringComparison.Ordinal);
+        Assert.Contains("## Where tests live", plan, System.StringComparison.Ordinal);
+        Assert.Contains("## Verification", plan, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TestPlan_NullFeature_DoesNotThrow()
+    {
+        Assert.Contains("VT test plan", VtTools.GenerateVtTestPlan(null!));
+    }
+}
+
+public class SuggestRelevantFilesTests
+{
+    [Theory]
+    [InlineData("reflow edge cases", "TerminalBuffer.ReflowEngine.cs")]
+    [InlineData("glyph atlas overflow", "GlyphAtlas.cs")]
+    [InlineData("ssh key auth", "TerminalProfile.cs")]
+    [InlineData("OSC parser sequence", "AnsiParser.cs")]
+    public void MapsTopicToFiles(string topic, string expectedFile)
+    {
+        Assert.Contains(expectedFile, WorkflowTools.SuggestRelevantFiles(topic), System.StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnmappedTopic_FallsBackToArchitectureGuidance()
+    {
+        Assert.Contains("get_architecture_map", WorkflowTools.SuggestRelevantFiles("the gizmo widget"));
+    }
+
+    [Fact]
+    public void NullTopic_DoesNotThrow()
+    {
+        // No keyword match → fallback guidance; must not throw.
+        Assert.Contains("architecture", WorkflowTools.SuggestRelevantFiles(null!), System.StringComparison.OrdinalIgnoreCase);
+    }
+}

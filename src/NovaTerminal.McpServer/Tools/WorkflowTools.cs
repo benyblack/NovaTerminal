@@ -98,4 +98,72 @@ public static class WorkflowTools
 
         return sb.ToString().TrimEnd();
     }
+
+    // Topic keyword → concrete files worth opening for that area.
+    private static readonly (string[] Keywords, string[] Files)[] FileHints =
+    {
+        (new[] { "reflow", "resize", "wrap" }, new[] {
+            "src/NovaTerminal.VT/TerminalBuffer.ReflowEngine.cs",
+            "src/NovaTerminal.VT/TerminalBuffer.ResizeAndReflow.cs",
+            "tests/NovaTerminal.App.Tests/ReflowScenariosTests.cs",
+            "tests/NovaTerminal.VT.Tests/ReflowEdgeCaseTests.cs" }),
+        (new[] { "scrollback" }, new[] {
+            "src/NovaTerminal.VT/Buffer/ScrollbackPages.cs",
+            "src/NovaTerminal.VT/TerminalBuffer.ReflowEngine.cs" }),
+        (new[] { "parser", "escape", "ansi", "csi", "osc", "dcs", "apc", "sequence" }, new[] {
+            "src/NovaTerminal.VT/AnsiParser.cs",
+            "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+            "tests/NovaTerminal.VT.Tests/CsiParamClampTests.cs" }),
+        (new[] { "theme", "color", "palette" }, new[] {
+            "src/NovaTerminal.VT/TerminalTheme.cs",
+            "src/NovaTerminal.App/Core/ThemeManager.cs",
+            "docs/ThemeSystem.md" }),
+        (new[] { "glyph", "atlas", "render", "draw", "paint" }, new[] {
+            "src/NovaTerminal.Rendering/GlyphCache.cs",
+            "src/NovaTerminal.Rendering/GlyphAtlas.cs",
+            "src/NovaTerminal.App/Shell/TerminalDrawOperation.cs",
+            "src/NovaTerminal.App/Shell/TerminalView.cs" }),
+        (new[] { "pty", "spawn", "process" }, new[] {
+            "src/NovaTerminal.Pty/RustPtySession.cs" }),
+        (new[] { "ssh", "key", "auth", "connection", "jump" }, new[] {
+            "src/NovaTerminal.App/Shell/TerminalProfile.cs",
+            "src/NovaTerminal.Platform/Ssh/",
+            "docs/SSH_ROADMAP.md" }),
+        (new[] { "sftp", "transfer", "upload", "download" }, new[] {
+            "src/NovaTerminal.App/Shell/SftpService.cs" }),
+        (new[] { "log", "logging", "logger" }, new[] {
+            "src/NovaTerminal.VT/TerminalLogger.cs" }),
+        (new[] { "tab", "pane", "window", "layout" }, new[] {
+            "src/NovaTerminal.App/MainWindow.axaml.cs",
+            "src/NovaTerminal.App/Controls/TerminalPane.axaml.cs" }),
+        (new[] { "fuzz", "robustness" }, new[] {
+            "tests/NovaTerminal.Benchmarks/FuzzTarget.cs",
+            "tests/NovaTerminal.VT.Tests/FuzzSmokeTests.cs" }),
+    };
+
+    [McpServerTool(Name = "novaterminal.suggest_relevant_files"),
+     Description("Given a topic or task description, suggests the concrete NovaTerminal source/test files most relevant to it (e.g. 'reflow', 'OSC 8 hyperlinks', 'theme validation'). Start here to find where to work.")]
+    public static string SuggestRelevantFiles(
+        [Description("The topic or task, e.g. 'reflow edge cases', 'glyph atlas', 'ssh key auth'.")] string topic)
+    {
+        topic ??= string.Empty;
+        string haystack = topic.ToLowerInvariant();
+
+        var files = FileHints
+            .Where(h => h.Keywords.Any(k => haystack.Contains(k, System.StringComparison.Ordinal)))
+            .SelectMany(h => h.Files)
+            .Distinct()
+            .ToList();
+
+        if (files.Count == 0)
+        {
+            return "No direct file mapping for that topic. Call novaterminal.get_architecture_map " +
+                   "to find the owning assembly, then novaterminal.list_docs / read_doc.";
+        }
+
+        var sb = new StringBuilder();
+        sb.Append("Relevant files for \"").Append(topic.Trim()).Append("\":\n");
+        foreach (var f in files) sb.Append("- ").Append(f).Append('\n');
+        return sb.ToString().TrimEnd();
+    }
 }
