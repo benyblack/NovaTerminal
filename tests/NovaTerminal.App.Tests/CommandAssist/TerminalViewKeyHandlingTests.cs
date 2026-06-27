@@ -55,6 +55,23 @@ public sealed class TerminalViewKeyHandlingTests
     }
 
     [AvaloniaFact]
+    public void HandleKeyDownCore_WhenShiftTabPressed_SendsBackTabSequenceNotLiteralTab()
+    {
+        // Regression: Shift+Tab must emit the back-tab (CBT) sequence ESC [ Z, matching
+        // xterm. The unconditional Key.Tab case used to swallow the Shift modifier and send
+        // a literal tab, which broke Claude Code's reverse permission-mode cycling.
+        var session = new Mock<ITerminalSession>();
+        var view = new TerminalView();
+        view.SetSession(session.Object);
+
+        bool handled = view.HandleKeyDownCore(Key.Tab, KeyModifiers.Shift);
+
+        Assert.True(handled);
+        session.Verify(x => x.SendInput("\x1b[Z"), Times.Once);
+        session.Verify(x => x.SendInput("\t"), Times.Never);
+    }
+
+    [AvaloniaFact]
     public void HandleKeyDownCore_WhenSessionNotRunning_DoesNotConsumeEnter_SoPaneCanReconnect()
     {
         // Regression: after an SSH disconnect the dead session object is kept around so the

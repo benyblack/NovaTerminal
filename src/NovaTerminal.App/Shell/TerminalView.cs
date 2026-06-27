@@ -164,7 +164,10 @@ namespace NovaTerminal.Shell
                     BackspaceObserved?.Invoke();
                     return true;
                 case Key.Tab:
-                    _session.SendInput("\t");
+                    // Shift+Tab must emit the back-tab (CBT) sequence ESC [ Z, exactly as
+                    // xterm does. TUIs like Claude Code rely on it for reverse navigation
+                    // (e.g. cycling permission modes backward); a literal tab breaks that.
+                    _session.SendInput((keyModifiers & KeyModifiers.Shift) != 0 ? "\x1b[Z" : "\t");
                     return true;
                 case Key.Escape:
                     _session.SendInput("\x1b");
