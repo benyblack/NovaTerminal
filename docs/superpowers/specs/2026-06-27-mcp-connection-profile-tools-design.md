@@ -24,10 +24,19 @@ There are two profile types in the codebase, and only one is persisted:
 
 - **`SshProfile`** (`src/NovaTerminal.Platform/Ssh/Models/SshProfile.cs`) is the model
   actually serialized to disk at `%LOCALAPPDATA%\NovaTerminal\ssh\profiles.json`. It has
-  a **stable, source-generated JSON contract** (`SshJsonContext`): camelCase property
-  names, enums-as-strings, `WriteIndented`, wrapped in an `SshStoreDocument` carrying a
-  `schemaVersion` field (current value `1`). It has **no `Password` field** — passwords
-  live in the credential vault keyed by `ProfileId` (`VaultService`).
+  a **stable, source-generated JSON contract** (`SshJsonContext`), wrapped in an
+  `SshStoreDocument` carrying a `SchemaVersion` field (current value `1`). It has **no
+  `Password` field** — passwords live in the credential vault keyed by `ProfileId`
+  (`VaultService`).
+
+  **Wire format (verified against `SshJsonContext` + `JsonSshProfileStoreTests`):**
+  `SshJsonContext` sets only `WriteIndented = true` — **no** `PropertyNamingPolicy` and
+  **no** `JsonStringEnumConverter`. Therefore the on-disk JSON uses **PascalCase keys**
+  (verbatim CLR property names, e.g. `"Profiles"`, `"Host"`, `"BackendKind"`) and
+  serializes **enums as integers**, not strings. (The `JsonSshProfileStoreTests` corrupt-file
+  test writes `{ "Profiles": [ ... ] }` and the password test asserts `DoesNotContain("\"Password\":")`,
+  both confirming PascalCase.) Any camelCase / string-enum examples seen elsewhere in the
+  codebase come from unrelated JSON contexts and do not apply here.
 - **`TerminalProfile`** (`src/NovaTerminal.App/Shell/TerminalProfile.cs`) is the app-layer
   model that *does* declare a `Password` property, but it is `[JsonIgnore]` and never
   serialized.
@@ -50,7 +59,8 @@ developer would author or inspect in `profiles.json`.
 ## Non-goals
 
 - No formal JSON Schema (draft 2020-12) document — descriptive prose + an annotated
-  example only, matching the existing `get_theme_schema` pattern.
+  example only, matching the existing `get_theme_schema` pattern. Because enums are
+  integers on the wire, the descriptive schema must spell out each int→name mapping.
 - No separate hand-written schema markdown file — the tool *is* the canonical schema doc.
 - No reading or writing of the user's real `profiles.json` — the validator operates only
   on JSON passed in as a string argument.
@@ -74,33 +84,35 @@ It is mitigated by a reflection-based **drift-guard test** (see Testing) that li
   default, followed by a complete annotated example covering both the single-profile and
   full-document shapes.
 
-Field groups (from `SshProfile`):
+Field groups (from `SshProfile`) — **PascalCase keys, integer-valued enums**:
 
-- **Identity / org:** `id` (GUID), `name`, `groupPath`, `notes`, `accentColor`, `tags[]`
-- **Connection:** `host`, `user`, `port` (default 22), `backendKind` (`OpenSsh` | `Native`)
-- **Auth:** `authMode` (`Default` | `Agent` | `IdentityFile`), `identityFilePath`,
-  `rememberPasswordInVault`
-- **Jump hosts:** `jumpHops[]` → `{ host, user, port }`
-- **Port forwarding:** `forwards[]` →
-  `{ kind: Local | Remote | Dynamic, bindAddress, sourcePort, destinationHost, destinationPort }`
-- **Multiplexing:** `muxOptions` →
-  `{ enabled, controlMasterAuto, controlPath, controlPersistSeconds }`
-- **Session / shell:** `serverAliveIntervalSeconds` (default 30),
-  `serverAliveCountMax` (default 3), `extraSshArgs`, `workingDirectory`,
-  `remoteShellKind` (`Auto` | `Bash` | `Zsh` | `Fish` | `Pwsh`)
-- **Document wrapper:** `schemaVersion` (int, current = 1), `profiles[]`
+- **Identity / org:** `Id` (GUID string), `Name`, `GroupPath`, `Notes`, `AccentColor`, `Tags[]`
+- **Connection:** `Host`, `User`, `Port` (int, default 22),
+  `BackendKind` (int: `0`=OpenSsh, `1`=Native)
+- **Auth:** `AuthMode` (int: `0`=Default, `1`=Agent, `2`=IdentityFile), `IdentityFilePath`,
+  `RememberPasswordInVault` (bool)
+- **Jump hosts:** `JumpHops[]` → `{ Host, User, Port }`
+- **Port forwarding:** `Forwards[]` →
+  `{ Kind (int: 0=Local, 1=Remote, 2=Dynamic), BindAddress, SourcePort, DestinationHost, DestinationPort }`
+- **Multiplexing:** `MuxOptions` →
+  `{ Enabled (bool), ControlMasterAuto (bool), ControlPath, ControlPersistSeconds (int) }`
+- **Session / shell:** `ServerAliveIntervalSeconds` (int, default 30),
+  `ServerAliveCountMax` (int, default 3), `ExtraSshArgs`, `WorkingDirectory`,
+  `RemoteShellKind` (int: `0`=Auto, `1`=Bash, `2`=Zsh, `3`=Fish, `4`=Pwsh)
+- **Document wrapper:** `SchemaVersion` (int, current = 1), `Profiles[]`
 
 ## Tool 2 — `validate_connection_profile_json`
 
 - **Input:** `profileJson` (string).
 - **Output:** a `VALID` / `INVALID` report mirroring `validate_theme_json`: a header line,
   then grouped error and warning lines, each with a field path
-  (e.g. `profiles[2].forwards[0].kind`).
+  (e.g. `Profiles[2].Forwards[0].Kind`).
 
 ### Auto-detection
 
-If the parsed root object has a `profiles` array → treat as `SshStoreDocument` and
-validate each entry. Otherwise → treat as a single `SshProfile`.
+If the parsed root object has a `Profiles` property → treat as `SshStoreDocument` and
+validate each entry under the path `Profiles[i].`. Otherwise → treat as a single
+`SshProfile`.
 
 ### Tiered validation rules
 
@@ -108,29 +120,32 @@ validate each entry. Otherwise → treat as a single `SshProfile`.
 
 - JSON parse failure.
 - Root is not a JSON object.
-- Wrong JSON type for a known field (e.g. `port: "22"`, `tags` not an array).
-- Unknown enum value for `backendKind`, `authMode`, `remoteShellKind`, or
-  `forwards[].kind`.
-- `port` or `jumpHops[].port` outside 1–65535.
-- `sourcePort` or `destinationPort` outside 0–65535.
-- `serverAliveIntervalSeconds` or `serverAliveCountMax` < 1.
-- `controlPersistSeconds` < 0.
-- Missing or blank required `host`.
-- Missing required `name`.
-- (Document shape) missing `schemaVersion`, or `profiles` is not an array.
+- Wrong JSON type for a known field (e.g. `Port: "22"`, `Tags` not an array).
+- Enum field (`BackendKind`, `AuthMode`, `RemoteShellKind`, `Forwards[].Kind`) that is not
+  a JSON integer, or is an integer outside its defined range. The message includes the
+  int→name mapping as a hint.
+- `Port` or `JumpHops[].Port` outside 1–65535.
+- `SourcePort` or `DestinationPort` outside 0–65535.
+- `ServerAliveIntervalSeconds` or `ServerAliveCountMax` < 1.
+- `ControlPersistSeconds` < 0.
+- Missing or blank required `Host`.
+- Missing required `Name`.
+- (Document shape) `Profiles` present but not a JSON array.
 
 **Warnings (still `VALID`):**
 
 - Unknown / extra field (top-level or nested).
-- Malformed `id` GUID.
-- Unknown `schemaVersion` value (≠ 1) — forward-compatibility note.
-- `authMode: IdentityFile` with a blank `identityFilePath`.
-- A `Local` or `Remote` forward with `sourcePort` or `destinationPort` = 0.
-- A `password` field present anywhere — **security flag**; passwords are vault-managed and
-  must never appear in profile JSON.
+- Malformed `Id` GUID.
+- Missing, zero, or negative `SchemaVersion` (the store auto-defaults it to 1).
+- `SchemaVersion` > 1 — forward-compatibility note.
+- `AuthMode` = 2 (IdentityFile) with a blank `IdentityFilePath`.
+- A `Local` (Kind 0) or `Remote` (Kind 1) forward with `SourcePort` or `DestinationPort` = 0.
+- A `Password` field present anywhere (case-insensitive) — **security flag**; passwords are
+  vault-managed and must never appear in profile JSON.
 
-**Required fields:** `name` + `host` for a single profile; `schemaVersion` + `profiles[]`
-for a document. Every other field is optional (has a default).
+**Required fields:** `Name` + `Host` for a single profile; a `Profiles` array for a
+document (`SchemaVersion` is recommended but warned, not required). Every other field is
+optional (has a default).
 
 Validity rule: zero errors → `VALID` (warnings do not fail validation); any error →
 `INVALID`.
@@ -150,18 +165,23 @@ Validity rule: zero errors → `VALID` (warnings do not fail validation); any er
 New file: `tests/NovaTerminal.McpServer.Tests/ConnectionProfileToolsTests.cs`
 (xUnit v3, matching `ThemeToolsTests` style).
 
-- **Schema tool:** non-empty output; contains each field-group heading; the embedded
-  example parses as JSON and passes its own validator (self-consistency).
-- **Validator happy paths:** minimal valid single profile; full profile with
-  `jumpHops` / `forwards` / `muxOptions`; full `SshStoreDocument` with multiple profiles.
-- **Validator errors:** parse failure; non-object root; bad enum (`authMode: "Foo"`);
-  `port: 0` and `port: 70000`; `serverAliveCountMax: 0`; missing `host`; missing `name`;
-  document missing `schemaVersion`; `profiles` not an array; wrong type (`port: "22"`).
-- **Validator warnings (still VALID):** unknown field; `password` present (security flag);
-  malformed `id`; `authMode: IdentityFile` with blank path; unknown `schemaVersion`.
+- **Schema tool:** non-empty output; contains each field-group heading and each enum
+  int→name mapping; the embedded example parses as JSON and passes its own validator
+  (self-consistency).
+- **Validator happy paths:** minimal valid single profile (`Name` + `Host`); full profile
+  with `JumpHops` / `Forwards` / `MuxOptions` and integer enums; full `SshStoreDocument`
+  (`SchemaVersion` + `Profiles[]`) with multiple profiles.
+- **Validator errors:** parse failure; non-object root; enum out of range (`AuthMode: 9`);
+  enum non-integer (`BackendKind: "OpenSsh"`); `Port: 0` and `Port: 70000`;
+  `ServerAliveCountMax: 0`; missing `Host`; missing `Name`; `Profiles` not an array;
+  wrong type (`Port: "22"`).
+- **Validator warnings (still VALID):** unknown field; `Password` present (security flag);
+  malformed `Id`; `AuthMode: 2` with blank `IdentityFilePath`; missing `SchemaVersion`;
+  `SchemaVersion: 2`.
 - **Robustness:** null / empty input; nested path reporting
-  (`profiles[2].forwards[0].kind`).
-- **Auto-detect:** the same payload recognized correctly as single vs document.
+  (`Profiles[2].Forwards[0].Kind`).
+- **Auto-detect:** a single-profile payload vs a `{ "Profiles": [...] }` document
+  recognized correctly.
 
 **Drift guard:** add a **test-only** `ProjectReference` from
 `tests/NovaTerminal.McpServer.Tests` (not the server) to `NovaTerminal.Platform`, plus a
