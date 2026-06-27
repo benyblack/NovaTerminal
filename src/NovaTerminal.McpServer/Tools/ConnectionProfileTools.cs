@@ -229,13 +229,7 @@ public static class ConnectionProfileTools
             }
         }
 
-        foreach (var prop in root.EnumerateObject())
-        {
-            if (prop.Name is not ("SchemaVersion" or "Profiles"))
-            {
-                warnings.Add($"Unknown field '{prop.Name}' (ignored).");
-            }
-        }
+        CheckUnknownAndPassword(root, string.Empty, DocumentFields, errors, warnings);
     }
 
     private static void ValidateProfile(
