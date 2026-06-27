@@ -19,6 +19,11 @@ namespace NovaTerminal.Shell
 {
     public sealed class TerminalDrawOperation : ICustomDrawOperation
     {
+        // Throttle render-path error logging: a persistent draw failure fires every frame, so
+        // rate-limit to avoid flooding the log (and previously, unbounded error.log growth).
+        private static long _lastRenderErrorLogTicks;
+        private static readonly long RenderErrorLogIntervalTicks = TimeSpan.FromSeconds(5).Ticks;
+
         private readonly TerminalBuffer _buffer;
         private readonly CellMetrics _metrics;
         private readonly int _scrollOffset;
@@ -794,7 +799,12 @@ namespace NovaTerminal.Shell
             }
             catch (Exception ex)
             {
-                try { System.IO.File.AppendAllText("error.log", "\n--- Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
+                long now = DateTime.UtcNow.Ticks;
+                if (now - _lastRenderErrorLogTicks >= RenderErrorLogIntervalTicks)
+                {
+                    _lastRenderErrorLogTicks = now;
+                    TerminalLogger.Error("Render frame failed (rate-limited). " + ex);
+                }
                 throw;
             }
             finally
