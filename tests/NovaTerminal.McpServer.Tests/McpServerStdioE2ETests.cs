@@ -114,6 +114,8 @@ public class McpServerStdioE2ETests
 
     // The server's own build output (has runtimeconfig.json/deps.json), in the same
     // config/TFM as this test assembly.
+    // Assumes a plain `bin/{config}/{tfm}` layout shared by the test and server projects
+    // (no RID-specific subfolder); the File.Exists guard below fails loudly if that breaks.
     private static string ServerDllPath()
     {
         var baseDir = new DirectoryInfo(AppContext.BaseDirectory); // .../bin/{config}/{tfm}

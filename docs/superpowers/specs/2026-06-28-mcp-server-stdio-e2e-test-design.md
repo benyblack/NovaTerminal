@@ -50,9 +50,14 @@ project, so the built `NovaTerminal.McpServer.dll` is copied next to the test as
 
 ### Locating the server
 
-- **DLL:** `Path.Combine(AppContext.BaseDirectory, "NovaTerminal.McpServer.dll")` — copied
-  beside the test assembly by the existing `ProjectReference`; works for Debug/Release and
-  on Windows/Ubuntu.
+- **DLL:** launch the server from its **own** build output —
+  `{repoRoot}/src/NovaTerminal.McpServer/bin/{config}/{tfm}/NovaTerminal.McpServer.dll`,
+  with `{config}`/`{tfm}` derived from the test's `AppContext.BaseDirectory`. Running
+  `dotnet X.dll` requires `X.runtimeconfig.json` next to `X.dll`, which is guaranteed in the
+  server's own bin but only incidentally true in the test bin; the existing `ProjectReference`
+  still guarantees the server is built whenever the test builds. (Implementation note: an
+  earlier draft launched from `AppContext.BaseDirectory`; the server's own bin is the robust
+  choice and is what shipped.) Works for Debug/Release on Windows/Ubuntu.
 - **Repo root:** walk up from `AppContext.BaseDirectory` until a directory containing
   `NovaTerminal.sln` is found, and pass it to the subprocess as the
   `NOVATERMINAL_REPO_ROOT` environment variable. This avoids relying on the subprocess's
