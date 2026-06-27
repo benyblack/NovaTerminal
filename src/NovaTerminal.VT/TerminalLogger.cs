@@ -28,13 +28,23 @@ namespace NovaTerminal.VT
         {
             if (level < MinimumLevel) return;
 
-            if (OnLogLevel is { } structured)
+            // A throwing log hook must never disrupt callers — TerminalLogger is invoked from
+            // critical recovery paths (e.g. Reflow's failsafe catch, the render catch) where an
+            // escaping exception would skip the recovery that follows and could hang the terminal.
+            try
             {
-                structured(level, message);
-                return;
-            }
+                if (OnLogLevel is { } structured)
+                {
+                    structured(level, message);
+                    return;
+                }
 
-            OnLog?.Invoke(level == LogLevel.Info ? message : $"[{level}] {message}");
+                OnLog?.Invoke(level == LogLevel.Info ? message : $"[{level}] {message}");
+            }
+            catch
+            {
+                // Swallow: logging failures must not propagate into error-handling paths.
+            }
         }
 
         public static void Debug(string message) => Log(LogLevel.Debug, message);

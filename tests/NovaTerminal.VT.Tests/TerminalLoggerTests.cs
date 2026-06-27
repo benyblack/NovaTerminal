@@ -85,6 +85,31 @@ public class TerminalLoggerTests
     }
 
     [Fact]
+    public void ThrowingHook_DoesNotPropagate()
+    {
+        // TerminalLogger is called from critical recovery paths; a throwing hook must not escape.
+        var prevOnLog = TerminalLogger.OnLog;
+        var prevOnLevel = TerminalLogger.OnLogLevel;
+        var prevMin = TerminalLogger.MinimumLevel;
+        try
+        {
+            TerminalLogger.MinimumLevel = LogLevel.Debug;
+            TerminalLogger.OnLogLevel = (_, _) => throw new System.InvalidOperationException("boom");
+            TerminalLogger.Error("x"); // must not throw
+
+            TerminalLogger.OnLogLevel = null;
+            TerminalLogger.OnLog = _ => throw new System.InvalidOperationException("boom");
+            TerminalLogger.Log("y");   // must not throw
+        }
+        finally
+        {
+            TerminalLogger.OnLog = prevOnLog;
+            TerminalLogger.OnLogLevel = prevOnLevel;
+            TerminalLogger.MinimumLevel = prevMin;
+        }
+    }
+
+    [Fact]
     public void MinimumLevel_FiltersBelowThreshold()
     {
         var prevOnLog = TerminalLogger.OnLog;
