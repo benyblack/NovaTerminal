@@ -33,6 +33,15 @@ public class ExplainEscapeSequenceTests
         Assert.Contains("NOT currently supported", result, System.StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("CSI E")] // CNL — not in HandleCsi
+    [InlineData("CSI F")] // CPL — not in HandleCsi
+    [InlineData("CSI b")] // REP — no handler
+    public void UnhandledCsiSequences_AreMarkedUnsupported(string seq)
+    {
+        Assert.Contains("NOT currently handled", VtTools.ExplainEscapeSequence(seq), System.StringComparison.Ordinal);
+    }
+
     [Fact]
     public void UnknownCsiFinalByte_IsReportedGracefully()
     {

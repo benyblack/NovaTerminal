@@ -48,8 +48,8 @@ public static class VtTools
         ["CSI:B"] = "CUD — Cursor Down Ps times.",
         ["CSI:C"] = "CUF — Cursor Forward Ps times.",
         ["CSI:D"] = "CUB — Cursor Back Ps times.",
-        ["CSI:E"] = "CNL — Cursor Next Line Ps times (column 1).",
-        ["CSI:F"] = "CPL — Cursor Previous Line Ps times (column 1).",
+        ["CSI:E"] = "CNL — Cursor Next Line Ps times (column 1). NOT currently handled by NovaTerminal's parser.",
+        ["CSI:F"] = "CPL — Cursor Previous Line Ps times (column 1). NOT currently handled by NovaTerminal's parser.",
         ["CSI:G"] = "CHA — Cursor Horizontal Absolute to column Ps.",
         ["CSI:H"] = "CUP — Cursor Position to row;col (1-based).",
         ["CSI:J"] = "ED — Erase in Display (0=below, 1=above, 2=all, 3=all+scrollback).",
@@ -61,7 +61,7 @@ public static class VtTools
         ["CSI:T"] = "SD — Scroll Down Ps lines.",
         ["CSI:X"] = "ECH — Erase Ps characters.",
         ["CSI:@"] = "ICH — Insert Ps blank characters.",
-        ["CSI:b"] = "REP — Repeat the preceding character Ps times (count clamped).",
+        ["CSI:b"] = "REP — Repeat the preceding character Ps times. NOT currently handled by NovaTerminal's parser (it has no REP handler; CSI params are clamped generically but the sequence is a no-op).",
         ["CSI:d"] = "VPA — Line Position Absolute (row Ps).",
         ["CSI:m"] = "SGR — Select Graphic Rendition (colors/bold/underline/etc.).",
         ["CSI:r"] = "DECSTBM — Set Top/Bottom margins (scroll region).",
@@ -87,7 +87,7 @@ public static class VtTools
     };
 
     [McpServerTool(Name = "novaterminal.explain_escape_sequence"),
-     Description("Explains a VT/ANSI escape sequence. Accepts forms like 'ESC[2J', '\\x1b[2J', 'CSI 2 J', 'CSI ?25h', 'OSC 7', or 'ESC c'. Returns the sequence name and what it does in NovaTerminal.")]
+     Description("Explains a VT/ANSI escape sequence (standard meaning). Accepts forms like 'ESC[2J', '\\x1b[2J', 'CSI 2 J', 'CSI ?25h', 'OSC 7', or 'ESC c'. Entries note where NovaTerminal does NOT handle a sequence; for the authoritative support matrix use novaterminal.get_vt_conformance_summary.")]
     public static string ExplainEscapeSequence(
         [Description("The escape sequence to explain, e.g. 'ESC[2J', 'CSI ?1049h', 'OSC 8', 'ESC c'.")] string sequence)
     {
