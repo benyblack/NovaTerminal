@@ -12,7 +12,7 @@
 
 - Build/test ONLY via wrappers: `scripts/build.ps1 <args>` (PowerShell) / `scripts/build.sh <args>`. Never raw `dotnet build`/`dotnet test` (hangs when stdout is captured).
 - No changes to `src/NovaTerminal.McpServer` (the server project). This is test-only.
-- The server is launched as `dotnet <NovaTerminal.McpServer.dll>` from the server's **own** build output (which has `runtimeconfig.json`/`deps.json`), located at `{repoRoot}/src/NovaTerminal.McpServer/bin/{config}/{tfm}/NovaTerminal.McpServer.dll`, where `{config}`/`{tfm}` are derived from the test's `AppContext.BaseDirectory`.
+- The server is launched as `dotnet <NovaTerminal.McpServer.dll>` from the **test assembly's own output dir** — `Path.Combine(AppContext.BaseDirectory, "NovaTerminal.McpServer.dll")`. The `ProjectReference` copies the server dll + `runtimeconfig.json` + `deps.json` there, and CI artifacts `tests/*/bin` (but NOT `src/NovaTerminal.McpServer/bin`), so the test bin is the only location guaranteed to exist in the `--no-build` CI unit-test job.
 - Repo root is passed to the subprocess via the `NOVATERMINAL_REPO_ROOT` environment variable (found by walking up from `AppContext.BaseDirectory` to the directory containing `NovaTerminal.sln`).
 - Every call runs under a `CancellationTokenSource` with a 60-second hard timeout, so a hang fails fast instead of stalling CI.
 - Tests are tagged `[Trait("Category", "E2E")]` but run in the normal pass.
@@ -47,7 +47,7 @@ string text = result.Content.OfType<TextContentBlock>().First().Text;
 - Create: `tests/NovaTerminal.McpServer.Tests/McpServerStdioE2ETests.cs`
 
 **Interfaces:**
-- Consumes: the built server DLL (via `ProjectReference` already present; the server's own bin is the launch target).
+- Consumes: the built server DLL (via `ProjectReference` already present; the test assembly's own output dir is the launch target).
 - Produces: `McpServerStdioE2ETests` with private static helpers `ServerDllPath()` and `RepoRoot()` and `StartClientAsync(CancellationToken)` reused by Task 2.
 
 - [ ] **Step 1: Add the client package reference**
@@ -143,21 +143,18 @@ public class McpServerStdioE2ETests
         return await McpClient.CreateAsync(transport, cancellationToken: ct);
     }
 
-    // The server's own build output (has runtimeconfig.json/deps.json), in the same
-    // config/TFM as this test assembly.
+    // Launch the server from THIS test assembly's output directory. The ProjectReference to
+    // the server copies NovaTerminal.McpServer.dll + .runtimeconfig.json + .deps.json here.
+    // This is the only location guaranteed to exist in the CI unit-test job: that job artifacts
+    // tests/*/bin but NOT src/NovaTerminal.McpServer/bin, and runs `dotnet test --no-build`.
     private static string ServerDllPath()
     {
-        var baseDir = new DirectoryInfo(AppContext.BaseDirectory); // .../bin/{config}/{tfm}
-        string tfm = baseDir.Name;
-        string config = baseDir.Parent!.Name;
-        string path = Path.Combine(
-            RepoRoot(), "src", "NovaTerminal.McpServer", "bin", config, tfm,
-            "NovaTerminal.McpServer.dll");
+        string path = Path.Combine(AppContext.BaseDirectory, "NovaTerminal.McpServer.dll");
 
         if (!File.Exists(path))
         {
             throw new FileNotFoundException(
-                $"Server DLL not found at '{path}'. Build the solution/test project first.", path);
+                $"Server DLL not found at '{path}'. Build the test project first.", path);
         }
 
         return path;
@@ -287,7 +284,7 @@ git commit -m "test(mcp): e2e tools/call coverage (self-contained + repo-reading
 
 ## Notes for the implementer
 
-- **Why launch from the server's own bin, not the test bin:** running `dotnet X.dll` needs `X.runtimeconfig.json` next to `X.dll`. The server's own `bin/{config}/{tfm}/` always has it; relying on what a referenced-exe copies into the test bin is less certain. The `ProjectReference` guarantees the server is built (into its own bin) whenever the test project builds.
+- **Why launch from the test bin, not the server's own `src/.../bin`:** running `dotnet X.dll` needs `X.runtimeconfig.json` next to `X.dll`; the `ProjectReference` copies the server dll + runtimeconfig + deps into the test bin. Critically, the CI unit-test job artifacts `tests/*/bin` and runs `dotnet test --no-build`, reconstructing only the App/Cli `src` bins — so `src/NovaTerminal.McpServer/bin` is absent there and launching from it would `FileNotFoundException`. The test bin is the CI-safe location.
 - **`await using var client`:** disposing the client shuts the subprocess down. Don't skip it, or you leak `dotnet` processes.
 - **Timeouts:** every SDK call takes `cts.Token`; the 60 s budget turns a hung handshake into a fast failure rather than a stalled CI job (this repo has a history of headless hangs).
 - **CI:** `NovaTerminal.McpServer.Tests` is already in CI's unit-test loop; no `ci.yml` change is needed. The new `ModelContextProtocol` package ref restores from the same pinned version already used by the server.

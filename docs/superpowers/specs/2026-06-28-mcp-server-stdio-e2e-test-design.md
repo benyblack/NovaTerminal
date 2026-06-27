@@ -50,14 +50,15 @@ project, so the built `NovaTerminal.McpServer.dll` is copied next to the test as
 
 ### Locating the server
 
-- **DLL:** launch the server from its **own** build output —
-  `{repoRoot}/src/NovaTerminal.McpServer/bin/{config}/{tfm}/NovaTerminal.McpServer.dll`,
-  with `{config}`/`{tfm}` derived from the test's `AppContext.BaseDirectory`. Running
-  `dotnet X.dll` requires `X.runtimeconfig.json` next to `X.dll`, which is guaranteed in the
-  server's own bin but only incidentally true in the test bin; the existing `ProjectReference`
-  still guarantees the server is built whenever the test builds. (Implementation note: an
-  earlier draft launched from `AppContext.BaseDirectory`; the server's own bin is the robust
-  choice and is what shipped.) Works for Debug/Release on Windows/Ubuntu.
+- **DLL:** `Path.Combine(AppContext.BaseDirectory, "NovaTerminal.McpServer.dll")` — the
+  `ProjectReference` to the server copies `NovaTerminal.McpServer.dll` + `.runtimeconfig.json`
+  + `.deps.json` next to the test assembly, so `dotnet <dll>` runs correctly from there.
+  **This must be the test bin, not the server's own `src/.../bin`:** the CI unit-test job
+  artifacts `tests/*/bin` (and reconstructs only the App/Cli `src` bins) before running
+  `dotnet test --no-build`, so `src/NovaTerminal.McpServer/bin` does not exist in that job —
+  launching from it would `FileNotFoundException`. (An earlier draft launched from the
+  server's own bin for runtimeconfig robustness; that was wrong for CI and was corrected.)
+  Works for Debug/Release on Windows/Ubuntu.
 - **Repo root:** walk up from `AppContext.BaseDirectory` until a directory containing
   `NovaTerminal.sln` is found, and pass it to the subprocess as the
   `NOVATERMINAL_REPO_ROOT` environment variable. This avoids relying on the subprocess's

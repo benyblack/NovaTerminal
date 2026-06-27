@@ -109,26 +109,25 @@ public class McpServerStdioE2ETests
             },
         });
 
+        // StdioClientTransport is a lightweight connector and is not itself disposable; the
+        // spawned subprocess is owned by the connected transport inside McpClient, which
+        // McpClient.CreateAsync tears down if the handshake fails and which our caller's
+        // `await using var client` disposes on success. So there is nothing to dispose here.
         return await McpClient.CreateAsync(transport, cancellationToken: ct);
     }
 
-    // The server's own build output (has runtimeconfig.json/deps.json), in the same
-    // config/TFM as this test assembly.
-    // Assumes a plain `bin/{config}/{tfm}` layout shared by the test and server projects
-    // (no RID-specific subfolder); the File.Exists guard below fails loudly if that breaks.
+    // Launch the server from THIS test assembly's output directory. The ProjectReference to
+    // the server copies NovaTerminal.McpServer.dll + .runtimeconfig.json + .deps.json here.
+    // This is the only location guaranteed to exist in the CI unit-test job: that job artifacts
+    // tests/*/bin but NOT src/NovaTerminal.McpServer/bin, and runs `dotnet test --no-build`.
     private static string ServerDllPath()
     {
-        var baseDir = new DirectoryInfo(AppContext.BaseDirectory); // .../bin/{config}/{tfm}
-        string tfm = baseDir.Name;
-        string config = baseDir.Parent!.Name;
-        string path = Path.Combine(
-            RepoRoot(), "src", "NovaTerminal.McpServer", "bin", config, tfm,
-            "NovaTerminal.McpServer.dll");
+        string path = Path.Combine(AppContext.BaseDirectory, "NovaTerminal.McpServer.dll");
 
         if (!File.Exists(path))
         {
             throw new FileNotFoundException(
-                $"Server DLL not found at '{path}'. Build the solution/test project first.", path);
+                $"Server DLL not found at '{path}'. Build the test project first.", path);
         }
 
         return path;
