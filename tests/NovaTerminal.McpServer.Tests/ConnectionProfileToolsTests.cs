@@ -180,10 +180,11 @@ public class ConnectionProfileToolsTests
     }
 
     [Fact]
-    public void MalformedId_IsWarning()
+    public void MalformedId_IsError()
     {
+        // A non-GUID Id makes the store quarantine the whole profiles.json on load, so it's fatal.
         var result = ConnectionProfileTools.ValidateConnectionProfileJson("""{ "Name": "n", "Host": "h", "Id": "not-a-guid" }""");
-        Assert.StartsWith("VALID", result);
+        Assert.StartsWith("INVALID", result);
         Assert.Contains("'Id'", result);
     }
 
@@ -224,5 +225,45 @@ public class ConnectionProfileToolsTests
 
         var doc = ConnectionProfileTools.ValidateConnectionProfileJson("""{ "Profiles": [ { "Host": "h" } ] }""");
         Assert.Contains("Profiles[0].Missing required field 'Name'", doc);
+    }
+
+    [Fact]
+    public void JumpHopMissingHost_IsError()
+    {
+        var result = ConnectionProfileTools.ValidateConnectionProfileJson(
+            """{ "Name": "n", "Host": "h", "JumpHops": [ { "User": "ops" } ] }""");
+        Assert.StartsWith("INVALID", result);
+        Assert.Contains("JumpHops[0].Missing required field 'Host'", result);
+    }
+
+    [Fact]
+    public void ForwardWithZeroSourcePort_IsError()
+    {
+        // The OpenSSH config compiler drops forwards with SourcePort <= 0, so zero is fatal.
+        var result = ConnectionProfileTools.ValidateConnectionProfileJson(
+            """{ "Name": "n", "Host": "h", "Forwards": [ { "Kind": 0, "SourcePort": 0, "DestinationHost": "db", "DestinationPort": 5432 } ] }""");
+        Assert.StartsWith("INVALID", result);
+        Assert.Contains("Forwards[0].Field 'SourcePort'", result);
+    }
+
+    [Fact]
+    public void LocalForwardMissingDestination_IsError()
+    {
+        // Omitted Kind deserializes to Local (0); Local/Remote forwards need a destination host + port.
+        var result = ConnectionProfileTools.ValidateConnectionProfileJson(
+            """{ "Name": "n", "Host": "h", "Forwards": [ { "SourcePort": 5432 } ] }""");
+        Assert.StartsWith("INVALID", result);
+        Assert.Contains("Forwards[0].Missing required field 'DestinationHost'", result);
+        Assert.Contains("Forwards[0].Missing required field 'DestinationPort'", result);
+    }
+
+    [Fact]
+    public void DynamicForwardWithSourcePortOnly_IsValid()
+    {
+        // Dynamic (SOCKS) forwards have no fixed destination, so only SourcePort is required.
+        var result = ConnectionProfileTools.ValidateConnectionProfileJson(
+            """{ "Name": "n", "Host": "h", "Forwards": [ { "Kind": 2, "SourcePort": 1080 } ] }""");
+        Assert.StartsWith("VALID", result);
+        Assert.DoesNotContain("Errors:", result);
     }
 }

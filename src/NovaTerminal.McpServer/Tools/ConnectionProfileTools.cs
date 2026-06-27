@@ -60,14 +60,17 @@ public static class ConnectionProfileTools
         `JumpHops` is an array of `{ "Host": string, "User": string, "Port": int (1–65535) }`.
 
         ## Port forwarding
-        `Forwards` is an array of objects:
+        `Forwards` is an array of objects. `SourcePort` is required (1–65535) on every forward.
+        Local/Remote forwards also require a non-empty `DestinationHost` and `DestinationPort`
+        (1–65535); Dynamic forwards (SOCKS) have no fixed destination. An omitted `Kind` means
+        Local (0).
         | Field | Type | Notes |
         |-------|------|-------|
-        | `Kind` | int enum | 0=Local, 1=Remote, 2=Dynamic. |
+        | `Kind` | int enum | 0=Local, 1=Remote, 2=Dynamic. Omitted = 0 (Local). |
         | `BindAddress` | string | e.g. "127.0.0.1". |
-        | `SourcePort` | int | 0–65535. |
-        | `DestinationHost` | string | Forward target host. |
-        | `DestinationPort` | int | 0–65535. |
+        | `SourcePort` | int | Required, 1–65535. |
+        | `DestinationHost` | string | Required for Local/Remote; unused for Dynamic. |
+        | `DestinationPort` | int | Required 1–65535 for Local/Remote; unused for Dynamic. |
 
         ## Multiplexing
         `MuxOptions` is `{ "Enabled": bool, "ControlMasterAuto": bool, "ControlPath": string, "ControlPersistSeconds": int (>= 0) }`.
@@ -255,7 +258,9 @@ public static class ConnectionProfileTools
             }
             else if (!Guid.TryParse(idEl.GetString(), out _))
             {
-                warnings.Add($"{path}Field 'Id' is not a valid GUID; the store will assign one.");
+                // A non-GUID Id is unrecoverable: the store deserializes Id straight into a Guid,
+                // and the resulting parse failure quarantines the entire profiles.json on load.
+                errors.Add($"{path}Field 'Id' must be a valid GUID; an unparseable Id makes the store quarantine the whole profiles.json on load.");
             }
         }
 
@@ -330,7 +335,8 @@ public static class ConnectionProfileTools
     private static void ValidateJumpHop(
         JsonElement h, string path, List<string> errors, List<string> warnings)
     {
-        RequireStringType(h, path, "Host", errors);
+        // A jump hop is meaningless without a host to connect to — require it, like profile Host.
+        RequireNonEmptyString(h, path, "Host", errors);
         RequireStringType(h, path, "User", errors);
         CheckIntRange(h, path, "Port", 1, 65535, errors);
         CheckUnknownAndPassword(h, path, JumpHopFields, errors, warnings);
@@ -341,16 +347,29 @@ public static class ConnectionProfileTools
     {
         CheckEnum(f, path, "Kind", PortForwardKindNames, errors);
         RequireStringType(f, path, "BindAddress", errors);
-        RequireStringType(f, path, "DestinationHost", errors);
-        CheckIntRange(f, path, "SourcePort", 0, 65535, errors);
-        CheckIntRange(f, path, "DestinationPort", 0, 65535, errors);
 
-        if (f.TryGetProperty("Kind", out var kEl)
-            && kEl.ValueKind == JsonValueKind.Number
-            && kEl.TryGetInt32(out var kind) && (kind == 0 || kind == 1))
+        // A missing Kind deserializes to 0 (Local).
+        int kind = 0;
+        if (f.TryGetProperty("Kind", out var kEl) && kEl.ValueKind == JsonValueKind.Number)
         {
-            WarnZeroPort(f, path, "SourcePort", warnings);
-            WarnZeroPort(f, path, "DestinationPort", warnings);
+            kEl.TryGetInt32(out kind);
+        }
+
+        // Every forward needs a usable source port: OpenSshConfigCompiler.AppendForward drops
+        // forwards with SourcePort <= 0, so anything else would validate yet be silently omitted.
+        RequireIntRange(f, path, "SourcePort", 1, 65535, errors);
+
+        if (kind == 0 || kind == 1)
+        {
+            // Local/Remote forwards are dropped without a destination host + positive port.
+            RequireNonEmptyString(f, path, "DestinationHost", errors);
+            RequireIntRange(f, path, "DestinationPort", 1, 65535, errors);
+        }
+        else
+        {
+            // Dynamic forwards have no fixed destination; only range-check destination fields if present.
+            RequireStringType(f, path, "DestinationHost", errors);
+            CheckIntRange(f, path, "DestinationPort", 0, 65535, errors);
         }
 
         CheckUnknownAndPassword(f, path, PortForwardFields, errors, warnings);
@@ -440,15 +459,17 @@ public static class ConnectionProfileTools
         }
     }
 
-    private static void WarnZeroPort(
-        JsonElement obj, string path, string field, List<string> warnings)
+    // Like CheckIntRange, but the field is mandatory: a missing value is an error too.
+    private static void RequireIntRange(
+        JsonElement obj, string path, string field, int min, int max, List<string> errors)
     {
-        if (obj.TryGetProperty(field, out var el)
-            && el.ValueKind == JsonValueKind.Number
-            && el.TryGetInt32(out var v) && v == 0)
+        if (!obj.TryGetProperty(field, out _))
         {
-            warnings.Add($"{path}Field '{field}' is 0 for a Local/Remote forward; expected a real port.");
+            errors.Add($"{path}Missing required field '{field}'.");
+            return;
         }
+
+        CheckIntRange(obj, path, field, min, max, errors);
     }
 
     private static void CheckUnknownAndPassword(

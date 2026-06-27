@@ -125,21 +125,26 @@ validate each entry under the path `Profiles[i].`. Otherwise → treat as a sing
   a JSON integer, or is an integer outside its defined range. The message includes the
   int→name mapping as a hint.
 - `Port` or `JumpHops[].Port` outside 1–65535.
-- `SourcePort` or `DestinationPort` outside 0–65535.
+- Missing or out-of-range `SourcePort` (1–65535) on any forward — the OpenSSH config compiler
+  drops forwards with `SourcePort <= 0`, so anything else would validate yet be silently omitted.
+- A `Local` (Kind 0) or `Remote` (Kind 1) forward missing a non-empty `DestinationHost` or a
+  `DestinationPort` in 1–65535 — those forwards are likewise dropped by the compiler. (Dynamic /
+  Kind 2 forwards have no fixed destination; their destination fields are only range-checked if
+  present.) An omitted `Kind` deserializes to `0` (Local), so it is held to the Local requirements.
 - `ServerAliveIntervalSeconds` or `ServerAliveCountMax` < 1.
 - `ControlPersistSeconds` < 0.
-- Missing or blank required `Host`.
+- Missing or blank required `Host`; on a jump hop, a missing or blank `Host` is likewise an error.
 - Missing required `Name`.
+- Malformed `Id` GUID — unrecoverable: the store deserializes `Id` straight into a `Guid`, and the
+  parse failure quarantines the entire `profiles.json` on load.
 - (Document shape) `Profiles` present but not a JSON array.
 
 **Warnings (still `VALID`):**
 
 - Unknown / extra field (top-level or nested).
-- Malformed `Id` GUID.
 - Missing, zero, or negative `SchemaVersion` (the store auto-defaults it to 1).
 - `SchemaVersion` > 1 — forward-compatibility note.
 - `AuthMode` = 2 (IdentityFile) with a blank `IdentityFilePath`.
-- A `Local` (Kind 0) or `Remote` (Kind 1) forward with `SourcePort` or `DestinationPort` = 0.
 - A `Password` field present anywhere (case-insensitive) — **security flag**; passwords are
   vault-managed and must never appear in profile JSON.
 
