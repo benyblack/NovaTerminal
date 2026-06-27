@@ -26,6 +26,14 @@ public class ExplainEscapeSequenceTests
     }
 
     [Fact]
+    public void Osc52_IsMarkedUnsupported()
+    {
+        // NovaTerminal's AnsiParser does not handle OSC 52; the explainer must not imply it does.
+        var result = VtTools.ExplainEscapeSequence("OSC 52");
+        Assert.Contains("NOT currently supported", result, System.StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void UnknownCsiFinalByte_IsReportedGracefully()
     {
         var result = VtTools.ExplainEscapeSequence("CSI 1 ~");

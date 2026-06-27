@@ -74,7 +74,7 @@ public static class VtTools
         ["OSC:2"] = "Set window title.",
         ["OSC:7"] = "Report current working directory (file:// URI).",
         ["OSC:8"] = "Hyperlink (OSC 8 ; params ; URI ST … ST).",
-        ["OSC:52"] = "Clipboard get/set (base64).",
+        ["OSC:52"] = "Clipboard get/set (base64). NOT currently supported by NovaTerminal — HandleOsc ignores OSC 52 (see docs/vt_coverage_matrix.md).",
         ["OSC:133"] = "Shell integration markers (A=prompt, B=cmd start, C=cmd accepted, D=cmd finished).",
         ["OSC:1337"] = "iTerm2 proprietary (incl. inline images: 1337;File=…).",
         ["OSC:1339"] = "Tunneled Sixel/Kitty image payload.",
