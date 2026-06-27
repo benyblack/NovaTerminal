@@ -9,6 +9,8 @@
     <PackageReference Include="xunit.v3" />
     <PackageReference Include="xunit.runner.visualstudio" />
     <PackageReference Include="coverlet.collector" />
+    <!-- MCP client (StdioClientTransport / McpClient) for the e2e handshake test. -->
+    <PackageReference Include="ModelContextProtocol" />
   </ItemGroup>
 
   <ItemGroup>
