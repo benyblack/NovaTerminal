@@ -9,9 +9,12 @@ All tools are **read-only**. None execute commands, touch credentials, or access
 | `novaterminal.list_docs` | — | Lists Markdown docs under `docs/` (paths relative to `docs/`). |
 | `novaterminal.read_doc` | `path` | Reads a doc by its path relative to `docs/`. Reads are confined to `docs/`; paths outside it (e.g. `../secret`) are rejected. |
 | `novaterminal.get_vt_conformance_summary` | — | VT/ANSI conformance status and known terminal gaps, gathered from the repo's coverage/gap matrices. |
+| `novaterminal.explain_escape_sequence` | `sequence` | Explains a VT/ANSI escape sequence (e.g. `ESC[2J`, `CSI ?25h`, `OSC 8`, `ESC c`) — name and what it does in NovaTerminal. |
+| `novaterminal.generate_vt_test_plan` | `feature` | Generates a structured VT/ANSI test plan (cases, where tests live, verification) for a parser/rendering feature. |
 | `novaterminal.get_theme_schema` | — | The theme JSON schema: required fields, accepted color formats, and an example. |
 | `novaterminal.validate_theme_json` | `themeJson` | Validates a theme JSON string against the schema; reports missing fields, invalid colors, and unknown fields. |
 | `novaterminal.generate_codex_prompt_for_issue` | `title`, `description?` | Generates a structured implementation prompt (relevant areas, constraints, PR size, steps, tests, acceptance, risks) tailored to NovaTerminal conventions. |
+| `novaterminal.suggest_relevant_files` | `topic` | Suggests the concrete source/test files most relevant to a topic/task (e.g. `reflow`, `glyph atlas`, `ssh key auth`). |
 
 ## Notes
 
@@ -20,8 +23,13 @@ All tools are **read-only**. None execute commands, touch credentials, or access
 - `get_project_summary`, `get_theme_schema`, `validate_theme_json`, and
   `generate_codex_prompt_for_issue` are fully self-contained (no filesystem access).
 
-## Tools intentionally deferred past v0.1
+## Still deferred
 
-`explain_escape_sequence`, `generate_vt_test_plan`, connection-profile schema/validation,
-`suggest_relevant_files`, `generate_test_plan_for_change`, and any "running app" bridge tools
-(`list_open_tabs`, `get_selected_text`, …). The latter are sensitive and must remain opt-in.
+- **Connection-profile schema/validation** (`get_connection_profile_schema`,
+  `validate_connection_profile_json`): unlike themes, the profile format has no stable documented
+  schema, is large (~37 fields incl. enums/nested rules), and contains a sensitive `Password`
+  field — deferred until a documented profile schema exists, to avoid drift and over-coupling.
+- **`generate_test_plan_for_change`**: largely covered by `generate_codex_prompt_for_issue`
+  (its "tests to update" section) and `generate_vt_test_plan`.
+- **Running-app bridge tools** (`list_open_tabs`, `get_active_profile_metadata`,
+  `get_selected_text`, …): sensitive; must remain opt-in and documented separately.
