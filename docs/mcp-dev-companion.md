@@ -29,10 +29,11 @@ See [mcp/security.md](mcp/security.md) for the full security model.
 
 ## Tools
 
-See [mcp/tools.md](mcp/tools.md) for the authoritative list. As of v0.3 this includes the
-connection-profile tools:
+See [mcp/tools.md](mcp/tools.md) for the authoritative list. As of v0.4 this includes the
+connection-profile and settings tools:
 
-`novaterminal.get_connection_profile_schema`, `novaterminal.validate_connection_profile_json`.
+`novaterminal.get_connection_profile_schema`, `novaterminal.validate_connection_profile_json`,
+`novaterminal.get_settings_schema`, `novaterminal.validate_settings_json`.
 
 ## How to run it locally
 
