@@ -1,4 +1,4 @@
-# NovaTerminal MCP Dev Companion — tools (v0.3)
+# NovaTerminal MCP Dev Companion — tools (v0.4)
 
 All tools are **read-only**. None execute commands, touch credentials, or access live sessions.
 
@@ -15,6 +15,8 @@ All tools are **read-only**. None execute commands, touch credentials, or access
 | `novaterminal.validate_theme_json` | `themeJson` | Validates a theme JSON string against the schema; reports missing fields, invalid colors, and unknown fields. |
 | `novaterminal.get_connection_profile_schema` | — | The SSH connection-profile JSON schema: PascalCase fields by area, integer enum mappings, defaults, and an example. Accepts a single profile or a full `profiles.json` document. |
 | `novaterminal.validate_connection_profile_json` | `profileJson` | Validates a connection-profile JSON (single profile or full document; auto-detected); reports wrong types, out-of-range integer enums/ports, missing `Name`/`Host`, and warns on unknown fields and any stray `Password`. |
+| `novaterminal.get_settings_schema` | — | The settings.json schema: top-level fields by area (PascalCase, integer enums for embedded profiles), types, defaults, and an example. Top-level shape only. |
+| `novaterminal.validate_settings_json` | `settingsJson` | Validates a settings.json string (top-level shape); reports wrong types, out-of-range numerics, malformed `DefaultProfileId`, bad collection shapes, and warns on unknown fields and any stray `Password`. Embedded profiles are not deep-validated. |
 | `novaterminal.generate_codex_prompt_for_issue` | `title`, `description?` | Generates a structured implementation prompt (relevant areas, constraints, PR size, steps, tests, acceptance, risks) tailored to NovaTerminal conventions. |
 | `novaterminal.suggest_relevant_files` | `topic` | Suggests the concrete source/test files most relevant to a topic/task (e.g. `reflow`, `glyph atlas`, `ssh key auth`). |
 
@@ -24,6 +26,8 @@ All tools are **read-only**. None execute commands, touch credentials, or access
   the repository; they need the repo root (auto-detected, or set `NOVATERMINAL_REPO_ROOT`).
 - `get_project_summary`, `get_theme_schema`, `validate_theme_json`, and
   `generate_codex_prompt_for_issue` are fully self-contained (no filesystem access).
+- `validate_settings_json` validates the top-level settings shape and the structure of its
+  collections; it does not deep-validate embedded `Profiles`/`TabTemplateRules` entries.
 
 ## Still deferred
 
