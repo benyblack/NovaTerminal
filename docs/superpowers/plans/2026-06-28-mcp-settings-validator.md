@@ -622,9 +622,15 @@ Add the following members inside the `SettingsTools` class (after `GetSettingsSc
             return;
         }
 
-        if (el.ValueKind != JsonValueKind.Number || !el.TryGetInt32(out var v))
+        if (el.ValueKind != JsonValueKind.Number)
         {
             errors.Add($"Field '{field}' must be an integer, but was {el.ValueKind}.");
+            return;
+        }
+
+        if (!el.TryGetInt32(out var v))
+        {
+            errors.Add($"Field '{field}' must be an integer (no decimals).");
             return;
         }
 
