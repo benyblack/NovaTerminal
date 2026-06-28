@@ -1,4 +1,9 @@
+using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
 using ModelContextProtocol.Server;
 
 namespace NovaTerminal.McpServer.Tools;
@@ -118,4 +123,237 @@ public static class SettingsTools
         }
         ```
         """;
+
+    private static readonly string[] BoolFields =
+    {
+        "EnableLigatures", "EnableComplexShaping", "CursorBlink", "BellAudioEnabled",
+        "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection", "QuakeModeEnabled",
+        "CommandAssistEnabled", "CommandAssistHistoryEnabled", "CommandAssistAutoHideInAltScreen",
+        "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
+        "ExperimentalNativeSshEnabled",
+    };
+
+    // Plain + enum-like strings; enum-like values are NOT value-validated (type-check only).
+    private static readonly string[] StringFields =
+    {
+        "FontFamily", "ThemeName", "BackgroundImagePath", "GlobalHotkey",
+        "BlurEffect", "CursorStyle", "PaneClosePolicy", "BackgroundImageStretch",
+    };
+
+    private static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules" };
+
+    // Every recognized top-level field (union of all groups). Source of truth: TerminalSettings.cs.
+    private static readonly HashSet<string> KnownFields = new(StringComparer.Ordinal)
+    {
+        "FontSize", "MaxHistory", "FontFamily", "ThemeName", "WindowOpacity", "BlurEffect",
+        "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink",
+        "BellAudioEnabled", "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection",
+        "WheelLinesPerNotch", "PaneClosePolicy", "Keybindings", "TabTemplateRules",
+        "BackgroundImagePath", "BackgroundImageOpacity", "BackgroundImageStretch",
+        "QuakeModeEnabled", "GlobalHotkey", "CommandAssistEnabled", "CommandAssistHistoryEnabled",
+        "CommandAssistMaxHistoryEntries", "CommandAssistAutoHideInAltScreen",
+        "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
+        "ExperimentalNativeSshEnabled", "Profiles", "DefaultProfileId",
+    };
+
+    [McpServerTool(Name = "novaterminal.validate_settings_json"),
+     Description("Validates a NovaTerminal settings.json string (the top-level shape). Reports wrong field types, out-of-range numerics, a malformed DefaultProfileId GUID, malformed collection shapes, and warns on unknown fields and any stray Password. Embedded profiles are not deep-validated. An empty object {} is valid (every setting has a default).")]
+    public static string ValidateSettingsJson(
+        [Description("The settings.json document to validate.")] string settingsJson)
+    {
+        if (string.IsNullOrWhiteSpace(settingsJson))
+        {
+            return "INVALID: empty input — expected a settings JSON object.";
+        }
+
+        JsonElement root;
+        try
+        {
+            using var doc = JsonDocument.Parse(settingsJson);
+            root = doc.RootElement.Clone();
+        }
+        catch (JsonException ex)
+        {
+            return $"INVALID: not valid JSON — {ex.Message}";
+        }
+
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return $"INVALID: top-level value must be a JSON object, but was {root.ValueKind}.";
+        }
+
+        var errors = new List<string>();
+        var warnings = new List<string>();
+
+        foreach (var field in BoolFields)
+        {
+            RequireBool(root, field, errors);
+        }
+        foreach (var field in StringFields)
+        {
+            RequireString(root, field, errors);
+        }
+        foreach (var field in ArrayFields)
+        {
+            RequireArray(root, field, errors);
+        }
+
+        // Numbers with ranges.
+        CheckNumber(root, "FontSize", v => v > 0, "must be > 0", errors);
+        CheckNumber(root, "WindowOpacity", v => v >= 0 && v <= 1, "must be between 0 and 1", errors);
+        CheckNumber(root, "BackgroundImageOpacity", v => v >= 0 && v <= 1, "must be between 0 and 1", errors);
+
+        // WheelLinesPerNotch: a non-number is an error; <= 0 is only a warning (runtime falls back).
+        if (root.TryGetProperty("WheelLinesPerNotch", out var wheelEl))
+        {
+            if (wheelEl.ValueKind != JsonValueKind.Number || !wheelEl.TryGetDouble(out var wheel))
+            {
+                errors.Add($"Field 'WheelLinesPerNotch' must be a number, but was {wheelEl.ValueKind}.");
+            }
+            else if (wheel <= 0)
+            {
+                warnings.Add("Field 'WheelLinesPerNotch' is <= 0; the runtime falls back to 3.0.");
+            }
+        }
+
+        // Integers with min.
+        RequireIntMin(root, "MaxHistory", 0, errors);
+        RequireIntMin(root, "CommandAssistMaxHistoryEntries", 0, errors);
+
+        // DefaultProfileId: GUID string. A non-GUID breaks deserialization of the whole file.
+        if (root.TryGetProperty("DefaultProfileId", out var idEl))
+        {
+            if (idEl.ValueKind != JsonValueKind.String)
+            {
+                errors.Add($"Field 'DefaultProfileId' must be a string GUID, but was {idEl.ValueKind}.");
+            }
+            else if (!Guid.TryParse(idEl.GetString(), out _))
+            {
+                errors.Add("Field 'DefaultProfileId' must be a valid GUID; an unparseable value makes the store fail to load settings.json.");
+            }
+        }
+
+        // Keybindings: object of string -> string.
+        if (root.TryGetProperty("Keybindings", out var kbEl))
+        {
+            if (kbEl.ValueKind != JsonValueKind.Object)
+            {
+                errors.Add($"Field 'Keybindings' must be a JSON object (string -> string), but was {kbEl.ValueKind}.");
+            }
+            else
+            {
+                foreach (var entry in kbEl.EnumerateObject())
+                {
+                    if (entry.Value.ValueKind != JsonValueKind.String)
+                    {
+                        errors.Add($"Keybindings['{entry.Name}'] must be a string, but was {entry.Value.ValueKind}.");
+                    }
+                }
+            }
+        }
+
+        // Unknown fields + stray Password (top-level only; profiles are not deep-scanned).
+        foreach (var prop in root.EnumerateObject())
+        {
+            if (string.Equals(prop.Name, "Password", StringComparison.OrdinalIgnoreCase))
+            {
+                warnings.Add($"Field '{prop.Name}' must not appear in settings JSON — passwords are stored in the credential vault, not in settings.");
+                continue;
+            }
+
+            if (!KnownFields.Contains(prop.Name))
+            {
+                warnings.Add($"Unknown field '{prop.Name}' (ignored).");
+            }
+        }
+
+        return Report(errors, warnings);
+    }
+
+    private static void RequireBool(JsonElement root, string field, List<string> errors)
+    {
+        if (root.TryGetProperty(field, out var el)
+            && el.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+        {
+            errors.Add($"Field '{field}' must be a boolean, but was {el.ValueKind}.");
+        }
+    }
+
+    private static void RequireString(JsonElement root, string field, List<string> errors)
+    {
+        if (root.TryGetProperty(field, out var el) && el.ValueKind != JsonValueKind.String)
+        {
+            errors.Add($"Field '{field}' must be a string, but was {el.ValueKind}.");
+        }
+    }
+
+    private static void RequireArray(JsonElement root, string field, List<string> errors)
+    {
+        if (root.TryGetProperty(field, out var el) && el.ValueKind != JsonValueKind.Array)
+        {
+            errors.Add($"Field '{field}' must be a JSON array, but was {el.ValueKind}.");
+        }
+    }
+
+    private static void CheckNumber(
+        JsonElement root, string field, Func<double, bool> inRange, string rangeMsg, List<string> errors)
+    {
+        if (!root.TryGetProperty(field, out var el))
+        {
+            return;
+        }
+
+        if (el.ValueKind != JsonValueKind.Number || !el.TryGetDouble(out var v))
+        {
+            errors.Add($"Field '{field}' must be a number, but was {el.ValueKind}.");
+            return;
+        }
+
+        if (!inRange(v))
+        {
+            errors.Add($"Field '{field}' value {v} is out of range ({rangeMsg}).");
+        }
+    }
+
+    private static void RequireIntMin(JsonElement root, string field, int min, List<string> errors)
+    {
+        if (!root.TryGetProperty(field, out var el))
+        {
+            return;
+        }
+
+        if (el.ValueKind != JsonValueKind.Number || !el.TryGetInt32(out var v))
+        {
+            errors.Add($"Field '{field}' must be an integer, but was {el.ValueKind}.");
+            return;
+        }
+
+        if (v < min)
+        {
+            errors.Add($"Field '{field}' value {v} is out of range (>= {min}).");
+        }
+    }
+
+    private static string Report(List<string> errors, List<string> warnings)
+    {
+        var sb = new StringBuilder();
+        sb.Append(errors.Count == 0 ? "VALID" : "INVALID").Append('\n');
+        if (errors.Count > 0)
+        {
+            sb.Append("\nErrors:\n");
+            foreach (var e in errors)
+            {
+                sb.Append("  - ").Append(e).Append('\n');
+            }
+        }
+        if (warnings.Count > 0)
+        {
+            sb.Append("\nWarnings:\n");
+            foreach (var w in warnings)
+            {
+                sb.Append("  - ").Append(w).Append('\n');
+            }
+        }
+        return sb.ToString().TrimEnd();
+    }
 }
