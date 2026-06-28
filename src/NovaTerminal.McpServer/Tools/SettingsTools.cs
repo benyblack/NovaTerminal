@@ -329,7 +329,11 @@ public static class SettingsTools
 
         if (!el.TryGetInt32(out var v))
         {
-            errors.Add($"Field '{field}' must be an integer (no decimals).");
+            // TryGetInt32 fails both for fractional values and for whole numbers that overflow
+            // a 32-bit int; distinguish so the message isn't misleading for large values.
+            errors.Add(el.TryGetDouble(out var d) && d % 1 != 0
+                ? $"Field '{field}' must be an integer (no decimals)."
+                : $"Field '{field}' must be a whole number within the 32-bit integer range.");
             return;
         }
 
