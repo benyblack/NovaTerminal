@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
-using System.Linq;
 using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Server;
@@ -322,9 +321,15 @@ public static class SettingsTools
             return;
         }
 
-        if (el.ValueKind != JsonValueKind.Number || !el.TryGetInt32(out var v))
+        if (el.ValueKind != JsonValueKind.Number)
         {
             errors.Add($"Field '{field}' must be an integer, but was {el.ValueKind}.");
+            return;
+        }
+
+        if (!el.TryGetInt32(out var v))
+        {
+            errors.Add($"Field '{field}' must be an integer (no decimals).");
             return;
         }
 
