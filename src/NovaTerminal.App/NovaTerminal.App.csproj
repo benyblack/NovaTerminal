@@ -26,7 +26,6 @@
     <PackageReference Include="SkiaSharp.HarfBuzz" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 
   <PropertyGroup>

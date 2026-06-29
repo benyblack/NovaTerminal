@@ -30,7 +30,7 @@ public sealed class RemotePathAutocompleteService : IRemotePathAutocompleteServi
         _nativeInterop = nativeInterop ?? new NativeSshInterop();
         _sessionRegistry = sessionRegistry ?? ActiveSshSessionRegistry.Instance;
         _sshServiceFactory = sshServiceFactory ?? (() => new SshConnectionService());
-        _passwordResolver = passwordResolver ?? (profile => new VaultService().GetSshPasswordForProfile(profile));
+        _passwordResolver = passwordResolver ?? (profile => (MainWindow.Vault ?? new VaultService()).GetSshPasswordForProfile(profile));
     }
 
     public async Task<IReadOnlyList<RemotePathSuggestion>> GetSuggestionsAsync(
