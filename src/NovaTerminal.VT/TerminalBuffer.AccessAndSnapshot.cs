@@ -436,6 +436,9 @@ namespace NovaTerminal.VT
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
                     var img = _images[i];
+                    // Only the active screen's images move (see ScrollUpInternal).
+                    if (img.IsAltScreenImage != _isAltScreen) continue;
+
                     // If image starts in or below the insertion point, shift it down
                     if (img.IsSticky && img.CellY >= absTop && img.CellY <= absBottom)
                     {
@@ -493,6 +496,9 @@ namespace NovaTerminal.VT
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
                     var img = _images[i];
+                    // Only the active screen's images move (see ScrollUpInternal).
+                    if (img.IsAltScreenImage != _isAltScreen) continue;
+
                     // If image overlaps with or is below the deleted range
                     if (img.IsSticky && img.CellY + img.CellHeight > absTop && img.CellY <= absBottom)
                     {
@@ -835,6 +841,13 @@ namespace NovaTerminal.VT
 
             foreach (var img in _images)
             {
+                // Only images belonging to the active screen are visible. Main-screen
+                // images use absolute CellY, alt-screen images viewport-relative; without
+                // this filter an inactive-screen image whose (re-based) CellY happens to
+                // overlap the visible range would bleed through (e.g. after ED 3 rebases
+                // main-screen anchors while the alt screen is active).
+                if (img.IsAltScreenImage != _isAltScreen) continue;
+
                 // Simple visibility check
                 if (img.CellY + img.CellHeight > absDisplayStart && img.CellY < absEnd)
                 {

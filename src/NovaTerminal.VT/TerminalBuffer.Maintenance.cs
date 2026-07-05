@@ -9,6 +9,10 @@ namespace NovaTerminal.VT
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
+                // Tag ownership: alt-screen images use viewport-relative CellY, main-screen
+                // images absolute rows. Lets erase/rebase paths tell the two apart even
+                // though both live in the same list.
+                image.IsAltScreenImage = _isAltScreen;
                 _images.Add(image);
             }
             finally
@@ -36,28 +40,25 @@ namespace NovaTerminal.VT
             Invalidate();
         }
 
+        /// <summary>
+        /// Clears both the visible screen and the scrollback history.
+        /// Used by RIS (full reset) and explicit user-invoked "clear buffer" actions.
+        /// VT erase sequences must NOT call this: ED 2 (CSI 2 J) only clears the
+        /// screen (<see cref="ClearScreen"/>) and ED 3 (CSI 3 J) only clears the
+        /// scrollback (<see cref="ClearScrollbackHistory"/>).
+        /// </summary>
         public void Clear(bool resetCursor = true)
         {
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 _scrollback.Clear();
-                _images.Clear();
+                _images.Clear(); // full clear: scrollback-anchored images lose their anchor too
+                ClearScreenInternal(resetCursor);
 
-                // CRITICAL: Erase cells IN-PLACE rather than replacing row objects.
-                // TUI apps like Yazi rely on partial redraws — they only redraw rows that changed.
-                // If we replace all row objects (new IDs), Yazi's next frame skips unchanged rows,
-                // leaving blank row objects on screen instead of re-drawn content.
-                for (int i = 0; i < Rows; i++)
-                {
-                    ClearRowInternal(i);
-                }
-
-                if (resetCursor)
-                {
-                    _cursorCol = 0;
-                    _cursorRow = 0;
-                }
+                // Attribute reset belongs to the full-clear path only (RIS / explicit UI
+                // clear). ED 2 must leave SGR state untouched — a TUI that enables
+                // bold/inverse and repaints via CSI 2 J keeps its attributes.
                 IsInverse = false;
                 IsBold = false;
             }
@@ -66,10 +67,105 @@ namespace NovaTerminal.VT
                 ExitWriteLockIfNeeded(Lock, lockTaken);
             }
 
-            // Mouse modes should only change via DEC private mode sequences,
-            // not from screen clearing operations (htop clears screen after enabling mouse)
+            Invalidate();
+        }
+
+        /// <summary>
+        /// Erases the visible screen only (ED 2 semantics). Scrollback history is preserved.
+        /// </summary>
+        public void ClearScreen(bool resetCursor = false)
+        {
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                ClearScreenInternal(resetCursor);
+            }
+            finally
+            {
+                ExitWriteLockIfNeeded(Lock, lockTaken);
+            }
 
             Invalidate();
+        }
+
+        /// <summary>
+        /// Clears the scrollback history only (ED 3 / "Erase Saved Lines" semantics).
+        /// The visible screen is left untouched.
+        /// </summary>
+        public void ClearScrollbackHistory()
+        {
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                int clearedRows = _scrollback.Count;
+                _scrollback.Clear();
+
+                // Main-screen image CellY is absolute (scrollback + viewport), so removing
+                // scrollback rows shifts every main-screen anchor down — same convention as
+                // the eviction shift in ScrollUpInternal. Images now entirely above row 0
+                // lived in the cleared history and are pruned. This must run even while the
+                // alt screen is active (ED 3 still clears main-screen history); alt-screen
+                // images are viewport-relative and skipped via their ownership tag.
+                if (clearedRows > 0)
+                {
+                    for (int i = _images.Count - 1; i >= 0; i--)
+                    {
+                        var img = _images[i];
+                        if (img.IsAltScreenImage) continue;
+
+                        img.CellY -= clearedRows;
+                        if (img.CellY + img.CellHeight <= 0)
+                        {
+                            _images.RemoveAt(i);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                ExitWriteLockIfNeeded(Lock, lockTaken);
+            }
+
+            Invalidate();
+        }
+
+        private void ClearScreenInternal(bool resetCursor)
+        {
+            // Remove images intersecting the visible screen of the ACTIVE buffer only.
+            // On the main screen CellY is absolute (scrollback + viewport; see
+            // ScrollUpInternal/InsertLines), so images living entirely in scrollback are
+            // preserved — ED 2 must not touch history. Images belonging to the inactive
+            // screen are untouched. An image straddling the scrollback/viewport boundary
+            // is removed entirely, since a partial erase isn't representable.
+            int viewportTopAbs = _isAltScreen ? 0 : _scrollback.Count;
+            for (int i = _images.Count - 1; i >= 0; i--)
+            {
+                var img = _images[i];
+                if (img.IsAltScreenImage != _isAltScreen) continue;
+
+                if (img.CellY + img.CellHeight > viewportTopAbs)
+                {
+                    _images.RemoveAt(i);
+                }
+            }
+
+            // CRITICAL: Erase cells IN-PLACE rather than replacing row objects.
+            // TUI apps like Yazi rely on partial redraws — they only redraw rows that changed.
+            // If we replace all row objects (new IDs), Yazi's next frame skips unchanged rows,
+            // leaving blank row objects on screen instead of re-drawn content.
+            for (int i = 0; i < Rows; i++)
+            {
+                ClearRowInternal(i);
+            }
+
+            if (resetCursor)
+            {
+                _cursorCol = 0;
+                _cursorRow = 0;
+            }
+
+            // Mouse modes should only change via DEC private mode sequences,
+            // not from screen clearing operations (htop clears screen after enabling mouse)
         }
 
         public void ScreenAlignmentPattern()

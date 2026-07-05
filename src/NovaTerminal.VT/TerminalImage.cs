@@ -15,6 +15,14 @@ namespace NovaTerminal.VT
 
         public bool IsSticky { get; set; } = true;
 
+        /// <summary>
+        /// True when the image was placed while the alternate screen was active.
+        /// Alt-screen images use viewport-relative <see cref="CellY"/>; main-screen
+        /// images use absolute rows (scrollback + viewport). Set by
+        /// <c>TerminalBuffer.AddImage</c>.
+        /// </summary>
+        public bool IsAltScreenImage { get; set; }
+
         public TerminalImage(object imageHandle, int cellX, int cellY, int cellWidth, int cellHeight)
         {
             ImageId = Guid.NewGuid();
