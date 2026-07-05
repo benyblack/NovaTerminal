@@ -51,6 +51,12 @@ namespace NovaTerminal.VT
                 _scrollback.Clear();
                 _images.Clear(); // full clear: scrollback-anchored images lose their anchor too
                 ClearScreenInternal(resetCursor);
+
+                // Attribute reset belongs to the full-clear path only (RIS / explicit UI
+                // clear). ED 2 must leave SGR state untouched — a TUI that enables
+                // bold/inverse and repaints via CSI 2 J keeps its attributes.
+                IsInverse = false;
+                IsBold = false;
             }
             finally
             {
@@ -146,8 +152,6 @@ namespace NovaTerminal.VT
                 _cursorCol = 0;
                 _cursorRow = 0;
             }
-            IsInverse = false;
-            IsBold = false;
 
             // Mouse modes should only change via DEC private mode sequences,
             // not from screen clearing operations (htop clears screen after enabling mouse)

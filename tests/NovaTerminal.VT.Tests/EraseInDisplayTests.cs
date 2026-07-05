@@ -72,6 +72,18 @@ public class EraseInDisplayTests
     }
 
     [Fact]
+    public void Ed2_PreservesSgrAttributes()
+    {
+        var (buffer, parser) = CreateFilledTerminal();
+        parser.Process("\x1b[1m\x1b[7m"); // bold + inverse
+
+        parser.Process("\x1b[2J");
+
+        Assert.True(buffer.IsBold);
+        Assert.True(buffer.IsInverse);
+    }
+
+    [Fact]
     public void Ed3_ClearsScrollback_PreservesScreen()
     {
         var (buffer, parser) = CreateFilledTerminal();
