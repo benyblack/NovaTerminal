@@ -7,6 +7,9 @@ on:
       - "docs/ghostty-gaps/vt_conformance_tooling.md"
       - "src/NovaTerminal.App/Resources/vt-conformance-report.json"
       - "src/NovaTerminal.Conformance/**"
+      # Parser/buffer changes can invalidate matrix claims even when the matrix
+      # itself is untouched, so run the gate for them too (#156).
+      - "src/NovaTerminal.VT/**"
       - ".github/workflows/vt-conformance.yml"
   push:
     branches: [main]
@@ -15,6 +18,7 @@ on:
       - "docs/ghostty-gaps/vt_conformance_tooling.md"
       - "src/NovaTerminal.App/Resources/vt-conformance-report.json"
       - "src/NovaTerminal.Conformance/**"
+      - "src/NovaTerminal.VT/**"
       - ".github/workflows/vt-conformance.yml"
   workflow_dispatch:
 
