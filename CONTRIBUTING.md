@@ -176,8 +176,10 @@ All PRs are automatically checked by CI:
 
 - unit tests (VT, Rendering, Architecture, Platform, McpServer — blocking)
 - headless App.Tests (currently non-blocking due to an upstream
-  Avalonia.Headless teardown deadlock, tracked in #81 — regressions still
-  surface as a red check and must be explained in review)
+  Avalonia.Headless teardown deadlock, tracked in #81). Note: this is a
+  step-level `continue-on-error`, so a failure does NOT turn the check red —
+  it is only visible in the step log and uploaded artifacts. Reviewers must
+  open the Unit Tests job and check the App.Tests step explicitly.
 - renderer metric thresholds (`tab_perf_smoke`)
 - golden shared PNG tests
 
