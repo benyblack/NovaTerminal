@@ -113,6 +113,10 @@ namespace NovaTerminal.VT
                                 for (int i = _images.Count - 1; i >= 0; i--)
                                 {
                                     var img = _images[i];
+                                    // Only main-screen images live in the absolute
+                                    // (scrollback + viewport) space this shift targets.
+                                    if (img.IsAltScreenImage) continue;
+
                                     int delta = newlyEvicted > int.MaxValue ? int.MaxValue : (int)newlyEvicted;
                                     img.CellY -= delta;
                                     if (img.CellY + img.CellHeight <= 0) _images.RemoveAt(i);
@@ -273,9 +277,11 @@ namespace NovaTerminal.VT
                 Array.Copy(_viewport, 0, newViewport, linesNeeded, oldRows);
                 _cursorRow += linesNeeded;
                 
-                // Shift images DOWN
+                // Shift MAIN-screen images DOWN (alt coordinates are viewport-relative
+                // and unaffected by the scrollback/viewport redistribution).
                 for (int i = 0; i < _images.Count; i++)
                 {
+                    if (_images[i].IsAltScreenImage) continue;
                     _images[i].CellY += linesNeeded;
                 }
             }
@@ -295,10 +301,12 @@ namespace NovaTerminal.VT
 
                 int newlyDiscarded = (int)(_scrollback.TotalRowsEvicted - prevEvicted);
 
-                // Shift images UP
+                // Shift MAIN-screen images UP (see grow path above).
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
                     var img = _images[i];
+                    if (img.IsAltScreenImage) continue;
+
                     img.CellY -= (linesToPush + newlyDiscarded);
                     if (img.CellY + img.CellHeight <= 0) _images.RemoveAt(i);
                 }

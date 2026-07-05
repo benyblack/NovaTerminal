@@ -431,6 +431,10 @@ namespace NovaTerminal.VT
                     {
                         var img = _images[imgIdx];
                         if (img == null) continue;
+                        // Reflow operates on main-screen content (scrollback + main
+                        // viewport). Alt-screen images use viewport-relative CellY and
+                        // must not be anchored to (and repositioned by) main logical lines.
+                        if (img.IsAltScreenImage) continue;
 
                         // Find which logical line contains img.CellY
                         for (int idx = 0; idx < logicalLines.Count; idx++)
