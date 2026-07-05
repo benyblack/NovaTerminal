@@ -23,6 +23,8 @@ Test deltas: VT.Tests 55 → 64; rusty_ssh crate tests 33 → 36.
 
 **Everything below this line is the original review.** The Medium/Low sections remain open backlog, except where superseded by the fixes above (e.g. the ED 2 items). Line numbers in the High findings may have shifted on `main`.
 
+Medium findings filed as issues (same day): #164 row metadata lifecycle, #165 write-path allocations, #166 ImageRegistry dispose race, #167 settings atomicity/preview, #168 PTY decoder edge + partial writes, #169 parser correctness batch, #170 cmd/scp quoting, #171 workspace bundle command execution, #172 GlyphCache skew/clipping/emoji, #173 SSH output-path throughput, #174 global.json/.editorconfig. Already tracked elsewhere: MainWindow decomposition (#110), event cleanup (#102), warning debt (#108), logging (#109), vault (#100/PR #132), SSH hardening (#121), App.Tests re-gating (#117/#81). Closed as fixed: #101 (by PR #161); #120's locale item fixed by PR #159.
+
 ---
 
 **Inventory:** ~10 source projects. VT engine ~9,000 LOC / 40 files; App ~31,300 LOC / ~156 files (largest: `MainWindow.axaml.cs` 5,338 LOC); Platform 47 files (largest: `NativeSshInterop.cs` 1,001 LOC); Rust: `rusty_pty` 794 lines, `rusty_ssh` 3,604 lines. Tests: 1,068 test methods across 195 files in 8 projects. Docs: 161 markdown files.
