@@ -399,8 +399,19 @@ fn pty_spawn_impl(
     cmd_builder.env("TERM", "xterm-256color");
     cmd_builder.env("COLORTERM", "truecolor");
     cmd_builder.env("TERM_PROGRAM", "NovaTerminal");
-    cmd_builder.env("LC_ALL", "C");
-    cmd_builder.env("LANG", "C");
+    // Inherit the user's locale. Forcing LC_ALL/LANG=C put every child shell in the
+    // ASCII locale (mangled non-ASCII filenames, broken multibyte readline input, no
+    // Unicode line drawing), contradicting the UTF-8 pipeline on the managed side.
+    // Only if no locale is present at all, fall back to C.UTF-8 so glibc tools still
+    // get a UTF-8 charmap (#153).
+    if !cfg!(windows) {
+        let has_locale = ["LC_ALL", "LC_CTYPE", "LANG"]
+            .iter()
+            .any(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()));
+        if !has_locale {
+            cmd_builder.env("LANG", "C.UTF-8");
+        }
+    }
     // Caller-supplied overrides last so shell-integration providers
     // (e.g. zsh's ZDOTDIR) can override the baseline.
     for (k, v) in extra_envs {
