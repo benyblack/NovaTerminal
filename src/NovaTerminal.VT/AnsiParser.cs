@@ -808,6 +808,7 @@ namespace NovaTerminal.VT
                         else if (displayMode == 3) // Erase saved lines (scrollback only, xterm ED 3)
                         {
                             _buffer.ClearScrollbackHistory();
+                            _verticalOffset = 0; // Scrollback is gone; snap view to bottom
                         }
                         break;
                     case 'K': // Erase in Line

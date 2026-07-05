@@ -833,6 +833,13 @@ namespace NovaTerminal.VT
 
             foreach (var img in _images)
             {
+                // Only images belonging to the active screen are visible. Main-screen
+                // images use absolute CellY, alt-screen images viewport-relative; without
+                // this filter an inactive-screen image whose (re-based) CellY happens to
+                // overlap the visible range would bleed through (e.g. after ED 3 rebases
+                // main-screen anchors while the alt screen is active).
+                if (img.IsAltScreenImage != _isAltScreen) continue;
+
                 // Simple visibility check
                 if (img.CellY + img.CellHeight > absDisplayStart && img.CellY < absEnd)
                 {
