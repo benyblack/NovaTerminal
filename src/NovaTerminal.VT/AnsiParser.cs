@@ -800,10 +800,14 @@ namespace NovaTerminal.VT
                             }
                             _buffer.EraseLineFromStart(); // Clear start of current line
                         }
-                        else if (displayMode == 2 || displayMode == 3) // Erase entire screen
+                        else if (displayMode == 2) // Erase entire screen (scrollback is preserved)
                         {
-                            _buffer.Clear(resetCursor: false);
+                            _buffer.ClearScreen(resetCursor: false);
                             _verticalOffset = 0; // Reset offset on clear screen
+                        }
+                        else if (displayMode == 3) // Erase saved lines (scrollback only, xterm ED 3)
+                        {
+                            _buffer.ClearScrollbackHistory();
                         }
                         break;
                     case 'K': // Erase in Line

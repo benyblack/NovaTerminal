@@ -36,40 +36,91 @@ namespace NovaTerminal.VT
             Invalidate();
         }
 
+        /// <summary>
+        /// Clears both the visible screen and the scrollback history.
+        /// Used by RIS (full reset) and explicit user-invoked "clear buffer" actions.
+        /// VT erase sequences must NOT call this: ED 2 (CSI 2 J) only clears the
+        /// screen (<see cref="ClearScreen"/>) and ED 3 (CSI 3 J) only clears the
+        /// scrollback (<see cref="ClearScrollbackHistory"/>).
+        /// </summary>
         public void Clear(bool resetCursor = true)
         {
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
                 _scrollback.Clear();
-                _images.Clear();
-
-                // CRITICAL: Erase cells IN-PLACE rather than replacing row objects.
-                // TUI apps like Yazi rely on partial redraws — they only redraw rows that changed.
-                // If we replace all row objects (new IDs), Yazi's next frame skips unchanged rows,
-                // leaving blank row objects on screen instead of re-drawn content.
-                for (int i = 0; i < Rows; i++)
-                {
-                    ClearRowInternal(i);
-                }
-
-                if (resetCursor)
-                {
-                    _cursorCol = 0;
-                    _cursorRow = 0;
-                }
-                IsInverse = false;
-                IsBold = false;
+                ClearScreenInternal(resetCursor);
             }
             finally
             {
                 ExitWriteLockIfNeeded(Lock, lockTaken);
             }
 
-            // Mouse modes should only change via DEC private mode sequences,
-            // not from screen clearing operations (htop clears screen after enabling mouse)
+            Invalidate();
+        }
+
+        /// <summary>
+        /// Erases the visible screen only (ED 2 semantics). Scrollback history is preserved.
+        /// </summary>
+        public void ClearScreen(bool resetCursor = false)
+        {
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                ClearScreenInternal(resetCursor);
+            }
+            finally
+            {
+                ExitWriteLockIfNeeded(Lock, lockTaken);
+            }
 
             Invalidate();
+        }
+
+        /// <summary>
+        /// Clears the scrollback history only (ED 3 / "Erase Saved Lines" semantics).
+        /// The visible screen is left untouched.
+        /// </summary>
+        public void ClearScrollbackHistory()
+        {
+            bool lockTaken = EnterWriteLockIfNeeded();
+            try
+            {
+                _scrollback.Clear();
+            }
+            finally
+            {
+                ExitWriteLockIfNeeded(Lock, lockTaken);
+            }
+
+            Invalidate();
+        }
+
+        private void ClearScreenInternal(bool resetCursor)
+        {
+            // Images are viewport-anchored (CellY is viewport-relative), so erasing
+            // the screen also removes them.
+            _images.Clear();
+
+            // CRITICAL: Erase cells IN-PLACE rather than replacing row objects.
+            // TUI apps like Yazi rely on partial redraws — they only redraw rows that changed.
+            // If we replace all row objects (new IDs), Yazi's next frame skips unchanged rows,
+            // leaving blank row objects on screen instead of re-drawn content.
+            for (int i = 0; i < Rows; i++)
+            {
+                ClearRowInternal(i);
+            }
+
+            if (resetCursor)
+            {
+                _cursorCol = 0;
+                _cursorRow = 0;
+            }
+            IsInverse = false;
+            IsBold = false;
+
+            // Mouse modes should only change via DEC private mode sequences,
+            // not from screen clearing operations (htop clears screen after enabling mouse)
         }
 
         public void ScreenAlignmentPattern()
