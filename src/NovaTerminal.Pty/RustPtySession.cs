@@ -47,14 +47,28 @@ namespace NovaTerminal.Pty
         {
             const string LibName = "rusty_pty";
 
+            // NOTE: every string crossing this boundary must be marshalled as UTF-8.
+            // The Rust side decodes with CStr::to_string_lossy() (UTF-8); the DllImport
+            // default is ANSI (active codepage) on Windows, which silently mangled any
+            // non-ASCII cmd/cwd/args/env into U+FFFD replacement bytes (#152).
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern PtySafeHandle pty_create(string cmd, ushort cols, ushort rows);
+            public static extern PtySafeHandle pty_create(
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string cmd, ushort cols, ushort rows);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern PtySafeHandle pty_spawn(string cmd, string? args, string? cwd, ushort cols, ushort rows);
+            public static extern PtySafeHandle pty_spawn(
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string cmd,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string? args,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string? cwd,
+                ushort cols, ushort rows);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern PtySafeHandle pty_spawn_with_envs(string cmd, string? args, string? cwd, ushort cols, ushort rows, string envs);
+            public static extern PtySafeHandle pty_spawn_with_envs(
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string cmd,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string? args,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string? cwd,
+                ushort cols, ushort rows,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string envs);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
             public static extern int pty_read(PtySafeHandle state, byte[] buffer, int len);
