@@ -2194,7 +2194,24 @@ namespace NovaTerminal.Controls
 
         public void Dispose()
         {
-            if (_disposed) return;
+            // Synchronous teardown for UI-thread callers. MainWindow.DisposeControlTree
+            // splits the two phases instead, so the (potentially blocking) session
+            // teardown runs off the UI thread while the UI-affine detach stays on it.
+            DetachFromUiThread()?.Dispose();
+        }
+
+        /// <summary>
+        /// Detaches UI-affine state (control visibility, DispatcherTimer, event handlers)
+        /// and transfers ownership of the underlying session to the caller for disposal.
+        /// MUST be called on the UI thread. Returns <c>null</c> when already disposed or
+        /// when the pane has no session. See #154: previously the whole Dispose ran on a
+        /// worker thread with a swallowed catch, so a VerifyAccess throw in the UI-affine
+        /// part aborted teardown before the session was disposed, leaking the PTY and its
+        /// child shell.
+        /// </summary>
+        public ITerminalSession? DetachFromUiThread()
+        {
+            if (_disposed) return null;
             _disposed = true;
 
             CloseRemoteFilesSidebar();
@@ -2215,8 +2232,9 @@ namespace NovaTerminal.Controls
                 ITerminalSession session = Session;
                 UnregisterActiveSshSession(session);
                 Session = null;
-                session.Dispose();
+                return session;
             }
+            return null;
         }
 
         private static void RegisterActiveSshSession(ITerminalSession session, TerminalProfile? profile)

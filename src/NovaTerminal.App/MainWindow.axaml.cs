@@ -3330,10 +3330,35 @@ namespace NovaTerminal
 
         private void DisposeControlTree(Control control)
         {
+            // All call sites are UI event paths, but marshal defensively: the UI-affine
+            // detach below throws VerifyAccess off the UI thread.
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                Dispatcher.UIThread.Post(() => DisposeControlTree(control));
+                return;
+            }
+
             if (control is TerminalPane pane)
             {
                 UnwirePane(pane);
-                Task.Run(() => { try { pane.Dispose(); } catch { } });
+
+                // Two-phase teardown (#154): UI-affine detach runs here on the UI thread;
+                // only the potentially blocking session teardown moves to the pool.
+                // Previously the whole pane.Dispose() ran in Task.Run with a swallowed
+                // catch, so a VerifyAccess throw aborted teardown before the session was
+                // disposed, leaking the PTY and its child shell.
+                var session = pane.DetachFromUiThread();
+                if (session != null)
+                {
+                    Task.Run(() =>
+                    {
+                        try { session.Dispose(); }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[MainWindow] Session dispose failed: {ex.Message}");
+                        }
+                    });
+                }
             }
             else if (control is Panel panel) { foreach (var child in panel.Children) if (child is Control c) DisposeControlTree(c); }
             else if (control is ContentPresenter cp && cp.Content is Control childContent) DisposeControlTree(childContent);
