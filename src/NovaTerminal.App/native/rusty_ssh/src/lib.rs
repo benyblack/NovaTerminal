@@ -2434,10 +2434,23 @@ async fn establish_session(
     };
 
     let mut session = if let Some(jump) = &jump_session {
-        let stream = jump
-            .channel_open_direct_tcpip(config.host.clone(), config.port as u32, "127.0.0.1", 0)
-            .await?
-            .into_stream();
+        // This channel open IS the target-side TCP connect (performed by the jump
+        // server), so it needs the same bound as a direct connect: a blackholed
+        // target would otherwise hang until the remote sshd gives up.
+        let stream = tokio::time::timeout(
+            TCP_CONNECT_TIMEOUT,
+            jump.channel_open_direct_tcpip(config.host.clone(), config.port as u32, "127.0.0.1", 0),
+        )
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "direct-tcpip open to {}:{} via jump host timed out after {}s",
+                config.host,
+                config.port,
+                TCP_CONNECT_TIMEOUT.as_secs()
+            )
+        })??
+        .into_stream();
 
         client::connect_stream(client_config.clone(), stream, handler).await?
     } else {
