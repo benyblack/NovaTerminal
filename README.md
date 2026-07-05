@@ -50,8 +50,10 @@ replay parity prevents silent behavioral drift.
 ## Install
 
 GitHub release assets are produced as Native AOT bundles for `win-x64`,
-`linux-x64`, and `osx-arm64`. Installer packaging is not available yet, so
-if a release does not include the bundle you need, build from source.
+`linux-x64`, and `osx-arm64`. Every release runs the gating unit-test lane on
+all three OSes before any bundle is published. Installer packaging is not
+available yet, so if a release does not include the bundle you need, build
+from source.
 
 For build steps, jump to [Build & test](#build--test) below.
 
@@ -123,12 +125,16 @@ acyclic dependency graph.
 - **[`src/NovaTerminal.Pty`](src/NovaTerminal.Pty/)** — Native OS integration and PTY session management.
 - **[`src/NovaTerminal.Replay`](src/NovaTerminal.Replay/)** — Deterministic session recording and playback.
 - **[`src/NovaTerminal.Conformance`](src/NovaTerminal.Conformance/)** — VT conformance matrix tooling and report generation.
-- **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — Command-line shim (e.g. `vt-report`) for headless tooling.
+- **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — console-subsystem twin of the (WinExe) app for headless tooling: `vt-report` and the SSH askpass helper.
+- **[`src/NovaTerminal.McpServer`](src/NovaTerminal.McpServer/)** — read-only, stdio-only MCP server exposing project docs, config validators, and VT conformance data to AI tooling.
 
 Validation:
 
-- **[`tests/NovaTerminal.Tests`](tests/NovaTerminal.Tests/)** — primary unit and integration suite (Headless UI).
-- **[`tests/NovaTerminal.Benchmarks`](tests/NovaTerminal.Benchmarks/)** — performance and throughput benchmarks.
+- **[`tests/NovaTerminal.App.Tests`](tests/NovaTerminal.App.Tests/)** — primary unit and integration suite (Avalonia Headless UI), including replay, render-metrics, golden-PNG, and shell-integration lanes.
+- **[`tests/NovaTerminal.VT.Tests`](tests/NovaTerminal.VT.Tests/)**, **[`Rendering.Tests`](tests/NovaTerminal.Rendering.Tests/)**, **[`Platform.Tests`](tests/NovaTerminal.Platform.Tests/)**, **[`McpServer.Tests`](tests/NovaTerminal.McpServer.Tests/)** — deterministic per-module suites (the blocking CI lane).
+- **[`tests/NovaTerminal.Architecture.Tests`](tests/NovaTerminal.Architecture.Tests/)** — the dependency graph below is *enforced*, not aspirational: NetArchTest checks at IL, csproj, and namespace level.
+- **[`tests/NovaTerminal.Benchmarks`](tests/NovaTerminal.Benchmarks/)** — performance benchmarks and the SharpFuzz/libFuzzer harness.
+- **[`tests/NovaTerminal.ExternalSuites`](tests/NovaTerminal.ExternalSuites/)** — manual vttest / native-SSH scenario driver.
 
 ```mermaid
 graph TD
@@ -138,13 +144,15 @@ graph TD
     App --> Rendering[NovaTerminal.Rendering]
     App --> Pty[NovaTerminal.Pty]
     App --> Replay[NovaTerminal.Replay]
-    Core --> Pty
-    Pty --> VT
+    Platform --> Pty
     Pty --> Replay
     Rendering --> VT
     Replay --> VT
     Conformance[NovaTerminal.Conformance]
+    McpServer[NovaTerminal.McpServer]
 ```
+
+Notable invariants (checked by `NovaTerminal.Architecture.Tests`): `VT` is a leaf with zero project references, and `Pty` must **not** depend on `VT` — the PTY layer delivers raw bytes only.
 
 ---
 
@@ -206,10 +214,17 @@ dotnet restore
 dotnet build -c Release
 ```
 
-Run tests (same main filter used by CI unit lane):
+> **Note:** if your build's stdout/stderr is captured by a parent process (CI
+> runners, agents, test harnesses), use the wrapper scripts
+> `scripts/build.ps1` / `scripts/build.sh` instead of raw `dotnet` — they pass
+> `-nodeReuse:false` and disable the MSBuild server, preventing an
+> indefinite hang caused by long-lived MSBuild daemons inheriting the output
+> handles. Details in [`CLAUDE.md`](CLAUDE.md).
+
+Run tests (same filter as the blocking CI unit lane):
 
 ```bash
-dotnet test -c Release --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke"
+dotnet test -c Release --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
 ```
 
 Use `ci/run.sh` (Linux/macOS) or `ci/run.ps1` (Windows) for the full local
@@ -265,7 +280,9 @@ License: [`MIT`](LICENSE).
 
 Contributions are welcome. NovaTerminal has a strong correctness culture —
 terminal core invariants are enforced and automated tests gate changes. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for details, and
+[`docs/reviews/`](docs/reviews/) for periodic deep code reviews with the
+current known-issues backlog.
 
 ---
 
