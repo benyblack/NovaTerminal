@@ -49,6 +49,7 @@ namespace NovaTerminal.VT
             try
             {
                 _scrollback.Clear();
+                _images.Clear(); // full clear: scrollback-anchored images lose their anchor too
                 ClearScreenInternal(resetCursor);
             }
             finally
@@ -86,7 +87,26 @@ namespace NovaTerminal.VT
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
+                int clearedRows = _scrollback.Count;
                 _scrollback.Clear();
+
+                // On the main screen, image CellY is absolute (scrollback + viewport), so
+                // removing scrollback rows shifts every anchor down — same convention as the
+                // eviction shift in ScrollUpInternal. Images now entirely above row 0 lived
+                // in the cleared history and are pruned. Alt-screen coordinates are
+                // viewport-relative and unaffected.
+                if (clearedRows > 0 && !_isAltScreen)
+                {
+                    for (int i = _images.Count - 1; i >= 0; i--)
+                    {
+                        var img = _images[i];
+                        img.CellY -= clearedRows;
+                        if (img.CellY + img.CellHeight <= 0)
+                        {
+                            _images.RemoveAt(i);
+                        }
+                    }
+                }
             }
             finally
             {
@@ -98,9 +118,19 @@ namespace NovaTerminal.VT
 
         private void ClearScreenInternal(bool resetCursor)
         {
-            // Images are viewport-anchored (CellY is viewport-relative), so erasing
-            // the screen also removes them.
-            _images.Clear();
+            // Remove images intersecting the visible screen. On the main screen CellY is
+            // absolute (scrollback + viewport; see ScrollUpInternal/InsertLines), so images
+            // that live entirely in scrollback are preserved — ED 2 must not touch history.
+            // An image straddling the scrollback/viewport boundary is removed entirely,
+            // since a partial erase isn't representable.
+            int viewportTopAbs = _isAltScreen ? 0 : _scrollback.Count;
+            for (int i = _images.Count - 1; i >= 0; i--)
+            {
+                if (_images[i].CellY + _images[i].CellHeight > viewportTopAbs)
+                {
+                    _images.RemoveAt(i);
+                }
+            }
 
             // CRITICAL: Erase cells IN-PLACE rather than replacing row objects.
             // TUI apps like Yazi rely on partial redraws — they only redraw rows that changed.

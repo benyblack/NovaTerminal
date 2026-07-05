@@ -87,6 +87,45 @@ public class EraseInDisplayTests
     }
 
     [Fact]
+    public void Ed2_RemovesViewportImages_PreservesScrollbackImages()
+    {
+        var (buffer, parser) = CreateFilledTerminal();
+        int scrollbackCount = buffer.Scrollback.Count;
+        Assert.True(scrollbackCount >= 2);
+
+        // CellY is absolute on the main screen: one image fully in scrollback, one on screen.
+        var scrollbackImage = new TerminalImage(new object(), 0, 0, 2, 1);
+        var viewportImage = new TerminalImage(new object(), 0, scrollbackCount + 1, 2, 1);
+        buffer.AddImage(scrollbackImage);
+        buffer.AddImage(viewportImage);
+
+        parser.Process("\x1b[2J");
+
+        Assert.Single(buffer.Images);
+        Assert.Same(scrollbackImage, buffer.Images[0]);
+    }
+
+    [Fact]
+    public void Ed3_ShiftsViewportImageAnchors_RemovesScrollbackImages()
+    {
+        var (buffer, parser) = CreateFilledTerminal();
+        int scrollbackCount = buffer.Scrollback.Count;
+        Assert.True(scrollbackCount >= 2);
+
+        var scrollbackImage = new TerminalImage(new object(), 0, 0, 2, 1);
+        var viewportImage = new TerminalImage(new object(), 0, scrollbackCount + 1, 2, 1);
+        buffer.AddImage(scrollbackImage);
+        buffer.AddImage(viewportImage);
+
+        parser.Process("\x1b[3J");
+
+        // Scrollback image lost its anchor; viewport image shifted to stay on the same row.
+        Assert.Single(buffer.Images);
+        Assert.Same(viewportImage, buffer.Images[0]);
+        Assert.Equal(1, viewportImage.CellY);
+    }
+
+    [Fact]
     public void ClearCommandSequence_Ed2ThenEd3_ClearsScreenAndScrollback()
     {
         var (buffer, parser) = CreateFilledTerminal();
