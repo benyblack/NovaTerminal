@@ -138,6 +138,33 @@ public class EraseInDisplayTests
     }
 
     [Fact]
+    public void Ed3_InAltScreen_RebasesMainScreenImages_SkipsAltImages()
+    {
+        var (buffer, parser) = CreateFilledTerminal();
+        int scrollbackCount = buffer.Scrollback.Count;
+        Assert.True(scrollbackCount >= 2);
+
+        // Main-screen image on the visible screen (absolute CellY).
+        var mainImage = new TerminalImage(new object(), 0, scrollbackCount + 1, 2, 1);
+        buffer.AddImage(mainImage);
+
+        // Enter alt screen and place an alt image (viewport-relative CellY).
+        parser.Process("\x1b[?1049h");
+        var altImage = new TerminalImage(new object(), 0, 2, 2, 1);
+        buffer.AddImage(altImage);
+
+        // ED 3 while alt is active still clears main-screen history.
+        parser.Process("\x1b[3J");
+
+        Assert.Equal(0, buffer.Scrollback.Count);
+        Assert.Equal(2, buffer.Images.Count);
+        Assert.Equal(1, mainImage.CellY);  // rebased by clearedRows
+        Assert.Equal(2, altImage.CellY);   // untouched
+        Assert.True(altImage.IsAltScreenImage);
+        Assert.False(mainImage.IsAltScreenImage);
+    }
+
+    [Fact]
     public void ClearCommandSequence_Ed2ThenEd3_ClearsScreenAndScrollback()
     {
         var (buffer, parser) = CreateFilledTerminal();

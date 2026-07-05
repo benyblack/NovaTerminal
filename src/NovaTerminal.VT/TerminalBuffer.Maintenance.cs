@@ -9,6 +9,10 @@ namespace NovaTerminal.VT
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
+                // Tag ownership: alt-screen images use viewport-relative CellY, main-screen
+                // images absolute rows. Lets erase/rebase paths tell the two apart even
+                // though both live in the same list.
+                image.IsAltScreenImage = _isAltScreen;
                 _images.Add(image);
             }
             finally
@@ -96,16 +100,19 @@ namespace NovaTerminal.VT
                 int clearedRows = _scrollback.Count;
                 _scrollback.Clear();
 
-                // On the main screen, image CellY is absolute (scrollback + viewport), so
-                // removing scrollback rows shifts every anchor down — same convention as the
-                // eviction shift in ScrollUpInternal. Images now entirely above row 0 lived
-                // in the cleared history and are pruned. Alt-screen coordinates are
-                // viewport-relative and unaffected.
-                if (clearedRows > 0 && !_isAltScreen)
+                // Main-screen image CellY is absolute (scrollback + viewport), so removing
+                // scrollback rows shifts every main-screen anchor down — same convention as
+                // the eviction shift in ScrollUpInternal. Images now entirely above row 0
+                // lived in the cleared history and are pruned. This must run even while the
+                // alt screen is active (ED 3 still clears main-screen history); alt-screen
+                // images are viewport-relative and skipped via their ownership tag.
+                if (clearedRows > 0)
                 {
                     for (int i = _images.Count - 1; i >= 0; i--)
                     {
                         var img = _images[i];
+                        if (img.IsAltScreenImage) continue;
+
                         img.CellY -= clearedRows;
                         if (img.CellY + img.CellHeight <= 0)
                         {
@@ -124,15 +131,19 @@ namespace NovaTerminal.VT
 
         private void ClearScreenInternal(bool resetCursor)
         {
-            // Remove images intersecting the visible screen. On the main screen CellY is
-            // absolute (scrollback + viewport; see ScrollUpInternal/InsertLines), so images
-            // that live entirely in scrollback are preserved — ED 2 must not touch history.
-            // An image straddling the scrollback/viewport boundary is removed entirely,
-            // since a partial erase isn't representable.
+            // Remove images intersecting the visible screen of the ACTIVE buffer only.
+            // On the main screen CellY is absolute (scrollback + viewport; see
+            // ScrollUpInternal/InsertLines), so images living entirely in scrollback are
+            // preserved — ED 2 must not touch history. Images belonging to the inactive
+            // screen are untouched. An image straddling the scrollback/viewport boundary
+            // is removed entirely, since a partial erase isn't representable.
             int viewportTopAbs = _isAltScreen ? 0 : _scrollback.Count;
             for (int i = _images.Count - 1; i >= 0; i--)
             {
-                if (_images[i].CellY + _images[i].CellHeight > viewportTopAbs)
+                var img = _images[i];
+                if (img.IsAltScreenImage != _isAltScreen) continue;
+
+                if (img.CellY + img.CellHeight > viewportTopAbs)
                 {
                     _images.RemoveAt(i);
                 }
