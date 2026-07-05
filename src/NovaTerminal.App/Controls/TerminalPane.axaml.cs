@@ -2211,6 +2211,12 @@ namespace NovaTerminal.Controls
         /// </summary>
         public ITerminalSession? DetachFromUiThread()
         {
+            // Enforce the UI-thread contract BEFORE flipping _disposed: if this threw
+            // mid-teardown after _disposed was set, every later Dispose() would return
+            // early and the session would leak permanently — the exact bug this method
+            // exists to prevent.
+            Dispatcher.UIThread.VerifyAccess();
+
             if (_disposed) return null;
             _disposed = true;
 

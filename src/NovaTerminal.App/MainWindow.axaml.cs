@@ -3355,7 +3355,9 @@ namespace NovaTerminal
                         try { session.Dispose(); }
                         catch (Exception ex)
                         {
-                            System.Diagnostics.Debug.WriteLine($"[MainWindow] Session dispose failed: {ex.Message}");
+                            // Debug.WriteLine is compiled out of Release builds; use the
+                            // logger so production dispose failures leave a trace.
+                            TerminalLogger.Log($"[MainWindow] Session dispose failed: {ex.Message}");
                         }
                     });
                 }
