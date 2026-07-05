@@ -165,6 +165,32 @@ public class EraseInDisplayTests
     }
 
     [Fact]
+    public void AltScreenScroll_AfterEd3_DoesNotMoveHiddenMainScreenImages()
+    {
+        var (buffer, parser) = CreateFilledTerminal();
+        int scrollbackCount = buffer.Scrollback.Count;
+        Assert.True(scrollbackCount >= 2);
+
+        var mainImage = new TerminalImage(new object(), 0, scrollbackCount + 1, 2, 1);
+        buffer.AddImage(mainImage);
+
+        // Alt screen + ED 3 rebases the main image into the alt viewport's numeric range.
+        parser.Process("\x1b[?1049h");
+        parser.Process("\x1b[3J");
+        Assert.Equal(1, mainImage.CellY);
+
+        // Full-screen TUI scrolling in the alt screen must not disturb the hidden
+        // main-screen image even though its rebased CellY overlaps the region.
+        for (int i = 0; i < Rows + 2; i++)
+        {
+            parser.Process($"\x1b[{Rows};1Hline{i}\n");
+        }
+
+        Assert.Contains(mainImage, buffer.Images);
+        Assert.Equal(1, mainImage.CellY);
+    }
+
+    [Fact]
     public void ClearCommandSequence_Ed2ThenEd3_ClearsScreenAndScrollback()
     {
         var (buffer, parser) = CreateFilledTerminal();

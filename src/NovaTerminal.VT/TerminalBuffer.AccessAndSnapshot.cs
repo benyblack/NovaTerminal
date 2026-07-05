@@ -436,6 +436,9 @@ namespace NovaTerminal.VT
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
                     var img = _images[i];
+                    // Only the active screen's images move (see ScrollUpInternal).
+                    if (img.IsAltScreenImage != _isAltScreen) continue;
+
                     // If image starts in or below the insertion point, shift it down
                     if (img.IsSticky && img.CellY >= absTop && img.CellY <= absBottom)
                     {
@@ -493,6 +496,9 @@ namespace NovaTerminal.VT
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
                     var img = _images[i];
+                    // Only the active screen's images move (see ScrollUpInternal).
+                    if (img.IsAltScreenImage != _isAltScreen) continue;
+
                     // If image overlaps with or is below the deleted range
                     if (img.IsSticky && img.CellY + img.CellHeight > absTop && img.CellY <= absBottom)
                     {
