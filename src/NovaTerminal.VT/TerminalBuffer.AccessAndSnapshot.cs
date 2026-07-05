@@ -729,12 +729,14 @@ namespace NovaTerminal.VT
                         // Regex Search
                         foreach (System.Text.RegularExpressions.Match m in regex.Matches(lineText))
                         {
-                            if (m.Success)
-                            {
-                                int startCol = colMapping[m.Index];
-                                int endCol = colMapping[m.Index + m.Length - 1];
-                                matches.Add(new SearchMatch(r, startCol, endCol));
-                            }
+                            // Zero-length matches (patterns like "a*", "()" or "\b") have no
+                            // cells to highlight, and would index colMapping at -1 (or past the
+                            // end for a match at end-of-line). See #150.
+                            if (!m.Success || m.Length == 0) continue;
+
+                            int startCol = colMapping[m.Index];
+                            int endCol = colMapping[m.Index + m.Length - 1];
+                            matches.Add(new SearchMatch(r, startCol, endCol));
                         }
                     }
                     else
