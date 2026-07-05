@@ -131,7 +131,7 @@ acyclic dependency graph.
 Validation:
 
 - **[`tests/NovaTerminal.App.Tests`](tests/NovaTerminal.App.Tests/)** — primary unit and integration suite (Avalonia Headless UI), including replay, render-metrics, golden-PNG, and shell-integration lanes.
-- **[`tests/NovaTerminal.VT.Tests`](tests/NovaTerminal.VT.Tests/)**, **[`Rendering.Tests`](tests/NovaTerminal.Rendering.Tests/)**, **[`Platform.Tests`](tests/NovaTerminal.Platform.Tests/)**, **[`McpServer.Tests`](tests/NovaTerminal.McpServer.Tests/)** — deterministic per-module suites (the blocking CI lane).
+- **[`tests/NovaTerminal.VT.Tests`](tests/NovaTerminal.VT.Tests/)**, **[`tests/NovaTerminal.Rendering.Tests`](tests/NovaTerminal.Rendering.Tests/)**, **[`tests/NovaTerminal.Platform.Tests`](tests/NovaTerminal.Platform.Tests/)**, **[`tests/NovaTerminal.McpServer.Tests`](tests/NovaTerminal.McpServer.Tests/)** — deterministic per-module suites (the blocking CI lane).
 - **[`tests/NovaTerminal.Architecture.Tests`](tests/NovaTerminal.Architecture.Tests/)** — the dependency graph below is *enforced*, not aspirational: NetArchTest checks at IL, csproj, and namespace level.
 - **[`tests/NovaTerminal.Benchmarks`](tests/NovaTerminal.Benchmarks/)** — performance benchmarks and the SharpFuzz/libFuzzer harness.
 - **[`tests/NovaTerminal.ExternalSuites`](tests/NovaTerminal.ExternalSuites/)** — manual vttest / native-SSH scenario driver.
