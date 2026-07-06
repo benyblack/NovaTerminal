@@ -385,7 +385,12 @@ namespace NovaTerminal.Pty
         private void ReadLoop()
         {
             byte[] buffer = new byte[4096];
-            char[] charBuffer = new char[4096]; // For decoded characters
+            // Sized via GetMaxCharCount, NOT buffer.Length: the stateful decoder can carry
+            // up to 3 pending bytes from the previous read, so a full 4096-byte read can
+            // decode to 4097 chars. With a same-sized buffer GetChars threw
+            // ArgumentException and the catch-all below terminated the loop — the session
+            // went silently mute mid-stream (#168).
+            char[] charBuffer = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
 
             // This runs on a dedicated thread, so an unhandled exception would crash the
             // whole process (unlike the old Task.Run, whose unobserved exceptions were
@@ -483,7 +488,16 @@ namespace NovaTerminal.Pty
             _recorder?.RecordInput(input);
 
             byte[] data = Encoding.UTF8.GetBytes(input);
-            try { Native.pty_write(_handle, data, data.Length); }
+            try
+            {
+                // Rust side does write_all, so success returns the full length; anything
+                // else means the write failed (#168). Log — input loss must not be silent.
+                int written = Native.pty_write(_handle, data, data.Length);
+                if (written != data.Length)
+                {
+                    Console.WriteLine($"[RustPtySession] pty_write failed: {written} of {data.Length} bytes");
+                }
+            }
             catch (ObjectDisposedException) { /* session disposed mid-call — drop the write */ }
         }
 

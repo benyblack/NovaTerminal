@@ -514,8 +514,11 @@ pub extern "C" fn pty_write(state_ptr: *mut PtyState, buffer: *const u8, len: c_
 
         let buf = unsafe { std::slice::from_raw_parts(buffer, len as usize) };
         if let Ok(mut writer) = state.writer.lock() {
-            match writer.write(buf) {
-                Ok(n) => n as c_int,
+            // write_all, not write: a single write into a nearly-full PTY pipe can be
+            // partial, and the C# caller has no way to retry the remainder — large
+            // pastes silently lost bytes (#168).
+            match writer.write_all(buf) {
+                Ok(()) => len,
                 Err(_) => -1,
             }
         } else {
