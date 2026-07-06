@@ -27,10 +27,9 @@ namespace NovaTerminal.VT
             bool lockTaken = EnterWriteLockIfNeeded();
             try
             {
-                foreach (var img in _images)
-                {
-                    // ImageRegistry.Instance.RemoveImage(img.ImageId); // Optional: If we want shared bitmaps
-                }
+                // NOTE (#166): ImageHandle bitmaps are owned by the producing layer and are
+                // currently never disposed when images are dropped — see the issue for the
+                // planned ownership design (VT cannot reference SkiaSharp).
                 _images.Clear();
             }
             finally
