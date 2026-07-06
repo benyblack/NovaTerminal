@@ -34,6 +34,15 @@ namespace NovaTerminal.Pty
         // Bounded queue for back-pressure - prevents OOM on high-throughput output
         private readonly BlockingCollection<string> _outputQueue = new BlockingCollection<string>(boundedCapacity: 100);
 
+        // Bounded input queue drained by a dedicated writer thread. The native side does
+        // write_all, which can block indefinitely while the foreground program isn't
+        // draining stdin (paused pager, `sleep`, full-screen app) — and paste/drop
+        // handlers call SendInput from the Avalonia UI thread, so the blocking write must
+        // never run on the caller. The bound applies backpressure to pathological floods
+        // without unbounded memory growth.
+        private readonly BlockingCollection<byte[]> _inputQueue = new BlockingCollection<byte[]>(boundedCapacity: 1024);
+        private Thread? _writeLoopThread;
+
         // UTF-8 decoder with state - handles partial multi-byte sequences across reads
         private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
 
@@ -296,8 +305,10 @@ namespace NovaTerminal.Pty
             // IsBackground threads never consume the pool and never block process exit.
             _readLoopThread = new Thread(ReadLoop) { IsBackground = true, Name = $"PtyRead-{Id:N}" };
             _processLoopThread = new Thread(ProcessLoop) { IsBackground = true, Name = $"PtyProcess-{Id:N}" };
+            _writeLoopThread = new Thread(WriteLoop) { IsBackground = true, Name = $"PtyWrite-{Id:N}" };
             _readLoopThread.Start();
             _processLoopThread.Start();
+            _writeLoopThread.Start();
 
             // POST-LAUNCH INJECTION for PowerShell
             if (!skipPowerShellPostLaunchInit &&
@@ -385,7 +396,12 @@ namespace NovaTerminal.Pty
         private void ReadLoop()
         {
             byte[] buffer = new byte[4096];
-            char[] charBuffer = new char[4096]; // For decoded characters
+            // Sized via GetMaxCharCount, NOT buffer.Length: the stateful decoder can carry
+            // up to 3 pending bytes from the previous read, so a full 4096-byte read can
+            // decode to 4097 chars. With a same-sized buffer GetChars threw
+            // ArgumentException and the catch-all below terminated the loop — the session
+            // went silently mute mid-stream (#168).
+            char[] charBuffer = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
 
             // This runs on a dedicated thread, so an unhandled exception would crash the
             // whole process (unlike the old Task.Run, whose unobserved exceptions were
@@ -483,8 +499,45 @@ namespace NovaTerminal.Pty
             _recorder?.RecordInput(input);
 
             byte[] data = Encoding.UTF8.GetBytes(input);
-            try { Native.pty_write(_handle, data, data.Length); }
-            catch (ObjectDisposedException) { /* session disposed mid-call — drop the write */ }
+            try
+            {
+                // Queue for the dedicated writer thread — never write on the caller
+                // thread; see _inputQueue. Ordering is preserved (single consumer).
+                _inputQueue.Add(data, _cts.Token);
+            }
+            catch (OperationCanceledException) { /* session disposing — drop the write */ }
+            catch (InvalidOperationException) { /* adding completed — session closing */ }
+        }
+
+        private void WriteLoop()
+        {
+            // Contained like ReadLoop/ProcessLoop: this runs on a dedicated thread, so an
+            // unhandled exception would crash the process.
+            try
+            {
+                foreach (var data in _inputQueue.GetConsumingEnumerable(_cts.Token))
+                {
+                    try
+                    {
+                        // Rust side does write_all: success returns the full length,
+                        // failure returns -1 (#168). Input loss must not be silent.
+                        int written = Native.pty_write(_handle, data, data.Length);
+                        if (written != data.Length)
+                        {
+                            Console.WriteLine($"[RustPtySession] pty_write returned {written} (expected {data.Length}); input may be lost");
+                        }
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        return; // handle released — session is gone
+                    }
+                }
+            }
+            catch (OperationCanceledException) { /* dispose */ }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RustPtySession] WriteLoop terminated by unhandled exception: {ex}");
+            }
         }
 
         public void Resize(int cols, int rows)
@@ -521,6 +574,10 @@ namespace NovaTerminal.Pty
             {
                 _outputQueue.CompleteAdding();
             }
+            if (!_inputQueue.IsAddingCompleted)
+            {
+                _inputQueue.CompleteAdding();
+            }
 
             // 2. Quick join. If the shell already exited (EOF), the read loop is
             //    already unwinding — no cancel needed, and we avoid pty_cancel_read's
@@ -545,6 +602,14 @@ namespace NovaTerminal.Pty
             if (!(_processLoopThread?.Join(DisposeJoinTimeout) ?? true))
             {
                 Console.WriteLine("[RustPtySession] ProcessLoop did not exit within join timeout.");
+            }
+
+            // 4b. Join the writer. A write blocked on a full pipe unblocks when the
+            //     handle below is released (pty_close tears down the pipe); the thread is
+            //     IsBackground, so a timed-out join can never block process exit.
+            if (!(_writeLoopThread?.Join(DisposeJoinTimeout) ?? true))
+            {
+                Console.WriteLine("[RustPtySession] WriteLoop did not exit within join timeout.");
             }
 
             // 5. Release the handle. SafeHandle guarantees pty_close runs only once
