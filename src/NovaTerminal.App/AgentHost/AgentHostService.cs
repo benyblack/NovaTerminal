@@ -65,15 +65,24 @@ namespace NovaTerminal.AgentHost
             _exportDirectoryOverride = exportDirectoryOverride;
         }
 
+        // Volatile: written by the UI thread (settings apply), read by the IPC
+        // thread per exportReplay request — the store/load barrier makes a
+        // toggle visible to in-flight connections immediately.
+        private volatile bool _replayExportEnabled;
+
         /// <summary>
         /// Second default-off gate for <c>exportReplay</c> (A4): mirrors
         /// <c>TerminalSettings.AgentReplayExportEnabled</c>, pushed by
         /// MainWindow alongside <see cref="Apply"/>. Both the observe toggle
         /// (endpoint running) and this flag must be on for an export to
         /// succeed — the "explicit export action" tier of the DIRECTION
-        /// permission table. Read on the IPC thread; bool reads are atomic.
+        /// permission table.
         /// </summary>
-        public bool ReplayExportEnabled { get; set; }
+        public bool ReplayExportEnabled
+        {
+            get => _replayExportEnabled;
+            set => _replayExportEnabled = value;
+        }
 
         public bool IsRunning
         {
@@ -654,7 +663,11 @@ namespace NovaTerminal.AgentHost
             var exportDir = _exportDirectoryOverride
                 ?? Path.Combine(NovaTerminal.Shell.AppPaths.RecordingsDirectory, AgentHostProtocol.AgentExportsSubdirectory);
             Directory.CreateDirectory(exportDir);
-            var fileName = Controls.TerminalPane.BuildRecordingFileName(DateTime.Now, p.PaneId.ToString("N"));
+            // Fresh random suffix per export (same scheme as manual recordings):
+            // the timestamp alone has one-second resolution, so repeated exports
+            // for one pane within a second must not compute the same path — the
+            // writer truncates, which would silently destroy the earlier file.
+            var fileName = Controls.TerminalPane.BuildRecordingFileName(DateTime.Now, Guid.NewGuid().ToString("N"));
             var filePath = Path.Combine(exportDir, fileName);
 
             if (!registration.TryExportFlightRecording(filePath, out var info))

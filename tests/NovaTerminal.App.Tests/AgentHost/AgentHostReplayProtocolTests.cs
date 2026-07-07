@@ -152,6 +152,55 @@ public class AgentHostReplayProtocolTests : IDisposable
     }
 
     [Fact]
+    public void Swapping_or_clearing_the_published_session_disables_the_old_ring()
+    {
+        // A session this registration no longer owns must not keep retaining
+        // output until its eventual disposal (observe-lifecycle invariant).
+        var registration = new AgentSessionRegistration(
+            Guid.NewGuid(), new TerminalBuffer(80, 24), "t", "P", "local", isActive: true);
+        registration.EnableFlightRecording(1024);
+
+        var first = new FlightStubSession();
+        registration.SetLifecycle(first);
+        Assert.True(first.IsFlightRecording);
+
+        var second = new FlightStubSession();
+        registration.SetLifecycle(second);
+        Assert.False(first.IsFlightRecording);  // swapped out → ring dropped
+        Assert.True(second.IsFlightRecording);
+
+        registration.SetLifecycle(null);
+        Assert.False(second.IsFlightRecording); // cleared → ring dropped
+    }
+
+    [Fact]
+    public void Repeated_exports_for_the_same_pane_produce_distinct_files()
+    {
+        var registry = new AgentSessionRegistry();
+        var registration = Register(registry);
+        var session = new FlightStubSession();
+        registration.SetLifecycle(session);
+        registration.EnableFlightRecording(AgentHostProtocol.FlightRecorderMaxBytesPerSession);
+        session.FeedOutput("some output");
+
+        using var service = NewService(registry);
+        service.ReplayExportEnabled = true;
+
+        // Two exports within the same second (the timestamp component has
+        // one-second resolution) must not overwrite each other.
+        var first = Handle(service, ExportRequestLine(registration.PaneId, id: 1));
+        var second = Handle(service, ExportRequestLine(registration.PaneId, id: 2));
+
+        Assert.Null(first.Error);
+        Assert.Null(second.Error);
+        var firstResult = first.Result!.Value.Deserialize(AgentHostJsonContext.Default.ExportReplayResult)!;
+        var secondResult = second.Result!.Value.Deserialize(AgentHostJsonContext.Default.ExportReplayResult)!;
+        Assert.NotEqual(firstResult.FilePath, secondResult.FilePath);
+        Assert.True(File.Exists(firstResult.FilePath));
+        Assert.True(File.Exists(secondResult.FilePath));
+    }
+
+    [Fact]
     public void Session_published_after_enable_inherits_the_pending_recording_state()
     {
         // Registration happens before the pane spawns its PTY session; a session

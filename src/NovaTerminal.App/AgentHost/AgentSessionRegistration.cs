@@ -70,7 +70,25 @@ namespace NovaTerminal.AgentHost
         /// <summary>Publishes (or clears) the PTY session this registration runs on. UI thread.</summary>
         public void SetLifecycle(NovaTerminal.Pty.ITerminalSession? session)
         {
+            var previous = _session;
             _session = session;
+
+            // The flight ring follows the observe lifecycle of *this*
+            // registration: a session this registration no longer owns
+            // (reconnect swap, detach) must not keep retaining output until
+            // its eventual disposal.
+            if (previous != null && !ReferenceEquals(previous, session))
+            {
+                try
+                {
+                    previous.DisableFlightRecording();
+                }
+                catch
+                {
+                    // raced a dispose — the ring died with the session
+                }
+            }
+
             if (session != null)
             {
                 var maxBytes = System.Threading.Interlocked.Read(ref _flightRecordingMaxBytes);
