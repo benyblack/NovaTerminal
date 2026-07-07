@@ -256,13 +256,36 @@ namespace NovaTerminal.VT.Storage
         /// Used during vertical resize (height grow) to pull history back into the viewport.
         /// </summary>
         public bool TryPopLastRow(Span<TerminalCell> destination)
+            => TryPopLastRow(destination, out _, out _, out _);
+
+        /// <summary>
+        /// As <see cref="TryPopLastRow(Span{TerminalCell})"/>, but also returns
+        /// the row's wrap flag and side tables (extended text, hyperlinks) so a
+        /// restored viewport row is complete — extended graphemes must survive
+        /// the scrollback round trip. The vacated slot's metadata is cleared so
+        /// a later append into it cannot resurrect stale entries.
+        /// </summary>
+        public bool TryPopLastRow(
+            Span<TerminalCell> destination,
+            out bool isWrapped,
+            out SmallMap<string>? extendedText,
+            out SmallMap<string>? hyperlinks)
         {
+            isWrapped = false;
+            extendedText = null;
+            hyperlinks = null;
+
             if (_pages.Last == null || _pages.Last.Value.UsedRows == 0)
                 return false;
 
             var page = _pages.Last.Value;
-            page.GetRowSpanReadOnly(page.UsedRows - 1).CopyTo(destination);
-            
+            int rowIndex = page.UsedRows - 1;
+            page.GetRowSpanReadOnly(rowIndex).CopyTo(destination);
+            isWrapped = page.IsRowWrapped(rowIndex);
+            extendedText = page.GetExtendedTextMap(rowIndex);
+            hyperlinks = page.GetHyperlinkMap(rowIndex);
+            page.ClearRowMetadata(rowIndex);
+
             page.UsedRows--;
             _totalRowsAppended--;
 

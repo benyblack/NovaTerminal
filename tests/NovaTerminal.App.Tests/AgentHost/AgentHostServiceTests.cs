@@ -212,17 +212,46 @@ public class AgentHostServiceTests : IDisposable
     }
 
     [Fact]
-    public void Stop_removes_the_discovery_file()
+    public void Stop_retires_the_discovery_descriptor()
     {
         using var service = NewService(new AgentSessionRegistry());
         service.Apply(true);
         var discoveryPath = Path.Combine(_tempDir, AgentHostProtocol.DiscoveryFileName);
         Assert.True(File.Exists(discoveryPath));
+        Assert.True(new FileInfo(discoveryPath).Length > 0);
 
         service.Apply(false);
 
+        // The descriptor is truncated under an exclusive handle rather than
+        // deleted (delete-after-close would race a concurrent takeover). An
+        // empty file is a stale descriptor: no live endpoint is advertised.
         Assert.False(service.IsRunning);
-        Assert.False(File.Exists(discoveryPath));
+        Assert.True(!File.Exists(discoveryPath) || new FileInfo(discoveryPath).Length == 0);
+    }
+
+    [Fact]
+    public void Stop_leaves_a_foreign_live_descriptor_untouched()
+    {
+        using var service = NewService(new AgentSessionRegistry());
+        service.Apply(true);
+        var discoveryPath = Path.Combine(_tempDir, AgentHostProtocol.DiscoveryFileName);
+
+        // Simulate another instance taking over the endpoint between our start
+        // and our stop: the descriptor on disk is no longer ours.
+        var foreign = new EndpointDescriptor
+        {
+            Version = AgentHostProtocol.Version,
+            Endpoint = "someone-elses-endpoint",
+            Pid = Environment.ProcessId + 1,
+        };
+        File.WriteAllText(discoveryPath, JsonSerializer.Serialize(foreign, AgentHostJsonContext.Default.EndpointDescriptor));
+
+        service.Apply(false);
+
+        var survivor = JsonSerializer.Deserialize(
+            File.ReadAllText(discoveryPath), AgentHostJsonContext.Default.EndpointDescriptor);
+        Assert.NotNull(survivor);
+        Assert.Equal("someone-elses-endpoint", survivor!.Endpoint);
     }
 
     [Fact]

@@ -164,19 +164,50 @@ namespace NovaTerminal.AgentHost
 
             if (_discoveryFilePath != null)
             {
-                // Only remove the discovery file if it is still ours — another
-                // instance may have legitimately taken over the endpoint.
+                ReleaseDiscoveryFile(_discoveryFilePath);
+                _discoveryFilePath = null;
+            }
+        }
+
+        /// <summary>
+        /// Retires our discovery descriptor without racing other instances.
+        /// The pid check and the release happen under one exclusive file handle
+        /// (FileShare.None), so another instance cannot write its descriptor
+        /// between "it's ours" and the clear. We truncate instead of deleting:
+        /// a delete would have to happen after the handle closes, reopening the
+        /// window — while an empty file is already treated as a stale
+        /// descriptor by <see cref="TryReadForeignLiveDescriptor"/> and by
+        /// clients, and is rewritten in place by the next Start().
+        /// </summary>
+        private static void ReleaseDiscoveryFile(string path)
+        {
+            try
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                EndpointDescriptor? descriptor = null;
                 try
                 {
-                    var descriptor = JsonSerializer.Deserialize(
-                        File.ReadAllText(_discoveryFilePath), AgentHostJsonContext.Default.EndpointDescriptor);
-                    if (descriptor == null || descriptor.Pid == Environment.ProcessId)
-                    {
-                        File.Delete(_discoveryFilePath);
-                    }
+                    using var reader = new StreamReader(fs, leaveOpen: true);
+                    descriptor = JsonSerializer.Deserialize(
+                        reader.ReadToEnd(), AgentHostJsonContext.Default.EndpointDescriptor);
                 }
-                catch { /* best effort */ }
-                _discoveryFilePath = null;
+                catch (JsonException)
+                {
+                    // Unreadable == stale == safe to clear.
+                }
+
+                if (descriptor == null || descriptor.Pid == Environment.ProcessId)
+                {
+                    fs.SetLength(0);
+                    fs.Flush();
+                }
+                // else: another instance took over the endpoint — leave its
+                // descriptor untouched.
+            }
+            catch
+            {
+                // Missing file, or a foreign instance holds the lock right now:
+                // either way there is nothing of ours left to clean up.
             }
         }
 

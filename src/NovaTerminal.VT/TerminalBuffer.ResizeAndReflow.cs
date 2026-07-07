@@ -271,8 +271,13 @@ namespace NovaTerminal.VT
                 for (int i = linesNeeded - 1; i >= 0; i--)
                 {
                     var row = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
-                    if (_scrollback.TryPopLastRow(row.Cells))
+                    if (_scrollback.TryPopLastRow(row.Cells, out var isWrapped, out var extendedText, out var hyperlinks))
                     {
+                        // Restore the full row, not just cells: wrap flag and side
+                        // tables (extended text, hyperlinks) must survive the
+                        // shrink-then-grow round trip through scrollback.
+                        row.IsWrapped = isWrapped;
+                        row.RestoreSideTables(extendedText, hyperlinks);
                         newViewport[i] = row;
                         pulled++;
                     }

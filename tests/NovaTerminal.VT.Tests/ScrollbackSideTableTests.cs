@@ -47,6 +47,59 @@ public class ScrollbackSideTableTests
     }
 
     [Fact]
+    public void ShrinkThenGrow_RestoresExtendedTextIntoTheViewport()
+    {
+        // The pull-from-scrollback grow path (Reshape) runs on the main screen
+        // while the alternate screen is active — e.g. vim open during a height
+        // shrink + grow. The emoji row must come back from scrollback with its
+        // side table, not as HasExtendedText cells with no map behind them.
+        var buffer = new TerminalBuffer(20, 6);
+        var parser = new AnsiParser(buffer);
+        parser.Process("ok \U0001F44D done\r\n");
+        parser.Process("plain row\r\n");
+
+        parser.Process("\x1b[?1049h");   // enter alt screen (vim et al.)
+        buffer.Resize(20, 2);            // Reshape shrink: emoji row → scrollback
+        Assert.Contains("\U0001F44D", AllScrollbackExtendedText(buffer));
+        buffer.Resize(20, 6);            // Reshape grow: pulled back from scrollback
+        parser.Process("\x1b[?1049l");   // back to the main screen
+
+        var restored = new List<string>();
+        foreach (var row in buffer.ViewportRows)
+        {
+            var map = row.GetExtendedTextMap();
+            if (map == null) continue;
+            for (int col = 0; col < buffer.Cols; col++)
+            {
+                if (map.TryGet(col, out var text) && text != null) restored.Add(text);
+            }
+        }
+        Assert.Contains("\U0001F44D", restored);
+    }
+
+    [Fact]
+    public void PopThenAppend_DoesNotResurrectStaleMetadata()
+    {
+        var pool = new NovaTerminal.VT.Storage.TerminalPagePool();
+        var scrollback = new NovaTerminal.VT.Storage.ScrollbackPages(4, pool);
+        var map = new NovaTerminal.VT.Storage.SmallMap<string>();
+        map.Set(0, "\U0001F44D");
+        scrollback.AppendRow(new TerminalCell[4], isWrapped: true, extendedText: map);
+
+        // Pop returns the metadata with the row and vacates the slot…
+        Assert.True(scrollback.TryPopLastRow(new TerminalCell[4], out var isWrapped, out var extendedText, out _));
+        Assert.True(isWrapped);
+        Assert.NotNull(extendedText);
+
+        // …so a plain row appended into the same slot comes back clean: no
+        // wrap flag, no extended text inherited from the popped row.
+        long abs = scrollback.AppendRow(new TerminalCell[4]);
+        int index = (int)(abs - scrollback.TotalRowsEvicted);
+        Assert.Null(scrollback.GetExtendedTextMap(index));
+        Assert.False(scrollback.IsRowWrapped(index));
+    }
+
+    [Fact]
     public void WidthReflow_RebuildsScrollback_WithExtendedTextPreserved()
     {
         var buffer = new TerminalBuffer(20, 4);

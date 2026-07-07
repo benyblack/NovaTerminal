@@ -77,6 +77,18 @@ namespace NovaTerminal.VT
         /// </summary>
         public Storage.SmallMap<string>? GetHyperlinkMap() => _hyperlinks;
 
+        /// <summary>
+        /// Installs side tables wholesale. Counterpart of the Get*Map accessors:
+        /// used when a row is restored from paged scrollback (height grow) so
+        /// extended graphemes and hyperlinks survive the round trip. The row
+        /// takes ownership of the maps.
+        /// </summary>
+        public void RestoreSideTables(Storage.SmallMap<string>? extendedText, Storage.SmallMap<string>? hyperlinks)
+        {
+            _extendedText = extendedText is { Count: > 0 } ? extendedText : null;
+            _hyperlinks = hyperlinks is { Count: > 0 } ? hyperlinks : null;
+        }
+
         public TerminalRow(int cols)
         {
             Id = System.Threading.Interlocked.Increment(ref _nextId);
