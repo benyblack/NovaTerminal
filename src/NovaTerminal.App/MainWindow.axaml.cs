@@ -2561,6 +2561,7 @@ namespace NovaTerminal
             pane.CommandStarted -= OnPaneCommandStarted;
             pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
+            pane.LongCommandCompleted -= OnPaneLongCommandCompleted;
 
             pane.RequestRemoteFilesSidebarTransfer += OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged += OnPaneWorkingDirectoryChanged;
@@ -2571,6 +2572,7 @@ namespace NovaTerminal
             pane.CommandStarted += OnPaneCommandStarted;
             pane.CommandFinished += OnPaneCommandFinished;
             pane.ProcessExited += OnPaneProcessExited;
+            pane.LongCommandCompleted += OnPaneLongCommandCompleted;
         }
 
         private void UnwirePane(TerminalPane pane)
@@ -2585,6 +2587,7 @@ namespace NovaTerminal
             pane.CommandStarted -= OnPaneCommandStarted;
             pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
+            pane.LongCommandCompleted -= OnPaneLongCommandCompleted;
         }
 
         private void OnPaneRequestRemoteFilesSidebarTransfer(TerminalPane srcPane, SidebarTransferRequest request)
@@ -2664,6 +2667,27 @@ namespace NovaTerminal
             var state = GetOrCreateTabState(tab);
             state.LastExitCode = exitCode.Value;
             QueueTabVisualRefresh(tab);
+        }
+
+        private void OnPaneLongCommandCompleted(TerminalPane pane, string? commandText, int? exitCode, TimeSpan duration)
+        {
+            // Policy: opt-in, and only when the user isn't already looking at
+            // this pane (a different pane is current, or the window is in the
+            // background). The pane already applied the duration threshold.
+            if (!LongCommandNotificationPolicy.ShouldNotify(
+                    _settings.LongCommandNotificationsEnabled,
+                    windowActive: IsActive,
+                    isCurrentPane: ReferenceEquals(pane, _currentPane)))
+            {
+                return;
+            }
+
+            ShowRecordingToast(
+                "Command finished",
+                LongCommandNotificationPolicy.BuildMessage(commandText, exitCode, duration, pane.GetBaseTabTitle()),
+                filePath: null,
+                folderPath: null,
+                autoHide: true);
         }
 
         private void OnPaneProcessExited(TerminalPane pane, int exitCode)
