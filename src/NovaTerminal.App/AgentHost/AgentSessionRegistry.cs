@@ -46,13 +46,18 @@ namespace NovaTerminal.AgentHost
         /// Moves a registration to a new pane id. Session restore assigns a
         /// persisted PaneId after construction (SessionManager.RestorePaneTree),
         /// i.e. after the pane has already registered; the PaneId setter calls
-        /// this so the registry key always matches the pane. No-op when the old
-        /// id is unknown; false when the new id is already taken.
+        /// this so the registry key always matches the pane.
+        ///
+        /// Returns true when the pane is addressable under <paramref name="newPaneId"/>
+        /// afterwards — including the "nothing was registered" case, which is
+        /// not a desync. Returns false only when the entry remains keyed under
+        /// <paramref name="oldPaneId"/> (new id collision, reverted); the caller
+        /// must then keep using the old id.
         /// </summary>
         public bool Rekey(Guid oldPaneId, Guid newPaneId)
         {
             if (oldPaneId == newPaneId) return true;
-            if (!_sessions.TryRemove(oldPaneId, out var registration)) return false;
+            if (!_sessions.TryRemove(oldPaneId, out var registration)) return true;
 
             registration.PaneId = newPaneId;
             if (_sessions.TryAdd(newPaneId, registration)) return true;
@@ -73,9 +78,12 @@ namespace NovaTerminal.AgentHost
 
         /// <summary>
         /// Point-in-time snapshot as wire DTOs, ordered by PaneId for a
-        /// deterministic listing. Rows/Cols are read from the live buffer;
-        /// they are informational here — actual screen reads (PR3) go through
-        /// the deterministic snapshot path under the buffer lock.
+        /// deterministic listing. Safe to call from any thread: metadata comes
+        /// from the registration's lock-protected snapshot (pushed by the pane
+        /// on the UI thread), never from the Avalonia control. Rows/Cols are
+        /// informational int reads from the live buffer — actual screen reads
+        /// (PR3) go through the deterministic snapshot path under the buffer
+        /// lock.
         /// </summary>
         public SessionInfo[] ListSessions()
         {
@@ -84,12 +92,12 @@ namespace NovaTerminal.AgentHost
                 {
                     PaneId = r.PaneId,
                     TabId = r.TabId,
-                    Title = r.TitleProvider(),
-                    ProfileName = r.ProfileNameProvider(),
-                    Kind = r.KindProvider(),
+                    Title = r.Title,
+                    ProfileName = r.ProfileName,
+                    Kind = r.Kind,
                     Rows = r.Buffer.Rows,
                     Cols = r.Buffer.Cols,
-                    IsActive = r.IsActiveProvider(),
+                    IsActive = r.IsActive,
                 })
                 .OrderBy(s => s.PaneId)
                 .ToArray();

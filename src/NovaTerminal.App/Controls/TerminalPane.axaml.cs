@@ -85,6 +85,8 @@ namespace NovaTerminal.Controls
         /// (SessionManager.RestorePaneTree), i.e. after this pane already
         /// registered with the agent-session registry — so the setter re-keys
         /// the registry entry to keep it addressable under the current id.
+        /// If re-keying fails (the entry stayed under the old id), the pane
+        /// keeps the old id too: pane and registry must never disagree.
         /// </remarks>
         public Guid PaneId
         {
@@ -93,8 +95,10 @@ namespace NovaTerminal.Controls
             {
                 if (_paneId == value) return;
                 var oldId = _paneId;
-                _paneId = value;
-                NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Rekey(oldId, value);
+                if (NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Rekey(oldId, value))
+                {
+                    _paneId = value;
+                }
             }
         }
 
@@ -113,6 +117,7 @@ namespace NovaTerminal.Controls
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
         private bool _disposed;
+        private NovaTerminal.AgentHost.AgentSessionRegistration? _agentRegistration;
         private Action<int, int>? _onTermViewResize;
         private Action<float, float>? _onTermViewMetricsChanged;
         private DispatcherTimer? _statusTimer;
@@ -170,8 +175,24 @@ namespace NovaTerminal.Controls
                 {
                     _isActivePane = value;
                     UpdateFocusVisuals(IsKeyboardFocusWithin);
+                    UpdateAgentSessionSnapshot();
                 }
             }
+        }
+
+        /// <summary>
+        /// Pushes this pane's current metadata into its agent-session
+        /// registration (UI thread only). Cheap and allocation-light; called
+        /// on title/cwd/profile/active-state changes so background registry
+        /// readers never touch this control.
+        /// </summary>
+        private void UpdateAgentSessionSnapshot()
+        {
+            _agentRegistration?.UpdateSnapshot(
+                GetBaseTabTitle(),
+                Profile?.Name ?? "Terminal",
+                Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
+                IsActivePane);
         }
 
         public string GetBaseTabTitle()
@@ -268,6 +289,7 @@ namespace NovaTerminal.Controls
         public void UpdateProfile(TerminalProfile profile)
         {
             Profile = profile;
+            UpdateAgentSessionSnapshot();
             TermView.ShellOverride = profile.ShellOverride;
             UpdateCommandAssistContext();
             UpdateRemoteFilesSidebarHostIdentity();
@@ -366,19 +388,20 @@ namespace NovaTerminal.Controls
         private void SetupCommon(TerminalSettings? initialSettings)
         {
             // Agent-host observe surface (docs/agent-host/DIRECTION.md, A1):
-            // inert bookkeeping until the IPC endpoint queries it. Providers
-            // keep the entry live across profile/title changes; the entry is
-            // removed in DetachFromUiThread.
-            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(
-                new NovaTerminal.AgentHost.AgentSessionRegistration
-                {
-                    PaneId = PaneId,
-                    Buffer = Buffer!,
-                    TitleProvider = GetBaseTabTitle,
-                    ProfileNameProvider = () => Profile?.Name ?? "Terminal",
-                    KindProvider = () => Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
-                    IsActiveProvider = () => IsActivePane,
-                });
+            // inert bookkeeping until the IPC endpoint queries it. The
+            // registration holds a lock-protected metadata snapshot (never a
+            // live delegate into this control), pushed from the UI thread on
+            // every relevant change; the entry is removed in DetachFromUiThread.
+            _agentRegistration = new NovaTerminal.AgentHost.AgentSessionRegistration(
+                PaneId,
+                Buffer!,
+                GetBaseTabTitle(),
+                Profile?.Name ?? "Terminal",
+                Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
+                IsActivePane);
+            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
+            TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
+            WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
 
             TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
             TermView.TextInput += (_, e) =>

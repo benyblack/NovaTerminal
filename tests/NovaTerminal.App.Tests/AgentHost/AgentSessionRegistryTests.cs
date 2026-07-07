@@ -21,15 +21,13 @@ public class AgentSessionRegistryTests
         string kind = "local",
         bool isActive = false)
     {
-        return new AgentSessionRegistration
-        {
-            PaneId = paneId ?? Guid.NewGuid(),
-            Buffer = buffer ?? new TerminalBuffer(80, 24),
-            TitleProvider = () => title,
-            ProfileNameProvider = () => profileName,
-            KindProvider = () => kind,
-            IsActiveProvider = () => isActive,
-        };
+        return new AgentSessionRegistration(
+            paneId ?? Guid.NewGuid(),
+            buffer ?? new TerminalBuffer(80, 24),
+            title,
+            profileName,
+            kind,
+            isActive);
     }
 
     [Fact]
@@ -48,6 +46,7 @@ public class AgentSessionRegistryTests
         Assert.Equal(30, session.Rows);
         Assert.Equal(120, session.Cols);
         Assert.True(session.IsActive);
+        Assert.Null(session.TabId); // not yet associated — null, never Guid.Empty
     }
 
     [Fact]
@@ -75,24 +74,14 @@ public class AgentSessionRegistryTests
     }
 
     [Fact]
-    public void Providers_are_read_live_not_captured_at_registration()
+    public void UpdateSnapshot_changes_are_visible_in_the_next_listing()
     {
         var registry = new AgentSessionRegistry();
         var id = Guid.NewGuid();
-        var title = "before";
-        var active = false;
-        registry.Register(new AgentSessionRegistration
-        {
-            PaneId = id,
-            Buffer = new TerminalBuffer(80, 24),
-            TitleProvider = () => title,
-            ProfileNameProvider = () => "Profile",
-            KindProvider = () => "local",
-            IsActiveProvider = () => active,
-        });
+        var registration = MakeRegistration(id, title: "before", isActive: false);
+        registry.Register(registration);
 
-        title = "after";
-        active = true;
+        registration.UpdateSnapshot("after", "Profile", "local", isActive: true);
 
         var session = registry.ListSessions().Single();
         Assert.Equal("after", session.Title);
@@ -118,11 +107,29 @@ public class AgentSessionRegistryTests
     }
 
     [Fact]
-    public void Rekey_of_unknown_id_is_a_noop()
+    public void Rekey_of_unregistered_pane_succeeds_without_creating_an_entry()
+    {
+        // "Nothing registered" is not a desync: the caller may safely adopt
+        // the new id. False is reserved for the entry remaining under the old id.
+        var registry = new AgentSessionRegistry();
+        Assert.True(registry.Rekey(Guid.NewGuid(), Guid.NewGuid()));
+        Assert.Equal(0, registry.Count);
+    }
+
+    [Fact]
+    public void Rekey_collision_keeps_the_entry_under_the_old_id_and_reports_failure()
     {
         var registry = new AgentSessionRegistry();
-        Assert.False(registry.Rekey(Guid.NewGuid(), Guid.NewGuid()));
-        Assert.Equal(0, registry.Count);
+        var oldId = Guid.NewGuid();
+        var takenId = Guid.NewGuid();
+        registry.Register(MakeRegistration(oldId, title: "mover"));
+        registry.Register(MakeRegistration(takenId, title: "occupant"));
+
+        Assert.False(registry.Rekey(oldId, takenId));
+
+        Assert.True(registry.TryGet(oldId, out var mover));
+        Assert.Equal(oldId, mover.PaneId);
+        Assert.Equal("occupant", registry.ListSessions().Single(s => s.PaneId == takenId).Title);
     }
 
     [Fact]

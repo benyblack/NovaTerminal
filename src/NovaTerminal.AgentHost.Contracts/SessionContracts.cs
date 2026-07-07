@@ -8,8 +8,14 @@ public sealed record SessionInfo
     [JsonPropertyName("paneId")]
     public required Guid PaneId { get; init; }
 
+    /// <summary>
+    /// Owning tab, or null when the pane has not yet been associated with a
+    /// tab (association happens lazily in the UI layer; freshly created split
+    /// or replacement panes may briefly be unassociated). Clients must treat
+    /// null as "unknown", never as an identity.
+    /// </summary>
     [JsonPropertyName("tabId")]
-    public required Guid TabId { get; init; }
+    public required Guid? TabId { get; init; }
 
     [JsonPropertyName("title")]
     public required string Title { get; init; }
