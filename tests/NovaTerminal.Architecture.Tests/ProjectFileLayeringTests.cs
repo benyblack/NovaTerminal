@@ -67,4 +67,11 @@ public class ProjectFileLayeringTests
         var refs = ProjectReferences("src/NovaTerminal.VT/NovaTerminal.VT.csproj");
         Assert.Empty(refs);
     }
+
+    [Fact]
+    public void AgentHostContracts_csproj_must_have_no_project_references()
+    {
+        var refs = ProjectReferences("src/NovaTerminal.AgentHost.Contracts/NovaTerminal.AgentHost.Contracts.csproj");
+        Assert.Empty(refs);
+    }
 }

@@ -78,7 +78,25 @@ namespace NovaTerminal.Controls
         public string ShellCommand { get; private set; } = string.Empty;
         public string ShellArgs { get; private set; } = string.Empty;
         public TerminalProfile? Profile { get; private set; }
-        public Guid PaneId { get; set; } = Guid.NewGuid();
+        private Guid _paneId = Guid.NewGuid();
+
+        /// <remarks>
+        /// Session restore assigns a persisted id after construction
+        /// (SessionManager.RestorePaneTree), i.e. after this pane already
+        /// registered with the agent-session registry — so the setter re-keys
+        /// the registry entry to keep it addressable under the current id.
+        /// </remarks>
+        public Guid PaneId
+        {
+            get => _paneId;
+            set
+            {
+                if (_paneId == value) return;
+                var oldId = _paneId;
+                _paneId = value;
+                NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Rekey(oldId, value);
+            }
+        }
 
         public event Action<TerminalPane, SidebarTransferRequest>? RequestRemoteFilesSidebarTransfer;
         public event Action<bool>? RecordingStateChanged;
@@ -347,6 +365,21 @@ namespace NovaTerminal.Controls
 
         private void SetupCommon(TerminalSettings? initialSettings)
         {
+            // Agent-host observe surface (docs/agent-host/DIRECTION.md, A1):
+            // inert bookkeeping until the IPC endpoint queries it. Providers
+            // keep the entry live across profile/title changes; the entry is
+            // removed in DetachFromUiThread.
+            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(
+                new NovaTerminal.AgentHost.AgentSessionRegistration
+                {
+                    PaneId = PaneId,
+                    Buffer = Buffer!,
+                    TitleProvider = GetBaseTabTitle,
+                    ProfileNameProvider = () => Profile?.Name ?? "Terminal",
+                    KindProvider = () => Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
+                    IsActiveProvider = () => IsActivePane,
+                });
+
             TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
             TermView.TextInput += (_, e) =>
             {
@@ -2219,6 +2252,8 @@ namespace NovaTerminal.Controls
 
             if (_disposed) return null;
             _disposed = true;
+
+            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Unregister(PaneId);
 
             CloseRemoteFilesSidebar();
 

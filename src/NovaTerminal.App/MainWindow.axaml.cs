@@ -3680,6 +3680,7 @@ namespace NovaTerminal
             _currentPane = pane;
             _activePaneByTab[tabItem] = pane;
             _paneOwnerTab[pane] = tabItem;
+            AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(pane.PaneId, GetPersistentTabId(tabItem));
 
             // Defer visual update until layout is complete (ensures template is applied)
             EventHandler? layoutHandler = null;
@@ -5235,6 +5236,7 @@ namespace NovaTerminal
             if (control is TerminalPane pane)
             {
                 _paneOwnerTab[pane] = tabItem;
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(pane.PaneId, GetPersistentTabId(tabItem));
                 return;
             }
 
@@ -5271,6 +5273,7 @@ namespace NovaTerminal
             if (visualTab != null)
             {
                 _paneOwnerTab[pane] = visualTab;
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(pane.PaneId, GetPersistentTabId(visualTab));
                 return visualTab;
             }
 

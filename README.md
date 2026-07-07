@@ -160,12 +160,18 @@ Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zer
 
 #### Active work
 
+- **Agent host program** — the accepted strategic direction
+  ([`docs/agent-host/DIRECTION.md`](docs/agent-host/DIRECTION.md)): a
+  session-facing MCP surface so AI agents can observe, query status of, and
+  (with explicit permission) act inside live terminal sessions, with
+  deterministic replay as the debugging story.
 - **VT conformance program** — every supported VT/ANSI feature is tracked in a
   matrix; a dedicated CI lane regenerates the report and fails on regressions.
   See [`docs/vt_coverage_matrix.md`](docs/vt_coverage_matrix.md) and
   [`docs/ghostty-gaps/vt_conformance_tooling.md`](docs/ghostty-gaps/vt_conformance_tooling.md).
-- **Ghostty gap closure** — systematic comparison against Ghostty's behavior
-  with a roadmap for closing remaining gaps. See
+- **Ghostty gap tracking (regression gate)** — comparison against Ghostty's
+  behavior is maintained as a regression gate; remaining matrix gaps are
+  closed when real TUI or agent workflows hit them. See
   [`docs/ghostty-gaps/`](docs/ghostty-gaps/) and
   [`docs/vt_ghostty_gap_matrix.md`](docs/vt_ghostty_gap_matrix.md).
 - **Native SSH** — cross-platform SSH client (experimental, opt-in) with VT

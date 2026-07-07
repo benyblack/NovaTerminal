@@ -240,6 +240,7 @@
     <ProjectReference Include="..\NovaTerminal.Rendering\NovaTerminal.Rendering.csproj" />
     <ProjectReference Include="..\NovaTerminal.Pty\NovaTerminal.Pty.csproj" />
     <ProjectReference Include="..\NovaTerminal.Replay\NovaTerminal.Replay.csproj" />
+    <ProjectReference Include="..\NovaTerminal.AgentHost.Contracts\NovaTerminal.AgentHost.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>
