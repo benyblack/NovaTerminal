@@ -1425,6 +1425,16 @@ namespace NovaTerminal
             string? name = await ShowTextPromptAsync("Import Workspace Bundle", "Workspace name", suggestedName);
             if (string.IsNullOrWhiteSpace(name)) return;
 
+            // Confirm any commands before storing the bundle, so anything later loaded by
+            // name has already been reviewed (#171). Inspect the payload first.
+            if (WorkspaceManager.LoadWorkspaceBundleSession(bundlePath, out _, out var previewSnapshot, out _))
+            {
+                if (!await ConfirmBundleCommandsAsync(previewSnapshot, name.Trim()))
+                {
+                    return;
+                }
+            }
+
             if (WorkspaceManager.ImportWorkspaceBundle(bundlePath, name.Trim(), out var error))
             {
                 SetupCommandPalette();
@@ -1461,6 +1471,12 @@ namespace NovaTerminal
             bool ok = WorkspaceManager.LoadWorkspaceBundleSession(bundlePath, out var _workspaceName, out var snapshot, out var error);
             if (ok && snapshot != null)
             {
+                // This spawns the bundle's stored commands immediately — confirm first
+                // for a foreign .novaws.json opened from disk (#171).
+                if (!await ConfirmBundleCommandsAsync(snapshot, _workspaceName ?? "workspace"))
+                {
+                    return;
+                }
                 ApplySessionSnapshot(snapshot);
                 return;
             }
@@ -3319,6 +3335,98 @@ namespace NovaTerminal
                             HorizontalAlignment = HorizontalAlignment.Right,
                             Spacing = 8,
                             Children = { cancelButton, closeButton }
+                        }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
+            return confirmed;
+        }
+
+        // Collects the ad-hoc shell commands a bundle would spawn on restore. Only leaf
+        // nodes carrying an explicit Command are arbitrary-execution vectors; panes that
+        // resolve a stored local/SSH profile run a known, already-trusted target (#171).
+        internal static List<string> CollectBundleCommands(NovaSession? session)
+        {
+            var commands = new List<string>();
+            if (session?.Tabs == null) return commands;
+
+            void Walk(PaneNode? node)
+            {
+                if (node == null) return;
+                if (node.Type == NodeType.Leaf)
+                {
+                    if (!string.IsNullOrWhiteSpace(node.Command))
+                    {
+                        string args = string.IsNullOrWhiteSpace(node.Arguments) ? "" : " " + node.Arguments;
+                        commands.Add((node.Command + args).Trim());
+                    }
+                }
+                else if (node.Children != null)
+                {
+                    foreach (var child in node.Children) Walk(child);
+                }
+            }
+
+            foreach (var tab in session.Tabs) Walk(tab.Root);
+            return commands;
+        }
+
+        // Confirms the commands a foreign bundle will run before it spawns anything.
+        // Returns true when there is nothing to run or the user approves.
+        private async Task<bool> ConfirmBundleCommandsAsync(NovaSession? session, string bundleName)
+        {
+            var commands = CollectBundleCommands(session);
+            if (commands.Count == 0) return true; // profile-only bundles run known targets
+
+            bool confirmed = false;
+            var dialog = CreateThemedDialogWindow("Run Workspace Commands?", 520, 320, canResize: false);
+
+            var listText = string.Join("\n", commands.ConvertAll(c => "•  " + c));
+
+            var cancelButton = new Button { Content = "Cancel", Width = 92 };
+            cancelButton.Click += (_, __) => { confirmed = false; dialog.Close(); };
+
+            var runButton = new Button { Content = "Run Commands", Width = 130 };
+            runButton.Click += (_, __) => { confirmed = true; dialog.Close(); };
+
+            dialog.Content = new Border
+            {
+                Padding = new Thickness(16),
+                Child = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = $"The workspace \"{bundleName}\" will run these commands:",
+                            FontWeight = FontWeight.SemiBold,
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new ScrollViewer
+                        {
+                            MaxHeight = 180,
+                            Content = new TextBlock
+                            {
+                                Text = listText,
+                                FontFamily = new Avalonia.Media.FontFamily("Consolas, monospace"),
+                                TextWrapping = TextWrapping.Wrap
+                            }
+                        },
+                        new TextBlock
+                        {
+                            Text = "Only run commands from a workspace you trust.",
+                            Opacity = 0.8,
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Spacing = 8,
+                            Children = { cancelButton, runButton }
                         }
                     }
                 }
