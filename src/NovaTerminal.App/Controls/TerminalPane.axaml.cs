@@ -403,6 +403,16 @@ namespace NovaTerminal.Controls
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
 
+            // A2 status signals (docs/plans/2026-07-07-agent-host-a2-status-design.md):
+            // PTY/shell lifecycle events feed the per-session status machine.
+            // Prompt/command-accepted signals are wired where the parser hooks
+            // are installed (InitializeSession); alt-screen in HandleAltScreenChanged.
+            OutputReceived += _ => _agentRegistration?.StatusMachine.NotifyOutput();
+            BellReceived += _ => _agentRegistration?.StatusMachine.NotifyBell();
+            CommandStarted += _ => _agentRegistration?.StatusMachine.NotifyCommandStarted();
+            CommandFinished += (_, exitCode) => _agentRegistration?.StatusMachine.NotifyCommandFinished(exitCode);
+            ProcessExited += (_, exitCode) => _agentRegistration?.StatusMachine.NotifyExited(exitCode);
+
             TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
             TermView.TextInput += (_, e) =>
             {
@@ -1307,6 +1317,7 @@ namespace NovaTerminal.Controls
 
         private void HandleAltScreenChanged(bool isAltScreen)
         {
+            _agentRegistration?.StatusMachine.NotifyAltScreenChanged(isAltScreen);
             _commandAssistController?.HandleAltScreenChanged(isAltScreen);
             UpdateRemoteFilesSidebarVisibility();
             UpdateRemoteFilesSidebarEntryPointState();
@@ -1535,11 +1546,13 @@ namespace NovaTerminal.Controls
             Parser.OnPromptReady += () =>
             {
                 _shellLifecycleTracker?.HandlePromptReady();
+                _agentRegistration?.StatusMachine.NotifyPromptReady();
             };
             Parser.OnCommandAccepted += commandText =>
             {
                 _lastRelevantCommandText = commandText?.Trim();
                 _shellLifecycleTracker?.HandleCommandAccepted(commandText);
+                _agentRegistration?.StatusMachine.NotifyCommandAccepted(commandText);
             };
             Parser.OnCommandStarted += () =>
             {
