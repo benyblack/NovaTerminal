@@ -13,6 +13,9 @@ Related execution plans:
 - `docs/PRODUCTION_EXECUTION_PLAN.md`
 - `docs/MULTI_PANE_EXECUTION_PLAN.md`
 - `docs/TABS_EXECUTION_PLAN.md`
+- `docs/agent-host/DIRECTION.md` — **accepted strategic direction (2026-07-07)**:
+  NovaTerminal as an agent host ("enable, don't embed"). Reframes Phases 4–5
+  and demotes Ghostty gap closure to a regression gate.
 
 ---
 
@@ -325,6 +328,11 @@ in `docs/SSH_ROADMAP.md` and `docs/native-ssh/Native_SSH_Test_Matrix.md`.
 # Phase 4 — Optional AI (Post-v1)
 
 > Must be opt-in and privacy-respecting.
+>
+> **Direction update (2026-07-07):** the accepted strategy is
+> `docs/agent-host/DIRECTION.md` — NovaTerminal enables agents (session-facing
+> MCP surface: observe / status / act / replay) rather than embedding AI.
+> Command Assist remains the only user-facing AI-adjacent surface.
 
 ---
 
@@ -363,6 +371,8 @@ in `docs/SSH_ROADMAP.md` and `docs/native-ssh/Native_SSH_Test_Matrix.md`.
 ---
 
 ## 5.2 Automation Hooks
+
+> Absorbed into milestone **A2** of `docs/agent-host/DIRECTION.md`.
 
 ### Deliverables
 - Notifications for long-running commands

@@ -10,6 +10,7 @@ public class LayeringTests
     private static Assembly Rendering => typeof(global::NovaTerminal.Rendering.GlyphAtlas).Assembly;
     private static Assembly Pty       => typeof(global::NovaTerminal.Pty.ITerminalSession).Assembly;
     private static Assembly Platform  => typeof(global::NovaTerminal.Platform.Input.TerminalInputSender).Assembly;
+    private static Assembly AgentHostContracts => typeof(global::NovaTerminal.AgentHost.Contracts.AgentHostProtocol).Assembly;
 
     [Fact]
     public void Vt_must_be_a_leaf_assembly()
@@ -78,9 +79,30 @@ public class LayeringTests
     }
 
     [Fact]
+    public void AgentHostContracts_must_be_a_leaf_assembly()
+    {
+        var result = Types.InAssembly(AgentHostContracts)
+            .Should()
+            .NotHaveDependencyOnAny(
+                "NovaTerminal.VT",
+                "NovaTerminal.Replay",
+                "NovaTerminal.Rendering",
+                "NovaTerminal.Pty",
+                "NovaTerminal.Platform",
+                "NovaTerminal.App",
+                "Avalonia",
+                "SkiaSharp")
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            $"AgentHost.Contracts is a shared wire-contract leaf and must not depend on any " +
+            $"production layer. Offenders: {Join(result.FailingTypeNames)}");
+    }
+
+    [Fact]
     public void No_production_assembly_references_test_assemblies()
     {
-        foreach (var asm in new[] { Vt, Replay, Rendering, Pty, Platform })
+        foreach (var asm in new[] { Vt, Replay, Rendering, Pty, Platform, AgentHostContracts })
         {
             var result = Types.InAssembly(asm)
                 .Should()

@@ -3556,6 +3556,7 @@ namespace NovaTerminal
             if (TryGetSelectedTab(out var selectedTab))
             {
                 _activePaneByTab[selectedTab] = replacementPane;
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(replacementPane.PaneId, GetPersistentTabId(selectedTab));
                 if (FindTabHeaderTextBlock(selectedTab.Header) is TextBlock tabHeader)
                 {
                     tabHeader.Text = resolvedProfile.Name;
@@ -3680,6 +3681,7 @@ namespace NovaTerminal
             _currentPane = pane;
             _activePaneByTab[tabItem] = pane;
             _paneOwnerTab[pane] = tabItem;
+            AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(pane.PaneId, GetPersistentTabId(tabItem));
 
             // Defer visual update until layout is complete (ensures template is applied)
             EventHandler? layoutHandler = null;
@@ -3829,6 +3831,10 @@ namespace NovaTerminal
 
             newPane.ApplySettings(_settings);
             WirePane(newPane);
+            if (TryGetSelectedTab(out var splitOwnerTab))
+            {
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(newPane.PaneId, GetPersistentTabId(splitOwnerTab));
+            }
             newPane.MinWidth = Math.Max(newPane.MinWidth, minPaneWidth);
             newPane.MinHeight = Math.Max(newPane.MinHeight, minPaneHeight);
             originalPane.MinWidth = Math.Max(originalPane.MinWidth, minPaneWidth);
@@ -5235,6 +5241,7 @@ namespace NovaTerminal
             if (control is TerminalPane pane)
             {
                 _paneOwnerTab[pane] = tabItem;
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(pane.PaneId, GetPersistentTabId(tabItem));
                 return;
             }
 
@@ -5271,6 +5278,7 @@ namespace NovaTerminal
             if (visualTab != null)
             {
                 _paneOwnerTab[pane] = visualTab;
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(pane.PaneId, GetPersistentTabId(visualTab));
                 return visualTab;
             }
 

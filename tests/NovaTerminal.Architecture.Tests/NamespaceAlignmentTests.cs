@@ -17,7 +17,7 @@ public class NamespaceAlignmentTests
     // Leaf assemblies, each owning exactly "NovaTerminal.<Name>.*".
     private static readonly string[] LeafAssemblies =
         { "NovaTerminal.VT", "NovaTerminal.Replay", "NovaTerminal.Rendering",
-          "NovaTerminal.Pty", "NovaTerminal.Platform" };
+          "NovaTerminal.Pty", "NovaTerminal.Platform", "NovaTerminal.AgentHost.Contracts" };
 
     [Theory]
     [InlineData("NovaTerminal.VT")]
@@ -25,6 +25,7 @@ public class NamespaceAlignmentTests
     [InlineData("NovaTerminal.Rendering")]
     [InlineData("NovaTerminal.Pty")]
     [InlineData("NovaTerminal.Platform")]
+    [InlineData("NovaTerminal.AgentHost.Contracts")]
     public void Leaf_assembly_types_reside_in_its_own_namespace(string asmName)
     {
         var result = Types.InAssembly(LoadByName(asmName))
