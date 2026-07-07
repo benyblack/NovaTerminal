@@ -193,6 +193,55 @@ namespace NovaTerminal.Tests.ReplayTests
         }
 
         [Fact]
+        public async Task ExportTo_AfterResizeEviction_ReplayerAppliesPostResizeGeometryBeforeData()
+        {
+            // The retained window may start with a chunk that was emitted *after* a
+            // resize that has since been evicted. ReplayRunner applies the header
+            // geometry before replaying data, so the header must carry the
+            // post-resize dimensions — otherwise that chunk would render at the old
+            // width (wrong wrapping/cursor).
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                long budget = 100 + FlightRecordingBuffer.EntryOverheadBytes;
+                var ring = new FlightRecordingBuffer(budget, 80, 24, clock: static () => 0);
+
+                ring.RecordChunk(new byte[100], 100);   // 80x24 era — evicted
+                ring.RecordResize(132, 43);             // evicted
+                ring.RecordChunk(new byte[100], 100);   // retained; emitted at 132x43
+
+                ring.ExportTo(tempFile, "pwsh.exe");
+
+                var geometryCallbacks = new System.Collections.Generic.List<(int Cols, int Rows)>();
+                int dataChunksBeforeFirstGeometry = 0;
+                var runner = new ReplayRunner(tempFile);
+                await runner.RunWithResultAsync(
+                    onDataCallback: _ =>
+                    {
+                        if (geometryCallbacks.Count == 0) dataChunksBeforeFirstGeometry++;
+                        return Task.CompletedTask;
+                    },
+                    onResizeCallback: (cols, rows) =>
+                    {
+                        geometryCallbacks.Add((cols, rows));
+                        return Task.CompletedTask;
+                    },
+                    options: new ReplayRunOptions { PlaybackMode = ReplayPlaybackMode.Virtual });
+
+                // Geometry arrives from the header before any data, and it is the
+                // post-resize geometry — never the stale 80x24.
+                Assert.Equal(0, dataChunksBeforeFirstGeometry);
+                Assert.NotEmpty(geometryCallbacks);
+                Assert.Equal((132, 43), geometryCallbacks[0]);
+                Assert.DoesNotContain((80, 24), geometryCallbacks);
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
         public void ExportTo_EmptyRing_WritesHeaderOnlyFile()
         {
             string tempFile = Path.GetTempFileName();
