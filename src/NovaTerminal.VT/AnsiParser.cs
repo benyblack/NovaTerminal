@@ -119,11 +119,11 @@ namespace NovaTerminal.VT
             {
                 OnBell?.Invoke();
             }
-            else if (c == '') // SO — shift GL to G1
+            else if (c == '\x0e') // SO — shift GL to G1
             {
                 _gl = 1;
             }
-            else if (c == '') // SI — shift GL to G0
+            else if (c == '\x0f') // SI — shift GL to G0
             {
                 _gl = 0;
             }
