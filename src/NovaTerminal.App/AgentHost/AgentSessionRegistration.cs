@@ -32,8 +32,7 @@ namespace NovaTerminal.AgentHost
             string profileName,
             string kind,
             bool isActive,
-            Func<DateTimeOffset>? nowProvider = null,
-            Func<bool?>? hasActiveChildProcessesProvider = null)
+            Func<DateTimeOffset>? nowProvider = null)
         {
             ArgumentNullException.ThrowIfNull(buffer);
             _paneId = paneId;
@@ -43,7 +42,6 @@ namespace NovaTerminal.AgentHost
             _kind = kind;
             _isActive = isActive;
             StatusMachine = new AgentSessionStatusMachine(nowProvider);
-            HasActiveChildProcesses = hasActiveChildProcessesProvider ?? (static () => null);
         }
 
         /// <summary>
@@ -52,16 +50,38 @@ namespace NovaTerminal.AgentHost
         /// </summary>
         public AgentSessionStatusMachine StatusMachine { get; }
 
+        // The PTY lifecycle behind this session, published by the pane on the
+        // UI thread whenever the session is created, swapped, or torn down —
+        // the same push pattern as the metadata snapshot, so the endpoint's
+        // sweep never dereferences pane state. Volatile: a reference published
+        // here is safely visible to the timer thread.
+        private volatile NovaTerminal.Pty.ITerminalLifecycle? _lifecycle;
+
+        /// <summary>Publishes (or clears) the PTY lifecycle this session runs on. UI thread.</summary>
+        public void SetLifecycle(NovaTerminal.Pty.ITerminalLifecycle? lifecycle) => _lifecycle = lifecycle;
+
         /// <summary>
         /// PTY child-process probe for the heuristic status tier, invoked by
-        /// the endpoint's 1 s sweep. Unlike UI state (which is pushed as a
-        /// snapshot), this delegate is deliberately live: it targets the PTY
-        /// layer (<c>ITerminalLifecycle.HasActiveChildProcesses</c>), which is
-        /// thread-safe by contract and never touches Avalonia. Null means
-        /// "unknown right now" (session initializing or being swapped); the
-        /// status machine keeps its last known value instead of flapping.
+        /// the endpoint's 1 s sweep. Targets only the PTY layer
+        /// (<c>ITerminalLifecycle.HasActiveChildProcesses</c>, thread-safe by
+        /// contract) via the published reference above — never the pane. Null
+        /// means "unknown right now" (no session yet, or the probe raced a
+        /// teardown); the status machine keeps its last known value instead of
+        /// flapping.
         /// </summary>
-        public Func<bool?> HasActiveChildProcesses { get; }
+        public bool? ProbeHasActiveChildProcesses()
+        {
+            var lifecycle = _lifecycle;
+            if (lifecycle == null) return null;
+            try
+            {
+                return lifecycle.HasActiveChildProcesses;
+            }
+            catch
+            {
+                return null; // probe raced a dispose — unknown, not false
+            }
+        }
 
         /// <summary>The pane's VT buffer. Reads must take <see cref="TerminalBuffer.Lock"/> (endpoint milestone A1/PR3).</summary>
         public TerminalBuffer Buffer { get; }

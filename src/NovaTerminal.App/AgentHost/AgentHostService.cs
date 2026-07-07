@@ -323,7 +323,7 @@ namespace NovaTerminal.AgentHost
             {
                 try
                 {
-                    registration.StatusMachine.Sweep(registration.HasActiveChildProcesses());
+                    registration.StatusMachine.Sweep(registration.ProbeHasActiveChildProcesses());
                 }
                 catch (Exception ex)
                 {

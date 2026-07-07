@@ -89,6 +89,15 @@ public class AgentSessionStatusMachineTests
     }
 
     [Fact]
+    public void Registration_probe_is_unknown_without_a_published_lifecycle()
+    {
+        // No session yet → the probe answers "unknown", never a hard false.
+        var registration = new AgentSessionRegistration(
+            Guid.NewGuid(), new NovaTerminal.VT.TerminalBuffer(80, 24), "t", "p", "local", isActive: false);
+        Assert.Null(registration.ProbeHasActiveChildProcesses());
+    }
+
+    [Fact]
     public void Sweep_with_unknown_child_state_keeps_the_last_known_value()
     {
         // The probe returns null while the session is initializing or being

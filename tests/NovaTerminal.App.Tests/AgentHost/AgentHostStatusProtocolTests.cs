@@ -40,11 +40,10 @@ public class AgentHostStatusProtocolTests : IDisposable
         return service;
     }
 
-    private static AgentSessionRegistration Register(AgentSessionRegistry registry, bool hasChildren = false)
+    private static AgentSessionRegistration Register(AgentSessionRegistry registry)
     {
         var registration = new AgentSessionRegistration(
-            Guid.NewGuid(), new TerminalBuffer(80, 24), "title", "Profile", "local", isActive: true,
-            nowProvider: null, hasActiveChildProcessesProvider: () => hasChildren);
+            Guid.NewGuid(), new TerminalBuffer(80, 24), "title", "Profile", "local", isActive: true);
         Assert.True(registry.Register(registration));
         return registration;
     }

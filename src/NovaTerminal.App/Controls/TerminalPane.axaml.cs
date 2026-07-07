@@ -398,13 +398,7 @@ namespace NovaTerminal.Controls
                 GetBaseTabTitle(),
                 Profile?.Name ?? "Terminal",
                 Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
-                IsActivePane,
-                nowProvider: null,
-                // PTY-layer probe (thread-safe by contract; no Avalonia state)
-                // for the heuristic status tier's 1 s sweep. Null while the
-                // session is initializing or being swapped — the status machine
-                // keeps its last known value instead of flapping through false.
-                hasActiveChildProcessesProvider: () => Session?.HasActiveChildProcesses);
+                IsActivePane);
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
@@ -1616,6 +1610,7 @@ namespace NovaTerminal.Controls
 
             string startingDir = profile?.StartingDirectory ?? "";
             Session = null;
+            _agentRegistration?.SetLifecycle(null);
             try
             {
                 // If effectiveShell contains a space and is not a direct file, it's likely a combined command.
@@ -1687,12 +1682,15 @@ namespace NovaTerminal.Controls
                 RegisterActiveSshSession(session, profile);
                 UpdateCommandAssistContext();
 
-                // Seed the status machine's child-process sample the moment the
-                // session exists: without this, the heuristic tier has no first
-                // sample until the endpoint's next 1 s sweep and would report
-                // the machine's default (awaitingInput) for a freshly spawned
-                // command-running session.
-                _agentRegistration?.StatusMachine.Sweep(session.HasActiveChildProcesses);
+                // Publish the PTY lifecycle to the registration (the endpoint's
+                // sweep probes only this published reference, never the pane)
+                // and seed the first child-process sample immediately so the
+                // heuristic tier is correct from the moment the session exists.
+                if (_agentRegistration is { } agentReg)
+                {
+                    agentReg.SetLifecycle(session);
+                    agentReg.StatusMachine.Sweep(agentReg.ProbeHasActiveChildProcesses());
+                }
             }
             catch (Exception ex)
             {
@@ -2104,6 +2102,7 @@ namespace NovaTerminal.Controls
                 ITerminalSession session = Session;
                 UnregisterActiveSshSession(session);
                 Session = null;
+                _agentRegistration?.SetLifecycle(null);
                 session.Dispose();
             }
 
@@ -2327,6 +2326,7 @@ namespace NovaTerminal.Controls
                 ITerminalSession session = Session;
                 UnregisterActiveSshSession(session);
                 Session = null;
+                _agentRegistration?.SetLifecycle(null);
                 return session;
             }
             return null;
