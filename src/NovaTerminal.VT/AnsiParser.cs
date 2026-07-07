@@ -89,20 +89,13 @@ namespace NovaTerminal.VT
 
         private static bool DetectConPtyFiltering()
         {
-            if (!OperatingSystem.IsWindows()) return false;
-
-            // Today our Windows backend uses ConPTY, which strips several image control strings.
-            // Keep env checks explicit so future backend changes can loosen this behavior.
-            string? wt = Environment.GetEnvironmentVariable("WT_SESSION");
-            string? termProgram = Environment.GetEnvironmentVariable("TERM_PROGRAM");
-            if (!string.IsNullOrEmpty(wt)) return true;
-            if (!string.IsNullOrEmpty(termProgram) &&
-                termProgram.IndexOf("Windows", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return true;
-            }
-
-            return true;
+            // Windows I/O currently always flows through ConPTY (rusty_pty), which
+            // strips DCS/APC image control strings — filtering is always likely there,
+            // so Kitty graphics must use the tunneled mode. The former WT_SESSION /
+            // TERM_PROGRAM env probes were dead code (the fallthrough returned true
+            // regardless, #169); if a future Windows backend bypasses ConPTY, make
+            // this depend on the backend instead of the OS.
+            return OperatingSystem.IsWindows();
         }
 
         private void FlushText()
@@ -111,6 +104,41 @@ namespace NovaTerminal.VT
             {
                 _buffer.WriteContent(_textBuffer.ToString());
                 _textBuffer.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Executes a C0 control (or DEL). Shared by the Normal state and the CSI state:
+        /// per ECMA-48 §5.4, C0 controls received inside a control sequence are executed
+        /// while the sequence continues (#169). Callers in text-accumulating states must
+        /// FlushText() first.
+        /// </summary>
+        private void ExecuteC0Control(char c)
+        {
+            if (c == '\a')
+            {
+                OnBell?.Invoke();
+            }
+            else if (c == '') // SO — shift GL to G1
+            {
+                _gl = 1;
+            }
+            else if (c == '') // SI — shift GL to G0
+            {
+                _gl = 0;
+            }
+            else
+            {
+                if (_swallowNextNewline)
+                {
+                    if (c == '\r' || c == '\n')
+                    {
+                        if (c == '\n') _swallowNextNewline = false;
+                        return; // swallowed
+                    }
+                    _swallowNextNewline = false;
+                }
+                _buffer.WriteChar(c);
             }
         }
 
@@ -282,31 +310,7 @@ namespace NovaTerminal.VT
                                 else if (c < 0x20 || c == 0x7F) // C0 Controls & DEL
                                 {
                                     FlushText();
-                                    if (c == '\a')
-                                    {
-                                        OnBell?.Invoke();
-                                    }
-                                    else if (c == '') // SO — shift GL to G1
-                                    {
-                                        _gl = 1;
-                                    }
-                                    else if (c == '') // SI — shift GL to G0
-                                    {
-                                        _gl = 0;
-                                    }
-                                    else
-                                    {
-                                        if (_swallowNextNewline)
-                                        {
-                                            if (c == '\r' || c == '\n')
-                                            {
-                                                if (c == '\n') _swallowNextNewline = false;
-                                                continue;
-                                            }
-                                            else _swallowNextNewline = false;
-                                        }
-                                        _buffer.WriteChar(c);
-                                    }
+                                    ExecuteC0Control(c);
                                 }
                                 else
                                 {
@@ -503,6 +507,25 @@ namespace NovaTerminal.VT
                                     HandleCsi(c, _paramBuffer.AsSpan(0, _paramLen));
                                     _paramLen = 0;
                                     _state = State.Normal;
+                                }
+                                else if (c == '\x18' || c == '\x1a')
+                                {
+                                    // CAN/SUB abort the control sequence (ECMA-48).
+                                    _paramLen = 0;
+                                    _state = State.Normal;
+                                }
+                                else if (c < 0x20)
+                                {
+                                    // ECMA-48 §5.4: C0 controls received inside a control
+                                    // sequence are executed and the sequence continues.
+                                    // ConPTY/tmux can split output so CR/LF land mid-CSI;
+                                    // previously both the control AND the sequence were
+                                    // dropped (#169).
+                                    ExecuteC0Control(c);
+                                }
+                                else if (c == '\x7f')
+                                {
+                                    // DEL is ignored inside control sequences (xterm).
                                 }
                                 else
                                 {
@@ -1351,13 +1374,40 @@ namespace NovaTerminal.VT
 
         private void HandleDcs(string dcs)
         {
-
-            // Sixel Support (DCS Ps ; Pi ; Pj q <sixel_data> ST)
-            if (dcs.Contains('q'))
+            // DCS routing (#169). Previously ANY DCS containing 'q' was fed to the Sixel
+            // decoder, which swallowed DECRQSS (DCS $ q …, vim emits it to query SGR /
+            // DECSCUSR) and XTGETTCAP (DCS + q …) without a response — clients blocked
+            // on their reply timeout.
+            if (dcs.StartsWith("$q", StringComparison.Ordinal))
+            {
+                // DECRQSS: setting reports aren't implemented; answer "invalid request"
+                // (DCS 0 $ r ST) so the client gets an immediate, well-formed reply
+                // instead of a timeout.
+                OnResponse?.Invoke("\x1bP0$r\x1b\\");
+            }
+            else if (dcs.StartsWith("+q", StringComparison.Ordinal))
+            {
+                // XTGETTCAP: report failure for the requested capabilities (DCS 0 + r ST).
+                OnResponse?.Invoke("\x1bP0+r\x1b\\");
+            }
+            else if (IsSixel(dcs))
             {
                 HandleSixel(dcs);
             }
             _dcsStringBuffer.Clear();
+        }
+
+        // DECSIXEL is "DCS Ps ; Ps ; Ps q <data> ST": only digits and ';' may precede
+        // the 'q' final byte. Anything else is a different DCS function.
+        private static bool IsSixel(string dcs)
+        {
+            for (int i = 0; i < dcs.Length; i++)
+            {
+                char ch = dcs[i];
+                if (ch == 'q') return true;
+                if (!char.IsAsciiDigit(ch) && ch != ';') return false;
+            }
+            return false;
         }
 
         private void HandleSixel(string dcs)
