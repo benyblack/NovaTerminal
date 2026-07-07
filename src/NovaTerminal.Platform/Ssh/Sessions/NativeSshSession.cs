@@ -119,7 +119,12 @@ public sealed class NativeSshSession : ITerminalSession
             return; // Already enabled
         }
 
-        _flightRecorder = new FlightRecordingBuffer(maxTotalBytes, _cols, _rows);
+        // Defensive fallback: geometry should always be positive here, but the
+        // ring constructor rejects non-positive dimensions and enabling must
+        // never throw at the agent-host lifecycle call site.
+        int cols = _cols > 0 ? _cols : 80;
+        int rows = _rows > 0 ? _rows : 24;
+        _flightRecorder = new FlightRecordingBuffer(maxTotalBytes, cols, rows);
     }
 
     public void DisableFlightRecording()
@@ -136,8 +141,19 @@ public sealed class NativeSshSession : ITerminalSession
             return false;
         }
 
-        info = ring.ExportTo(filePath, ShellCommand);
-        return true;
+        try
+        {
+            info = ring.ExportTo(filePath, ShellCommand);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            // Try-pattern: expected I/O failures (bad path, permissions, full
+            // disk) must not crash the host on an agent-triggered export.
+            _log($"[NativeSshSession] Flight recording export failed: {ex.Message}");
+            info = default;
+            return false;
+        }
     }
 
     public event Action<string>? OnOutputReceived

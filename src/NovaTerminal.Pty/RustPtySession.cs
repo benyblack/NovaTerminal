@@ -360,7 +360,12 @@ namespace NovaTerminal.Pty
         public void EnableFlightRecording(long maxTotalBytes)
         {
             if (_flightRecorder != null) return; // Already enabled
-            _flightRecorder = new NovaTerminal.Replay.FlightRecordingBuffer(maxTotalBytes, _cols, _rows);
+            // Defensive fallback: geometry should always be positive here, but the
+            // ring constructor rejects non-positive dimensions and enabling must
+            // never throw at the agent-host lifecycle call site.
+            int cols = _cols > 0 ? _cols : 80;
+            int rows = _rows > 0 ? _rows : 24;
+            _flightRecorder = new NovaTerminal.Replay.FlightRecordingBuffer(maxTotalBytes, cols, rows);
         }
 
         public void DisableFlightRecording()
@@ -377,8 +382,19 @@ namespace NovaTerminal.Pty
                 return false;
             }
 
-            info = ring.ExportTo(filePath, ShellCommand);
-            return true;
+            try
+            {
+                info = ring.ExportTo(filePath, ShellCommand);
+                return true;
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                // Try-pattern: expected I/O failures (bad path, permissions, full
+                // disk) must not crash the host on an agent-triggered export.
+                Console.WriteLine($"[RustPtySession] Flight recording export failed: {ex.Message}");
+                info = default;
+                return false;
+            }
         }
 
         public void StartRecording(string filePath)

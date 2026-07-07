@@ -49,7 +49,9 @@ namespace NovaTerminal.Replay
         /// </summary>
         public void RecordChunkAt(long timeOffsetMs, byte[] data, int length)
         {
+            ArgumentNullException.ThrowIfNull(data);
             if (timeOffsetMs < 0) throw new ArgumentOutOfRangeException(nameof(timeOffsetMs), timeOffsetMs, "Time offset must be non-negative.");
+            if (length <= 0 || length > data.Length) return;
             if (_cts.IsCancellationRequested || _queue.IsAddingCompleted) return;
 
             byte[] copy = new byte[length];
@@ -74,6 +76,7 @@ namespace NovaTerminal.Replay
         public void RecordResizeAt(long timeOffsetMs, int cols, int rows)
         {
             if (timeOffsetMs < 0) throw new ArgumentOutOfRangeException(nameof(timeOffsetMs), timeOffsetMs, "Time offset must be non-negative.");
+            if (cols <= 0 || rows <= 0) return;
             if (_cts.IsCancellationRequested || _queue.IsAddingCompleted) return;
 
             TryEnqueue(new ReplayEvent

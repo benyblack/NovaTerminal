@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace NovaTerminal.Replay
 {
@@ -124,10 +125,20 @@ namespace NovaTerminal.Replay
         /// replay v2 file via <see cref="PtyRecorder"/>. Event timestamps are rebased
         /// so the first retained event is at t=0. Concurrent writers keep recording;
         /// the export is a consistent point-in-time snapshot of the ring.
+        /// Throws (IOException, UnauthorizedAccessException, …) when the target path
+        /// is not writable.
         /// </summary>
         public FlightExportInfo ExportTo(string filePath, string shell)
         {
             ArgumentNullException.ThrowIfNull(filePath);
+
+            // Surface path errors synchronously. PtyRecorder's writer task swallows
+            // I/O failures (best-effort semantics for live recording), so without
+            // this probe an export to an unwritable path would "succeed" while
+            // writing nothing — the Try* session surface could never report false.
+            using (File.Create(filePath))
+            {
+            }
 
             Entry[] entries;
             int cols;

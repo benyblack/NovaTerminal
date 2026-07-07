@@ -58,6 +58,11 @@ namespace NovaTerminal.Tests
                 Assert.True(info.EventCount > 0, "flight ring captured no output from a live shell");
                 Assert.True(File.Exists(tempFile));
 
+                // Try-pattern: an unwritable path is reported as false, not thrown.
+                string badPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nested", "export.rec");
+                Assert.False(session.TryExportFlightRecording(badPath, out _));
+                Assert.True(session.IsFlightRecording); // failure does not disturb the ring
+
                 // Disable drops the ring.
                 session.DisableFlightRecording();
                 Assert.False(session.IsFlightRecording);

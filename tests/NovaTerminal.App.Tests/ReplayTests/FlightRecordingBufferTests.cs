@@ -383,6 +383,51 @@ namespace NovaTerminal.Tests.ReplayTests
         }
 
         [Fact]
+        public void PtyRecorder_ExplicitTimestampOverloads_ValidateArguments()
+        {
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                using (var recorder = new PtyRecorder(tempFile, 80, 24, "pwsh.exe"))
+                {
+                    Assert.Throws<ArgumentNullException>(() => recorder.RecordChunkAt(0, null!, 1));
+
+                    byte[] data = Utf8("xyz");
+                    recorder.RecordChunkAt(0, data, 0);               // empty — ignored
+                    recorder.RecordChunkAt(0, data, -1);              // negative — ignored
+                    recorder.RecordChunkAt(0, data, data.Length + 1); // oversized — ignored
+                    recorder.RecordResizeAt(0, 0, 24);                // non-positive — ignored
+                    recorder.RecordResizeAt(0, 80, -1);               // non-positive — ignored
+
+                    recorder.RecordChunkAt(5, data, data.Length);     // valid
+                }
+
+                ReplayEvent[] events = ReadEventLines(tempFile).ToArray();
+                ReplayEvent ev = Assert.Single(events);
+                Assert.Equal("data", ev.Type);
+                Assert.Equal(5, ev.TimeOffsetMs);
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
+        public void ExportTo_UnwritablePath_ThrowsSynchronously()
+        {
+            // PtyRecorder's writer task swallows I/O failures (best-effort live
+            // recording); ExportTo must surface path errors synchronously so the
+            // session-level Try* surface can report false instead of "succeeding"
+            // with no file.
+            var ring = new FlightRecordingBuffer(1024, 80, 24, clock: static () => 0);
+            RecordChunk(ring, "data");
+
+            string missingDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nested", "export.rec");
+            Assert.ThrowsAny<IOException>(() => ring.ExportTo(missingDir, "pwsh.exe"));
+        }
+
+        [Fact]
         public void PtyRecorder_ExplicitTimestampOverloads_RejectNegativeOffsets()
         {
             string tempFile = Path.GetTempFileName();
