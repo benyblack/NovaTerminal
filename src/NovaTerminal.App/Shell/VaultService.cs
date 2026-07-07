@@ -357,7 +357,9 @@ namespace NovaTerminal.Shell
                     encrypted = EncryptFallback(data);
                 }
 
-                File.WriteAllBytes(_vaultPath, encrypted);
+                // Atomic write with .bak (#167): a crash mid-write previously corrupted
+                // vault.dat, silently losing all stored secrets.
+                AtomicFile.WriteAllBytes(_vaultPath, encrypted);
             }
             catch (Exception ex)
             {

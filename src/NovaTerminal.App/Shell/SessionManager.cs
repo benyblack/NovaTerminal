@@ -29,7 +29,9 @@ namespace NovaTerminal.Shell
                 var json = JsonSerializer.Serialize(session, SessionSerializationContext.Default.NovaSession);
                 payloadBytes = System.Text.Encoding.UTF8.GetByteCount(json);
                 Directory.CreateDirectory(Path.GetDirectoryName(SessionPath)!);
-                File.WriteAllText(SessionPath, json);
+                // Atomic write with .bak (#167): SaveSession runs on shutdown — a crash
+                // mid-write previously corrupted the session and lost the restore state.
+                AtomicFile.WriteAllText(SessionPath, json);
             }
             catch (Exception ex)
             {

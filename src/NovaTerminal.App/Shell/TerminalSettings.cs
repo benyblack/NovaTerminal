@@ -124,9 +124,16 @@ namespace NovaTerminal.Shell
                     string json = File.ReadAllText(settingsPath);
                     settings = JsonSerializer.Deserialize(json, AppJsonContext.Default.TerminalSettings) ?? new TerminalSettings();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    settings = new TerminalSettings();
+                    // Corrupt settings must not be silently replaced with defaults (#167):
+                    // quarantine the evidence, then fall back to the .bak written by
+                    // AtomicFile before resorting to defaults.
+                    System.Diagnostics.Debug.WriteLine($"[Settings] '{settingsPath}' is unreadable ({ex.Message}); trying backup.");
+                    try { File.Copy(settingsPath, settingsPath + ".corrupt", overwrite: true); }
+                    catch { /* best effort */ }
+
+                    settings = TryLoadOrNull(settingsPath + ".bak") ?? new TerminalSettings();
                 }
             }
             else
@@ -195,15 +202,34 @@ namespace NovaTerminal.Shell
             return settings;
         }
 
+        private static TerminalSettings? TryLoadOrNull(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                string json = File.ReadAllText(path);
+                return JsonSerializer.Deserialize(json, AppJsonContext.Default.TerminalSettings);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         public void Save()
         {
             try
             {
                 AppPaths.EnsureInitialized();
                 string json = JsonSerializer.Serialize(this, AppJsonContext.Default.TerminalSettings);
-                File.WriteAllText(SettingsPath, json);
+                // Atomic write with .bak (#167): a crash mid-write previously corrupted
+                // settings.json, and the next start silently reset all configuration.
+                AtomicFile.WriteAllText(SettingsPath, json);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Settings] Save failed: {ex.Message}");
+            }
         }
     }
 }
