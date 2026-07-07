@@ -134,10 +134,10 @@ Each milestone is independently shippable and announceable. Estimates assume
 ### A1 — Observe (first public demo)
 
 **Deliverables**
-- [ ] App-side IPC endpoint + session registry exposure
-- [ ] MCP tools: `novaterminal.list_sessions`, `novaterminal.read_screen`
+- [x] App-side IPC endpoint + session registry exposure (PRs #183, #184)
+- [x] MCP tools: `novaterminal.list_sessions`, `novaterminal.read_screen`
       (visible grid + cursor), `novaterminal.read_scrollback` (ranged)
-- [ ] `Agent Access (observe)` settings toggle, off by default
+- [x] `Agent Access (observe)` settings toggle, off by default (PR #184)
 - [ ] Docs + demo recording: Claude Code reading a live `htop`/`vim` session
 
 **Acceptance criteria**

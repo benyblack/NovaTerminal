@@ -36,6 +36,9 @@ public class McpServerStdioE2ETests
         "novaterminal.validate_settings_json",
         "novaterminal.generate_codex_prompt_for_issue",
         "novaterminal.suggest_relevant_files",
+        "novaterminal.list_sessions",
+        "novaterminal.read_screen",
+        "novaterminal.read_scrollback",
     };
 
     [Fact]

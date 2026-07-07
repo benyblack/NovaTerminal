@@ -15,6 +15,10 @@ builder.Logging.AddConsole(options => options.LogToStandardErrorThreshold = LogL
 // Resolves the repository root once and provides path-safe, read-only access to docs.
 builder.Services.AddSingleton(RepoContext.Discover());
 
+// Client for the app's opt-in, observe-only live-session endpoint (agent-host A1).
+// Constructing it does not touch the endpoint; availability is checked per call.
+builder.Services.AddSingleton(new AgentHostClient());
+
 builder.Services
     .AddMcpServer()
     .WithStdioServerTransport()

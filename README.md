@@ -126,7 +126,8 @@ acyclic dependency graph.
 - **[`src/NovaTerminal.Replay`](src/NovaTerminal.Replay/)** — Deterministic session recording and playback.
 - **[`src/NovaTerminal.Conformance`](src/NovaTerminal.Conformance/)** — VT conformance matrix tooling and report generation.
 - **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — console-subsystem twin of the (WinExe) app for headless tooling: `vt-report` and the SSH askpass helper.
-- **[`src/NovaTerminal.McpServer`](src/NovaTerminal.McpServer/)** — read-only, stdio-only MCP server exposing project docs, config validators, and VT conformance data to AI tooling.
+- **[`src/NovaTerminal.AgentHost.Contracts`](src/NovaTerminal.AgentHost.Contracts/)** — zero-dependency wire contracts for the agent-host observe channel (shared by App and McpServer).
+- **[`src/NovaTerminal.McpServer`](src/NovaTerminal.McpServer/)** — read-only, stdio-only MCP server exposing project docs, config validators, VT conformance data, and (opt-in, observe-only) live terminal sessions to AI tooling.
 
 Validation:
 

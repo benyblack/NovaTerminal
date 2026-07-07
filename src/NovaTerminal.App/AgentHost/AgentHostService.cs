@@ -76,7 +76,9 @@ namespace NovaTerminal.AgentHost
             {
                 if (_cts != null) return;
 
-                var discoveryDir = _discoveryDirectoryOverride ?? NovaTerminal.Shell.AppPaths.RootDirectory;
+                // AgentHostDiscovery mirrors AppPaths.RootDirectory; using it here
+                // keeps writer (app) and reader (MCP server) on one path by construction.
+                var discoveryDir = _discoveryDirectoryOverride ?? AgentHostDiscovery.GetDefaultDirectory();
                 var discoveryPath = Path.Combine(discoveryDir, AgentHostProtocol.DiscoveryFileName);
 
                 // First instance wins: if another live NovaTerminal already
