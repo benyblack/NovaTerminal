@@ -37,6 +37,7 @@ namespace NovaTerminal.AgentHost
         private readonly AgentSessionRegistry _registry;
         private readonly string? _endpointOverride;
         private readonly string? _discoveryDirectoryOverride;
+        private readonly string? _exportDirectoryOverride;
         private readonly object _gate = new();
 
         private CancellationTokenSource? _cts;
@@ -55,12 +56,24 @@ namespace NovaTerminal.AgentHost
         public AgentHostService(
             AgentSessionRegistry registry,
             string? endpointOverride = null,
-            string? discoveryDirectoryOverride = null)
+            string? discoveryDirectoryOverride = null,
+            string? exportDirectoryOverride = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _endpointOverride = endpointOverride;
             _discoveryDirectoryOverride = discoveryDirectoryOverride;
+            _exportDirectoryOverride = exportDirectoryOverride;
         }
+
+        /// <summary>
+        /// Second default-off gate for <c>exportReplay</c> (A4): mirrors
+        /// <c>TerminalSettings.AgentReplayExportEnabled</c>, pushed by
+        /// MainWindow alongside <see cref="Apply"/>. Both the observe toggle
+        /// (endpoint running) and this flag must be on for an export to
+        /// succeed — the "explicit export action" tier of the DIRECTION
+        /// permission table. Read on the IPC thread; bool reads are atomic.
+        /// </summary>
+        public bool ReplayExportEnabled { get; set; }
 
         public bool IsRunning
         {
@@ -234,9 +247,12 @@ namespace NovaTerminal.AgentHost
             // Sessions that were already open when the endpoint started get
             // forwarding but no synthetic sessionOpened: a fresh client learns
             // about them via listSessions, not via a burst of stale events.
+            // They also start flight recording (A4): the ring exists exactly
+            // while the observe endpoint runs — off-is-off.
             foreach (var registration in _registry.GetRegistrations())
             {
                 AttachStatusForwarding(registration);
+                registration.EnableFlightRecording(AgentHostProtocol.FlightRecorderMaxBytesPerSession);
             }
 
             _sweepTimer = new Timer(_ => SweepStatuses(), null,
@@ -250,6 +266,13 @@ namespace NovaTerminal.AgentHost
 
             _registry.SessionRegistered -= OnSessionRegistered;
             _registry.SessionUnregistered -= OnSessionUnregistered;
+
+            // Off-is-off: disabling Agent Access drops every flight ring now —
+            // no in-memory retention survives the toggle.
+            foreach (var registration in _registry.GetRegistrations())
+            {
+                registration.DisableFlightRecording();
+            }
 
             foreach (var (registration, handler) in _statusSubscriptions)
             {
@@ -267,6 +290,7 @@ namespace NovaTerminal.AgentHost
                 ring = _eventRing;
                 if (ring == null) return;
                 AttachStatusForwardingLocked(registration, ring);
+                registration.EnableFlightRecording(AgentHostProtocol.FlightRecorderMaxBytesPerSession);
             }
 
             var status = registration.StatusMachine.Snapshot();
@@ -549,6 +573,7 @@ namespace NovaTerminal.AgentHost
                     AgentHostProtocol.Methods.ReadScrollback => HandleReadScrollback(request),
                     AgentHostProtocol.Methods.GetSessionStatus => HandleGetSessionStatus(request),
                     AgentHostProtocol.Methods.WaitForEvents => await HandleWaitForEventsAsync(request, cancellationToken).ConfigureAwait(false),
+                    AgentHostProtocol.Methods.ExportReplay => HandleExportReplay(request),
                     _ => Error(request.Id, AgentHostProtocol.ErrorCodes.UnknownMethod, $"Unknown method '{request.Method}'."),
                 };
             }
@@ -600,6 +625,55 @@ namespace NovaTerminal.AgentHost
             var timeout = TimeSpan.FromMilliseconds(Math.Clamp(p.TimeoutMs, 0, AgentHostProtocol.MaxWaitForEventsTimeoutMs));
             var result = await ring.WaitSinceAsync(sinceSeq, timeout, cancellationToken).ConfigureAwait(false);
             return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.WaitForEventsResult));
+        }
+
+        private AgentHostResponse HandleExportReplay(AgentHostRequest request)
+        {
+            var p = DeserializeParams(request, AgentHostJsonContext.Default.ExportReplayParams);
+            if (p == null)
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "exportReplay requires params with a paneId.");
+            }
+
+            // Second default-off gate (DIRECTION permission table: "observe
+            // permission + explicit export action"). The observe toggle got the
+            // caller this far; replay export needs its own opt-in.
+            if (!ReplayExportEnabled)
+            {
+                return Error(
+                    request.Id,
+                    AgentHostProtocol.ErrorCodes.ExportDisabled,
+                    "Replay export is disabled. Enable Settings → Agent access (observe) → Agent replay export in NovaTerminal, then retry. Exports contain terminal output and resizes only — never typed input.");
+            }
+
+            if (!_registry.TryGet(p.PaneId, out var registration))
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
+            }
+
+            var exportDir = _exportDirectoryOverride
+                ?? Path.Combine(NovaTerminal.Shell.AppPaths.RecordingsDirectory, AgentHostProtocol.AgentExportsSubdirectory);
+            Directory.CreateDirectory(exportDir);
+            var fileName = Controls.TerminalPane.BuildRecordingFileName(DateTime.Now, p.PaneId.ToString("N"));
+            var filePath = Path.Combine(exportDir, fileName);
+
+            if (!registration.TryExportFlightRecording(filePath, out var info))
+            {
+                return Error(
+                    request.Id,
+                    AgentHostProtocol.ErrorCodes.ExportUnavailable,
+                    "No flight recording is available for this session right now (the session may still be starting, already closed, or the file could not be written).");
+            }
+
+            var result = new ExportReplayResult
+            {
+                FilePath = Path.GetFullPath(filePath),
+                EventCount = info.EventCount,
+                FirstEventMs = info.FirstEventMs,
+                LastEventMs = info.LastEventMs,
+                TruncatedAtStart = info.TruncatedAtStart,
+            };
+            return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.ExportReplayResult));
         }
 
         private AgentHostResponse HandleListSessions(AgentHostRequest request)

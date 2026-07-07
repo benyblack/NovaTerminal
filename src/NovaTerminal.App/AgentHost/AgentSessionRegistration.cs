@@ -50,15 +50,103 @@ namespace NovaTerminal.AgentHost
         /// </summary>
         public AgentSessionStatusMachine StatusMachine { get; }
 
-        // The PTY lifecycle behind this session, published by the pane on the
+        // The PTY session behind this registration, published by the pane on the
         // UI thread whenever the session is created, swapped, or torn down —
         // the same push pattern as the metadata snapshot, so the endpoint's
         // sweep never dereferences pane state. Volatile: a reference published
-        // here is safely visible to the timer thread.
-        private volatile NovaTerminal.Pty.ITerminalLifecycle? _lifecycle;
+        // here is safely visible to the timer thread. Widened from
+        // ITerminalLifecycle in A4 so the endpoint can also reach the
+        // flight-recorder surface (ITerminalFlightRecorder) without touching
+        // the pane; the sweep still uses only the lifecycle members.
+        private volatile NovaTerminal.Pty.ITerminalSession? _session;
 
-        /// <summary>Publishes (or clears) the PTY lifecycle this session runs on. UI thread.</summary>
-        public void SetLifecycle(NovaTerminal.Pty.ITerminalLifecycle? lifecycle) => _lifecycle = lifecycle;
+        // Desired flight-recording state pushed by the endpoint (A4). Kept on
+        // the registration because the pane may publish the session *after*
+        // the endpoint enabled recording (registration happens before spawn),
+        // and reconnects swap sessions: every newly published session must
+        // inherit the endpoint's decision. 0 = disabled.
+        private long _flightRecordingMaxBytes;
+
+        /// <summary>Publishes (or clears) the PTY session this registration runs on. UI thread.</summary>
+        public void SetLifecycle(NovaTerminal.Pty.ITerminalSession? session)
+        {
+            _session = session;
+            if (session != null)
+            {
+                var maxBytes = System.Threading.Interlocked.Read(ref _flightRecordingMaxBytes);
+                if (maxBytes > 0)
+                {
+                    TryApplyFlightRecording(session, maxBytes);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Endpoint lifecycle (A4): start retaining recent output on the
+        /// current session and every session published later, bounded by
+        /// <paramref name="maxBytes"/>. Idempotent.
+        /// </summary>
+        public void EnableFlightRecording(long maxBytes)
+        {
+            System.Threading.Interlocked.Exchange(ref _flightRecordingMaxBytes, maxBytes);
+            if (_session is { } session)
+            {
+                TryApplyFlightRecording(session, maxBytes);
+            }
+        }
+
+        /// <summary>Endpoint lifecycle (A4): stop retaining and drop the ring. Idempotent.</summary>
+        public void DisableFlightRecording()
+        {
+            System.Threading.Interlocked.Exchange(ref _flightRecordingMaxBytes, 0);
+            var session = _session;
+            if (session == null) return;
+            try
+            {
+                session.DisableFlightRecording();
+            }
+            catch
+            {
+                // raced a dispose — the ring died with the session
+            }
+        }
+
+        /// <summary>
+        /// Exports the session's flight recording to <paramref name="filePath"/>.
+        /// False when no session is published, recording is not enabled, or the
+        /// write failed (the session logs the reason).
+        /// </summary>
+        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        {
+            var session = _session;
+            if (session == null)
+            {
+                info = default;
+                return false;
+            }
+
+            try
+            {
+                return session.TryExportFlightRecording(filePath, out info);
+            }
+            catch
+            {
+                info = default;
+                return false; // raced a dispose — treat as unavailable
+            }
+        }
+
+        private static void TryApplyFlightRecording(NovaTerminal.Pty.ITerminalSession session, long maxBytes)
+        {
+            try
+            {
+                session.EnableFlightRecording(maxBytes);
+            }
+            catch
+            {
+                // raced a dispose — the next published session will inherit the state
+            }
+        }
 
         /// <summary>
         /// PTY child-process probe for the heuristic status tier, invoked by
@@ -71,7 +159,7 @@ namespace NovaTerminal.AgentHost
         /// </summary>
         public bool? ProbeHasActiveChildProcesses()
         {
-            var lifecycle = _lifecycle;
+            var lifecycle = _session;
             if (lifecycle == null) return null;
             try
             {

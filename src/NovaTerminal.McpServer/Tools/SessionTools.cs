@@ -139,6 +139,29 @@ public static class SessionTools
             : AgentHostClient.ProtocolErrorMessage;
     }
 
+    [McpServerTool(Name = "novaterminal.export_replay"),
+     Description("Exports a live NovaTerminal session's recent terminal output as a deterministic replay (.rec) file and returns its path — use it for postmortems of what happened in a session ('debug what your agent did, frame by frame'). The file contains output and window resizes only, NEVER anything the user typed. Requires BOTH 'Agent access (observe)' and its 'Agent replay export' sub-toggle in NovaTerminal settings. The recording window is bounded, so long sessions export only the most recent activity (the result says when it was truncated). Replay the file headlessly with: NovaTerminal.Cli --replay <path>. Get paneId from novaterminal.list_sessions.")]
+    public static async Task<string> ExportReplay(
+        AgentHostClient client,
+        [Description("The pane id (GUID) from novaterminal.list_sessions.")] string paneId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(paneId, out var pane))
+        {
+            return $"Error: '{paneId}' is not a valid pane id (GUID). Use novaterminal.list_sessions to find live pane ids.";
+        }
+
+        var parameters = JsonSerializer.SerializeToElement(
+            new ExportReplayParams { PaneId = pane },
+            AgentHostJsonContext.Default.ExportReplayParams);
+        var outcome = await client.CallAsync(AgentHostProtocol.Methods.ExportReplay, parameters, cancellationToken).ConfigureAwait(false);
+        if (!TryUnwrap(outcome, out var result, out var error)) return error;
+
+        return TryDeserializeResult(result, AgentHostJsonContext.Default.ExportReplayResult, out var dto)
+            ? FormatExport(dto!)
+            : AgentHostClient.ProtocolErrorMessage;
+    }
+
     // ── Shared plumbing ─────────────────────────────────────────────────────
 
     /// <summary>
@@ -254,6 +277,27 @@ public static class SessionTools
             sb.AppendLine($"| {e.Seq} | {FormatUtc(e.TimestampMs)} | {e.PaneId} | {e.Type} | {e.Status} | {details} |");
         }
         return sb.ToString().TrimEnd();
+    }
+
+    internal static string FormatExport(ExportReplayResult dto)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Replay exported: {dto.FilePath}");
+        if (dto.EventCount == 0)
+        {
+            sb.AppendLine("The recording window contained no events yet (the session produced no output since recording started); the file has a valid header and nothing else.");
+        }
+        else
+        {
+            var durationMs = Math.Max(0, dto.LastEventMs - dto.FirstEventMs);
+            sb.AppendLine($"{dto.EventCount} event(s) covering {durationMs} ms of activity (output and resizes only — input is never recorded).");
+        }
+        if (dto.TruncatedAtStart)
+        {
+            sb.AppendLine("Note: older activity had already been evicted from the bounded recording window — this export is a suffix of the session, not its full history.");
+        }
+        sb.Append("Replay it headlessly with: NovaTerminal.Cli --replay <path> (renders the final screen deterministically).");
+        return sb.ToString();
     }
 
     private static string FormatUtc(long unixMs)

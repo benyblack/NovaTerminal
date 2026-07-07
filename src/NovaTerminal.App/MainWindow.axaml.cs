@@ -1952,7 +1952,10 @@ namespace NovaTerminal
             _startup.Checkpoint("MainWindow.AfterLegacyMigration");
 
             // Agent-host observe endpoint (docs/agent-host/DIRECTION.md, A1):
-            // strictly no-op unless the user opted in via Settings.
+            // strictly no-op unless the user opted in via Settings. The replay
+            // export sub-gate (A4) is pushed alongside so the endpoint checks
+            // the current setting on every exportReplay request.
+            AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
             AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
             // Ensure visual tree is ready for initial tab border
@@ -4886,7 +4889,9 @@ namespace NovaTerminal
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
-                // Live-apply the agent-host observe endpoint (no restart needed).
+                // Live-apply the agent-host observe endpoint (no restart needed),
+                // including the A4 replay-export sub-gate.
+                AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
                 AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
                 // Refresh Connection Manager if open (or just always update it)
