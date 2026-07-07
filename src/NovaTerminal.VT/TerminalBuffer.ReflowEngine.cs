@@ -597,7 +597,13 @@ namespace NovaTerminal.VT
 
                     for (int i = 0; i < sbCount; i++)
                     {
-                        newScrollback.AppendRow(allFlowedRows[i].Cells, allFlowedRows[i].IsWrapped);
+                        // Carry each reflowed row's side tables into the rebuilt
+                        // scrollback; extended graphemes must survive reflow.
+                        newScrollback.AppendRow(
+                            allFlowedRows[i].Cells,
+                            allFlowedRows[i].IsWrapped,
+                            allFlowedRows[i].GetExtendedTextMap(),
+                            allFlowedRows[i].GetHyperlinkMap());
                     }
                     
                     int discardedRows = (int)newScrollback.TotalRowsEvicted;
