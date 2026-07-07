@@ -403,6 +403,15 @@ namespace NovaTerminal.Controls
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
 
+            // A2 status signals (docs/plans/2026-07-07-agent-host-a2-status-design.md):
+            // PTY lifecycle events feed the per-session status machine. Command
+            // lifecycle (started/finished) and prompt/accepted signals are wired
+            // synchronously at the parser hooks in InitializeSession so their
+            // relative order is preserved; alt-screen in HandleAltScreenChanged.
+            OutputReceived += _ => _agentRegistration?.StatusMachine.NotifyOutput();
+            BellReceived += _ => _agentRegistration?.StatusMachine.NotifyBell();
+            ProcessExited += (_, exitCode) => _agentRegistration?.StatusMachine.NotifyExited(exitCode);
+
             TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
             TermView.TextInput += (_, e) =>
             {
@@ -1307,6 +1316,7 @@ namespace NovaTerminal.Controls
 
         private void HandleAltScreenChanged(bool isAltScreen)
         {
+            _agentRegistration?.StatusMachine.NotifyAltScreenChanged(isAltScreen);
             _commandAssistController?.HandleAltScreenChanged(isAltScreen);
             UpdateRemoteFilesSidebarVisibility();
             UpdateRemoteFilesSidebarEntryPointState();
@@ -1535,15 +1545,22 @@ namespace NovaTerminal.Controls
             Parser.OnPromptReady += () =>
             {
                 _shellLifecycleTracker?.HandlePromptReady();
+                _agentRegistration?.StatusMachine.NotifyPromptReady();
             };
             Parser.OnCommandAccepted += commandText =>
             {
                 _lastRelevantCommandText = commandText?.Trim();
                 _shellLifecycleTracker?.HandleCommandAccepted(commandText);
+                _agentRegistration?.StatusMachine.NotifyCommandAccepted(commandText);
             };
             Parser.OnCommandStarted += () =>
             {
                 _shellLifecycleTracker?.HandleCommandStarted();
+                // Status machine is notified synchronously on the parser path so
+                // command-lifecycle signals keep their emission order relative to
+                // OnCommandAccepted/OnPromptReady (the UI post below would let a
+                // snapshot briefly see AwaitingInput with CurrentCommand set).
+                _agentRegistration?.StatusMachine.NotifyCommandStarted();
                 Dispatcher.UIThread.Post(() =>
                 {
                     LastExitCode = null;
@@ -1552,6 +1569,7 @@ namespace NovaTerminal.Controls
             };
             Parser.OnCommandFinished += exitCode =>
             {
+                _agentRegistration?.StatusMachine.NotifyCommandFinished(exitCode);
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (exitCode.HasValue)

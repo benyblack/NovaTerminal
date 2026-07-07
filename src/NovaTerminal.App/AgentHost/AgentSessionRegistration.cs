@@ -31,7 +31,8 @@ namespace NovaTerminal.AgentHost
             string title,
             string profileName,
             string kind,
-            bool isActive)
+            bool isActive,
+            Func<DateTimeOffset>? nowProvider = null)
         {
             ArgumentNullException.ThrowIfNull(buffer);
             _paneId = paneId;
@@ -40,7 +41,14 @@ namespace NovaTerminal.AgentHost
             _profileName = profileName;
             _kind = kind;
             _isActive = isActive;
+            StatusMachine = new AgentSessionStatusMachine(nowProvider);
         }
+
+        /// <summary>
+        /// Per-session status state machine (A2). Signals are pushed by the
+        /// pane on the UI thread; snapshots are safe from any thread.
+        /// </summary>
+        public AgentSessionStatusMachine StatusMachine { get; }
 
         /// <summary>The pane's VT buffer. Reads must take <see cref="TerminalBuffer.Lock"/> (endpoint milestone A1/PR3).</summary>
         public TerminalBuffer Buffer { get; }
