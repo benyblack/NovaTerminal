@@ -148,6 +148,27 @@ public class AgentSessionStatusMachineTests
     }
 
     [Fact]
+    public void Stall_state_does_not_leak_into_the_next_command()
+    {
+        var (machine, clock, events) = Make();
+        machine.NotifyCommandStarted();
+        clock.Advance(TimeSpan.FromSeconds(AgentSessionStatusMachine.StallThresholdSeconds));
+        machine.Sweep(hasActiveChildProcesses: true);
+        Assert.True(machine.Snapshot().IsStalled);
+
+        // Next command begins before any output arrives (e.g. re-run from
+        // history): it starts a fresh silence episode, not pre-stalled.
+        machine.NotifyCommandFinished(exitCode: 124);
+        machine.NotifyCommandStarted();
+        Assert.False(machine.Snapshot().IsStalled);
+
+        // And the new command can stall again with its own event.
+        clock.Advance(TimeSpan.FromSeconds(AgentSessionStatusMachine.StallThresholdSeconds));
+        machine.Sweep(hasActiveChildProcesses: true);
+        Assert.Equal(2, events.Count(e => e.Type == AgentSessionEventType.Stalled));
+    }
+
+    [Fact]
     public void Stall_does_not_fire_at_a_prompt()
     {
         var (machine, clock, events) = Make();

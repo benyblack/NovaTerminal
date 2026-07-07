@@ -404,13 +404,12 @@ namespace NovaTerminal.Controls
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
 
             // A2 status signals (docs/plans/2026-07-07-agent-host-a2-status-design.md):
-            // PTY/shell lifecycle events feed the per-session status machine.
-            // Prompt/command-accepted signals are wired where the parser hooks
-            // are installed (InitializeSession); alt-screen in HandleAltScreenChanged.
+            // PTY lifecycle events feed the per-session status machine. Command
+            // lifecycle (started/finished) and prompt/accepted signals are wired
+            // synchronously at the parser hooks in InitializeSession so their
+            // relative order is preserved; alt-screen in HandleAltScreenChanged.
             OutputReceived += _ => _agentRegistration?.StatusMachine.NotifyOutput();
             BellReceived += _ => _agentRegistration?.StatusMachine.NotifyBell();
-            CommandStarted += _ => _agentRegistration?.StatusMachine.NotifyCommandStarted();
-            CommandFinished += (_, exitCode) => _agentRegistration?.StatusMachine.NotifyCommandFinished(exitCode);
             ProcessExited += (_, exitCode) => _agentRegistration?.StatusMachine.NotifyExited(exitCode);
 
             TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
@@ -1557,6 +1556,11 @@ namespace NovaTerminal.Controls
             Parser.OnCommandStarted += () =>
             {
                 _shellLifecycleTracker?.HandleCommandStarted();
+                // Status machine is notified synchronously on the parser path so
+                // command-lifecycle signals keep their emission order relative to
+                // OnCommandAccepted/OnPromptReady (the UI post below would let a
+                // snapshot briefly see AwaitingInput with CurrentCommand set).
+                _agentRegistration?.StatusMachine.NotifyCommandStarted();
                 Dispatcher.UIThread.Post(() =>
                 {
                     LastExitCode = null;
@@ -1565,6 +1569,7 @@ namespace NovaTerminal.Controls
             };
             Parser.OnCommandFinished += exitCode =>
             {
+                _agentRegistration?.StatusMachine.NotifyCommandFinished(exitCode);
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (exitCode.HasValue)

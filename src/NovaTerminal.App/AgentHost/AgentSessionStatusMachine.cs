@@ -108,6 +108,11 @@ namespace NovaTerminal.AgentHost
                 _promptSeen = true;
                 _commandInFlight = true;
                 _commandStartedAt = now;
+                // A new command starts a fresh silence episode: without this, a
+                // stall from the previous command would leak into this one (an
+                // immediate IsStalled=true and no fresh stalled event later).
+                _lastOutputAt = now;
+                _stalled = false;
                 return null;
             });
         }
@@ -208,19 +213,34 @@ namespace NovaTerminal.AgentHost
 
         // ── Internals ───────────────────────────────────────────────────────
 
+        // Pending events plus a single-drainer flag: signals arrive from the UI
+        // thread while Sweep runs on the endpoint's timer thread, so releasing
+        // the gate before invoking handlers could deliver events out of the
+        // order they were generated. Events are enqueued under the gate and
+        // drained by exactly one thread at a time, preserving global order
+        // without ever invoking handlers while holding the gate.
+        private readonly Queue<AgentSessionStatusEvent> _pendingEvents = new();
+        private bool _draining;
+
         /// <summary>
         /// Mutates under the lock, recomputes the derived status, and raises
         /// any events (mutation-specific ones plus StatusChanged) outside the
-        /// lock, preserving order.
+        /// lock, in generation order.
         /// </summary>
         private void RunUnderGate(Func<DateTimeOffset, List<AgentSessionStatusEvent>?> mutate)
         {
-            List<AgentSessionStatusEvent>? toRaise;
             lock (_gate)
             {
                 var now = _now();
                 var before = _kind;
-                toRaise = mutate(now);
+                var produced = mutate(now);
+                if (produced != null)
+                {
+                    foreach (var evt in produced)
+                    {
+                        _pendingEvents.Enqueue(evt);
+                    }
+                }
 
                 var after = ComputeKind(now);
                 if (after != before)
@@ -231,16 +251,43 @@ namespace NovaTerminal.AgentHost
                     {
                         _stalled = false; // stall is a running-only condition
                     }
-                    (toRaise ??= new List<AgentSessionStatusEvent>()).Add(
+                    _pendingEvents.Enqueue(
                         MakeEvent(AgentSessionEventType.StatusChanged, after, now, _exited ? _exitCode : null));
                 }
+
+                if (_draining || _pendingEvents.Count == 0)
+                {
+                    return; // another thread is already delivering, or nothing to deliver
+                }
+                _draining = true;
             }
 
-            if (toRaise != null)
+            DrainPendingEvents();
+        }
+
+        private void DrainPendingEvents()
+        {
+            while (true)
             {
-                foreach (var evt in toRaise)
+                AgentSessionStatusEvent next;
+                lock (_gate)
                 {
-                    EventEmitted?.Invoke(evt);
+                    if (_pendingEvents.Count == 0)
+                    {
+                        _draining = false;
+                        return;
+                    }
+                    next = _pendingEvents.Dequeue();
+                }
+
+                try
+                {
+                    EventEmitted?.Invoke(next);
+                }
+                catch
+                {
+                    lock (_gate) { _draining = false; }
+                    throw;
                 }
             }
         }
