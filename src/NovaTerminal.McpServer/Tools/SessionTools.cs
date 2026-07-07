@@ -87,6 +87,58 @@ public static class SessionTools
             : AgentHostClient.ProtocolErrorMessage;
     }
 
+    [McpServerTool(Name = "novaterminal.get_session_status"),
+     Description("Reports what a live NovaTerminal session is doing right now: running / awaitingInput / idle / exited, with a confidence tier (precise = shell-integration events; heuristic = PTY signals), the in-flight command when known, exit code, and stall state. Read-only. Get paneId from novaterminal.list_sessions.")]
+    public static async Task<string> GetSessionStatus(
+        AgentHostClient client,
+        [Description("The pane id (GUID) from novaterminal.list_sessions.")] string paneId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(paneId, out var pane))
+        {
+            return $"Error: '{paneId}' is not a valid pane id (GUID). Use novaterminal.list_sessions to find live pane ids.";
+        }
+
+        var parameters = JsonSerializer.SerializeToElement(
+            new GetSessionStatusParams { PaneId = pane },
+            AgentHostJsonContext.Default.GetSessionStatusParams);
+        var outcome = await client.CallAsync(AgentHostProtocol.Methods.GetSessionStatus, parameters, cancellationToken).ConfigureAwait(false);
+        if (!TryUnwrap(outcome, out var result, out var error)) return error;
+
+        return TryDeserializeResult(result, AgentHostJsonContext.Default.SessionStatusDto, out var dto)
+            ? FormatStatus(dto!)
+            : AgentHostClient.ProtocolErrorMessage;
+    }
+
+    [McpServerTool(Name = "novaterminal.wait_for_events"),
+     Description("Waits for session events from the running NovaTerminal app: status changes, command completions (with exit code and duration), bells, stalls, and sessions opening/closing. Long-poll with a cursor: pass sinceSeq=0 on the first call, then the nextSeq from each result. Returns immediately when events are pending, otherwise parks up to timeoutMs (server-capped at 25000). An empty result means the timeout elapsed — call again with the same cursor. Read-only.")]
+    public static async Task<string> WaitForEvents(
+        AgentHostClient client,
+        [Description("Cursor: deliver events newer than this sequence number. 0 on the first call, then the previous result's nextSeq.")] long sinceSeq = 0,
+        [Description("How long to wait when no events are pending, in milliseconds (0–25000). Default 20000.")] int timeoutMs = 20_000,
+        CancellationToken cancellationToken = default)
+    {
+        if (sinceSeq < 0)
+        {
+            return "Error: sinceSeq must be 0 or greater (0 = from the oldest retained event).";
+        }
+
+        var clampedTimeout = Math.Clamp(timeoutMs, 0, AgentHostProtocol.MaxWaitForEventsTimeoutMs);
+        var parameters = JsonSerializer.SerializeToElement(
+            new WaitForEventsParams { SinceSeq = sinceSeq, TimeoutMs = clampedTimeout },
+            AgentHostJsonContext.Default.WaitForEventsParams);
+        var outcome = await client.CallAsync(
+            AgentHostProtocol.Methods.WaitForEvents,
+            parameters,
+            cancellationToken,
+            roundTripTimeout: TimeSpan.FromMilliseconds(clampedTimeout + 5_000)).ConfigureAwait(false);
+        if (!TryUnwrap(outcome, out var result, out var error)) return error;
+
+        return TryDeserializeResult(result, AgentHostJsonContext.Default.WaitForEventsResult, out var dto)
+            ? FormatEvents(dto!, sinceSeq)
+            : AgentHostClient.ProtocolErrorMessage;
+    }
+
     // ── Shared plumbing ─────────────────────────────────────────────────────
 
     /// <summary>
@@ -153,15 +205,59 @@ public static class SessionTools
         var sb = new StringBuilder();
         sb.AppendLine($"{sessions.Length} live session(s):");
         sb.AppendLine();
-        sb.AppendLine("| paneId | title | profile | kind | size | active | tabId |");
-        sb.AppendLine("|---|---|---|---|---|---|---|");
+        sb.AppendLine("| paneId | title | profile | kind | size | active | status | tabId |");
+        sb.AppendLine("|---|---|---|---|---|---|---|---|");
         foreach (var s in sessions)
         {
+            var status = s.Status == null ? "-" : $"{s.Status} ({s.Confidence})";
             sb.AppendLine(
-                $"| {s.PaneId} | {s.Title} | {s.ProfileName} | {s.Kind} | {s.Cols}x{s.Rows} | {(s.IsActive ? "yes" : "no")} | {(s.TabId?.ToString() ?? "-")} |");
+                $"| {s.PaneId} | {s.Title} | {s.ProfileName} | {s.Kind} | {s.Cols}x{s.Rows} | {(s.IsActive ? "yes" : "no")} | {status} | {(s.TabId?.ToString() ?? "-")} |");
         }
         return sb.ToString().TrimEnd();
     }
+
+    internal static string FormatStatus(SessionStatusDto dto)
+    {
+        var sb = new StringBuilder();
+        sb.Append($"Session {dto.PaneId}: {dto.Status} ({dto.Confidence} confidence)");
+        if (dto.CurrentCommand != null) sb.Append($", command: {dto.CurrentCommand}");
+        if (dto.ExitCode is { } exit) sb.Append($", exit code {exit}");
+        if (dto.IsStalled) sb.Append($" — STALLED (no output for at least {dto.StallThresholdSeconds}s)");
+        sb.AppendLine();
+        sb.AppendLine($"Status since: {FormatUtc(dto.StatusSinceMs)}; last output: {FormatUtc(dto.LastOutputAtMs)}.");
+        sb.Append($"Thresholds: stall after {dto.StallThresholdSeconds}s of silence while running, idle after {dto.IdleThresholdSeconds}s at a prompt.");
+        return sb.ToString();
+    }
+
+    internal static string FormatEvents(WaitForEventsResult dto, long sinceSeq)
+    {
+        var sb = new StringBuilder();
+        if (dto.Events.Length == 0)
+        {
+            sb.Append($"No events within the wait window. Call again with sinceSeq={dto.NextSeq}.");
+            return sb.ToString();
+        }
+
+        sb.AppendLine($"{dto.Events.Length} event(s). Next call: sinceSeq={dto.NextSeq}.");
+        if (sinceSeq > 0 && sinceSeq + 1 < dto.OldestSeq)
+        {
+            sb.AppendLine($"Warning: events {sinceSeq + 1}–{dto.OldestSeq - 1} were evicted before this read — some events were missed. Resynchronize with novaterminal.list_sessions / get_session_status.");
+        }
+        sb.AppendLine();
+        sb.AppendLine("| seq | time (UTC) | paneId | type | status | details |");
+        sb.AppendLine("|---|---|---|---|---|---|");
+        foreach (var e in dto.Events)
+        {
+            var details = e.Type == AgentHostProtocol.EventTypes.CommandFinished
+                ? $"exit {(e.ExitCode?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "?")}{(e.DurationMs is { } d ? $", {d} ms" : "")}"
+                : e.ExitCode is { } code ? $"exit {code}" : "-";
+            sb.AppendLine($"| {e.Seq} | {FormatUtc(e.TimestampMs)} | {e.PaneId} | {e.Type} | {e.Status} | {details} |");
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    private static string FormatUtc(long unixMs)
+        => DateTimeOffset.FromUnixTimeMilliseconds(unixMs).ToString("yyyy-MM-dd HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
 
     internal static string FormatScreen(ScreenSnapshotDto dto)
     {
