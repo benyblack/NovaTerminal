@@ -347,7 +347,39 @@ namespace NovaTerminal.Pty
 
         private NovaTerminal.Replay.ReplayWriter? _recorder;
 
+        // Flight recorder ring (agent replay export). Written from the read loop and
+        // Resize; enabled/disabled from the App's agent-host lifecycle. Reference
+        // swap is atomic; loops observe it with the same null-conditional pattern as
+        // _recorder. Never records input — see ITerminalFlightRecorder.
+        private NovaTerminal.Replay.FlightRecordingBuffer? _flightRecorder;
+
         public bool IsRecording => _recorder != null;
+
+        public bool IsFlightRecording => _flightRecorder != null;
+
+        public void EnableFlightRecording(long maxTotalBytes)
+        {
+            if (_flightRecorder != null) return; // Already enabled
+            _flightRecorder = new NovaTerminal.Replay.FlightRecordingBuffer(maxTotalBytes, _cols, _rows);
+        }
+
+        public void DisableFlightRecording()
+        {
+            _flightRecorder = null;
+        }
+
+        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        {
+            var ring = _flightRecorder;
+            if (ring == null)
+            {
+                info = default;
+                return false;
+            }
+
+            info = ring.ExportTo(filePath, ShellCommand);
+            return true;
+        }
 
         public void StartRecording(string filePath)
         {
@@ -415,6 +447,7 @@ namespace NovaTerminal.Pty
                     {
                         // Record raw bytes before any processing
                         _recorder?.RecordChunk(buffer, read);
+                        _flightRecorder?.RecordChunk(buffer, read);
 
                         // Use the stateful decoder - it will hold incomplete multi-byte sequences
                         // until more bytes arrive, preventing U+FFFD replacement characters
@@ -549,6 +582,7 @@ namespace NovaTerminal.Pty
             try { Native.pty_resize(_handle, (ushort)cols, (ushort)rows); }
             catch (ObjectDisposedException) { /* session disposed mid-call — ignore resize */ }
             _recorder?.RecordResize(cols, rows);
+            _flightRecorder?.RecordResize(cols, rows);
         }
 
         public void Dispose()
@@ -567,6 +601,8 @@ namespace NovaTerminal.Pty
                     Console.WriteLine($"[RustPtySession] StopRecording during dispose failed: {ex.Message}");
                 }
             }
+
+            DisableFlightRecording();
 
             // 1. Stop the loops re-entering native calls, and let the process loop drain.
             _cts.Cancel();

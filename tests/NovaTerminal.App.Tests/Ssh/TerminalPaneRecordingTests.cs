@@ -132,6 +132,22 @@ public sealed class TerminalPaneRecordingTests
             IsRecording = false;
         }
 
+        public bool IsFlightRecording => false;
+
+        public void EnableFlightRecording(long maxTotalBytes)
+        {
+        }
+
+        public void DisableFlightRecording()
+        {
+        }
+
+        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        {
+            info = default;
+            return false;
+        }
+
         public void AttachBuffer(TerminalBuffer buffer)
         {
         }

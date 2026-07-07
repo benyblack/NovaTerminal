@@ -30,6 +30,10 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly object _outputHandlerGate = new();
 
     private ReplayWriter? _recorder;
+
+    // Flight recorder ring (agent replay export) — same byte-level tap as _recorder,
+    // never records input. See ITerminalFlightRecorder.
+    private FlightRecordingBuffer? _flightRecorder;
     private NativePortForwardSession? _portForwardSession;
     private NovaSshSafeHandle? _sessionHandle;
     private int _cols;
@@ -106,6 +110,35 @@ public sealed class NativeSshSession : ITerminalSession
     public bool HasActiveChildProcesses => false;
     public int? ExitCode => _exitCode;
     public bool IsRecording => _recorder != null;
+    public bool IsFlightRecording => _flightRecorder != null;
+
+    public void EnableFlightRecording(long maxTotalBytes)
+    {
+        if (_flightRecorder != null)
+        {
+            return; // Already enabled
+        }
+
+        _flightRecorder = new FlightRecordingBuffer(maxTotalBytes, _cols, _rows);
+    }
+
+    public void DisableFlightRecording()
+    {
+        _flightRecorder = null;
+    }
+
+    public bool TryExportFlightRecording(string filePath, out FlightExportInfo info)
+    {
+        FlightRecordingBuffer? ring = _flightRecorder;
+        if (ring == null)
+        {
+            info = default;
+            return false;
+        }
+
+        info = ring.ExportTo(filePath, ShellCommand);
+        return true;
+    }
 
     public event Action<string>? OnOutputReceived
     {
@@ -214,6 +247,7 @@ public sealed class NativeSshSession : ITerminalSession
             _cols = cols;
             _rows = rows;
             _recorder?.RecordResize(cols, rows);
+            _flightRecorder?.RecordResize(cols, rows);
         }
         catch (Exception ex) when (!IsCriticalException(ex))
         {
@@ -303,6 +337,7 @@ public sealed class NativeSshSession : ITerminalSession
     public void Dispose()
     {
         StopRecording();
+        DisableFlightRecording();
         _pollCts.Cancel();
         _metrics.MarkDisconnected("Disposed");
         _portForwardSession?.Dispose();
@@ -391,6 +426,7 @@ public sealed class NativeSshSession : ITerminalSession
     {
         _metrics.MarkFirstOutput();
         _recorder?.RecordChunk(payload, payload.Length);
+        _flightRecorder?.RecordChunk(payload, payload.Length);
 
         char[] chars = new char[Encoding.UTF8.GetMaxCharCount(payload.Length)];
         int charCount = _utf8Decoder.GetChars(payload, 0, payload.Length, chars, 0, flush: false);

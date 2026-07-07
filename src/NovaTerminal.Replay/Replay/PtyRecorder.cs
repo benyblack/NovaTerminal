@@ -38,6 +38,18 @@ namespace NovaTerminal.Replay
 
         public void RecordChunk(byte[] data, int length)
         {
+            RecordChunkAt(GetTimestamp(), data, length);
+        }
+
+        /// <summary>
+        /// Records an output chunk with an explicit time offset instead of the
+        /// enqueue-time clock. Used when re-emitting previously captured events
+        /// (e.g. flight-recorder export) so the file preserves original inter-chunk
+        /// timing. Callers are responsible for supplying non-decreasing offsets.
+        /// </summary>
+        public void RecordChunkAt(long timeOffsetMs, byte[] data, int length)
+        {
+            if (timeOffsetMs < 0) throw new ArgumentOutOfRangeException(nameof(timeOffsetMs), timeOffsetMs, "Time offset must be non-negative.");
             if (_cts.IsCancellationRequested || _queue.IsAddingCompleted) return;
 
             byte[] copy = new byte[length];
@@ -45,7 +57,7 @@ namespace NovaTerminal.Replay
 
             TryEnqueue(new ReplayEvent
             {
-                TimeOffsetMs = GetTimestamp(),
+                TimeOffsetMs = timeOffsetMs,
                 Type = "data",
                 Data = Convert.ToBase64String(copy)
             });
@@ -53,11 +65,20 @@ namespace NovaTerminal.Replay
 
         public void RecordResize(int cols, int rows)
         {
+            RecordResizeAt(GetTimestamp(), cols, rows);
+        }
+
+        /// <summary>
+        /// Records a resize with an explicit time offset. See <see cref="RecordChunkAt"/>.
+        /// </summary>
+        public void RecordResizeAt(long timeOffsetMs, int cols, int rows)
+        {
+            if (timeOffsetMs < 0) throw new ArgumentOutOfRangeException(nameof(timeOffsetMs), timeOffsetMs, "Time offset must be non-negative.");
             if (_cts.IsCancellationRequested || _queue.IsAddingCompleted) return;
 
             TryEnqueue(new ReplayEvent
             {
-                TimeOffsetMs = GetTimestamp(),
+                TimeOffsetMs = timeOffsetMs,
                 Type = "resize",
                 Cols = cols,
                 Rows = rows
