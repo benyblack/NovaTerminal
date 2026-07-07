@@ -117,6 +117,63 @@ public class AgentHostClientTests : IDisposable
         await serverTask.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
+    [Fact]
+    public async Task Caller_cancellation_propagates_instead_of_reporting_unavailable()
+    {
+        WriteDescriptor("some-endpoint-nobody-listens-on");
+        var client = new AgentHostClient(DiscoveryPath);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => client.CallAsync(AgentHostProtocol.Methods.ListSessions, null, cts.Token));
+    }
+
+    [Fact]
+    public async Task Malformed_server_response_is_a_protocol_error_not_unavailable()
+    {
+        var endpoint = OperatingSystem.IsWindows()
+            ? "novaterminal-agent-client-test-" + Guid.NewGuid().ToString("N")
+            : Path.Combine(_tempDir, "m.sock");
+
+        using var serverCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var serverTask = RunRawReplyEndpointOnceAsync(endpoint, "this is not a frame", serverCts.Token);
+        WriteDescriptor(endpoint);
+
+        var client = new AgentHostClient(DiscoveryPath);
+        var outcome = await client.CallAsync(AgentHostProtocol.Methods.ListSessions, null, TestContext.Current.CancellationToken);
+
+        Assert.False(outcome.Available);
+        Assert.Equal(AgentHostClient.ProtocolErrorMessage, outcome.UnavailableReason);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>Accepts one connection, reads one line, replies with a raw string, then exits.</summary>
+    private static async Task RunRawReplyEndpointOnceAsync(string endpoint, string rawReply, CancellationToken token)
+    {
+        await using var stream = await AcceptOneAsync(endpoint, token);
+        using var reader = new StreamReader(stream, new UTF8Encoding(false), leaveOpen: true);
+        await using var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+        _ = await reader.ReadLineAsync(token);
+        await writer.WriteLineAsync(rawReply.AsMemory(), token);
+    }
+
+    private static async Task<Stream> AcceptOneAsync(string endpoint, CancellationToken token)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            var pipe = new NamedPipeServerStream(endpoint, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            await pipe.WaitForConnectionAsync(token);
+            return pipe;
+        }
+
+        using var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        listener.Bind(new UnixDomainSocketEndPoint(endpoint));
+        listener.Listen(1);
+        var socket = await listener.AcceptAsync(token);
+        return new NetworkStream(socket, ownsSocket: true);
+    }
+
     /// <summary>Serves exactly one connection and one request, then exits.</summary>
     private static async Task RunFakeEndpointOnceAsync(string endpoint, ListSessionsResult reply, CancellationToken token)
     {
@@ -157,6 +214,24 @@ public class AgentHostClientTests : IDisposable
 /// <summary>Formatter tests: the shapes agents actually read.</summary>
 public class SessionToolsFormattingTests
 {
+    [Fact]
+    public async Task ReadScrollback_rejects_non_positive_maxLines_before_any_ipc()
+    {
+        // maxLines <= 0 would produce an empty page whose paging hint repeats
+        // the same startLine — an agent following the hint would loop forever.
+        // The guard runs before the IPC call: a client with no discovery file
+        // would otherwise return the unavailable message instead.
+        var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
+
+        var zero = await SessionTools.ReadScrollback(client, Guid.NewGuid().ToString(), startLine: 0, maxLines: 0, TestContext.Current.CancellationToken);
+        var negative = await SessionTools.ReadScrollback(client, Guid.NewGuid().ToString(), startLine: 0, maxLines: -5, TestContext.Current.CancellationToken);
+        var negativeStart = await SessionTools.ReadScrollback(client, Guid.NewGuid().ToString(), startLine: -1, maxLines: 10, TestContext.Current.CancellationToken);
+
+        Assert.Equal("Error: maxLines must be greater than 0.", zero);
+        Assert.Equal("Error: maxLines must be greater than 0.", negative);
+        Assert.StartsWith("Error: startLine must be 0 or greater", negativeStart, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void FormatSessionList_renders_a_row_per_session_and_handles_null_tab()
     {

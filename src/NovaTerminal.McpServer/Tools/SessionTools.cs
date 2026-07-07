@@ -22,8 +22,9 @@ public static class SessionTools
         var outcome = await client.CallAsync(AgentHostProtocol.Methods.ListSessions, null, cancellationToken).ConfigureAwait(false);
         if (!TryUnwrap(outcome, out var result, out var error)) return error;
 
-        var sessions = result.Deserialize(AgentHostJsonContext.Default.ListSessionsResult)?.Sessions;
-        return FormatSessionList(sessions ?? Array.Empty<SessionInfo>());
+        return TryDeserializeResult(result, AgentHostJsonContext.Default.ListSessionsResult, out var dto)
+            ? FormatSessionList(dto!.Sessions)
+            : AgentHostClient.ProtocolErrorMessage;
     }
 
     [McpServerTool(Name = "novaterminal.read_screen"),
@@ -45,8 +46,9 @@ public static class SessionTools
         var outcome = await client.CallAsync(AgentHostProtocol.Methods.ReadScreen, parameters, cancellationToken).ConfigureAwait(false);
         if (!TryUnwrap(outcome, out var result, out var error)) return error;
 
-        var dto = result.Deserialize(AgentHostJsonContext.Default.ScreenSnapshotDto);
-        return dto == null ? AgentHostClient.UnavailableMessage : FormatScreen(dto);
+        return TryDeserializeResult(result, AgentHostJsonContext.Default.ScreenSnapshotDto, out var dto)
+            ? FormatScreen(dto!)
+            : AgentHostClient.ProtocolErrorMessage;
     }
 
     [McpServerTool(Name = "novaterminal.read_scrollback"),
@@ -62,6 +64,17 @@ public static class SessionTools
         {
             return $"Error: '{paneId}' is not a valid pane id (GUID). Use novaterminal.list_sessions to find live pane ids.";
         }
+        if (maxLines <= 0)
+        {
+            // Guarded here, before any IPC: the server clamps this to an empty
+            // page whose paging hint would point at the same startLine — an
+            // agent following the documented paging flow would loop forever.
+            return "Error: maxLines must be greater than 0.";
+        }
+        if (startLine < 0)
+        {
+            return "Error: startLine must be 0 or greater (0 = oldest retained line).";
+        }
 
         var parameters = JsonSerializer.SerializeToElement(
             new ReadScrollbackParams { PaneId = pane, StartLine = startLine, MaxLines = maxLines },
@@ -69,11 +82,37 @@ public static class SessionTools
         var outcome = await client.CallAsync(AgentHostProtocol.Methods.ReadScrollback, parameters, cancellationToken).ConfigureAwait(false);
         if (!TryUnwrap(outcome, out var result, out var error)) return error;
 
-        var dto = result.Deserialize(AgentHostJsonContext.Default.ReadScrollbackResult);
-        return dto == null ? AgentHostClient.UnavailableMessage : FormatScrollback(dto);
+        return TryDeserializeResult(result, AgentHostJsonContext.Default.ReadScrollbackResult, out var dto)
+            ? FormatScrollback(dto!)
+            : AgentHostClient.ProtocolErrorMessage;
     }
 
     // ── Shared plumbing ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Deserializes a result payload, treating malformed/empty payloads as a
+    /// protocol error rather than throwing out of the tool. Contract note: the
+    /// DTOs' array/string members are declared <c>required</c> and non-nullable,
+    /// so a successful deserialization here cannot yield null members — a
+    /// missing required field lands in the JsonException path instead.
+    /// </summary>
+    private static bool TryDeserializeResult<T>(
+        JsonElement result,
+        System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo,
+        out T? value)
+        where T : class
+    {
+        try
+        {
+            value = result.Deserialize(typeInfo);
+            return value != null;
+        }
+        catch (JsonException)
+        {
+            value = null;
+            return false;
+        }
+    }
 
     private static bool TryUnwrap(AgentHostClient.CallOutcome outcome, out JsonElement result, out string error)
     {

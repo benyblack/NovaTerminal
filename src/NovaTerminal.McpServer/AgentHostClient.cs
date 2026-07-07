@@ -18,6 +18,11 @@ namespace NovaTerminal.McpServer;
 /// </summary>
 public sealed class AgentHostClient
 {
+    /// <summary>Surfaced when the endpoint answered with something the client cannot parse.</summary>
+    public const string ProtocolErrorMessage =
+        "NovaTerminal answered, but the response could not be parsed. This usually means the app and " +
+        "the MCP server are from different versions — update them together and retry.";
+
     /// <summary>Fixed guidance surfaced when no live endpoint is reachable.</summary>
     public const string UnavailableMessage =
         "Live session access is unavailable: NovaTerminal is not running with Agent Access enabled. " +
@@ -73,15 +78,33 @@ public sealed class AgentHostClient
             var line = await reader.ReadLineAsync(timeoutCts.Token).ConfigureAwait(false);
             if (line == null)
             {
-                return new CallOutcome(null, UnavailableMessage);
+                // Connected, then EOF before a response: that's a live app
+                // dropping us (e.g. Agent Access toggled off mid-call), not
+                // "app isn't running".
+                return new CallOutcome(null, "NovaTerminal closed the connection before responding. Agent Access may have just been disabled; check Settings → Agent access (observe) and retry.");
             }
 
-            var response = JsonSerializer.Deserialize(line, AgentHostJsonContext.Default.AgentHostResponse);
-            return response == null
-                ? new CallOutcome(null, UnavailableMessage)
-                : new CallOutcome(response, null);
+            try
+            {
+                var response = JsonSerializer.Deserialize(line, AgentHostJsonContext.Default.AgentHostResponse);
+                return response == null
+                    ? new CallOutcome(null, ProtocolErrorMessage)
+                    : new CallOutcome(response, null);
+            }
+            catch (JsonException)
+            {
+                // Connected and answered, but not in a shape we understand:
+                // a protocol problem, not an availability problem.
+                return new CallOutcome(null, ProtocolErrorMessage);
+            }
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Cooperative cancellation from the MCP host must propagate, not
+            // masquerade as an unavailable endpoint.
+            throw;
+        }
+        catch (OperationCanceledException)
         {
             return new CallOutcome(null, "Live session access timed out talking to NovaTerminal. The app may be busy; retry.");
         }
@@ -109,7 +132,20 @@ public sealed class AgentHostClient
             try
             {
                 using var process = System.Diagnostics.Process.GetProcessById(descriptor.Pid);
-                if (process.HasExited) return null;
+                try
+                {
+                    if (process.HasExited) return null;
+                }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    // Access denied querying exit state (elevated app, different
+                    // integrity level): we *did* get a process object, so assume
+                    // it is alive rather than falsely reporting unavailable.
+                }
+                catch (InvalidOperationException)
+                {
+                    return null; // no process handle — treat as exited
+                }
             }
             catch (ArgumentException)
             {
