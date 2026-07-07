@@ -169,12 +169,18 @@ namespace NovaTerminal.AgentHost
         /// Contributes the time-based transitions and the child-process
         /// heuristic. Idle and stall thresholds only ever fire here, so the
         /// cadence of the caller bounds their latency (1 s in production).
+        /// Null means the probe couldn't answer (session initializing or being
+        /// swapped): the last known value is kept rather than flapping the
+        /// heuristic status through a transient false.
         /// </summary>
-        public void Sweep(bool hasActiveChildProcesses)
+        public void Sweep(bool? hasActiveChildProcesses)
         {
             RunUnderGate(now =>
             {
-                _hasActiveChildren = hasActiveChildProcesses;
+                if (hasActiveChildProcesses.HasValue)
+                {
+                    _hasActiveChildren = hasActiveChildProcesses.Value;
+                }
 
                 if (!_exited
                     && ComputeKind(now) == AgentSessionStatusKind.Running

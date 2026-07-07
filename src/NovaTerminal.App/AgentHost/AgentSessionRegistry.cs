@@ -25,15 +25,31 @@ namespace NovaTerminal.AgentHost
 
         public int Count => _sessions.Count;
 
+        /// <summary>Raised after a session is added. Used by the endpoint to attach status-event forwarding.</summary>
+        public event Action<AgentSessionRegistration>? SessionRegistered;
+
+        /// <summary>Raised after a session is removed.</summary>
+        public event Action<AgentSessionRegistration>? SessionUnregistered;
+
         /// <summary>Adds a registration. Returns false (and keeps the existing entry) on a duplicate PaneId.</summary>
         public bool Register(AgentSessionRegistration registration)
         {
             ArgumentNullException.ThrowIfNull(registration);
-            return _sessions.TryAdd(registration.PaneId, registration);
+            if (!_sessions.TryAdd(registration.PaneId, registration)) return false;
+            SessionRegistered?.Invoke(registration);
+            return true;
         }
 
         /// <summary>Removes a registration; false when the pane was never registered (or already removed).</summary>
-        public bool Unregister(Guid paneId) => _sessions.TryRemove(paneId, out _);
+        public bool Unregister(Guid paneId)
+        {
+            if (!_sessions.TryRemove(paneId, out var removed)) return false;
+            SessionUnregistered?.Invoke(removed);
+            return true;
+        }
+
+        /// <summary>Point-in-time array of live registrations (for the endpoint's status sweep).</summary>
+        public AgentSessionRegistration[] GetRegistrations() => _sessions.Values.ToArray();
 
         public bool TryGet(Guid paneId, out AgentSessionRegistration registration)
         {
@@ -88,16 +104,22 @@ namespace NovaTerminal.AgentHost
         public SessionInfo[] ListSessions()
         {
             return _sessions.Values
-                .Select(r => new SessionInfo
+                .Select(r =>
                 {
-                    PaneId = r.PaneId,
-                    TabId = r.TabId,
-                    Title = r.Title,
-                    ProfileName = r.ProfileName,
-                    Kind = r.Kind,
-                    Rows = r.Buffer.Rows,
-                    Cols = r.Buffer.Cols,
-                    IsActive = r.IsActive,
+                    var status = r.StatusMachine.Snapshot();
+                    return new SessionInfo
+                    {
+                        PaneId = r.PaneId,
+                        TabId = r.TabId,
+                        Title = r.Title,
+                        ProfileName = r.ProfileName,
+                        Kind = r.Kind,
+                        Rows = r.Buffer.Rows,
+                        Cols = r.Buffer.Cols,
+                        IsActive = r.IsActive,
+                        Status = status.Kind.ToWire(),
+                        Confidence = status.Confidence.ToWire(),
+                    };
                 })
                 .OrderBy(s => s.PaneId)
                 .ToArray();

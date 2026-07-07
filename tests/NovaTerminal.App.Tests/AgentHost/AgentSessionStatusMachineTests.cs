@@ -89,6 +89,31 @@ public class AgentSessionStatusMachineTests
     }
 
     [Fact]
+    public void Registration_probe_is_unknown_without_a_published_lifecycle()
+    {
+        // No session yet → the probe answers "unknown", never a hard false.
+        var registration = new AgentSessionRegistration(
+            Guid.NewGuid(), new NovaTerminal.VT.TerminalBuffer(80, 24), "t", "p", "local", isActive: false);
+        Assert.Null(registration.ProbeHasActiveChildProcesses());
+    }
+
+    [Fact]
+    public void Sweep_with_unknown_child_state_keeps_the_last_known_value()
+    {
+        // The probe returns null while the session is initializing or being
+        // swapped; a transient null must not flap Running → AwaitingInput.
+        var (machine, _, _) = Make();
+        machine.Sweep(hasActiveChildProcesses: true);
+        Assert.Equal(AgentSessionStatusKind.Running, machine.Snapshot().Kind);
+
+        machine.Sweep(hasActiveChildProcesses: null);
+        Assert.Equal(AgentSessionStatusKind.Running, machine.Snapshot().Kind);
+
+        machine.Sweep(hasActiveChildProcesses: false);
+        Assert.Equal(AgentSessionStatusKind.AwaitingInput, machine.Snapshot().Kind);
+    }
+
+    [Fact]
     public void Alt_screen_forces_running_in_both_tiers()
     {
         var (machine, _, _) = Make();

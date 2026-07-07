@@ -46,6 +46,12 @@ namespace NovaTerminal.AgentHost
         private string? _discoveryFilePath;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<Stream, byte> _activeClients = new();
 
+        // A2 status plumbing — exists only while the endpoint is running
+        // (off-is-off: no ring, no timer, no subscriptions when disabled).
+        private AgentEventRing? _eventRing;
+        private Timer? _sweepTimer;
+        private readonly Dictionary<AgentSessionRegistration, Action<AgentSessionStatusEvent>> _statusSubscriptions = new();
+
         public AgentHostService(
             AgentSessionRegistry registry,
             string? endpointOverride = null,
@@ -117,6 +123,8 @@ namespace NovaTerminal.AgentHost
                         JsonSerializer.Serialize(descriptor, AgentHostJsonContext.Default.EndpointDescriptor));
                     _discoveryFilePath = discoveryPath;
                     EndpointName = endpoint;
+
+                    StartStatusPlumbingLocked();
                 }
                 catch (Exception ex)
                 {
@@ -141,6 +149,8 @@ namespace NovaTerminal.AgentHost
 
         private void StopLocked()
         {
+            StopStatusPlumbingLocked();
+
             _cts?.Cancel();
             _cts?.Dispose();
             _cts = null;
@@ -210,6 +220,115 @@ namespace NovaTerminal.AgentHost
             {
                 // Missing file, or a foreign instance holds the lock right now:
                 // either way there is nothing of ours left to clean up.
+            }
+        }
+
+        // ── A2 status plumbing ───────────────────────────────────────────────
+
+        private void StartStatusPlumbingLocked()
+        {
+            _eventRing = new AgentEventRing();
+            _registry.SessionRegistered += OnSessionRegistered;
+            _registry.SessionUnregistered += OnSessionUnregistered;
+
+            // Sessions that were already open when the endpoint started get
+            // forwarding but no synthetic sessionOpened: a fresh client learns
+            // about them via listSessions, not via a burst of stale events.
+            foreach (var registration in _registry.GetRegistrations())
+            {
+                AttachStatusForwarding(registration);
+            }
+
+            _sweepTimer = new Timer(_ => SweepStatuses(), null,
+                dueTime: TimeSpan.FromSeconds(1), period: TimeSpan.FromSeconds(1));
+        }
+
+        private void StopStatusPlumbingLocked()
+        {
+            _sweepTimer?.Dispose();
+            _sweepTimer = null;
+
+            _registry.SessionRegistered -= OnSessionRegistered;
+            _registry.SessionUnregistered -= OnSessionUnregistered;
+
+            foreach (var (registration, handler) in _statusSubscriptions)
+            {
+                registration.StatusMachine.EventEmitted -= handler;
+            }
+            _statusSubscriptions.Clear();
+            _eventRing = null;
+        }
+
+        private void OnSessionRegistered(AgentSessionRegistration registration)
+        {
+            AgentEventRing? ring;
+            lock (_gate)
+            {
+                ring = _eventRing;
+                if (ring == null) return;
+                AttachStatusForwardingLocked(registration, ring);
+            }
+
+            var status = registration.StatusMachine.Snapshot();
+            ring.Append(registration.PaneId, AgentHostProtocol.EventTypes.SessionOpened, status.Kind.ToWire(), DateTimeOffset.UtcNow);
+        }
+
+        private void OnSessionUnregistered(AgentSessionRegistration registration)
+        {
+            AgentEventRing? ring;
+            lock (_gate)
+            {
+                ring = _eventRing;
+                if (_statusSubscriptions.Remove(registration, out var handler))
+                {
+                    registration.StatusMachine.EventEmitted -= handler;
+                }
+            }
+
+            var status = registration.StatusMachine.Snapshot();
+            ring?.Append(registration.PaneId, AgentHostProtocol.EventTypes.SessionClosed, status.Kind.ToWire(), DateTimeOffset.UtcNow, status.ExitCode);
+        }
+
+        private void AttachStatusForwarding(AgentSessionRegistration registration)
+        {
+            // Caller holds _gate (Start path).
+            if (_eventRing is { } ring)
+            {
+                AttachStatusForwardingLocked(registration, ring);
+            }
+        }
+
+        private void AttachStatusForwardingLocked(AgentSessionRegistration registration, AgentEventRing ring)
+        {
+            if (_statusSubscriptions.ContainsKey(registration)) return;
+
+            // PaneId is read at event time (it can be re-keyed by session
+            // restore); the ring instance is captured so a stopped endpoint's
+            // orphaned events can never land in a newer ring.
+            void Handler(AgentSessionStatusEvent evt) => ring.Append(
+                registration.PaneId,
+                evt.Type.ToWire(),
+                evt.Status.ToWire(),
+                evt.Timestamp,
+                evt.ExitCode,
+                evt.Duration is { } d ? (long)d.TotalMilliseconds : null);
+
+            _statusSubscriptions[registration] = Handler;
+            registration.StatusMachine.EventEmitted += Handler;
+        }
+
+        private void SweepStatuses()
+        {
+            foreach (var registration in _registry.GetRegistrations())
+            {
+                try
+                {
+                    registration.StatusMachine.Sweep(registration.ProbeHasActiveChildProcesses());
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[AgentHost] status sweep failed for {registration.PaneId}: {ex.Message}");
+                }
             }
         }
 
@@ -374,7 +493,7 @@ namespace NovaTerminal.AgentHost
                     if (line == null) return;
                     if (string.IsNullOrWhiteSpace(line)) continue;
 
-                    var response = HandleRequestLine(line);
+                    var response = await HandleRequestLineAsync(line, token).ConfigureAwait(false);
                     await writer.WriteLineAsync(
                         JsonSerializer.Serialize(response, AgentHostJsonContext.Default.AgentHostResponse))
                         .ConfigureAwait(false);
@@ -396,7 +515,7 @@ namespace NovaTerminal.AgentHost
 
         // ── Request handling ─────────────────────────────────────────────────
 
-        internal AgentHostResponse HandleRequestLine(string line)
+        internal async Task<AgentHostResponse> HandleRequestLineAsync(string line, CancellationToken cancellationToken)
         {
             AgentHostRequest? request;
             try
@@ -428,8 +547,14 @@ namespace NovaTerminal.AgentHost
                     AgentHostProtocol.Methods.ListSessions => HandleListSessions(request),
                     AgentHostProtocol.Methods.ReadScreen => HandleReadScreen(request),
                     AgentHostProtocol.Methods.ReadScrollback => HandleReadScrollback(request),
+                    AgentHostProtocol.Methods.GetSessionStatus => HandleGetSessionStatus(request),
+                    AgentHostProtocol.Methods.WaitForEvents => await HandleWaitForEventsAsync(request, cancellationToken).ConfigureAwait(false),
                     _ => Error(request.Id, AgentHostProtocol.ErrorCodes.UnknownMethod, $"Unknown method '{request.Method}'."),
                 };
+            }
+            catch (OperationCanceledException)
+            {
+                throw; // endpoint stopping / client gone — the connection loop owns this
             }
             catch (JsonException ex)
             {
@@ -439,6 +564,42 @@ namespace NovaTerminal.AgentHost
             {
                 return Error(request.Id, AgentHostProtocol.ErrorCodes.Internal, ex.Message);
             }
+        }
+
+        private AgentHostResponse HandleGetSessionStatus(AgentHostRequest request)
+        {
+            var p = DeserializeParams(request, AgentHostJsonContext.Default.GetSessionStatusParams);
+            if (p == null)
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "getSessionStatus requires params with a paneId.");
+            }
+            if (!_registry.TryGet(p.PaneId, out var registration))
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
+            }
+
+            var dto = registration.StatusMachine.Snapshot().ToDto(registration.PaneId);
+            return Ok(request.Id, JsonSerializer.SerializeToElement(dto, AgentHostJsonContext.Default.SessionStatusDto));
+        }
+
+        private async Task<AgentHostResponse> HandleWaitForEventsAsync(AgentHostRequest request, CancellationToken cancellationToken)
+        {
+            var p = DeserializeParams(request, AgentHostJsonContext.Default.WaitForEventsParams);
+            if (p == null)
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "waitForEvents requires params with sinceSeq and timeoutMs.");
+            }
+
+            var ring = _eventRing;
+            if (ring == null)
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.Internal, "Event channel is not available.");
+            }
+
+            var sinceSeq = Math.Max(0, p.SinceSeq);
+            var timeout = TimeSpan.FromMilliseconds(Math.Clamp(p.TimeoutMs, 0, AgentHostProtocol.MaxWaitForEventsTimeoutMs));
+            var result = await ring.WaitSinceAsync(sinceSeq, timeout, cancellationToken).ConfigureAwait(false);
+            return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.WaitForEventsResult));
         }
 
         private AgentHostResponse HandleListSessions(AgentHostRequest request)

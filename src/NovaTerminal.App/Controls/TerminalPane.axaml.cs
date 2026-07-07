@@ -1610,6 +1610,7 @@ namespace NovaTerminal.Controls
 
             string startingDir = profile?.StartingDirectory ?? "";
             Session = null;
+            _agentRegistration?.SetLifecycle(null);
             try
             {
                 // If effectiveShell contains a space and is not a direct file, it's likely a combined command.
@@ -1680,6 +1681,16 @@ namespace NovaTerminal.Controls
                 };
                 RegisterActiveSshSession(session, profile);
                 UpdateCommandAssistContext();
+
+                // Publish the PTY lifecycle to the registration (the endpoint's
+                // sweep probes only this published reference, never the pane)
+                // and seed the first child-process sample immediately so the
+                // heuristic tier is correct from the moment the session exists.
+                if (_agentRegistration is { } agentReg)
+                {
+                    agentReg.SetLifecycle(session);
+                    agentReg.StatusMachine.Sweep(agentReg.ProbeHasActiveChildProcesses());
+                }
             }
             catch (Exception ex)
             {
@@ -2091,6 +2102,7 @@ namespace NovaTerminal.Controls
                 ITerminalSession session = Session;
                 UnregisterActiveSshSession(session);
                 Session = null;
+                _agentRegistration?.SetLifecycle(null);
                 session.Dispose();
             }
 
@@ -2314,6 +2326,7 @@ namespace NovaTerminal.Controls
                 ITerminalSession session = Session;
                 UnregisterActiveSshSession(session);
                 Session = null;
+                _agentRegistration?.SetLifecycle(null);
                 return session;
             }
             return null;

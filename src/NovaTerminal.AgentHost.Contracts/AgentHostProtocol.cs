@@ -32,12 +32,50 @@ public static class AgentHostProtocol
     /// <summary>Server-side cap on scrollback lines returned per request.</summary>
     public const int MaxScrollbackLinesPerRequest = 2000;
 
-    /// <summary>Method names for A1 (observe-only). Later milestones append; they never repurpose.</summary>
+    /// <summary>Server-side cap on a waitForEvents long-poll (client read timeouts must exceed this).</summary>
+    public const int MaxWaitForEventsTimeoutMs = 25_000;
+
+    /// <summary>Capacity of the server's event ring; older events are evicted and reported via oldestSeq.</summary>
+    public const int EventRingCapacity = 256;
+
+    /// <summary>Method names. Observe-only; later milestones append, they never repurpose.</summary>
     public static class Methods
     {
         public const string ListSessions = "listSessions";
         public const string ReadScreen = "readScreen";
         public const string ReadScrollback = "readScrollback";
+        public const string GetSessionStatus = "getSessionStatus";
+        public const string WaitForEvents = "waitForEvents";
+    }
+
+    /// <summary>Wire values for session status (A2). See the A2 design doc for exact semantics.</summary>
+    public static class StatusKinds
+    {
+        public const string Running = "running";
+        public const string AwaitingInput = "awaitingInput";
+        public const string Idle = "idle";
+        public const string Exited = "exited";
+    }
+
+    /// <summary>Wire values for status confidence: how the status was derived.</summary>
+    public static class StatusConfidences
+    {
+        /// <summary>Shell-integration events (prompt/command lifecycle) drive the status.</summary>
+        public const string Precise = "precise";
+
+        /// <summary>PTY-level signals only (child processes, alt screen, output activity).</summary>
+        public const string Heuristic = "heuristic";
+    }
+
+    /// <summary>Wire values for event types on the waitForEvents channel.</summary>
+    public static class EventTypes
+    {
+        public const string StatusChanged = "statusChanged";
+        public const string CommandFinished = "commandFinished";
+        public const string Bell = "bell";
+        public const string Stalled = "stalled";
+        public const string SessionOpened = "sessionOpened";
+        public const string SessionClosed = "sessionClosed";
     }
 
     /// <summary>Stable machine-readable error codes carried in <see cref="AgentHostError.Code"/>.</summary>
