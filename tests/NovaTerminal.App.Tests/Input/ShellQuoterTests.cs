@@ -32,6 +32,7 @@ namespace NovaTerminal.Tests.Input
         [Theory]
         [InlineData(@"C:\%APPDATA%\x.txt")]   // env expansion, even inside quotes
         [InlineData(@"C:\a!VAR!b.txt")]       // delayed expansion
+        [InlineData("/mnt/c/foo\" & del x \"bar")] // WSL-mapped name with a quote breakout
         public void CmdQuoter_FlagsUnneutralizableMetacharacters(string input)
         {
             var quoter = new CmdQuoter();

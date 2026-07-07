@@ -816,12 +816,14 @@ namespace NovaTerminal.Shell
         // produced "...dir\" — where \" escapes the closing quote and corrupts the whole
         // scp command line (#170). Backslashes preceding a quote (or the closing quote)
         // must be doubled.
+        private static readonly char[] QuotingTriggers = { ' ', '\t', '\n', '\r', '\v', '"' };
+
         internal static string QuoteArg(string value)
         {
             string s = value ?? string.Empty;
 
             // Only needs quoting if it contains whitespace, a quote, or is empty.
-            if (s.Length > 0 && s.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0)
+            if (s.Length > 0 && s.IndexOfAny(QuotingTriggers) < 0)
             {
                 return s;
             }
