@@ -49,4 +49,18 @@ public class LongCommandNotificationPolicyTests
         var text = LongCommandNotificationPolicy.BuildMessage(null, null, TimeSpan.FromSeconds(42), "Bash");
         Assert.Equal("Command — exit ? after 42s (Bash)", text);
     }
+
+    [Fact]
+    public void Message_flattens_newlines_and_elides_long_commands()
+    {
+        var multiline = "for f in *.log; do\n  gzip \"$f\"\ndone";
+        var flattened = LongCommandNotificationPolicy.BuildMessage(multiline, 0, TimeSpan.FromSeconds(60), "Bash");
+        Assert.DoesNotContain("\n", flattened, StringComparison.Ordinal);
+        Assert.Contains("for f in *.log; do   gzip \"$f\" done", flattened, StringComparison.Ordinal);
+
+        var longCommand = new string('x', 200);
+        var elided = LongCommandNotificationPolicy.BuildMessage(longCommand, 0, TimeSpan.FromSeconds(60), "Bash");
+        Assert.Contains(new string('x', LongCommandNotificationPolicy.MaxCommandLength - 1) + "…", elided, StringComparison.Ordinal);
+        Assert.DoesNotContain(new string('x', LongCommandNotificationPolicy.MaxCommandLength), elided, StringComparison.Ordinal);
+    }
 }

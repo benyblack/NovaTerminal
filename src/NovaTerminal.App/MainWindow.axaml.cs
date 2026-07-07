@@ -5518,6 +5518,16 @@ namespace NovaTerminal
             _recordingToastFolderPath = folderPath;
             titleBlock.Text = title;
             messageBlock.Text = message;
+
+            // The folder button only makes sense for toasts that have one
+            // (recordings). Non-file toasts (long-command completion) would
+            // otherwise offer a button that opens an unrelated folder.
+            var openFolderButton = this.FindControl<Button>("RecordingToastOpenFolder");
+            if (openFolderButton != null)
+            {
+                openFolderButton.IsVisible = folderPath != null || filePath != null;
+            }
+
             toast.IsVisible = true;
 
             _recordingToastTimer.Stop();

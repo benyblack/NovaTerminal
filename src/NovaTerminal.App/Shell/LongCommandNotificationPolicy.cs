@@ -38,10 +38,24 @@ namespace NovaTerminal.Shell
             return string.Create(CultureInfo.InvariantCulture, $"{Math.Max(0, (int)duration.TotalSeconds)}s");
         }
 
+        /// <summary>Toasts must stay one-line; longer commands are elided.</summary>
+        public const int MaxCommandLength = 60;
+
         /// <summary>Toast body, e.g. "cargo build — exit 0 after 3m 5s (Bash)".</summary>
         public static string BuildMessage(string? commandText, int? exitCode, TimeSpan duration, string paneTitle)
         {
-            var command = string.IsNullOrWhiteSpace(commandText) ? "Command" : commandText.Trim();
+            // Flatten multi-line scripts and elide long commands so the toast
+            // stays a compact single line.
+            var command = string.IsNullOrWhiteSpace(commandText)
+                ? "Command"
+                : commandText.Replace("\r", string.Empty, StringComparison.Ordinal)
+                    .Replace('\n', ' ')
+                    .Trim();
+            if (command.Length > MaxCommandLength)
+            {
+                command = command[..(MaxCommandLength - 1)] + "…";
+            }
+
             var exit = exitCode.HasValue
                 ? exitCode.Value.ToString(CultureInfo.InvariantCulture)
                 : "?";
