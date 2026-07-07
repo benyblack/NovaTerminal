@@ -30,6 +30,10 @@ public sealed class NativeSshSession : ITerminalSession
     private readonly object _outputHandlerGate = new();
 
     private ReplayWriter? _recorder;
+
+    // Flight recorder ring (agent replay export) — same byte-level tap as _recorder,
+    // never records input. See ITerminalFlightRecorder.
+    private FlightRecordingBuffer? _flightRecorder;
     private NativePortForwardSession? _portForwardSession;
     private NovaSshSafeHandle? _sessionHandle;
     private int _cols;
@@ -106,6 +110,51 @@ public sealed class NativeSshSession : ITerminalSession
     public bool HasActiveChildProcesses => false;
     public int? ExitCode => _exitCode;
     public bool IsRecording => _recorder != null;
+    public bool IsFlightRecording => _flightRecorder != null;
+
+    public void EnableFlightRecording(long maxTotalBytes)
+    {
+        if (_flightRecorder != null)
+        {
+            return; // Already enabled
+        }
+
+        // Defensive fallback: geometry should always be positive here, but the
+        // ring constructor rejects non-positive dimensions and enabling must
+        // never throw at the agent-host lifecycle call site.
+        int cols = _cols > 0 ? _cols : 80;
+        int rows = _rows > 0 ? _rows : 24;
+        _flightRecorder = new FlightRecordingBuffer(maxTotalBytes, cols, rows);
+    }
+
+    public void DisableFlightRecording()
+    {
+        _flightRecorder = null;
+    }
+
+    public bool TryExportFlightRecording(string filePath, out FlightExportInfo info)
+    {
+        FlightRecordingBuffer? ring = _flightRecorder;
+        if (ring == null)
+        {
+            info = default;
+            return false;
+        }
+
+        try
+        {
+            info = ring.ExportTo(filePath, ShellCommand);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            // Try-pattern: expected I/O failures (bad path, permissions, full
+            // disk) must not crash the host on an agent-triggered export.
+            _log($"[NativeSshSession] Flight recording export failed: {ex.Message}");
+            info = default;
+            return false;
+        }
+    }
 
     public event Action<string>? OnOutputReceived
     {
@@ -214,6 +263,7 @@ public sealed class NativeSshSession : ITerminalSession
             _cols = cols;
             _rows = rows;
             _recorder?.RecordResize(cols, rows);
+            _flightRecorder?.RecordResize(cols, rows);
         }
         catch (Exception ex) when (!IsCriticalException(ex))
         {
@@ -303,6 +353,7 @@ public sealed class NativeSshSession : ITerminalSession
     public void Dispose()
     {
         StopRecording();
+        DisableFlightRecording();
         _pollCts.Cancel();
         _metrics.MarkDisconnected("Disposed");
         _portForwardSession?.Dispose();
@@ -391,6 +442,7 @@ public sealed class NativeSshSession : ITerminalSession
     {
         _metrics.MarkFirstOutput();
         _recorder?.RecordChunk(payload, payload.Length);
+        _flightRecorder?.RecordChunk(payload, payload.Length);
 
         char[] chars = new char[Encoding.UTF8.GetMaxCharCount(payload.Length)];
         int charCount = _utf8Decoder.GetChars(payload, 0, payload.Length, chars, 0, flush: false);

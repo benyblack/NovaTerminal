@@ -75,6 +75,10 @@ public sealed class OpenSshSession : ITerminalSession
     public void Resize(int cols, int rows) => _inner.Resize(cols, rows);
     public void StartRecording(string filePath) => _inner.StartRecording(filePath);
     public void StopRecording() => _inner.StopRecording();
+    public bool IsFlightRecording => _inner.IsFlightRecording;
+    public void EnableFlightRecording(long maxTotalBytes) => _inner.EnableFlightRecording(maxTotalBytes);
+    public void DisableFlightRecording() => _inner.DisableFlightRecording();
+    public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info) => _inner.TryExportFlightRecording(filePath, out info);
     public void Dispose() => _inner.Dispose();
 
     private static ITerminalSession CreateInnerSession(
