@@ -70,26 +70,37 @@ namespace NovaTerminal.Rendering
                     int start = i;
                     while (i < data.Length && (char.IsDigit(data[i]) || data[i] == ';')) i++;
                     string[] parts = data.Substring(start, i - start).Split(';');
-                    if (parts.Length > 0 && int.TryParse(parts[0], out int idx))
+                    // Cap the palette index: sixel is remote-controlled input, and an
+                    // arbitrary idx would grow the palette dictionary without bound
+                    // (memory DoS). Modern extended implementations top out at 4096.
+                    if (parts.Length > 0 && int.TryParse(parts[0], out int idx) && idx >= 0 && idx < 4096)
                     {
                         if (parts.Length == 5) // Set color: idx; type; p1; p2; p3
                         {
-                            int type = int.Parse(parts[1]);
-                            int p1 = int.Parse(parts[2]);
-                            int p2 = int.Parse(parts[3]);
-                            int p3 = int.Parse(parts[4]);
-
-                            if (type == 2) // RGB 0-100
+                            // Sixel is remote-controlled input: malformed params (e.g.
+                            // "#1;;2;3;4" — consecutive ';' yields an empty part) must be
+                            // skipped, not thrown out of Decode into the parser loop (#169).
+                            if (int.TryParse(parts[1], out int type) &&
+                                int.TryParse(parts[2], out int p1) &&
+                                int.TryParse(parts[3], out int p2) &&
+                                int.TryParse(parts[4], out int p3))
                             {
-                                _palette[idx] = new SixelColor(
-                                    (byte)(p1 * 255 / 100),
-                                    (byte)(p2 * 255 / 100),
-                                    (byte)(p3 * 255 / 100));
-                            }
-                            else if (type == 1) // HLS (simplified conversion)
-                            {
-                                // TODO: Full HLS to RGB conversion if needed
-                                _palette[idx] = new SixelColor(200, 200, 200);
+                                if (type == 2) // RGB 0-100
+                                {
+                                    // Clamp: values > 100 would otherwise wrap the byte cast.
+                                    p1 = Math.Clamp(p1, 0, 100);
+                                    p2 = Math.Clamp(p2, 0, 100);
+                                    p3 = Math.Clamp(p3, 0, 100);
+                                    _palette[idx] = new SixelColor(
+                                        (byte)(p1 * 255 / 100),
+                                        (byte)(p2 * 255 / 100),
+                                        (byte)(p3 * 255 / 100));
+                                }
+                                else if (type == 1) // HLS (simplified conversion)
+                                {
+                                    // TODO: Full HLS to RGB conversion if needed
+                                    _palette[idx] = new SixelColor(200, 200, 200);
+                                }
                             }
                         }
                         else
