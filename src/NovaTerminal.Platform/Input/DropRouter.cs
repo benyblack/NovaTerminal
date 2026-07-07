@@ -44,13 +44,28 @@ namespace NovaTerminal.Platform
                     string mappedPath = path;
                     if (context.IsWslSession && pathMapper != null)
                     {
-                        mappedPath = await pathMapper.MapAsync(path);
+                        // A null mapping result is a failure; fall back to the host path
+                        // rather than dereferencing null downstream.
+                        mappedPath = await pathMapper.MapAsync(path) ?? path;
                         // A simple heuristic for failure: the mapping returned the exact host path
                         // (which is a Windows path like C:\...)
                         if (mappedPath == path && path.Contains(":\\"))
                         {
                             anyMappingFailed = true;
                         }
+                    }
+
+                    // Refuse paths the target shell would interpret even when quoted
+                    // (e.g. a file named "%APPDATA%.txt" dropped onto cmd.exe would
+                    // inject the expanded env value). Block the whole drop rather than
+                    // insert a partial/dangerous command line (#170).
+                    if (quoter.HasUnsafeMetacharacters(mappedPath))
+                    {
+                        return new DropRouterResult
+                        {
+                            Handled = true,
+                            ToastMessage = "Drop blocked: a file name contains characters this shell would interpret (e.g. %, !, or \")."
+                        };
                     }
 
                     quotedPaths.Add(quoter.QuotePath(mappedPath));

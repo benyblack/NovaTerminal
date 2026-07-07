@@ -664,7 +664,9 @@ public sealed class SftpServiceTests
 
         Assert.Contains(" -O ", args, StringComparison.Ordinal);
         Assert.Contains("ops@prod.internal:", args, StringComparison.Ordinal);
-        Assert.Matches(@"ops@prod\.internal:""/tmp/remote\.txt""\s+""C:/tmp/remote\.txt""$", args);
+        // Paths without whitespace/quotes are passed unquoted (correct msvcrt/argv
+        // quoting only quotes when needed) — see QuoteArg (#170).
+        Assert.Matches(@"ops@prod\.internal:/tmp/remote\.txt\s+C:/tmp/remote\.txt$", args);
     }
 
     [Fact]
