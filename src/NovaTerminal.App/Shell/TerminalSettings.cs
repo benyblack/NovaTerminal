@@ -50,6 +50,11 @@ namespace NovaTerminal.Shell
         public bool CommandAssistShellIntegrationEnabled { get; set; } = true;
         public bool CommandAssistPowerShellIntegrationEnabled { get; set; } = true;
         public bool ExperimentalNativeSshEnabled { get; set; } = false;
+        // Agent-host observe surface (docs/agent-host/DIRECTION.md, milestone A1).
+        // Off by default: when false, no local IPC endpoint exists at all and AI
+        // agents cannot read any terminal session. Observe-only in v1 — there is
+        // no acting capability behind this flag.
+        public bool AgentAccessObserveEnabled { get; set; } = false;
 
         public System.Collections.Generic.List<TerminalProfile> Profiles { get; set; } = new();
         public Guid DefaultProfileId { get; set; }
