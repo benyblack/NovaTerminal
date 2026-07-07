@@ -46,7 +46,11 @@ public sealed class AgentHostClient
         public bool Available => Response != null;
     }
 
-    public async Task<CallOutcome> CallAsync(string method, JsonElement? parameters, CancellationToken cancellationToken)
+    public async Task<CallOutcome> CallAsync(
+        string method,
+        JsonElement? parameters,
+        CancellationToken cancellationToken,
+        TimeSpan? roundTripTimeout = null)
     {
         var descriptor = TryReadLiveDescriptor();
         if (descriptor == null)
@@ -57,7 +61,9 @@ public sealed class AgentHostClient
         try
         {
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutCts.CancelAfter(RoundTripTimeout);
+            // Long-poll calls (waitForEvents) pass a timeout above the server's
+            // 25 s park cap; everything else keeps the tight default.
+            timeoutCts.CancelAfter(roundTripTimeout ?? RoundTripTimeout);
 
             await using var stream = await ConnectAsync(descriptor.Endpoint, timeoutCts.Token).ConfigureAwait(false);
             using var reader = new StreamReader(stream, new UTF8Encoding(false), leaveOpen: true);

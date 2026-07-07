@@ -39,6 +39,8 @@ public class McpServerStdioE2ETests
         "novaterminal.list_sessions",
         "novaterminal.read_screen",
         "novaterminal.read_scrollback",
+        "novaterminal.get_session_status",
+        "novaterminal.wait_for_events",
     };
 
     [Fact]

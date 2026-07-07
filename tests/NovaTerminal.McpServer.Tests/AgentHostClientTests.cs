@@ -268,6 +268,89 @@ public class SessionToolsFormattingTests
     }
 
     [Fact]
+    public void FormatSessionList_includes_the_status_column()
+    {
+        var text = SessionTools.FormatSessionList(new[]
+        {
+            new SessionInfo
+            {
+                PaneId = Guid.NewGuid(), Title = "build", ProfileName = "Bash", Kind = "local",
+                Rows = 24, Cols = 80, IsActive = true,
+                Status = AgentHostProtocol.StatusKinds.Running,
+                Confidence = AgentHostProtocol.StatusConfidences.Precise,
+            },
+        });
+
+        Assert.Contains("| running (precise) |", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatStatus_renders_command_stall_and_thresholds()
+    {
+        var text = SessionTools.FormatStatus(new SessionStatusDto
+        {
+            PaneId = Guid.NewGuid(),
+            Status = AgentHostProtocol.StatusKinds.Running,
+            Confidence = AgentHostProtocol.StatusConfidences.Precise,
+            CurrentCommand = "cargo build",
+            StatusSinceMs = 1_800_000_000_000,
+            LastOutputAtMs = 1_800_000_030_000,
+            IsStalled = true,
+            StallThresholdSeconds = 30,
+            IdleThresholdSeconds = 60,
+        });
+
+        Assert.Contains("running (precise confidence)", text, StringComparison.Ordinal);
+        Assert.Contains("command: cargo build", text, StringComparison.Ordinal);
+        Assert.Contains("STALLED", text, StringComparison.Ordinal);
+        Assert.Contains("idle after 60s", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatEvents_teaches_the_cursor_and_reports_eviction_gaps()
+    {
+        var paneId = Guid.NewGuid();
+        var result = new WaitForEventsResult
+        {
+            Events = new[]
+            {
+                new AgentEventDto
+                {
+                    Seq = 12, TimestampMs = 1_800_000_000_000, PaneId = paneId,
+                    Type = AgentHostProtocol.EventTypes.CommandFinished,
+                    Status = AgentHostProtocol.StatusKinds.AwaitingInput,
+                    ExitCode = 0, DurationMs = 4200,
+                },
+            },
+            NextSeq = 12,
+            OldestSeq = 10,
+        };
+
+        // Cursor 3 predates oldestSeq 10 → events 4–9 were evicted.
+        var text = SessionTools.FormatEvents(result, sinceSeq: 3);
+        Assert.Contains("sinceSeq=12", text, StringComparison.Ordinal);
+        Assert.Contains("Warning: events 4–9 were evicted", text, StringComparison.Ordinal);
+        Assert.Contains("commandFinished", text, StringComparison.Ordinal);
+        Assert.Contains("exit 0, 4200 ms", text, StringComparison.Ordinal);
+
+        // A current cursor produces no warning.
+        var clean = SessionTools.FormatEvents(result, sinceSeq: 11);
+        Assert.DoesNotContain("Warning", clean, StringComparison.Ordinal);
+
+        // Empty result teaches the retry cursor.
+        var empty = SessionTools.FormatEvents(new WaitForEventsResult { Events = Array.Empty<AgentEventDto>(), NextSeq = 12, OldestSeq = 10 }, sinceSeq: 12);
+        Assert.Contains("No events within the wait window. Call again with sinceSeq=12.", empty, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WaitForEvents_rejects_a_negative_cursor_before_any_ipc()
+    {
+        var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
+        var text = await SessionTools.WaitForEvents(client, sinceSeq: -1, timeoutMs: 100, TestContext.Current.CancellationToken);
+        Assert.StartsWith("Error: sinceSeq must be 0 or greater", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void FormatScrollback_reports_range_and_paging_hint()
     {
         var text = SessionTools.FormatScrollback(new ReadScrollbackResult
