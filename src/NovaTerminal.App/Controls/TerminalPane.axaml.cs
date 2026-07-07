@@ -1686,6 +1686,13 @@ namespace NovaTerminal.Controls
                 };
                 RegisterActiveSshSession(session, profile);
                 UpdateCommandAssistContext();
+
+                // Seed the status machine's child-process sample the moment the
+                // session exists: without this, the heuristic tier has no first
+                // sample until the endpoint's next 1 s sweep and would report
+                // the machine's default (awaitingInput) for a freshly spawned
+                // command-running session.
+                _agentRegistration?.StatusMachine.Sweep(session.HasActiveChildProcesses);
             }
             catch (Exception ex)
             {
