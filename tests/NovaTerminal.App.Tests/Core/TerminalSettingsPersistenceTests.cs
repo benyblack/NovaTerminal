@@ -28,6 +28,12 @@ public sealed class TerminalSettingsPersistenceTests
             Assert.Equal("BackupMarkerFont", loaded.FontFamily);
             // The corrupt file is quarantined for diagnosis, not destroyed.
             Assert.True(File.Exists(path + ".corrupt"));
+
+            // The primary is repaired from the backup, so the next launch loads
+            // cleanly instead of repeating the quarantine/fallback cycle.
+            TerminalSettings reloaded = TerminalSettings.LoadFromPath(path);
+            Assert.Equal("BackupMarkerFont", reloaded.FontFamily);
+            Assert.Contains("BackupMarkerFont", File.ReadAllText(path));
         }
         finally
         {
@@ -68,7 +74,7 @@ public sealed class TerminalSettingsPersistenceTests
 
             Assert.Equal("v2", File.ReadAllText(path));
             Assert.Equal("v1", File.ReadAllText(path + ".bak"));
-            Assert.False(File.Exists(path + ".tmp"), "temp file must not linger");
+            Assert.Empty(Directory.GetFiles(root, "*.tmp")); // no lingering temp files
         }
         finally
         {

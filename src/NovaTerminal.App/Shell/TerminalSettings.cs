@@ -133,7 +133,28 @@ namespace NovaTerminal.Shell
                     try { File.Copy(settingsPath, settingsPath + ".corrupt", overwrite: true); }
                     catch { /* best effort */ }
 
-                    settings = TryLoadOrNull(settingsPath + ".bak") ?? new TerminalSettings();
+                    var fromBackup = TryLoadOrNull(settingsPath + ".bak");
+                    if (fromBackup != null)
+                    {
+                        settings = fromBackup;
+                        // Repair the primary immediately so subsequent launches don't
+                        // repeatedly quarantine + fall back (review feedback on #178).
+                        try
+                        {
+                            AtomicFile.WriteAllText(settingsPath,
+                                JsonSerializer.Serialize(fromBackup, AppJsonContext.Default.TerminalSettings));
+                        }
+                        catch (Exception repairEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[Settings] Failed to repair '{settingsPath}' from backup: {repairEx.Message}");
+                        }
+                    }
+                    else
+                    {
+                        // The reset to defaults must leave a diagnosable trace.
+                        System.Diagnostics.Debug.WriteLine($"[Settings] Backup '{settingsPath}.bak' is also unreadable; falling back to defaults.");
+                        settings = new TerminalSettings();
+                    }
                 }
             }
             else

@@ -12,31 +12,37 @@ namespace NovaTerminal.Shell
     internal static class AtomicFile
     {
         public static void WriteAllText(string path, string contents)
-        {
-            string tmp = path + ".tmp";
-            File.WriteAllText(tmp, contents);
-            ReplaceWithBackup(tmp, path);
-        }
+            => Write(path, tmp => File.WriteAllText(tmp, contents));
 
         public static void WriteAllBytes(string path, byte[] bytes)
-        {
-            string tmp = path + ".tmp";
-            File.WriteAllBytes(tmp, bytes);
-            ReplaceWithBackup(tmp, path);
-        }
+            => Write(path, tmp => File.WriteAllBytes(tmp, bytes));
 
-        private static void ReplaceWithBackup(string tmp, string path)
+        private static void Write(string path, Action<string> writeTemp)
         {
-            if (File.Exists(path))
+            // Unique temp sibling: concurrent savers of the same destination (e.g. two
+            // VaultService instances over the same vault.dat) must not collide on a
+            // shared ".tmp" name — last atomic move wins, nobody sees a torn file.
+            string tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
             {
-                // Best-effort backup of the previous good content; the atomic move
-                // below must not be blocked by a backup failure.
-                try { File.Copy(path, path + ".bak", overwrite: true); }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
-            }
+                writeTemp(tmp);
 
-            File.Move(tmp, path, overwrite: true);
+                if (File.Exists(path))
+                {
+                    // Best-effort backup of the previous good content; the atomic move
+                    // below must not be blocked by a backup failure of any kind.
+                    try { File.Copy(path, path + ".bak", overwrite: true); }
+                    catch { }
+                }
+
+                File.Move(tmp, path, overwrite: true);
+            }
+            catch
+            {
+                // Don't leave orphaned temp files behind on failure.
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+                throw;
+            }
         }
     }
 }
