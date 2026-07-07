@@ -21,6 +21,11 @@ namespace NovaTerminal.AgentHost.Contracts;
 [JsonSerializable(typeof(ScreenSnapshotDto))]
 [JsonSerializable(typeof(ReadScrollbackParams))]
 [JsonSerializable(typeof(ReadScrollbackResult))]
+[JsonSerializable(typeof(GetSessionStatusParams))]
+[JsonSerializable(typeof(SessionStatusDto))]
+[JsonSerializable(typeof(AgentEventDto))]
+[JsonSerializable(typeof(WaitForEventsParams))]
+[JsonSerializable(typeof(WaitForEventsResult))]
 public sealed partial class AgentHostJsonContext : JsonSerializerContext
 {
 }

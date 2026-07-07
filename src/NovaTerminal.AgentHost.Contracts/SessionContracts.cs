@@ -37,6 +37,18 @@ public sealed record SessionInfo
     /// <summary>True for the active pane of the active tab.</summary>
     [JsonPropertyName("isActive")]
     public required bool IsActive { get; init; }
+
+    /// <summary>
+    /// Current status (<see cref="AgentHostProtocol.StatusKinds"/>), when the
+    /// endpoint computes it (A2+). Null from older endpoints. Not required:
+    /// the wire format omits it when null (WhenWritingNull).
+    /// </summary>
+    [JsonPropertyName("status")]
+    public string? Status { get; init; }
+
+    /// <summary>How the status was derived (<see cref="AgentHostProtocol.StatusConfidences"/>); null when status is null.</summary>
+    [JsonPropertyName("confidence")]
+    public string? Confidence { get; init; }
 }
 
 /// <summary>Result payload for <c>listSessions</c>.</summary>

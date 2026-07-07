@@ -398,7 +398,11 @@ namespace NovaTerminal.Controls
                 GetBaseTabTitle(),
                 Profile?.Name ?? "Terminal",
                 Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
-                IsActivePane);
+                IsActivePane,
+                nowProvider: null,
+                // PTY-layer probe (thread-safe by contract; no Avalonia state)
+                // for the heuristic status tier's 1 s sweep.
+                hasActiveChildProcessesProvider: () => Session?.HasActiveChildProcesses ?? false);
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();

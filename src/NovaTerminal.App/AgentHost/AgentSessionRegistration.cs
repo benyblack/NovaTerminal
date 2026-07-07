@@ -32,7 +32,8 @@ namespace NovaTerminal.AgentHost
             string profileName,
             string kind,
             bool isActive,
-            Func<DateTimeOffset>? nowProvider = null)
+            Func<DateTimeOffset>? nowProvider = null,
+            Func<bool>? hasActiveChildProcessesProvider = null)
         {
             ArgumentNullException.ThrowIfNull(buffer);
             _paneId = paneId;
@@ -42,6 +43,7 @@ namespace NovaTerminal.AgentHost
             _kind = kind;
             _isActive = isActive;
             StatusMachine = new AgentSessionStatusMachine(nowProvider);
+            HasActiveChildProcesses = hasActiveChildProcessesProvider ?? (static () => false);
         }
 
         /// <summary>
@@ -49,6 +51,15 @@ namespace NovaTerminal.AgentHost
         /// pane on the UI thread; snapshots are safe from any thread.
         /// </summary>
         public AgentSessionStatusMachine StatusMachine { get; }
+
+        /// <summary>
+        /// PTY child-process probe for the heuristic status tier, invoked by
+        /// the endpoint's 1 s sweep. Unlike UI state (which is pushed as a
+        /// snapshot), this delegate is deliberately live: it targets the PTY
+        /// layer (<c>ITerminalLifecycle.HasActiveChildProcesses</c>), which is
+        /// thread-safe by contract and never touches Avalonia.
+        /// </summary>
+        public Func<bool> HasActiveChildProcesses { get; }
 
         /// <summary>The pane's VT buffer. Reads must take <see cref="TerminalBuffer.Lock"/> (endpoint milestone A1/PR3).</summary>
         public TerminalBuffer Buffer { get; }
