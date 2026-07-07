@@ -55,9 +55,33 @@ public class BundleCommandCollectionTests
     }
 
     [Fact]
+    public void Collects_ArgumentOnlyPanes_AsCmdInvocation()
+    {
+        // RestorePaneTree runs `cmd.exe <args>` when Command is null but Arguments is
+        // set — so this must still be surfaced for confirmation (#171 review).
+        var session = SessionWith(Leaf(command: null, args: "/c \"& del important.txt\""));
+
+        var commands = MainWindow.CollectBundleCommands(session);
+
+        Assert.Equal(new[] { "cmd.exe /c \"& del important.txt\"" }, commands);
+    }
+
+    [Fact]
     public void EmptyOrNullSession_ReturnsEmpty()
     {
         Assert.Empty(MainWindow.CollectBundleCommands(null));
         Assert.Empty(MainWindow.CollectBundleCommands(new NovaSession()));
+    }
+
+    [Fact]
+    public void NullTabInList_DoesNotThrow()
+    {
+        var session = new NovaSession();
+        session.Tabs.Add(null!);
+        session.Tabs.Add(new TabSession { Root = Leaf("htop") });
+
+        var commands = MainWindow.CollectBundleCommands(session);
+
+        Assert.Equal(new[] { "htop" }, commands);
     }
 }

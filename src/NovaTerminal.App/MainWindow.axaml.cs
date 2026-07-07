@@ -1425,16 +1425,10 @@ namespace NovaTerminal
             string? name = await ShowTextPromptAsync("Import Workspace Bundle", "Workspace name", suggestedName);
             if (string.IsNullOrWhiteSpace(name)) return;
 
-            // Confirm any commands before storing the bundle, so anything later loaded by
-            // name has already been reviewed (#171). Inspect the payload first.
-            if (WorkspaceManager.LoadWorkspaceBundleSession(bundlePath, out _, out var previewSnapshot, out _))
-            {
-                if (!await ConfirmBundleCommandsAsync(previewSnapshot, name.Trim()))
-                {
-                    return;
-                }
-            }
-
+            // Import only STORES the bundle; its commands are confirmed at execution time
+            // in LoadWorkspaceByName. Confirming here would be a TOCTOU (the file could
+            // change between this read and ImportWorkspaceBundle's re-read) and wouldn't
+            // cover later loads — so the single confirmation gate lives at execution (#171).
             if (WorkspaceManager.ImportWorkspaceBundle(bundlePath, name.Trim(), out var error))
             {
                 SetupCommandPalette();
@@ -1484,10 +1478,19 @@ namespace NovaTerminal
             System.Diagnostics.Debug.WriteLine($"[Workspace] Open bundle failed: {error}");
         }
 
-        private void LoadWorkspaceByName(string name)
+        private async void LoadWorkspaceByName(string name)
         {
             var snapshot = WorkspaceManager.LoadWorkspace(name);
             if (snapshot == null) return;
+
+            // Confirm ad-hoc commands against the exact stored snapshot that is about to
+            // run — this is the single execution-time gate (no TOCTOU), and it covers
+            // imported bundles whichever way they're loaded (#171). Profile-only
+            // workspaces collect no commands and skip the prompt.
+            if (!await ConfirmBundleCommandsAsync(snapshot, name))
+            {
+                return;
+            }
             ApplySessionSnapshot(snapshot);
         }
 
@@ -3344,8 +3347,7 @@ namespace NovaTerminal
             return confirmed;
         }
 
-        // Collects the ad-hoc shell commands a bundle would spawn on restore. Only leaf
-        // nodes carrying an explicit Command are arbitrary-execution vectors; panes that
+        // Collects the ad-hoc shell commands a bundle would spawn on restore. Panes that
         // resolve a stored local/SSH profile run a known, already-trusted target (#171).
         internal static List<string> CollectBundleCommands(NovaSession? session)
         {
@@ -3357,10 +3359,17 @@ namespace NovaTerminal
                 if (node == null) return;
                 if (node.Type == NodeType.Leaf)
                 {
-                    if (!string.IsNullOrWhiteSpace(node.Command))
+                    // A leaf with an explicit Command OR Arguments is a runnable command:
+                    // RestorePaneTree spawns `new TerminalPane(node.Command ?? "cmd.exe",
+                    // node.Arguments ?? "", ...)`, so an argument-only leaf still runs
+                    // `cmd.exe <args>` and can smuggle cmd metacharacters (#171 review).
+                    bool hasCommand = !string.IsNullOrWhiteSpace(node.Command);
+                    bool hasArgs = !string.IsNullOrWhiteSpace(node.Arguments);
+                    if (hasCommand || hasArgs)
                     {
-                        string args = string.IsNullOrWhiteSpace(node.Arguments) ? "" : " " + node.Arguments;
-                        commands.Add((node.Command + args).Trim());
+                        string effectiveCommand = hasCommand ? node.Command! : "cmd.exe";
+                        string args = hasArgs ? " " + node.Arguments : "";
+                        commands.Add((effectiveCommand + args).Trim());
                     }
                 }
                 else if (node.Children != null)
@@ -3369,7 +3378,10 @@ namespace NovaTerminal
                 }
             }
 
-            foreach (var tab in session.Tabs) Walk(tab.Root);
+            foreach (var tab in session.Tabs)
+            {
+                if (tab != null) Walk(tab.Root);
+            }
             return commands;
         }
 
