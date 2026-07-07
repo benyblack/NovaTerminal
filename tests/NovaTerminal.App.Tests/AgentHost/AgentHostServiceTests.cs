@@ -102,6 +102,40 @@ public class AgentHostServiceTests : IDisposable
     }
 
     [Fact]
+    public void Missing_params_is_a_malformed_request_not_a_missing_session()
+    {
+        using var service = NewService(new AgentSessionRegistry());
+        var readScreen = service.HandleRequestLine(RequestLine(AgentHostProtocol.Methods.ReadScreen));
+        var readScrollback = service.HandleRequestLine(RequestLine(AgentHostProtocol.Methods.ReadScrollback));
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, readScreen.Error?.Code);
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, readScrollback.Error?.Code);
+    }
+
+    [Fact]
+    public void ReadScrollback_preserves_extended_text_graphemes()
+    {
+        // Emoji / multi-codepoint graphemes are stored as extended text; they
+        // must survive scrolling off screen (parity with readScreen).
+        var registry = new AgentSessionRegistry();
+        var buffer = new TerminalBuffer(20, 3);
+        var parser = new AnsiParser(buffer);
+        parser.Process("ok \U0001F44D done\r\n");
+        for (var i = 0; i < 6; i++)
+        {
+            parser.Process($"filler-{i}\r\n");
+        }
+        var registration = Register(registry, buffer);
+        using var service = NewService(registry);
+
+        var response = service.HandleRequestLine(RequestLine(
+            AgentHostProtocol.Methods.ReadScrollback,
+            paramsObj: new ReadScrollbackParams { PaneId = registration.PaneId, StartLine = 0, MaxLines = 10 }));
+        var result = ResultOf(response, AgentHostJsonContext.Default.ReadScrollbackResult);
+
+        Assert.Contains(result.Lines, line => line.Contains("ok \U0001F44D done", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ReadScreen_for_unknown_pane_reports_session_not_found()
     {
         using var service = NewService(new AgentSessionRegistry());
@@ -225,6 +259,51 @@ public class AgentHostServiceTests : IDisposable
         Assert.Equal(registration.PaneId, session.PaneId);
         Assert.Equal(24, session.Rows);
         Assert.Equal(80, session.Cols);
+    }
+
+    [Fact]
+    public async Task Disabling_the_service_closes_already_connected_clients()
+    {
+        // Security invariant: turning Agent Access off revokes access for
+        // existing connections, not just future ones.
+        var registry = new AgentSessionRegistry();
+        Register(registry, new TerminalBuffer(80, 24));
+        using var service = NewService(registry);
+        service.Start();
+
+        var descriptor = JsonSerializer.Deserialize(
+            File.ReadAllText(Path.Combine(_tempDir, AgentHostProtocol.DiscoveryFileName)),
+            AgentHostJsonContext.Default.EndpointDescriptor)!;
+        await using var stream = await ConnectAsync(descriptor.Endpoint);
+        using var reader = new StreamReader(stream, new UTF8Encoding(false), leaveOpen: true);
+        // Not await-using: disposal flushes, and flushing into the deliberately
+        // broken pipe after Stop() would throw during teardown.
+        var writer = new StreamWriter(stream, new UTF8Encoding(false), leaveOpen: true) { AutoFlush = true };
+
+        try
+        {
+            // Prove the connection works, so the assertion below is meaningful.
+            await writer.WriteLineAsync(RequestLine(AgentHostProtocol.Methods.ListSessions));
+            Assert.NotNull(await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10)));
+
+            service.Stop();
+
+            // The server must have force-closed the stream: the next read observes
+            // end-of-stream or a broken pipe/socket, never fresh data.
+            try
+            {
+                var line = await reader.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                Assert.Null(line);
+            }
+            catch (IOException)
+            {
+                // Also acceptable: the transport surfaces the closed connection as an error.
+            }
+        }
+        finally
+        {
+            try { await writer.DisposeAsync(); } catch (IOException) { /* broken pipe is the expected end state */ }
+        }
     }
 
     private static async Task<Stream> ConnectAsync(string endpoint)

@@ -44,6 +44,7 @@ namespace NovaTerminal.AgentHost
         private Socket? _unixListener;
         private string? _unixSocketPath;
         private string? _discoveryFilePath;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<Stream, byte> _activeClients = new();
 
         public AgentHostService(
             AgentSessionRegistry registry,
@@ -115,10 +116,13 @@ namespace NovaTerminal.AgentHost
                     _discoveryFilePath = discoveryPath;
                     EndpointName = endpoint;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    // The agent host is an optional surface: a failure to bind
+                    // (permissions, stale endpoint, another listener) must never
+                    // take the terminal down. Leave the app fully functional.
                     StopLocked();
-                    throw;
+                    Debug.WriteLine($"[AgentHost] failed to start observe endpoint: {ex.Message}");
                 }
             }
         }
@@ -141,6 +145,15 @@ namespace NovaTerminal.AgentHost
             _acceptLoop = null;
             EndpointName = null;
 
+            // Disabling Agent Access must revoke access *now*: cancelling the
+            // accept loop is not enough, because already-accepted connections
+            // could otherwise keep reading screens on their open stream.
+            foreach (var client in _activeClients.Keys)
+            {
+                try { client.Dispose(); } catch { /* best effort */ }
+            }
+            _activeClients.Clear();
+
             try { _unixListener?.Dispose(); } catch { /* best effort */ }
             _unixListener = null;
             if (_unixSocketPath != null)
@@ -151,7 +164,18 @@ namespace NovaTerminal.AgentHost
 
             if (_discoveryFilePath != null)
             {
-                try { File.Delete(_discoveryFilePath); } catch { /* best effort */ }
+                // Only remove the discovery file if it is still ours — another
+                // instance may have legitimately taken over the endpoint.
+                try
+                {
+                    var descriptor = JsonSerializer.Deserialize(
+                        File.ReadAllText(_discoveryFilePath), AgentHostJsonContext.Default.EndpointDescriptor);
+                    if (descriptor == null || descriptor.Pid == Environment.ProcessId)
+                    {
+                        File.Delete(_discoveryFilePath);
+                    }
+                }
+                catch { /* best effort */ }
                 _discoveryFilePath = null;
             }
         }
@@ -179,8 +203,12 @@ namespace NovaTerminal.AgentHost
                     File.ReadAllText(discoveryPath), AgentHostJsonContext.Default.EndpointDescriptor);
                 if (descriptor == null || descriptor.Pid == Environment.ProcessId) return false;
 
+                // Guard against PID recycling: the pid must be alive AND be a
+                // NovaTerminal process before we defer to it.
                 var process = Process.GetProcessById(descriptor.Pid);
-                return !process.HasExited;
+                using var current = Process.GetCurrentProcess();
+                return !process.HasExited
+                    && string.Equals(process.ProcessName, current.ProcessName, StringComparison.OrdinalIgnoreCase);
             }
             catch
             {
@@ -227,8 +255,18 @@ namespace NovaTerminal.AgentHost
 
         private void StartUnixListener(string socketPath)
         {
-            try { File.Delete(socketPath); } catch { /* stale socket from a dead instance */ }
             Directory.CreateDirectory(Path.GetDirectoryName(socketPath)!);
+
+            // Never unlink a live socket: if a file is present, probe it first.
+            // Only a socket nobody answers on is stale and safe to remove.
+            if (File.Exists(socketPath))
+            {
+                if (IsUnixSocketAlive(socketPath))
+                {
+                    throw new IOException($"Another live agent-host endpoint is listening on '{socketPath}'.");
+                }
+                File.Delete(socketPath);
+            }
 
             var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
             listener.Bind(new UnixDomainSocketEndPoint(socketPath));
@@ -240,6 +278,20 @@ namespace NovaTerminal.AgentHost
 
             _unixListener = listener;
             _unixSocketPath = socketPath;
+        }
+
+        private static bool IsUnixSocketAlive(string socketPath)
+        {
+            try
+            {
+                using var probe = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+                probe.Connect(new UnixDomainSocketEndPoint(socketPath));
+                return true;
+            }
+            catch (SocketException)
+            {
+                return false;
+            }
         }
 
         private async Task AcceptUnixLoopAsync(CancellationToken token)
@@ -257,17 +309,26 @@ namespace NovaTerminal.AgentHost
                 {
                     return;
                 }
+                catch (ObjectDisposedException)
+                {
+                    return; // Stop() disposed the listener
+                }
                 catch (Exception ex)
                 {
+                    // Transient accept failure: log and retry, mirroring the
+                    // named-pipe loop, so the service never ends up half-running
+                    // (IsRunning true with a dead accept loop).
                     if (token.IsCancellationRequested) return;
                     Debug.WriteLine($"[AgentHost] socket accept failed: {ex.Message}");
-                    return; // listener is likely dead; Stop() owns cleanup
+                    try { await Task.Delay(250, token).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { return; }
                 }
             }
         }
 
         private async Task HandleClientAsync(Stream stream, CancellationToken token)
         {
+            _activeClients.TryAdd(stream, 0);
             try
             {
                 using var _ = stream;
@@ -293,6 +354,10 @@ namespace NovaTerminal.AgentHost
             catch (Exception ex)
             {
                 Debug.WriteLine($"[AgentHost] client connection ended: {ex.Message}");
+            }
+            finally
+            {
+                _activeClients.TryRemove(stream, out _);
             }
         }
 
@@ -352,9 +417,13 @@ namespace NovaTerminal.AgentHost
         private AgentHostResponse HandleReadScreen(AgentHostRequest request)
         {
             var p = DeserializeParams(request, AgentHostJsonContext.Default.ReadScreenParams);
-            if (p == null || !_registry.TryGet(p.PaneId, out var registration))
+            if (p == null)
             {
-                return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p?.PaneId}'.");
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "readScreen requires params with a paneId.");
+            }
+            if (!_registry.TryGet(p.PaneId, out var registration))
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
             var buffer = registration.Buffer;
@@ -390,9 +459,13 @@ namespace NovaTerminal.AgentHost
         private AgentHostResponse HandleReadScrollback(AgentHostRequest request)
         {
             var p = DeserializeParams(request, AgentHostJsonContext.Default.ReadScrollbackParams);
-            if (p == null || !_registry.TryGet(p.PaneId, out var registration))
+            if (p == null)
             {
-                return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p?.PaneId}'.");
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "readScrollback requires params with paneId, startLine, and maxLines.");
+            }
+            if (!_registry.TryGet(p.PaneId, out var registration))
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'.");
             }
 
             var buffer = registration.Buffer;
@@ -410,7 +483,10 @@ namespace NovaTerminal.AgentHost
                 lines = new string[count];
                 for (var i = 0; i < count; i++)
                 {
-                    lines[i] = RenderScrollbackRow(buffer.Scrollback.GetRow(effectiveStart + i));
+                    var index = effectiveStart + i;
+                    lines[i] = RenderScrollbackRow(
+                        buffer.Scrollback.GetRow(index),
+                        buffer.Scrollback.GetExtendedTextMap(index));
                 }
             }
             finally
@@ -427,14 +503,27 @@ namespace NovaTerminal.AgentHost
             return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.ReadScrollbackResult));
         }
 
-        /// <summary>Same text semantics as <see cref="BufferSnapshot.Capture"/>: skip wide continuations, NUL → space, trim right.</summary>
-        private static string RenderScrollbackRow(ReadOnlySpan<TerminalCell> cells)
+        /// <summary>
+        /// Same text semantics as <see cref="BufferSnapshot.Capture"/>: skip wide
+        /// continuations, prefer the row's extended text (emoji, multi-codepoint
+        /// graphemes), NUL → space, trim right.
+        /// </summary>
+        private static string RenderScrollbackRow(ReadOnlySpan<TerminalCell> cells, NovaTerminal.VT.Storage.SmallMap<string>? extendedText)
         {
             var sb = new StringBuilder(cells.Length);
-            foreach (ref readonly var cell in cells)
+            for (var col = 0; col < cells.Length; col++)
             {
+                ref readonly var cell = ref cells[col];
                 if (cell.IsWideContinuation) continue;
-                sb.Append(cell.Character == '\0' ? ' ' : cell.Character);
+
+                if (extendedText != null && extendedText.TryGet(col, out var ext) && ext != null)
+                {
+                    sb.Append(ext);
+                }
+                else
+                {
+                    sb.Append(cell.Character == '\0' ? ' ' : cell.Character);
+                }
             }
             return sb.ToString().TrimEnd();
         }
