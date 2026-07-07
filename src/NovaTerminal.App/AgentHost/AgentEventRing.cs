@@ -107,7 +107,13 @@ namespace NovaTerminal.AgentHost
                     return ready; // empty: timeout elapsed
                 }
 
-                var woke = await Task.WhenAny(pulseTask, Task.Delay(remaining, cancellationToken)).ConfigureAwait(false);
+                // The delay gets its own linked cancellation so that when the
+                // pulse wins the race, its timer is released immediately rather
+                // than running out the full remaining window per wake-up.
+                using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var delayTask = Task.Delay(remaining, delayCts.Token);
+                var woke = await Task.WhenAny(pulseTask, delayTask).ConfigureAwait(false);
+                delayCts.Cancel();
                 cancellationToken.ThrowIfCancellationRequested();
                 if (woke != pulseTask)
                 {

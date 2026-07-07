@@ -401,8 +401,10 @@ namespace NovaTerminal.Controls
                 IsActivePane,
                 nowProvider: null,
                 // PTY-layer probe (thread-safe by contract; no Avalonia state)
-                // for the heuristic status tier's 1 s sweep.
-                hasActiveChildProcessesProvider: () => Session?.HasActiveChildProcesses ?? false);
+                // for the heuristic status tier's 1 s sweep. Null while the
+                // session is initializing or being swapped — the status machine
+                // keeps its last known value instead of flapping through false.
+                hasActiveChildProcessesProvider: () => Session?.HasActiveChildProcesses);
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();

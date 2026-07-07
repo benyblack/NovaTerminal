@@ -33,7 +33,7 @@ namespace NovaTerminal.AgentHost
             string kind,
             bool isActive,
             Func<DateTimeOffset>? nowProvider = null,
-            Func<bool>? hasActiveChildProcessesProvider = null)
+            Func<bool?>? hasActiveChildProcessesProvider = null)
         {
             ArgumentNullException.ThrowIfNull(buffer);
             _paneId = paneId;
@@ -43,7 +43,7 @@ namespace NovaTerminal.AgentHost
             _kind = kind;
             _isActive = isActive;
             StatusMachine = new AgentSessionStatusMachine(nowProvider);
-            HasActiveChildProcesses = hasActiveChildProcessesProvider ?? (static () => false);
+            HasActiveChildProcesses = hasActiveChildProcessesProvider ?? (static () => null);
         }
 
         /// <summary>
@@ -57,9 +57,11 @@ namespace NovaTerminal.AgentHost
         /// the endpoint's 1 s sweep. Unlike UI state (which is pushed as a
         /// snapshot), this delegate is deliberately live: it targets the PTY
         /// layer (<c>ITerminalLifecycle.HasActiveChildProcesses</c>), which is
-        /// thread-safe by contract and never touches Avalonia.
+        /// thread-safe by contract and never touches Avalonia. Null means
+        /// "unknown right now" (session initializing or being swapped); the
+        /// status machine keeps its last known value instead of flapping.
         /// </summary>
-        public Func<bool> HasActiveChildProcesses { get; }
+        public Func<bool?> HasActiveChildProcesses { get; }
 
         /// <summary>The pane's VT buffer. Reads must take <see cref="TerminalBuffer.Lock"/> (endpoint milestone A1/PR3).</summary>
         public TerminalBuffer Buffer { get; }
