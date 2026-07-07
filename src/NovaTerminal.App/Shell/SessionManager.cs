@@ -281,6 +281,21 @@ namespace NovaTerminal.Shell
             return session != null;
         }
 
+        // Single source of truth for how a leaf resolves to a profile at restore time.
+        // RestorePaneTree only falls back to the leaf's raw Command/Arguments when this
+        // returns null, so the bundle-command confirmation (#171) uses this to list only
+        // the panes that will actually run an ad-hoc command — and to avoid prompting for
+        // locally-saved panes that store both a ProfileId and a ShellCommand.
+        internal static TerminalProfile? TryResolvePaneProfile(PaneNode node, TerminalSettings settings)
+        {
+            TerminalProfile? profile = ResolveSshProfile(node.SshProfileId);
+            if (profile == null && !string.IsNullOrEmpty(node.ProfileId) && Guid.TryParse(node.ProfileId, out var profileGuid))
+            {
+                profile = settings.Profiles?.Find(p => p.Id == profileGuid);
+            }
+            return profile;
+        }
+
         private static Control? RestorePaneTree(PaneNode? node, TerminalSettings settings)
         {
             if (node == null) return null;
@@ -289,12 +304,7 @@ namespace NovaTerminal.Shell
             {
                 StartupPerformanceTracker.Current?.TryMarkCheckpoint("SessionManager.RestorePaneTree.LeafStart");
                 // Reconstruct TerminalPane
-                TerminalProfile? profile = ResolveSshProfile(node.SshProfileId);
-
-                if (profile == null && !string.IsNullOrEmpty(node.ProfileId) && Guid.TryParse(node.ProfileId, out var profileGuid))
-                {
-                    profile = settings.Profiles?.Find(p => p.Id == profileGuid);
-                }
+                TerminalProfile? profile = TryResolvePaneProfile(node, settings);
 
                 TerminalPane pane;
                 if (profile != null)

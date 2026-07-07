@@ -3347,9 +3347,12 @@ namespace NovaTerminal
             return confirmed;
         }
 
-        // Collects the ad-hoc shell commands a bundle would spawn on restore. Panes that
-        // resolve a stored local/SSH profile run a known, already-trusted target (#171).
-        internal static List<string> CollectBundleCommands(NovaSession? session)
+        // Collects the ad-hoc shell commands a bundle would actually spawn on restore.
+        // Mirrors SessionManager.RestorePaneTree: a leaf runs its raw Command/Arguments
+        // ONLY when its profile doesn't resolve, so panes whose profile resolves are
+        // skipped — that both matches what runs and avoids prompting for locally-saved
+        // workspaces that store a ShellCommand alongside a resolvable ProfileId (#171).
+        internal static List<string> CollectBundleCommands(NovaSession? session, TerminalSettings settings)
         {
             var commands = new List<string>();
             if (session?.Tabs == null) return commands;
@@ -3359,10 +3362,16 @@ namespace NovaTerminal
                 if (node == null) return;
                 if (node.Type == NodeType.Leaf)
                 {
-                    // A leaf with an explicit Command OR Arguments is a runnable command:
-                    // RestorePaneTree spawns `new TerminalPane(node.Command ?? "cmd.exe",
-                    // node.Arguments ?? "", ...)`, so an argument-only leaf still runs
-                    // `cmd.exe <args>` and can smuggle cmd metacharacters (#171 review).
+                    // Skip panes that resolve a known local/SSH profile — RestorePaneTree
+                    // uses the profile and ignores Command/Arguments for those.
+                    if (SessionManager.TryResolvePaneProfile(node, settings) != null)
+                    {
+                        return;
+                    }
+
+                    // Otherwise the fallback runs `cmd.exe`/Command with Arguments, so an
+                    // argument-only leaf still runs `cmd.exe <args>` and can smuggle cmd
+                    // metacharacters (#171 review).
                     bool hasCommand = !string.IsNullOrWhiteSpace(node.Command);
                     bool hasArgs = !string.IsNullOrWhiteSpace(node.Arguments);
                     if (hasCommand || hasArgs)
@@ -3389,7 +3398,7 @@ namespace NovaTerminal
         // Returns true when there is nothing to run or the user approves.
         private async Task<bool> ConfirmBundleCommandsAsync(NovaSession? session, string bundleName)
         {
-            var commands = CollectBundleCommands(session);
+            var commands = CollectBundleCommands(session, _settings);
             if (commands.Count == 0) return true; // profile-only bundles run known targets
 
             bool confirmed = false;
