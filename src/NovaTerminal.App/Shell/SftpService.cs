@@ -810,10 +810,53 @@ namespace NovaTerminal.Shell
             };
         }
 
-        private static string QuoteArg(string value)
+        // Correct msvcrt/CommandLineToArgvW argument quoting (the convention .NET's own
+        // ProcessStartInfo.ArgumentList serializer uses). The previous version escaped
+        // only '"' and left trailing backslashes untouched, so a path ending in '\'
+        // produced "...dir\" — where \" escapes the closing quote and corrupts the whole
+        // scp command line (#170). Backslashes preceding a quote (or the closing quote)
+        // must be doubled.
+        internal static string QuoteArg(string value)
         {
-            string normalized = value ?? string.Empty;
-            return $"\"{normalized.Replace("\"", "\\\"", StringComparison.Ordinal)}\"";
+            string s = value ?? string.Empty;
+
+            // Only needs quoting if it contains whitespace, a quote, or is empty.
+            if (s.Length > 0 && s.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0)
+            {
+                return s;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append('"');
+            for (int i = 0; i < s.Length; i++)
+            {
+                int backslashes = 0;
+                while (i < s.Length && s[i] == '\\')
+                {
+                    backslashes++;
+                    i++;
+                }
+
+                if (i == s.Length)
+                {
+                    // Escape all backslashes preceding the terminating quote.
+                    sb.Append('\\', backslashes * 2);
+                    break;
+                }
+                else if (s[i] == '"')
+                {
+                    // Escape the backslashes AND the quote itself.
+                    sb.Append('\\', backslashes * 2 + 1);
+                    sb.Append('"');
+                }
+                else
+                {
+                    sb.Append('\\', backslashes);
+                    sb.Append(s[i]);
+                }
+            }
+            sb.Append('"');
+            return sb.ToString();
         }
     }
 }

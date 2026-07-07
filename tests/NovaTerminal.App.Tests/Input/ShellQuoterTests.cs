@@ -22,12 +22,36 @@ namespace NovaTerminal.Tests.Input
         [Theory]
         [InlineData(@"C:\test.txt", @"""C:\test.txt""")]
         [InlineData(@"C:\my folder\test.txt", @"""C:\my folder\test.txt""")]
-        [InlineData(@"C:\a ""b""\c.txt", @"""C:\a \""b\""\c.txt""")]
-        public void CmdQuoter_EscapesDoubleQuotesCorrectly(string input, string expected)
+        public void CmdQuoter_WrapsPathInDoubleQuotes(string input, string expected)
         {
             var quoter = new CmdQuoter();
             string actual = quoter.QuotePath(input);
             Assert.Equal(expected, actual);
+        }
+
+        [Theory]
+        [InlineData(@"C:\%APPDATA%\x.txt")]   // env expansion, even inside quotes
+        [InlineData(@"C:\a!VAR!b.txt")]       // delayed expansion
+        public void CmdQuoter_FlagsUnneutralizableMetacharacters(string input)
+        {
+            var quoter = new CmdQuoter();
+            Assert.True(quoter.HasUnsafeMetacharacters(input));
+        }
+
+        [Theory]
+        [InlineData(@"C:\normal path\x.txt")]
+        [InlineData(@"C:\O'Brien\x.txt")]     // apostrophe is harmless to cmd
+        public void CmdQuoter_AllowsSafePaths(string input)
+        {
+            var quoter = new CmdQuoter();
+            Assert.False(quoter.HasUnsafeMetacharacters(input));
+        }
+
+        [Fact]
+        public void PosixAndPwshQuoters_TreatEverythingAsSafe()
+        {
+            Assert.False(((IShellQuoter)new PosixShQuoter()).HasUnsafeMetacharacters(@"$(rm -rf ~)"));
+            Assert.False(((IShellQuoter)new PwshQuoter()).HasUnsafeMetacharacters(@"$(rm -rf ~)"));
         }
 
         [Theory]

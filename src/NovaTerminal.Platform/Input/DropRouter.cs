@@ -53,6 +53,19 @@ namespace NovaTerminal.Platform
                         }
                     }
 
+                    // Refuse paths the target shell would interpret even when quoted
+                    // (e.g. a file named "%APPDATA%.txt" dropped onto cmd.exe would
+                    // inject the expanded env value). Block the whole drop rather than
+                    // insert a partial/dangerous command line (#170).
+                    if (quoter.HasUnsafeMetacharacters(mappedPath))
+                    {
+                        return new DropRouterResult
+                        {
+                            Handled = true,
+                            ToastMessage = "Drop blocked: a file name contains characters this shell would expand (e.g. % or !)."
+                        };
+                    }
+
                     quotedPaths.Add(quoter.QuotePath(mappedPath));
                 }
             }
