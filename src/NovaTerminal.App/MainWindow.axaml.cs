@@ -4660,6 +4660,22 @@ namespace NovaTerminal
         {
             var sw = new SettingsWindow(tabIndex, profileId);
 
+            // Snapshot the live-previewed values so Cancel can restore them (#167).
+            // The preview handlers below mutate _settings directly; without this,
+            // closing the dialog without saving left the preview values live, and any
+            // later unrelated Save() persisted them to disk.
+            var previewSnapshot = new
+            {
+                _settings.WindowOpacity,
+                _settings.BlurEffect,
+                _settings.BackgroundImagePath,
+                _settings.BackgroundImageOpacity,
+                _settings.BackgroundImageStretch,
+                _settings.FontFamily,
+                _settings.FontSize,
+                _settings.ThemeName
+            };
+
             // Wire up live preview events
             sw.OnOpacityChanged += (val) => { _settings.WindowOpacity = val; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
             sw.OnBlurChanged += (val) => { _settings.BlurEffect = val; UpdateTransparencyHints(); };
@@ -4710,6 +4726,24 @@ namespace NovaTerminal
 
                 // Refresh Connection Manager if open (or just always update it)
                 _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
+            }
+            else
+            {
+                // Cancel: revert the live preview (#167).
+                _settings.WindowOpacity = previewSnapshot.WindowOpacity;
+                _settings.BlurEffect = previewSnapshot.BlurEffect;
+                _settings.BackgroundImagePath = previewSnapshot.BackgroundImagePath;
+                _settings.BackgroundImageOpacity = previewSnapshot.BackgroundImageOpacity;
+                _settings.BackgroundImageStretch = previewSnapshot.BackgroundImageStretch;
+                _settings.FontFamily = previewSnapshot.FontFamily;
+                _settings.FontSize = previewSnapshot.FontSize;
+                _settings.ThemeName = previewSnapshot.ThemeName;
+                _settings.RefreshActiveTheme();
+
+                ApplyThemeToUI();
+                ApplySettingsToAllTabs();
+                UpdateTransparencyHints();
+                UpdateTabVisuals();
             }
         }
 

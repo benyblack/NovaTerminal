@@ -357,7 +357,9 @@ namespace NovaTerminal.Shell
                     encrypted = EncryptFallback(data);
                 }
 
-                File.WriteAllBytes(_vaultPath, encrypted);
+                // Atomic write with .bak (#167): a crash mid-write previously corrupted
+                // vault.dat, silently losing all stored secrets.
+                AtomicFile.WriteAllBytes(_vaultPath, encrypted);
             }
             catch (Exception ex)
             {
@@ -380,9 +382,40 @@ namespace NovaTerminal.Shell
                 return true;
             }
 
+            if (TryLoadSecretsFrom(_vaultPath, out secrets))
+            {
+                return true;
+            }
+
+            // Primary is unreadable/undecryptable. Do NOT silently continue with an
+            // empty vault — the next Save() would overwrite vault.dat (and eventually
+            // its .bak) and permanently destroy every stored secret (#167 review).
+            // Quarantine the evidence and try the backup written by AtomicFile.
+            System.Diagnostics.Debug.WriteLine($"[Vault] '{_vaultPath}' is unreadable; trying backup.");
+            try { File.Copy(_vaultPath, _vaultPath + ".corrupt", overwrite: true); }
+            catch { /* best effort */ }
+
+            if (TryLoadSecretsFrom(_vaultPath + ".bak", out secrets))
+            {
+                return true;
+            }
+
+            System.Diagnostics.Debug.WriteLine("[Vault] Backup is also unreadable; starting with an empty vault.");
+            secrets = new Dictionary<string, string>();
+            return false;
+        }
+
+        private bool TryLoadSecretsFrom(string path, out Dictionary<string, string> secrets)
+        {
+            secrets = new Dictionary<string, string>();
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
             try
             {
-                byte[] encrypted = File.ReadAllBytes(_vaultPath);
+                byte[] encrypted = File.ReadAllBytes(path);
                 byte[] data;
 
                 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -392,7 +425,7 @@ namespace NovaTerminal.Shell
                 }
                 else
                 {
-                    // Cross-platform fallback: AES-256-GCM
+                    // Cross-platform fallback (see EncryptFallback)
                     data = DecryptFallback(encrypted);
                 }
 
@@ -407,7 +440,7 @@ namespace NovaTerminal.Shell
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[Vault] Load failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[Vault] Load from '{path}' failed: {ex.Message}");
                 return false;
             }
         }
