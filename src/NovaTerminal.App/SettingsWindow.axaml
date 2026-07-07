@@ -570,6 +570,15 @@
                                 </StackPanel>
                                 <CheckBox Name="CommandAssistToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Agent access (observe)"/>
+                                    <TextBlock Classes="RowDesc" Text="Allow AI agents on this machine to read terminal sessions (screen and scrollback). Read-only: agents cannot type or open sessions. Screen content may include sensitive output."/>
+                                </StackPanel>
+                                <CheckBox Name="AgentAccessObserveToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
                             <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,18,0,18"/>
 
                             <!-- ── Scrollback ── -->

@@ -99,7 +99,15 @@ namespace NovaTerminal.VT
 
                             for (int i = 0; i < diff; i++)
                             {
-                                _scrollback.AppendRow(_viewport[i].Cells);
+                                // Preserve wrap flag and side tables (extended text,
+                                // hyperlinks), matching the WritePath eviction; dropping
+                                // them corrupted emoji/multi-codepoint graphemes once a
+                                // resize pushed rows into scrollback.
+                                _scrollback.AppendRow(
+                                    _viewport[i].Cells,
+                                    _viewport[i].IsWrapped,
+                                    _viewport[i].GetExtendedTextMap(),
+                                    _viewport[i].GetHyperlinkMap());
                             }
 
                             var newVp = new TerminalRow[newRows];
@@ -263,8 +271,13 @@ namespace NovaTerminal.VT
                 for (int i = linesNeeded - 1; i >= 0; i--)
                 {
                     var row = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
-                    if (_scrollback.TryPopLastRow(row.Cells))
+                    if (_scrollback.TryPopLastRow(row.Cells, out var isWrapped, out var extendedText, out var hyperlinks))
                     {
+                        // Restore the full row, not just cells: wrap flag and side
+                        // tables (extended text, hyperlinks) must survive the
+                        // shrink-then-grow round trip through scrollback.
+                        row.IsWrapped = isWrapped;
+                        row.RestoreSideTables(extendedText, hyperlinks);
                         newViewport[i] = row;
                         pulled++;
                     }
@@ -293,7 +306,13 @@ namespace NovaTerminal.VT
 
                 for (int i = 0; i < linesToPush; i++)
                 {
-                    _scrollback.AppendRow(_viewport[i].Cells);
+                    // Same as the height-shrink redistribution path: keep wrap
+                    // flag and side tables so extended graphemes survive.
+                    _scrollback.AppendRow(
+                        _viewport[i].Cells,
+                        _viewport[i].IsWrapped,
+                        _viewport[i].GetExtendedTextMap(),
+                        _viewport[i].GetHyperlinkMap());
                 }
 
                 Array.Copy(_viewport, linesToPush, newViewport, 0, newRows);

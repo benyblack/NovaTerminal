@@ -53,6 +53,7 @@ public static class SettingsTools
         | `QuakeModeEnabled` | bool | Default true. |
         | `GlobalHotkey` | string | Default "Alt+OemTilde". |
         | `ExperimentalNativeSshEnabled` | bool | Default false. |
+        | `AgentAccessObserveEnabled` | bool | Default false. Enables the local agent-host observe endpoint (read-only session access for AI agents). |
 
         ## Background
         | Field | Type | Notes |
@@ -115,6 +116,7 @@ public static class SettingsTools
           "CommandAssistShellIntegrationEnabled": true,
           "CommandAssistPowerShellIntegrationEnabled": true,
           "ExperimentalNativeSshEnabled": false,
+          "AgentAccessObserveEnabled": false,
           "Profiles": [
             { "Id": "00000000-0000-0000-0000-000000000001", "Name": "Command Prompt", "Command": "cmd.exe", "Type": 0 }
           ],
@@ -129,7 +131,7 @@ public static class SettingsTools
         "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection", "QuakeModeEnabled",
         "CommandAssistEnabled", "CommandAssistHistoryEnabled", "CommandAssistAutoHideInAltScreen",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
-        "ExperimentalNativeSshEnabled",
+        "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled",
     };
 
     // Plain + enum-like strings; enum-like values are NOT value-validated (type-check only).
@@ -152,7 +154,7 @@ public static class SettingsTools
         "QuakeModeEnabled", "GlobalHotkey", "CommandAssistEnabled", "CommandAssistHistoryEnabled",
         "CommandAssistMaxHistoryEntries", "CommandAssistAutoHideInAltScreen",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
-        "ExperimentalNativeSshEnabled", "Profiles", "DefaultProfileId",
+        "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "Profiles", "DefaultProfileId",
     };
 
     [McpServerTool(Name = "novaterminal.validate_settings_json"),

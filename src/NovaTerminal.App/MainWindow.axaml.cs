@@ -1951,6 +1951,10 @@ namespace NovaTerminal
             }
             _startup.Checkpoint("MainWindow.AfterLegacyMigration");
 
+            // Agent-host observe endpoint (docs/agent-host/DIRECTION.md, A1):
+            // strictly no-op unless the user opted in via Settings.
+            AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
+
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
             {
@@ -4858,6 +4862,8 @@ namespace NovaTerminal
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
+                // Live-apply the agent-host observe endpoint (no restart needed).
+                AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
                 // Refresh Connection Manager if open (or just always update it)
                 _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
@@ -5234,6 +5240,7 @@ namespace NovaTerminal
             }
             _recordingToastTimer.Stop();
             _globalHotkey?.Dispose();
+            AgentHost.AgentHostService.Instance.Stop();
         }
 
         private void RegisterPaneOwners(TabItem tabItem, Control control)

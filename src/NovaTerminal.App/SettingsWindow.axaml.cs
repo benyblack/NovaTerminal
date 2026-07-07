@@ -1399,7 +1399,9 @@ namespace NovaTerminal
             var bgStretchList = this.FindControl<ComboBox>("BgImageStretchList");
             var complexShapingToggle = this.FindControl<CheckBox>("ComplexShapingToggle");
             var commandAssistToggle = this.FindControl<CheckBox>("CommandAssistToggle");
+            var agentAccessObserveToggle = this.FindControl<CheckBox>("AgentAccessObserveToggle");
 
+            if (agentAccessObserveToggle != null) agentAccessObserveToggle.IsChecked = _settings.AgentAccessObserveEnabled;
             if (fontSizeInput != null) fontSizeInput.Value = (decimal)_settings.FontSize;
             if (scrollbackInput != null) scrollbackInput.Value = (decimal)_settings.MaxHistory;
             if (opacitySlider != null)
@@ -1628,6 +1630,8 @@ namespace NovaTerminal
             if (ligatureToggle != null) _settings.EnableLigatures = ligatureToggle.IsChecked == true;
             if (complexShapingToggle != null) _settings.EnableComplexShaping = complexShapingToggle.IsChecked == true;
             if (commandAssistToggle != null) _settings.CommandAssistEnabled = commandAssistToggle.IsChecked == true;
+            var agentAccessObserveToggle = this.FindControl<CheckBox>("AgentAccessObserveToggle");
+            if (agentAccessObserveToggle != null) _settings.AgentAccessObserveEnabled = agentAccessObserveToggle.IsChecked == true;
 
             if (fontList?.SelectedItem is ComboBoxItem fontItem)
                 _settings.FontFamily = fontItem.Content?.ToString() ?? BundledFontCatalog.DefaultTerminalFontFamily;

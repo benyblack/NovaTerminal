@@ -202,6 +202,18 @@ namespace NovaTerminal.VT.Storage
             _hyperlinks?[rowIndex];
 
         /// <summary>
+        /// Clears a row's wrap flag and side tables. Must be called when a row
+        /// slot is vacated (pop) so a later append into the same slot cannot
+        /// resurrect stale metadata.
+        /// </summary>
+        public void ClearRowMetadata(int rowIndex)
+        {
+            SetRowWrapped(rowIndex, false);
+            if (_extendedText != null) _extendedText[rowIndex] = null;
+            if (_hyperlinks != null) _hyperlinks[rowIndex] = null;
+        }
+
+        /// <summary>
         /// Updates cells that rely on default foreground or background colors to a new theme.
         /// This is an O(n) operation over all used cells, invoked rarely during a theme change.
         /// </summary>
