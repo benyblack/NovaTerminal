@@ -55,6 +55,9 @@ namespace NovaTerminal.Shell
         // agents cannot read any terminal session. Observe-only in v1 — there is
         // no acting capability behind this flag.
         public bool AgentAccessObserveEnabled { get; set; } = false;
+        // In-app toast when a command that ran ≥30s finishes in an unfocused
+        // pane (A2 PR4, absorbs ROADMAP §5.2). Off by default.
+        public bool LongCommandNotificationsEnabled { get; set; } = false;
 
         public System.Collections.Generic.List<TerminalProfile> Profiles { get; set; } = new();
         public Guid DefaultProfileId { get; set; }

@@ -148,13 +148,15 @@ Each milestone is independently shippable and announceable. Estimates assume
 ### A2 — Status & notifications
 
 **Deliverables**
-- [ ] Session status model: `running` / `awaiting-input` / `idle` / `exited`
-      (PTY-derived, not scrape-based; exit status + foreground process where
-      the OS allows)
-- [ ] MCP tools: `novaterminal.get_session_status`, long-poll or subscription
-      for completion/stall events
-- [ ] OS notification integration for long-running command completion
-      (absorbs ROADMAP 5.2)
+- [x] Session status model: `running` / `awaitingInput` / `idle` / `exited`
+      with precise/heuristic confidence tiers (PTY-derived, not scrape-based;
+      exit status included; foreground-process reporting deferred) (PR #186)
+- [x] MCP tools: `novaterminal.get_session_status`,
+      `novaterminal.wait_for_events` (cursor long-poll over a bounded event
+      ring) for completion/stall events (PRs #187, #188)
+- [x] In-app notification for long-running command completion, default-off
+      toggle (absorbs ROADMAP 5.2); OS-native notification backends remain a
+      follow-up
 
 **Acceptance criteria**
 - Status transitions covered by replay-driven tests (recorded fixtures per

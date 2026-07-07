@@ -579,6 +579,15 @@
                                 </StackPanel>
                                 <CheckBox Name="AgentAccessObserveToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
                             </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Long command notifications"/>
+                                    <TextBlock Classes="RowDesc" Text="Show a toast when a command that ran at least 30 seconds finishes in a pane you're not looking at."/>
+                                </StackPanel>
+                                <CheckBox Name="LongCommandNotificationsToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
                             <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,18,0,18"/>
 
                             <!-- ── Scrollback ── -->

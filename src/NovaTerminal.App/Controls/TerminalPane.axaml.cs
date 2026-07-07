@@ -113,11 +113,14 @@ namespace NovaTerminal.Controls
         public event Action<TerminalPane>? CommandStarted;
         public event Action<TerminalPane, int?>? CommandFinished;
         public event Action<TerminalPane, int>? ProcessExited;
+        /// <summary>A command ran at least <see cref="LongCommandNotificationPolicy.ThresholdSeconds"/>: (pane, command, exitCode, duration). Policy (setting, focus) is the window's call.</summary>
+        public event Action<TerminalPane, string?, int?, TimeSpan>? LongCommandCompleted;
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
         private bool _disposed;
         private NovaTerminal.AgentHost.AgentSessionRegistration? _agentRegistration;
+        private DateTimeOffset? _lastCommandStartedAtUtc;
         private Action<int, int>? _onTermViewResize;
         private Action<float, float>? _onTermViewMetricsChanged;
         private DispatcherTimer? _statusTimer;
@@ -1561,6 +1564,7 @@ namespace NovaTerminal.Controls
                 // OnCommandAccepted/OnPromptReady (the UI post below would let a
                 // snapshot briefly see AwaitingInput with CurrentCommand set).
                 _agentRegistration?.StatusMachine.NotifyCommandStarted();
+                _lastCommandStartedAtUtc = DateTimeOffset.UtcNow;
                 Dispatcher.UIThread.Post(() =>
                 {
                     LastExitCode = null;
@@ -1584,6 +1588,19 @@ namespace NovaTerminal.Controls
             Parser.OnCommandFinishedDetailed += (exitCode, durationMs) =>
             {
                 _shellLifecycleTracker?.HandleCommandFinished(exitCode, durationMs);
+
+                // Long-command completion (A2 PR4): the pane only applies the
+                // mechanical threshold; opt-in + focus policy lives in the window.
+                var startedAt = _lastCommandStartedAtUtc;
+                _lastCommandStartedAtUtc = null;
+                TimeSpan? duration = durationMs.HasValue
+                    ? TimeSpan.FromMilliseconds(durationMs.Value)
+                    : startedAt.HasValue ? DateTimeOffset.UtcNow - startedAt.Value : null;
+                if (duration is { } d && LongCommandNotificationPolicy.QualifiesAsLong(d))
+                {
+                    var commandText = _lastRelevantCommandText;
+                    Dispatcher.UIThread.Post(() => LongCommandCompleted?.Invoke(this, commandText, exitCode, d));
+                }
             };
 
             // Sync initial metrics
