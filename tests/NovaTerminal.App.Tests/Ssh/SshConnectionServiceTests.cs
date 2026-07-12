@@ -271,6 +271,48 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
+    public void SaveProfile_PreservesAgentAllowlistWhenEditingAnotherField()
+    {
+        // A3: the connection editor has no allowlist control yet, so editing any
+        // other field must not silently revoke an allowlist set via JSON/MCP —
+        // else SSH sendInput would start being rejected.
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+            var existingId = Guid.Parse("c4d5e6f7-a8b9-4c1d-8e2f-3a4b5c6d7e8f");
+
+            store.SaveProfile(new SshProfile
+            {
+                Id = existingId,
+                Name = "Allowed",
+                Host = "allowed.internal",
+                AllowAgentAccess = true
+            });
+
+            var vm = new NewSshConnectionViewModel
+            {
+                ProfileId = existingId,
+                Name = "Allowed Renamed",
+                HostName = "renamed.internal",
+                UserName = "ops"
+            };
+
+            SshProfile saved = service.SaveProfile(vm);
+
+            Assert.True(saved.AllowAgentAccess);
+            Assert.True(store.GetProfile(saved.Id)!.AllowAgentAccess);
+            Assert.True(new JsonSshProfileStore(path).GetProfile(saved.Id)!.AllowAgentAccess);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SaveProfile_PreservesLegacyRememberPasswordPreferenceForExistingProfiles()
     {
         string tempRoot = CreateTempDirectory();
