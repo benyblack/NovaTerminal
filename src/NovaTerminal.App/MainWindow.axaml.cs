@@ -5136,7 +5136,23 @@ namespace NovaTerminal
         {
             var dialog = CreateThemedDialogWindow("Agent activity", 720, 460, canResize: true);
 
-            var list = new ItemsControl();
+            var list = new ItemsControl
+            {
+                // Bind to the data snapshot with a template; don't materialize
+                // controls as items (bypasses recycling, leaks on refresh).
+                ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<AgentHost.AgentActivityEntry>((e, _) =>
+                {
+                    string when = e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+                    string outcome = e.Outcome == "ok" ? "ok" : $"denied: {e.Outcome}";
+                    string pane = e.PaneId is { } id ? $" · pane {id}" : string.Empty;
+                    return new TextBlock
+                    {
+                        Text = $"{when}  {e.Method}  [{outcome}]  {e.Target}{pane}",
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 2, 0, 2),
+                    };
+                }),
+            };
             var scroll = new ScrollViewer
             {
                 Content = list,
@@ -5163,18 +5179,7 @@ namespace NovaTerminal
 
                 empty.IsVisible = false;
                 scroll.IsVisible = true;
-                list.ItemsSource = entries.Select(e =>
-                {
-                    string when = e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
-                    string outcome = e.Outcome == "ok" ? "ok" : $"denied: {e.Outcome}";
-                    string pane = e.PaneId is { } id ? $" · pane {id}" : string.Empty;
-                    return new TextBlock
-                    {
-                        Text = $"{when}  {e.Method}  [{outcome}]  {e.Target}{pane}",
-                        TextWrapping = TextWrapping.Wrap,
-                        Margin = new Thickness(0, 2, 0, 2),
-                    };
-                }).ToList();
+                list.ItemsSource = entries; // data snapshot; the ItemTemplate renders each row
             }
 
             var refreshButton = new Button { Content = "Refresh", Width = 92 };
