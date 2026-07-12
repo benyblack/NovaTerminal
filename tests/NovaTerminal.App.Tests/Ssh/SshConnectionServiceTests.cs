@@ -271,11 +271,11 @@ public sealed class SshConnectionServiceTests
     }
 
     [Fact]
-    public void SaveProfile_PreservesAgentAllowlistWhenEditingAnotherField()
+    public void EditorRoundTrip_LoadsAndPreservesAgentAllowlist()
     {
-        // A3: the connection editor has no allowlist control yet, so editing any
-        // other field must not silently revoke an allowlist set via JSON/MCP —
-        // else SSH sendInput would start being rejected.
+        // A3 PR3: the editor loads the allowlist flag into the view-model
+        // (CreateEditorViewModel → ApplySshProfile), so editing another field
+        // and saving preserves it — the view-model is authoritative.
         string tempRoot = CreateTempDirectory();
         try
         {
@@ -292,19 +292,50 @@ public sealed class SshConnectionServiceTests
                 AllowAgentAccess = true
             });
 
-            var vm = new NewSshConnectionViewModel
-            {
-                ProfileId = existingId,
-                Name = "Allowed Renamed",
-                HostName = "renamed.internal",
-                UserName = "ops"
-            };
+            // Load through the real editor path and confirm the checkbox reflects state.
+            var runtime = SshConnectionService.ToRuntimeProfile(store.GetProfile(existingId)!);
+            var vm = service.CreateEditorViewModel(runtime);
+            Assert.True(vm.AllowAgentAccess);
 
+            // Edit an unrelated field; the flag rides along on the view-model.
+            vm.HostName = "renamed.internal";
             SshProfile saved = service.SaveProfile(vm);
 
             Assert.True(saved.AllowAgentAccess);
-            Assert.True(store.GetProfile(saved.Id)!.AllowAgentAccess);
             Assert.True(new JsonSshProfileStore(path).GetProfile(saved.Id)!.AllowAgentAccess);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void EditorRoundTrip_CanRevokeAgentAllowlist()
+    {
+        // Unchecking the box must win — the view-model is authoritative, not a
+        // force-preserved stored value.
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string path = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(path);
+            var service = new SshConnectionService(store);
+            var existingId = Guid.Parse("d5e6f7a8-b9c0-4d1e-8f2a-3b4c5d6e7f80");
+
+            store.SaveProfile(new SshProfile
+            {
+                Id = existingId,
+                Name = "Allowed",
+                Host = "allowed.internal",
+                AllowAgentAccess = true
+            });
+
+            var vm = service.CreateEditorViewModel(SshConnectionService.ToRuntimeProfile(store.GetProfile(existingId)!));
+            vm.AllowAgentAccess = false; // user unchecks
+            service.SaveProfile(vm);
+
+            Assert.False(new JsonSshProfileStore(path).GetProfile(existingId)!.AllowAgentAccess);
         }
         finally
         {

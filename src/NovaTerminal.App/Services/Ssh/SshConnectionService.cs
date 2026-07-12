@@ -91,11 +91,10 @@ public sealed class SshLaunchDetails
         if (existing != null)
         {
             incoming.RememberPasswordInVault = existing.RememberPasswordInVault;
-            // The connection editor has no agent-allowlist control yet (A3 PR2),
-            // so the view-model can't carry it — preserve the stored value across
-            // an edit, or editing any other field would silently revoke the
-            // allowlist and break SSH sendInput.
-            incoming.AllowAgentAccess = existing.AllowAgentAccess;
+            // AllowAgentAccess is carried by the view-model (loaded via
+            // ApplySshProfile, edited by the connection editor's checkbox, A3
+            // PR3), so it is authoritative here — no force-preserve, which would
+            // ignore the user unchecking the box.
 
             if (viewModel.BackendKind is null)
             {

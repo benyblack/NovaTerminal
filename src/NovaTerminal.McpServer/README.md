@@ -1,26 +1,37 @@
 # NovaTerminal MCP Dev Companion
 
-A local, **read-only** [Model Context Protocol](https://modelcontextprotocol.io) server that
-exposes NovaTerminal's project knowledge to AI coding agents (Claude Desktop, Claude Code, VS
-Code, etc.). It helps you explore the architecture, understand VT/ANSI behavior, and author or
-validate theme and SSH connection-profile JSON — without leaving your editor.
-
-This is a **developer tool**, not a user-facing NovaTerminal feature.
+A local [Model Context Protocol](https://modelcontextprotocol.io) server that exposes
+NovaTerminal's project knowledge — and, opt-in, its live terminal sessions — to AI coding agents
+(Claude Desktop, Claude Code, VS Code, etc.). It helps you explore the architecture, understand
+VT/ANSI behavior, author or validate theme and SSH connection-profile JSON, and (when you enable
+it) observe and drive running sessions — without leaving your editor.
 
 ## Safety posture
 
-The server is deliberately constrained and isolated:
+The server has two tool families with different postures:
 
-- **Read-only.** It never executes shell commands, opens SSH connections, reads live terminal
-  buffers, accesses saved credentials or private keys, modifies profiles, or controls the running
-  app.
-- **No network access.**
-- **No coupling to the rest of the solution.** The project has **no `ProjectReference`** to any
-  other NovaTerminal assembly — it only reads repo docs and validates JSON against self-contained
-  schemas. (Where it mirrors a real type — e.g. the SSH profile schema — a drift-guard test in
-  `tests/NovaTerminal.McpServer.Tests` keeps the copy honest.)
-- **Filesystem access is confined to `docs/`.** Doc reads reject path traversal (`..`), absolute
-  paths, and symlink escapes.
+**Repo / dev-companion tools** (docs, config validators, VT conformance) are deliberately
+constrained and isolated:
+
+- **Read-only and offline.** They never execute shell commands, open SSH connections, access
+  saved credentials or private keys, or reach the network. Filesystem access is confined to
+  `docs/` (reads reject path traversal, absolute paths, and symlink escapes).
+
+**Live-session tools** proxy the running NovaTerminal app over a per-user local IPC endpoint and
+are gated by explicit, default-off user opt-ins:
+
+- **Observe** (`list_sessions`, `read_screen`, `read_scrollback`, `get_session_status`,
+  `wait_for_events`, `export_replay`) requires "Agent access (observe)". Read-only.
+- **Act** (`send_input`, `spawn_session`, `close_session`) requires a *separate* "Agent access
+  (act)" opt-in on top of observe; SSH sessions additionally require a per-profile allowlist. Every
+  acting call — allowed or denied — is recorded in an in-app activity journal. See the threat model
+  at [`docs/agent-host/2026-07-12-acting-threat-model.md`](../../docs/agent-host/2026-07-12-acting-threat-model.md).
+- When neither toggle is on, no live-session endpoint exists and these tools return guidance
+  instead of data.
+
+The only cross-assembly dependency is the zero-reference `NovaTerminal.AgentHost.Contracts` leaf
+(the IPC wire types); dev-companion schemas that mirror real types are kept honest by drift-guard
+tests in `tests/NovaTerminal.McpServer.Tests`.
 
 ## Tech stack
 
@@ -104,8 +115,12 @@ tool list.
 
 ## Tools
 
-All tools are read-only. See [`docs/mcp/tools.md`](../../docs/mcp/tools.md) for the authoritative
-list and notes; the current set:
+The repo / dev-companion tools below are read-only and offline. The live-session tools
+(`list_sessions`, `read_screen`, `read_scrollback`, `get_session_status`, `wait_for_events`,
+`export_replay`, `send_input`, `spawn_session`, `close_session`) proxy the running app and require
+the opt-in toggles described under **Safety posture** — the last three *act* on sessions. See
+[`docs/mcp/tools.md`](../../docs/mcp/tools.md) for the authoritative list and notes; the
+dev-companion set:
 
 | Tool | Inputs | What it does |
 |------|--------|-------------|

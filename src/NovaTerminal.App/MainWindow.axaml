@@ -129,6 +129,7 @@
                             <Separator />
                             <MenuItem Header="New SSH Connection..." Name="MenuNewSshConnection" />
                             <MenuItem Header="Manage Profiles..." Name="MenuManageProfiles" />
+                            <MenuItem Header="Agent Activity..." Name="MenuAgentActivity" />
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>

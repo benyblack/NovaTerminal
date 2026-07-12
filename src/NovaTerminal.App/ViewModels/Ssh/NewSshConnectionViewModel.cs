@@ -36,6 +36,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     private string _validationWarning = string.Empty;
     private SshBackendKind? _backendKind;
     private bool _rememberPasswordInVault;
+    private bool _allowAgentAccess;
     private int _keepAliveIntervalSeconds = 30;
     private int _keepAliveCountMax = 3;
     private bool _enableMux;
@@ -167,6 +168,17 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     }
 
     public bool IsRememberPasswordVisible => BackendKind == SshBackendKind.Native;
+
+    /// <summary>
+    /// A3: allowlists this SSH profile for the agent-host act surface (letting
+    /// agents type into / spawn it, when the global "Agent access (act)" toggle
+    /// is on). Default false.
+    /// </summary>
+    public bool AllowAgentAccess
+    {
+        get => _allowAgentAccess;
+        set => SetField(ref _allowAgentAccess, value);
+    }
 
     public int KeepAliveIntervalSeconds
     {
@@ -329,7 +341,8 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
             ServerAliveIntervalSeconds = keepAliveInterval,
             ServerAliveCountMax = keepAliveCountMax,
             ExtraSshArgs = ExtraSshArgs?.Trim() ?? string.Empty,
-            RemoteShellKind = RemoteShellKind
+            RemoteShellKind = RemoteShellKind,
+            AllowAgentAccess = AllowAgentAccess
         };
     }
 
@@ -395,6 +408,7 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         IsFavorite = sshProfile.Tags.Any(tag => string.Equals(tag, "favorite", StringComparison.OrdinalIgnoreCase));
         AuthMode = sshProfile.AuthMode == SshAuthMode.IdentityFile ? NewSshAuthMode.IdentityFile : NewSshAuthMode.Agent;
         IdentityFilePath = sshProfile.IdentityFilePath ?? string.Empty;
+        AllowAgentAccess = sshProfile.AllowAgentAccess;
 
         JumpHops.Clear();
         foreach (SshJumpHop hop in sshProfile.JumpHops)

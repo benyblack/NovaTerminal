@@ -2098,6 +2098,12 @@ namespace NovaTerminal
                 await ShowNewSshConnectionDialogAsync(null);
             };
 
+            var menuAgentActivity = this.FindControl<MenuItem>("MenuAgentActivity");
+            if (menuAgentActivity != null) menuAgentActivity.Click += async (s, e) =>
+            {
+                await ShowAgentActivityJournalAsync();
+            };
+
             var btnRecord = this.FindControl<Button>("BtnRecord");
             if (btnRecord != null)
             {
@@ -5120,6 +5126,94 @@ namespace NovaTerminal
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to show SSH connection details: {ex.Message}");
                 await ShowSimpleMessageDialogAsync("Connection details", ex.Message);
             }
+        }
+
+        // A3: visible agent activity journal ("nothing is silent"). Read-only
+        // snapshot of recent acting attempts (allowed and denied), newest first,
+        // with a Refresh button. The journal data layer lives in
+        // AgentActivityJournal; this is its window.
+        private async Task ShowAgentActivityJournalAsync()
+        {
+            var dialog = CreateThemedDialogWindow("Agent activity", 720, 460, canResize: true);
+
+            var list = new ItemsControl();
+            var scroll = new ScrollViewer
+            {
+                Content = list,
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            };
+
+            var empty = new TextBlock
+            {
+                Text = "No agent activity recorded yet. Actions taken by AI agents (typing, opening or closing sessions) appear here — including attempts that were denied.",
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.7,
+            };
+
+            void Refresh()
+            {
+                var entries = AgentHost.AgentActivityJournal.Instance.Snapshot();
+                if (entries.Count == 0)
+                {
+                    list.ItemsSource = null;
+                    scroll.IsVisible = false;
+                    empty.IsVisible = true;
+                    return;
+                }
+
+                empty.IsVisible = false;
+                scroll.IsVisible = true;
+                list.ItemsSource = entries.Select(e =>
+                {
+                    string when = e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+                    string outcome = e.Outcome == "ok" ? "ok" : $"denied: {e.Outcome}";
+                    string pane = e.PaneId is { } id ? $" · pane {id}" : string.Empty;
+                    return new TextBlock
+                    {
+                        Text = $"{when}  {e.Method}  [{outcome}]  {e.Target}{pane}",
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 2, 0, 2),
+                    };
+                }).ToList();
+            }
+
+            var refreshButton = new Button { Content = "Refresh", Width = 92 };
+            refreshButton.Click += (_, __) => Refresh();
+            var closeButton = new Button { Content = "Close", Width = 92 };
+            closeButton.Click += (_, __) => dialog.Close();
+
+            Refresh();
+
+            dialog.Content = new Border
+            {
+                Padding = new Thickness(16),
+                Child = new DockPanel
+                {
+                    LastChildFill = true,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = "Recent actions taken (or attempted) by AI agents with 'Agent access (act)' enabled. Newest first; the list is in-memory and bounded.",
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 0, 0, 12),
+                            [DockPanel.DockProperty] = Dock.Top,
+                        },
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Spacing = 8,
+                            Margin = new Thickness(0, 12, 0, 0),
+                            [DockPanel.DockProperty] = Dock.Bottom,
+                            Children = { refreshButton, closeButton },
+                        },
+                        new Panel { Children = { scroll, empty } },
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
         }
 
         private async Task ShowSimpleMessageDialogAsync(string title, string message)

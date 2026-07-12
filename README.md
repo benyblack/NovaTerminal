@@ -127,7 +127,7 @@ acyclic dependency graph.
 - **[`src/NovaTerminal.Conformance`](src/NovaTerminal.Conformance/)** — VT conformance matrix tooling and report generation.
 - **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — console-subsystem twin of the (WinExe) app for headless tooling: `vt-report`, headless replay (`--replay <file>`), and the SSH askpass helper.
 - **[`src/NovaTerminal.AgentHost.Contracts`](src/NovaTerminal.AgentHost.Contracts/)** — zero-dependency wire contracts for the agent-host observe channel (shared by App and McpServer).
-- **[`src/NovaTerminal.McpServer`](src/NovaTerminal.McpServer/)** — read-only, stdio-only MCP server exposing project docs, config validators, VT conformance data, and (opt-in, observe-only) live terminal sessions to AI tooling.
+- **[`src/NovaTerminal.McpServer`](src/NovaTerminal.McpServer/)** — stdio-only MCP server exposing project docs, config validators, VT conformance data, and (opt-in) live terminal sessions to AI tooling: observe by default, and — behind a separate explicit opt-in — act (type into / open / close sessions).
 
 Validation:
 
@@ -164,8 +164,12 @@ Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zer
 - **Agent host program** — the accepted strategic direction
   ([`docs/agent-host/DIRECTION.md`](docs/agent-host/DIRECTION.md)): a
   session-facing MCP surface so AI agents can observe, query status of, and
-  (with explicit permission) act inside live terminal sessions, with
-  deterministic replay as the debugging story. Debug what your agent did,
+  — with explicit, separate permission — act inside live terminal sessions
+  (`send_input` / `spawn_session` / `close_session`, gated by an "Agent access
+  (act)" opt-in on top of observe, a per-profile SSH allowlist, and a visible
+  activity journal; threat model in
+  [`docs/agent-host/2026-07-12-acting-threat-model.md`](docs/agent-host/2026-07-12-acting-threat-model.md)),
+  with deterministic replay as the debugging story. Debug what your agent did,
   frame by frame: with both opt-in toggles enabled, an agent can call
   `novaterminal.export_replay` to save a session's recent output (never
   input — typed keys are not retained) as a standard `.rec` file, and anyone
