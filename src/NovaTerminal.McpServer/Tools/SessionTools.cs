@@ -162,6 +162,34 @@ public static class SessionTools
             : AgentHostClient.ProtocolErrorMessage;
     }
 
+    [McpServerTool(Name = "novaterminal.send_input"),
+     Description("Types input into a live NovaTerminal session, exactly as a human would at the keyboard — the bytes are queued to the terminal and recorded like any keystroke. Use for driving an interactive program or answering a prompt. 'text' may include control characters (e.g. \\u0003 for Ctrl-C, \\r for Enter). This is an ACTING tool: it requires the user to have enabled BOTH 'Agent access (observe)' and its 'Agent access (act)' sub-toggle in NovaTerminal settings; SSH sessions must also be individually allowlisted. Every call (allowed or denied) is shown in the app's agent activity journal. Get paneId from novaterminal.list_sessions.")]
+    public static async Task<string> SendInput(
+        AgentHostClient client,
+        [Description("The pane id (GUID) from novaterminal.list_sessions.")] string paneId,
+        [Description("Text to type. Control characters allowed (\\u0003 = Ctrl-C, \\r = Enter). Sent verbatim; no newline is added.")] string text,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(paneId, out var pane))
+        {
+            return $"Error: '{paneId}' is not a valid pane id (GUID). Use novaterminal.list_sessions to find live pane ids.";
+        }
+        if (text == null)
+        {
+            return "Error: text is required (use an empty string to send nothing, though that is a no-op).";
+        }
+
+        var parameters = JsonSerializer.SerializeToElement(
+            new SendInputParams { PaneId = pane, Text = text },
+            AgentHostJsonContext.Default.SendInputParams);
+        var outcome = await client.CallAsync(AgentHostProtocol.Methods.SendInput, parameters, cancellationToken).ConfigureAwait(false);
+        if (!TryUnwrap(outcome, out var result, out var error)) return error;
+
+        return TryDeserializeResult(result, AgentHostJsonContext.Default.SendInputResult, out var dto)
+            ? $"Sent {dto!.BytesSent} byte(s) to session {pane}."
+            : AgentHostClient.ProtocolErrorMessage;
+    }
+
     // ── Shared plumbing ─────────────────────────────────────────────────────
 
     /// <summary>

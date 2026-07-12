@@ -1404,6 +1404,8 @@ namespace NovaTerminal
             if (agentAccessObserveToggle != null) agentAccessObserveToggle.IsChecked = _settings.AgentAccessObserveEnabled;
             var agentReplayExportToggle = this.FindControl<CheckBox>("AgentReplayExportToggle");
             if (agentReplayExportToggle != null) agentReplayExportToggle.IsChecked = _settings.AgentReplayExportEnabled;
+            var agentAccessActToggle = this.FindControl<CheckBox>("AgentAccessActToggle");
+            if (agentAccessActToggle != null) agentAccessActToggle.IsChecked = _settings.AgentAccessActEnabled;
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
             if (longCommandNotificationsToggle != null) longCommandNotificationsToggle.IsChecked = _settings.LongCommandNotificationsEnabled;
             if (fontSizeInput != null) fontSizeInput.Value = (decimal)_settings.FontSize;
@@ -1638,6 +1640,8 @@ namespace NovaTerminal
             if (agentAccessObserveToggle != null) _settings.AgentAccessObserveEnabled = agentAccessObserveToggle.IsChecked == true;
             var agentReplayExportToggle = this.FindControl<CheckBox>("AgentReplayExportToggle");
             if (agentReplayExportToggle != null) _settings.AgentReplayExportEnabled = agentReplayExportToggle.IsChecked == true;
+            var agentAccessActToggle = this.FindControl<CheckBox>("AgentAccessActToggle");
+            if (agentAccessActToggle != null) _settings.AgentAccessActEnabled = agentAccessActToggle.IsChecked == true;
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
             if (longCommandNotificationsToggle != null) _settings.LongCommandNotificationsEnabled = longCommandNotificationsToggle.IsChecked == true;
 

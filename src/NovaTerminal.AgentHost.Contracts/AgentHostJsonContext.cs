@@ -28,6 +28,8 @@ namespace NovaTerminal.AgentHost.Contracts;
 [JsonSerializable(typeof(WaitForEventsResult))]
 [JsonSerializable(typeof(ExportReplayParams))]
 [JsonSerializable(typeof(ExportReplayResult))]
+[JsonSerializable(typeof(SendInputParams))]
+[JsonSerializable(typeof(SendInputResult))]
 public sealed partial class AgentHostJsonContext : JsonSerializerContext
 {
 }

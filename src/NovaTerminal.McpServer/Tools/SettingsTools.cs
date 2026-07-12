@@ -55,6 +55,7 @@ public static class SettingsTools
         | `ExperimentalNativeSshEnabled` | bool | Default false. |
         | `AgentAccessObserveEnabled` | bool | Default false. Enables the local agent-host observe endpoint (read-only session access for AI agents). |
         | `AgentReplayExportEnabled` | bool | Default false. Sub-gate on top of the observe toggle: allows agents to export a session's recent output as a replay file (output + resizes only, never input). |
+        | `AgentAccessActEnabled` | bool | Default false. Separate opt-in on top of observe: allows agents to type into, spawn, and close sessions. SSH sessions additionally require per-profile allowlisting. |
         | `LongCommandNotificationsEnabled` | bool | Default false. In-app toast when a command that ran ≥30s finishes in an unfocused pane. |
 
         ## Background
@@ -120,6 +121,7 @@ public static class SettingsTools
           "ExperimentalNativeSshEnabled": false,
           "AgentAccessObserveEnabled": false,
           "AgentReplayExportEnabled": false,
+          "AgentAccessActEnabled": false,
           "LongCommandNotificationsEnabled": false,
           "Profiles": [
             { "Id": "00000000-0000-0000-0000-000000000001", "Name": "Command Prompt", "Command": "cmd.exe", "Type": 0 }
@@ -136,7 +138,7 @@ public static class SettingsTools
         "CommandAssistEnabled", "CommandAssistHistoryEnabled", "CommandAssistAutoHideInAltScreen",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
-        "LongCommandNotificationsEnabled",
+        "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
     };
 
     // Plain + enum-like strings; enum-like values are NOT value-validated (type-check only).
@@ -160,7 +162,7 @@ public static class SettingsTools
         "CommandAssistMaxHistoryEntries", "CommandAssistAutoHideInAltScreen",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
-        "LongCommandNotificationsEnabled", "Profiles", "DefaultProfileId",
+        "AgentAccessActEnabled", "LongCommandNotificationsEnabled", "Profiles", "DefaultProfileId",
     };
 
     [McpServerTool(Name = "novaterminal.validate_settings_json"),

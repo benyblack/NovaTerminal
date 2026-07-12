@@ -38,6 +38,7 @@ namespace NovaTerminal.AgentHost
         private readonly string? _endpointOverride;
         private readonly string? _discoveryDirectoryOverride;
         private readonly string? _exportDirectoryOverride;
+        private readonly AgentActivityJournal _journal;
         private readonly object _gate = new();
 
         private CancellationTokenSource? _cts;
@@ -57,12 +58,14 @@ namespace NovaTerminal.AgentHost
             AgentSessionRegistry registry,
             string? endpointOverride = null,
             string? discoveryDirectoryOverride = null,
-            string? exportDirectoryOverride = null)
+            string? exportDirectoryOverride = null,
+            AgentActivityJournal? journal = null)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _endpointOverride = endpointOverride;
             _discoveryDirectoryOverride = discoveryDirectoryOverride;
             _exportDirectoryOverride = exportDirectoryOverride;
+            _journal = journal ?? AgentActivityJournal.Instance;
         }
 
         // Volatile: written by the UI thread (settings apply), read by the IPC
@@ -82,6 +85,45 @@ namespace NovaTerminal.AgentHost
         {
             get => _replayExportEnabled;
             set => _replayExportEnabled = value;
+        }
+
+        // A3 act gate. Volatile for the same UI-writes/IPC-reads reason as the
+        // export gate above.
+        private volatile bool _actEnabled;
+
+        /// <summary>
+        /// Separate default-off opt-in for the acting surface (A3):
+        /// <c>sendInput</c> and later spawn/close. Mirrors
+        /// <c>TerminalSettings.AgentAccessActEnabled</c>, pushed by MainWindow
+        /// alongside <see cref="Apply"/>. On top of observe; SSH targets need
+        /// per-profile allowlisting as well (see <see cref="AllowsAgentActOnProfile"/>).
+        /// </summary>
+        public bool ActEnabled
+        {
+            get => _actEnabled;
+            set => _actEnabled = value;
+        }
+
+        // Per-profile SSH allowlist probe, published by MainWindow (reads the
+        // SSH profile store). Null (no probe wired) denies every SSH profile —
+        // fail closed. Volatile: published from the UI thread, read on IPC.
+        private volatile Func<Guid, bool>? _sshProfileAllowlist;
+
+        /// <summary>Publishes (or clears) the per-profile SSH allowlist probe. UI thread.</summary>
+        public void SetSshProfileAllowlist(Func<Guid, bool>? probe) => _sshProfileAllowlist = probe;
+
+        private bool AllowsAgentActOnProfile(Guid profileId)
+        {
+            var probe = _sshProfileAllowlist;
+            if (probe == null) return false; // fail closed
+            try
+            {
+                return probe(profileId);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         public bool IsRunning
@@ -583,6 +625,7 @@ namespace NovaTerminal.AgentHost
                     AgentHostProtocol.Methods.GetSessionStatus => HandleGetSessionStatus(request),
                     AgentHostProtocol.Methods.WaitForEvents => await HandleWaitForEventsAsync(request, cancellationToken).ConfigureAwait(false),
                     AgentHostProtocol.Methods.ExportReplay => HandleExportReplay(request),
+                    AgentHostProtocol.Methods.SendInput => HandleSendInput(request),
                     _ => Error(request.Id, AgentHostProtocol.ErrorCodes.UnknownMethod, $"Unknown method '{request.Method}'."),
                 };
             }
@@ -687,6 +730,72 @@ namespace NovaTerminal.AgentHost
                 TruncatedAtStart = info.TruncatedAtStart,
             };
             return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.ExportReplayResult));
+        }
+
+        private AgentHostResponse HandleSendInput(AgentHostRequest request)
+        {
+            var p = DeserializeParams(request, AgentHostJsonContext.Default.SendInputParams);
+            if (p == null || p.Text == null)
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "sendInput requires params with a paneId and text.");
+            }
+
+            // Size cap before any lookup so a flood is rejected cheaply.
+            int byteCount = Encoding.UTF8.GetByteCount(p.Text);
+            if (byteCount > AgentHostProtocol.MaxSendInputBytes)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, "input",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest,
+                        $"Input exceeds the {AgentHostProtocol.MaxSendInputBytes}-byte per-call limit."));
+            }
+
+            // Separate act opt-in (DIRECTION: acting never rides the observe toggle).
+            if (!_actEnabled)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, "input",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.ActDisabled,
+                        "Acting is disabled. Enable Settings → Agent access (observe) → Agent access (act) in NovaTerminal, then retry."));
+            }
+
+            if (!_registry.TryGet(p.PaneId, out var registration))
+            {
+                return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, "input",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'."));
+            }
+
+            // Per-profile SSH allowlist: acting on a remote reaches another
+            // machine with the user's credentials, so it is opt-in per profile.
+            if (string.Equals(registration.Kind, "ssh", StringComparison.Ordinal))
+            {
+                if (registration.ProfileId is not { } profileId || !AllowsAgentActOnProfile(profileId))
+                {
+                    return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, registration.ProfileName,
+                        Error(request.Id, AgentHostProtocol.ErrorCodes.ProfileNotAllowed,
+                            $"The SSH profile '{registration.ProfileName}' is not allowlisted for agent access. Enable it in the connection's settings, then retry."));
+                }
+            }
+
+            if (!registration.TrySendInput(p.Text))
+            {
+                return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, registration.ProfileName,
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotRunning,
+                        "The session is not accepting input (its process has exited or is being torn down)."));
+            }
+
+            var result = new SendInputResult { BytesSent = byteCount };
+            return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, registration.ProfileName,
+                Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.SendInputResult)));
+        }
+
+        /// <summary>
+        /// Records an acting attempt to the journal (allowed or denied) and
+        /// returns the response unchanged. Outcome = "ok" or the error code, so
+        /// the user sees everything an agent tried.
+        /// </summary>
+        private AgentHostResponse Journaled(AgentHostRequest request, string method, Guid? paneId, string target, AgentHostResponse response)
+        {
+            _journal.Record(method, paneId, target, response.Error?.Code ?? "ok");
+            return response;
         }
 
         private AgentHostResponse HandleListSessions(AgentHostRequest request)

@@ -24,6 +24,7 @@ namespace NovaTerminal.AgentHost
         private string _profileName;
         private string _kind;
         private bool _isActive;
+        private Guid? _profileId;
 
         public AgentSessionRegistration(
             Guid paneId,
@@ -32,7 +33,8 @@ namespace NovaTerminal.AgentHost
             string profileName,
             string kind,
             bool isActive,
-            Func<DateTimeOffset>? nowProvider = null)
+            Func<DateTimeOffset>? nowProvider = null,
+            Guid? profileId = null)
         {
             ArgumentNullException.ThrowIfNull(buffer);
             _paneId = paneId;
@@ -41,6 +43,7 @@ namespace NovaTerminal.AgentHost
             _profileName = profileName;
             _kind = kind;
             _isActive = isActive;
+            _profileId = profileId;
             StatusMachine = new AgentSessionStatusMachine(nowProvider);
         }
 
@@ -224,6 +227,39 @@ namespace NovaTerminal.AgentHost
             get { lock (_gate) { return _kind; } }
         }
 
+        /// <summary>
+        /// Backing profile id (local settings profile or SSH store profile), or
+        /// null for a profile-less pane. Used by the A3 act surface to check the
+        /// per-profile SSH allowlist; null or a local session is governed by the
+        /// global act toggle alone.
+        /// </summary>
+        public Guid? ProfileId
+        {
+            get { lock (_gate) { return _profileId; } }
+        }
+
+        /// <summary>
+        /// Injects <paramref name="text"/> into the live session (A3). Returns
+        /// false when no session is published or its process has already exited.
+        /// Goes through <see cref="NovaTerminal.Pty.ITerminalIO.SendInput"/> —
+        /// the same thread-safe, replay-recorded path human keystrokes take.
+        /// </summary>
+        public bool TrySendInput(string text)
+        {
+            var session = _session;
+            if (session == null) return false;
+            try
+            {
+                if (!session.IsProcessRunning) return false;
+                session.SendInput(text);
+                return true;
+            }
+            catch
+            {
+                return false; // raced a dispose
+            }
+        }
+
         /// <summary>True when this pane was the active pane of its tab at the last snapshot push.</summary>
         public bool IsActive
         {
@@ -231,7 +267,7 @@ namespace NovaTerminal.AgentHost
         }
 
         /// <summary>Atomically replaces the pane-owned metadata. Called on the UI thread by the pane.</summary>
-        public void UpdateSnapshot(string title, string profileName, string kind, bool isActive)
+        public void UpdateSnapshot(string title, string profileName, string kind, bool isActive, Guid? profileId = null)
         {
             lock (_gate)
             {
@@ -239,6 +275,7 @@ namespace NovaTerminal.AgentHost
                 _profileName = profileName;
                 _kind = kind;
                 _isActive = isActive;
+                _profileId = profileId;
             }
         }
     }

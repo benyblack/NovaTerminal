@@ -55,6 +55,7 @@ public static class ConnectionProfileTools
         | `AuthMode` | int enum | 0=Default, 1=Agent, 2=IdentityFile. |
         | `IdentityFilePath` | string | Key path; expected when AuthMode is 2 (IdentityFile). |
         | `RememberPasswordInVault` | bool | Whether to keep the password in the vault. |
+        | `AllowAgentAccess` | bool | Default false. Allowlists this SSH profile for the agent-host act surface (typing/spawning); requires the global "Agent access (act)" setting too. |
 
         ## Jump hosts
         `JumpHops` is an array of `{ "Host": string, "User": string, "Port": int (1–65535) }`.
@@ -120,7 +121,8 @@ public static class ConnectionProfileTools
               "ServerAliveCountMax": 3,
               "ExtraSshArgs": "",
               "WorkingDirectory": "",
-              "RemoteShellKind": 0
+              "RemoteShellKind": 0,
+              "AllowAgentAccess": false
             }
           ]
         }
@@ -136,6 +138,7 @@ public static class ConnectionProfileTools
         "User", "Port", "AuthMode", "IdentityFilePath", "RememberPasswordInVault",
         "JumpHops", "Forwards", "MuxOptions", "ServerAliveIntervalSeconds",
         "ServerAliveCountMax", "ExtraSshArgs", "WorkingDirectory", "RemoteShellKind",
+        "AllowAgentAccess",
     };
     internal static readonly string[] JumpHopFields = { "Host", "User", "Port" };
     internal static readonly string[] PortForwardFields =
@@ -285,6 +288,7 @@ public static class ConnectionProfileTools
         }
 
         RequireBoolType(p, path, "RememberPasswordInVault", errors);
+        RequireBoolType(p, path, "AllowAgentAccess", errors);
 
         CheckEnum(p, path, "BackendKind", BackendKindNames, errors);
         CheckEnum(p, path, "AuthMode", AuthModeNames, errors);

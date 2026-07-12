@@ -1,6 +1,7 @@
 using NovaTerminal.Shell;
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using NovaTerminal.Platform;
 using NovaTerminal.VT;
@@ -23,6 +24,45 @@ namespace NovaTerminal.Tests
             session.Resize(100, 30);
             session.SendInput("\r");
             await Task.Delay(150);
+        }
+
+        [Fact]
+        [Trait("Category", "PtySmoke")]
+        public async Task AgentSentInput_IsByteFaithful_AndReplayRecordedLikeKeystrokes()
+        {
+            // A3 acceptance: input an agent injects through the registration is
+            // (a) byte-faithful and (b) recorded to a manual replay exactly like
+            // a human keystroke — the session records it via the same
+            // _recorder.RecordInput path SendInput always uses.
+            string shell = ShellHelper.GetDefaultShell();
+            string recPath = Path.Combine(Path.GetTempPath(), $"nova_a3_{Guid.NewGuid():N}.rec");
+            try
+            {
+                using var session = new RustPtySession(shell, 80, 24);
+                var registration = new NovaTerminal.AgentHost.AgentSessionRegistration(
+                    Guid.NewGuid(), new TerminalBuffer(80, 24), "t", "P", "local", isActive: true);
+                registration.SetLifecycle(session);
+
+                await Task.Delay(300); // let the shell come up
+                session.StartRecording(recPath);
+
+                const string payload = "echo nova-a3-marker\r";
+                Assert.True(registration.TrySendInput(payload));
+
+                await Task.Delay(400);
+                session.StopRecording();
+
+                string[] lines = File.ReadAllLines(recPath);
+                // The recording carries an input event with the exact bytes.
+                string? inputLine = lines.FirstOrDefault(l => l.Contains("\"type\":\"input\""));
+                Assert.NotNull(inputLine);
+                byte[] expected = System.Text.Encoding.UTF8.GetBytes(payload);
+                Assert.Contains(Convert.ToBase64String(expected), inputLine!);
+            }
+            finally
+            {
+                if (File.Exists(recPath)) File.Delete(recPath);
+            }
         }
 
         [Fact]

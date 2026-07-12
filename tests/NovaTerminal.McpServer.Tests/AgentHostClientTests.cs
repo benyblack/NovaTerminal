@@ -386,6 +386,24 @@ public class SessionToolsFormattingTests
     }
 
     [Fact]
+    public async Task SendInput_rejects_a_non_guid_pane_before_any_ipc()
+    {
+        var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
+        var text = await SessionTools.SendInput(client, "not-a-guid", "ls\r", TestContext.Current.CancellationToken);
+        Assert.StartsWith("Error: 'not-a-guid' is not a valid pane id", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SendInput_when_endpoint_unavailable_surfaces_guidance_verbatim()
+    {
+        // No live endpoint (discovery file absent): the acting call must return
+        // the unavailable guidance, not throw.
+        var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
+        var text = await SessionTools.SendInput(client, Guid.NewGuid().ToString(), "ls\r", TestContext.Current.CancellationToken);
+        Assert.Equal(AgentHostClient.UnavailableMessage, text);
+    }
+
+    [Fact]
     public async Task WaitForEvents_rejects_a_negative_cursor_before_any_ipc()
     {
         var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));

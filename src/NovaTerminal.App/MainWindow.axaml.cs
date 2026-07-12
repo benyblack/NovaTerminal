@@ -1953,9 +1953,12 @@ namespace NovaTerminal
 
             // Agent-host observe endpoint (docs/agent-host/DIRECTION.md, A1):
             // strictly no-op unless the user opted in via Settings. The replay
-            // export sub-gate (A4) is pushed alongside so the endpoint checks
-            // the current setting on every exportReplay request.
+            // export sub-gate (A4) and the act gate + SSH allowlist (A3) are
+            // pushed alongside so the endpoint checks the current settings on
+            // every request.
             AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
+            AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
+            AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
             AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
             // Ensure visual tree is ready for initial tab border
@@ -3089,6 +3092,22 @@ namespace NovaTerminal
             finally
             {
                 _closeTabInProgress = false;
+            }
+        }
+
+        // A3 per-profile SSH allowlist probe, handed to the agent-host endpoint.
+        // Reads the SSH profile store (off the UI thread on an IPC call), so it
+        // must not touch Avalonia state — the store is thread-safe. Unknown or
+        // non-SSH profile ids return false (fail closed).
+        private bool IsSshProfileAgentAllowed(Guid profileId)
+        {
+            try
+            {
+                return _sshConnectionService?.GetStoredProfile(profileId)?.AllowAgentAccess == true;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -4890,8 +4909,10 @@ namespace NovaTerminal
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
                 // Live-apply the agent-host observe endpoint (no restart needed),
-                // including the A4 replay-export sub-gate.
+                // including the A4 replay-export sub-gate and the A3 act gate.
                 AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
+                AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
+                AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
                 AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
                 // Refresh Connection Manager if open (or just always update it)
