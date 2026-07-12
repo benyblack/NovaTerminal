@@ -343,6 +343,49 @@ public class SessionToolsFormattingTests
     }
 
     [Fact]
+    public void FormatExport_reports_path_window_and_replay_hint()
+    {
+        var text = SessionTools.FormatExport(new ExportReplayResult
+        {
+            FilePath = @"C:\rec\agent-exports\nova_rec_20260707_120000_abc123.rec",
+            EventCount = 42,
+            FirstEventMs = 10_000,
+            LastEventMs = 25_500,
+            TruncatedAtStart = false,
+        });
+
+        Assert.Contains("nova_rec_20260707_120000_abc123.rec", text, StringComparison.Ordinal);
+        Assert.Contains("42 event(s) covering 15500 ms", text, StringComparison.Ordinal);
+        Assert.Contains("input is never recorded", text, StringComparison.Ordinal);
+        Assert.Contains("--replay", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("truncated", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FormatExport_flags_truncation_and_empty_windows()
+    {
+        var truncated = SessionTools.FormatExport(new ExportReplayResult
+        {
+            FilePath = "/tmp/x.rec", EventCount = 5, FirstEventMs = 0, LastEventMs = 9, TruncatedAtStart = true,
+        });
+        Assert.Contains("suffix of the session", truncated, StringComparison.Ordinal);
+
+        var empty = SessionTools.FormatExport(new ExportReplayResult
+        {
+            FilePath = "/tmp/y.rec", EventCount = 0, FirstEventMs = 0, LastEventMs = 0, TruncatedAtStart = false,
+        });
+        Assert.Contains("no events", empty, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExportReplay_rejects_a_non_guid_pane_before_any_ipc()
+    {
+        var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
+        var text = await SessionTools.ExportReplay(client, "not-a-guid", TestContext.Current.CancellationToken);
+        Assert.StartsWith("Error: 'not-a-guid' is not a valid pane id", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task WaitForEvents_rejects_a_negative_cursor_before_any_ipc()
     {
         var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));

@@ -55,6 +55,12 @@ namespace NovaTerminal.Shell
         // agents cannot read any terminal session. Observe-only in v1 — there is
         // no acting capability behind this flag.
         public bool AgentAccessObserveEnabled { get; set; } = false;
+        // A4 sub-gate on top of the observe toggle: allows agents to export a
+        // session's recent output as a replay file (novaterminal.export_replay).
+        // Exports contain output and resize events only — never typed input
+        // (privacy decision in docs/plans/2026-07-07-agent-host-a4-replay-design.md).
+        // Off by default; both toggles must be on for an export to succeed.
+        public bool AgentReplayExportEnabled { get; set; } = false;
         // In-app toast when a command that ran ≥30s finishes in an unfocused
         // pane (A2 PR4, absorbs ROADMAP §5.2). Off by default.
         public bool LongCommandNotificationsEnabled { get; set; } = false;

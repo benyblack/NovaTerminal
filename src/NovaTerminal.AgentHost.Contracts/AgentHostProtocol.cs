@@ -38,6 +38,17 @@ public static class AgentHostProtocol
     /// <summary>Capacity of the server's event ring; older events are evicted and reported via oldestSeq.</summary>
     public const int EventRingCapacity = 256;
 
+    /// <summary>
+    /// Per-session retention budget for the flight recorder ring behind
+    /// <c>exportReplay</c> (A4): total payload bytes plus a fixed per-event
+    /// overhead of recent raw output/resize events kept in memory while the
+    /// observe endpoint is running.
+    /// </summary>
+    public const long FlightRecorderMaxBytesPerSession = 2 * 1024 * 1024;
+
+    /// <summary>Subfolder of the recordings directory where agent-triggered exports land (A4).</summary>
+    public const string AgentExportsSubdirectory = "agent-exports";
+
     /// <summary>Method names. Observe-only; later milestones append, they never repurpose.</summary>
     public static class Methods
     {
@@ -46,6 +57,14 @@ public static class AgentHostProtocol
         public const string ReadScrollback = "readScrollback";
         public const string GetSessionStatus = "getSessionStatus";
         public const string WaitForEvents = "waitForEvents";
+
+        /// <summary>
+        /// A4: writes a session's flight recording (recent output + resizes,
+        /// never input) to a replay v2 file and returns its path. Additive in
+        /// protocol version 1; requires the replay-export setting on top of
+        /// the observe toggle.
+        /// </summary>
+        public const string ExportReplay = "exportReplay";
     }
 
     /// <summary>Wire values for session status (A2). See the A2 design doc for exact semantics.</summary>
@@ -86,5 +105,19 @@ public static class AgentHostProtocol
         public const string UnknownMethod = "unknownMethod";
         public const string SessionNotFound = "sessionNotFound";
         public const string Internal = "internal";
+
+        /// <summary>
+        /// A4: <c>exportReplay</c> was called but the user has not enabled
+        /// "Agent replay export" in settings (a second default-off gate on top
+        /// of the observe toggle, per the DIRECTION permission table).
+        /// </summary>
+        public const string ExportDisabled = "exportDisabled";
+
+        /// <summary>
+        /// A4: the session exists but no flight recording is available to
+        /// export right now (its PTY session is not yet published, was torn
+        /// down, or the export failed to write).
+        /// </summary>
+        public const string ExportUnavailable = "exportUnavailable";
     }
 }
