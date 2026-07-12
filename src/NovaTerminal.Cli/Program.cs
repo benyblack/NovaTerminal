@@ -15,6 +15,11 @@ internal static class Program
             return VtReportCommand.Execute(args, Console.Out, Console.Error);
         }
 
+        if (ReplayCommand.IsSupportedCliMode(args))
+        {
+            return ReplayCommand.Execute(args, Console.Out, Console.Error);
+        }
+
         Console.Error.WriteLine("Unsupported CLI mode.");
         return 2;
     }

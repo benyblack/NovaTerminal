@@ -179,10 +179,15 @@ Each milestone is independently shippable and announceable. Estimates assume
 ### A4 — Replay for agents (the moat)
 
 **Deliverables**
-- [ ] `novaterminal.export_replay` for a session/time range
-- [ ] CLI: `nova replay <file>` headless render-to-text/PNG for CI and
-      agent-run postmortems
-- [ ] Docs: "Debug what your agent did, frame by frame"
+- [x] `novaterminal.export_replay` for a session/time range (PRs #190–#191:
+      flight-recorder ring bounded by bytes = the retained time range; output +
+      resize only, never input; gated by the default-off `AgentReplayExportEnabled`
+      sub-toggle on top of observe)
+- [x] CLI: `NovaTerminal.Cli --replay <file> [--attributes]` headless
+      render-to-text for CI and agent-run postmortems (PR #192; PNG output and
+      frame-stepping deferred — see the A4 design doc's out-of-scope list)
+- [x] Docs: "Debug what your agent did, frame by frame" (README, agent host
+      program section)
 
 **Acceptance criteria**
 - Exported replays round-trip through the existing replay runner with
