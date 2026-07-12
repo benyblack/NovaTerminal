@@ -167,14 +167,23 @@ Each milestone is independently shippable and announceable. Estimates assume
 ### A3 — Act (permissioned)
 
 **Deliverables**
-- [ ] MCP tools: `novaterminal.send_input`, `novaterminal.spawn_session`
-      (local profile or SSH profile by name), `novaterminal.close_session`
-- [ ] Separate opt-in + per-profile SSH allowlist + UI activity journal
-- [ ] Threat-model doc for the acting surface
+- [x] MCP tools: `novaterminal.send_input` (PR #193), `novaterminal.spawn_session`
+      (local profile or SSH profile by name) + `novaterminal.close_session` (PR #194)
+- [x] Separate opt-in (`AgentAccessActEnabled`, default off) + per-profile SSH
+      allowlist (`SshProfile.AllowAgentAccess`, fail-closed) + UI activity journal
+      (`AgentActivityJournal` + "Agent Activity…" window; every attempt, allowed or
+      denied, is recorded) (PRs #193–#195)
+- [x] Threat-model doc for the acting surface
+      (`docs/agent-host/2026-07-12-acting-threat-model.md`, PR #195)
 
 **Acceptance criteria**
-- Acting tools hard-fail when only observe permission is granted (tested)
-- Input injection is byte-faithful and replay-recorded like any PTY input
+- [x] Acting tools hard-fail when only observe permission is granted (tested:
+      `actDisabled`; SSH also `profileNotAllowed`)
+- [x] Input injection is byte-faithful and replay-recorded like any PTY input
+      (goes through the session's normal `SendInput`; PtySmoke asserts the recorded
+      input event)
+
+**Milestone A3 complete.** Design: `docs/plans/2026-07-12-agent-host-a3-act-design.md`.
 
 ### A4 — Replay for agents (the moat)
 
