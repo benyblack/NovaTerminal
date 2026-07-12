@@ -129,6 +129,7 @@ namespace NovaTerminal.Replay
                     IsOriginMode = buffer.Modes.IsOriginMode,
                     IsBracketedPasteMode = buffer.Modes.IsBracketedPasteMode,
                     IsCursorVisible = buffer.Modes.IsCursorVisible,
+                    IsPendingWrap = buffer.IsPendingWrap,
 
                     CurrentForeground = buffer.CurrentForeground.ToUint(),
                     CurrentBackground = buffer.CurrentBackground.ToUint(),
