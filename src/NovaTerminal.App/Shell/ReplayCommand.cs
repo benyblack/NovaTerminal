@@ -60,11 +60,21 @@ internal static class ReplayCommand
             result = runner.RunWithResultAsync(
                 onDataCallback: data =>
                 {
-                    char[] chars = new char[Encoding.UTF8.GetMaxCharCount(data.Length)];
-                    int charCount = decoder.GetChars(data, 0, data.Length, chars, 0);
-                    if (charCount > 0)
+                    // Pooled decode buffer: one rent/return per chunk instead of a
+                    // fresh array — large replays would otherwise churn the GC.
+                    int maxCharCount = Encoding.UTF8.GetMaxCharCount(data.Length);
+                    char[] chars = System.Buffers.ArrayPool<char>.Shared.Rent(maxCharCount);
+                    try
                     {
-                        parser.Process(new string(chars, 0, charCount));
+                        int charCount = decoder.GetChars(data, 0, data.Length, chars, 0);
+                        if (charCount > 0)
+                        {
+                            parser.Process(new string(chars, 0, charCount));
+                        }
+                    }
+                    finally
+                    {
+                        System.Buffers.ArrayPool<char>.Shared.Return(chars);
                     }
                     return System.Threading.Tasks.Task.CompletedTask;
                 },
