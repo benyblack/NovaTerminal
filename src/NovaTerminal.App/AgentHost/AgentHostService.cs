@@ -112,6 +112,14 @@ namespace NovaTerminal.AgentHost
         /// <summary>Publishes (or clears) the per-profile SSH allowlist probe. UI thread.</summary>
         public void SetSshProfileAllowlist(Func<Guid, bool>? probe) => _sshProfileAllowlist = probe;
 
+        // UI-thread bridge for spawn/close (A3 PR2), published by MainWindow.
+        // Closes over the window, so it is cleared on Stop like the allowlist
+        // probe. Volatile: published from UI, read on IPC.
+        private volatile IAgentActionExecutor? _actionExecutor;
+
+        /// <summary>Publishes (or clears) the spawn/close UI executor. UI thread.</summary>
+        public void SetActionExecutor(IAgentActionExecutor? executor) => _actionExecutor = executor;
+
         private bool AllowsAgentActOnProfile(Guid profileId)
         {
             var probe = _sshProfileAllowlist;
@@ -251,6 +259,7 @@ namespace NovaTerminal.AgentHost
             // each Apply, so clearing here is safe. Bool gates are value types and
             // do not leak, so they are left as-is.
             _sshProfileAllowlist = null;
+            _actionExecutor = null; // closes over the window too — same pinning reason
         }
 
         /// <summary>
@@ -634,6 +643,8 @@ namespace NovaTerminal.AgentHost
                     AgentHostProtocol.Methods.WaitForEvents => await HandleWaitForEventsAsync(request, cancellationToken).ConfigureAwait(false),
                     AgentHostProtocol.Methods.ExportReplay => HandleExportReplay(request),
                     AgentHostProtocol.Methods.SendInput => HandleSendInput(request),
+                    AgentHostProtocol.Methods.SpawnSession => await HandleSpawnSessionAsync(request).ConfigureAwait(false),
+                    AgentHostProtocol.Methods.CloseSession => await HandleCloseSessionAsync(request).ConfigureAwait(false),
                     _ => Error(request.Id, AgentHostProtocol.ErrorCodes.UnknownMethod, $"Unknown method '{request.Method}'."),
                 };
             }
@@ -805,6 +816,114 @@ namespace NovaTerminal.AgentHost
             var result = new SendInputResult { BytesSent = byteCount };
             return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, registration.ProfileName,
                 Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.SendInputResult)));
+        }
+
+        private async Task<AgentHostResponse> HandleSpawnSessionAsync(AgentHostRequest request)
+        {
+            SpawnSessionParams? p;
+            try
+            {
+                p = DeserializeParams(request, AgentHostJsonContext.Default.SpawnSessionParams);
+            }
+            catch (JsonException)
+            {
+                p = null;
+            }
+            // Missing/empty profile = default local profile, so params may be null;
+            // only a present-but-unparseable params object is malformed.
+            p ??= new SpawnSessionParams();
+            string target = string.IsNullOrWhiteSpace(p.Profile) ? "(default)" : p.Profile!;
+
+            if (!_actEnabled)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.SpawnSession, null, target,
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.ActDisabled,
+                        "Acting is disabled. Enable Settings → Agent access (observe) → Agent access (act), then retry."));
+            }
+
+            var executor = _actionExecutor;
+            if (executor == null)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.SpawnSession, null, target,
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.ActUnavailable,
+                        "The app cannot spawn sessions right now (starting up or shutting down). Retry shortly."));
+            }
+
+            (AgentSpawnResult? result, AgentSpawnError? error) = await executor.SpawnAsync(p.Profile).ConfigureAwait(false);
+            if (result is not { } spawn)
+            {
+                var (code, message) = error switch
+                {
+                    AgentSpawnError.ProfileNotFound => (AgentHostProtocol.ErrorCodes.ProfileNotFound, $"No local or SSH profile named '{target}'."),
+                    AgentSpawnError.ProfileNotAllowed => (AgentHostProtocol.ErrorCodes.ProfileNotAllowed, $"The SSH profile '{target}' is not allowlisted for agent access."),
+                    _ => (AgentHostProtocol.ErrorCodes.SpawnFailed, $"Failed to open a session for '{target}'."),
+                };
+                return Journaled(request, AgentHostProtocol.Methods.SpawnSession, null, target,
+                    Error(request.Id, code, message));
+            }
+
+            var dto = new SpawnSessionResult
+            {
+                PaneId = spawn.PaneId,
+                TabId = spawn.TabId,
+                ProfileName = spawn.ProfileName,
+                Kind = spawn.Kind,
+            };
+            return Journaled(request, AgentHostProtocol.Methods.SpawnSession, spawn.PaneId, spawn.ProfileName,
+                Ok(request.Id, JsonSerializer.SerializeToElement(dto, AgentHostJsonContext.Default.SpawnSessionResult)));
+        }
+
+        private async Task<AgentHostResponse> HandleCloseSessionAsync(AgentHostRequest request)
+        {
+            CloseSessionParams? p;
+            try
+            {
+                p = DeserializeParams(request, AgentHostJsonContext.Default.CloseSessionParams);
+            }
+            catch (JsonException)
+            {
+                p = null;
+            }
+            if (p == null)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.CloseSession, null, "session",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "closeSession requires params with a paneId."));
+            }
+
+            if (!_actEnabled)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.CloseSession, p.PaneId, "session",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.ActDisabled,
+                        "Acting is disabled. Enable Settings → Agent access (observe) → Agent access (act), then retry."));
+            }
+
+            // Close is deliberately not SSH-allowlist-gated: it ends a session the
+            // user can see disappear and is journaled; it cannot exfiltrate or run
+            // anything. It still requires a live registration, so unknown panes 404.
+            if (!_registry.TryGet(p.PaneId, out _))
+            {
+                return Journaled(request, AgentHostProtocol.Methods.CloseSession, p.PaneId, "session",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'."));
+            }
+
+            var executor = _actionExecutor;
+            if (executor == null)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.CloseSession, p.PaneId, "session",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.ActUnavailable,
+                        "The app cannot close sessions right now (starting up or shutting down). Retry shortly."));
+            }
+
+            bool closed = await executor.ClosePaneAsync(p.PaneId).ConfigureAwait(false);
+            if (!closed)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.CloseSession, p.PaneId, "session",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live pane with paneId '{p.PaneId}' to close."));
+            }
+
+            var dto = new CloseSessionResult { Closed = true };
+            return Journaled(request, AgentHostProtocol.Methods.CloseSession, p.PaneId, "session",
+                Ok(request.Id, JsonSerializer.SerializeToElement(dto, AgentHostJsonContext.Default.CloseSessionResult)));
         }
 
         /// <summary>

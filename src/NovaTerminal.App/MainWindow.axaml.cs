@@ -37,7 +37,7 @@ using NovaTerminal.Pty;
 
 namespace NovaTerminal
 {
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, AgentHost.IAgentActionExecutor
     {
         internal readonly record struct ShellOpenRequest(string FileName, string? Arguments);
         private const string SplitterHoverClass = "splitter-hover";
@@ -1959,6 +1959,7 @@ namespace NovaTerminal
             AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
             AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
             AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
+            AgentHost.AgentHostService.Instance.SetActionExecutor(this);
             AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
             // Ensure visual tree is ready for initial tab border
@@ -3111,6 +3112,106 @@ namespace NovaTerminal
             }
         }
 
+        // ── A3 agent act executor (spawn/close) ──────────────────────────────
+        // Implemented on MainWindow because spawning/closing is inherently UI-thread
+        // tab work. Published to the agent-host endpoint via SetActionExecutor; the
+        // endpoint calls these from its IPC thread, so every body marshals to the UI
+        // thread. Gating (act toggle) is enforced by the endpoint before we get here;
+        // the SSH allowlist is enforced here since we own profile resolution.
+
+        async Task<(AgentHost.AgentSpawnResult? Result, AgentHost.AgentSpawnError? Error)> AgentHost.IAgentActionExecutor.SpawnAsync(string? profileName)
+        {
+            return await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                TerminalProfile? profile;
+                bool isSsh;
+
+                if (string.IsNullOrWhiteSpace(profileName))
+                {
+                    profile = _settings.Profiles.Find(p => p.Id == _settings.DefaultProfileId)
+                              ?? (_settings.Profiles.Count > 0 ? _settings.Profiles[0] : null);
+                    isSsh = false;
+                }
+                else
+                {
+                    // Local settings profiles resolve before SSH store profiles on
+                    // a name collision (documented in the A3 design).
+                    profile = _settings.Profiles.Find(
+                        p => p.Type == ConnectionType.Local &&
+                             string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
+                    isSsh = false;
+
+                    if (profile == null)
+                    {
+                        TerminalProfile? sshProfile = _sshConnectionService.GetConnectionProfiles()
+                            .FirstOrDefault(p => string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
+                        if (sshProfile != null)
+                        {
+                            // SSH targets must be allowlisted per profile.
+                            if (!IsSshProfileAgentAllowed(sshProfile.Id))
+                            {
+                                return ((AgentHost.AgentSpawnResult?)null, (AgentHost.AgentSpawnError?)AgentHost.AgentSpawnError.ProfileNotAllowed);
+                            }
+                            profile = sshProfile;
+                            isSsh = true;
+                        }
+                    }
+                }
+
+                if (profile == null)
+                {
+                    return (null, AgentHost.AgentSpawnError.ProfileNotFound);
+                }
+
+                try
+                {
+                    AddTab(profile);
+                    var pane = _currentPane;
+                    if (pane == null)
+                    {
+                        return (null, AgentHost.AgentSpawnError.SpawnFailed);
+                    }
+
+                    Guid? tabId = _paneOwnerTab.TryGetValue(pane, out var tab)
+                        ? GetPersistentTabId(tab)
+                        : (Guid?)null;
+                    string kind = isSsh || profile.Type == ConnectionType.SSH ? "ssh" : "local";
+                    var result = new AgentHost.AgentSpawnResult(pane.PaneId, tabId, profile.Name, kind);
+                    return ((AgentHost.AgentSpawnResult?)result, (AgentHost.AgentSpawnError?)null);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainWindow] Agent spawn failed: {ex.Message}");
+                    return (null, AgentHost.AgentSpawnError.SpawnFailed);
+                }
+            });
+        }
+
+        async Task<bool> AgentHost.IAgentActionExecutor.ClosePaneAsync(Guid paneId)
+        {
+            return await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                TerminalPane? target = _paneOwnerTab.Keys.FirstOrDefault(p => p.PaneId == paneId);
+                if (target == null)
+                {
+                    return false;
+                }
+
+                // Make the target the active pane of its (selected) tab, then reuse
+                // the split-aware close path with the confirm dialog bypassed.
+                if (_paneOwnerTab.TryGetValue(target, out var tab))
+                {
+                    var tabs = this.FindControl<TabControl>("Tabs");
+                    if (tabs != null) tabs.SelectedItem = tab;
+                    _activePaneByTab[tab] = target;
+                }
+                _currentPane = target;
+
+                await CloseActivePaneAsync(skipConfirm: true);
+                return true;
+            });
+        }
+
         private void CloseTab(TabItem ti)
         {
             if (_paneZoomStateByTab.ContainsKey(ti))
@@ -3154,7 +3255,7 @@ namespace NovaTerminal
             _ = CloseActivePaneAsync();
         }
 
-        private async Task CloseActivePaneAsync()
+        private async Task CloseActivePaneAsync(bool skipConfirm = false)
         {
             if (_closePaneInProgress || _currentPane == null) return;
             _closePaneInProgress = true;
@@ -3169,7 +3270,10 @@ namespace NovaTerminal
                     paneToClose = _currentPane;
                     if (paneToClose == null) return;
                 }
-                if (!await ShouldClosePaneAsync(paneToClose))
+                // Agent-initiated close bypasses the confirmation dialog: an agent
+                // can't answer a modal, and the act opt-in + journal entry are the
+                // consent surface (A3 threat model).
+                if (!skipConfirm && !await ShouldClosePaneAsync(paneToClose))
                 {
                     FocusPaneTerminal(paneToClose, defer: true);
                     return;
@@ -4913,6 +5017,7 @@ namespace NovaTerminal
                 AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
                 AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
                 AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
+                AgentHost.AgentHostService.Instance.SetActionExecutor(this);
                 AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
                 // Refresh Connection Manager if open (or just always update it)

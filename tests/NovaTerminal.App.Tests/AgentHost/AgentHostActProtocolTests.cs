@@ -278,6 +278,179 @@ public class AgentHostActProtocolTests
         Assert.Equal("ls\r", Assert.Single(session.Inputs));
     }
 
+    // ── spawnSession / closeSession ──────────────────────────────────────────
+
+    private sealed class StubExecutor : IAgentActionExecutor
+    {
+        public Func<string?, (AgentSpawnResult?, AgentSpawnError?)>? OnSpawn;
+        public Func<Guid, bool>? OnClose;
+        public string? LastSpawnProfile;
+        public Guid? LastClosePane;
+
+        public Task<(AgentSpawnResult? Result, AgentSpawnError? Error)> SpawnAsync(string? profileName)
+        {
+            LastSpawnProfile = profileName;
+            var r = OnSpawn?.Invoke(profileName) ?? (null, AgentSpawnError.SpawnFailed);
+            return Task.FromResult(r);
+        }
+
+        public Task<bool> ClosePaneAsync(Guid paneId)
+        {
+            LastClosePane = paneId;
+            return Task.FromResult(OnClose?.Invoke(paneId) ?? false);
+        }
+    }
+
+    private static string SpawnLine(string? profile, long id = 1)
+    {
+        var json = JsonSerializer.Serialize(
+            new SpawnSessionParams { Profile = profile }, AgentHostJsonContext.Default.SpawnSessionParams);
+        return $"{{\"v\":{AgentHostProtocol.Version},\"id\":{id},\"method\":\"{AgentHostProtocol.Methods.SpawnSession}\",\"params\":{json}}}";
+    }
+
+    private static string CloseLine(Guid paneId, long id = 1)
+    {
+        var json = JsonSerializer.Serialize(
+            new CloseSessionParams { PaneId = paneId }, AgentHostJsonContext.Default.CloseSessionParams);
+        return $"{{\"v\":{AgentHostProtocol.Version},\"id\":{id},\"method\":\"{AgentHostProtocol.Methods.CloseSession}\",\"params\":{json}}}";
+    }
+
+    [Fact]
+    public void SpawnSession_is_actDisabled_when_only_observe_is_enabled()
+    {
+        var journal = new AgentActivityJournal();
+        using var service = NewService(new AgentSessionRegistry(), journal);
+        service.SetActionExecutor(new StubExecutor());
+        // act disabled
+
+        var response = Handle(service, SpawnLine("Bash"));
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.ActDisabled, response.Error?.Code);
+        Assert.Equal(AgentHostProtocol.ErrorCodes.ActDisabled, Assert.Single(journal.Snapshot()).Outcome);
+    }
+
+    [Fact]
+    public void SpawnSession_without_executor_is_actUnavailable()
+    {
+        using var service = NewService(new AgentSessionRegistry(), new AgentActivityJournal());
+        service.ActEnabled = true;
+        // no executor published
+
+        var response = Handle(service, SpawnLine("Bash"));
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.ActUnavailable, response.Error?.Code);
+    }
+
+    [Fact]
+    public void SpawnSession_maps_executor_errors_to_stable_codes()
+    {
+        using var service = NewService(new AgentSessionRegistry(), new AgentActivityJournal());
+        service.ActEnabled = true;
+
+        var notFound = new StubExecutor { OnSpawn = _ => (null, AgentSpawnError.ProfileNotFound) };
+        service.SetActionExecutor(notFound);
+        Assert.Equal(AgentHostProtocol.ErrorCodes.ProfileNotFound, Handle(service, SpawnLine("nope")).Error?.Code);
+
+        var notAllowed = new StubExecutor { OnSpawn = _ => (null, AgentSpawnError.ProfileNotAllowed) };
+        service.SetActionExecutor(notAllowed);
+        Assert.Equal(AgentHostProtocol.ErrorCodes.ProfileNotAllowed, Handle(service, SpawnLine("prod-ssh")).Error?.Code);
+    }
+
+    [Fact]
+    public void SpawnSession_success_returns_pane_identity_and_journals()
+    {
+        using var service = NewService(new AgentSessionRegistry(), new AgentActivityJournal());
+        service.ActEnabled = true;
+        var paneId = Guid.NewGuid();
+        var tabId = Guid.NewGuid();
+        var exec = new StubExecutor { OnSpawn = _ => (new AgentSpawnResult(paneId, tabId, "Bash", "local"), null) };
+        service.SetActionExecutor(exec);
+
+        var response = Handle(service, SpawnLine(null));
+
+        Assert.Null(response.Error);
+        var result = response.Result!.Value.Deserialize(AgentHostJsonContext.Default.SpawnSessionResult);
+        Assert.Equal(paneId, result!.PaneId);
+        Assert.Equal(tabId, result.TabId);
+        Assert.Equal("Bash", result.ProfileName);
+        Assert.Equal("local", result.Kind);
+        Assert.Null(exec.LastSpawnProfile); // null profile passed through as default
+    }
+
+    [Fact]
+    public void CloseSession_is_actDisabled_when_only_observe_is_enabled()
+    {
+        var registry = new AgentSessionRegistry();
+        var reg = Register(registry, "local", new InputStubSession());
+        var journal = new AgentActivityJournal();
+        using var service = NewService(registry, journal);
+        service.SetActionExecutor(new StubExecutor());
+
+        var response = Handle(service, CloseLine(reg.PaneId));
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.ActDisabled, response.Error?.Code);
+    }
+
+    [Fact]
+    public void CloseSession_for_unknown_pane_is_sessionNotFound()
+    {
+        using var service = NewService(new AgentSessionRegistry(), new AgentActivityJournal());
+        service.ActEnabled = true;
+        service.SetActionExecutor(new StubExecutor { OnClose = _ => true });
+
+        var response = Handle(service, CloseLine(Guid.NewGuid()));
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.SessionNotFound, response.Error?.Code);
+    }
+
+    [Fact]
+    public void CloseSession_closes_a_live_registered_pane_and_journals()
+    {
+        var registry = new AgentSessionRegistry();
+        var reg = Register(registry, "local", new InputStubSession());
+        var journal = new AgentActivityJournal();
+        using var service = NewService(registry, journal);
+        service.ActEnabled = true;
+        var exec = new StubExecutor { OnClose = _ => true };
+        service.SetActionExecutor(exec);
+
+        var response = Handle(service, CloseLine(reg.PaneId));
+
+        Assert.Null(response.Error);
+        var result = response.Result!.Value.Deserialize(AgentHostJsonContext.Default.CloseSessionResult);
+        Assert.True(result!.Closed);
+        Assert.Equal(reg.PaneId, exec.LastClosePane);
+        Assert.Equal("ok", Assert.Single(journal.Snapshot()).Outcome);
+    }
+
+    [Fact]
+    public void CloseSession_when_executor_reports_no_pane_is_sessionNotFound()
+    {
+        var registry = new AgentSessionRegistry();
+        var reg = Register(registry, "local", new InputStubSession());
+        using var service = NewService(registry, new AgentActivityJournal());
+        service.ActEnabled = true;
+        service.SetActionExecutor(new StubExecutor { OnClose = _ => false }); // registry knows it, UI raced it away
+
+        var response = Handle(service, CloseLine(reg.PaneId));
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.SessionNotFound, response.Error?.Code);
+    }
+
+    [Fact]
+    public void Stop_clears_the_action_executor()
+    {
+        var registry = new AgentSessionRegistry();
+        var reg = Register(registry, "local", new InputStubSession());
+        using var service = NewService(registry, new AgentActivityJournal());
+        service.ActEnabled = true;
+        service.SetActionExecutor(new StubExecutor { OnClose = _ => true });
+
+        service.Stop(); // window closing → executor released (no window pinning)
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.ActUnavailable, Handle(service, CloseLine(reg.PaneId)).Error?.Code);
+    }
+
     // ── Journal ──────────────────────────────────────────────────────────────
 
     [Fact]
