@@ -286,9 +286,11 @@ public class AgentHostActProtocolTests
         public Func<Guid, bool>? OnClose;
         public string? LastSpawnProfile;
         public Guid? LastClosePane;
+        public int SpawnCalls;
 
         public Task<(AgentSpawnResult? Result, AgentSpawnError? Error)> SpawnAsync(string? profileName)
         {
+            SpawnCalls++;
             LastSpawnProfile = profileName;
             var r = OnSpawn?.Invoke(profileName) ?? (null, AgentSpawnError.SpawnFailed);
             return Task.FromResult(r);
@@ -354,6 +356,22 @@ public class AgentHostActProtocolTests
         var notAllowed = new StubExecutor { OnSpawn = _ => (null, AgentSpawnError.ProfileNotAllowed) };
         service.SetActionExecutor(notAllowed);
         Assert.Equal(AgentHostProtocol.ErrorCodes.ProfileNotAllowed, Handle(service, SpawnLine("prod-ssh")).Error?.Code);
+    }
+
+    [Fact]
+    public void SpawnSession_with_malformed_params_is_malformedRequest_not_a_default_spawn()
+    {
+        using var service = NewService(new AgentSessionRegistry(), new AgentActivityJournal());
+        service.ActEnabled = true;
+        var exec = new StubExecutor { OnSpawn = _ => (new AgentSpawnResult(Guid.NewGuid(), null, "Bash", "local"), null) };
+        service.SetActionExecutor(exec);
+
+        // "profile" present but the wrong JSON type → deserialization throws.
+        var line = $"{{\"v\":{AgentHostProtocol.Version},\"id\":1,\"method\":\"{AgentHostProtocol.Methods.SpawnSession}\",\"params\":{{\"profile\":123}}}}";
+        var response = Handle(service, line);
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, response.Error?.Code);
+        Assert.Equal(0, exec.SpawnCalls); // executor never invoked — no default spawn side effect
     }
 
     [Fact]

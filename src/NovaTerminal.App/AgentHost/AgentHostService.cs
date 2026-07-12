@@ -823,15 +823,17 @@ namespace NovaTerminal.AgentHost
             SpawnSessionParams? p;
             try
             {
-                p = DeserializeParams(request, AgentHostJsonContext.Default.SpawnSessionParams);
+                // Missing params entirely (null) is legitimate — it means "default
+                // local profile". A *present but unparseable* params object is
+                // malformed and must NOT silently fall back to a default spawn
+                // (that would turn bad input into an acting side effect).
+                p = DeserializeParams(request, AgentHostJsonContext.Default.SpawnSessionParams) ?? new SpawnSessionParams();
             }
             catch (JsonException)
             {
-                p = null;
+                return Journaled(request, AgentHostProtocol.Methods.SpawnSession, null, "(malformed)",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "The spawnSession parameters are malformed."));
             }
-            // Missing/empty profile = default local profile, so params may be null;
-            // only a present-but-unparseable params object is malformed.
-            p ??= new SpawnSessionParams();
             string target = string.IsNullOrWhiteSpace(p.Profile) ? "(default)" : p.Profile!;
 
             if (!_actEnabled)

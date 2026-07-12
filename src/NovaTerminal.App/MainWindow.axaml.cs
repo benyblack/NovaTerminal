@@ -3207,8 +3207,11 @@ namespace NovaTerminal
                 }
                 _currentPane = target;
 
+                // CloseActivePaneAsync can no-op if a close is already in flight
+                // (_closePaneInProgress); report the real outcome by checking the
+                // pane is actually gone, so closeSession never claims a false success.
                 await CloseActivePaneAsync(skipConfirm: true);
-                return true;
+                return !_paneOwnerTab.ContainsKey(target);
             });
         }
 
