@@ -73,6 +73,12 @@ public static class AgentHostProtocol
         /// plus per-profile allowlisting for SSH sessions.
         /// </summary>
         public const string SendInput = "sendInput";
+
+        /// <summary>A3: opens a new tab running a local or allowlisted-SSH profile by name. Returns the new paneId.</summary>
+        public const string SpawnSession = "spawnSession";
+
+        /// <summary>A3: closes a live pane by id.</summary>
+        public const string CloseSession = "closeSession";
     }
 
     /// <summary>Server-side cap on a single <c>sendInput</c> payload, in bytes (A3).</summary>

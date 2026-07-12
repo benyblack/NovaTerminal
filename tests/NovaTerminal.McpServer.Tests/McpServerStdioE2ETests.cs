@@ -43,6 +43,8 @@ public class McpServerStdioE2ETests
         "novaterminal.wait_for_events",
         "novaterminal.export_replay",
         "novaterminal.send_input",
+        "novaterminal.spawn_session",
+        "novaterminal.close_session",
     };
 
     [Fact]

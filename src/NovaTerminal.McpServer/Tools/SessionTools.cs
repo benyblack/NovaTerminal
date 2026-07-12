@@ -190,6 +190,47 @@ public static class SessionTools
             : AgentHostClient.ProtocolErrorMessage;
     }
 
+    [McpServerTool(Name = "novaterminal.spawn_session"),
+     Description("Opens a new terminal tab in the running NovaTerminal app and returns its paneId (use that id with the other session tools). 'profile' is a profile NAME (case-insensitive); omit it for the default local profile. Local profiles resolve before SSH profiles on a name clash. This is an ACTING tool requiring 'Agent access (observe)' + 'Agent access (act)'; spawning an SSH profile additionally requires that profile to be allowlisted. Every call is shown in the agent activity journal.")]
+    public static async Task<string> SpawnSession(
+        AgentHostClient client,
+        [Description("Profile name to open. Omit or leave empty for the default local profile.")] string? profile = null,
+        CancellationToken cancellationToken = default)
+    {
+        var parameters = JsonSerializer.SerializeToElement(
+            new SpawnSessionParams { Profile = profile },
+            AgentHostJsonContext.Default.SpawnSessionParams);
+        var outcome = await client.CallAsync(AgentHostProtocol.Methods.SpawnSession, parameters, cancellationToken).ConfigureAwait(false);
+        if (!TryUnwrap(outcome, out var result, out var error)) return error;
+
+        return TryDeserializeResult(result, AgentHostJsonContext.Default.SpawnSessionResult, out var dto)
+            ? $"Opened {dto!.Kind} session '{dto.ProfileName}' — paneId {dto.PaneId}{(dto.TabId is { } t ? $" (tab {t})" : "")}."
+            : AgentHostClient.ProtocolErrorMessage;
+    }
+
+    [McpServerTool(Name = "novaterminal.close_session"),
+     Description("Closes a live terminal session (pane) in the running NovaTerminal app. This is an ACTING tool requiring 'Agent access (observe)' + 'Agent access (act)'. The close is not blocked by a confirmation dialog, so use it deliberately; it is recorded in the agent activity journal. Get paneId from novaterminal.list_sessions.")]
+    public static async Task<string> CloseSession(
+        AgentHostClient client,
+        [Description("The pane id (GUID) from novaterminal.list_sessions.")] string paneId,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(paneId, out var pane))
+        {
+            return $"Error: '{paneId}' is not a valid pane id (GUID). Use novaterminal.list_sessions to find live pane ids.";
+        }
+
+        var parameters = JsonSerializer.SerializeToElement(
+            new CloseSessionParams { PaneId = pane },
+            AgentHostJsonContext.Default.CloseSessionParams);
+        var outcome = await client.CallAsync(AgentHostProtocol.Methods.CloseSession, parameters, cancellationToken).ConfigureAwait(false);
+        if (!TryUnwrap(outcome, out var result, out var error)) return error;
+
+        return TryDeserializeResult(result, AgentHostJsonContext.Default.CloseSessionResult, out var dto) && dto!.Closed
+            ? $"Closed session {pane}."
+            : AgentHostClient.ProtocolErrorMessage;
+    }
+
     // ── Shared plumbing ─────────────────────────────────────────────────────
 
     /// <summary>

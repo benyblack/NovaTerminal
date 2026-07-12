@@ -25,3 +25,46 @@ public sealed record SendInputResult
     [JsonPropertyName("bytesSent")]
     public required int BytesSent { get; init; }
 }
+
+/// <summary>Params for <c>spawnSession</c> (A3).</summary>
+public sealed record SpawnSessionParams
+{
+    /// <summary>
+    /// Profile name to open (case-insensitive; local settings profiles resolve
+    /// before SSH store profiles on a collision). Null or empty opens the
+    /// default local profile.
+    /// </summary>
+    [JsonPropertyName("profile")]
+    public string? Profile { get; init; }
+}
+
+/// <summary>Result payload for <c>spawnSession</c>: identity of the newly opened pane.</summary>
+public sealed record SpawnSessionResult
+{
+    [JsonPropertyName("paneId")]
+    public required Guid PaneId { get; init; }
+
+    [JsonPropertyName("tabId")]
+    public Guid? TabId { get; init; }
+
+    [JsonPropertyName("profileName")]
+    public required string ProfileName { get; init; }
+
+    /// <summary>"local" or "ssh".</summary>
+    [JsonPropertyName("kind")]
+    public required string Kind { get; init; }
+}
+
+/// <summary>Params for <c>closeSession</c> (A3).</summary>
+public sealed record CloseSessionParams
+{
+    [JsonPropertyName("paneId")]
+    public required Guid PaneId { get; init; }
+}
+
+/// <summary>Result payload for <c>closeSession</c>.</summary>
+public sealed record CloseSessionResult
+{
+    [JsonPropertyName("closed")]
+    public required bool Closed { get; init; }
+}
