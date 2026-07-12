@@ -734,10 +734,22 @@ namespace NovaTerminal.AgentHost
 
         private AgentHostResponse HandleSendInput(AgentHostRequest request)
         {
-            var p = DeserializeParams(request, AgentHostJsonContext.Default.SendInputParams);
+            SendInputParams? p;
+            try
+            {
+                p = DeserializeParams(request, AgentHostJsonContext.Default.SendInputParams);
+            }
+            catch (JsonException)
+            {
+                // Missing required fields / bad shapes throw here rather than
+                // returning null. Journal it: a malformed acting attempt is still
+                // an externally reachable acting attempt the user should see.
+                p = null;
+            }
             if (p == null || p.Text == null)
             {
-                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "sendInput requires params with a paneId and text.");
+                return Journaled(request, AgentHostProtocol.Methods.SendInput, p?.PaneId, "input",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "sendInput requires params with a paneId and text."));
             }
 
             // Size cap before any lookup so a flood is rejected cheaply.

@@ -211,15 +211,52 @@ public class AgentHostActProtocolTests
     }
 
     [Fact]
-    public void SendInput_without_params_is_malformedRequest()
+    public void SendInput_without_params_is_malformedRequest_and_is_journaled()
     {
-        using var service = NewService(new AgentSessionRegistry(), new AgentActivityJournal());
+        var journal = new AgentActivityJournal();
+        using var service = NewService(new AgentSessionRegistry(), journal);
         service.ActEnabled = true;
 
         var line = $"{{\"v\":{AgentHostProtocol.Version},\"id\":1,\"method\":\"{AgentHostProtocol.Methods.SendInput}\",\"params\":null}}";
         var response = Handle(service, line);
 
         Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, response.Error?.Code);
+        // Malformed acting attempts are externally reachable — they must be visible.
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, Assert.Single(journal.Snapshot()).Outcome);
+    }
+
+    [Fact]
+    public void SendInput_with_missing_required_field_is_malformedRequest_and_is_journaled()
+    {
+        var journal = new AgentActivityJournal();
+        using var service = NewService(new AgentSessionRegistry(), journal);
+        service.ActEnabled = true;
+
+        // params present but missing the required "text" field → deserialization throws.
+        var line = $"{{\"v\":{AgentHostProtocol.Version},\"id\":1,\"method\":\"{AgentHostProtocol.Methods.SendInput}\",\"params\":{{\"paneId\":\"{Guid.NewGuid()}\"}}}}";
+        var response = Handle(service, line);
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, response.Error?.Code);
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, Assert.Single(journal.Snapshot()).Outcome);
+    }
+
+    [Fact]
+    public void SendInput_succeeds_even_if_a_journal_subscriber_throws()
+    {
+        // A throwing UI subscriber must not reverse a delivered sendInput —
+        // otherwise a retry double-submits the input.
+        var registry = new AgentSessionRegistry();
+        var session = new InputStubSession();
+        var reg = Register(registry, "local", session);
+        var journal = new AgentActivityJournal();
+        journal.EntryAdded += _ => throw new InvalidOperationException("boom");
+        using var service = NewService(registry, journal);
+        service.ActEnabled = true;
+
+        var response = Handle(service, SendInputLine(reg.PaneId, "ls\r"));
+
+        Assert.Null(response.Error);
+        Assert.Equal("ls\r", Assert.Single(session.Inputs));
     }
 
     // ── Journal ──────────────────────────────────────────────────────────────

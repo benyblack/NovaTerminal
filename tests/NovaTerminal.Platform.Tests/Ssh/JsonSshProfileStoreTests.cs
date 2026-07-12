@@ -152,6 +152,39 @@ public sealed class JsonSshProfileStoreTests
     }
 
     [Fact]
+    public void SaveAndLoad_RoundTripsAllowAgentAccess()
+    {
+        // Regression: the A3 agent-act allowlist flag must survive the store's
+        // clone path (GetProfile clones), or SSH sendInput is always denied.
+        string tempRoot = CreateTempDirectory();
+        try
+        {
+            string storePath = Path.Combine(tempRoot, "profiles.json");
+            var store = new JsonSshProfileStore(storePath);
+            var profile = new SshProfile
+            {
+                Id = Guid.Parse("b1c2d3e4-f5a6-4708-9192-a3b4c5d6e7f8"),
+                Name = "allowed",
+                Host = "allowed.internal",
+                AllowAgentAccess = true
+            };
+
+            store.SaveProfile(profile);
+
+            // Fresh store instance forces a load from disk, not a cached object.
+            var reopened = new JsonSshProfileStore(storePath);
+            SshProfile? loaded = reopened.GetProfile(profile.Id);
+
+            Assert.NotNull(loaded);
+            Assert.True(loaded!.AllowAgentAccess);
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public void SaveAndLoad_RoundTripsRemoteShellKind()
     {
         string tempRoot = CreateTempDirectory();

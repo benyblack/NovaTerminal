@@ -73,7 +73,18 @@ namespace NovaTerminal.AgentHost
                 }
             }
 
-            EntryAdded?.Invoke(entry);
+            // Isolate subscriber faults: Record runs on the acting path *after*
+            // input has already been delivered, so a throwing UI subscriber must
+            // not propagate out and turn a successful sendInput into an error the
+            // caller would retry (double-submitting the input).
+            try
+            {
+                EntryAdded?.Invoke(entry);
+            }
+            catch
+            {
+                // best effort — the journal is a visibility surface, not critical path
+            }
             return entry;
         }
 
