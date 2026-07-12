@@ -221,6 +221,63 @@ namespace NovaTerminal.Tests.ReplayTests
         }
 
         [Fact]
+        public async Task ReplayV2_Snapshot_RoundTrip_PreservesPendingWrap()
+        {
+            // A snapshot taken right after output fills the last column carries
+            // deferred-autowrap state ("pw"). Replaying snapshot + next chunk must
+            // produce the same screen as feeding the bytes directly: the next
+            // character wraps to the following row instead of overwriting col N-1.
+            string tempFile = Path.GetTempFileName();
+            try
+            {
+                var liveBuffer = new TerminalBuffer(5, 3);
+                var liveParser = new AnsiParser(liveBuffer);
+                liveParser.Process("12345"); // fills row 0 → pending wrap
+                Assert.True(liveBuffer.IsPendingWrap);
+
+                using (var recorder = new PtyRecorder(tempFile, 5, 3))
+                {
+                    recorder.RecordSnapshot(liveBuffer);
+                    byte[] next = Encoding.UTF8.GetBytes("X");
+                    recorder.RecordChunk(next, next.Length);
+                }
+
+                var replayBuffer = new TerminalBuffer(5, 3);
+                var replayParser = new AnsiParser(replayBuffer);
+                var runner = new ReplayRunner(tempFile);
+                await runner.RunAsync(
+                    onDataCallback: data =>
+                    {
+                        replayParser.Process(Encoding.UTF8.GetString(data));
+                        return Task.CompletedTask;
+                    },
+                    onResizeCallback: (cols, rows) =>
+                    {
+                        replayBuffer.Resize(cols, rows);
+                        return Task.CompletedTask;
+                    },
+                    onSnapshotCallback: snapshot =>
+                    {
+                        Assert.True(snapshot.IsPendingWrap); // captured on the wire
+                        replayBuffer.ApplySnapshot(snapshot);
+                        Assert.True(replayBuffer.IsPendingWrap); // restored
+                        return Task.CompletedTask;
+                    });
+
+                liveParser.Process("X"); // what really happens live
+
+                BufferSnapshot expected = BufferSnapshot.Capture(liveBuffer, includeAttributes: true);
+                BufferSnapshot actual = BufferSnapshot.Capture(replayBuffer, includeAttributes: true);
+                Assert.Equal(expected.ToFormattedString(), actual.ToFormattedString());
+                Assert.Equal("X", actual.Lines[1]); // wrapped, not overwritten at row 0 end
+            }
+            finally
+            {
+                if (File.Exists(tempFile)) File.Delete(tempFile);
+            }
+        }
+
+        [Fact]
         public async Task ReplayRunner_V1Compatibility_Works()
         {
             string tempFile = Path.GetTempFileName();

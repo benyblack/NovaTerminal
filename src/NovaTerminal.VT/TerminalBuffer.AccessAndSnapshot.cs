@@ -946,7 +946,11 @@ namespace NovaTerminal.VT
                     }
                 }
 
-                _isPendingWrap = false;
+                // Restore deferred autowrap ("pw", absent=false in legacy files):
+                // a snapshot taken right after output filled the last column must
+                // replay with the wrap still pending, or the next character
+                // overwrites the row end instead of wrapping — divergence from live.
+                _isPendingWrap = snapshot.IsPendingWrap;
             }
             finally
             {

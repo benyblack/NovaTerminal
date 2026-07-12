@@ -125,7 +125,7 @@ acyclic dependency graph.
 - **[`src/NovaTerminal.Pty`](src/NovaTerminal.Pty/)** — Native OS integration and PTY session management.
 - **[`src/NovaTerminal.Replay`](src/NovaTerminal.Replay/)** — Deterministic session recording and playback.
 - **[`src/NovaTerminal.Conformance`](src/NovaTerminal.Conformance/)** — VT conformance matrix tooling and report generation.
-- **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — console-subsystem twin of the (WinExe) app for headless tooling: `vt-report` and the SSH askpass helper.
+- **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — console-subsystem twin of the (WinExe) app for headless tooling: `vt-report`, headless replay (`--replay <file>`), and the SSH askpass helper.
 - **[`src/NovaTerminal.AgentHost.Contracts`](src/NovaTerminal.AgentHost.Contracts/)** — zero-dependency wire contracts for the agent-host observe channel (shared by App and McpServer).
 - **[`src/NovaTerminal.McpServer`](src/NovaTerminal.McpServer/)** — read-only, stdio-only MCP server exposing project docs, config validators, VT conformance data, and (opt-in, observe-only) live terminal sessions to AI tooling.
 
@@ -165,7 +165,12 @@ Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zer
   ([`docs/agent-host/DIRECTION.md`](docs/agent-host/DIRECTION.md)): a
   session-facing MCP surface so AI agents can observe, query status of, and
   (with explicit permission) act inside live terminal sessions, with
-  deterministic replay as the debugging story.
+  deterministic replay as the debugging story. Debug what your agent did,
+  frame by frame: with both opt-in toggles enabled, an agent can call
+  `novaterminal.export_replay` to save a session's recent output (never
+  input — typed keys are not retained) as a standard `.rec` file, and anyone
+  can re-render it deterministically with
+  `NovaTerminal.Cli --replay <file> [--attributes]`.
 - **VT conformance program** — every supported VT/ANSI feature is tracked in a
   matrix; a dedicated CI lane regenerates the report and fails on regressions.
   See [`docs/vt_coverage_matrix.md`](docs/vt_coverage_matrix.md) and
