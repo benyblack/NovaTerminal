@@ -32,4 +32,11 @@ public sealed class SshProfile
     public string ExtraSshArgs { get; set; } = string.Empty;
     public string WorkingDirectory { get; set; } = string.Empty;
     public RemoteShellKind RemoteShellKind { get; set; } = RemoteShellKind.Auto;
+
+    // A3 (agent host act surface): when true, AI agents granted "Agent access
+    // (act)" may type into and spawn sessions for this remote profile. Default
+    // false — acting on a remote reaches another machine with the user's
+    // credentials, so it is opt-in per profile on top of the global act toggle.
+    // New field; absent in older stores deserializes to false (no migration).
+    public bool AllowAgentAccess { get; set; }
 }

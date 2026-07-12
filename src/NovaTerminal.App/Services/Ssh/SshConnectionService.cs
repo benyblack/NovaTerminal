@@ -91,6 +91,11 @@ public sealed class SshLaunchDetails
         if (existing != null)
         {
             incoming.RememberPasswordInVault = existing.RememberPasswordInVault;
+            // The connection editor has no agent-allowlist control yet (A3 PR2),
+            // so the view-model can't carry it — preserve the stored value across
+            // an edit, or editing any other field would silently revoke the
+            // allowlist and break SSH sendInput.
+            incoming.AllowAgentAccess = existing.AllowAgentAccess;
 
             if (viewModel.BackendKind is null)
             {
@@ -289,6 +294,7 @@ public sealed class SshLaunchDetails
         merged.AuthMode = incoming.AuthMode;
         merged.IdentityFilePath = incoming.IdentityFilePath;
         merged.RememberPasswordInVault = incoming.RememberPasswordInVault;
+        merged.AllowAgentAccess = incoming.AllowAgentAccess;
         merged.JumpHops = incoming.JumpHops.Select(CloneJumpHop).ToList();
         merged.Forwards = incoming.Forwards.Select(CloneForward).ToList();
         merged.MuxOptions = CloneMuxOptions(incoming.MuxOptions);
@@ -592,7 +598,8 @@ public sealed class SshLaunchDetails
             ServerAliveCountMax = profile.ServerAliveCountMax,
             ExtraSshArgs = profile.ExtraSshArgs,
             WorkingDirectory = profile.WorkingDirectory,
-            RemoteShellKind = profile.RemoteShellKind
+            RemoteShellKind = profile.RemoteShellKind,
+            AllowAgentAccess = profile.AllowAgentAccess
         };
     }
 

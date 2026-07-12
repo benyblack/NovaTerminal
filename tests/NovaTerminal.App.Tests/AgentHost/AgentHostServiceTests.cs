@@ -101,7 +101,7 @@ public class AgentHostServiceTests : IDisposable
     public void Unknown_method_is_rejected_with_stable_error_code()
     {
         using var service = NewService(new AgentSessionRegistry());
-        var response = Handle(service,RequestLine("sendInput"));
+        var response = Handle(service,RequestLine("thisMethodDoesNotExist"));
         Assert.Equal(AgentHostProtocol.ErrorCodes.UnknownMethod, response.Error?.Code);
     }
 

@@ -195,7 +195,8 @@ namespace NovaTerminal.Controls
                 GetBaseTabTitle(),
                 Profile?.Name ?? "Terminal",
                 Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
-                IsActivePane);
+                IsActivePane,
+                Profile?.Id);
         }
 
         public string GetBaseTabTitle()
@@ -401,7 +402,8 @@ namespace NovaTerminal.Controls
                 GetBaseTabTitle(),
                 Profile?.Name ?? "Terminal",
                 Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
-                IsActivePane);
+                IsActivePane,
+                profileId: Profile?.Id);
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();

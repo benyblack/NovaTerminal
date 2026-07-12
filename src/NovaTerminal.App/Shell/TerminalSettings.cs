@@ -61,6 +61,12 @@ namespace NovaTerminal.Shell
         // (privacy decision in docs/plans/2026-07-07-agent-host-a4-replay-design.md).
         // Off by default; both toggles must be on for an export to succeed.
         public bool AgentReplayExportEnabled { get; set; } = false;
+        // A3 act surface: separate default-off opt-in letting agents type into,
+        // spawn, and close sessions (novaterminal.send_input / spawn_session /
+        // close_session). On top of observe; SSH sessions additionally require
+        // per-profile allowlisting. Every acting call is shown in the agent
+        // activity journal. Off by default.
+        public bool AgentAccessActEnabled { get; set; } = false;
         // In-app toast when a command that ran ≥30s finishes in an unfocused
         // pane (A2 PR4, absorbs ROADMAP §5.2). Off by default.
         public bool LongCommandNotificationsEnabled { get; set; } = false;

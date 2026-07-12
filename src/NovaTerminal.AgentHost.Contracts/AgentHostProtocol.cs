@@ -65,7 +65,18 @@ public static class AgentHostProtocol
         /// the observe toggle.
         /// </summary>
         public const string ExportReplay = "exportReplay";
+
+        /// <summary>
+        /// A3 (act, permissioned): injects input into a live session,
+        /// byte-faithful and replay-recorded like human keystrokes. Requires
+        /// the separate <c>AgentAccessActEnabled</c> opt-in on top of observe,
+        /// plus per-profile allowlisting for SSH sessions.
+        /// </summary>
+        public const string SendInput = "sendInput";
     }
+
+    /// <summary>Server-side cap on a single <c>sendInput</c> payload, in bytes (A3).</summary>
+    public const int MaxSendInputBytes = 32 * 1024;
 
     /// <summary>Wire values for session status (A2). See the A2 design doc for exact semantics.</summary>
     public static class StatusKinds
@@ -119,5 +130,36 @@ public static class AgentHostProtocol
         /// down, or the export failed to write).
         /// </summary>
         public const string ExportUnavailable = "exportUnavailable";
+
+        /// <summary>
+        /// A3: an acting method (<c>sendInput</c> and later spawn/close) was
+        /// called but the user has not enabled "Agent access (act)" — the
+        /// separate default-off opt-in that gates all acting, on top of observe.
+        /// </summary>
+        public const string ActDisabled = "actDisabled";
+
+        /// <summary>
+        /// A3: the target (or named) SSH profile has not been allowlisted for
+        /// agent access (<c>AllowAgentAccess</c> is off). Local sessions are
+        /// governed by the act toggle alone and never hit this.
+        /// </summary>
+        public const string ProfileNotAllowed = "profileNotAllowed";
+
+        /// <summary>A3: <c>spawnSession</c> named a profile that matched no local or SSH profile.</summary>
+        public const string ProfileNotFound = "profileNotFound";
+
+        /// <summary>A3: the target session exists but its process has already exited — input goes nowhere.</summary>
+        public const string SessionNotRunning = "sessionNotRunning";
+
+        /// <summary>
+        /// A3: the endpoint is running but the UI action executor is not
+        /// published (startup/teardown race). Distinct from
+        /// <see cref="ActDisabled"/>: the user opted in, the app just can't act
+        /// this instant — safe to retry.
+        /// </summary>
+        public const string ActUnavailable = "actUnavailable";
+
+        /// <summary>A3: <c>spawnSession</c> resolved a profile but the tab failed to open.</summary>
+        public const string SpawnFailed = "spawnFailed";
     }
 }

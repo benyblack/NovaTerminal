@@ -590,6 +590,15 @@
                             </Grid>
                             <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
 
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Agent access (act)"/>
+                                    <TextBlock Classes="RowDesc" Text="Additionally allow agents to type into, open, and close terminal sessions. SSH connections must also be allowlisted individually. Every action is shown in the agent activity journal. Requires Agent access (observe)."/>
+                                </StackPanel>
+                                <CheckBox Name="AgentAccessActToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
                             <Grid ColumnDefinitions="*,360">
                                 <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Classes="RowLabel" Text="Long command notifications"/>
