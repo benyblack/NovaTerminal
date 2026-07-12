@@ -111,6 +111,25 @@ public class AgentHostActProtocolTests
     }
 
     [Fact]
+    public void Stop_clears_the_ssh_allowlist_probe_so_it_cannot_pin_the_window()
+    {
+        // The static service singleton outlives MainWindow; the probe closes over
+        // it. Stop must release the delegate (fail-closed afterwards) so a closed
+        // window can be collected.
+        var registry = new AgentSessionRegistry();
+        var session = new InputStubSession();
+        var reg = Register(registry, "ssh", session, Guid.NewGuid());
+        using var service = NewService(registry, new AgentActivityJournal());
+        service.ActEnabled = true;
+        service.SetSshProfileAllowlist(_ => true);
+
+        service.Stop(); // window closing
+
+        var response = Handle(service, SendInputLine(reg.PaneId, "x\r"));
+        Assert.Equal(AgentHostProtocol.ErrorCodes.ProfileNotAllowed, response.Error?.Code);
+    }
+
+    [Fact]
     public void SendInput_to_ssh_session_with_no_allowlist_probe_fails_closed()
     {
         var registry = new AgentSessionRegistry();

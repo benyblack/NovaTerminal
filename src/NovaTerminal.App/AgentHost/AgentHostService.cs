@@ -243,6 +243,14 @@ namespace NovaTerminal.AgentHost
                 ReleaseDiscoveryFile(_discoveryFilePath);
                 _discoveryFilePath = null;
             }
+
+            // Release the SSH allowlist probe. It closes over MainWindow (via the
+            // instance method it points at); this static singleton outlives the
+            // window, so holding the delegate would pin the closed window (and its
+            // tabs, PTYs, controls) in memory. MainWindow re-publishes it before
+            // each Apply, so clearing here is safe. Bool gates are value types and
+            // do not leak, so they are left as-is.
+            _sshProfileAllowlist = null;
         }
 
         /// <summary>
