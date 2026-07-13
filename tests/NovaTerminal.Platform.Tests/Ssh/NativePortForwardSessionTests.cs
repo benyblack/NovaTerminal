@@ -492,8 +492,28 @@ public sealed class NativePortForwardSessionTests
         private readonly ConcurrentQueue<NativeSshEvent> _events = new();
         private int _nextChannelId = 100;
 
-        public List<NativePortForwardOpenOptions> OpenRequests { get; } = [];
-        public List<int> ClosedChannelIds { get; } = [];
+        // OpenDirectTcpIp/CloseChannel are invoked from the per-listener accept
+        // loops (Task.Run in NativePortForwardSession.StartListener), so with two
+        // forwards two threads mutate these lists concurrently. List<T> is not
+        // thread-safe: racing Add calls can clobber the size field, dropping an
+        // entry so OpenRequests.Count never reaches 2 and the WaitUntilAsync
+        // predicate hangs to its full ceiling. Serialize the writes, and expose
+        // reads as locked snapshots — WaitUntilAsync polls these while the accept
+        // loops are still adding, so a live List<T> would risk stale counts or a
+        // "collection modified during enumeration" throw in predicates like .Any.
+        private readonly object _collectionsLock = new();
+        private readonly List<NativePortForwardOpenOptions> _openRequests = [];
+        private readonly List<int> _closedChannelIds = [];
+
+        public IReadOnlyList<NativePortForwardOpenOptions> OpenRequests
+        {
+            get { lock (_collectionsLock) { return _openRequests.ToArray(); } }
+        }
+
+        public IReadOnlyList<int> ClosedChannelIds
+        {
+            get { lock (_collectionsLock) { return _closedChannelIds.ToArray(); } }
+        }
 
         public NovaSshSafeHandle Connect(NativeSshConnectionOptions options) => new(new IntPtr(1), ownsHandle: false);
 
@@ -528,7 +548,10 @@ public sealed class NativePortForwardSessionTests
 
         public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options)
         {
-            OpenRequests.Add(options);
+            lock (_collectionsLock)
+            {
+                _openRequests.Add(options);
+            }
             return Interlocked.Increment(ref _nextChannelId);
         }
 
@@ -542,7 +565,10 @@ public sealed class NativePortForwardSessionTests
 
         public void CloseChannel(NovaSshSafeHandle sessionHandle, int channelId)
         {
-            ClosedChannelIds.Add(channelId);
+            lock (_collectionsLock)
+            {
+                _closedChannelIds.Add(channelId);
+            }
         }
 
         public void Close(NovaSshSafeHandle sessionHandle)

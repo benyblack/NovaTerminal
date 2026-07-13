@@ -83,10 +83,14 @@ namespace NovaTerminal.Tests
                 Assert.True(session.IsFlightRecording);
 
                 // The shell banner/prompt guarantees some output; poll until the
-                // ring has captured at least one chunk.
+                // ring has captured at least one chunk. The loop breaks as soon as
+                // output arrives, so the ceiling only affects wall time on a genuine
+                // failure — keep it generous because a loaded Windows CI runner
+                // (Defender realtime scan + process-pool saturation) can take well
+                // over 10s to emit the shell's first bytes.
                 NovaTerminal.Replay.FlightExportInfo info = default;
                 bool exported = false;
-                for (int i = 0; i < 40; i++)
+                for (int i = 0; i < 120; i++)
                 {
                     await Task.Delay(250);
                     exported = session.TryExportFlightRecording(tempFile, out info);
