@@ -497,12 +497,23 @@ public sealed class NativePortForwardSessionTests
         // forwards two threads mutate these lists concurrently. List<T> is not
         // thread-safe: racing Add calls can clobber the size field, dropping an
         // entry so OpenRequests.Count never reaches 2 and the WaitUntilAsync
-        // predicate hangs to its full ceiling. Serialize the writes. (Reads in
-        // the assertions run after the predicate quiesces, so they need no lock.)
+        // predicate hangs to its full ceiling. Serialize the writes, and expose
+        // reads as locked snapshots — WaitUntilAsync polls these while the accept
+        // loops are still adding, so a live List<T> would risk stale counts or a
+        // "collection modified during enumeration" throw in predicates like .Any.
         private readonly object _collectionsLock = new();
+        private readonly List<NativePortForwardOpenOptions> _openRequests = [];
+        private readonly List<int> _closedChannelIds = [];
 
-        public List<NativePortForwardOpenOptions> OpenRequests { get; } = [];
-        public List<int> ClosedChannelIds { get; } = [];
+        public IReadOnlyList<NativePortForwardOpenOptions> OpenRequests
+        {
+            get { lock (_collectionsLock) { return _openRequests.ToArray(); } }
+        }
+
+        public IReadOnlyList<int> ClosedChannelIds
+        {
+            get { lock (_collectionsLock) { return _closedChannelIds.ToArray(); } }
+        }
 
         public NovaSshSafeHandle Connect(NativeSshConnectionOptions options) => new(new IntPtr(1), ownsHandle: false);
 
@@ -539,7 +550,7 @@ public sealed class NativePortForwardSessionTests
         {
             lock (_collectionsLock)
             {
-                OpenRequests.Add(options);
+                _openRequests.Add(options);
             }
             return Interlocked.Increment(ref _nextChannelId);
         }
@@ -556,7 +567,7 @@ public sealed class NativePortForwardSessionTests
         {
             lock (_collectionsLock)
             {
-                ClosedChannelIds.Add(channelId);
+                _closedChannelIds.Add(channelId);
             }
         }
 
