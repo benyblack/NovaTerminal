@@ -158,6 +158,29 @@ public sealed class TerminalPaneSshDisconnectTests
         Assert.True(reconnectRow > disconnectedRow, "reconnect prompt should be on a later row than the disconnect notice");
     }
 
+    [Theory]
+    [InlineData("plain message", "plain message")]
+    [InlineData("café → host", "café → host")] // printable Unicode preserved
+    [InlineData("\x1b[2J\x1b[3Jwiped", "[2J[3Jwiped")]            // ESC stripped, remainder inert text
+    [InlineData("line1\r\nline2\ttab", "line1line2tab")]           // CR/LF/TAB (C0) stripped
+    [InlineData("bell\x07 del\x7f", "bell del")]                   // BEL and DEL stripped
+    public void SanitizeBannerValue_StripsControlCharactersFromInterpolatedText(string input, string expected)
+    {
+        // Interpolated banner values (SSH/spawn error messages, shell paths) may be remote- or
+        // profile-derived. Since banners are parsed as terminal input, any embedded control codes
+        // must be removed so they cannot move the cursor, clear the screen, or change the title.
+        Assert.Equal(expected, TerminalPane.SanitizeBannerValue(input));
+    }
+
+    [Fact]
+    public void SanitizeBannerValue_StripsC1ControlCharacters()
+    {
+        // C1 controls (0x80-0x9F, e.g. 8-bit CSI) are built via a cast to avoid an invisible
+        // control byte or a \u escape in the source literal.
+        string withCsi = (char)0x9B + "CSI c1";
+        Assert.Equal("CSI c1", TerminalPane.SanitizeBannerValue(withCsi));
+    }
+
     private static string GetVisiblePlainText(TerminalBuffer buffer)
     {
         var field = typeof(TerminalBuffer).GetField("_viewport", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
