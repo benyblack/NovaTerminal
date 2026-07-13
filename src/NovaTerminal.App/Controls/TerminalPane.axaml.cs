@@ -1673,7 +1673,7 @@ namespace NovaTerminal.Controls
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"[TerminalPane] SSH connection failed for '{profile.Name}': {ex.Message}");
-                        Buffer.WriteContent($"\r\n[ERROR] SSH Connection Failed: {ex.Message}\r\n", false);
+                        WriteBanner($"\r\n[ERROR] SSH Connection Failed: {SanitizeBannerValue(ex.Message)}\r\n");
                         
                         // Fail loudly: Do not fall back to RustPtySession with missing arguments.
                         return;
@@ -1715,8 +1715,7 @@ namespace NovaTerminal.Controls
             {
                 // Graceful failure: Log and show in terminal
                 System.Diagnostics.Debug.WriteLine($"[TerminalPane] Failed to spawn session: {ex.Message}");
-                Buffer.WriteContent($"\r\n[ERROR] Failed to spawn process: {effectiveShell}\r\n", false);
-                Buffer.WriteContent($"[DETAILS] {ex.Message}\r\n", false);
+                WriteBanner($"\r\n[ERROR] Failed to spawn process: {SanitizeBannerValue(effectiveShell)}\r\n[DETAILS] {SanitizeBannerValue(ex.Message)}\r\n");
                 return;
             }
 
@@ -2126,10 +2125,7 @@ namespace NovaTerminal.Controls
             }
 
             LastExitCode = null;
-            if (Buffer != null)
-            {
-                Buffer.WriteContent("\r\n\x1b[90m[Reconnecting...]\x1b[0m\r\n", false);
-            }
+            WriteBanner("\r\n\x1b[90m[Reconnecting...]\x1b[0m\r\n");
             InitializeSession(ShellCommand, Profile, TermView.Cols, TermView.Rows, ShellArgs);
         }
 
@@ -2265,17 +2261,59 @@ namespace NovaTerminal.Controls
 
         private void WriteSshDisconnectedBanner(int code)
         {
+            string exitCodeLine = code == 0
+                ? string.Empty
+                : $"[Exit code: {code}]\r\n";
+            WriteBanner(
+                $"\r\n[SSH session disconnected]\r\n{exitCodeLine}[Press Enter to reconnect]\r\n");
+        }
+
+        /// <summary>
+        /// Strips control characters (C0 incl. ESC, DEL, and C1) from interpolated banner values.
+        /// Banner text is parsed as terminal input, so remote- or profile-derived values such as
+        /// SSH/spawn error messages could otherwise smuggle escape sequences that move the cursor,
+        /// clear the screen, switch modes, or rewrite the title. Only printable content survives.
+        /// </summary>
+        internal static string SanitizeBannerValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            var sb = new System.Text.StringBuilder(value.Length);
+            foreach (char c in value)
+            {
+                if (c < 0x20 || c == 0x7F || (c >= 0x80 && c <= 0x9F))
+                {
+                    continue;
+                }
+
+                sb.Append(c);
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Writes NovaTerminal-generated banner text (connection errors, disconnect/reconnect
+        /// notices) into the terminal. Banners are routed through the ANSI parser rather than
+        /// <see cref="TerminalBuffer.WriteContent"/> — which writes graphemes verbatim — so that
+        /// embedded SGR color codes and CR/LF line breaks are interpreted, instead of leaving
+        /// literal "[90m" garbage collapsed onto a single line. A fresh parser is used each time so
+        /// the banner renders with a clean slate: it never inherits a partial escape sequence or
+        /// accumulated SGR state from the (possibly just-disposed) session parser, and never shares
+        /// mutable parser state with the background-thread session output pump.
+        /// Interpolated values must be passed through <see cref="SanitizeBannerValue"/> first.
+        /// </summary>
+        private void WriteBanner(string text)
+        {
             if (Buffer == null)
             {
                 return;
             }
 
-            string exitCodeLine = code == 0
-                ? string.Empty
-                : $"[Exit code: {code}]\r\n";
-            Buffer.WriteContent(
-                $"\r\n[SSH session disconnected]\r\n{exitCodeLine}[Press Enter to reconnect]\r\n",
-                false);
+            new AnsiParser(Buffer).Process(text);
         }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
