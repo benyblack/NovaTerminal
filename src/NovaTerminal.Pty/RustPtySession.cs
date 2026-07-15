@@ -69,26 +69,32 @@ namespace NovaTerminal.Pty
             {
                 if (value == null) return;
 
-                string[]? replay = null;
-                lock (_outputHandlerGate)
+                // The invocation lock is the OUTER lock so that wiring the
+                // subscriber AND replaying the buffer is one atomic step against
+                // EmitOutput. This guarantees (a) the non-thread-safe subscriber
+                // (AnsiParser/TerminalBuffer) is never entered from two threads at
+                // once, and (b) buffered startup output is delivered before any
+                // live output — a ProcessLoop emit cannot slip in ahead of the
+                // replay. Lock order is always invocation -> gate (remove takes
+                // only the gate), so there is no inversion.
+                lock (_outputInvocationLock)
                 {
-                    _onOutputReceived += value;
-                    if (!_hasOutputSubscriberEver)
+                    string[]? replay = null;
+                    lock (_outputHandlerGate)
                     {
-                        _hasOutputSubscriberEver = true;
-                        if (_pendingOutputReplay != null)
+                        if (!_hasOutputSubscriberEver)
                         {
-                            replay = _pendingOutputReplay.ToArray();
-                            _pendingOutputReplay = null;
+                            _hasOutputSubscriberEver = true;
+                            if (_pendingOutputReplay != null)
+                            {
+                                replay = _pendingOutputReplay.ToArray();
+                                _pendingOutputReplay = null;
+                            }
                         }
+                        _onOutputReceived += value;
                     }
-                }
 
-                if (replay != null)
-                {
-                    // Hold the invocation lock for the whole batch so a concurrent
-                    // ProcessLoop emit can't interleave ahead of the replay.
-                    lock (_outputInvocationLock)
+                    if (replay != null)
                     {
                         foreach (var text in replay)
                         {
@@ -108,24 +114,26 @@ namespace NovaTerminal.Pty
         }
 
         // Delivers decoded output to the current subscriber, or buffers it for
-        // replay when none has attached yet. Called only from ProcessLoop.
+        // replay when none has attached yet. Called only from ProcessLoop. The
+        // outer invocation lock makes the whole capture-and-invoke atomic against
+        // the add-replay above and other emits, so it never runs before or during
+        // that replay.
         private void EmitOutput(string text)
         {
-            Action<string>? handler;
-            lock (_outputHandlerGate)
-            {
-                handler = _onOutputReceived;
-                if (!_hasOutputSubscriberEver && handler == null)
-                {
-                    _pendingOutputReplay ??= new List<string>();
-                    _pendingOutputReplay.Add(text);
-                    return;
-                }
-            }
-
-            // Serialized against the replay batch above (and other emits).
             lock (_outputInvocationLock)
             {
+                Action<string>? handler;
+                lock (_outputHandlerGate)
+                {
+                    handler = _onOutputReceived;
+                    if (!_hasOutputSubscriberEver && handler == null)
+                    {
+                        _pendingOutputReplay ??= new List<string>();
+                        _pendingOutputReplay.Add(text);
+                        return;
+                    }
+                }
+
                 handler?.Invoke(text);
             }
         }

@@ -50,13 +50,15 @@ namespace NovaTerminal.Tests
 
             // The buffered startup output replays synchronously on subscribe; give a
             // brief grace window for any straggling chunk, then assert none was lost.
-            for (int i = 0; i < 20 && sb.Length == 0; i++)
+            // Read length under the same lock the subscriber writes under.
+            int len = 0;
+            for (int i = 0; i < 20; i++)
             {
+                lock (sb) { len = sb.Length; }
+                if (len > 0) break;
                 await Task.Delay(100);
             }
 
-            int len;
-            lock (sb) { len = sb.Length; }
             Assert.True(len > 0, "late subscriber received no startup output — early output was dropped");
         }
 
