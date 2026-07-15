@@ -46,7 +46,98 @@ namespace NovaTerminal.Pty
         // UTF-8 decoder with state - handles partial multi-byte sequences across reads
         private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
 
-        public event Action<string>? OnOutputReceived;
+        // Output is buffered until the first subscriber attaches, then replayed.
+        // The read/process threads start in the constructor, so a shell's initial
+        // prompt can arrive before the UI wires OnOutputReceived; without this,
+        // ProcessLoop would dequeue-and-drop that output (blinking cursor, no
+        // prompt). Mirrors NativeSshSession's first-subscriber replay.
+        // _outputHandlerGate guards the subscriber field and pending buffer.
+        // _outputInvocationLock separately serializes the actual handler calls so
+        // the first-subscriber replay (subscriber thread) and ProcessLoop
+        // (background thread) never invoke the handler — and thus AnsiParser /
+        // TerminalBuffer, which are not thread-safe — concurrently, and so
+        // replayed output always precedes new output.
+        private readonly object _outputHandlerGate = new();
+        private readonly object _outputInvocationLock = new();
+        private Action<string>? _onOutputReceived;
+        private List<string>? _pendingOutputReplay;
+        private bool _hasOutputSubscriberEver;
+
+        public event Action<string>? OnOutputReceived
+        {
+            add
+            {
+                if (value == null) return;
+
+                // The invocation lock is the OUTER lock so that wiring the
+                // subscriber AND replaying the buffer is one atomic step against
+                // EmitOutput. This guarantees (a) the non-thread-safe subscriber
+                // (AnsiParser/TerminalBuffer) is never entered from two threads at
+                // once, and (b) buffered startup output is delivered before any
+                // live output — a ProcessLoop emit cannot slip in ahead of the
+                // replay. Lock order is always invocation -> gate (remove takes
+                // only the gate), so there is no inversion.
+                lock (_outputInvocationLock)
+                {
+                    string[]? replay = null;
+                    lock (_outputHandlerGate)
+                    {
+                        if (!_hasOutputSubscriberEver)
+                        {
+                            _hasOutputSubscriberEver = true;
+                            if (_pendingOutputReplay != null)
+                            {
+                                replay = _pendingOutputReplay.ToArray();
+                                _pendingOutputReplay = null;
+                            }
+                        }
+                        _onOutputReceived += value;
+                    }
+
+                    if (replay != null)
+                    {
+                        foreach (var text in replay)
+                        {
+                            value(text);
+                        }
+                    }
+                }
+            }
+            remove
+            {
+                if (value == null) return;
+                lock (_outputHandlerGate)
+                {
+                    _onOutputReceived -= value;
+                }
+            }
+        }
+
+        // Delivers decoded output to the current subscriber, or buffers it for
+        // replay when none has attached yet. Called only from ProcessLoop. The
+        // outer invocation lock makes the whole capture-and-invoke atomic against
+        // the add-replay above and other emits, so it never runs before or during
+        // that replay.
+        private void EmitOutput(string text)
+        {
+            lock (_outputInvocationLock)
+            {
+                Action<string>? handler;
+                lock (_outputHandlerGate)
+                {
+                    handler = _onOutputReceived;
+                    if (!_hasOutputSubscriberEver && handler == null)
+                    {
+                        _pendingOutputReplay ??= new List<string>();
+                        _pendingOutputReplay.Add(text);
+                        return;
+                    }
+                }
+
+                handler?.Invoke(text);
+            }
+        }
+
         public event Action<int>? OnExit;
         public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && !_handle.IsClosed && !_handle.IsInvalid;
         public int? ExitCode => _exitCode;
@@ -524,7 +615,7 @@ namespace NovaTerminal.Pty
             {
                 foreach (var text in _outputQueue.GetConsumingEnumerable(_cts.Token))
                 {
-                    OnOutputReceived?.Invoke(text);
+                    EmitOutput(text);
                 }
             }
             catch (OperationCanceledException)
