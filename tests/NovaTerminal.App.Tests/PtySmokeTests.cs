@@ -2,6 +2,7 @@ using NovaTerminal.Shell;
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using NovaTerminal.Platform;
 using NovaTerminal.VT;
@@ -24,6 +25,39 @@ namespace NovaTerminal.Tests
             session.Resize(100, 30);
             session.SendInput("\r");
             await Task.Delay(150);
+        }
+
+        [Fact]
+        [Trait("Category", "PtySmoke")]
+        public async Task RustPtySession_LateSubscriber_ReceivesBufferedStartupOutput()
+        {
+            // Regression: the read/process threads start in the constructor, so a
+            // shell's initial prompt/banner can be produced before the UI wires
+            // OnOutputReceived. Before the fix, ProcessLoop dequeued-and-dropped
+            // that output when no subscriber was attached (blinking cursor, no
+            // prompt). Output must now be buffered and replayed to a late subscriber.
+            string shell = ShellHelper.GetDefaultShell();
+            using var session = new RustPtySession(shell, 80, 24);
+
+            // Let the shell start and emit its prompt/banner *before* subscribing.
+            await Task.Delay(1500);
+
+            var sb = new StringBuilder();
+            session.OnOutputReceived += t =>
+            {
+                lock (sb) { sb.Append(t); }
+            };
+
+            // The buffered startup output replays synchronously on subscribe; give a
+            // brief grace window for any straggling chunk, then assert none was lost.
+            for (int i = 0; i < 20 && sb.Length == 0; i++)
+            {
+                await Task.Delay(100);
+            }
+
+            int len;
+            lock (sb) { len = sb.Length; }
+            Assert.True(len > 0, "late subscriber received no startup output — early output was dropped");
         }
 
         [Fact]

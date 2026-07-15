@@ -1702,13 +1702,20 @@ namespace NovaTerminal.Controls
                 UpdateCommandAssistContext();
 
                 // Publish the PTY lifecycle to the registration (the endpoint's
-                // sweep probes only this published reference, never the pane)
-                // and seed the first child-process sample immediately so the
-                // heuristic tier is correct from the moment the session exists.
+                // sweep probes only this published reference, never the pane).
                 if (_agentRegistration is { } agentReg)
                 {
                     agentReg.SetLifecycle(session);
-                    agentReg.StatusMachine.Sweep(agentReg.ProbeHasActiveChildProcesses());
+
+                    // Seed the first child-process sample, but OFF the synchronous
+                    // spawn path: ProbeHasActiveChildProcesses() is a full OS
+                    // process-table scan (CreateToolhelp32Snapshot), and running it
+                    // here delayed first-output wiring and paint on every tab open.
+                    // Background priority runs it after the tab is up; the endpoint's
+                    // 1 s sweep keeps the heuristic tier correct regardless.
+                    Dispatcher.UIThread.Post(
+                        () => agentReg.StatusMachine.Sweep(agentReg.ProbeHasActiveChildProcesses()),
+                        DispatcherPriority.Background);
                 }
             }
             catch (Exception ex)
