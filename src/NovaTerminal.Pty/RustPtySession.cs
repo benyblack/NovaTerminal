@@ -51,7 +51,14 @@ namespace NovaTerminal.Pty
         // prompt can arrive before the UI wires OnOutputReceived; without this,
         // ProcessLoop would dequeue-and-drop that output (blinking cursor, no
         // prompt). Mirrors NativeSshSession's first-subscriber replay.
+        // _outputHandlerGate guards the subscriber field and pending buffer.
+        // _outputInvocationLock separately serializes the actual handler calls so
+        // the first-subscriber replay (subscriber thread) and ProcessLoop
+        // (background thread) never invoke the handler — and thus AnsiParser /
+        // TerminalBuffer, which are not thread-safe — concurrently, and so
+        // replayed output always precedes new output.
         private readonly object _outputHandlerGate = new();
+        private readonly object _outputInvocationLock = new();
         private Action<string>? _onOutputReceived;
         private List<string>? _pendingOutputReplay;
         private bool _hasOutputSubscriberEver;
@@ -62,23 +69,31 @@ namespace NovaTerminal.Pty
             {
                 if (value == null) return;
 
-                List<string>? replay = null;
+                string[]? replay = null;
                 lock (_outputHandlerGate)
                 {
                     _onOutputReceived += value;
                     if (!_hasOutputSubscriberEver)
                     {
                         _hasOutputSubscriberEver = true;
-                        replay = _pendingOutputReplay;
-                        _pendingOutputReplay = null;
+                        if (_pendingOutputReplay != null)
+                        {
+                            replay = _pendingOutputReplay.ToArray();
+                            _pendingOutputReplay = null;
+                        }
                     }
                 }
 
                 if (replay != null)
                 {
-                    foreach (var text in replay)
+                    // Hold the invocation lock for the whole batch so a concurrent
+                    // ProcessLoop emit can't interleave ahead of the replay.
+                    lock (_outputInvocationLock)
                     {
-                        value(text);
+                        foreach (var text in replay)
+                        {
+                            value(text);
+                        }
                     }
                 }
             }
@@ -108,7 +123,11 @@ namespace NovaTerminal.Pty
                 }
             }
 
-            handler?.Invoke(text);
+            // Serialized against the replay batch above (and other emits).
+            lock (_outputInvocationLock)
+            {
+                handler?.Invoke(text);
+            }
         }
 
         public event Action<int>? OnExit;

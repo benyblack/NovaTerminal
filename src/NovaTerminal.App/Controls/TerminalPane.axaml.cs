@@ -1707,15 +1707,19 @@ namespace NovaTerminal.Controls
                 {
                     agentReg.SetLifecycle(session);
 
-                    // Seed the first child-process sample, but OFF the synchronous
-                    // spawn path: ProbeHasActiveChildProcesses() is a full OS
-                    // process-table scan (CreateToolhelp32Snapshot), and running it
-                    // here delayed first-output wiring and paint on every tab open.
-                    // Background priority runs it after the tab is up; the endpoint's
-                    // 1 s sweep keeps the heuristic tier correct regardless.
-                    Dispatcher.UIThread.Post(
-                        () => agentReg.StatusMachine.Sweep(agentReg.ProbeHasActiveChildProcesses()),
-                        DispatcherPriority.Background);
+                    // Seed the first child-process sample, but OFF the UI thread:
+                    // ProbeHasActiveChildProcesses() is a full OS process-table scan
+                    // (CreateToolhelp32Snapshot on Windows, a pgrep spawn elsewhere) —
+                    // blocking I/O that would jank tab creation. It is thread-safe, so
+                    // run the probe on a background thread and post only the Sweep back
+                    // to the UI thread. The endpoint's 1 s sweep corrects it regardless.
+                    Task.Run(() =>
+                    {
+                        var hasChildren = agentReg.ProbeHasActiveChildProcesses();
+                        Dispatcher.UIThread.Post(
+                            () => agentReg.StatusMachine.Sweep(hasChildren),
+                            DispatcherPriority.Background);
+                    });
                 }
             }
             catch (Exception ex)
