@@ -29,6 +29,28 @@ public sealed class NativeSshSessionTests
     }
 
     [Fact]
+    public async Task EarlyOutput_IsBufferedAndReplayedToLateSubscriber_InOrder()
+    {
+        // Regression: output produced before the first subscriber attaches must be
+        // buffered and replayed in order — not dropped, and never delivered
+        // concurrently with the replay (the invocation-lock hardening).
+        var interop = new FakeNativeSshInterop();
+        interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes("first ")));
+        interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes("second")));
+
+        using var session = new NativeSshSession(CreateProfile(), interop: interop);
+
+        // Let the poll loop consume both Data events before anyone subscribes.
+        await Task.Delay(300);
+
+        var outputs = new List<string>();
+        session.OnOutputReceived += outputs.Add; // late subscriber → replay fires here
+
+        await WaitUntilAsync(() => outputs.Count > 0);
+        Assert.Equal("first second", string.Concat(outputs));
+    }
+
+    [Fact]
     public void Constructor_AllowsDynamicForwardProfiles()
     {
         SshProfile profile = CreateProfile();
