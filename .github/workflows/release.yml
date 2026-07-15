@@ -237,3 +237,32 @@ jobs:
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.zip
+
+  # Opens a submission PR to microsoft/winget-pkgs for the just-published Windows
+  # zip (portable package; see packaging/winget/). Optional and self-skipping:
+  # runs only on real tag pushes and only when the WINGET_PAT secret is set.
+  #
+  # wingetcreate re-downloads the asset, recomputes the SHA256, and updates the
+  # latest manifest from winget-pkgs — so it requires benyblack.NovaTerminal to
+  # ALREADY exist there. Bootstrap the first version manually (see
+  # packaging/winget/README.md); subsequent releases flow through this job.
+  submit_winget:
+    name: Submit to winget-pkgs
+    runs-on: windows-latest
+    needs: [release_metadata, publish_aot]
+    if: github.event_name == 'push'
+    steps:
+      - name: Submit manifest via wingetcreate
+        shell: pwsh
+        env:
+          WINGET_PAT: ${{ secrets.WINGET_PAT }}
+        run: |
+          if (-not $env:WINGET_PAT) {
+            Write-Host "WINGET_PAT not set; skipping winget-pkgs submission."
+            exit 0
+          }
+          $tag = "${{ needs.release_metadata.outputs.release_tag }}"
+          $ver = $tag.TrimStart('v')
+          $url = "https://github.com/benyblack/NovaTerminal/releases/download/$tag/NovaTerminal-win-x64-$tag.zip"
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          ./wingetcreate.exe update benyblack.NovaTerminal --version $ver --urls "$url" --submit --token $env:WINGET_PAT
