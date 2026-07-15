@@ -53,8 +53,11 @@ $url = "https://github.com/benyblack/NovaTerminal/releases/download/v$ver/$asset
 gh release download "v$ver" --pattern $asset --dir "$env:TEMP\nova-winget" --clobber
 $sha = (Get-FileHash "$env:TEMP\nova-winget\$asset" -Algorithm SHA256).Hash
 
-# 2. Copy the previous version folder and update the three files.
-Copy-Item -Recurse packaging\winget\0.3.0 packaging\winget\$ver
+# 2. Copy the previous version's files into a new folder and update them.
+#    (Create the dir first and copy contents with a wildcard — `Copy-Item -Recurse`
+#    onto an existing dir nests the source folder instead of copying its contents.)
+New-Item -ItemType Directory -Force -Path packaging\winget\$ver | Out-Null
+Copy-Item packaging\winget\0.3.0\* packaging\winget\$ver
 # In each file: set PackageVersion: X.Y.Z
 # In the installer file: set the new InstallerUrl and InstallerSha256 ($url / $sha)
 # In the locale file: update ReleaseNotesUrl to the vX.Y.Z tag and refresh the description
