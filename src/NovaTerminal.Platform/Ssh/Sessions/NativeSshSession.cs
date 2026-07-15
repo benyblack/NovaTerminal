@@ -28,6 +28,11 @@ public sealed class NativeSshSession : ITerminalSession
     private bool _allowVaultPasswordReuse;
     private readonly object _exitHandlerGate = new();
     private readonly object _outputHandlerGate = new();
+    // Serializes actual handler invocation so the first-subscriber replay
+    // (subscriber thread) and poll-loop emits never enter the non-thread-safe
+    // subscriber (AnsiParser/TerminalBuffer) concurrently, and replayed startup
+    // output always precedes live output. Outer lock; order is invocation -> gate.
+    private readonly object _outputInvocationLock = new();
 
     private ReplayWriter? _recorder;
 
@@ -165,23 +170,32 @@ public sealed class NativeSshSession : ITerminalSession
                 return;
             }
 
-            List<string>? replay = null;
-            lock (_outputHandlerGate)
+            // Invocation lock is the OUTER lock so wiring the subscriber and
+            // replaying the buffer is atomic against EmitText: no concurrent
+            // invocation, and a live emit cannot slip ahead of the replay.
+            lock (_outputInvocationLock)
             {
-                _onOutputReceived += value;
-                if (!_hasOutputSubscriberEver)
+                string[]? replay = null;
+                lock (_outputHandlerGate)
                 {
-                    _hasOutputSubscriberEver = true;
-                    replay = _pendingOutputReplay;
-                    _pendingOutputReplay = null;
+                    if (!_hasOutputSubscriberEver)
+                    {
+                        _hasOutputSubscriberEver = true;
+                        if (_pendingOutputReplay != null)
+                        {
+                            replay = _pendingOutputReplay.ToArray();
+                            _pendingOutputReplay = null;
+                        }
+                    }
+                    _onOutputReceived += value;
                 }
-            }
 
-            if (replay != null)
-            {
-                foreach (string text in replay)
+                if (replay != null)
                 {
-                    value(text);
+                    foreach (string text in replay)
+                    {
+                        value(text);
+                    }
                 }
             }
         }
@@ -559,19 +573,30 @@ public sealed class NativeSshSession : ITerminalSession
 
     private void EmitText(string text)
     {
-        Action<string>? handler;
-        lock (_outputHandlerGate)
+        // Outer invocation lock makes capture-and-invoke atomic against the
+        // add-replay above and other emits, so it never runs before or during
+        // that replay and never invokes the handler concurrently.
+        lock (_outputInvocationLock)
         {
-            handler = _onOutputReceived;
-            if (!_hasOutputSubscriberEver && handler == null)
+            Action<string>? handler;
+            lock (_outputHandlerGate)
             {
-                _pendingOutputReplay ??= new List<string>();
-                _pendingOutputReplay.Add(text);
-                return;
+                handler = _onOutputReceived;
+                if (!_hasOutputSubscriberEver && handler == null)
+                {
+                    _pendingOutputReplay ??= new List<string>();
+                    _pendingOutputReplay.Add(text);
+                    return;
+                }
             }
-        }
 
-        handler?.Invoke(text);
+            // Invoked while holding _outputInvocationLock: the subscriber MUST be
+            // non-blocking (the pane handler parses synchronously and posts to the
+            // UI thread via Dispatcher.Post, which does not wait). A handler that
+            // blocks here — e.g. synchronously awaiting a UI-thread response — would
+            // stall the poll loop and any new subscriber.
+            handler?.Invoke(text);
+        }
     }
 
     private void CloseNativeHandle()
