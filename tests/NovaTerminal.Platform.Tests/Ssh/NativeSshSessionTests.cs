@@ -37,13 +37,18 @@ public sealed class NativeSshSessionTests
         var interop = new FakeNativeSshInterop();
         interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes("first ")));
         interop.Enqueue(NativeSshEvent.Data(Encoding.UTF8.GetBytes("second")));
+        interop.Enqueue(NativeSshEvent.ExitStatus(0));
+        interop.Enqueue(NativeSshEvent.Closed(Array.Empty<byte>()));
 
         using var session = new NativeSshSession(CreateProfile(), interop: interop);
 
-        // Deterministically wait until the poll loop has consumed both Data events
-        // before anyone subscribes (no arbitrary sleep), so the buffered-replay path
-        // is exercised.
-        await WaitUntilAsync(() => interop.IsQueueDrained);
+        // Signal-driven, not clock-driven: once the session has exited, the poll
+        // loop has fully processed both Data events (decoded and buffered), so a
+        // late output subscriber must receive them via replay — never live. OnExit
+        // replays its code to a late subscriber, so subscribing here is race-free.
+        var exit = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnExit += code => exit.TrySetResult(code);
+        Assert.Equal(0, await exit.Task.WaitAsync(TimeSpan.FromSeconds(2)));
 
         var outputs = new ConcurrentQueue<string>();
         session.OnOutputReceived += outputs.Enqueue; // late subscriber → replay fires here
@@ -260,9 +265,6 @@ public sealed class NativeSshSessionTests
     {
         private readonly ConcurrentQueue<NativeSshEvent> _events = new();
         private int _nextHandle = 1;
-
-        /// <summary>True once the poll loop has dequeued every enqueued event (ConcurrentQueue read is thread-safe).</summary>
-        public bool IsQueueDrained => _events.IsEmpty;
 
         public List<byte[]> Writes { get; } = new();
         public List<(int Cols, int Rows)> Resizes { get; } = new();

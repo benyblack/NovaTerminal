@@ -590,6 +590,11 @@ public sealed class NativeSshSession : ITerminalSession
                 }
             }
 
+            // Invoked while holding _outputInvocationLock: the subscriber MUST be
+            // non-blocking (the pane handler parses synchronously and posts to the
+            // UI thread via Dispatcher.Post, which does not wait). A handler that
+            // blocks here — e.g. synchronously awaiting a UI-thread response — would
+            // stall the poll loop and any new subscriber.
             handler?.Invoke(text);
         }
     }
