@@ -130,9 +130,9 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
 ### Notes
 - If a tool returns "could not be parsed", the app and MCP server are from different
   builds — rebuild both.
-- The CLI (`NovaTerminal.Cli`) is present in a local build but is **not** in the
-  release zip today; the 0.4.0 release must add it for step 4's `--replay` to work
-  for end users (tracked as the pre-release bundle fix).
+- Step 4 uses the dev CLI (`NovaTerminal.Cli`) for convenience. The release bundle
+  ships no separate CLI — the app executable serves `--replay` itself
+  (`NovaTerminal --replay "<.rec>"`), so that is the end-user invocation.
 - These are the surfaces verified by build/logic tests but not visually in this
   cycle: the three toggles, the SSH allowlist checkbox, and the Agent Activity
   window. Steps 2, 5c, and 6 are the highest-value manual confirmations.
