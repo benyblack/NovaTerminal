@@ -20,7 +20,10 @@ public class AgentHostClientTests : IDisposable
 
     public AgentHostClientTests()
     {
-        _tempDir = Path.Combine(Path.GetTempPath(), "nova-agentclient-tests-" + Guid.NewGuid().ToString("N"));
+        // Short name on purpose: the unix-domain socket built under this dir must keep the
+        // full path under macOS's ~104-char sun_path limit (a long temp dir overflowed it,
+        // failing the live-endpoint tests only on the macOS release runner).
+        _tempDir = Path.Combine(Path.GetTempPath(), "nvac-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_tempDir);
     }
 
