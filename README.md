@@ -38,6 +38,8 @@ Most terminal emulators optimize for speed or features. NovaTerminal focuses on 
     Smooth, modern rendering pipeline using Skia.
 -   🧩 **Extensible architecture**\
     Designed for future workflows (cloud, automation, AI-assisted tooling).
+-   🤖 **Built for AI agents**\
+    An opt-in MCP server lets Claude Code and other agents observe your live terminal sessions --- and, behind a separate opt-in, drive them.
 
 > **Terminal correctness is enforced by automated tests, not guesswork.**
 
@@ -99,6 +101,49 @@ NovaTerminal guarantees identical terminal behavior across operating systems
 for VT interpretation, buffer state, wrapping & reflow, and search semantics.
 Platform-specific differences are limited to window chrome, blur/transparency,
 global hotkeys, and credential storage backends.
+
+### Agent access (MCP)
+
+A local, stdio [Model Context Protocol](https://modelcontextprotocol.io) server
+(`NovaTerminal.McpServer`) exposes NovaTerminal to AI coding agents (Claude Code, Claude
+Desktop, VS Code, …):
+
+- **Repo / dev-companion tools** — read-only and offline: project docs, VT/ANSI conformance
+  data, and theme / SSH-profile / settings JSON validators.
+- **Observe** (opt-in, default off) — `list_sessions`, `read_screen`, `read_scrollback`,
+  `get_session_status`, `wait_for_events`, `export_replay`: read live sessions deterministically.
+- **Act** (a *separate* opt-in, on top of observe) — `send_input`, `spawn_session`,
+  `close_session`: type into, open, and close sessions. SSH targets additionally require a
+  per-profile allowlist, and every acting call — allowed or denied — is recorded in an in-app
+  activity journal.
+
+With both toggles off there is no live endpoint at all. See the
+[MCP server README](src/NovaTerminal.McpServer/) and the
+[acting threat model](docs/agent-host/2026-07-12-acting-threat-model.md).
+
+---
+
+## Use with AI agents (MCP)
+
+Build the server, then register it with your MCP client, pointing at the **built DLL** (launch
+the compiled DLL — never `dotnet run`, which corrupts the stdio stream):
+
+```bash
+scripts/build.ps1 build -c Release src/NovaTerminal.McpServer   # or scripts/build.sh
+```
+
+**Claude Code:**
+
+```bash
+claude mcp add novaterminal -- dotnet "<path-to-repo>/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"
+```
+
+For **Claude Desktop / VS Code**, add the same `command`/`args` to the client's MCP config.
+
+The repo / dev-companion tools work immediately. To expose live sessions, enable
+**Settings → Agent access (observe)** in NovaTerminal; to let an agent type into, spawn, or
+close sessions, also enable the **Agent access (act)** sub-toggle (and allowlist any SSH
+profiles you want reachable). Both are off by default.
 
 ---
 
