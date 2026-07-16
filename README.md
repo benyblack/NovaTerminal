@@ -109,7 +109,7 @@ A local, stdio [Model Context Protocol](https://modelcontextprotocol.io) server
 Desktop, VS Code, …):
 
 - **Repo / dev-companion tools** — read-only and offline: project docs, VT/ANSI conformance
-  data, and theme / SSH-profile JSON validators.
+  data, and theme / SSH-profile / settings JSON validators.
 - **Observe** (opt-in, default off) — `list_sessions`, `read_screen`, `read_scrollback`,
   `get_session_status`, `wait_for_events`, `export_replay`: read live sessions deterministically.
 - **Act** (a *separate* opt-in, on top of observe) — `send_input`, `spawn_session`,
@@ -135,7 +135,7 @@ scripts/build.ps1 build -c Release src/NovaTerminal.McpServer   # or scripts/bui
 **Claude Code:**
 
 ```bash
-claude mcp add novaterminal -- dotnet "<repo>/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"
+claude mcp add novaterminal -- dotnet "<path-to-repo>/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"
 ```
 
 For **Claude Desktop / VS Code**, add the same `command`/`args` to the client's MCP config.
