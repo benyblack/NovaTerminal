@@ -2387,7 +2387,23 @@ namespace NovaTerminal
                 }
             }, RoutingStrategies.Tunnel);
 
-            try { Vault = new VaultService(); } catch { }
+            try
+            {
+                Vault = new VaultService();
+                if (!Vault.PersistenceAvailable)
+                {
+                    ShowRecordingToast(
+                        "Credential storage unavailable",
+                        "No system keychain was found, so SSH passwords won't be saved this session.",
+                        filePath: null,
+                        folderPath: null,
+                        autoHide: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Vault] Init failed: {ex.Message}");
+            }
             _startup.Checkpoint("MainWindow.CtorComplete");
         }
 

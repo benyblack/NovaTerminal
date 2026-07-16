@@ -593,7 +593,7 @@ namespace NovaTerminal.Shell
                 sshService,
                 allProfiles,
                 interop: _nativeInterop,
-                passwordResolver: static transferProfile => new VaultService().GetSshPasswordForProfile(transferProfile),
+                passwordResolver: static transferProfile => (MainWindow.Vault ?? new VaultService()).GetSshPasswordForProfile(transferProfile),
                 knownHostsFilePath: AppPaths.NativeKnownHostsFilePath,
                 progress: nativeProgress => Dispatcher.UIThread.Post(() =>
                 {
