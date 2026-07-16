@@ -53,6 +53,6 @@ From `docs/agent-host/DIRECTION.md` and the milestone design docs:
 - **Replay `--replay --at <ms>` / PNG output** — A4 ships headless
   render-to-text of the final screen; frame-stepping and image output are
   out of scope for now (Virtual fast-forward already covers most of it).
-- **CLI not in the release bundle** — `NovaTerminal.Cli` (which hosts
-  `--replay`) is present in local builds but not yet in the published release
-  zip; a pre-0.4.0 packaging fix will include it.
+- **Replay ships in the app executable** — the self-contained AOT release bundle
+  contains no separate `NovaTerminal.Cli`; the app exe serves `--replay <file>`
+  itself (`NovaTerminal --replay …`), the same headless render as the dev CLI.

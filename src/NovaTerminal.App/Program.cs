@@ -31,6 +31,16 @@ class Program
                 return;
             }
 
+            // Headless replay (A4) — the self-contained AOT bundle ships no separate
+            // NovaTerminal.Cli, so the app executable serves `--replay <file>` itself.
+            // Rooting ReplayCommand here also keeps AOT trimming from dropping it.
+            if (ReplayCommand.IsSupportedCliMode(args))
+            {
+                CliConsoleBindings.Prepare();
+                Environment.ExitCode = ReplayCommand.Execute(args, Console.Out, Console.Error);
+                return;
+            }
+
             // Log startup info
             TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
             TerminalLogger.Log("Log file path: " + AppLogger.GetLogFilePath());
