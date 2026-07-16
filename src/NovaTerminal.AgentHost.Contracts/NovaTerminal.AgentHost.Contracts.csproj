@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Leaf contracts library for the agent-host control channel
+    (docs/agent-host/DIRECTION.md, milestone A1). Shared by NovaTerminal.App
+    (endpoint) and NovaTerminal.McpServer (client). Must have zero project
+    references; enforced by NovaTerminal.Architecture.Tests.
+  -->
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NovaTerminal.McpServer.Tests" />
+  </ItemGroup>
+
+</Project>

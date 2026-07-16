@@ -27,6 +27,11 @@ env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   CONFIGURATION: Release
+  # Same daemon hygiene as ci.yml / scripts/build.* — see CLAUDE.md: without these,
+  # MSBuild worker nodes and the build server outlive the step and hang the runner
+  # when stdout is captured.
+  DOTNET_CLI_USE_MSBUILD_SERVER: 0
+  MSBUILDDISABLENODEREUSE: 1
 
 jobs:
   release_metadata:
@@ -116,11 +121,72 @@ jobs:
             src/NovaTerminal.App/native/target*/**/release/*pty.*
             src/NovaTerminal.App/native/rusty_ssh/target*/**/release/*ssh.*
 
+  # Release gate (#156): releases used to publish AOT bundles without running a
+  # single test. Run the same deterministic unit lane that gates PRs in ci.yml —
+  # on all three release OSes, which also gives macOS its only automated test
+  # coverage — before any bundle is published.
+  release_tests:
+    name: Release Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    needs: [release_metadata, build_native]
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release_metadata.outputs.checkout_ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Download Native Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: native-${{ matrix.os }}
+          path: src/NovaTerminal.App/native
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        env:
+          SKIP_RUST_NATIVE_BUILD: "1"
+        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
+
+      # Mirrors the gating unit lane in ci.yml (same projects, same filter).
+      - name: Test (unit — gating, non-headless projects)
+        env:
+          SKIP_RUST_NATIVE_BUILD: "1"
+        shell: bash
+        run: |
+          set -e
+          filter="Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
+          for proj in VT Rendering Architecture Platform McpServer; do
+            echo "::group::NovaTerminal.$proj.Tests"
+            dotnet test "tests/NovaTerminal.$proj.Tests" -c "$CONFIGURATION" --no-build --no-restore \
+              --filter "$filter" --logger "trx;LogFileName=release_${proj}.trx"
+            echo "::endgroup::"
+          done
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-tests-${{ matrix.os }}
+          retention-days: 5
+          path: "**/*.trx"
+
   publish_aot:
     name: Publish AOT (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    needs: [release_metadata, create_release, build_native]
+    needs: [release_metadata, create_release, build_native, release_tests]
     strategy:
       fail-fast: false
       matrix:
@@ -171,3 +237,32 @@ jobs:
         with:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.zip
+
+  # Opens a submission PR to microsoft/winget-pkgs for the just-published Windows
+  # zip (portable package; see packaging/winget/). Optional and self-skipping:
+  # runs only on real tag pushes and only when the WINGET_PAT secret is set.
+  #
+  # wingetcreate re-downloads the asset, recomputes the SHA256, and updates the
+  # latest manifest from winget-pkgs — so it requires benyblack.NovaTerminal to
+  # ALREADY exist there. Bootstrap the first version manually (see
+  # packaging/winget/README.md); subsequent releases flow through this job.
+  submit_winget:
+    name: Submit to winget-pkgs
+    runs-on: windows-latest
+    needs: [release_metadata, publish_aot]
+    if: github.event_name == 'push'
+    steps:
+      - name: Submit manifest via wingetcreate
+        shell: pwsh
+        env:
+          WINGET_PAT: ${{ secrets.WINGET_PAT }}
+        run: |
+          if (-not $env:WINGET_PAT) {
+            Write-Host "WINGET_PAT not set; skipping winget-pkgs submission."
+            exit 0
+          }
+          $tag = "${{ needs.release_metadata.outputs.release_tag }}"
+          $ver = $tag.TrimStart('v')
+          $url = "https://github.com/benyblack/NovaTerminal/releases/download/$tag/NovaTerminal-win-x64-$tag.zip"
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          ./wingetcreate.exe update benyblack.NovaTerminal --version $ver --urls "$url" --submit --token $env:WINGET_PAT

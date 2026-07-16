@@ -91,6 +91,10 @@ public sealed class SshLaunchDetails
         if (existing != null)
         {
             incoming.RememberPasswordInVault = existing.RememberPasswordInVault;
+            // AllowAgentAccess is carried by the view-model (loaded via
+            // ApplySshProfile, edited by the connection editor's checkbox, A3
+            // PR3), so it is authoritative here — no force-preserve, which would
+            // ignore the user unchecking the box.
 
             if (viewModel.BackendKind is null)
             {
@@ -289,6 +293,7 @@ public sealed class SshLaunchDetails
         merged.AuthMode = incoming.AuthMode;
         merged.IdentityFilePath = incoming.IdentityFilePath;
         merged.RememberPasswordInVault = incoming.RememberPasswordInVault;
+        merged.AllowAgentAccess = incoming.AllowAgentAccess;
         merged.JumpHops = incoming.JumpHops.Select(CloneJumpHop).ToList();
         merged.Forwards = incoming.Forwards.Select(CloneForward).ToList();
         merged.MuxOptions = CloneMuxOptions(incoming.MuxOptions);
@@ -592,7 +597,8 @@ public sealed class SshLaunchDetails
             ServerAliveCountMax = profile.ServerAliveCountMax,
             ExtraSshArgs = profile.ExtraSshArgs,
             WorkingDirectory = profile.WorkingDirectory,
-            RemoteShellKind = profile.RemoteShellKind
+            RemoteShellKind = profile.RemoteShellKind,
+            AllowAgentAccess = profile.AllowAgentAccess
         };
     }
 

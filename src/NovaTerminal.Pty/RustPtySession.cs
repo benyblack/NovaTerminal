@@ -34,10 +34,110 @@ namespace NovaTerminal.Pty
         // Bounded queue for back-pressure - prevents OOM on high-throughput output
         private readonly BlockingCollection<string> _outputQueue = new BlockingCollection<string>(boundedCapacity: 100);
 
+        // Bounded input queue drained by a dedicated writer thread. The native side does
+        // write_all, which can block indefinitely while the foreground program isn't
+        // draining stdin (paused pager, `sleep`, full-screen app) — and paste/drop
+        // handlers call SendInput from the Avalonia UI thread, so the blocking write must
+        // never run on the caller. The bound applies backpressure to pathological floods
+        // without unbounded memory growth.
+        private readonly BlockingCollection<byte[]> _inputQueue = new BlockingCollection<byte[]>(boundedCapacity: 1024);
+        private Thread? _writeLoopThread;
+
         // UTF-8 decoder with state - handles partial multi-byte sequences across reads
         private readonly Decoder _utf8Decoder = Encoding.UTF8.GetDecoder();
 
-        public event Action<string>? OnOutputReceived;
+        // Output is buffered until the first subscriber attaches, then replayed.
+        // The read/process threads start in the constructor, so a shell's initial
+        // prompt can arrive before the UI wires OnOutputReceived; without this,
+        // ProcessLoop would dequeue-and-drop that output (blinking cursor, no
+        // prompt). Mirrors NativeSshSession's first-subscriber replay.
+        // _outputHandlerGate guards the subscriber field and pending buffer.
+        // _outputInvocationLock separately serializes the actual handler calls so
+        // the first-subscriber replay (subscriber thread) and ProcessLoop
+        // (background thread) never invoke the handler — and thus AnsiParser /
+        // TerminalBuffer, which are not thread-safe — concurrently, and so
+        // replayed output always precedes new output.
+        private readonly object _outputHandlerGate = new();
+        private readonly object _outputInvocationLock = new();
+        private Action<string>? _onOutputReceived;
+        private List<string>? _pendingOutputReplay;
+        private bool _hasOutputSubscriberEver;
+
+        public event Action<string>? OnOutputReceived
+        {
+            add
+            {
+                if (value == null) return;
+
+                // The invocation lock is the OUTER lock so that wiring the
+                // subscriber AND replaying the buffer is one atomic step against
+                // EmitOutput. This guarantees (a) the non-thread-safe subscriber
+                // (AnsiParser/TerminalBuffer) is never entered from two threads at
+                // once, and (b) buffered startup output is delivered before any
+                // live output — a ProcessLoop emit cannot slip in ahead of the
+                // replay. Lock order is always invocation -> gate (remove takes
+                // only the gate), so there is no inversion.
+                lock (_outputInvocationLock)
+                {
+                    string[]? replay = null;
+                    lock (_outputHandlerGate)
+                    {
+                        if (!_hasOutputSubscriberEver)
+                        {
+                            _hasOutputSubscriberEver = true;
+                            if (_pendingOutputReplay != null)
+                            {
+                                replay = _pendingOutputReplay.ToArray();
+                                _pendingOutputReplay = null;
+                            }
+                        }
+                        _onOutputReceived += value;
+                    }
+
+                    if (replay != null)
+                    {
+                        foreach (var text in replay)
+                        {
+                            value(text);
+                        }
+                    }
+                }
+            }
+            remove
+            {
+                if (value == null) return;
+                lock (_outputHandlerGate)
+                {
+                    _onOutputReceived -= value;
+                }
+            }
+        }
+
+        // Delivers decoded output to the current subscriber, or buffers it for
+        // replay when none has attached yet. Called only from ProcessLoop. The
+        // outer invocation lock makes the whole capture-and-invoke atomic against
+        // the add-replay above and other emits, so it never runs before or during
+        // that replay.
+        private void EmitOutput(string text)
+        {
+            lock (_outputInvocationLock)
+            {
+                Action<string>? handler;
+                lock (_outputHandlerGate)
+                {
+                    handler = _onOutputReceived;
+                    if (!_hasOutputSubscriberEver && handler == null)
+                    {
+                        _pendingOutputReplay ??= new List<string>();
+                        _pendingOutputReplay.Add(text);
+                        return;
+                    }
+                }
+
+                handler?.Invoke(text);
+            }
+        }
+
         public event Action<int>? OnExit;
         public bool IsProcessRunning => Volatile.Read(ref _isExited) == 0 && !_handle.IsClosed && !_handle.IsInvalid;
         public int? ExitCode => _exitCode;
@@ -47,14 +147,28 @@ namespace NovaTerminal.Pty
         {
             const string LibName = "rusty_pty";
 
+            // NOTE: every string crossing this boundary must be marshalled as UTF-8.
+            // The Rust side decodes with CStr::to_string_lossy() (UTF-8); the DllImport
+            // default is ANSI (active codepage) on Windows, which silently mangled any
+            // non-ASCII cmd/cwd/args/env into U+FFFD replacement bytes (#152).
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern PtySafeHandle pty_create(string cmd, ushort cols, ushort rows);
+            public static extern PtySafeHandle pty_create(
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string cmd, ushort cols, ushort rows);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern PtySafeHandle pty_spawn(string cmd, string? args, string? cwd, ushort cols, ushort rows);
+            public static extern PtySafeHandle pty_spawn(
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string cmd,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string? args,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string? cwd,
+                ushort cols, ushort rows);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
-            public static extern PtySafeHandle pty_spawn_with_envs(string cmd, string? args, string? cwd, ushort cols, ushort rows, string envs);
+            public static extern PtySafeHandle pty_spawn_with_envs(
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string cmd,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string? args,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string? cwd,
+                ushort cols, ushort rows,
+                [MarshalAs(UnmanagedType.LPUTF8Str)] string envs);
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
             public static extern int pty_read(PtySafeHandle state, byte[] buffer, int len);
@@ -282,8 +396,10 @@ namespace NovaTerminal.Pty
             // IsBackground threads never consume the pool and never block process exit.
             _readLoopThread = new Thread(ReadLoop) { IsBackground = true, Name = $"PtyRead-{Id:N}" };
             _processLoopThread = new Thread(ProcessLoop) { IsBackground = true, Name = $"PtyProcess-{Id:N}" };
+            _writeLoopThread = new Thread(WriteLoop) { IsBackground = true, Name = $"PtyWrite-{Id:N}" };
             _readLoopThread.Start();
             _processLoopThread.Start();
+            _writeLoopThread.Start();
 
             // POST-LAUNCH INJECTION for PowerShell
             if (!skipPowerShellPostLaunchInit &&
@@ -322,7 +438,55 @@ namespace NovaTerminal.Pty
 
         private NovaTerminal.Replay.ReplayWriter? _recorder;
 
+        // Flight recorder ring (agent replay export). Written from the read loop and
+        // Resize; enabled/disabled from the App's agent-host lifecycle. Reference
+        // swap is atomic; loops observe it with the same null-conditional pattern as
+        // _recorder. Never records input — see ITerminalFlightRecorder.
+        private NovaTerminal.Replay.FlightRecordingBuffer? _flightRecorder;
+
         public bool IsRecording => _recorder != null;
+
+        public bool IsFlightRecording => _flightRecorder != null;
+
+        public void EnableFlightRecording(long maxTotalBytes)
+        {
+            if (_flightRecorder != null) return; // Already enabled
+            // Defensive fallback: geometry should always be positive here, but the
+            // ring constructor rejects non-positive dimensions and enabling must
+            // never throw at the agent-host lifecycle call site.
+            int cols = _cols > 0 ? _cols : 80;
+            int rows = _rows > 0 ? _rows : 24;
+            _flightRecorder = new NovaTerminal.Replay.FlightRecordingBuffer(maxTotalBytes, cols, rows);
+        }
+
+        public void DisableFlightRecording()
+        {
+            _flightRecorder = null;
+        }
+
+        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        {
+            var ring = _flightRecorder;
+            if (ring == null)
+            {
+                info = default;
+                return false;
+            }
+
+            try
+            {
+                info = ring.ExportTo(filePath, ShellCommand);
+                return true;
+            }
+            catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            {
+                // Try-pattern: expected I/O failures (bad path, permissions, full
+                // disk) must not crash the host on an agent-triggered export.
+                Console.WriteLine($"[RustPtySession] Flight recording export failed: {ex.Message}");
+                info = default;
+                return false;
+            }
+        }
 
         public void StartRecording(string filePath)
         {
@@ -371,7 +535,12 @@ namespace NovaTerminal.Pty
         private void ReadLoop()
         {
             byte[] buffer = new byte[4096];
-            char[] charBuffer = new char[4096]; // For decoded characters
+            // Sized via GetMaxCharCount, NOT buffer.Length: the stateful decoder can carry
+            // up to 3 pending bytes from the previous read, so a full 4096-byte read can
+            // decode to 4097 chars. With a same-sized buffer GetChars threw
+            // ArgumentException and the catch-all below terminated the loop — the session
+            // went silently mute mid-stream (#168).
+            char[] charBuffer = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
 
             // This runs on a dedicated thread, so an unhandled exception would crash the
             // whole process (unlike the old Task.Run, whose unobserved exceptions were
@@ -385,6 +554,7 @@ namespace NovaTerminal.Pty
                     {
                         // Record raw bytes before any processing
                         _recorder?.RecordChunk(buffer, read);
+                        _flightRecorder?.RecordChunk(buffer, read);
 
                         // Use the stateful decoder - it will hold incomplete multi-byte sequences
                         // until more bytes arrive, preventing U+FFFD replacement characters
@@ -445,7 +615,7 @@ namespace NovaTerminal.Pty
             {
                 foreach (var text in _outputQueue.GetConsumingEnumerable(_cts.Token))
                 {
-                    OnOutputReceived?.Invoke(text);
+                    EmitOutput(text);
                 }
             }
             catch (OperationCanceledException)
@@ -469,8 +639,45 @@ namespace NovaTerminal.Pty
             _recorder?.RecordInput(input);
 
             byte[] data = Encoding.UTF8.GetBytes(input);
-            try { Native.pty_write(_handle, data, data.Length); }
-            catch (ObjectDisposedException) { /* session disposed mid-call — drop the write */ }
+            try
+            {
+                // Queue for the dedicated writer thread — never write on the caller
+                // thread; see _inputQueue. Ordering is preserved (single consumer).
+                _inputQueue.Add(data, _cts.Token);
+            }
+            catch (OperationCanceledException) { /* session disposing — drop the write */ }
+            catch (InvalidOperationException) { /* adding completed — session closing */ }
+        }
+
+        private void WriteLoop()
+        {
+            // Contained like ReadLoop/ProcessLoop: this runs on a dedicated thread, so an
+            // unhandled exception would crash the process.
+            try
+            {
+                foreach (var data in _inputQueue.GetConsumingEnumerable(_cts.Token))
+                {
+                    try
+                    {
+                        // Rust side does write_all: success returns the full length,
+                        // failure returns -1 (#168). Input loss must not be silent.
+                        int written = Native.pty_write(_handle, data, data.Length);
+                        if (written != data.Length)
+                        {
+                            Console.WriteLine($"[RustPtySession] pty_write returned {written} (expected {data.Length}); input may be lost");
+                        }
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        return; // handle released — session is gone
+                    }
+                }
+            }
+            catch (OperationCanceledException) { /* dispose */ }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RustPtySession] WriteLoop terminated by unhandled exception: {ex}");
+            }
         }
 
         public void Resize(int cols, int rows)
@@ -482,6 +689,7 @@ namespace NovaTerminal.Pty
             try { Native.pty_resize(_handle, (ushort)cols, (ushort)rows); }
             catch (ObjectDisposedException) { /* session disposed mid-call — ignore resize */ }
             _recorder?.RecordResize(cols, rows);
+            _flightRecorder?.RecordResize(cols, rows);
         }
 
         public void Dispose()
@@ -501,11 +709,17 @@ namespace NovaTerminal.Pty
                 }
             }
 
+            DisableFlightRecording();
+
             // 1. Stop the loops re-entering native calls, and let the process loop drain.
             _cts.Cancel();
             if (!_outputQueue.IsAddingCompleted)
             {
                 _outputQueue.CompleteAdding();
+            }
+            if (!_inputQueue.IsAddingCompleted)
+            {
+                _inputQueue.CompleteAdding();
             }
 
             // 2. Quick join. If the shell already exited (EOF), the read loop is
@@ -531,6 +745,14 @@ namespace NovaTerminal.Pty
             if (!(_processLoopThread?.Join(DisposeJoinTimeout) ?? true))
             {
                 Console.WriteLine("[RustPtySession] ProcessLoop did not exit within join timeout.");
+            }
+
+            // 4b. Join the writer. A write blocked on a full pipe unblocks when the
+            //     handle below is released (pty_close tears down the pipe); the thread is
+            //     IsBackground, so a timed-out join can never block process exit.
+            if (!(_writeLoopThread?.Join(DisposeJoinTimeout) ?? true))
+            {
+                Console.WriteLine("[RustPtySession] WriteLoop did not exit within join timeout.");
             }
 
             // 5. Release the handle. SafeHandle guarantees pty_close runs only once

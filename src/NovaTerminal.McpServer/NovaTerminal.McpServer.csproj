@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NovaTerminal MCP server: a local stdio MCP server that exposes project knowledge to AI
+    coding agents, plus — per the agent-host direction (docs/agent-host/DIRECTION.md, A1) —
+    opt-in, observe-only access to live terminal sessions, proxied over the app's local IPC
+    endpoint. The only solution dependency is the zero-reference contracts leaf
+    (NovaTerminal.AgentHost.Contracts); this server must never reference App/VT/Platform,
+    and must never touch SSH or credentials. Session access is read-only and exists only
+    while the user has "Agent access (observe)" enabled in the running app.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>NovaTerminal.McpServer</RootNamespace>
+    <AssemblyName>NovaTerminal.McpServer</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NovaTerminal.AgentHost.Contracts\NovaTerminal.AgentHost.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NovaTerminal.McpServer.Tests" />
+  </ItemGroup>
+
+</Project>

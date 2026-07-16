@@ -50,8 +50,10 @@ replay parity prevents silent behavioral drift.
 ## Install
 
 GitHub release assets are produced as Native AOT bundles for `win-x64`,
-`linux-x64`, and `osx-arm64`. Installer packaging is not available yet, so
-if a release does not include the bundle you need, build from source.
+`linux-x64`, and `osx-arm64`. Every release runs the gating unit-test lane on
+all three OSes before any bundle is published. Installer packaging is not
+available yet, so if a release does not include the bundle you need, build
+from source.
 
 For build steps, jump to [Build & test](#build--test) below.
 
@@ -123,12 +125,17 @@ acyclic dependency graph.
 - **[`src/NovaTerminal.Pty`](src/NovaTerminal.Pty/)** — Native OS integration and PTY session management.
 - **[`src/NovaTerminal.Replay`](src/NovaTerminal.Replay/)** — Deterministic session recording and playback.
 - **[`src/NovaTerminal.Conformance`](src/NovaTerminal.Conformance/)** — VT conformance matrix tooling and report generation.
-- **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — Command-line shim (e.g. `vt-report`) for headless tooling.
+- **[`src/NovaTerminal.Cli`](src/NovaTerminal.Cli/)** — console-subsystem twin of the (WinExe) app for headless tooling: `vt-report`, headless replay (`--replay <file>`), and the SSH askpass helper.
+- **[`src/NovaTerminal.AgentHost.Contracts`](src/NovaTerminal.AgentHost.Contracts/)** — zero-dependency wire contracts for the agent-host observe channel (shared by App and McpServer).
+- **[`src/NovaTerminal.McpServer`](src/NovaTerminal.McpServer/)** — stdio-only MCP server exposing project docs, config validators, VT conformance data, and (opt-in) live terminal sessions to AI tooling: observe by default, and — behind a separate explicit opt-in — act (type into / open / close sessions).
 
 Validation:
 
-- **[`tests/NovaTerminal.Tests`](tests/NovaTerminal.Tests/)** — primary unit and integration suite (Headless UI).
-- **[`tests/NovaTerminal.Benchmarks`](tests/NovaTerminal.Benchmarks/)** — performance and throughput benchmarks.
+- **[`tests/NovaTerminal.App.Tests`](tests/NovaTerminal.App.Tests/)** — primary unit and integration suite (Avalonia Headless UI), including replay, render-metrics, golden-PNG, and shell-integration lanes.
+- **[`tests/NovaTerminal.VT.Tests`](tests/NovaTerminal.VT.Tests/)**, **[`tests/NovaTerminal.Rendering.Tests`](tests/NovaTerminal.Rendering.Tests/)**, **[`tests/NovaTerminal.Platform.Tests`](tests/NovaTerminal.Platform.Tests/)**, **[`tests/NovaTerminal.McpServer.Tests`](tests/NovaTerminal.McpServer.Tests/)** — deterministic per-module suites (the blocking CI lane).
+- **[`tests/NovaTerminal.Architecture.Tests`](tests/NovaTerminal.Architecture.Tests/)** — the key invariants of the graph below are *enforced*, not aspirational: NetArchTest checks at IL, csproj, and namespace level.
+- **[`tests/NovaTerminal.Benchmarks`](tests/NovaTerminal.Benchmarks/)** — performance benchmarks and the SharpFuzz/libFuzzer harness.
+- **[`tests/NovaTerminal.ExternalSuites`](tests/NovaTerminal.ExternalSuites/)** — manual vttest / native-SSH scenario driver.
 
 ```mermaid
 graph TD
@@ -138,13 +145,15 @@ graph TD
     App --> Rendering[NovaTerminal.Rendering]
     App --> Pty[NovaTerminal.Pty]
     App --> Replay[NovaTerminal.Replay]
-    Core --> Pty
-    Pty --> VT
+    Platform --> Pty
     Pty --> Replay
     Rendering --> VT
     Replay --> VT
     Conformance[NovaTerminal.Conformance]
+    McpServer[NovaTerminal.McpServer]
 ```
+
+Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zero project references; `Pty` must **not** depend on `VT` (the PTY layer delivers raw bytes only); `Replay` and `Rendering` reference exactly `VT`; no production assembly references test libraries. The remaining edges above are documented from the csproj references but not individually asserted.
 
 ---
 
@@ -152,12 +161,27 @@ graph TD
 
 #### Active work
 
+- **Agent host program** — the accepted strategic direction
+  ([`docs/agent-host/DIRECTION.md`](docs/agent-host/DIRECTION.md)): a
+  session-facing MCP surface so AI agents can observe, query status of, and
+  — with explicit, separate permission — act inside live terminal sessions
+  (`send_input` / `spawn_session` / `close_session`, gated by an "Agent access
+  (act)" opt-in on top of observe, a per-profile SSH allowlist, and a visible
+  activity journal; threat model in
+  [`docs/agent-host/2026-07-12-acting-threat-model.md`](docs/agent-host/2026-07-12-acting-threat-model.md)),
+  with deterministic replay as the debugging story. Debug what your agent did,
+  frame by frame: with both opt-in toggles enabled, an agent can call
+  `novaterminal.export_replay` to save a session's recent output (never
+  input — typed keys are not retained) as a standard `.rec` file, and anyone
+  can re-render it deterministically with
+  `NovaTerminal.Cli --replay <file> [--attributes]`.
 - **VT conformance program** — every supported VT/ANSI feature is tracked in a
   matrix; a dedicated CI lane regenerates the report and fails on regressions.
   See [`docs/vt_coverage_matrix.md`](docs/vt_coverage_matrix.md) and
   [`docs/ghostty-gaps/vt_conformance_tooling.md`](docs/ghostty-gaps/vt_conformance_tooling.md).
-- **Ghostty gap closure** — systematic comparison against Ghostty's behavior
-  with a roadmap for closing remaining gaps. See
+- **Ghostty gap tracking (regression gate)** — comparison against Ghostty's
+  behavior is maintained as a regression gate; remaining matrix gaps are
+  closed when real TUI or agent workflows hit them. See
   [`docs/ghostty-gaps/`](docs/ghostty-gaps/) and
   [`docs/vt_ghostty_gap_matrix.md`](docs/vt_ghostty_gap_matrix.md).
 - **Native SSH** — cross-platform SSH client (experimental, opt-in) with VT
@@ -206,10 +230,17 @@ dotnet restore
 dotnet build -c Release
 ```
 
-Run tests (same main filter used by CI unit lane):
+> **Note:** if your build's stdout/stderr is captured by a parent process (CI
+> runners, agents, test harnesses), use the wrapper scripts
+> `scripts/build.ps1` / `scripts/build.sh` instead of raw `dotnet` — they pass
+> `-nodeReuse:false` and disable the MSBuild server, preventing an
+> indefinite hang caused by long-lived MSBuild daemons inheriting the output
+> handles. Details in [`CLAUDE.md`](CLAUDE.md).
+
+Run tests (same filter as the blocking CI unit lane):
 
 ```bash
-dotnet test -c Release --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke"
+dotnet test -c Release --no-build --filter "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
 ```
 
 Use `ci/run.sh` (Linux/macOS) or `ci/run.ps1` (Windows) for the full local
@@ -265,7 +296,9 @@ License: [`MIT`](LICENSE).
 
 Contributions are welcome. NovaTerminal has a strong correctness culture —
 terminal core invariants are enforced and automated tests gate changes. See
-[`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for details, and
+[`docs/reviews/`](docs/reviews/) for periodic deep code reviews with the
+current known-issues backlog.
 
 ---
 

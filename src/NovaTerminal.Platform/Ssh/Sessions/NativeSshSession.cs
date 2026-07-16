@@ -28,8 +28,17 @@ public sealed class NativeSshSession : ITerminalSession
     private bool _allowVaultPasswordReuse;
     private readonly object _exitHandlerGate = new();
     private readonly object _outputHandlerGate = new();
+    // Serializes actual handler invocation so the first-subscriber replay
+    // (subscriber thread) and poll-loop emits never enter the non-thread-safe
+    // subscriber (AnsiParser/TerminalBuffer) concurrently, and replayed startup
+    // output always precedes live output. Outer lock; order is invocation -> gate.
+    private readonly object _outputInvocationLock = new();
 
     private ReplayWriter? _recorder;
+
+    // Flight recorder ring (agent replay export) — same byte-level tap as _recorder,
+    // never records input. See ITerminalFlightRecorder.
+    private FlightRecordingBuffer? _flightRecorder;
     private NativePortForwardSession? _portForwardSession;
     private NovaSshSafeHandle? _sessionHandle;
     private int _cols;
@@ -106,6 +115,51 @@ public sealed class NativeSshSession : ITerminalSession
     public bool HasActiveChildProcesses => false;
     public int? ExitCode => _exitCode;
     public bool IsRecording => _recorder != null;
+    public bool IsFlightRecording => _flightRecorder != null;
+
+    public void EnableFlightRecording(long maxTotalBytes)
+    {
+        if (_flightRecorder != null)
+        {
+            return; // Already enabled
+        }
+
+        // Defensive fallback: geometry should always be positive here, but the
+        // ring constructor rejects non-positive dimensions and enabling must
+        // never throw at the agent-host lifecycle call site.
+        int cols = _cols > 0 ? _cols : 80;
+        int rows = _rows > 0 ? _rows : 24;
+        _flightRecorder = new FlightRecordingBuffer(maxTotalBytes, cols, rows);
+    }
+
+    public void DisableFlightRecording()
+    {
+        _flightRecorder = null;
+    }
+
+    public bool TryExportFlightRecording(string filePath, out FlightExportInfo info)
+    {
+        FlightRecordingBuffer? ring = _flightRecorder;
+        if (ring == null)
+        {
+            info = default;
+            return false;
+        }
+
+        try
+        {
+            info = ring.ExportTo(filePath, ShellCommand);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            // Try-pattern: expected I/O failures (bad path, permissions, full
+            // disk) must not crash the host on an agent-triggered export.
+            _log($"[NativeSshSession] Flight recording export failed: {ex.Message}");
+            info = default;
+            return false;
+        }
+    }
 
     public event Action<string>? OnOutputReceived
     {
@@ -116,23 +170,32 @@ public sealed class NativeSshSession : ITerminalSession
                 return;
             }
 
-            List<string>? replay = null;
-            lock (_outputHandlerGate)
+            // Invocation lock is the OUTER lock so wiring the subscriber and
+            // replaying the buffer is atomic against EmitText: no concurrent
+            // invocation, and a live emit cannot slip ahead of the replay.
+            lock (_outputInvocationLock)
             {
-                _onOutputReceived += value;
-                if (!_hasOutputSubscriberEver)
+                string[]? replay = null;
+                lock (_outputHandlerGate)
                 {
-                    _hasOutputSubscriberEver = true;
-                    replay = _pendingOutputReplay;
-                    _pendingOutputReplay = null;
+                    if (!_hasOutputSubscriberEver)
+                    {
+                        _hasOutputSubscriberEver = true;
+                        if (_pendingOutputReplay != null)
+                        {
+                            replay = _pendingOutputReplay.ToArray();
+                            _pendingOutputReplay = null;
+                        }
+                    }
+                    _onOutputReceived += value;
                 }
-            }
 
-            if (replay != null)
-            {
-                foreach (string text in replay)
+                if (replay != null)
                 {
-                    value(text);
+                    foreach (string text in replay)
+                    {
+                        value(text);
+                    }
                 }
             }
         }
@@ -214,6 +277,7 @@ public sealed class NativeSshSession : ITerminalSession
             _cols = cols;
             _rows = rows;
             _recorder?.RecordResize(cols, rows);
+            _flightRecorder?.RecordResize(cols, rows);
         }
         catch (Exception ex) when (!IsCriticalException(ex))
         {
@@ -303,6 +367,7 @@ public sealed class NativeSshSession : ITerminalSession
     public void Dispose()
     {
         StopRecording();
+        DisableFlightRecording();
         _pollCts.Cancel();
         _metrics.MarkDisconnected("Disposed");
         _portForwardSession?.Dispose();
@@ -391,6 +456,7 @@ public sealed class NativeSshSession : ITerminalSession
     {
         _metrics.MarkFirstOutput();
         _recorder?.RecordChunk(payload, payload.Length);
+        _flightRecorder?.RecordChunk(payload, payload.Length);
 
         char[] chars = new char[Encoding.UTF8.GetMaxCharCount(payload.Length)];
         int charCount = _utf8Decoder.GetChars(payload, 0, payload.Length, chars, 0, flush: false);
@@ -507,19 +573,30 @@ public sealed class NativeSshSession : ITerminalSession
 
     private void EmitText(string text)
     {
-        Action<string>? handler;
-        lock (_outputHandlerGate)
+        // Outer invocation lock makes capture-and-invoke atomic against the
+        // add-replay above and other emits, so it never runs before or during
+        // that replay and never invokes the handler concurrently.
+        lock (_outputInvocationLock)
         {
-            handler = _onOutputReceived;
-            if (!_hasOutputSubscriberEver && handler == null)
+            Action<string>? handler;
+            lock (_outputHandlerGate)
             {
-                _pendingOutputReplay ??= new List<string>();
-                _pendingOutputReplay.Add(text);
-                return;
+                handler = _onOutputReceived;
+                if (!_hasOutputSubscriberEver && handler == null)
+                {
+                    _pendingOutputReplay ??= new List<string>();
+                    _pendingOutputReplay.Add(text);
+                    return;
+                }
             }
-        }
 
-        handler?.Invoke(text);
+            // Invoked while holding _outputInvocationLock: the subscriber MUST be
+            // non-blocking (the pane handler parses synchronously and posts to the
+            // UI thread via Dispatcher.Post, which does not wait). A handler that
+            // blocks here — e.g. synchronously awaiting a UI-thread response — would
+            // stall the poll loop and any new subscriber.
+            handler?.Invoke(text);
+        }
     }
 
     private void CloseNativeHandle()

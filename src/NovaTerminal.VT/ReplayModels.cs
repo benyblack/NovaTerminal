@@ -67,6 +67,15 @@ namespace NovaTerminal.VT
         [JsonPropertyName("bp")] public bool IsBracketedPasteMode { get; set; }
         [JsonPropertyName("cv")] public bool IsCursorVisible { get; set; }
 
+        /// <summary>
+        /// Deferred autowrap state: the cursor sits on the last column with a
+        /// wrap pending for the next printable character. Absent (false) in
+        /// legacy recordings. Without this, a snapshot taken right after output
+        /// fills the last column replays with the wrap dropped and the next
+        /// character overwrites the row end instead of wrapping.
+        /// </summary>
+        [JsonPropertyName("pw")] public bool IsPendingWrap { get; set; }
+
         [JsonPropertyName("fg")] public uint CurrentForeground { get; set; }
         [JsonPropertyName("bg")] public uint CurrentBackground { get; set; }
         [JsonPropertyName("fgi")] public short CurrentFgIndex { get; set; }

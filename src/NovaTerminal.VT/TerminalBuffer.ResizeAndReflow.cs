@@ -28,6 +28,12 @@ namespace NovaTerminal.VT
 
         public void Resize(int newCols, int newRows)
         {
+            // Ignore degenerate dimensions. A transient 0/negative size (e.g. a window
+            // momentarily reporting zero width) must not corrupt the buffer or throw; keep the
+            // last valid size and let the next real resize take effect. Without this guard the
+            // width-change path indexes tab-stop/cell arrays with a non-positive length and throws.
+            if (newCols <= 0 || newRows <= 0) return;
+
             Lock.EnterWriteLock();
             try
             {
@@ -93,7 +99,15 @@ namespace NovaTerminal.VT
 
                             for (int i = 0; i < diff; i++)
                             {
-                                _scrollback.AppendRow(_viewport[i].Cells);
+                                // Preserve wrap flag and side tables (extended text,
+                                // hyperlinks), matching the WritePath eviction; dropping
+                                // them corrupted emoji/multi-codepoint graphemes once a
+                                // resize pushed rows into scrollback.
+                                _scrollback.AppendRow(
+                                    _viewport[i].Cells,
+                                    _viewport[i].IsWrapped,
+                                    _viewport[i].GetExtendedTextMap(),
+                                    _viewport[i].GetHyperlinkMap());
                             }
 
                             var newVp = new TerminalRow[newRows];
@@ -107,6 +121,10 @@ namespace NovaTerminal.VT
                                 for (int i = _images.Count - 1; i >= 0; i--)
                                 {
                                     var img = _images[i];
+                                    // Only main-screen images live in the absolute
+                                    // (scrollback + viewport) space this shift targets.
+                                    if (img.IsAltScreenImage) continue;
+
                                     int delta = newlyEvicted > int.MaxValue ? int.MaxValue : (int)newlyEvicted;
                                     img.CellY -= delta;
                                     if (img.CellY + img.CellHeight <= 0) _images.RemoveAt(i);
@@ -253,8 +271,13 @@ namespace NovaTerminal.VT
                 for (int i = linesNeeded - 1; i >= 0; i--)
                 {
                     var row = new TerminalRow(Cols, Theme.Foreground, Theme.Background);
-                    if (_scrollback.TryPopLastRow(row.Cells))
+                    if (_scrollback.TryPopLastRow(row.Cells, out var isWrapped, out var extendedText, out var hyperlinks))
                     {
+                        // Restore the full row, not just cells: wrap flag and side
+                        // tables (extended text, hyperlinks) must survive the
+                        // shrink-then-grow round trip through scrollback.
+                        row.IsWrapped = isWrapped;
+                        row.RestoreSideTables(extendedText, hyperlinks);
                         newViewport[i] = row;
                         pulled++;
                     }
@@ -267,9 +290,11 @@ namespace NovaTerminal.VT
                 Array.Copy(_viewport, 0, newViewport, linesNeeded, oldRows);
                 _cursorRow += linesNeeded;
                 
-                // Shift images DOWN
+                // Shift MAIN-screen images DOWN (alt coordinates are viewport-relative
+                // and unaffected by the scrollback/viewport redistribution).
                 for (int i = 0; i < _images.Count; i++)
                 {
+                    if (_images[i].IsAltScreenImage) continue;
                     _images[i].CellY += linesNeeded;
                 }
             }
@@ -281,7 +306,13 @@ namespace NovaTerminal.VT
 
                 for (int i = 0; i < linesToPush; i++)
                 {
-                    _scrollback.AppendRow(_viewport[i].Cells);
+                    // Same as the height-shrink redistribution path: keep wrap
+                    // flag and side tables so extended graphemes survive.
+                    _scrollback.AppendRow(
+                        _viewport[i].Cells,
+                        _viewport[i].IsWrapped,
+                        _viewport[i].GetExtendedTextMap(),
+                        _viewport[i].GetHyperlinkMap());
                 }
 
                 Array.Copy(_viewport, linesToPush, newViewport, 0, newRows);
@@ -289,10 +320,12 @@ namespace NovaTerminal.VT
 
                 int newlyDiscarded = (int)(_scrollback.TotalRowsEvicted - prevEvicted);
 
-                // Shift images UP
+                // Shift MAIN-screen images UP (see grow path above).
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
                     var img = _images[i];
+                    if (img.IsAltScreenImage) continue;
+
                     img.CellY -= (linesToPush + newlyDiscarded);
                     if (img.CellY + img.CellHeight <= 0) _images.RemoveAt(i);
                 }

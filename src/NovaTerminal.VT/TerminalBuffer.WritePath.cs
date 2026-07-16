@@ -434,6 +434,10 @@ NormalWrite:
                     for (int i = _images.Count - 1; i >= 0; i--)
                     {
                         var img = _images[i];
+                        // Eviction shifts the MAIN-screen absolute coordinate space only;
+                        // alt-screen images are viewport-relative and must not move.
+                        if (img.IsAltScreenImage) continue;
+
                         int delta = newlyEvicted > int.MaxValue ? int.MaxValue : (int)newlyEvicted;
                         img.CellY -= delta;
                         // If the image's entire area is now before the new index 0, prune it.
@@ -454,6 +458,11 @@ NormalWrite:
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
                     var img = _images[i];
+                    // Scroll only moves images of the ACTIVE screen: coordinates of the
+                    // inactive screen live in a different space (absolute vs viewport-
+                    // relative) and would be corrupted by this shift.
+                    if (img.IsAltScreenImage != _isAltScreen) continue;
+
                     // If image overlaps with the scrolling region, it moves.
                     // Accurate overlap: Ends after top AND Starts before bottom.
                     if (img.IsSticky && img.CellY + img.CellHeight > absTop && img.CellY <= absBottom)
@@ -515,6 +524,9 @@ NormalWrite:
             for (int i = _images.Count - 1; i >= 0; i--)
             {
                 var img = _images[i];
+                // Only the active screen's images move (see ScrollUpInternal).
+                if (img.IsAltScreenImage != _isAltScreen) continue;
+
                 // If image overlaps with the scrolling region, it moves.
                 if (img.IsSticky && img.CellY + img.CellHeight > absTop && img.CellY < absBottom)
                 {
@@ -592,6 +604,13 @@ NormalWrite:
         {
             if (_cursorRow < 0 || _cursorRow >= Rows) return;
 
+            // Clamp to the columns available from the cursor. Without this, a count larger than
+            // the line width (e.g. CSI 9999 P, or the parser's max parameter) makes endCol go
+            // negative and the fill loop below index Cells[-n] → IndexOutOfRangeException.
+            int maxDeletable = Cols - _cursorCol;
+            if (maxDeletable <= 0) return;
+            if (count > maxDeletable) count = maxDeletable;
+
             int endCol = Cols - count;
             var row = _viewport[_cursorRow];
 
@@ -606,6 +625,9 @@ NormalWrite:
             for (int i = _images.Count - 1; i >= 0; i--)
             {
                 var img = _images[i];
+                // Only the active screen's images move (see ScrollUpInternal).
+                if (img.IsAltScreenImage != _isAltScreen) continue;
+
                 if (img.IsSticky && img.CellY == absY && img.CellX >= _cursorCol)
                 {
                     img.CellX -= count;

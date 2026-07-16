@@ -50,6 +50,26 @@ namespace NovaTerminal.Shell
         public bool CommandAssistShellIntegrationEnabled { get; set; } = true;
         public bool CommandAssistPowerShellIntegrationEnabled { get; set; } = true;
         public bool ExperimentalNativeSshEnabled { get; set; } = false;
+        // Agent-host observe surface (docs/agent-host/DIRECTION.md, milestone A1).
+        // Off by default: when false, no local IPC endpoint exists at all and AI
+        // agents cannot read any terminal session. Observe-only in v1 — there is
+        // no acting capability behind this flag.
+        public bool AgentAccessObserveEnabled { get; set; } = false;
+        // A4 sub-gate on top of the observe toggle: allows agents to export a
+        // session's recent output as a replay file (novaterminal.export_replay).
+        // Exports contain output and resize events only — never typed input
+        // (privacy decision in docs/plans/2026-07-07-agent-host-a4-replay-design.md).
+        // Off by default; both toggles must be on for an export to succeed.
+        public bool AgentReplayExportEnabled { get; set; } = false;
+        // A3 act surface: separate default-off opt-in letting agents type into,
+        // spawn, and close sessions (novaterminal.send_input / spawn_session /
+        // close_session). On top of observe; SSH sessions additionally require
+        // per-profile allowlisting. Every acting call is shown in the agent
+        // activity journal. Off by default.
+        public bool AgentAccessActEnabled { get; set; } = false;
+        // In-app toast when a command that ran ≥30s finishes in an unfocused
+        // pane (A2 PR4, absorbs ROADMAP §5.2). Off by default.
+        public bool LongCommandNotificationsEnabled { get; set; } = false;
 
         public System.Collections.Generic.List<TerminalProfile> Profiles { get; set; } = new();
         public Guid DefaultProfileId { get; set; }
@@ -124,9 +144,37 @@ namespace NovaTerminal.Shell
                     string json = File.ReadAllText(settingsPath);
                     settings = JsonSerializer.Deserialize(json, AppJsonContext.Default.TerminalSettings) ?? new TerminalSettings();
                 }
-                catch
+                catch (Exception ex)
                 {
-                    settings = new TerminalSettings();
+                    // Corrupt settings must not be silently replaced with defaults (#167):
+                    // quarantine the evidence, then fall back to the .bak written by
+                    // AtomicFile before resorting to defaults.
+                    System.Diagnostics.Debug.WriteLine($"[Settings] '{settingsPath}' is unreadable ({ex.Message}); trying backup.");
+                    try { File.Copy(settingsPath, settingsPath + ".corrupt", overwrite: true); }
+                    catch { /* best effort */ }
+
+                    var fromBackup = TryLoadOrNull(settingsPath + ".bak");
+                    if (fromBackup != null)
+                    {
+                        settings = fromBackup;
+                        // Repair the primary immediately so subsequent launches don't
+                        // repeatedly quarantine + fall back (review feedback on #178).
+                        try
+                        {
+                            AtomicFile.WriteAllText(settingsPath,
+                                JsonSerializer.Serialize(fromBackup, AppJsonContext.Default.TerminalSettings));
+                        }
+                        catch (Exception repairEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[Settings] Failed to repair '{settingsPath}' from backup: {repairEx.Message}");
+                        }
+                    }
+                    else
+                    {
+                        // The reset to defaults must leave a diagnosable trace.
+                        System.Diagnostics.Debug.WriteLine($"[Settings] Backup '{settingsPath}.bak' is also unreadable; falling back to defaults.");
+                        settings = new TerminalSettings();
+                    }
                 }
             }
             else
@@ -195,15 +243,34 @@ namespace NovaTerminal.Shell
             return settings;
         }
 
+        private static TerminalSettings? TryLoadOrNull(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                string json = File.ReadAllText(path);
+                return JsonSerializer.Deserialize(json, AppJsonContext.Default.TerminalSettings);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         public void Save()
         {
             try
             {
                 AppPaths.EnsureInitialized();
                 string json = JsonSerializer.Serialize(this, AppJsonContext.Default.TerminalSettings);
-                File.WriteAllText(SettingsPath, json);
+                // Atomic write with .bak (#167): a crash mid-write previously corrupted
+                // settings.json, and the next start silently reset all configuration.
+                AtomicFile.WriteAllText(SettingsPath, json);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Settings] Save failed: {ex.Message}");
+            }
         }
     }
 }

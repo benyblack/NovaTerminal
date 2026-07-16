@@ -47,6 +47,7 @@ namespace NovaTerminal.Rendering
         private static long _terminalViewActiveTimerCount;
         private static long _terminalViewPeakTimerCount;
         private static long _hiddenInvalidationRequests;
+        private static long _glyphAtlasResets;
 
         public static long TotalFrames => Interlocked.Read(ref _totalFrames);
         public static long FullRedraws => Interlocked.Read(ref _fullRedraws);
@@ -90,6 +91,13 @@ namespace NovaTerminal.Rendering
         public static long TerminalViewActiveTimerCount => Interlocked.Read(ref _terminalViewActiveTimerCount);
         public static long TerminalViewPeakTimerCount => Interlocked.Read(ref _terminalViewPeakTimerCount);
         public static long HiddenInvalidationRequests => Interlocked.Read(ref _hiddenInvalidationRequests);
+
+        /// <summary>
+        /// Number of times the glyph atlas overflowed and had to drop cached glyphs (either a
+        /// retain-hot-set rebuild or, rarely, a full wipe). A steadily climbing value means the
+        /// working glyph set exceeds the atlas — i.e. the cyclic re-rasterization spikes from #125.
+        /// </summary>
+        public static long GlyphAtlasResets => Interlocked.Read(ref _glyphAtlasResets);
 
         public static void RecordFrame(bool fullRedraw, int dirtyCells)
         {
@@ -248,6 +256,11 @@ namespace NovaTerminal.Rendering
             Interlocked.Increment(ref _hiddenInvalidationRequests);
         }
 
+        public static void RecordGlyphAtlasReset()
+        {
+            Interlocked.Increment(ref _glyphAtlasResets);
+        }
+
         public static void Reset()
         {
             Interlocked.Exchange(ref _totalFrames, 0);
@@ -292,6 +305,7 @@ namespace NovaTerminal.Rendering
             Interlocked.Exchange(ref _terminalViewActiveTimerCount, 0);
             Interlocked.Exchange(ref _terminalViewPeakTimerCount, 0);
             Interlocked.Exchange(ref _hiddenInvalidationRequests, 0);
+            Interlocked.Exchange(ref _glyphAtlasResets, 0);
         }
 
         public static string GetReport()
@@ -308,7 +322,7 @@ namespace NovaTerminal.Rendering
             long startupRestoreCompleteAvg = StartupSessionRestoreCompleteSamples > 0 ? StartupSessionRestoreCompleteTimeMs / StartupSessionRestoreCompleteSamples : 0;
             long startupDeferredWorkAvg = StartupDeferredWorkSamples > 0 ? StartupDeferredWorkTimeMs / StartupDeferredWorkSamples : 0;
             long startupBackgroundRestoreAvg = StartupBackgroundRestoreSamples > 0 ? StartupBackgroundRestoreTimeMs / StartupBackgroundRestoreSamples : 0;
-            return $"Frames: {TotalFrames}, Full: {FullRedraws}, Dirty: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}, PicsRec: {RowPicturesRecorded}, RecTime: {RowPictureRecordTimeMs}ms, RenderTime: {FrameRenderTimeMs}ms, PtyDrops: {PtyQueueDrops}, PtyMaxQ: {PtyQueueMaxDepth}, ResizeDispatchAvg: {avgResizeDispatch}ms, TabSwitchAvg: {tabSwitchAvg}ms, TabVisualAvg: {tabVisualAvg}ms, TabAutomationAvg: {tabAutomationAvg}ms, SessionSaveAvg: {sessionSaveAvg}ms/{SessionSaveBytes}B, SessionRestoreAvg: {sessionRestoreAvg}ms/{SessionRestoreBytes}B, StartupWindowAvg: {startupWindowShownAvg}ms, StartupFirstTerminalAvg: {startupFirstTerminalReadyAvg}ms, StartupRestoreCompleteAvg: {startupRestoreCompleteAvg}ms, StartupDeferredAvg: {startupDeferredWorkAvg}ms, StartupBackgroundRestoreAvg: {startupBackgroundRestoreAvg}ms, TvTimers: {TerminalViewActiveTimerCount}/{TerminalViewPeakTimerCount}, HiddenInvReq: {HiddenInvalidationRequests}";
+            return $"Frames: {TotalFrames}, Full: {FullRedraws}, Dirty: {DirtyCellsRendered}, LockMs: {BufferReadLockTimeMs}, Hits: {RowCacheHits}, Misses: {RowCacheMisses}, Snaps: {RowSnapshotsTaken}, PicsRec: {RowPicturesRecorded}, RecTime: {RowPictureRecordTimeMs}ms, RenderTime: {FrameRenderTimeMs}ms, PtyDrops: {PtyQueueDrops}, PtyMaxQ: {PtyQueueMaxDepth}, ResizeDispatchAvg: {avgResizeDispatch}ms, TabSwitchAvg: {tabSwitchAvg}ms, TabVisualAvg: {tabVisualAvg}ms, TabAutomationAvg: {tabAutomationAvg}ms, SessionSaveAvg: {sessionSaveAvg}ms/{SessionSaveBytes}B, SessionRestoreAvg: {sessionRestoreAvg}ms/{SessionRestoreBytes}B, StartupWindowAvg: {startupWindowShownAvg}ms, StartupFirstTerminalAvg: {startupFirstTerminalReadyAvg}ms, StartupRestoreCompleteAvg: {startupRestoreCompleteAvg}ms, StartupDeferredAvg: {startupDeferredWorkAvg}ms, StartupBackgroundRestoreAvg: {startupBackgroundRestoreAvg}ms, TvTimers: {TerminalViewActiveTimerCount}/{TerminalViewPeakTimerCount}, HiddenInvReq: {HiddenInvalidationRequests}, GlyphAtlasResets: {GlyphAtlasResets}";
         }
     }
 }

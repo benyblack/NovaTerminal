@@ -431,6 +431,10 @@ namespace NovaTerminal.VT
                     {
                         var img = _images[imgIdx];
                         if (img == null) continue;
+                        // Reflow operates on main-screen content (scrollback + main
+                        // viewport). Alt-screen images use viewport-relative CellY and
+                        // must not be anchored to (and repositioned by) main logical lines.
+                        if (img.IsAltScreenImage) continue;
 
                         // Find which logical line contains img.CellY
                         for (int idx = 0; idx < logicalLines.Count; idx++)
@@ -593,7 +597,13 @@ namespace NovaTerminal.VT
 
                     for (int i = 0; i < sbCount; i++)
                     {
-                        newScrollback.AppendRow(allFlowedRows[i].Cells, allFlowedRows[i].IsWrapped);
+                        // Carry each reflowed row's side tables into the rebuilt
+                        // scrollback; extended graphemes must survive reflow.
+                        newScrollback.AppendRow(
+                            allFlowedRows[i].Cells,
+                            allFlowedRows[i].IsWrapped,
+                            allFlowedRows[i].GetExtendedTextMap(),
+                            allFlowedRows[i].GetHyperlinkMap());
                     }
                     
                     int discardedRows = (int)newScrollback.TotalRowsEvicted;
@@ -718,13 +728,22 @@ namespace NovaTerminal.VT
                 }
                 catch (Exception ex)
                 {
-                    try { System.IO.File.AppendAllText("error.log", "\n--- Reflow Exception at " + DateTime.Now + " ---\n" + ex.ToString() + "\n"); } catch { }
+                    TerminalLogger.Error("Reflow failed; buffer reset to a clean state. " + ex);
                     // Failsafe: if reflow crashes, we just reset the buffer to a clean state to avoid permanent hang
                     _scrollback = new ScrollbackPages(newCols, _sharedPagePool, _maxScrollbackBytes);
                     _viewport = new TerminalRow[newRows];
                     for (int i = 0; i < newRows; i++) _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);
                     _cursorRow = 0;
                     _cursorCol = 0;
+                }
+                finally
+                {
+                    // Return the pooled arrays. clearArray: true because the rows hold cell
+                    // structs with string references; not clearing would pin them in the pool.
+                    if (allPhysicalRows is not null)
+                        System.Buffers.ArrayPool<TerminalRow>.Shared.Return(allPhysicalRows, clearArray: true);
+                    if (logicalCells is not null)
+                        System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText)>.Shared.Return(logicalCells, clearArray: true);
                 }
             }
         }

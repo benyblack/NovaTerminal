@@ -24,5 +24,6 @@
     <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Cli\NovaTerminal.Cli.csproj" />
     <ProjectReference Include="..\..\src\NovaTerminal.Conformance\NovaTerminal.Conformance.csproj" />
+    <ProjectReference Include="..\..\src\NovaTerminal.AgentHost.Contracts\NovaTerminal.AgentHost.Contracts.csproj" />
   </ItemGroup>
 </Project>

@@ -160,6 +160,7 @@ jobs:
             tests/NovaTerminal.Architecture.Tests/bin/${{ env.CONFIGURATION }}
             tests/NovaTerminal.VT.Tests/bin/${{ env.CONFIGURATION }}
             tests/NovaTerminal.Rendering.Tests/bin/${{ env.CONFIGURATION }}
+            tests/NovaTerminal.McpServer.Tests/bin/${{ env.CONFIGURATION }}
 
   build_and_unit_tests:
     name: Unit Tests (${{ matrix.os }})
@@ -255,7 +256,7 @@ jobs:
         run: |
           set -e
           filter="Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
-          for proj in VT Rendering Architecture Platform; do
+          for proj in VT Rendering Architecture Platform McpServer; do
             echo "::group::NovaTerminal.$proj.Tests"
             dotnet test "tests/NovaTerminal.$proj.Tests" -c "$CONFIGURATION" --no-build --no-restore \
               --filter "$filter" --logger "trx;LogFileName=unit_${proj}.trx"

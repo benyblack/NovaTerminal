@@ -23,6 +23,18 @@ namespace NovaTerminal.VT
             return GetCellAbsolute(col, actualIndex);
         }
 
+        /// <summary>
+        /// Returns the <see cref="TerminalRow"/> at an absolute row index (scrollback + viewport),
+        /// or <c>null</c> when no persistent row object exists at that index. Requires the read
+        /// lock (see <see cref="AssertLockHeld"/>).
+        /// </summary>
+        /// <remarks>
+        /// Returns <c>null</c> for: negative indices, out-of-range viewport rows, and — importantly —
+        /// any <b>scrollback</b> row. Scrollback is stored paged in <c>ScrollbackPages</c>, not as
+        /// <see cref="TerminalRow"/> objects, so it has no row to hand back. To read scrollback
+        /// content use <see cref="GetCellAbsolute"/> / <see cref="GetGraphemeAbsolute"/>, which page
+        /// it in. Callers that assume a non-null row for scrollback indices will dereference null.
+        /// </remarks>
         public TerminalRow? GetRowAbsolute(int absRow)
         {
             AssertLockHeld();
@@ -424,6 +436,9 @@ namespace NovaTerminal.VT
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
                     var img = _images[i];
+                    // Only the active screen's images move (see ScrollUpInternal).
+                    if (img.IsAltScreenImage != _isAltScreen) continue;
+
                     // If image starts in or below the insertion point, shift it down
                     if (img.IsSticky && img.CellY >= absTop && img.CellY <= absBottom)
                     {
@@ -481,6 +496,9 @@ namespace NovaTerminal.VT
                 for (int i = _images.Count - 1; i >= 0; i--)
                 {
                     var img = _images[i];
+                    // Only the active screen's images move (see ScrollUpInternal).
+                    if (img.IsAltScreenImage != _isAltScreen) continue;
+
                     // If image overlaps with or is below the deleted range
                     if (img.IsSticky && img.CellY + img.CellHeight > absTop && img.CellY <= absBottom)
                     {
@@ -717,12 +735,14 @@ namespace NovaTerminal.VT
                         // Regex Search
                         foreach (System.Text.RegularExpressions.Match m in regex.Matches(lineText))
                         {
-                            if (m.Success)
-                            {
-                                int startCol = colMapping[m.Index];
-                                int endCol = colMapping[m.Index + m.Length - 1];
-                                matches.Add(new SearchMatch(r, startCol, endCol));
-                            }
+                            // Zero-length matches (patterns like "a*", "()" or "\b") have no
+                            // cells to highlight, and would index colMapping at -1 (or past the
+                            // end for a match at end-of-line). See #150.
+                            if (m.Length == 0) continue;
+
+                            int startCol = colMapping[m.Index];
+                            int endCol = colMapping[m.Index + m.Length - 1];
+                            matches.Add(new SearchMatch(r, startCol, endCol));
                         }
                     }
                     else
@@ -821,6 +841,13 @@ namespace NovaTerminal.VT
 
             foreach (var img in _images)
             {
+                // Only images belonging to the active screen are visible. Main-screen
+                // images use absolute CellY, alt-screen images viewport-relative; without
+                // this filter an inactive-screen image whose (re-based) CellY happens to
+                // overlap the visible range would bleed through (e.g. after ED 3 rebases
+                // main-screen anchors while the alt screen is active).
+                if (img.IsAltScreenImage != _isAltScreen) continue;
+
                 // Simple visibility check
                 if (img.CellY + img.CellHeight > absDisplayStart && img.CellY < absEnd)
                 {
@@ -919,7 +946,11 @@ namespace NovaTerminal.VT
                     }
                 }
 
-                _isPendingWrap = false;
+                // Restore deferred autowrap ("pw", absent=false in legacy files):
+                // a snapshot taken right after output filled the last column must
+                // replay with the wrap still pending, or the next character
+                // overwrites the row end instead of wrapping — divergence from live.
+                _isPendingWrap = snapshot.IsPendingWrap;
             }
             finally
             {

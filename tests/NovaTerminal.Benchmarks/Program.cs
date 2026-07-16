@@ -7,14 +7,17 @@ namespace NovaTerminal.Benchmarks
     {
         static void Main(string[] args)
         {
+            // SharpFuzz/libFuzzer entry points. The input is supplied by the libFuzzer driver
+            // (via SharpFuzz), so no input-file argument is needed here.
             if (args.Length > 0 && args[0] == "--fuzz")
             {
-                if (args.Length < 2)
-                {
-                    Console.WriteLine("Usage: --fuzz <input_file>");
-                    return;
-                }
-                FuzzTarget.Run(args[1]);
+                FuzzTarget.Run();
+                return;
+            }
+
+            if (args.Length > 0 && args[0] == "--fuzz-resize")
+            {
+                FuzzTarget.RunParseResize();
                 return;
             }
 

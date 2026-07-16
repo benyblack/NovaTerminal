@@ -190,6 +190,11 @@ struct SharedState {
     responses: Mutex<VecDeque<QueuedResponse>>,
     response_cv: Condvar,
     closed: Mutex<bool>,
+    // Async-side companion to `closed`/`response_cv`: lets the worker's session
+    // establishment race against nova_ssh_close so a stuck connect/auth can be
+    // aborted promptly instead of blocking `worker.join()` (and, transitively,
+    // the .NET finalizer thread) indefinitely. See #155.
+    closed_notify: tokio::sync::Notify,
 }
 
 struct QueuedEvent {
@@ -485,6 +490,23 @@ impl SharedState {
             responses: Mutex::new(VecDeque::new()),
             response_cv: Condvar::new(),
             closed: Mutex::new(false),
+            closed_notify: tokio::sync::Notify::new(),
+        }
+    }
+
+    fn is_closed(&self) -> bool {
+        *self.closed.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Resolves once `mark_closed` has been called. Uses the create-notified-then-check
+    /// pattern so a `mark_closed` racing between the check and the await is not missed.
+    async fn wait_closed(&self) {
+        loop {
+            let notified = self.closed_notify.notified();
+            if self.is_closed() {
+                return;
+            }
+            notified.await;
         }
     }
 
@@ -549,6 +571,7 @@ impl SharedState {
     fn mark_closed(&self) {
         *self.closed.lock().unwrap_or_else(|e| e.into_inner()) = true;
         self.response_cv.notify_all();
+        self.closed_notify.notify_waiters();
     }
 }
 
@@ -2344,6 +2367,137 @@ fn join_remote_path(base: &str, child: &str) -> String {
     }
 }
 
+/// Upper bound for the raw TCP connect (incl. DNS resolution). Deliberately applies
+/// only to the socket phase — the SSH handshake and auth can involve user prompts
+/// (host-key decision, password) and are cancelled via SharedState::wait_closed
+/// instead of a wall-clock timeout.
+const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn connect_tcp_with_timeout(host: &str, port: u16) -> anyhow::Result<tokio::net::TcpStream> {
+    match tokio::time::timeout(
+        TCP_CONNECT_TIMEOUT,
+        tokio::net::TcpStream::connect((host, port)),
+    )
+    .await
+    {
+        Ok(Ok(stream)) => Ok(stream),
+        Ok(Err(error)) => Err(anyhow::anyhow!(
+            "TCP connect to {host}:{port} failed: {error}"
+        )),
+        Err(_) => Err(anyhow::anyhow!(
+            "TCP connect to {host}:{port} timed out after {}s",
+            TCP_CONNECT_TIMEOUT.as_secs()
+        )),
+    }
+}
+
+/// Establishes the SSH session up to a ready shell channel: optional jump hop,
+/// TCP connect (bounded by TCP_CONNECT_TIMEOUT), handshake, auth, shell detection,
+/// PTY + shell/exec setup. Runs inside run_session's select! race against
+/// SharedState::wait_closed, so it must not consume `command_rx`. The jump handle is
+/// returned so the tunnel outlives establishment.
+async fn establish_session(
+    config: &ConnectConfig,
+    shared: &Arc<SharedState>,
+    client_config: Arc<client::Config>,
+) -> anyhow::Result<(
+    Option<client::Handle<NovaClientHandler>>,
+    client::Handle<NovaClientHandler>,
+    russh::Channel<client::Msg>,
+)> {
+    let jump_session = if let Some(jump_host) = &config.jump_host {
+        let jump_handler = NovaClientHandler {
+            shared: shared.clone(),
+            host: jump_host.host.clone(),
+            port: jump_host.port,
+        };
+
+        let stream = connect_tcp_with_timeout(jump_host.host.as_str(), jump_host.port).await?;
+        let mut jump = client::connect_stream(client_config.clone(), stream, jump_handler).await?;
+
+        authenticate(
+            &jump_host.user,
+            config.identity_file.as_deref(),
+            shared,
+            &mut jump,
+        )
+        .await?;
+        Some(jump)
+    } else {
+        None
+    };
+
+    let handler = NovaClientHandler {
+        shared: shared.clone(),
+        host: config.host.clone(),
+        port: config.port,
+    };
+
+    let mut session = if let Some(jump) = &jump_session {
+        // This channel open IS the target-side TCP connect (performed by the jump
+        // server), so it needs the same bound as a direct connect: a blackholed
+        // target would otherwise hang until the remote sshd gives up.
+        let stream = tokio::time::timeout(
+            TCP_CONNECT_TIMEOUT,
+            jump.channel_open_direct_tcpip(config.host.clone(), config.port as u32, "127.0.0.1", 0),
+        )
+        .await
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "direct-tcpip open to {}:{} via jump host timed out after {}s",
+                config.host,
+                config.port,
+                TCP_CONNECT_TIMEOUT.as_secs()
+            )
+        })??
+        .into_stream();
+
+        client::connect_stream(client_config.clone(), stream, handler).await?
+    } else {
+        let stream = connect_tcp_with_timeout(config.host.as_str(), config.port).await?;
+        client::connect_stream(client_config.clone(), stream, handler).await?
+    };
+
+    authenticate(
+        &config.user,
+        config.identity_file.as_deref(),
+        shared,
+        &mut session,
+    )
+    .await?;
+
+    let effective_shell_kind = if config.remote_shell_kind != RemoteShellKind::Auto {
+        config.remote_shell_kind
+    } else if let Some(command) = config.shell_detection_command.as_deref() {
+        match detect_login_shell(&mut session, command).await {
+            Ok(shell_kind) => shell_kind,
+            Err(_) => RemoteShellKind::Auto,
+        }
+    } else {
+        RemoteShellKind::Auto
+    };
+
+    let mut channel = session.channel_open_session().await?;
+    channel
+        .request_pty(
+            true,
+            &config.term,
+            config.cols as u32,
+            config.rows as u32,
+            0,
+            0,
+            &[],
+        )
+        .await?;
+    if let Some(startup_command) = build_startup_command(effective_shell_kind, config) {
+        channel.exec(true, startup_command).await?;
+    } else {
+        channel.request_shell(true).await?;
+    }
+
+    Ok((jump_session, session, channel))
+}
+
 fn run_session(
     config: ConnectConfig,
     shared: Arc<SharedState>,
@@ -2354,85 +2508,21 @@ fn run_session(
         let forward_channels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
         let client_config = Arc::new(build_client_config(&config));
 
-        let jump_session = if let Some(jump_host) = &config.jump_host {
-            let jump_handler = NovaClientHandler {
-                shared: shared.clone(),
-                host: jump_host.host.clone(),
-                port: jump_host.port,
-            };
-
-            let mut jump = client::connect(
-                client_config.clone(),
-                (jump_host.host.as_str(), jump_host.port),
-                jump_handler,
-            )
-            .await?;
-
-            authenticate(
-                &jump_host.user,
-                config.identity_file.as_deref(),
-                &shared,
-                &mut jump,
-            )
-            .await?;
-            Some(jump)
-        } else {
-            None
-        };
-
-        let handler = NovaClientHandler {
-            shared: shared.clone(),
-            host: config.host.clone(),
-            port: config.port,
-        };
-
-        let mut session = if let Some(jump) = &jump_session {
-            let stream = jump
-                .channel_open_direct_tcpip(config.host.clone(), config.port as u32, "127.0.0.1", 0)
-                .await?
-                .into_stream();
-
-            client::connect_stream(client_config.clone(), stream, handler).await?
-        } else {
-            client::connect(client_config.clone(), (config.host.as_str(), config.port), handler).await?
-        };
-
-        authenticate(
-            &config.user,
-            config.identity_file.as_deref(),
-            &shared,
-            &mut session,
-        )
-        .await?;
-
-        let effective_shell_kind = if config.remote_shell_kind != RemoteShellKind::Auto {
-            config.remote_shell_kind
-        } else if let Some(command) = config.shell_detection_command.as_deref() {
-            match detect_login_shell(&mut session, command).await {
-                Ok(shell_kind) => shell_kind,
-                Err(_) => RemoteShellKind::Auto,
+        // Session establishment (TCP connect, handshake, auth, shell setup) used to run
+        // unguarded: nova_ssh_close's WorkerCommand::Close is only consumed by the main
+        // select loop below, so a connect stuck on a dead host made `worker.join()` hang
+        // — potentially on the .NET finalizer thread (#155). Race the whole phase
+        // against mark_closed(), and bound the raw TCP connects with a timeout. The
+        // handshake/auth legs deliberately carry no timeout of their own: they can block
+        // on user interaction (host-key and password prompts), and mark_closed already
+        // unblocks those via wait_for_response.
+        let (jump_session, mut session, mut channel) = tokio::select! {
+            result = establish_session(&config, &shared, client_config.clone()) => result?,
+            _ = shared.wait_closed() => {
+                // Closed while connecting: exit cleanly; nova_ssh_close is joining us.
+                return Ok(());
             }
-        } else {
-            RemoteShellKind::Auto
         };
-
-        let mut channel = session.channel_open_session().await?;
-        channel
-            .request_pty(
-                true,
-                &config.term,
-                config.cols as u32,
-                config.rows as u32,
-                0,
-                0,
-                &[],
-            )
-            .await?;
-        if let Some(startup_command) = build_startup_command(effective_shell_kind, &config) {
-            channel.exec(true, startup_command).await?;
-        } else {
-            channel.request_shell(true).await?;
-        }
 
         shared.queue_event(QueuedEvent {
             kind: NovaSshEventKind::Connected,
@@ -2889,6 +2979,54 @@ fn create_test_session_with_event(kind: NovaSshEventKind, payload: &[u8]) -> usi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // #155: session establishment races against wait_closed so nova_ssh_close can
+    // abort a stuck connect instead of hanging worker.join() (and the .NET
+    // finalizer thread). These pin the notify semantics that race depends on.
+    #[test]
+    fn wait_closed_resolves_after_mark_closed_from_another_thread() {
+        let shared = Arc::new(SharedState::new());
+        let closer = shared.clone();
+        let handle = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(50));
+            closer.mark_closed();
+        });
+
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), shared.wait_closed())
+                .await
+                .expect("wait_closed must resolve after mark_closed");
+        });
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn wait_closed_resolves_immediately_when_already_closed() {
+        let shared = SharedState::new();
+        shared.mark_closed();
+
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            tokio::time::timeout(Duration::from_millis(100), shared.wait_closed())
+                .await
+                .expect("wait_closed must resolve without any notification when already closed");
+        });
+    }
+
+    #[test]
+    fn tcp_connect_timeout_reports_refused_connection_promptly() {
+        let runtime = Builder::new_current_thread().enable_all().build().unwrap();
+        runtime.block_on(async {
+            // Bind-then-drop gives a port with (almost certainly) no listener.
+            let port = {
+                let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+                listener.local_addr().unwrap().port()
+            };
+            let result = connect_tcp_with_timeout("127.0.0.1", port).await;
+            assert!(result.is_err(), "connect to a closed port must fail");
+        });
+    }
 
     #[test]
     fn null_handle_operations_return_invalid_argument() {

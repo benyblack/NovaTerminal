@@ -20,6 +20,7 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Automation;
 using Avalonia.Platform.Storage;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Models;
@@ -77,7 +78,29 @@ namespace NovaTerminal.Controls
         public string ShellCommand { get; private set; } = string.Empty;
         public string ShellArgs { get; private set; } = string.Empty;
         public TerminalProfile? Profile { get; private set; }
-        public Guid PaneId { get; set; } = Guid.NewGuid();
+        private Guid _paneId = Guid.NewGuid();
+
+        /// <remarks>
+        /// Session restore assigns a persisted id after construction
+        /// (SessionManager.RestorePaneTree), i.e. after this pane already
+        /// registered with the agent-session registry — so the setter re-keys
+        /// the registry entry to keep it addressable under the current id.
+        /// If re-keying fails (the entry stayed under the old id), the pane
+        /// keeps the old id too: pane and registry must never disagree.
+        /// </remarks>
+        public Guid PaneId
+        {
+            get => _paneId;
+            set
+            {
+                if (_paneId == value) return;
+                var oldId = _paneId;
+                if (NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Rekey(oldId, value))
+                {
+                    _paneId = value;
+                }
+            }
+        }
 
         public event Action<TerminalPane, SidebarTransferRequest>? RequestRemoteFilesSidebarTransfer;
         public event Action<bool>? RecordingStateChanged;
@@ -90,10 +113,14 @@ namespace NovaTerminal.Controls
         public event Action<TerminalPane>? CommandStarted;
         public event Action<TerminalPane, int?>? CommandFinished;
         public event Action<TerminalPane, int>? ProcessExited;
+        /// <summary>A command ran at least <see cref="LongCommandNotificationPolicy.ThresholdSeconds"/>: (pane, command, exitCode, duration). Policy (setting, focus) is the window's call.</summary>
+        public event Action<TerminalPane, string?, int?, TimeSpan>? LongCommandCompleted;
 
         private TerminalSettings? _settings;
         private bool _isUpdatingScroll = false;
         private bool _disposed;
+        private NovaTerminal.AgentHost.AgentSessionRegistration? _agentRegistration;
+        private DateTimeOffset? _lastCommandStartedAtUtc;
         private Action<int, int>? _onTermViewResize;
         private Action<float, float>? _onTermViewMetricsChanged;
         private DispatcherTimer? _statusTimer;
@@ -151,8 +178,25 @@ namespace NovaTerminal.Controls
                 {
                     _isActivePane = value;
                     UpdateFocusVisuals(IsKeyboardFocusWithin);
+                    UpdateAgentSessionSnapshot();
                 }
             }
+        }
+
+        /// <summary>
+        /// Pushes this pane's current metadata into its agent-session
+        /// registration (UI thread only). Cheap and allocation-light; called
+        /// on title/cwd/profile/active-state changes so background registry
+        /// readers never touch this control.
+        /// </summary>
+        private void UpdateAgentSessionSnapshot()
+        {
+            _agentRegistration?.UpdateSnapshot(
+                GetBaseTabTitle(),
+                Profile?.Name ?? "Terminal",
+                Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
+                IsActivePane,
+                Profile?.Id);
         }
 
         public string GetBaseTabTitle()
@@ -249,6 +293,7 @@ namespace NovaTerminal.Controls
         public void UpdateProfile(TerminalProfile profile)
         {
             Profile = profile;
+            UpdateAgentSessionSnapshot();
             TermView.ShellOverride = profile.ShellOverride;
             UpdateCommandAssistContext();
             UpdateRemoteFilesSidebarHostIdentity();
@@ -346,6 +391,32 @@ namespace NovaTerminal.Controls
 
         private void SetupCommon(TerminalSettings? initialSettings)
         {
+            // Agent-host observe surface (docs/agent-host/DIRECTION.md, A1):
+            // inert bookkeeping until the IPC endpoint queries it. The
+            // registration holds a lock-protected metadata snapshot (never a
+            // live delegate into this control), pushed from the UI thread on
+            // every relevant change; the entry is removed in DetachFromUiThread.
+            _agentRegistration = new NovaTerminal.AgentHost.AgentSessionRegistration(
+                PaneId,
+                Buffer!,
+                GetBaseTabTitle(),
+                Profile?.Name ?? "Terminal",
+                Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
+                IsActivePane,
+                profileId: Profile?.Id);
+            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
+            TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
+            WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
+
+            // A2 status signals (docs/plans/2026-07-07-agent-host-a2-status-design.md):
+            // PTY lifecycle events feed the per-session status machine. Command
+            // lifecycle (started/finished) and prompt/accepted signals are wired
+            // synchronously at the parser hooks in InitializeSession so their
+            // relative order is preserved; alt-screen in HandleAltScreenChanged.
+            OutputReceived += _ => _agentRegistration?.StatusMachine.NotifyOutput();
+            BellReceived += _ => _agentRegistration?.StatusMachine.NotifyBell();
+            ProcessExited += (_, exitCode) => _agentRegistration?.StatusMachine.NotifyExited(exitCode);
+
             TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
             TermView.TextInput += (_, e) =>
             {
@@ -897,6 +968,10 @@ namespace NovaTerminal.Controls
                    _settings.CommandAssistHistoryEnabled;
         }
 
+        // When this returns true the controller is guaranteed non-null; the attribute lets
+        // the compiler's null-flow analysis see that, so callers can dereference
+        // _commandAssistController directly after the guard without CS8602.
+        [MemberNotNullWhen(true, nameof(_commandAssistController))]
         private bool EnsureCommandAssistInitialized()
         {
             if (!IsCommandAssistFeatureEnabled())
@@ -1246,6 +1321,7 @@ namespace NovaTerminal.Controls
 
         private void HandleAltScreenChanged(bool isAltScreen)
         {
+            _agentRegistration?.StatusMachine.NotifyAltScreenChanged(isAltScreen);
             _commandAssistController?.HandleAltScreenChanged(isAltScreen);
             UpdateRemoteFilesSidebarVisibility();
             UpdateRemoteFilesSidebarEntryPointState();
@@ -1474,15 +1550,23 @@ namespace NovaTerminal.Controls
             Parser.OnPromptReady += () =>
             {
                 _shellLifecycleTracker?.HandlePromptReady();
+                _agentRegistration?.StatusMachine.NotifyPromptReady();
             };
             Parser.OnCommandAccepted += commandText =>
             {
                 _lastRelevantCommandText = commandText?.Trim();
                 _shellLifecycleTracker?.HandleCommandAccepted(commandText);
+                _agentRegistration?.StatusMachine.NotifyCommandAccepted(commandText);
             };
             Parser.OnCommandStarted += () =>
             {
                 _shellLifecycleTracker?.HandleCommandStarted();
+                // Status machine is notified synchronously on the parser path so
+                // command-lifecycle signals keep their emission order relative to
+                // OnCommandAccepted/OnPromptReady (the UI post below would let a
+                // snapshot briefly see AwaitingInput with CurrentCommand set).
+                _agentRegistration?.StatusMachine.NotifyCommandStarted();
+                _lastCommandStartedAtUtc = DateTimeOffset.UtcNow;
                 Dispatcher.UIThread.Post(() =>
                 {
                     LastExitCode = null;
@@ -1491,6 +1575,7 @@ namespace NovaTerminal.Controls
             };
             Parser.OnCommandFinished += exitCode =>
             {
+                _agentRegistration?.StatusMachine.NotifyCommandFinished(exitCode);
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (exitCode.HasValue)
@@ -1505,6 +1590,19 @@ namespace NovaTerminal.Controls
             Parser.OnCommandFinishedDetailed += (exitCode, durationMs) =>
             {
                 _shellLifecycleTracker?.HandleCommandFinished(exitCode, durationMs);
+
+                // Long-command completion (A2 PR4): the pane only applies the
+                // mechanical threshold; opt-in + focus policy lives in the window.
+                var startedAt = _lastCommandStartedAtUtc;
+                _lastCommandStartedAtUtc = null;
+                TimeSpan? duration = durationMs.HasValue
+                    ? TimeSpan.FromMilliseconds(durationMs.Value)
+                    : startedAt.HasValue ? DateTimeOffset.UtcNow - startedAt.Value : null;
+                if (duration is { } d && LongCommandNotificationPolicy.QualifiesAsLong(d))
+                {
+                    var commandText = _lastRelevantCommandText;
+                    Dispatcher.UIThread.Post(() => LongCommandCompleted?.Invoke(this, commandText, exitCode, d));
+                }
             };
 
             // Sync initial metrics
@@ -1531,6 +1629,7 @@ namespace NovaTerminal.Controls
 
             string startingDir = profile?.StartingDirectory ?? "";
             Session = null;
+            _agentRegistration?.SetLifecycle(null);
             try
             {
                 // If effectiveShell contains a space and is not a direct file, it's likely a combined command.
@@ -1574,7 +1673,7 @@ namespace NovaTerminal.Controls
                     catch (Exception ex)
                     {
                         System.Diagnostics.Debug.WriteLine($"[TerminalPane] SSH connection failed for '{profile.Name}': {ex.Message}");
-                        Buffer.WriteContent($"\r\n[ERROR] SSH Connection Failed: {ex.Message}\r\n", false);
+                        WriteBanner($"\r\n[ERROR] SSH Connection Failed: {SanitizeBannerValue(ex.Message)}\r\n");
                         
                         // Fail loudly: Do not fall back to RustPtySession with missing arguments.
                         return;
@@ -1601,13 +1700,33 @@ namespace NovaTerminal.Controls
                 };
                 RegisterActiveSshSession(session, profile);
                 UpdateCommandAssistContext();
+
+                // Publish the PTY lifecycle to the registration (the endpoint's
+                // sweep probes only this published reference, never the pane).
+                if (_agentRegistration is { } agentReg)
+                {
+                    agentReg.SetLifecycle(session);
+
+                    // Seed the first child-process sample, but OFF the UI thread:
+                    // ProbeHasActiveChildProcesses() is a full OS process-table scan
+                    // (CreateToolhelp32Snapshot on Windows, a pgrep spawn elsewhere) —
+                    // blocking I/O that would jank tab creation. It is thread-safe, so
+                    // run the probe on a background thread and post only the Sweep back
+                    // to the UI thread. The endpoint's 1 s sweep corrects it regardless.
+                    Task.Run(() =>
+                    {
+                        var hasChildren = agentReg.ProbeHasActiveChildProcesses();
+                        Dispatcher.UIThread.Post(
+                            () => agentReg.StatusMachine.Sweep(hasChildren),
+                            DispatcherPriority.Background);
+                    });
+                }
             }
             catch (Exception ex)
             {
                 // Graceful failure: Log and show in terminal
                 System.Diagnostics.Debug.WriteLine($"[TerminalPane] Failed to spawn session: {ex.Message}");
-                Buffer.WriteContent($"\r\n[ERROR] Failed to spawn process: {effectiveShell}\r\n", false);
-                Buffer.WriteContent($"[DETAILS] {ex.Message}\r\n", false);
+                WriteBanner($"\r\n[ERROR] Failed to spawn process: {SanitizeBannerValue(effectiveShell)}\r\n[DETAILS] {SanitizeBannerValue(ex.Message)}\r\n");
                 return;
             }
 
@@ -2012,14 +2131,12 @@ namespace NovaTerminal.Controls
                 ITerminalSession session = Session;
                 UnregisterActiveSshSession(session);
                 Session = null;
+                _agentRegistration?.SetLifecycle(null);
                 session.Dispose();
             }
 
             LastExitCode = null;
-            if (Buffer != null)
-            {
-                Buffer.WriteContent("\r\n\x1b[90m[Reconnecting...]\x1b[0m\r\n", false);
-            }
+            WriteBanner("\r\n\x1b[90m[Reconnecting...]\x1b[0m\r\n");
             InitializeSession(ShellCommand, Profile, TermView.Cols, TermView.Rows, ShellArgs);
         }
 
@@ -2155,17 +2272,59 @@ namespace NovaTerminal.Controls
 
         private void WriteSshDisconnectedBanner(int code)
         {
+            string exitCodeLine = code == 0
+                ? string.Empty
+                : $"[Exit code: {code}]\r\n";
+            WriteBanner(
+                $"\r\n[SSH session disconnected]\r\n{exitCodeLine}[Press Enter to reconnect]\r\n");
+        }
+
+        /// <summary>
+        /// Strips control characters (C0 incl. ESC, DEL, and C1) from interpolated banner values.
+        /// Banner text is parsed as terminal input, so remote- or profile-derived values such as
+        /// SSH/spawn error messages could otherwise smuggle escape sequences that move the cursor,
+        /// clear the screen, switch modes, or rewrite the title. Only printable content survives.
+        /// </summary>
+        internal static string SanitizeBannerValue(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return value;
+            }
+
+            var sb = new System.Text.StringBuilder(value.Length);
+            foreach (char c in value)
+            {
+                if (c < 0x20 || c == 0x7F || (c >= 0x80 && c <= 0x9F))
+                {
+                    continue;
+                }
+
+                sb.Append(c);
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Writes NovaTerminal-generated banner text (connection errors, disconnect/reconnect
+        /// notices) into the terminal. Banners are routed through the ANSI parser rather than
+        /// <see cref="TerminalBuffer.WriteContent"/> — which writes graphemes verbatim — so that
+        /// embedded SGR color codes and CR/LF line breaks are interpreted, instead of leaving
+        /// literal "[90m" garbage collapsed onto a single line. A fresh parser is used each time so
+        /// the banner renders with a clean slate: it never inherits a partial escape sequence or
+        /// accumulated SGR state from the (possibly just-disposed) session parser, and never shares
+        /// mutable parser state with the background-thread session output pump.
+        /// Interpolated values must be passed through <see cref="SanitizeBannerValue"/> first.
+        /// </summary>
+        private void WriteBanner(string text)
+        {
             if (Buffer == null)
             {
                 return;
             }
 
-            string exitCodeLine = code == 0
-                ? string.Empty
-                : $"[Exit code: {code}]\r\n";
-            Buffer.WriteContent(
-                $"\r\n[SSH session disconnected]\r\n{exitCodeLine}[Press Enter to reconnect]\r\n",
-                false);
+            new AnsiParser(Buffer).Process(text);
         }
 
         protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
@@ -2189,8 +2348,33 @@ namespace NovaTerminal.Controls
 
         public void Dispose()
         {
-            if (_disposed) return;
+            // Synchronous teardown for UI-thread callers. MainWindow.DisposeControlTree
+            // splits the two phases instead, so the (potentially blocking) session
+            // teardown runs off the UI thread while the UI-affine detach stays on it.
+            DetachFromUiThread()?.Dispose();
+        }
+
+        /// <summary>
+        /// Detaches UI-affine state (control visibility, DispatcherTimer, event handlers)
+        /// and transfers ownership of the underlying session to the caller for disposal.
+        /// MUST be called on the UI thread. Returns <c>null</c> when already disposed or
+        /// when the pane has no session. See #154: previously the whole Dispose ran on a
+        /// worker thread with a swallowed catch, so a VerifyAccess throw in the UI-affine
+        /// part aborted teardown before the session was disposed, leaking the PTY and its
+        /// child shell.
+        /// </summary>
+        public ITerminalSession? DetachFromUiThread()
+        {
+            // Enforce the UI-thread contract BEFORE flipping _disposed: if this threw
+            // mid-teardown after _disposed was set, every later Dispose() would return
+            // early and the session would leak permanently — the exact bug this method
+            // exists to prevent.
+            Dispatcher.UIThread.VerifyAccess();
+
+            if (_disposed) return null;
             _disposed = true;
+
+            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Unregister(PaneId);
 
             CloseRemoteFilesSidebar();
 
@@ -2210,8 +2394,10 @@ namespace NovaTerminal.Controls
                 ITerminalSession session = Session;
                 UnregisterActiveSshSession(session);
                 Session = null;
-                session.Dispose();
+                _agentRegistration?.SetLifecycle(null);
+                return session;
             }
+            return null;
         }
 
         private static void RegisterActiveSshSession(ITerminalSession session, TerminalProfile? profile)

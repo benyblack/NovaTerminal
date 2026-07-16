@@ -123,6 +123,14 @@ namespace NovaTerminal.ExternalSuites.Vttest
         public void Resize(int cols, int rows) { }
         public void StartRecording(string filePath) { }
         public void StopRecording() { }
+        public bool IsFlightRecording => false;
+        public void EnableFlightRecording(long maxTotalBytes) { }
+        public void DisableFlightRecording() { }
+        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        {
+            info = default;
+            return false;
+        }
         public void AttachBuffer(TerminalBuffer buffer) { }
         public void TakeSnapshot() { }
 

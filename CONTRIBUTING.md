@@ -174,12 +174,23 @@ PRs missing this information will be blocked.
 
 All PRs are automatically checked by CI:
 
-- unit tests
-- replay tests
-- parity checks
-- renderer metric thresholds
+- unit tests (VT, Rendering, Architecture, Platform, McpServer — blocking)
+- headless App.Tests (currently non-blocking due to an upstream
+  Avalonia.Headless teardown deadlock, tracked in #81). Note: this is a
+  step-level `continue-on-error`, so a failure does NOT turn the check red —
+  it is only visible in the step log and uploaded artifacts. Reviewers must
+  open the Unit Tests job and check the App.Tests step explicitly.
+- renderer metric thresholds (`tab_perf_smoke`)
+- golden shared PNG tests
 
-Failing CI blocks merge.
+Replay and cross-platform parity suites run on every push to `main` and on
+the daily scheduled run (see `docs/plans/2026-04-22-ci-rebalance-and-release-publishing.md`);
+a parity or replay break detected there must be fixed or reverted before the
+next release. Release tags additionally run the gating unit lane on all three
+OSes before any bundle is published.
+
+Failing blocking CI blocks merge. Do not rely on the non-blocking lanes to
+catch regressions for you — run the relevant categories locally.
 
 Maintainers may request:
 - additional replay fixtures

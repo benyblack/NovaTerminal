@@ -77,6 +77,21 @@ namespace NovaTerminal.Tests.Performance
         [Trait("Category", "Performance")]
         public void ReflowStress_Benchmark()
         {
+            // Warm the reflow path on a throwaway buffer before timing, mirroring
+            // LargeThroughput_Benchmark above. Reflow is JIT-heavy and rents from
+            // ArrayPool; without a warmup the cold first several Resize calls
+            // dominated the 100-iteration average and tipped the 15ms threshold on
+            // shared CI runners (observed 18.06ms in the nightly flake).
+            var warmupBuffer = new TerminalBuffer(80, 1000);
+            for (int i = 0; i < 1000; i++)
+            {
+                warmupBuffer.WriteContent($"Line {i:D4} XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\r\n", false);
+            }
+            for (int i = 0; i < 20; i++)
+            {
+                warmupBuffer.Resize(40 + (i % 40), 24);
+            }
+
             var buffer = new TerminalBuffer(80, 1000); // 1000 lines of history
             for (int i = 0; i < 1000; i++)
             {

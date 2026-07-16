@@ -105,6 +105,82 @@ public sealed class TerminalPaneSshDisconnectTests
         }
     }
 
+    [AvaloniaFact]
+    public void Reconnect_Banner_RendersAnsiInsteadOfLeavingLiteralEscapeCodes()
+    {
+        // The reconnect banner is styled with SGR ("\x1b[90m...[Reconnecting...]...\x1b[0m").
+        // It must be routed through the ANSI parser so the escape codes are interpreted as
+        // color state — NOT written verbatim into the grid, which leaves visible "[90m"/"[0m"
+        // garbage and (because CR/LF are also uninterpreted) collapses the banner onto one line.
+        var profile = new TerminalProfile
+        {
+            Name = "Native SSH",
+            Type = ConnectionType.SSH,
+            SshHost = "server.example",
+            SshUser = "nova"
+        };
+
+        // No window is shown, so TermView has 0 cols/rows and InitializeSession returns early:
+        // the reconnect path writes its banner but does not attempt a real SSH spawn, keeping the
+        // 80x24 buffer clean and isolating the banner under test.
+        using var pane = new TerminalPane(profile);
+
+        pane.Reconnect();
+
+        string visibleText = GetVisiblePlainText(pane.Buffer!);
+        Assert.Contains("Reconnecting", visibleText, StringComparison.Ordinal);
+        Assert.DoesNotContain("[90m", visibleText, StringComparison.Ordinal);
+        Assert.DoesNotContain("[0m", visibleText, StringComparison.Ordinal);
+        Assert.DoesNotContain("\x1b", visibleText, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public void SshDisconnectedBanner_RendersOnSeparateLines()
+    {
+        // The banner embeds CR/LF between its phrases. Routed through the ANSI parser these must
+        // become real line breaks; written verbatim they would collapse onto a single row.
+        var profile = new TerminalProfile
+        {
+            Name = "Native SSH",
+            Type = ConnectionType.SSH,
+            SshHost = "server.example",
+            SshUser = "nova"
+        };
+        using var pane = new TerminalPane(profile);
+
+        pane.HandleSessionExitForTesting(0);
+
+        string[] lines = GetVisiblePlainText(pane.Buffer!).Split('\n');
+        int disconnectedRow = Array.FindIndex(lines, l => l.Contains("SSH session disconnected", StringComparison.Ordinal));
+        int reconnectRow = Array.FindIndex(lines, l => l.Contains("Press Enter to reconnect", StringComparison.Ordinal));
+
+        Assert.True(disconnectedRow >= 0, "disconnected phrase not found");
+        Assert.True(reconnectRow > disconnectedRow, "reconnect prompt should be on a later row than the disconnect notice");
+    }
+
+    [Theory]
+    [InlineData("plain message", "plain message")]
+    [InlineData("café → host", "café → host")] // printable Unicode preserved
+    [InlineData("\x1b[2J\x1b[3Jwiped", "[2J[3Jwiped")]            // ESC stripped, remainder inert text
+    [InlineData("line1\r\nline2\ttab", "line1line2tab")]           // CR/LF/TAB (C0) stripped
+    [InlineData("bell\x07 del\x7f", "bell del")]                   // BEL and DEL stripped
+    public void SanitizeBannerValue_StripsControlCharactersFromInterpolatedText(string input, string expected)
+    {
+        // Interpolated banner values (SSH/spawn error messages, shell paths) may be remote- or
+        // profile-derived. Since banners are parsed as terminal input, any embedded control codes
+        // must be removed so they cannot move the cursor, clear the screen, or change the title.
+        Assert.Equal(expected, TerminalPane.SanitizeBannerValue(input));
+    }
+
+    [Fact]
+    public void SanitizeBannerValue_StripsC1ControlCharacters()
+    {
+        // C1 controls (0x80-0x9F, e.g. 8-bit CSI) are built via a cast to avoid an invisible
+        // control byte or a \u escape in the source literal.
+        string withCsi = (char)0x9B + "CSI c1";
+        Assert.Equal("CSI c1", TerminalPane.SanitizeBannerValue(withCsi));
+    }
+
     private static string GetVisiblePlainText(TerminalBuffer buffer)
     {
         var field = typeof(TerminalBuffer).GetField("_viewport", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
@@ -157,6 +233,22 @@ public sealed class TerminalPaneSshDisconnectTests
 
         public void StopRecording()
         {
+        }
+
+        public bool IsFlightRecording => false;
+
+        public void EnableFlightRecording(long maxTotalBytes)
+        {
+        }
+
+        public void DisableFlightRecording()
+        {
+        }
+
+        public bool TryExportFlightRecording(string filePath, out NovaTerminal.Replay.FlightExportInfo info)
+        {
+            info = default;
+            return false;
         }
 
         public void AttachBuffer(TerminalBuffer buffer)

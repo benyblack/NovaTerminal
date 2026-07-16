@@ -37,7 +37,7 @@ using NovaTerminal.Pty;
 
 namespace NovaTerminal
 {
-    public partial class MainWindow : Window
+    public partial class MainWindow : Window, AgentHost.IAgentActionExecutor
     {
         internal readonly record struct ShellOpenRequest(string FileName, string? Arguments);
         private const string SplitterHoverClass = "splitter-hover";
@@ -1425,6 +1425,10 @@ namespace NovaTerminal
             string? name = await ShowTextPromptAsync("Import Workspace Bundle", "Workspace name", suggestedName);
             if (string.IsNullOrWhiteSpace(name)) return;
 
+            // Import only STORES the bundle; its commands are confirmed at execution time
+            // in LoadWorkspaceByName. Confirming here would be a TOCTOU (the file could
+            // change between this read and ImportWorkspaceBundle's re-read) and wouldn't
+            // cover later loads — so the single confirmation gate lives at execution (#171).
             if (WorkspaceManager.ImportWorkspaceBundle(bundlePath, name.Trim(), out var error))
             {
                 SetupCommandPalette();
@@ -1461,6 +1465,12 @@ namespace NovaTerminal
             bool ok = WorkspaceManager.LoadWorkspaceBundleSession(bundlePath, out var _workspaceName, out var snapshot, out var error);
             if (ok && snapshot != null)
             {
+                // This spawns the bundle's stored commands immediately — confirm first
+                // for a foreign .novaws.json opened from disk (#171).
+                if (!await ConfirmBundleCommandsAsync(snapshot, _workspaceName ?? "workspace"))
+                {
+                    return;
+                }
                 ApplySessionSnapshot(snapshot);
                 return;
             }
@@ -1468,10 +1478,19 @@ namespace NovaTerminal
             System.Diagnostics.Debug.WriteLine($"[Workspace] Open bundle failed: {error}");
         }
 
-        private void LoadWorkspaceByName(string name)
+        private async void LoadWorkspaceByName(string name)
         {
             var snapshot = WorkspaceManager.LoadWorkspace(name);
             if (snapshot == null) return;
+
+            // Confirm ad-hoc commands against the exact stored snapshot that is about to
+            // run — this is the single execution-time gate (no TOCTOU), and it covers
+            // imported bundles whichever way they're loaded (#171). Profile-only
+            // workspaces collect no commands and skip the prompt.
+            if (!await ConfirmBundleCommandsAsync(snapshot, name))
+            {
+                return;
+            }
             ApplySessionSnapshot(snapshot);
         }
 
@@ -1823,7 +1842,7 @@ namespace NovaTerminal
             {
                 case Key.Enter: sequence = "\r"; return true;
                 case Key.Back: sequence = "\x7f"; return true;
-                case Key.Tab: sequence = "\t"; return true;
+                case Key.Tab: sequence = isShift ? "\x1b[Z" : "\t"; return true;
                 case Key.Escape: sequence = "\x1b"; return true;
             }
 
@@ -1931,6 +1950,17 @@ namespace NovaTerminal
                 _settings.Save();
             }
             _startup.Checkpoint("MainWindow.AfterLegacyMigration");
+
+            // Agent-host observe endpoint (docs/agent-host/DIRECTION.md, A1):
+            // strictly no-op unless the user opted in via Settings. The replay
+            // export sub-gate (A4) and the act gate + SSH allowlist (A3) are
+            // pushed alongside so the endpoint checks the current settings on
+            // every request.
+            AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
+            AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
+            AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
+            AgentHost.AgentHostService.Instance.SetActionExecutor(this);
+            AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
             // Ensure visual tree is ready for initial tab border
             this.Loaded += (s, e) =>
@@ -2066,6 +2096,12 @@ namespace NovaTerminal
             if (menuNewSsh != null) menuNewSsh.Click += async (s, e) =>
             {
                 await ShowNewSshConnectionDialogAsync(null);
+            };
+
+            var menuAgentActivity = this.FindControl<MenuItem>("MenuAgentActivity");
+            if (menuAgentActivity != null) menuAgentActivity.Click += async (s, e) =>
+            {
+                await ShowAgentActivityJournalAsync();
             };
 
             var btnRecord = this.FindControl<Button>("BtnRecord");
@@ -2554,6 +2590,7 @@ namespace NovaTerminal
             pane.CommandStarted -= OnPaneCommandStarted;
             pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
+            pane.LongCommandCompleted -= OnPaneLongCommandCompleted;
 
             pane.RequestRemoteFilesSidebarTransfer += OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged += OnPaneWorkingDirectoryChanged;
@@ -2564,6 +2601,7 @@ namespace NovaTerminal
             pane.CommandStarted += OnPaneCommandStarted;
             pane.CommandFinished += OnPaneCommandFinished;
             pane.ProcessExited += OnPaneProcessExited;
+            pane.LongCommandCompleted += OnPaneLongCommandCompleted;
         }
 
         private void UnwirePane(TerminalPane pane)
@@ -2578,6 +2616,7 @@ namespace NovaTerminal
             pane.CommandStarted -= OnPaneCommandStarted;
             pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
+            pane.LongCommandCompleted -= OnPaneLongCommandCompleted;
         }
 
         private void OnPaneRequestRemoteFilesSidebarTransfer(TerminalPane srcPane, SidebarTransferRequest request)
@@ -2657,6 +2696,27 @@ namespace NovaTerminal
             var state = GetOrCreateTabState(tab);
             state.LastExitCode = exitCode.Value;
             QueueTabVisualRefresh(tab);
+        }
+
+        private void OnPaneLongCommandCompleted(TerminalPane pane, string? commandText, int? exitCode, TimeSpan duration)
+        {
+            // Policy: opt-in, and only when the user isn't already looking at
+            // this pane (a different pane is current, or the window is in the
+            // background). The pane already applied the duration threshold.
+            if (!LongCommandNotificationPolicy.ShouldNotify(
+                    _settings.LongCommandNotificationsEnabled,
+                    windowActive: IsActive,
+                    isCurrentPane: ReferenceEquals(pane, _currentPane)))
+            {
+                return;
+            }
+
+            ShowRecordingToast(
+                "Command finished",
+                LongCommandNotificationPolicy.BuildMessage(commandText, exitCode, duration, pane.GetBaseTabTitle()),
+                filePath: null,
+                folderPath: null,
+                autoHide: true);
         }
 
         private void OnPaneProcessExited(TerminalPane pane, int exitCode)
@@ -3058,6 +3118,125 @@ namespace NovaTerminal
             }
         }
 
+        // A3 per-profile SSH allowlist probe, handed to the agent-host endpoint.
+        // Reads the SSH profile store (off the UI thread on an IPC call), so it
+        // must not touch Avalonia state — the store is thread-safe. Unknown or
+        // non-SSH profile ids return false (fail closed).
+        private bool IsSshProfileAgentAllowed(Guid profileId)
+        {
+            try
+            {
+                return _sshConnectionService?.GetStoredProfile(profileId)?.AllowAgentAccess == true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // ── A3 agent act executor (spawn/close) ──────────────────────────────
+        // Implemented on MainWindow because spawning/closing is inherently UI-thread
+        // tab work. Published to the agent-host endpoint via SetActionExecutor; the
+        // endpoint calls these from its IPC thread, so every body marshals to the UI
+        // thread. Gating (act toggle) is enforced by the endpoint before we get here;
+        // the SSH allowlist is enforced here since we own profile resolution.
+
+        async Task<(AgentHost.AgentSpawnResult? Result, AgentHost.AgentSpawnError? Error)> AgentHost.IAgentActionExecutor.SpawnAsync(string? profileName)
+        {
+            return await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                TerminalProfile? profile;
+                bool isSsh;
+
+                if (string.IsNullOrWhiteSpace(profileName))
+                {
+                    profile = _settings.Profiles.Find(p => p.Id == _settings.DefaultProfileId)
+                              ?? (_settings.Profiles.Count > 0 ? _settings.Profiles[0] : null);
+                    isSsh = false;
+                }
+                else
+                {
+                    // Local settings profiles resolve before SSH store profiles on
+                    // a name collision (documented in the A3 design).
+                    profile = _settings.Profiles.Find(
+                        p => p.Type == ConnectionType.Local &&
+                             string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
+                    isSsh = false;
+
+                    if (profile == null)
+                    {
+                        TerminalProfile? sshProfile = _sshConnectionService.GetConnectionProfiles()
+                            .FirstOrDefault(p => string.Equals(p.Name, profileName, StringComparison.OrdinalIgnoreCase));
+                        if (sshProfile != null)
+                        {
+                            // SSH targets must be allowlisted per profile.
+                            if (!IsSshProfileAgentAllowed(sshProfile.Id))
+                            {
+                                return ((AgentHost.AgentSpawnResult?)null, (AgentHost.AgentSpawnError?)AgentHost.AgentSpawnError.ProfileNotAllowed);
+                            }
+                            profile = sshProfile;
+                            isSsh = true;
+                        }
+                    }
+                }
+
+                if (profile == null)
+                {
+                    return (null, AgentHost.AgentSpawnError.ProfileNotFound);
+                }
+
+                try
+                {
+                    AddTab(profile);
+                    var pane = _currentPane;
+                    if (pane == null)
+                    {
+                        return (null, AgentHost.AgentSpawnError.SpawnFailed);
+                    }
+
+                    Guid? tabId = _paneOwnerTab.TryGetValue(pane, out var tab)
+                        ? GetPersistentTabId(tab)
+                        : (Guid?)null;
+                    string kind = isSsh || profile.Type == ConnectionType.SSH ? "ssh" : "local";
+                    var result = new AgentHost.AgentSpawnResult(pane.PaneId, tabId, profile.Name, kind);
+                    return ((AgentHost.AgentSpawnResult?)result, (AgentHost.AgentSpawnError?)null);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainWindow] Agent spawn failed: {ex.Message}");
+                    return (null, AgentHost.AgentSpawnError.SpawnFailed);
+                }
+            });
+        }
+
+        async Task<bool> AgentHost.IAgentActionExecutor.ClosePaneAsync(Guid paneId)
+        {
+            return await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                TerminalPane? target = _paneOwnerTab.Keys.FirstOrDefault(p => p.PaneId == paneId);
+                if (target == null)
+                {
+                    return false;
+                }
+
+                // Make the target the active pane of its (selected) tab, then reuse
+                // the split-aware close path with the confirm dialog bypassed.
+                if (_paneOwnerTab.TryGetValue(target, out var tab))
+                {
+                    var tabs = this.FindControl<TabControl>("Tabs");
+                    if (tabs != null) tabs.SelectedItem = tab;
+                    _activePaneByTab[tab] = target;
+                }
+                _currentPane = target;
+
+                // CloseActivePaneAsync can no-op if a close is already in flight
+                // (_closePaneInProgress); report the real outcome by checking the
+                // pane is actually gone, so closeSession never claims a false success.
+                await CloseActivePaneAsync(skipConfirm: true);
+                return !_paneOwnerTab.ContainsKey(target);
+            });
+        }
+
         private void CloseTab(TabItem ti)
         {
             if (_paneZoomStateByTab.ContainsKey(ti))
@@ -3101,7 +3280,7 @@ namespace NovaTerminal
             _ = CloseActivePaneAsync();
         }
 
-        private async Task CloseActivePaneAsync()
+        private async Task CloseActivePaneAsync(bool skipConfirm = false)
         {
             if (_closePaneInProgress || _currentPane == null) return;
             _closePaneInProgress = true;
@@ -3116,7 +3295,10 @@ namespace NovaTerminal
                     paneToClose = _currentPane;
                     if (paneToClose == null) return;
                 }
-                if (!await ShouldClosePaneAsync(paneToClose))
+                // Agent-initiated close bypasses the confirmation dialog: an agent
+                // can't answer a modal, and the act opt-in + journal entry are the
+                // consent surface (A3 threat model).
+                if (!skipConfirm && !await ShouldClosePaneAsync(paneToClose))
                 {
                     FocusPaneTerminal(paneToClose, defer: true);
                     return;
@@ -3344,12 +3526,149 @@ namespace NovaTerminal
             return confirmed;
         }
 
+        // Collects the ad-hoc shell commands a bundle would actually spawn on restore.
+        // Mirrors SessionManager.RestorePaneTree: a leaf runs its raw Command/Arguments
+        // ONLY when its profile doesn't resolve, so panes whose profile resolves are
+        // skipped — that both matches what runs and avoids prompting for locally-saved
+        // workspaces that store a ShellCommand alongside a resolvable ProfileId (#171).
+        internal static List<string> CollectBundleCommands(NovaSession? session, TerminalSettings settings)
+        {
+            var commands = new List<string>();
+            if (session?.Tabs == null) return commands;
+
+            void Walk(PaneNode? node)
+            {
+                if (node == null) return;
+                if (node.Type == NodeType.Leaf)
+                {
+                    // Skip panes that resolve a known local/SSH profile — RestorePaneTree
+                    // uses the profile and ignores Command/Arguments for those.
+                    if (SessionManager.TryResolvePaneProfile(node, settings) != null)
+                    {
+                        return;
+                    }
+
+                    // Otherwise the fallback runs `cmd.exe`/Command with Arguments, so an
+                    // argument-only leaf still runs `cmd.exe <args>` and can smuggle cmd
+                    // metacharacters (#171 review).
+                    bool hasCommand = !string.IsNullOrWhiteSpace(node.Command);
+                    bool hasArgs = !string.IsNullOrWhiteSpace(node.Arguments);
+                    if (hasCommand || hasArgs)
+                    {
+                        string effectiveCommand = hasCommand ? node.Command! : "cmd.exe";
+                        string args = hasArgs ? " " + node.Arguments : "";
+                        commands.Add((effectiveCommand + args).Trim());
+                    }
+                }
+                else if (node.Children != null)
+                {
+                    foreach (var child in node.Children) Walk(child);
+                }
+            }
+
+            foreach (var tab in session.Tabs)
+            {
+                if (tab != null) Walk(tab.Root);
+            }
+            return commands;
+        }
+
+        // Confirms the commands a foreign bundle will run before it spawns anything.
+        // Returns true when there is nothing to run or the user approves.
+        private async Task<bool> ConfirmBundleCommandsAsync(NovaSession? session, string bundleName)
+        {
+            var commands = CollectBundleCommands(session, _settings);
+            if (commands.Count == 0) return true; // profile-only bundles run known targets
+
+            bool confirmed = false;
+            var dialog = CreateThemedDialogWindow("Run Workspace Commands?", 520, 320, canResize: false);
+
+            var listText = string.Join("\n", commands.ConvertAll(c => "•  " + c));
+
+            var cancelButton = new Button { Content = "Cancel", Width = 92 };
+            cancelButton.Click += (_, __) => { confirmed = false; dialog.Close(); };
+
+            var runButton = new Button { Content = "Run Commands", Width = 130 };
+            runButton.Click += (_, __) => { confirmed = true; dialog.Close(); };
+
+            dialog.Content = new Border
+            {
+                Padding = new Thickness(16),
+                Child = new StackPanel
+                {
+                    Spacing = 12,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = $"The workspace \"{bundleName}\" will run these commands:",
+                            FontWeight = FontWeight.SemiBold,
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new ScrollViewer
+                        {
+                            MaxHeight = 180,
+                            Content = new TextBlock
+                            {
+                                Text = listText,
+                                FontFamily = new Avalonia.Media.FontFamily("Consolas, monospace"),
+                                TextWrapping = TextWrapping.Wrap
+                            }
+                        },
+                        new TextBlock
+                        {
+                            Text = "Only run commands from a workspace you trust.",
+                            Opacity = 0.8,
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Spacing = 8,
+                            Children = { cancelButton, runButton }
+                        }
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
+            return confirmed;
+        }
+
         private void DisposeControlTree(Control control)
         {
+            // All call sites are UI event paths, but marshal defensively: the UI-affine
+            // detach below throws VerifyAccess off the UI thread.
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                Dispatcher.UIThread.Post(() => DisposeControlTree(control));
+                return;
+            }
+
             if (control is TerminalPane pane)
             {
                 UnwirePane(pane);
-                Task.Run(() => { try { pane.Dispose(); } catch { } });
+
+                // Two-phase teardown (#154): UI-affine detach runs here on the UI thread;
+                // only the potentially blocking session teardown moves to the pool.
+                // Previously the whole pane.Dispose() ran in Task.Run with a swallowed
+                // catch, so a VerifyAccess throw aborted teardown before the session was
+                // disposed, leaking the PTY and its child shell.
+                var session = pane.DetachFromUiThread();
+                if (session != null)
+                {
+                    Task.Run(() =>
+                    {
+                        try { session.Dispose(); }
+                        catch (Exception ex)
+                        {
+                            // Debug.WriteLine is compiled out of Release builds; use the
+                            // logger so production dispose failures leave a trace.
+                            TerminalLogger.Log($"[MainWindow] Session dispose failed: {ex.Message}");
+                        }
+                    });
+                }
             }
             else if (control is Panel panel) { foreach (var child in panel.Children) if (child is Control c) DisposeControlTree(c); }
             else if (control is ContentPresenter cp && cp.Content is Control childContent) DisposeControlTree(childContent);
@@ -3416,6 +3735,7 @@ namespace NovaTerminal
             if (TryGetSelectedTab(out var selectedTab))
             {
                 _activePaneByTab[selectedTab] = replacementPane;
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(replacementPane.PaneId, GetPersistentTabId(selectedTab));
                 if (FindTabHeaderTextBlock(selectedTab.Header) is TextBlock tabHeader)
                 {
                     tabHeader.Text = resolvedProfile.Name;
@@ -3540,6 +3860,7 @@ namespace NovaTerminal
             _currentPane = pane;
             _activePaneByTab[tabItem] = pane;
             _paneOwnerTab[pane] = tabItem;
+            AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(pane.PaneId, GetPersistentTabId(tabItem));
 
             // Defer visual update until layout is complete (ensures template is applied)
             EventHandler? layoutHandler = null;
@@ -3689,6 +4010,10 @@ namespace NovaTerminal
 
             newPane.ApplySettings(_settings);
             WirePane(newPane);
+            if (TryGetSelectedTab(out var splitOwnerTab))
+            {
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(newPane.PaneId, GetPersistentTabId(splitOwnerTab));
+            }
             newPane.MinWidth = Math.Max(newPane.MinWidth, minPaneWidth);
             newPane.MinHeight = Math.Max(newPane.MinHeight, minPaneHeight);
             originalPane.MinWidth = Math.Max(originalPane.MinWidth, minPaneWidth);
@@ -4649,6 +4974,22 @@ namespace NovaTerminal
         {
             var sw = new SettingsWindow(tabIndex, profileId);
 
+            // Snapshot the live-previewed values so Cancel can restore them (#167).
+            // The preview handlers below mutate _settings directly; without this,
+            // closing the dialog without saving left the preview values live, and any
+            // later unrelated Save() persisted them to disk.
+            var previewSnapshot = new
+            {
+                _settings.WindowOpacity,
+                _settings.BlurEffect,
+                _settings.BackgroundImagePath,
+                _settings.BackgroundImageOpacity,
+                _settings.BackgroundImageStretch,
+                _settings.FontFamily,
+                _settings.FontSize,
+                _settings.ThemeName
+            };
+
             // Wire up live preview events
             sw.OnOpacityChanged += (val) => { _settings.WindowOpacity = val; ApplyThemeToUI(); ApplySettingsToAllTabs(); };
             sw.OnBlurChanged += (val) => { _settings.BlurEffect = val; UpdateTransparencyHints(); };
@@ -4696,9 +5037,34 @@ namespace NovaTerminal
                 ApplyThemeToUI();
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
+                // Live-apply the agent-host observe endpoint (no restart needed),
+                // including the A4 replay-export sub-gate and the A3 act gate.
+                AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
+                AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
+                AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
+                AgentHost.AgentHostService.Instance.SetActionExecutor(this);
+                AgentHost.AgentHostService.Instance.Apply(_settings.AgentAccessObserveEnabled);
 
                 // Refresh Connection Manager if open (or just always update it)
                 _connectionManagerControl?.LoadProfiles(_sshConnectionService.GetConnectionProfiles());
+            }
+            else
+            {
+                // Cancel: revert the live preview (#167).
+                _settings.WindowOpacity = previewSnapshot.WindowOpacity;
+                _settings.BlurEffect = previewSnapshot.BlurEffect;
+                _settings.BackgroundImagePath = previewSnapshot.BackgroundImagePath;
+                _settings.BackgroundImageOpacity = previewSnapshot.BackgroundImageOpacity;
+                _settings.BackgroundImageStretch = previewSnapshot.BackgroundImageStretch;
+                _settings.FontFamily = previewSnapshot.FontFamily;
+                _settings.FontSize = previewSnapshot.FontSize;
+                _settings.ThemeName = previewSnapshot.ThemeName;
+                _settings.RefreshActiveTheme();
+
+                ApplyThemeToUI();
+                ApplySettingsToAllTabs();
+                UpdateTransparencyHints();
+                UpdateTabVisuals();
             }
         }
 
@@ -4776,6 +5142,99 @@ namespace NovaTerminal
                 System.Diagnostics.Debug.WriteLine($"[MainWindow] Failed to show SSH connection details: {ex.Message}");
                 await ShowSimpleMessageDialogAsync("Connection details", ex.Message);
             }
+        }
+
+        // A3: visible agent activity journal ("nothing is silent"). Read-only
+        // snapshot of recent acting attempts (allowed and denied), newest first,
+        // with a Refresh button. The journal data layer lives in
+        // AgentActivityJournal; this is its window.
+        private async Task ShowAgentActivityJournalAsync()
+        {
+            var dialog = CreateThemedDialogWindow("Agent activity", 720, 460, canResize: true);
+
+            var list = new ItemsControl
+            {
+                // Bind to the data snapshot with a template; don't materialize
+                // controls as items (bypasses recycling, leaks on refresh).
+                ItemTemplate = new Avalonia.Controls.Templates.FuncDataTemplate<AgentHost.AgentActivityEntry>((e, _) =>
+                {
+                    string when = e.TimestampUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+                    string outcome = e.Outcome == "ok" ? "ok" : $"denied: {e.Outcome}";
+                    string pane = e.PaneId is { } id ? $" · pane {id}" : string.Empty;
+                    return new TextBlock
+                    {
+                        Text = $"{when}  {e.Method}  [{outcome}]  {e.Target}{pane}",
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 2, 0, 2),
+                    };
+                }),
+            };
+            var scroll = new ScrollViewer
+            {
+                Content = list,
+                VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+            };
+
+            var empty = new TextBlock
+            {
+                Text = "No agent activity recorded yet. Actions taken by AI agents (typing, opening or closing sessions) appear here — including attempts that were denied.",
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.7,
+            };
+
+            void Refresh()
+            {
+                var entries = AgentHost.AgentActivityJournal.Instance.Snapshot();
+                if (entries.Count == 0)
+                {
+                    list.ItemsSource = null;
+                    scroll.IsVisible = false;
+                    empty.IsVisible = true;
+                    return;
+                }
+
+                empty.IsVisible = false;
+                scroll.IsVisible = true;
+                list.ItemsSource = entries; // data snapshot; the ItemTemplate renders each row
+            }
+
+            var refreshButton = new Button { Content = "Refresh", Width = 92 };
+            refreshButton.Click += (_, __) => Refresh();
+            var closeButton = new Button { Content = "Close", Width = 92 };
+            closeButton.Click += (_, __) => dialog.Close();
+
+            Refresh();
+
+            dialog.Content = new Border
+            {
+                Padding = new Thickness(16),
+                Child = new DockPanel
+                {
+                    LastChildFill = true,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = "Recent actions taken (or attempted) by AI agents with 'Agent access (act)' enabled. Newest first; the list is in-memory and bounded.",
+                            TextWrapping = TextWrapping.Wrap,
+                            Margin = new Thickness(0, 0, 0, 12),
+                            [DockPanel.DockProperty] = Dock.Top,
+                        },
+                        new StackPanel
+                        {
+                            Orientation = Avalonia.Layout.Orientation.Horizontal,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            Spacing = 8,
+                            Margin = new Thickness(0, 12, 0, 0),
+                            [DockPanel.DockProperty] = Dock.Bottom,
+                            Children = { refreshButton, closeButton },
+                        },
+                        new Panel { Children = { scroll, empty } },
+                    }
+                }
+            };
+
+            await dialog.ShowDialog(this);
         }
 
         private async Task ShowSimpleMessageDialogAsync(string title, string message)
@@ -5054,6 +5513,7 @@ namespace NovaTerminal
             }
             _recordingToastTimer.Stop();
             _globalHotkey?.Dispose();
+            AgentHost.AgentHostService.Instance.Stop();
         }
 
         private void RegisterPaneOwners(TabItem tabItem, Control control)
@@ -5061,6 +5521,7 @@ namespace NovaTerminal
             if (control is TerminalPane pane)
             {
                 _paneOwnerTab[pane] = tabItem;
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(pane.PaneId, GetPersistentTabId(tabItem));
                 return;
             }
 
@@ -5097,6 +5558,7 @@ namespace NovaTerminal
             if (visualTab != null)
             {
                 _paneOwnerTab[pane] = visualTab;
+                AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(pane.PaneId, GetPersistentTabId(visualTab));
                 return visualTab;
             }
 
@@ -5306,10 +5768,13 @@ namespace NovaTerminal
             titleBlock.Text = title;
             messageBlock.Text = message;
 
+            // The folder button only makes sense for toasts that have one
+            // (recordings). Non-file toasts (long-command completion) would
+            // otherwise offer a button that opens an unrelated folder.
             var openFolderButton = this.FindControl<Button>("RecordingToastOpenFolder");
             if (openFolderButton != null)
             {
-                openFolderButton.IsVisible = !string.IsNullOrWhiteSpace(folderPath);
+                openFolderButton.IsVisible = folderPath != null || filePath != null;
             }
 
             toast.IsVisible = true;
