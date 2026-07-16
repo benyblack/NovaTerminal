@@ -88,7 +88,7 @@ public static class SessionTools
     }
 
     [McpServerTool(Name = "novaterminal.get_session_status"),
-     Description("Reports what a live NovaTerminal session is doing right now: running / awaitingInput / idle / exited, with a confidence tier (precise = shell-integration events; heuristic = PTY signals), the in-flight command when known, exit code, and stall state. Read-only. Get paneId from novaterminal.list_sessions.")]
+     Description("Reports what a live NovaTerminal session is doing right now: running / awaitingInput / idle / exited, with a confidence tier (precise = shell-integration events; heuristic = PTY signals), the in-flight command when known, exit code, and stall state. Read-only. Get paneId from novaterminal.list_sessions. Limitation: the heuristic tier detects a running command via the OS process tree, which cannot see processes running inside a WSL distribution or on a remote SSH host — so a genuinely-running command in a WSL or SSH session may report awaitingInput/idle. Native local shells (cmd/PowerShell) are accurate; enabling shell integration upgrades a session to the precise tier, which is accurate regardless.")]
     public static async Task<string> GetSessionStatus(
         AgentHostClient client,
         [Description("The pane id (GUID) from novaterminal.list_sessions.")] string paneId,
