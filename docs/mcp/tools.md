@@ -41,7 +41,7 @@ These require NovaTerminal to be **running** with the relevant opt-in enabled. G
 |------|--------|-------------|
 | `novaterminal.list_sessions` | — | Lists live sessions: `paneId`, title, profile, kind (local/ssh), size, active flag, and status. |
 | `novaterminal.read_screen` | `paneId`, `includeAttributes?` | The visible screen as deterministic text (viewport lines, cursor position/visibility, size); optional per-row attribute encodings. |
-| `novaterminal.read_scrollback` | `paneId` | Scrollback history lines, oldest first. |
+| `novaterminal.read_scrollback` | `paneId`, `startLine?`, `maxLines?` | Scrollback history lines, oldest first. `startLine` (default 0 = oldest retained line) and `maxLines` (default 200, server-capped) page through the history. |
 | `novaterminal.get_session_status` | `paneId` | What the session is doing now — running / awaitingInput / idle / exited — with a confidence tier (precise = shell-integration events; heuristic = PTY signals), in-flight command, and exit code when known. |
 | `novaterminal.wait_for_events` | `sinceSeq?`, `timeoutMs?` | Long-polls the per-session event ring for status/command events after a cursor, so an agent can await completion instead of polling. |
 | `novaterminal.export_replay` | `paneId` | Exports the session's recent output + resizes as a deterministic `.rec` file (replay with `NovaTerminal --replay <file>`). **Never records input.** Requires the additional **Agent replay export** sub-toggle. |
