@@ -1,4 +1,4 @@
-# NovaTerminal MCP Dev Companion
+# NovaTerminal MCP server
 
 A local [Model Context Protocol](https://modelcontextprotocol.io) server that exposes
 NovaTerminal's project knowledge — and, opt-in, its live terminal sessions — to AI coding agents
@@ -22,6 +22,8 @@ are gated by explicit, default-off user opt-ins:
 
 - **Observe** (`list_sessions`, `read_screen`, `read_scrollback`, `get_session_status`,
   `wait_for_events`, `export_replay`) requires "Agent access (observe)". Read-only.
+  `export_replay` additionally requires the "Agent replay export" sub-toggle and never records
+  typed input.
 - **Act** (`send_input`, `spawn_session`, `close_session`) requires a *separate* "Agent access
   (act)" opt-in on top of observe; SSH sessions additionally require a per-profile allowlist. Every
   acting call — allowed or denied — is recorded in an in-app activity journal. See the threat model
@@ -84,6 +86,7 @@ When a client launches the server from an arbitrary working directory, set
 
 Ready-to-edit example configs live in [`examples/mcp/`](../../examples/mcp/):
 
+- **Claude Code** — `claude mcp add novaterminal -- dotnet "<path-to-repo>/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"`
 - **Claude Desktop** — [`examples/mcp/claude_desktop_config.json`](../../examples/mcp/claude_desktop_config.json)
 - **VS Code** (`.vscode/mcp.json`) — [`examples/mcp/vscode_mcp_config.json`](../../examples/mcp/vscode_mcp_config.json)
 
@@ -135,12 +138,15 @@ dev-companion set:
 | `novaterminal.validate_theme_json` | `themeJson` | Validates a theme JSON; reports missing fields, invalid colors, unknown fields. |
 | `novaterminal.get_connection_profile_schema` | — | SSH connection-profile JSON schema: PascalCase fields by area, integer enum mappings, defaults, example. Covers a single profile or a full `profiles.json` document. |
 | `novaterminal.validate_connection_profile_json` | `profileJson` | Validates a connection-profile JSON (single profile or full document, auto-detected); reports wrong types, out-of-range integer enums/ports, missing `Name`/`Host`, and warns on unknown fields and any stray `Password`. |
+| `novaterminal.get_settings_schema` | — | The settings.json schema: top-level fields by area (PascalCase, integer enums for embedded profiles), types, defaults, and an example. Top-level shape only. |
+| `novaterminal.validate_settings_json` | `settingsJson` | Validates a settings.json string (top-level shape); reports wrong types, out-of-range numerics, malformed `DefaultProfileId`, bad collection shapes, and warns on unknown fields and any stray `Password`. Embedded profiles are not deep-validated. |
 | `novaterminal.generate_codex_prompt_for_issue` | `title`, `description?` | A structured implementation prompt (relevant areas, constraints, PR size, steps, tests, acceptance, risks). |
 | `novaterminal.suggest_relevant_files` | `topic` | The concrete source/test files most relevant to a topic (e.g. `reflow`, `glyph atlas`, `ssh key auth`). |
 
 Self-contained tools (no filesystem access): `get_project_summary`, `get_theme_schema`,
 `validate_theme_json`, `get_connection_profile_schema`, `validate_connection_profile_json`,
-`generate_codex_prompt_for_issue`. The rest read files under `docs/` and need the repo root.
+`get_settings_schema`, `validate_settings_json`, `generate_codex_prompt_for_issue`. The rest read
+files under `docs/` and need the repo root.
 
 ### Example: validate a profile
 
