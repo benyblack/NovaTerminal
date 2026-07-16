@@ -1,31 +1,43 @@
-# NovaTerminal MCP Dev Companion — security model
+# NovaTerminal MCP — security model
 
-The v0.1 server is **local-only, read-only, and offline**. It is a development aid; it must never
-become an exfiltration or command-execution surface.
+The server has **two tool families** with different security postures.
 
-## Guarantees (v0.1)
+## Repo / dev-companion tools — local-only, read-only, offline
 
-- **No command execution.** The server contains no process-spawning code paths.
-- **No SSH / network.** It opens no sockets and requires no network access.
-- **No credentials / private keys.** It never reads the vault, profiles, `known_hosts`, or keys.
-- **No live terminal access.** It cannot see terminal buffers, tabs, or selections.
-- **Read-only filesystem access, confined to `docs/`.** File reads go through `RepoContext`, which:
+These are a development aid and must never become an exfiltration or command-execution surface:
+
+- **No command execution.** The server contains no process-spawning code paths for these tools.
+- **No SSH / network.** They open no sockets and require no network access.
+- **No credentials / private keys.** They never read the vault, profiles, `known_hosts`, or keys.
+- **Read-only filesystem access, confined to `docs/`.** Reads go through `RepoContext`, which:
   - resolves a single repo root (env `NOVATERMINAL_REPO_ROOT`, or by walking up to `NovaTerminal.sln`);
   - serves only files under `docs/`;
-  - canonicalizes every requested path and **rejects anything that escapes `docs/`** (e.g. `../`,
-    absolute paths). This is covered by tests (`RepoContextTests`).
+  - canonicalizes every requested path and **rejects anything that escapes `docs/`** (`../`,
+    absolute paths). Covered by `RepoContextTests`.
+
+## Live-session tools (agent host) — explicit, default-off opt-ins
+
+The observe/act tools proxy the **running** NovaTerminal app over a **per-user local IPC endpoint**
+(a `CurrentUserOnly` named pipe on Windows; a `0600` unix-domain socket under the app-data dir on
+macOS/Linux). They are gated by opt-ins in the app's settings:
+
+- **Observe** (`list_sessions`, `read_screen`, `read_scrollback`, `get_session_status`,
+  `wait_for_events`, `export_replay`) requires **Agent access (observe)**. Read-only. Replay export
+  additionally requires the **Agent replay export** sub-toggle and **never records typed input**.
+- **Act** (`send_input`, `spawn_session`, `close_session`) requires a **separate** **Agent access
+  (act)** opt-in *on top of* observe. SSH targets additionally require a **per-profile allowlist**.
+  Every acting call — allowed or denied — is recorded in an in-app **activity journal**.
+- With both toggles off, **no endpoint exists** and the live-session tools return guidance, not data.
+
+Full analysis of the acting surface: the
+[acting threat model](../agent-host/2026-07-12-acting-threat-model.md).
 
 ## Architectural enforcement
 
-- `NovaTerminal.McpServer` has **no `ProjectReference`s** to the rest of the solution, so it cannot
-  call into terminal, PTY, SSH, or rendering code even by accident.
-- It depends only on `ModelContextProtocol` and `Microsoft.Extensions.Hosting`.
-
-## Future capabilities (must stay opt-in)
-
-Any future tool that reads a running app's state (open tabs, active profile metadata, selected
-text) or performs writes/actions is **sensitive**. Such capabilities must:
-
-- be off by default and require explicit user opt-in,
-- be documented separately with their own threat model,
-- never expose credentials, private keys, or raw session contents.
+- `NovaTerminal.McpServer`'s only cross-assembly dependency is the zero-reference
+  `NovaTerminal.AgentHost.Contracts` leaf (the IPC wire types). It links **no** terminal, PTY, SSH,
+  or rendering code — the live-session tools reach the app purely over that IPC contract, never by
+  calling into it in-process.
+- Otherwise it depends only on `ModelContextProtocol` and `Microsoft.Extensions.Hosting`.
+- Dev-companion schemas that mirror real types are kept honest by drift-guard tests in
+  `tests/NovaTerminal.McpServer.Tests`.
