@@ -169,6 +169,46 @@ public class AgentHostActProtocolTests
     }
 
     [Fact]
+    public void SendInput_with_submit_appends_a_single_carriage_return()
+    {
+        // Agents can rarely emit a raw 0x0D through their tool-argument encoding;
+        // submit=true is the reliable "press Enter". Text stays byte-faithful and
+        // exactly one CR (no LF) is appended.
+        var registry = new AgentSessionRegistry();
+        var session = new InputStubSession();
+        var reg = Register(registry, "local", session);
+        using var service = NewService(registry, new AgentActivityJournal());
+        service.ActEnabled = true;
+
+        var json = JsonSerializer.Serialize(
+            new SendInputParams { PaneId = reg.PaneId, Text = "echo hi", Submit = true },
+            AgentHostJsonContext.Default.SendInputParams);
+        var line = $"{{\"v\":{AgentHostProtocol.Version},\"id\":1,\"method\":\"{AgentHostProtocol.Methods.SendInput}\",\"params\":{json}}}";
+        var response = Handle(service, line);
+
+        Assert.Null(response.Error);
+        Assert.Equal("echo hi\r", Assert.Single(session.Inputs)); // one trailing CR, no LF
+        var result = response.Result!.Value.Deserialize(AgentHostJsonContext.Default.SendInputResult);
+        Assert.Equal(Encoding.UTF8.GetByteCount("echo hi") + 1, result!.BytesSent); // CR counted
+    }
+
+    [Fact]
+    public void SendInput_without_submit_appends_nothing()
+    {
+        var registry = new AgentSessionRegistry();
+        var session = new InputStubSession();
+        var reg = Register(registry, "local", session);
+        using var service = NewService(registry, new AgentActivityJournal());
+        service.ActEnabled = true;
+
+        // Default (submit omitted → false): text reaches the session verbatim.
+        var response = Handle(service, SendInputLine(reg.PaneId, "echo hi"));
+
+        Assert.Null(response.Error);
+        Assert.Equal("echo hi", Assert.Single(session.Inputs)); // no trailing CR
+    }
+
+    [Fact]
     public void SendInput_to_allowlisted_ssh_session_succeeds()
     {
         var registry = new AgentSessionRegistry();

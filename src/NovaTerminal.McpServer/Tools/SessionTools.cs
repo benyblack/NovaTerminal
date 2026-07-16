@@ -163,11 +163,12 @@ public static class SessionTools
     }
 
     [McpServerTool(Name = "novaterminal.send_input"),
-     Description("Types input into a live NovaTerminal session, exactly as a human would at the keyboard — the bytes are queued to the terminal and recorded like any keystroke. Use for driving an interactive program or answering a prompt. 'text' may include control characters (e.g. \\u0003 for Ctrl-C, \\r for Enter). This is an ACTING tool: it requires the user to have enabled BOTH 'Agent access (observe)' and its 'Agent access (act)' sub-toggle in NovaTerminal settings; SSH sessions must also be individually allowlisted. Every call (allowed or denied) is shown in the app's agent activity journal. Get paneId from novaterminal.list_sessions.")]
+     Description("Types input into a live NovaTerminal session, exactly as a human would at the keyboard — the bytes are queued to the terminal and recorded like any keystroke. Use for driving an interactive program or answering a prompt. 'text' is sent byte-for-byte and may include control characters (e.g. \\u0003 for Ctrl-C). To submit a command, set submit=true to append a carriage return (Enter) — do NOT rely on putting a newline in 'text': it arrives as a line feed, which PowerShell/PSReadLine treats as a soft line-continuation rather than the carriage return a console treats as Enter. This is an ACTING tool: it requires the user to have enabled BOTH 'Agent access (observe)' and its 'Agent access (act)' sub-toggle in NovaTerminal settings; SSH sessions must also be individually allowlisted. Every call (allowed or denied) is shown in the app's agent activity journal. Get paneId from novaterminal.list_sessions.")]
     public static async Task<string> SendInput(
         AgentHostClient client,
         [Description("The pane id (GUID) from novaterminal.list_sessions.")] string paneId,
-        [Description("Text to type. Control characters allowed (\\u0003 = Ctrl-C, \\r = Enter). Sent verbatim; no newline is added.")] string text,
+        [Description("Text to type, sent byte-for-byte (control characters allowed, e.g. \\u0003 = Ctrl-C). No newline is added; use submit=true to press Enter.")] string text,
+        [Description("If true, append a carriage return (Enter) after the text to submit it. This is the reliable way to run a command, since most agents cannot emit a raw carriage return in 'text' themselves. Default false.")] bool submit = false,
         CancellationToken cancellationToken = default)
     {
         if (!Guid.TryParse(paneId, out var pane))
@@ -180,7 +181,7 @@ public static class SessionTools
         }
 
         var parameters = JsonSerializer.SerializeToElement(
-            new SendInputParams { PaneId = pane, Text = text },
+            new SendInputParams { PaneId = pane, Text = text, Submit = submit },
             AgentHostJsonContext.Default.SendInputParams);
         var outcome = await client.CallAsync(AgentHostProtocol.Methods.SendInput, parameters, cancellationToken).ConfigureAwait(false);
         if (!TryUnwrap(outcome, out var result, out var error)) return error;

@@ -16,6 +16,19 @@ public sealed record SendInputParams
     /// </summary>
     [JsonPropertyName("text")]
     public required string Text { get; init; }
+
+    /// <summary>
+    /// When true, a single carriage return (U+000D) is appended after
+    /// <see cref="Text"/> — the byte a console treats as "Enter". This is the
+    /// reliable way for an agent to submit a command: many callers cannot emit a
+    /// raw 0x0D through their tool-argument encoding (a literal newline arrives as
+    /// a line feed, which PSReadLine treats as a soft line-continuation, and the
+    /// "\r" escape often arrives as two literal characters). <see cref="Text"/>
+    /// itself is still sent byte-faithfully; this only controls the trailing CR.
+    /// Defaults to false.
+    /// </summary>
+    [JsonPropertyName("submit")]
+    public bool Submit { get; init; }
 }
 
 /// <summary>Result payload for <c>sendInput</c>.</summary>

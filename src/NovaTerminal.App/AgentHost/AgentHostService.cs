@@ -771,8 +771,14 @@ namespace NovaTerminal.AgentHost
                     Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "sendInput requires params with a paneId and text."));
             }
 
+            // Optional trailing CR (0x0D) — the byte a console treats as "Enter".
+            // Text stays byte-faithful; submit only appends the carriage return
+            // that many agent callers cannot emit as a raw 0x0D. See
+            // SendInputParams.Submit.
+            string payload = p.Submit ? p.Text + "\r" : p.Text;
+
             // Size cap before any lookup so a flood is rejected cheaply.
-            int byteCount = Encoding.UTF8.GetByteCount(p.Text);
+            int byteCount = Encoding.UTF8.GetByteCount(payload);
             if (byteCount > AgentHostProtocol.MaxSendInputBytes)
             {
                 return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, "input",
@@ -806,7 +812,7 @@ namespace NovaTerminal.AgentHost
                 }
             }
 
-            if (!registration.TrySendInput(p.Text))
+            if (!registration.TrySendInput(payload))
             {
                 return Journaled(request, AgentHostProtocol.Methods.SendInput, p.PaneId, registration.ProfileName,
                     Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotRunning,
