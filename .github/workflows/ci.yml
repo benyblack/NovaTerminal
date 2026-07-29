@@ -365,7 +365,20 @@ jobs:
           set -x
           dotnet --version
           filter="Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
-          for proj in VT Rendering Architecture Platform McpServer; do
+          # Which projects are measured, and why these:
+          #
+          # Architecture.Tests is deliberately absent. It has no coverlet.collector
+          # reference (unlike the four below), so it produced no report and the job
+          # measured four projects while listing five. It asserts project and IL structure
+          # rather than executing product code, so there is little for coverlet to
+          # attribute - excluding it is more honest than adding the package to make an
+          # empty report appear.
+          #
+          # App.Tests is also absent, matching the gating lane, which excludes it because
+          # of the Avalonia headless flake (#81). It does carry the collector, and it
+          # exercises a lot of VT (the buffer and reflow scenario suites live there) - so
+          # its absence is the main reason the VT figure below understates true coverage.
+          for proj in VT Rendering Platform McpServer; do
             echo "::group::NovaTerminal.$proj.Tests"
             dotnet test "tests/NovaTerminal.$proj.Tests" -c "$CONFIGURATION" --no-restore \
               --filter "$filter" \
