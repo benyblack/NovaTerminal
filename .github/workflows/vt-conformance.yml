@@ -39,7 +39,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
 
       - name: Restore conformance tool
         run: dotnet restore src/NovaTerminal.Conformance/NovaTerminal.Conformance.csproj

@@ -1,0 +1,8 @@
+{
+  "//": "Pins the .NET SDK so hosted-runner bumps and local drift cannot change the toolchain silently (#174). CI installs this exact version via setup-dotnet's global-json-file input, so the workflows and this file cannot disagree the way `dotnet-version: 10.0.x` plus a hardcoded cache key did.",
+  "//rollForward": "latestPatch accepts servicing patches within the 10.0.3xx feature band but refuses a different band, keeping builds reproducible. Note the trade-off: because this is a preview SDK, CI depends on that build remaining downloadable - if it is ever pulled, bump this file rather than loosening the policy.",
+  "sdk": {
+    "version": "10.0.300-preview.0.26177.108",
+    "rollForward": "latestPatch"
+  }
+}
