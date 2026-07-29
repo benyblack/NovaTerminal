@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Coverage settings for `dotnet test` (#117).
+
+  coverlet.collector has been pinned in Directory.Packages.props and referenced by all
+  five test projects for a while, but nothing ever enabled it: no test invocation passed
+  a collect switch, and no report was produced. The dependency was present and entirely
+  unused.
+
+  A settings file rather than a command-line collect switch: the collector's friendly name
+  contains spaces, which does not survive the quoting layers between the CI shell,
+  scripts/build.*, and MSBuild (it splits into separate switches and fails with MSB1008).
+  Keeping it here also means local and CI runs measure identically.
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat code coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <!-- Generated and obsolete members are not meaningful coverage targets. -->
+          <ExcludeByAttribute>Obsolete,GeneratedCodeAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
+          <!-- Test assemblies measure the product, not themselves. -->
+          <Exclude>[*.Tests]*,[NovaTerminal.Benchmarks]*</Exclude>
+          <SingleHit>false</SingleHit>
+          <UseSourceLink>true</UseSourceLink>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>
