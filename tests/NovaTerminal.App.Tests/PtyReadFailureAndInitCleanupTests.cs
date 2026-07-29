@@ -21,6 +21,7 @@ namespace NovaTerminal.Tests
     /// (b) The PowerShell post-launch init wrote <c>nova_init_{guid}.ps1</c> into %TEMP%
     /// and never deleted it, leaking one file per PowerShell session.
     /// </summary>
+    [Collection(PtyRealShellCollection.Name)]
     public class PtyReadFailureAndInitCleanupTests
     {
         [Fact]

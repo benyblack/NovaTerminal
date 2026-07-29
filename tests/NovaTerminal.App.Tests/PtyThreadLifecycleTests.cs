@@ -15,6 +15,7 @@ namespace NovaTerminal.Tests
     /// The loops must run on dedicated background threads so a leaked session can never
     /// consume the threadpool.
     /// </summary>
+    [Collection(PtyRealShellCollection.Name)]
     public class PtyThreadLifecycleTests
     {
         [Fact]
