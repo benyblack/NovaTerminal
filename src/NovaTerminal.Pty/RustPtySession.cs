@@ -719,6 +719,13 @@ namespace NovaTerminal.Pty
                         // refcount makes pty_close wait for any in-flight pty_* call, and
                         // Dispose() is idempotent so a later disposal still works.
                         _handle.Dispose();
+
+                        // Make the emergency path self-contained rather than deferring to
+                        // the owner's eventual Dispose. If the shell died without sourcing
+                        // the init script, the script would otherwise survive for as long
+                        // as the dead pane stayed open. Safe here: the handle is already
+                        // released, so no shell can be mid-source.
+                        TryDeleteInitScript();
                     }
                     catch (Exception ex)
                     {
