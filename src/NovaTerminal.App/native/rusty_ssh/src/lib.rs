@@ -4066,6 +4066,61 @@ mod tests {
     }
 
     #[test]
+    fn rename_replaces_an_existing_destination() {
+        // download_file_from_remote commits by renaming the `.novapart` scratch file
+        // over `local_path`, which assumes rename REPLACES an existing destination
+        // rather than failing. That holds on all three target platforms today
+        // (on Windows via SetFileInformationByHandle + FileRenameInfo.ReplaceIfExists),
+        // but it is a platform guarantee this crate silently depends on rather than one
+        // it controls: if it ever stopped holding, every re-download over an existing
+        // file would fail and directory re-downloads would abort at the first such file.
+        // Raised as a concern on PR #210; pinned here so a regression is caught by
+        // `cargo test` instead of by users.
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        runtime.block_on(async {
+            let dir = std::env::temp_dir().join(format!(
+                "nova-rename-{}-{}",
+                std::process::id(),
+                PARTIAL_DOWNLOAD_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            tokio::fs::create_dir_all(&dir)
+                .await
+                .expect("temp dir should be creatable");
+
+            let destination = dir.join("archive.tar.gz");
+            let partial = partial_download_path(&destination);
+            tokio::fs::write(&destination, b"stale previous download")
+                .await
+                .expect("destination should be writable");
+            tokio::fs::write(&partial, b"freshly downloaded bytes")
+                .await
+                .expect("partial should be writable");
+
+            tokio::fs::rename(&partial, &destination)
+                .await
+                .expect("rename must replace an existing destination");
+
+            assert_eq!(
+                b"freshly downloaded bytes".to_vec(),
+                tokio::fs::read(&destination)
+                    .await
+                    .expect("destination should be readable"),
+                "destination should hold the newly downloaded bytes"
+            );
+            assert!(
+                !partial.exists(),
+                "the scratch file should be consumed by the rename"
+            );
+
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+        });
+    }
+
+    #[test]
     fn discard_partial_download_removes_the_file_and_tolerates_a_missing_one() {
         let runtime = Builder::new_current_thread()
             .enable_all()
