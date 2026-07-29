@@ -354,15 +354,23 @@ jobs:
           SKIP_RUST_NATIVE_BUILD: '1'
         shell: bash
         run: |
+          # No `|| true` here. The step is already continue-on-error, so swallowing the
+          # exit code inside the loop only destroys the diagnostics - which is exactly what
+          # happened on the first attempt: five empty log groups and no way to tell why.
+          # set -x records the resolved command so a failure is self-explaining.
+          set -x
+          dotnet --version
           filter="Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
           for proj in VT Rendering Architecture Platform McpServer; do
             echo "::group::NovaTerminal.$proj.Tests"
             dotnet test "tests/NovaTerminal.$proj.Tests" -c "$CONFIGURATION" --no-build --no-restore \
               --filter "$filter" \
               --settings tests/coverage.runsettings \
-              --results-directory "coverage/$proj" || true
+              --results-directory "coverage/$proj"
             echo "::endgroup::"
           done
+          echo "=== collected reports ==="
+          find coverage -name '*.cobertura.xml' -print || echo "none found"
 
       # A floor, not a target, and deliberately below the measured value: VT is at 53.14%
       # line / 46.51% branch as measured by this invocation, so the floor is 50% - normal
