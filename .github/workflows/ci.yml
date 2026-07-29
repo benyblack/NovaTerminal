@@ -295,6 +295,97 @@ jobs:
             **/*.trx
             **/*.dmp
 
+  # Coverage measurement (#117). coverlet.collector was pinned in
+  # Directory.Packages.props and referenced by all five test projects, but nothing ever
+  # enabled it - no invocation passed a collect switch and no report was produced.
+  #
+  # Deliberately a separate job rather than instrumenting the gating Unit Tests lane.
+  # Coverage instrumentation slows execution by orders of magnitude on hot loops, and the
+  # suite contains wall-clock assertions - CsiParamClampTests.HugeCsiParameter_DoesNotHang
+  # guards the #124 parser DoS with a 2s ceiling, and measured 2088ms under instrumentation
+  # locally. Instrumenting the gate would make the gate's own timing assertions unreliable,
+  # so correctness and measurement are kept apart.
+  coverage:
+    name: Coverage (NovaTerminal.VT floor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/*.csproj"
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dotnet-build-ubuntu-latest
+          path: tests
+
+      - name: Restore execute permissions
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            -exec chmod +x {} + || true
+
+      # continue-on-error: this job measures, it does not judge correctness - the Unit Tests
+      # lane already does that on an uninstrumented run. Without this, a wall-clock
+      # assertion tripped by instrumentation overhead (see the job comment) would fail here
+      # for a reason that says nothing about the code. Coverage data is still written for
+      # every test that ran, so the floor check below remains meaningful.
+      - name: Test with coverage
+        continue-on-error: true
+        env:
+          SKIP_RUST_NATIVE_BUILD: '1'
+        shell: bash
+        run: |
+          filter="Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
+          for proj in VT Rendering Architecture Platform McpServer; do
+            echo "::group::NovaTerminal.$proj.Tests"
+            dotnet test "tests/NovaTerminal.$proj.Tests" -c "$CONFIGURATION" --no-build --no-restore \
+              --filter "$filter" \
+              --settings tests/coverage.runsettings \
+              --results-directory "coverage/$proj" || true
+            echo "::endgroup::"
+          done
+
+      # A floor, not a target, and deliberately below the measured value: VT is at 53.14%
+      # line / 46.51% branch as measured by this invocation, so the floor is 50% - normal
+      # churn cannot turn a green PR red, and it should be ratcheted up as coverage grows
+      # rather than set aspirationally now. VT gets the only floor because it is the
+      # conformance-critical assembly; the other four upload their reports so their numbers
+      # are visible before anyone commits to a floor for them.
+      - name: Check coverage floor (NovaTerminal.VT)
+        shell: pwsh
+        run: >-
+          ./scripts/check-coverage.ps1
+          -ReportDirectory coverage/VT
+          -MinimumLinePercent 50
+          -Label NovaTerminal.VT
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          retention-days: 5
+          path: coverage/**/*.cobertura.xml
+
   golden_shared_png_tests:
     name: Golden Shared PNGs (windows-latest)
     runs-on: windows-latest
