@@ -330,18 +330,22 @@ jobs:
           cache: true
           cache-dependency-path: "**/*.csproj"
 
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: dotnet-build-ubuntu-latest
-          path: tests
+      # Builds from source rather than consuming the build job's artifact. Two reasons:
+      #
+      # 1. `dotnet test <dir> --no-build --settings <file>` silently does nothing on this
+      #    SDK - it exits 0 in ~0.3s with no output and writes no report, five times over.
+      #    The gating lane gets away with the same --no-build because it passes no
+      #    --settings. Building here matches the invocation shape that was verified to
+      #    produce a report locally, instead of relying on that combination working.
+      # 2. Coverage needs the source tree anyway to attribute lines, so the artifact saved
+      #    nothing here.
+      #
+      # The cost is one extra build in exchange for a job that demonstrably measures.
+      - name: Restore
+        run: dotnet restore
 
-      - name: Restore execute permissions
-        run: |
-          find tests -path "*/bin/Release/net*" -type f \
-            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
-            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
-            -exec chmod +x {} + || true
+      - name: Build
+        run: dotnet build -c ${{ env.CONFIGURATION }} --no-restore
 
       # continue-on-error: this job measures, it does not judge correctness - the Unit Tests
       # lane already does that on an uninstrumented run. Without this, a wall-clock
@@ -354,16 +358,16 @@ jobs:
           SKIP_RUST_NATIVE_BUILD: '1'
         shell: bash
         run: |
-          # No `|| true` here. The step is already continue-on-error, so swallowing the
-          # exit code inside the loop only destroys the diagnostics - which is exactly what
-          # happened on the first attempt: five empty log groups and no way to tell why.
-          # set -x records the resolved command so a failure is self-explaining.
+          # No `|| true` inside the loop. The step is already continue-on-error, so
+          # swallowing exit codes there only destroys the diagnostics - which is exactly
+          # what happened on the first attempt: five empty log groups and no way to tell
+          # why. set -x records the resolved command so a failure explains itself.
           set -x
           dotnet --version
           filter="Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
           for proj in VT Rendering Architecture Platform McpServer; do
             echo "::group::NovaTerminal.$proj.Tests"
-            dotnet test "tests/NovaTerminal.$proj.Tests" -c "$CONFIGURATION" --no-build --no-restore \
+            dotnet test "tests/NovaTerminal.$proj.Tests" -c "$CONFIGURATION" --no-restore \
               --filter "$filter" \
               --settings tests/coverage.runsettings \
               --results-directory "coverage/$proj"
