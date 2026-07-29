@@ -123,7 +123,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
           restore-keys: dotnet-sdk-${{ runner.os }}-
 
       - name: Setup .NET
@@ -131,7 +131,7 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ~/.dotnet
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
           cache: true
           cache-dependency-path: "**/*.csproj"
 
@@ -179,7 +179,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
           restore-keys: dotnet-sdk-${{ runner.os }}-
 
       - name: Setup .NET
@@ -187,7 +187,7 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ~/.dotnet
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
           cache: true
           cache-dependency-path: "**/*.csproj"
 
@@ -309,7 +309,7 @@ jobs:
         continue-on-error: true
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
           restore-keys: dotnet-sdk-${{ runner.os }}-
 
       - name: Setup .NET
@@ -317,7 +317,7 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ~/.dotnet
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
           cache: true
           cache-dependency-path: "**/*.csproj"
 
@@ -375,7 +375,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
           restore-keys: dotnet-sdk-${{ runner.os }}-
 
       - name: Setup .NET
@@ -383,7 +383,7 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ~/.dotnet
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
           cache: true
           cache-dependency-path: "**/*.csproj"
 
@@ -448,7 +448,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
           restore-keys: dotnet-sdk-${{ runner.os }}-
 
       - name: Setup .NET
@@ -456,7 +456,7 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ~/.dotnet
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
           cache: true
           cache-dependency-path: "**/*.csproj"
 
@@ -540,7 +540,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
           restore-keys: dotnet-sdk-${{ runner.os }}-
 
       - name: Setup .NET
@@ -548,7 +548,7 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ~/.dotnet
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
           cache: true
           cache-dependency-path: "**/*.csproj"
 
@@ -599,7 +599,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
           restore-keys: dotnet-sdk-${{ runner.os }}-
 
       - name: Setup .NET
@@ -607,7 +607,7 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ~/.dotnet
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
           cache: true
           cache-dependency-path: "**/*.csproj"
 
@@ -657,7 +657,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
           restore-keys: dotnet-sdk-${{ runner.os }}-
 
       - name: Setup .NET
@@ -665,7 +665,7 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ~/.dotnet
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
           cache: true
           cache-dependency-path: "**/*.csproj"
 
@@ -725,7 +725,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.dotnet
-          key: dotnet-sdk-${{ runner.os }}-10.0.300
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
           restore-keys: dotnet-sdk-${{ runner.os }}-
 
       - name: Setup .NET
@@ -733,7 +733,7 @@ jobs:
         env:
           DOTNET_INSTALL_DIR: ~/.dotnet
         with:
-          dotnet-version: "10.0.x"
+          global-json-file: global.json
           cache: true
           cache-dependency-path: "**/*.csproj"
 
