@@ -86,7 +86,18 @@ namespace NovaTerminal.VT
             
             if (!_isAltScreen && absRow < _scrollback.Count)
             {
-                // Scrollback doesn't support extended text yet (Step 5)
+                // The side table has been carried into scrollback since the row-metadata
+                // work landed; this read path was the missing half (#95 gap 1). Without it
+                // an emoji or CJK grapheme degraded to its first UTF-16 char the moment the
+                // line scrolled off - visible in copied text and in link detection, both of
+                // which read through here.
+                var extendedText = _scrollback.GetExtendedTextMap(absRow);
+                if (extendedText != null && extendedText.TryGet(col, out string? scrollbackText)
+                    && scrollbackText != null)
+                {
+                    return scrollbackText;
+                }
+
                 return _scrollback.GetRow(absRow)[col].Character.ToString();
             }
 
@@ -105,8 +116,13 @@ namespace NovaTerminal.VT
                 
                 if (!_isAltScreen && absRow < _scrollback.Count)
                 {
-                    // Scrollback doesn't support hyperlinks yet (Step 5)
-                    return null;
+                    // Same gap as GetGraphemeAbsolute: the hyperlink side table survives
+                    // into scrollback, but this read path returned null unconditionally, so
+                    // an OSC 8 link stopped being a link as soon as it scrolled off screen.
+                    var hyperlinks = _scrollback.GetHyperlinkMap(absRow);
+                    return hyperlinks != null && hyperlinks.TryGet(col, out string? uri)
+                        ? uri
+                        : null;
                 }
 
                 var row = GetRowAbsolute(absRow);
