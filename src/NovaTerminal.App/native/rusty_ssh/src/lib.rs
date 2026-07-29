@@ -5,11 +5,11 @@ use russh::{ChannelMsg, Disconnect};
 use russh_sftp::client::SftpSession;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, OsStr, OsString};
 use std::future::Future;
 use std::io::Cursor;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::ptr;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc as std_mpsc};
@@ -1870,10 +1870,14 @@ async fn download_file_from_remote(
         }
     }
 
-    let mut local_file = TokioFile::create(local_path)
-        .await
-        .map_err(|error| map_local_transfer_error(local_path, error))?;
-    copy_file_with_cancellation(
+    // Download into a sibling `.novapart` file and rename on success. Writing straight
+    // to `local_path` would truncate an existing good copy the moment the file is
+    // created — before a single byte arrives — so a cancelled or failed re-download
+    // used to destroy the previous version and leave a truncated file behind.
+    let partial_path = partial_download_path(local_path);
+    let mut local_file = create_partial_download_file(&partial_path).await?;
+
+    if let Err(error) = copy_file_with_cancellation(
         &mut remote_file,
         &mut local_file,
         cancellation_marker_path,
@@ -1882,9 +1886,38 @@ async fn download_file_from_remote(
         progress,
         copy_buffer,
     )
-    .await?;
-    local_file.flush().await?;
-    remote_file.shutdown().await?;
+    .await
+    {
+        drop(local_file);
+        discard_partial_download(&partial_path).await;
+        return Err(error);
+    }
+
+    if let Err(error) = local_file.flush().await {
+        drop(local_file);
+        discard_partial_download(&partial_path).await;
+        return Err(map_local_transfer_error(&partial_path, error));
+    }
+
+    // Close the handle before renaming: Windows refuses to rename a file that still
+    // has an open handle.
+    drop(local_file);
+
+    // Close the remote handle *before* the rename so that the rename is the last
+    // fallible operation, and therefore the single commit point. With the rename first,
+    // a failing shutdown would report the transfer as failed even though the
+    // destination had already been replaced - and in a directory download would abort
+    // the remaining files having already committed this one.
+    if let Err(error) = remote_file.shutdown().await {
+        discard_partial_download(&partial_path).await;
+        return Err(error.into());
+    }
+
+    if let Err(error) = tokio::fs::rename(&partial_path, local_path).await {
+        discard_partial_download(&partial_path).await;
+        return Err(map_local_transfer_error(local_path, error));
+    }
+
     Ok(())
 }
 
@@ -1990,8 +2023,10 @@ async fn download_directory_from_remote(
         for entry in entries {
             ensure_transfer_not_canceled(cancellation_marker_path)?;
             let file_name = entry.file_name();
+            validate_remote_entry_name(&file_name)?;
             let remote_child = join_remote_path(&remote_dir, &file_name);
             let local_child = local_dir.join(&file_name);
+            ensure_within_download_root(local_root, &local_child)?;
             let metadata = entry.metadata();
 
             if metadata.is_dir() {
@@ -2286,13 +2321,30 @@ impl std::error::Error for NativeSftpTransferError {}
 
 fn remote_basename(path: &str) -> anyhow::Result<String> {
     let normalized = normalize_remote_directory_path(path)?;
-    normalized
+    let basename = normalized
         .rsplit('/')
         .find(|segment| !segment.is_empty())
         .map(str::to_owned)
         .ok_or_else(|| {
             anyhow::anyhow!("Remote directory name is required for native SFTP transfer.")
-        })
+        })?;
+
+    // A remote path ending in `/..` (or `/.`) would otherwise yield a basename of
+    // ".." and relocate the download root a level above the directory the user
+    // chose. User-supplied rather than server-supplied, so this is hygiene rather
+    // than the vulnerability fixed in validate_remote_entry_name — but the root
+    // still has to land where the user pointed it.
+    if basename == "." || basename == ".." {
+        return Err(anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::InvalidArgument,
+            format!(
+                "Remote directory path '{path}' resolves to '{basename}' and cannot be \
+                 used as a download directory name."
+            ),
+        )));
+    }
+
+    Ok(basename)
 }
 
 fn resolve_upload_file_destination_path(
@@ -2347,14 +2399,132 @@ fn normalize_remote_directory_path(path: &str) -> anyhow::Result<String> {
         return Ok("/".to_owned());
     }
 
-    if trimmed == "." {
+    if trimmed == "." || trimmed == ".." {
         return Err(anyhow::Error::new(NativeSftpTransferError::new(
             NativeSftpTransferErrorKind::InvalidArgument,
-            "Remote directory path '.' is not supported for native SFTP transfer.",
+            format!("Remote directory path '{trimmed}' is not supported for native SFTP transfer."),
         )));
     }
 
     Ok(trimmed.to_owned())
+}
+
+/// Suffix used for in-progress downloads so a cancelled or failed transfer never
+/// leaves a truncated file at the destination path.
+const PARTIAL_DOWNLOAD_SUFFIX: &str = ".novapart";
+
+/// Validates a **server-supplied** directory entry name before it is joined onto a
+/// local path.
+///
+/// Entry names returned by `read_dir` are attacker-controlled: a malicious or
+/// compromised server chooses them. `Path::join` with an absolute component silently
+/// *replaces* the base rather than nesting under it, so an unchecked join turns a
+/// directory download into an arbitrary file write anywhere the process can reach.
+///
+/// A legitimate entry name is exactly one normal path component. Requiring that (and
+/// that the component round-trips to the original string) rejects every escape shape
+/// at once: `..`, `.`, empty, `/` or `\` separators, absolute and drive-relative
+/// paths (`/etc/cron.d/x`, `C:\Windows\x`, `C:x`), UNC prefixes, and interior NULs.
+fn validate_remote_entry_name(file_name: &str) -> anyhow::Result<()> {
+    let rejected = |reason: &str| {
+        anyhow::Error::new(NativeSftpTransferError::new(
+            NativeSftpTransferErrorKind::InvalidArgument,
+            format!(
+                "Remote server returned an unsafe directory entry name {file_name:?} \
+                 ({reason}). Refusing to write outside the download directory."
+            ),
+        ))
+    };
+
+    if file_name.is_empty() {
+        return Err(rejected("empty"));
+    }
+
+    if file_name.contains('\0') {
+        return Err(rejected("contains a NUL byte"));
+    }
+
+    // Reject both separators regardless of host platform: a name containing '\' is
+    // harmless on Unix but escapes on Windows, and the same server may serve both.
+    if file_name.contains('/') || file_name.contains('\\') {
+        return Err(rejected("contains a path separator"));
+    }
+
+    let mut components = Path::new(file_name).components();
+    match (components.next(), components.next()) {
+        (Some(Component::Normal(value)), None) if value == OsStr::new(file_name) => Ok(()),
+        _ => Err(rejected("is not a single relative path component")),
+    }
+}
+
+/// Defence in depth for [`validate_remote_entry_name`]: confirms a joined child path
+/// is still lexically inside the download root. Purely a guard against a future
+/// refactor reintroducing an unvalidated join — with name validation in place this
+/// never fires.
+fn ensure_within_download_root(local_root: &Path, candidate: &Path) -> anyhow::Result<()> {
+    if candidate.starts_with(local_root) {
+        return Ok(());
+    }
+
+    Err(anyhow::Error::new(NativeSftpTransferError::new(
+        NativeSftpTransferErrorKind::InvalidArgument,
+        format!(
+            "Refusing to write {} outside the download directory {}.",
+            candidate.display(),
+            local_root.display()
+        ),
+    )))
+}
+
+/// Monotonic discriminator for partial-download file names. Combined with the process
+/// id it keeps concurrent transfers - which `SftpService` runs on independent
+/// `Task.Run` jobs, including two jobs targeting the same destination - from ever
+/// sharing a scratch file.
+static PARTIAL_DOWNLOAD_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Destination for the in-progress copy: the final name plus a per-transfer unique
+/// discriminator and [`PARTIAL_DOWNLOAD_SUFFIX`], so the previous good copy at
+/// `local_path` survives a cancelled or failed transfer untouched.
+///
+/// The name must be unique rather than deterministic: two concurrent downloads to the
+/// same destination would otherwise open and truncate the same scratch file, interleave
+/// their writes, and each rename mismatched content into place while reporting success.
+fn partial_download_path(local_path: &Path) -> PathBuf {
+    let mut file_name = local_path
+        .file_name()
+        .map(OsString::from)
+        .unwrap_or_else(|| OsString::from("download"));
+    file_name.push(format!(
+        ".{}.{}{}",
+        std::process::id(),
+        PARTIAL_DOWNLOAD_COUNTER.fetch_add(1, Ordering::Relaxed),
+        PARTIAL_DOWNLOAD_SUFFIX
+    ));
+    local_path.with_file_name(file_name)
+}
+
+/// Creates the scratch file for an in-progress download.
+///
+/// Uses `create_new` (`O_EXCL` / `CREATE_NEW`) rather than `create`. Beyond catching a
+/// name collision, this is what makes the write safe in a destination directory another
+/// local actor can write to: `create` follows symlinks, so a pre-created
+/// `<destination>.<pid>.<n>.novapart` symlink would redirect the downloaded bytes into
+/// whatever it points at. `O_EXCL` refuses to open an existing path at all, symlink or
+/// not, so a planted link fails the transfer instead of being followed.
+async fn create_partial_download_file(partial_path: &Path) -> anyhow::Result<TokioFile> {
+    tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(partial_path)
+        .await
+        .map_err(|error| map_local_transfer_error(partial_path, error))
+}
+
+/// Best-effort removal of an abandoned partial download. Failures are ignored
+/// deliberately: the caller is already returning the original transfer error, and a
+/// leftover `.novapart` file is strictly less harmful than masking that error.
+async fn discard_partial_download(partial_path: &Path) {
+    let _ = tokio::fs::remove_file(partial_path).await;
 }
 
 fn join_remote_path(base: &str, child: &str) -> String {
@@ -3609,6 +3779,247 @@ mod tests {
         assert_eq!(NOVA_SSH_RESULT_CLOSED, result);
         assert_eq!("error", status);
         assert_eq!("Remote path not found: /tmp/missing", message);
+    }
+
+    // ---- #104: server-supplied entry names must not escape the download root ----
+
+    fn assert_entry_name_rejected(file_name: &str) {
+        let error = validate_remote_entry_name(file_name)
+            .expect_err(&format!("{file_name:?} should be rejected"));
+        let native = error
+            .downcast_ref::<NativeSftpTransferError>()
+            .expect("rejection should be a structured transfer error");
+        assert_eq!(
+            NativeSftpTransferErrorKind::InvalidArgument,
+            native.kind,
+            "{file_name:?} should map to invalid-argument"
+        );
+    }
+
+    #[test]
+    fn validate_remote_entry_name_accepts_ordinary_names() {
+        for name in [
+            "file.txt",
+            "nested-dir",
+            "with space.log",
+            "dot.in.middle",
+            "..prefixed",
+            "trailing..",
+            "...",
+            "\u{1f600}-emoji",
+        ] {
+            validate_remote_entry_name(name)
+                .unwrap_or_else(|error| panic!("{name:?} should be accepted: {error}"));
+        }
+    }
+
+    #[test]
+    fn validate_remote_entry_name_rejects_parent_and_current_directory() {
+        assert_entry_name_rejected("..");
+        assert_entry_name_rejected(".");
+    }
+
+    #[test]
+    fn validate_remote_entry_name_rejects_separators_and_traversal() {
+        assert_entry_name_rejected("../evil");
+        assert_entry_name_rejected("../../evil");
+        assert_entry_name_rejected("nested/child");
+        assert_entry_name_rejected("..\\evil");
+        assert_entry_name_rejected("nested\\child");
+    }
+
+    #[test]
+    fn validate_remote_entry_name_rejects_absolute_and_drive_relative_paths() {
+        // Path::join with any of these silently replaces the download root.
+        assert_entry_name_rejected("/etc/cron.d/payload");
+        assert_entry_name_rejected("/");
+        assert_entry_name_rejected("C:\\Windows\\System32\\payload.dll");
+        assert_entry_name_rejected("\\\\server\\share\\payload");
+    }
+
+    #[test]
+    fn validate_remote_entry_name_rejects_empty_and_nul_names() {
+        assert_entry_name_rejected("");
+        assert_entry_name_rejected("payload\0.txt");
+    }
+
+    #[test]
+    // The absolute join is the whole point of this test: it pins the `Path::join`
+    // replacement behaviour that makes validate_remote_entry_name necessary. Clippy's
+    // join_absolute_paths lint is exactly the bug being demonstrated.
+    #[allow(clippy::join_absolute_paths)]
+    fn path_join_with_absolute_entry_name_would_escape_the_root() {
+        // Documents *why* validation is required rather than relying on join semantics.
+        let root = Path::new("/home/nova/downloads");
+        let escaped = root.join("/etc/cron.d/payload");
+
+        assert_eq!(Path::new("/etc/cron.d/payload"), escaped);
+        assert!(!escaped.starts_with(root));
+        assert!(ensure_within_download_root(root, &escaped).is_err());
+    }
+
+    #[test]
+    fn ensure_within_download_root_accepts_nested_children() {
+        let root = Path::new("/home/nova/downloads");
+
+        ensure_within_download_root(root, &root.join("a"))
+            .expect("direct child should be accepted");
+        ensure_within_download_root(root, &root.join("a").join("b").join("c.txt"))
+            .expect("nested child should be accepted");
+    }
+
+    #[test]
+    fn ensure_within_download_root_rejects_sibling_prefix_collision() {
+        // "downloads-evil" shares a string prefix with "downloads" but is not inside it.
+        let root = Path::new("/home/nova/downloads");
+
+        assert!(ensure_within_download_root(root, Path::new("/home/nova/downloads-evil/x")).is_err());
+        assert!(ensure_within_download_root(root, Path::new("/home/nova/other")).is_err());
+    }
+
+    #[test]
+    fn remote_basename_rejects_paths_resolving_to_parent_directory() {
+        for path in ["/srv/data/..", "/srv/data/../", "..", "  ..  "] {
+            let error = remote_basename(path)
+                .expect_err(&format!("{path:?} should not yield a basename"));
+            let native = error
+                .downcast_ref::<NativeSftpTransferError>()
+                .expect("rejection should be a structured transfer error");
+            assert_eq!(NativeSftpTransferErrorKind::InvalidArgument, native.kind);
+        }
+    }
+
+    #[test]
+    fn remote_basename_still_resolves_ordinary_directories() {
+        assert_eq!("data", remote_basename("/srv/data").expect("should resolve"));
+        assert_eq!(
+            "data",
+            remote_basename("/srv/data/").expect("trailing slash should resolve")
+        );
+    }
+
+    // ---- #144: partial downloads must not clobber the destination ----
+
+    #[test]
+    fn partial_download_path_appends_suffix_beside_the_destination() {
+        let destination = Path::new("/home/nova/downloads/archive.tar.gz");
+        let partial = partial_download_path(destination);
+        let partial_name = partial
+            .file_name()
+            .and_then(|value| value.to_str())
+            .expect("partial should have a name");
+
+        // Same directory, so the rename is a cheap intra-volume move rather than a copy.
+        assert_eq!(
+            Path::new("/home/nova/downloads"),
+            partial.parent().expect("partial should stay in place")
+        );
+        // Prefixed with the full destination name, so a stray file is traceable to it.
+        // This also pins that with_extension is not used - that would turn
+        // "archive.tar.gz" into "archive.tar.novapart" and rename to the wrong path.
+        assert!(
+            partial_name.starts_with("archive.tar.gz."),
+            "unexpected partial name: {partial_name}"
+        );
+        assert!(
+            partial_name.ends_with(PARTIAL_DOWNLOAD_SUFFIX),
+            "unexpected partial name: {partial_name}"
+        );
+        assert_ne!(destination, partial);
+    }
+
+    #[test]
+    fn partial_download_path_is_unique_per_call() {
+        // Two concurrent downloads to the same destination must not share a scratch
+        // file; a deterministic name let their writes interleave.
+        let destination = Path::new("/home/nova/downloads/archive.tar.gz");
+        let first = partial_download_path(destination);
+        let second = partial_download_path(destination);
+
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn create_partial_download_file_refuses_an_existing_path() {
+        // O_EXCL is what stops a planted symlink at the scratch path from redirecting
+        // the downloaded bytes: an existing path fails rather than being followed.
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        runtime.block_on(async {
+            let dir = std::env::temp_dir().join(format!(
+                "nova-exclusive-{}-{}",
+                std::process::id(),
+                PARTIAL_DOWNLOAD_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ));
+            tokio::fs::create_dir_all(&dir)
+                .await
+                .expect("temp dir should be creatable");
+
+            let occupied = dir.join("already-there.novapart");
+            tokio::fs::write(&occupied, b"pre-existing content")
+                .await
+                .expect("pre-existing file should be writable");
+
+            let error = create_partial_download_file(&occupied)
+                .await
+                .expect_err("existing path should be refused");
+            assert!(
+                !error.to_string().is_empty(),
+                "refusal should carry a message"
+            );
+
+            // The pre-existing content must be untouched - not truncated.
+            let preserved = tokio::fs::read(&occupied)
+                .await
+                .expect("pre-existing file should still be readable");
+            assert_eq!(b"pre-existing content".to_vec(), preserved);
+
+            // A fresh path in the same directory still succeeds.
+            let fresh = dir.join("fresh.novapart");
+            let file = create_partial_download_file(&fresh)
+                .await
+                .expect("fresh path should be creatable");
+            drop(file);
+            assert!(fresh.exists());
+
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+        });
+    }
+
+    #[test]
+    fn discard_partial_download_removes_the_file_and_tolerates_a_missing_one() {
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime should build");
+
+        runtime.block_on(async {
+            let dir = std::env::temp_dir().join(format!(
+                "nova-partial-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            tokio::fs::create_dir_all(&dir)
+                .await
+                .expect("temp dir should be creatable");
+            let partial = dir.join("download.novapart");
+            tokio::fs::write(&partial, b"partial bytes")
+                .await
+                .expect("partial file should be writable");
+            assert!(partial.exists());
+
+            discard_partial_download(&partial).await;
+            assert!(!partial.exists(), "partial file should be removed");
+
+            // Second call must not panic or error - cleanup runs on paths that may
+            // already be gone.
+            discard_partial_download(&partial).await;
+
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+        });
     }
 }
 
