@@ -19,6 +19,7 @@ use tokio::fs::File as TokioFile;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
+use zeroize::Zeroizing;
 
 const COPY_BUFFER_SIZE: usize = 64 * 1024;
 const CANCELLATION_CHECK_INTERVAL_BYTES: u64 = 1024 * 1024;
@@ -286,8 +287,25 @@ struct TransferClientHandler {
 
 #[derive(Clone)]
 struct TransferAuthConfig {
-    password: Option<String>,
+    /// Wrapped so the copy held for the lifetime of a transfer is wiped when the
+    /// transfer ends, rather than lingering in the heap until the allocator reuses it.
+    password: Option<Zeroizing<String>>,
     identity_file: Option<String>,
+}
+
+impl TransferAuthConfig {
+    /// Moves the credential out of a deserialized request.
+    ///
+    /// `take` rather than `clone`: the password then exists as one allocation owned by
+    /// this struct, wiped when it drops, instead of two independent copies with the
+    /// request's copy outliving the transfer. Leaves `connection.password` as `None`,
+    /// so the request cannot be a second source of the secret afterwards.
+    fn take_from(connection: &mut SftpConnectionRequest) -> Self {
+        Self {
+            password: connection.password.take().map(Zeroizing::new),
+            identity_file: connection.identity_file_path.clone(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -1517,13 +1535,11 @@ fn run_sftp_transfer(
 
     let runtime = Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(async move {
+        let mut request = request;
         let known_hosts =
             NativeKnownHostsVerifier::load(&request.connection.known_hosts_file_path)?;
         let client_config = Arc::new(client::Config::default());
-        let auth = TransferAuthConfig {
-            password: request.connection.password.clone(),
-            identity_file: request.connection.identity_file_path.clone(),
-        };
+        let auth = TransferAuthConfig::take_from(&mut request.connection);
 
         let jump_session = if let Some(jump_host) = &request.connection.jump_host {
             let jump_handler = TransferClientHandler {
@@ -1586,13 +1602,11 @@ fn run_remote_path_list(
 ) -> anyhow::Result<Vec<RemotePathListEntry>> {
     let runtime = Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(async move {
+        let mut request = request;
         let known_hosts =
             NativeKnownHostsVerifier::load(&request.connection.known_hosts_file_path)?;
         let client_config = Arc::new(client::Config::default());
-        let auth = TransferAuthConfig {
-            password: request.connection.password.clone(),
-            identity_file: request.connection.identity_file_path.clone(),
-        };
+        let auth = TransferAuthConfig::take_from(&mut request.connection);
 
         let jump_session = if let Some(jump_host) = &request.connection.jump_host {
             let jump_handler = TransferClientHandler {
@@ -1681,6 +1695,8 @@ where
     }
 
     if let Some(password) = auth.password.as_deref() {
+        // russh's API takes an owned String, so this copy is unavoidable and its
+        // lifetime is russh's to manage. Our own copy is still wiped when `auth` drops.
         let result = session
             .authenticate_password(user.to_owned(), password.to_owned())
             .await?;
@@ -3011,8 +3027,10 @@ async fn authenticate(
         "Password:",
         NovaSshResponseKind::Password,
     )?;
+    // As in authenticate_transfer: russh needs an owned String; our copy is wiped when
+    // `password` drops at the end of this function.
     let password_auth = session
-        .authenticate_password(user.to_owned(), password)
+        .authenticate_password(user.to_owned(), password.as_str().to_owned())
         .await?;
     if password_auth.success() {
         return Ok(());
@@ -3094,7 +3112,7 @@ async fn authenticate_keyboard_interactive(
 
                 let responses = wait_keyboard_responses(shared)?;
                 response = session
-                    .authenticate_keyboard_interactive_respond(responses)
+                    .authenticate_keyboard_interactive_respond(responses.to_vec())
                     .await?;
             }
         }
@@ -3106,7 +3124,7 @@ fn prompt_text(
     event_kind: NovaSshEventKind,
     prompt: &str,
     response_kind: NovaSshResponseKind,
-) -> anyhow::Result<String> {
+) -> anyhow::Result<Zeroizing<String>> {
     shared.queue_event(QueuedEvent {
         kind: event_kind,
         payload: serde_json::to_vec(&TextPromptPayload { prompt })?,
@@ -3114,19 +3132,29 @@ fn prompt_text(
         flags: NOVA_SSH_EVENT_FLAG_JSON,
     });
 
-    let payload = shared
-        .wait_for_response(response_kind)
-        .ok_or_else(|| anyhow::anyhow!("SSH prompt canceled"))?;
+    // The raw response payload is JSON containing the secret in cleartext
+    // (`{"text":"..."}`), so the buffer itself has to be wiped, not just the parsed
+    // string.
+    let payload = Zeroizing::new(
+        shared
+            .wait_for_response(response_kind)
+            .ok_or_else(|| anyhow::anyhow!("SSH prompt canceled"))?,
+    );
     let response = serde_json::from_slice::<TextResponse>(&payload)?;
-    Ok(response.text)
+    Ok(Zeroizing::new(response.text))
 }
 
-fn wait_keyboard_responses(shared: &Arc<SharedState>) -> anyhow::Result<Vec<String>> {
-    let payload = shared
-        .wait_for_response(NovaSshResponseKind::KeyboardInteractive)
-        .ok_or_else(|| anyhow::anyhow!("Keyboard-interactive prompt canceled"))?;
+fn wait_keyboard_responses(
+    shared: &Arc<SharedState>,
+) -> anyhow::Result<Zeroizing<Vec<String>>> {
+    // Keyboard-interactive answers are credentials too - same treatment as prompt_text.
+    let payload = Zeroizing::new(
+        shared
+            .wait_for_response(NovaSshResponseKind::KeyboardInteractive)
+            .ok_or_else(|| anyhow::anyhow!("Keyboard-interactive prompt canceled"))?,
+    );
     let response = serde_json::from_slice::<KeyboardInteractiveResponse>(&payload)?;
-    Ok(response.responses)
+    Ok(Zeroizing::new(response.responses))
 }
 
 #[cfg(test)]
@@ -3766,6 +3794,54 @@ mod tests {
         ));
     }
 
+    // ---- #121 item 1: credential retention ----
+
+    fn connection_request_with_password(password: Option<&str>) -> SftpConnectionRequest {
+        let password_json = match password {
+            Some(value) => format!(r#","password":"{value}""#),
+            None => String::new(),
+        };
+        serde_json::from_str(&format!(
+            r#"{{"host":"example.com","user":"nova","port":22{password_json},"knownHostsFilePath":"known_hosts.json"}}"#
+        ))
+        .expect("connection request should deserialize")
+    }
+
+    #[test]
+    fn take_from_moves_the_password_out_of_the_request() {
+        let mut connection = connection_request_with_password(Some("s3cret"));
+
+        let auth = TransferAuthConfig::take_from(&mut connection);
+
+        assert_eq!(Some("s3cret"), auth.password.as_deref().map(String::as_str));
+        assert!(
+            connection.password.is_none(),
+            "the request must not retain a second copy of the credential"
+        );
+    }
+
+    #[test]
+    fn take_from_handles_a_request_without_a_password() {
+        let mut connection = connection_request_with_password(None);
+
+        let auth = TransferAuthConfig::take_from(&mut connection);
+
+        assert!(auth.password.is_none());
+        assert!(connection.password.is_none());
+    }
+
+    #[test]
+    fn take_from_is_idempotent() {
+        // A second call must not resurrect the credential from the request.
+        let mut connection = connection_request_with_password(Some("s3cret"));
+
+        let first = TransferAuthConfig::take_from(&mut connection);
+        let second = TransferAuthConfig::take_from(&mut connection);
+
+        assert!(first.password.is_some());
+        assert!(second.password.is_none());
+    }
+
     #[test]
     fn classify_sftp_transfer_error_uses_structured_error_kind_when_available() {
         let error = NativeSftpTransferError::new(
@@ -4021,6 +4097,7 @@ mod tests {
             let _ = tokio::fs::remove_dir_all(&dir).await;
         });
     }
+
 }
 
 fn build_client_config(config: &ConnectConfig) -> client::Config {
@@ -4129,6 +4206,63 @@ mod handle_abuse_tests {
             poller.join().unwrap();
             let _ = closer.join().unwrap();
         }
+    }
+
+    #[test]
+    fn two_concurrent_closes_yield_exactly_one_success() {
+        // concurrent_poll_and_close_never_crashes races poll against a *single* closer.
+        // This covers the other half of the #121 concern: two racing closers must not
+        // both observe success, or a caller could conclude it owns a teardown twice.
+        for _ in 0..200 {
+            let handle = registry_insert(stub_session()) as usize;
+            let barrier = Arc::new(std::sync::Barrier::new(2));
+
+            let first_barrier = Arc::clone(&barrier);
+            let first = std::thread::spawn(move || {
+                first_barrier.wait();
+                nova_ssh_close(handle)
+            });
+            let second_barrier = Arc::clone(&barrier);
+            let second = std::thread::spawn(move || {
+                second_barrier.wait();
+                nova_ssh_close(handle)
+            });
+
+            let results = [
+                first.join().expect("closer should not panic"),
+                second.join().expect("closer should not panic"),
+            ];
+
+            assert_eq!(
+                1,
+                results
+                    .iter()
+                    .filter(|rc| **rc == NOVA_SSH_RESULT_OK)
+                    .count(),
+                "exactly one close must win, got {results:?}"
+            );
+            assert_eq!(
+                1,
+                results
+                    .iter()
+                    .filter(|rc| **rc == NOVA_SSH_RESULT_INVALID_ARGUMENT)
+                    .count(),
+                "the losing close must be refused, got {results:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn handle_ids_are_not_reused_after_close() {
+        // Underpins calls_after_close_fail_closed: if the registry recycled ids, a stale
+        // handle could silently address a *different* live session rather than being
+        // rejected, and "fail closed" would quietly become "act on the wrong session".
+        let first = registry_insert(stub_session()) as usize;
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(first));
+        let second = registry_insert(stub_session()) as usize;
+
+        assert_ne!(first, second, "a closed handle id must not be reissued");
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(second));
     }
 }
 
