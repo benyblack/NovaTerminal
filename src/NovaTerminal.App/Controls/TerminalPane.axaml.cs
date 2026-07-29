@@ -519,7 +519,13 @@ namespace NovaTerminal.Controls
             {
                 _pendingPasteFilePath = args.FilePath;
                 _pendingEscapedPath = args.EscapedPath;
-                ToastMessageText.Text = System.IO.Path.GetFileName(args.FilePath);
+                string fileName = System.IO.Path.GetFileName(args.FilePath);
+                // A notice riding along with the drop (currently only the WSL mapping
+                // fallback) is appended rather than shown separately, because it would
+                // otherwise overwrite this actionable prompt in the shared panel.
+                ToastMessageText.Text = string.IsNullOrEmpty(args.Notice)
+                    ? fileName
+                    : $"{fileName} — {args.Notice}";
                 // Restore the action buttons: an informational drop notice (below) hides
                 // them, and the panel is shared between both uses.
                 ToastPastePathBtn.IsVisible = true;

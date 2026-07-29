@@ -82,6 +82,34 @@ namespace NovaTerminal.Tests.Input
         }
 
         [Fact]
+        public async Task SingleTextFileWithMappingFallback_StillHasAMessageToCarry()
+        {
+            // Review of this PR caught that the single-text-file branch returns before the
+            // DropNotice call, so the mapping-failure warning was still lost for the one
+            // shape where the smart-paste prompt also applies. The message now rides on
+            // TextFileDroppedEventArgs.Notice instead of being raised separately - both
+            // render into the same toast panel, so raising both would lose one.
+            var context = new SessionContext
+            {
+                IsEchoEnabled = true,
+                IsWslSession = true,
+                DetectedShell = DetectedShell.PosixSh
+            };
+
+            var mapper = new Mock<IPathMapper>();
+            mapper.Setup(m => m.MapAsync(@"C:\notes.txt", It.IsAny<CancellationToken>()))
+                  .ReturnsAsync(@"C:\notes.txt");
+
+            var result = await DropRouter.HandleDropAsync(
+                context, new List<string> { @"C:\notes.txt" }, isAltHeld: false, mapper.Object);
+
+            // A single .txt takes the TextFileDropped branch, and this outcome carries both
+            // a path to insert and a warning about it.
+            Assert.False(string.IsNullOrEmpty(result.TextToSend));
+            Assert.True(TerminalView.ShouldRaiseDropNotice(result.ToastMessage));
+        }
+
+        [Fact]
         public async Task AnOrdinaryDrop_SurfacesNothing()
         {
             // Guards the other direction: no gratuitous toast on the common path.

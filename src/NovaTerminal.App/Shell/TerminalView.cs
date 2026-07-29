@@ -392,6 +392,16 @@ namespace NovaTerminal.Shell
         {
             public string FilePath { get; set; } = string.Empty;
             public string EscapedPath { get; set; } = string.Empty;
+
+            /// A DropRouter message that applies to this same drop, or null.
+            ///
+            /// Carried here rather than raised as a separate DropNotice because both render
+            /// into the pane's single toast panel: raising both would mean one immediately
+            /// overwrites the other, and whichever won, information would be lost. The
+            /// reachable case is a single text file dropped on a WSL session where path
+            /// mapping fell back to the Windows path - the smart-paste prompt is actionable
+            /// and must survive, so the warning rides along with it.
+            public string? Notice { get; set; }
         }
 
         public event EventHandler<TextFileDroppedEventArgs>? TextFileDropped;
@@ -498,7 +508,13 @@ namespace NovaTerminal.Shell
                             var args = new TextFileDroppedEventArgs
                             {
                                 FilePath = paths[0],
-                                EscapedPath = result.TextToSend ?? string.Empty
+                                EscapedPath = result.TextToSend ?? string.Empty,
+                                // This branch returns, so a DropNotice raised below would
+                                // never fire for a single text file - the WSL mapping-failure
+                                // warning was still being lost here.
+                                Notice = ShouldRaiseDropNotice(result.ToastMessage)
+                                    ? result.ToastMessage
+                                    : null
                             };
                             TextFileDropped?.Invoke(this, args);
                             return; // Do NOT insert path automatically, wait for user to click Toast
