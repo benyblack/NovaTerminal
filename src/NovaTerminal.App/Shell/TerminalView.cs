@@ -352,7 +352,12 @@ namespace NovaTerminal.Shell
             
             _cursorBlinkPhase = true;
             _cursorBlinkTimer.Stop();
-            _cursorBlinkTimer.Start();
+            // Restart only if blink should be running at all: an unconditional Start here
+            // would resurrect the timer on an unfocused pane and undo the #126 gating.
+            if (ShouldRunCursorBlinkTimer())
+            {
+                _cursorBlinkTimer.Start();
+            }
             _isDirty = true;
             InvalidateVisual();
         }
@@ -690,6 +695,10 @@ namespace NovaTerminal.Shell
                 }
                 _wheelLinesPerNotch = Math.Min(wheelLinesPerNotch, 100.0);
                 if (!_cursorBlinkEnabled) _cursorBlinkPhase = true;
+                // _cursorBlinkEnabled was just reassigned from settings, and it is half of
+                // ShouldRunCursorBlinkTimer - so the timer has to be re-evaluated here or
+                // toggling the setting would not take effect until the next focus change.
+                RefreshCursorBlinkTimerState();
                 EnsureFallbackChain();
 
                 if (_buffer != null)
@@ -812,6 +821,14 @@ namespace NovaTerminal.Shell
             if (change.Property == IsVisibleProperty || change.Property == BoundsProperty)
             {
                 RefreshUiTimerState();
+            }
+            else if (change.Property == IsKeyboardFocusWithinProperty)
+            {
+                // Tracked on IsKeyboardFocusWithin rather than in OnGotFocus/OnLostFocus so
+                // the timer follows exactly the same condition Render() uses to decide
+                // whether to draw the cursor - including focus landing on a descendant,
+                // which the OnGotFocus/OnLostFocus pair does not observe.
+                RefreshCursorBlinkTimerState();
             }
         }
 
@@ -1443,9 +1460,55 @@ namespace NovaTerminal.Shell
         {
             if (_uiTimersRunning) return;
             _renderTimer.Start();
-            _cursorBlinkTimer.Start();
+            // Blink is gated separately from the render timer: output still arrives on an
+            // unfocused pane and must render, but its cursor is not drawn at all.
+            RefreshCursorBlinkTimerState();
             _uiTimersRunning = true;
             RendererStatistics.RecordTerminalViewTimersStarted();
+        }
+
+        /// The blink timer only earns its keep while the cursor is actually drawn.
+        ///
+        /// Render() already does `bool hideCursor = !IsKeyboardFocusWithin;`, so on an
+        /// unfocused pane every blink tick set _isDirty, the render timer turned that into
+        /// an InvalidateVisual, and the resulting frame was pixel-identical - a full render
+        /// pass every 530 ms per unfocused pane, forever, for nothing (#126). With several
+        /// panes open that is the dominant source of idle wakeups.
+        ///
+        /// Deliberately not folded into ShouldRunUiTimers(): that gates the render timer
+        /// too, and stopping *that* on focus loss would freeze output from a background
+        /// shell - a correctness bug, not a saving.
+        private bool ShouldRunCursorBlinkTimer() =>
+            ShouldRunCursorBlinkTimer(_cursorBlinkEnabled, IsKeyboardFocusWithin);
+
+        /// The rule itself, as a pure function so it can be tested without a visual tree or
+        /// a focus manager. `focused` is the caller's IsKeyboardFocusWithin - the same input
+        /// Render() uses for `hideCursor`, so the two cannot drift apart.
+        internal static bool ShouldRunCursorBlinkTimer(bool blinkEnabled, bool focused) =>
+            blinkEnabled && focused;
+
+        private void RefreshCursorBlinkTimerState()
+        {
+            bool shouldBlink = ShouldRunCursorBlinkTimer();
+            if (shouldBlink == _cursorBlinkTimer.IsEnabled)
+            {
+                return;
+            }
+
+            if (shouldBlink)
+            {
+                // Start solid so the cursor is immediately visible on focus, rather than
+                // possibly resuming mid-blink in the hidden phase.
+                _cursorBlinkPhase = true;
+                _cursorBlinkTimer.Start();
+            }
+            else
+            {
+                _cursorBlinkTimer.Stop();
+                // Leave the phase solid so a later focus gain cannot briefly show a hidden
+                // cursor before the first tick.
+                _cursorBlinkPhase = true;
+            }
         }
 
         private void StopUiTimers()
