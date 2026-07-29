@@ -519,7 +519,31 @@ namespace NovaTerminal.Controls
             {
                 _pendingPasteFilePath = args.FilePath;
                 _pendingEscapedPath = args.EscapedPath;
-                ToastMessageText.Text = System.IO.Path.GetFileName(args.FilePath);
+                string fileName = System.IO.Path.GetFileName(args.FilePath);
+                // A notice riding along with the drop (currently only the WSL mapping
+                // fallback) is appended rather than shown separately, because it would
+                // otherwise overwrite this actionable prompt in the shared panel.
+                ToastMessageText.Text = string.IsNullOrEmpty(args.Notice)
+                    ? fileName
+                    : $"{fileName} — {args.Notice}";
+                // Restore the action buttons: an informational drop notice (below) hides
+                // them, and the panel is shared between both uses.
+                ToastPastePathBtn.IsVisible = true;
+                ToastActionBtn.IsVisible = true;
+                ToastPanel.IsVisible = true;
+            };
+
+            // Drop refused, or accepted with a caveat. Reuses the same panel - the message
+            // belongs in the pane the drop landed on, not in a window-level toast - but with
+            // the action buttons hidden, because there is nothing to act on: the text was
+            // either never sent, or already sent.
+            TermView.DropNotice += message =>
+            {
+                _pendingPasteFilePath = null;
+                _pendingEscapedPath = null;
+                ToastMessageText.Text = message;
+                ToastPastePathBtn.IsVisible = false;
+                ToastActionBtn.IsVisible = false;
                 ToastPanel.IsVisible = true;
             };
 
