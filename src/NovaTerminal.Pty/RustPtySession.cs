@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
@@ -30,6 +31,38 @@ namespace NovaTerminal.Pty
         private static readonly TimeSpan QuickJoinTimeout = TimeSpan.FromMilliseconds(250);
         private static readonly TimeSpan DisposeJoinTimeout = TimeSpan.FromSeconds(2);
         private int _disposed;
+
+        // A negative pty_read is retried a bounded number of times, then treated as
+        // terminal. Previously it retried forever at 20 Hz, so a permanently failing
+        // handle left the tab frozen with no error and the loop spinning for the life of
+        // the process (#107). 20 attempts x 50 ms tolerates roughly a second of
+        // transient failure before giving up.
+        //
+        // The retry exists only because the cause cannot be identified: pty_read
+        // collapses every failure to -1 (null args, read error with errno discarded,
+        // poisoned lock, and a panic caught by ffi_guard all return the same value), so
+        // a transient condition is indistinguishable from an unrecoverable one here.
+        // Classifying them needs the pty_last_error channel tracked in #120; until then
+        // "retry a bounded number of times, then fail" is the safe reading.
+        internal const int MaxConsecutiveReadErrors = 20;
+        private static readonly TimeSpan ReadErrorRetryDelay = TimeSpan.FromMilliseconds(50);
+
+        /// Exit code reported when the read loop gives up after repeated failures, to
+        /// distinguish it from a clean shell exit (0). Not an OS exit status - the
+        /// process may still be alive; the *session* is what has failed.
+        internal const int ReadFailureExitCode = -1;
+
+        // PowerShell post-launch init injection. Held so Dispose can observe the task's
+        // failures instead of dropping them, and delete the script if the shell never
+        // sourced it (the script deletes itself on the happy path). Both are written from
+        // the injection task and read by Dispose, hence the volatile access.
+        private Task? _powerShellInitTask;
+        private volatile string? _powerShellInitScriptPath;
+
+        // Test hook: lets the #107 cleanup guard assert on the exact file this session
+        // created, rather than inferring it by diffing %TEMP% (which cannot tell "never
+        // created" apart from "created and cleaned up").
+        internal string? PowerShellInitScriptPath => _powerShellInitScriptPath;
 
         // Bounded queue for back-pressure - prevents OOM on high-throughput output
         private readonly BlockingCollection<string> _outputQueue = new BlockingCollection<string>(boundedCapacity: 100);
@@ -405,10 +438,20 @@ namespace NovaTerminal.Pty
             if (!skipPowerShellPostLaunchInit &&
                 (shellLower.Contains("powershell") || shellLower.Contains("pwsh")))
             {
-                Task.Delay(300).ContinueWith(_ =>
+                // Tracked (not discarded) so Dispose can observe failures, and cancelled
+                // with the session so closing a tab inside the delay window doesn't
+                // inject into a dead handle.
+                _powerShellInitTask = Task.Run(async () =>
                 {
                     try
                     {
+                        await Task.Delay(300, _cts.Token).ConfigureAwait(false);
+
+                        string tempScript = System.IO.Path.Combine(
+                            System.IO.Path.GetTempPath(),
+                            $"nova_init_{Guid.NewGuid()}.ps1");
+                        string cleanPath = tempScript.Replace("'", "''");
+
                         var sb = new StringBuilder();
                         // 1. Set Encoding cleanly
                         sb.AppendLine("$OutputEncoding = [System.Console]::OutputEncoding = [System.Text.Encoding]::UTF8;");
@@ -420,13 +463,30 @@ namespace NovaTerminal.Pty
                         sb.AppendLine("Write-Host ''");
                         sb.AppendLine("Write-Host 'Install the latest PowerShell for new features and improvements! https://aka.ms/PSWindows';");
                         sb.AppendLine("Write-Host ''");
+                        // 4. Delete this script. Self-deletion is what actually fixes the
+                        //    %TEMP% leak (#107): the file is removed the moment the shell
+                        //    has finished sourcing it, with no timer to guess at. The
+                        //    Dispose-time cleanup below is only a backstop for the case
+                        //    where the shell never runs it at all.
+                        sb.AppendLine($"Remove-Item -LiteralPath '{cleanPath}' -Force -ErrorAction SilentlyContinue;");
 
-                        string tempScript = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nova_init_{Guid.NewGuid()}.ps1");
+                        // Record the path before writing, so a failure between write and
+                        // injection still leaves something for Dispose to clean up.
+                        _powerShellInitScriptPath = tempScript;
+
+                        // Deliberately the synchronous write, matching the original code.
+                        // An awaited WriteAllTextAsync adds a scheduling hop between the
+                        // delay and SendInput, which moved the injected keystrokes later
+                        // and made PtySmokeTests.AgentSentInput_IsByteFaithful flaky - the
+                        // injection landed inside that test's recording window. Injection
+                        // timing is observable behaviour, so it is kept as it was.
                         System.IO.File.WriteAllText(tempScript, sb.ToString());
 
-                        // Inject the execution command
-                        string cleanPath = tempScript.Replace("'", "''");
                         SendInput($"& '{cleanPath}'\r");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Session closed inside the delay window — nothing to inject.
                     }
                     catch (Exception ex)
                     {
@@ -545,6 +605,11 @@ namespace NovaTerminal.Pty
             // This runs on a dedicated thread, so an unhandled exception would crash the
             // whole process (unlike the old Task.Run, whose unobserved exceptions were
             // swallowed). Contain it so a decode/recorder failure can't take down the host.
+            // Set when the loop gives up after repeated read failures, so the exit is
+            // reported as a failure rather than the clean 0 ProcessLoop would send.
+            bool readFailed = false;
+            int consecutiveReadErrors = 0;
+
             try
             {
                 while (!_cts.Token.IsCancellationRequested && !_handle.IsInvalid)
@@ -552,6 +617,8 @@ namespace NovaTerminal.Pty
                     int read = Native.pty_read(_handle, buffer, buffer.Length);
                     if (read > 0)
                     {
+                        consecutiveReadErrors = 0;
+
                         // Record raw bytes before any processing
                         _recorder?.RecordChunk(buffer, read);
                         _flightRecorder?.RecordChunk(buffer, read);
@@ -582,11 +649,22 @@ namespace NovaTerminal.Pty
                         Console.WriteLine("[RustPtySession] EOF received.");
                         break;
                     }
-                    else // Error
+                    else // read < 0: error
                     {
                         // Reset decoder state on error to prevent corruption
                         _utf8Decoder.Reset();
-                        Thread.Sleep(50);
+
+                        if (++consecutiveReadErrors >= MaxConsecutiveReadErrors)
+                        {
+                            // Fail the session instead of spinning forever. See
+                            // MaxConsecutiveReadErrors for why the cause is unknown here.
+                            Console.WriteLine(
+                                $"[RustPtySession] pty_read failed {consecutiveReadErrors} times consecutively; ending session.");
+                            readFailed = true;
+                            break;
+                        }
+
+                        Thread.Sleep(ReadErrorRetryDelay);
                     }
                 }
             }
@@ -600,6 +678,16 @@ namespace NovaTerminal.Pty
             }
             finally
             {
+                // Claim the exit notification BEFORE completing the queue. Completing it
+                // releases ProcessLoop, which unconditionally reports TryNotifyExit(0),
+                // and the first caller wins (Interlocked guard) — so notifying after
+                // CompleteAdding would race and usually lose, reporting a read failure
+                // as a clean exit.
+                if (readFailed)
+                {
+                    TryNotifyExit(ReadFailureExitCode);
+                }
+
                 // Always signal the consumer so ProcessLoop's GetConsumingEnumerable
                 // unblocks and that thread can exit, even if the loop above threw.
                 if (!_outputQueue.IsAddingCompleted)
@@ -713,6 +801,7 @@ namespace NovaTerminal.Pty
 
             // 1. Stop the loops re-entering native calls, and let the process loop drain.
             _cts.Cancel();
+
             if (!_outputQueue.IsAddingCompleted)
             {
                 _outputQueue.CompleteAdding();
@@ -759,7 +848,63 @@ namespace NovaTerminal.Pty
             //    no pty_* call is in flight, so this is UAF-safe even if a join timed out.
             _handle.Dispose();
 
+            // 6. Observe the PowerShell injection task and remove its script. Previously
+            //    the task was discarded and the file never deleted, leaking one
+            //    nova_init_{guid}.ps1 per PowerShell session (#107).
+            //
+            //    Ordered last on purpose: by here the shell is gone, so it cannot be
+            //    holding the script open (Windows refuses to delete a file whose open
+            //    handle lacks FILE_SHARE_DELETE). That hazard is reasoned, not observed -
+            //    on the happy path the script deletes itself the moment it is sourced, so
+            //    this call is usually a no-op and the placement is untestable. Last is
+            //    simply the position with no failure mode.
+            CleanUpPowerShellInit();
+
             TryNotifyExit(0);
+        }
+
+        /// Observes the injection task's outcome and removes its script if the shell
+        /// never sourced it. Bounded and fully guarded: dispose must not block on, or be
+        /// derailed by, best-effort cleanup.
+        private void CleanUpPowerShellInit()
+        {
+            Task? initTask = _powerShellInitTask;
+            if (initTask != null)
+            {
+                try
+                {
+                    // Bounded: the task is either already cancelled by _cts or mid-write.
+                    // A timeout is not an error - the file cleanup below still runs.
+                    initTask.Wait(TimeSpan.FromMilliseconds(250));
+                }
+                catch (AggregateException ex)
+                    when (ex.InnerExceptions.All(inner => inner is OperationCanceledException))
+                {
+                    // Expected: cancelled by _cts.Cancel() above.
+                }
+                catch (Exception ex)
+                {
+                    // The whole point of tracking the task: a failure here used to be
+                    // swallowed as an unobserved exception.
+                    Console.WriteLine($"[RustPtySession] PS injection task faulted: {ex.Message}");
+                }
+            }
+
+            string? scriptPath = _powerShellInitScriptPath;
+            if (scriptPath == null) return;
+
+            try
+            {
+                // Normally already gone - the script's last line deletes itself once the
+                // shell sources it, so this is the backstop for the case where the shell
+                // never ran it (spawn failed, session closed first, injection faulted).
+                System.IO.File.Delete(scriptPath);
+            }
+            catch (Exception ex)
+            {
+                // Best effort: a leftover temp script must never fail a disposal.
+                Console.WriteLine($"[RustPtySession] PS init script cleanup failed: {ex.Message}");
+            }
         }
 
         private void TryNotifyExit(int code)
