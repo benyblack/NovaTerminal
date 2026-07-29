@@ -363,6 +363,13 @@ namespace NovaTerminal.Pty
         private int _cols;
         private int _rows;
 
+        /// The PTY read call, injectable so tests can drive the read loop's failure
+        /// handling. `pty_read` returns the byte count, 0 for EOF, or a negative value for
+        /// any error - see MaxConsecutiveReadErrors.
+        internal delegate int PtyReadDelegate(PtySafeHandle handle, byte[] buffer, int length);
+
+        private readonly PtyReadDelegate _readFromPty;
+
         public RustPtySession(
             string shellCommand,
             int cols = 120,
@@ -371,7 +378,34 @@ namespace NovaTerminal.Pty
             string? cwd = null,
             bool skipPowerShellPostLaunchInit = false,
             IReadOnlyDictionary<string, string>? environmentOverrides = null)
+            : this(
+                shellCommand,
+                cols,
+                rows,
+                args,
+                cwd,
+                skipPowerShellPostLaunchInit,
+                environmentOverrides,
+                readFromPty: null)
         {
+        }
+
+        /// Test-facing constructor. Identical to the public one except that the PTY read
+        /// call can be substituted: `Native.pty_read` is a static P/Invoke, so without a
+        /// seam here the read loop's error handling (bounded retry, teardown, failure exit
+        /// code) is unreachable from a test. The session still spawns a real shell, so the
+        /// teardown path is exercised against a real handle and a real child process.
+        internal RustPtySession(
+            string shellCommand,
+            int cols,
+            int rows,
+            string? args,
+            string? cwd,
+            bool skipPowerShellPostLaunchInit,
+            IReadOnlyDictionary<string, string>? environmentOverrides,
+            PtyReadDelegate? readFromPty)
+        {
+            _readFromPty = readFromPty ?? Native.pty_read;
             ShellCommand = shellCommand;
             ShellArguments = args;
             _cols = cols;
@@ -630,7 +664,7 @@ namespace NovaTerminal.Pty
             {
                 while (!_cts.Token.IsCancellationRequested && !_handle.IsInvalid)
                 {
-                    int read = Native.pty_read(_handle, buffer, buffer.Length);
+                    int read = _readFromPty(_handle, buffer, buffer.Length);
                     if (read > 0)
                     {
                         consecutiveReadErrors = 0;
