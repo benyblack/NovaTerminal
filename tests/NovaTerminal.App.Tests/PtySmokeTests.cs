@@ -11,6 +11,7 @@ using NovaTerminal.Pty;
 
 namespace NovaTerminal.Tests
 {
+    [Collection(PtyRealShellCollection.Name)]
     public class PtySmokeTests
     {
         [Fact]
@@ -74,7 +75,14 @@ namespace NovaTerminal.Tests
             string recPath = Path.Combine(Path.GetTempPath(), $"nova_a3_{Guid.NewGuid():N}.rec");
             try
             {
-                using var session = new RustPtySession(shell, 80, 24);
+                // skipPowerShellPostLaunchInit: the init injection calls SendInput on a
+                // 300 ms timer, which is exactly this test's start-up delay, so whether the
+                // injected `& '<script>'` was recorded before the payload below came down to
+                // a coin flip. This test is about agent input fidelity, not the PowerShell
+                // banner, so the injection is pure noise here - and it flipped that coin
+                // twice while PTY timing was being changed elsewhere (#214, #215).
+                using var session = new RustPtySession(
+                    shell, 80, 24, args: null, cwd: null, skipPowerShellPostLaunchInit: true);
                 var registration = new NovaTerminal.AgentHost.AgentSessionRegistration(
                     Guid.NewGuid(), new TerminalBuffer(80, 24), "t", "P", "local", isActive: true);
                 registration.SetLifecycle(session);
@@ -89,11 +97,15 @@ namespace NovaTerminal.Tests
                 session.StopRecording();
 
                 string[] lines = File.ReadAllLines(recPath);
-                // The recording carries an input event with the exact bytes.
-                string? inputLine = lines.FirstOrDefault(l => l.Contains("\"type\":\"input\""));
-                Assert.NotNull(inputLine);
+                // Search every input event rather than only the first. The assertion is
+                // "the payload was recorded byte-faithfully", which says nothing about it
+                // being the only - or first - input in the recording.
                 byte[] expected = System.Text.Encoding.UTF8.GetBytes(payload);
-                Assert.Contains(Convert.ToBase64String(expected), inputLine!);
+                string expectedBase64 = Convert.ToBase64String(expected);
+                string[] inputLines = lines.Where(l => l.Contains("\"type\":\"input\"")).ToArray();
+
+                Assert.NotEmpty(inputLines);
+                Assert.Contains(inputLines, line => line.Contains(expectedBase64));
             }
             finally
             {

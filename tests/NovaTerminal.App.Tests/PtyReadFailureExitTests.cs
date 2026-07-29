@@ -16,6 +16,7 @@ namespace NovaTerminal.Tests
     /// shell — so the teardown runs against a real handle and a real child process rather
     /// than a mock of one.
     /// </summary>
+    [Collection(PtyRealShellCollection.Name)]
     public class PtyReadFailureExitTests
     {
         [Fact]

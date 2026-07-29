@@ -730,11 +730,24 @@ namespace NovaTerminal.Pty
             {
                 if (readFailed)
                 {
-                    // Tear the session down before announcing it. Reporting the exit alone
-                    // would leave the UI recording a terminated session while the child
-                    // process, the writer thread and the native handle all stayed alive —
-                    // nothing else disposes us on our own initiative
-                    // (MainWindow.OnPaneProcessExited only records the exit code).
+                    // Claim the exit code FIRST. TryNotifyExit is first-caller-wins, and
+                    // everything in the teardown below releases ProcessLoop, which then
+                    // reports TryNotifyExit(0) from its own thread:
+                    //   - _cts.Cancel() cancels its GetConsumingEnumerable token
+                    //   - _outputQueue.CompleteAdding() (further down) ends its enumeration
+                    // Notifying after any of those is a race, and it is one this code lost
+                    // on Windows CI while winning it locally - the session reported a clean
+                    // exit 0 after an unrecoverable read failure.
+                    //
+                    // The cost of this ordering is that subscribers observe the exit a few
+                    // microseconds before the handle is released. That is the lesser evil: a
+                    // brief window versus a permanently wrong exit code.
+                    TryNotifyExit(ReadFailureExitCode);
+
+                    // Then tear down. Reporting the exit alone would leave the UI recording
+                    // a terminated session while the child process, the writer thread and
+                    // the native handle all stayed alive — nothing else disposes us on our
+                    // own initiative (MainWindow.OnPaneProcessExited only records the code).
                     //
                     // Deliberately not calling Dispose(): it joins this very thread, and
                     // Thread.Join on the current thread is invalid, which would abort the
@@ -765,13 +778,6 @@ namespace NovaTerminal.Pty
                     {
                         Console.WriteLine($"[RustPtySession] teardown after read failure failed: {ex.Message}");
                     }
-
-                    // Claim the notification BEFORE completing the output queue below.
-                    // Completing it releases ProcessLoop, which unconditionally reports
-                    // TryNotifyExit(0), and the first caller wins (Interlocked guard) — so
-                    // notifying after would usually lose the race and report a read
-                    // failure as a clean exit.
-                    TryNotifyExit(ReadFailureExitCode);
                 }
 
                 // Always signal the consumer so ProcessLoop's GetConsumingEnumerable
