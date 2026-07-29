@@ -492,6 +492,22 @@ namespace NovaTerminal.Pty
                     {
                         Console.WriteLine($"[RustPtySession] PS Injection Failed: {ex.Message}");
                     }
+                    finally
+                    {
+                        // Close the window where Dispose finished before this task did.
+                        // Dispose waits only briefly for us; if the write ran long, its
+                        // single delete attempt could hit a file still open here, or run
+                        // before the file existed at all. Whichever of the two finishes
+                        // last performs the delete, so neither ordering leaks.
+                        //
+                        // Guarded on teardown: on the happy path the shell sources the
+                        // script and it deletes itself, and deleting it here would race
+                        // that read.
+                        if (_cts.IsCancellationRequested || Volatile.Read(ref _disposed) != 0)
+                        {
+                            TryDeleteInitScript();
+                        }
+                    }
                 });
             }
         }
@@ -678,13 +694,42 @@ namespace NovaTerminal.Pty
             }
             finally
             {
-                // Claim the exit notification BEFORE completing the queue. Completing it
-                // releases ProcessLoop, which unconditionally reports TryNotifyExit(0),
-                // and the first caller wins (Interlocked guard) — so notifying after
-                // CompleteAdding would race and usually lose, reporting a read failure
-                // as a clean exit.
                 if (readFailed)
                 {
+                    // Tear the session down before announcing it. Reporting the exit alone
+                    // would leave the UI recording a terminated session while the child
+                    // process, the writer thread and the native handle all stayed alive —
+                    // nothing else disposes us on our own initiative
+                    // (MainWindow.OnPaneProcessExited only records the exit code).
+                    //
+                    // Deliberately not calling Dispose(): it joins this very thread, and
+                    // Thread.Join on the current thread is invalid, which would abort the
+                    // rest of the teardown. This does the subset that is safe from here.
+                    try
+                    {
+                        _cts.Cancel();
+
+                        if (!_inputQueue.IsAddingCompleted)
+                        {
+                            _inputQueue.CompleteAdding();
+                        }
+
+                        // Releases the PTY, which ends the child and unblocks a writer
+                        // parked in pty_write. Safe from this thread: the SafeHandle
+                        // refcount makes pty_close wait for any in-flight pty_* call, and
+                        // Dispose() is idempotent so a later disposal still works.
+                        _handle.Dispose();
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"[RustPtySession] teardown after read failure failed: {ex.Message}");
+                    }
+
+                    // Claim the notification BEFORE completing the output queue below.
+                    // Completing it releases ProcessLoop, which unconditionally reports
+                    // TryNotifyExit(0), and the first caller wins (Interlocked guard) — so
+                    // notifying after would usually lose the race and report a read
+                    // failure as a clean exit.
                     TryNotifyExit(ReadFailureExitCode);
                 }
 
@@ -890,6 +935,14 @@ namespace NovaTerminal.Pty
                 }
             }
 
+            TryDeleteInitScript();
+        }
+
+        /// Removes the init script if one was written. Idempotent and never throws, so it
+        /// is safe to call from both Dispose and the injection task's finally - whichever
+        /// runs last wins, which is what makes the two orderings equivalent.
+        private void TryDeleteInitScript()
+        {
             string? scriptPath = _powerShellInitScriptPath;
             if (scriptPath == null) return;
 
