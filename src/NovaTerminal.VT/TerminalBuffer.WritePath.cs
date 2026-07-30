@@ -311,7 +311,7 @@ namespace NovaTerminal.VT
                     }
 
 
-                    _isAfterZwj = IsLastRuneZwj(grapheme);
+                    _isAfterZwj = EndsWithZwj(grapheme);
                     Invalidate();
                     return; // CRITICAL: Stop here, don't write again to current cursor
                 }
@@ -405,7 +405,7 @@ NormalWrite:
             if (_cursorCol > _maxColThisRow) _maxColThisRow = _cursorCol;
             _prevCursorCol = _cursorCol;
             _prevCursorRow = _cursorRow;
-            this._isAfterZwj = IsLastRuneZwj(grapheme);
+            this._isAfterZwj = EndsWithZwj(grapheme);
         }
 
         private void AdvanceCursorRowForLineFeed()
@@ -420,15 +420,27 @@ NormalWrite:
             _cursorRow = Math.Min(_cursorRow + 1, Rows - 1);
         }
 
-        private bool IsLastRuneZwj(ReadOnlySpan<char> grapheme)
+        /// <summary>
+        /// Whether <paramref name="grapheme"/> ends on a ZWJ (U+200D), and so ended <em>expecting a
+        /// continuation</em> — the question <c>_isAfterZwj</c> is asked to answer.
+        /// </summary>
+        /// <remarks>
+        /// #236: this used to return true for a ZWJ <em>anywhere</em> in the cluster, and the comment
+        /// claimed that as deliberate. But a *completed* ZWJ sequence contains ZWJ without ending on
+        /// one, so the flag stayed set and the next grapheme — any grapheme — attached to it. Printing
+        /// a family emoji followed by a space merged the space into the family.
+        ///
+        /// The flag has to stay true for an incomplete sequence: grapheme segmentation keeps a
+        /// trailing ZWJ attached to its base (GB9), so a PTY read that ends mid-join hands the write
+        /// path a cluster like "man + ZWJ" and the emoji completing it arrives in the next read.
+        ///
+        /// Testing the last <c>char</c> is exact rather than a shortcut: U+200D is in the BMP and is
+        /// not a surrogate, so it can only ever be a whole trailing rune, never the tail half of an
+        /// astral one.
+        /// </remarks>
+        private static bool EndsWithZwj(ReadOnlySpan<char> grapheme)
         {
-            if (grapheme.IsEmpty) return false;
-            // ZWJ is U+200D
-            foreach (var rune in grapheme.EnumerateRunes())
-            {
-                if (rune.Value == 0x200D) return true; // Any ZWJ in the grapheme makes it "joining"
-            }
-            return false;
+            return !grapheme.IsEmpty && grapheme[^1] == '\u200D';
         }
 
         /// <summary>
