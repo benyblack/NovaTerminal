@@ -123,6 +123,7 @@ namespace NovaTerminal.Controls
         private DateTimeOffset? _lastCommandStartedAtUtc;
         private Action<int, int>? _onTermViewResize;
         private Action<float, float>? _onTermViewMetricsChanged;
+        private Action<float, float>? _onTermViewMetricsLayout;
         private DispatcherTimer? _statusTimer;
         private bool _hasUserInteraction;
         private readonly SshDiagnosticsLevel _sshDiagnosticsLevel;
@@ -473,11 +474,17 @@ namespace NovaTerminal.Controls
             // Wire up focus syncing
             TermView.GotFocus += (s, e) => UpdateFocusVisuals(true);
             TermView.LostFocus += (s, e) => UpdateFocusVisuals(false);
-            TermView.MetricsChanged += (cw, ch) =>
+            // Cached so DetachFromUiThread can remove it. As an uncached lambda it was the one
+            // TermView handler left attached after disposal, which contradicted the claim that a
+            // disposed pane stops reacting — harmless in practice (it only re-runs this pane's own
+            // layout) but it made the invariant untestable, and an untestable invariant is one edit
+            // away from being false (#102).
+            _onTermViewMetricsLayout = (cw, ch) =>
             {
                 UpdateMinimumSizeConstraints();
                 UpdateCommandAssistOverlayPlacement();
             };
+            TermView.MetricsChanged += _onTermViewMetricsLayout;
             TermView.CommandAssistAnchorHintChanged += () => UpdateCommandAssistOverlayPlacement();
             SizeChanged += (_, _) => UpdateCommandAssistOverlayPlacement();
             TermView.TextInputObserved += text =>
@@ -1545,6 +1552,41 @@ namespace NovaTerminal.Controls
 
             // Update buffer to match view exactly before starting PTY
             Buffer.Resize(cols, rows);
+            CreateAndWireParser();
+
+            // Sync initial metrics
+            float cw = TermView.Metrics.CellWidth;
+            float ch = TermView.Metrics.CellHeight;
+            if (cw > 0) Parser!.CellWidth = cw;
+            if (ch > 0) Parser!.CellHeight = ch;
+
+            // Setup Session
+            string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
+            string args = explicitArgs ?? profile?.Arguments ?? "";
+            InitializeSessionCore(effectiveShell, args, profile, cols, rows);
+        }
+
+        /// <summary>
+        /// Replaces <see cref="Parser"/> with a fresh <see cref="AnsiParser"/> and attaches this
+        /// pane's handlers to it.
+        /// </summary>
+        /// <remarks>
+        /// The handlers attached here are deliberately never removed, and that is safe for exactly
+        /// one reason: a <b>new</b> parser is created on every call, so each one starts with an empty
+        /// handler list and the previous parser becomes garbage along with its handlers. #102 read
+        /// the missing <c>-=</c> calls as an accumulation bug on <c>Reconnect()</c>; they are not,
+        /// because of this line.
+        ///
+        /// That makes the assignment load-bearing. Hoisting the parser out to reuse it across
+        /// sessions — a reasonable-looking change — would silently double all of these on every
+        /// reconnect, producing the duplicate bell/title symptom #102 describes, with no <c>-=</c>
+        /// anywhere to fall back on. Split into its own method so that invariant can be asserted
+        /// without spinning up a shell; see <c>PaneParserWiringTests</c>.
+        /// </remarks>
+        internal void CreateAndWireParser()
+        {
+            if (Buffer == null) return;
+
             Parser = new AnsiParser(Buffer);
 
             Parser.OnBell += () =>
@@ -1628,16 +1670,12 @@ namespace NovaTerminal.Controls
                     Dispatcher.UIThread.Post(() => LongCommandCompleted?.Invoke(this, commandText, exitCode, d));
                 }
             };
+        }
 
-            // Sync initial metrics
-            float cw = TermView.Metrics.CellWidth;
-            float ch = TermView.Metrics.CellHeight;
-            if (cw > 0) Parser.CellWidth = cw;
-            if (ch > 0) Parser.CellHeight = ch;
-
-            // Setup Session
-            string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
-            string args = explicitArgs ?? profile?.Arguments ?? "";
+        /// Spawns the session and wires the handlers that depend on it. Split out of
+        /// <c>InitializeSession</c> alongside <see cref="CreateAndWireParser"/>; no behaviour change.
+        private void InitializeSessionCore(string effectiveShell, string args, TerminalProfile? profile, int cols, int rows)
+        {
             _shellLifecycleTracker = null;
             _isShellIntegrationActive = false;
             _shellIntegrationEnvOverrides = null;
@@ -1771,7 +1809,28 @@ namespace NovaTerminal.Controls
                 Session.SendInput(response);
             };
 
-            // Wire up Resize (idempotent across InitializeSession re-runs — TermView is reused).
+            WireReusedTermViewHandlers();
+        }
+
+        /// <summary>
+        /// Subscribes the two <see cref="TermView"/> handlers that belong to session setup, in a way
+        /// that is safe to call repeatedly.
+        /// </summary>
+        /// <remarks>
+        /// Every other subscription made by <c>InitializeSession</c> targets an object that is
+        /// recreated with the session — a fresh <see cref="AnsiParser"/> (see the assignment at the
+        /// top of that method) or the new <see cref="ITerminalSession"/> — so those handler lists
+        /// start empty and cannot accumulate. These two are the exception: <c>TermView</c> is the
+        /// pane's own control and outlives any individual session, so <c>Reconnect()</c> would add a
+        /// second copy of each on every reconnect.
+        ///
+        /// Hence the cached delegates plus remove-before-add: the delegate identity has to be stable
+        /// for <c>-=</c> to match, which a fresh lambda per call would not give. Extracted into its
+        /// own method so the idempotence can be asserted directly (#102) rather than only through a
+        /// full session spin-up.
+        /// </remarks>
+        internal void WireReusedTermViewHandlers()
+        {
             _onTermViewResize ??= (c, r) =>
             {
                 if (Parser != null)
@@ -1786,7 +1845,6 @@ namespace NovaTerminal.Controls
             TermView.OnResize -= _onTermViewResize;
             TermView.OnResize += _onTermViewResize;
 
-            // Metrics changed handling (idempotent — TermView is reused).
             _onTermViewMetricsChanged ??= (cwMetric, chMetric) =>
             {
                 if (Parser != null && cwMetric > 0 && chMetric > 0)
@@ -2405,6 +2463,7 @@ namespace NovaTerminal.Controls
             // Detach handlers on the reused TermView so a disposed pane stops reacting.
             if (_onTermViewResize != null) TermView.OnResize -= _onTermViewResize;
             if (_onTermViewMetricsChanged != null) TermView.MetricsChanged -= _onTermViewMetricsChanged;
+            if (_onTermViewMetricsLayout != null) TermView.MetricsChanged -= _onTermViewMetricsLayout;
 
             if (Buffer != null)
             {
