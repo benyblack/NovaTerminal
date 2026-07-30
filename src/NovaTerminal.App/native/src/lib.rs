@@ -1,5 +1,27 @@
 use libc::{c_char, c_int};
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+
+/// Serializes every test in this crate that creates or destroys OS handles.
+///
+/// Crate-level rather than per-module, and that scope is the whole point. Cargo runs tests as parallel
+/// threads inside **one process**, and these tests assert on process-wide state:
+///
+/// - Windows reuses handle values eagerly, so after a `CloseHandle` the same numeric value can be
+///   handed back to a `CreatePipe` on another thread. `is_open(closed_value)` then reports someone
+///   else's live handle as ours.
+/// - `GetProcessHandleCount` is perturbed by any concurrent handle activity.
+///
+/// A module-local lock was not enough: the spawn tests in `last_error_tests`, `close_kills_child_tests`
+/// and `cancel_read_tests` all create PTYs — and therefore handles — from outside
+/// `handle_ownership_tests`, so they could still reuse a value or inflate a count. Review on #238
+/// caught that; the first version of this fix reduced the race instead of removing it.
+///
+/// Poisoning is ignored so one panicking test cannot cascade into spurious failures across the rest.
+#[cfg(test)]
+pub(crate) fn handle_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
 use std::ffi::CStr;
 use std::io::{Read, Write};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -322,35 +344,12 @@ mod win32 {
     #[cfg(test)]
     mod handle_ownership_tests {
         use super::*;
-        use std::sync::{Mutex, MutexGuard};
         use windows_sys::Win32::Foundation::GetHandleInformation;
         use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
 
-        /// Serializes every test in this module.
-        ///
-        /// These tests reason about handle *values* and about this process's handle *count*, and both
-        /// are process-wide state that cargo's parallel test threads race on:
-        ///
-        /// - Windows reuses handle values eagerly. After a close, the same numeric value can be
-        ///   handed straight back to a `CreatePipe` on another test thread — so `is_open(closed)`
-        ///   returns true, reporting someone else's handle as ours. That is exactly how
-        ///   `owned_handle_closes_on_drop` failed on CI while passing locally: the leak test creates
-        ///   hundreds of pipes, and on a busier runner one landed on the value we had just closed.
-        /// - `GetProcessHandleCount` is likewise perturbed by any concurrent handle activity.
-        ///
-        /// Serializing removes both races rather than widening a tolerance to paper over them. Note
-        /// this only has to cover *this* crate: other test binaries are separate processes.
-        static HANDLE_TESTS: Mutex<()> = Mutex::new(());
-
-        /// Held for the body of each test. Ignores poisoning: a panic in one test must not cascade
-        /// into spurious failures in the rest.
-        fn serialized() -> MutexGuard<'static, ()> {
-            HANDLE_TESTS.lock().unwrap_or_else(|e| e.into_inner())
-        }
-
         /// Non-zero while `handle` is still an open handle in this process.
         ///
-        /// Only meaningful while [`HANDLE_TESTS`] is held — see the note there about value reuse.
+        /// Only meaningful while [`crate::handle_test_lock`] is held — see the note there about value reuse.
         fn is_open(handle: HANDLE) -> bool {
             let mut flags: u32 = 0;
             (unsafe { GetHandleInformation(handle, &mut flags) }) != 0
@@ -379,7 +378,7 @@ mod win32 {
 
         #[test]
         fn owned_handle_closes_on_drop() {
-            let _guard = serialized();
+            let _guard = crate::handle_test_lock();
             let (read, write) = new_pipe();
             assert!(is_open(read));
 
@@ -391,7 +390,7 @@ mod win32 {
 
         #[test]
         fn owned_handle_release_keeps_the_handle_open() {
-            let _guard = serialized();
+            let _guard = crate::handle_test_lock();
             // The success path hands these to std::fs::File, so release must *not* close.
             let (read, write) = new_pipe();
 
@@ -428,7 +427,7 @@ mod win32 {
         // attempts) while being insensitive to how the fix is written.
         #[test]
         fn failed_spawn_does_not_leak_handles() {
-            let _guard = serialized();
+            let _guard = crate::handle_test_lock();
             let bogus = "novaterminal-no-such-executable-4f2c9a.exe";
 
             // Warm up: the first few attempts touch lazily-initialized OS and CRT state, which
@@ -1222,6 +1221,7 @@ mod last_error_tests {
     // The point of the whole channel: a failed spawn must say *why*.
     #[test]
     fn failed_spawn_names_the_command() {
+            let _guard = crate::handle_test_lock();
         let bogus = "novaterminal-no-such-shell-91b7fe";
         let c_cmd = CString::new(bogus).unwrap();
         let state = pty_spawn(
@@ -1278,6 +1278,7 @@ mod last_error_tests {
 
     #[test]
     fn null_cmd_is_reported_rather_than_silently_null() {
+            let _guard = crate::handle_test_lock();
         let state = pty_spawn(
             std::ptr::null(),
             std::ptr::null(),
@@ -1294,6 +1295,7 @@ mod last_error_tests {
 
     #[test]
     fn a_successful_spawn_clears_a_previous_failure() {
+            let _guard = crate::handle_test_lock();
         set_last_error("stale message from an earlier attempt");
 
         #[cfg(windows)]
@@ -1339,6 +1341,7 @@ mod close_kills_child_tests {
     // the Rust FFI Tests job.
     #[test]
     fn close_without_cancel_terminates_the_child() {
+            let _guard = crate::handle_test_lock();
         // A child that would outlive the test by a wide margin if it were not killed.
         #[cfg(windows)]
         let (cmd, args) = ("cmd.exe", "/c timeout /t 120 /nobreak >NUL");
@@ -1463,6 +1466,7 @@ mod cancel_read_tests {
     // working cancel the loop blocks forever and join() never completes.
     #[test]
     fn cancel_read_unblocks_a_pending_read() {
+            let _guard = crate::handle_test_lock();
         // A shell that just sleeps so it produces no output on its own.
         #[cfg(windows)]
         let (cmd, args) = ("cmd.exe", "/c timeout /t 30 /nobreak >NUL");
