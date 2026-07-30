@@ -143,6 +143,28 @@ public class ReflowMetadataTests
     }
 
     [Fact]
+    public void Reflow_KeepsLinksOnTrailingSpacesInsideTheSpan()
+    {
+        // The trailing-content trim decides how much of a non-wrapped row enters the logical
+        // stream, and it read only the cell: a blank cell that carries nothing but a hyperlink
+        // looked like padding. Everything past that point is never re-emitted, so those columns
+        // lost their link permanently on any width change.
+        var buffer = new TerminalBuffer(12, 4);
+        var parser = new AnsiParser(buffer);
+        // The line must NOT be the cursor row: the trim has a special case that extends validLen
+        // up to the cursor column, which would mask the drop. A newline moves off it.
+        parser.Process($"\u001b]8;;{Uri}\u001b\\ab   \u001b]8;;\u001b\\\r\nnext");
+
+        buffer.Resize(8, 4);
+
+        var links = LinksOnRow(buffer, 0, 8);
+        Assert.Equal(Uri, links[0]);
+        Assert.Equal(Uri, links[1]);
+        Assert.Equal(Uri, links[4]);   // the last linked space
+        Assert.Null(links[5]);         // genuine padding past the span
+    }
+
+    [Fact]
     public void MainScreenKeepsMetadataAcrossAResizeTakenWhileTheAltScreenIsUp()
     {
         var buffer = new TerminalBuffer(12, 4);

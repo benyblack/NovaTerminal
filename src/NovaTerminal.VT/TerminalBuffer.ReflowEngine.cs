@@ -242,10 +242,17 @@ namespace NovaTerminal.VT
                                 // Smart trimming: Calculate last relevant content index
                                 // Include cells that are non-space OR have non-default background
                                 int lastContentIdx = -1;
+                                // A hyperlink counts as content even on a blank cell. OSC 8 spans
+                                // routinely include trailing spaces, and those columns carry no
+                                // signal in the cell itself - trimming them here dropped their
+                                // links for good, since everything past validLen never enters the
+                                // logical stream. HasExtendedText is checked for the same reason.
+                                bool rowHasLinks = physRow.GetHyperlinkMap() is { Count: > 0 };
                                 for (int scan = 0; scan < physRow.Cells.Length; scan++)
                                 {
                                     var cell = physRow.Cells[scan];
-                                    if ((cell.Character != ' ' && cell.Character != '\0') || !cell.IsDefaultBackground || cell.HasExtendedText)
+                                    if ((cell.Character != ' ' && cell.Character != '\0') || !cell.IsDefaultBackground || cell.HasExtendedText
+                                        || (rowHasLinks && physRow.GetHyperlink(scan) != null))
                                     {
                                         lastContentIdx = scan;
                                     }
