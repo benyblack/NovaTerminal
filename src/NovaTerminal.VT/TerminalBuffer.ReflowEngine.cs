@@ -34,7 +34,9 @@ namespace NovaTerminal.VT
                 Theme = source.Theme;
                 _cursorRow = source._cursorRow;
                 _cursorCol = source._cursorCol;
-                _getGraphemeWidth = source.GetGraphemeWidth;
+                // Lambda, not a method group: GetGraphemeWidth takes a span now (#165) and does not
+                // match Func<string, int> directly. The reflow engine works in strings throughout.
+                _getGraphemeWidth = text => source.GetGraphemeWidth(text);
             }
 
             public void Execute(int oldCols, int oldRows, int newCols, int newRows)
