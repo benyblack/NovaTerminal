@@ -706,6 +706,14 @@ namespace NovaTerminal.VT
             var sourceCells = _scrollback.GetRow(absRow);
             int copyLen = Math.Min(sourceCells.Length, viewportCols);
 
+            // Paged scrollback carries a per-row extended-text side table; this build path used to
+            // hard-code Text = null, so any grapheme wider than one UTF-16 code unit - emoji, most
+            // CJK with combining marks, flags - was *rendered* as its first code unit the moment
+            // the line scrolled off screen. Selection and copy were fixed earlier (#95 gap 1) by
+            // teaching GetGraphemeAbsolute about the same table; this is the drawing half (#164
+            // item 4). Fetched once per row rather than per cell.
+            var extendedText = _scrollback.GetExtendedTextMap(absRow);
+
             for (int c = 0; c < viewportCols; c++)
             {
                 if (c < copyLen)
@@ -714,7 +722,10 @@ namespace NovaTerminal.VT
                     rebuiltCells[c] = new RenderCellSnapshot
                     {
                         Character = cell.Character,
-                        Text = null, // TODO Step 5: Support extended text in scrollback
+                        Text = cell.HasExtendedText && extendedText != null
+                               && extendedText.TryGet(c, out string? graphemeText)
+                            ? graphemeText
+                            : null,
                         Foreground = cell.Foreground,
                         Background = cell.Background,
                         IsInverse = cell.IsInverse,
