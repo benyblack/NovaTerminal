@@ -147,16 +147,50 @@ namespace NovaTerminal.VT
         private void WriteContentCore(string text)
         {
             FlushGrapheme(); // Ensure any single char buffered by WriteChar is handled
-            var enumerator = StringInfo.GetTextElementEnumerator(text);
-            while (enumerator.MoveNext())
+
+            // Every printable character of all output comes through here, so the segmentation used
+            // to dominate allocation: StringInfo.GetTextElementEnumerator boxes an enumerator and
+            // GetTextElement() allocates a *string per grapheme* — for plain ASCII, one string per
+            // character. Cat-ing a large file produced garbage on the order of gigabytes (#165).
+            //
+            // GetNextTextElementLength gives the same segmentation over a span without allocating,
+            // and WriteGraphemeInternal now takes a span, so a string is only materialized when one
+            // actually has to be stored (an extended-grapheme side-table entry).
+            ReadOnlySpan<char> remaining = text.AsSpan();
+            while (!remaining.IsEmpty)
             {
-                WriteGraphemeInternal(enumerator.GetTextElement());
+                int length = NextTextElementLength(remaining);
+                WriteGraphemeInternal(remaining.Slice(0, length));
+                remaining = remaining.Slice(length);
             }
         }
 
-        private void WriteGraphemeInternal(string grapheme)
+        /// <summary>
+        /// Length of the grapheme cluster starting at index 0, with a fast path for ASCII.
+        /// </summary>
+        /// <remarks>
+        /// The fast path is exact rather than approximate: every character that can extend a cluster
+        /// — combining marks, variation selectors, ZWJ, regional indicators, surrogates — is at
+        /// U+0300 or above, so an ASCII character followed by another ASCII character is always a
+        /// complete cluster on its own. That covers the overwhelming majority of terminal output
+        /// without consulting the segmentation tables at all.
+        /// </remarks>
+        private static int NextTextElementLength(ReadOnlySpan<char> text)
         {
-            if (string.IsNullOrEmpty(grapheme)) return;
+            char first = text[0];
+            if (first < 0x80 && (text.Length == 1 || text[1] < 0x80))
+            {
+                return 1;
+            }
+
+            return StringInfo.GetNextTextElementLength(text);
+        }
+
+        // Span, not string: WriteContentCore segments without allocating, and a string is only
+        // materialized below where one has to be stored in a side table (#165).
+        private void WriteGraphemeInternal(ReadOnlySpan<char> grapheme)
+        {
+            if (grapheme.IsEmpty) return;
 
             // Guard against lone surrogates from broken UTF-8 (e.g. Yazi on WSL via ConPTY).
             // EnumerateRunes().First() internally calls new Rune(char) which throws on surrogates.
@@ -168,7 +202,12 @@ namespace NovaTerminal.VT
             }
             else
             {
-                firstRune = grapheme.EnumerateRunes().FirstOrDefault(new Rune('?'));
+                // Was EnumerateRunes().FirstOrDefault(...), which boxed the struct enumerator via
+                // LINQ once per multi-char grapheme (#165).
+                if (Rune.DecodeFromUtf16(grapheme, out firstRune, out _) != System.Buffers.OperationStatus.Done)
+                {
+                    firstRune = new Rune('?');
+                }
             }
             bool isZeroWidthComponent = UnicodeWidth.IsZeroWidthGraphemeComponent(firstRune);
 
@@ -231,7 +270,10 @@ namespace NovaTerminal.VT
                             goto NormalWrite;
                         }
 
-                        string merged = existing + grapheme;
+                        // Concatenation has to allocate here regardless: the merged cluster is stored
+                        // in the side table. string.Concat(span, span) avoids the interim allocation
+                        // an implicit ToString() would add.
+                        string merged = string.Concat(existing.AsSpan(), grapheme);
                         row.SetExtendedText(attachCol, merged);
                         cell.HasExtendedText = true;
                         cell.IsDirty = true; // Force redraw
@@ -328,7 +370,7 @@ NormalWrite:
                 row.Cells[_cursorCol] = new TerminalCell(grapheme[0], _packedFg, _packedBg, flags);
                 if ((flags & (ushort)TerminalCellFlags.HasExtendedText) != 0)
                 {
-                    row.SetExtendedText(_cursorCol, grapheme);
+                    row.SetExtendedText(_cursorCol, grapheme.ToString());
                 }
                 row.SetHyperlink(_cursorCol, _currentHyperlink);
 
@@ -378,9 +420,9 @@ NormalWrite:
             _cursorRow = Math.Min(_cursorRow + 1, Rows - 1);
         }
 
-        private bool IsLastRuneZwj(string grapheme)
+        private bool IsLastRuneZwj(ReadOnlySpan<char> grapheme)
         {
-            if (string.IsNullOrEmpty(grapheme)) return false;
+            if (grapheme.IsEmpty) return false;
             // ZWJ is U+200D
             foreach (var rune in grapheme.EnumerateRunes())
             {

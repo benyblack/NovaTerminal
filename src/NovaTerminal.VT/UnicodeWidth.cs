@@ -6,9 +6,11 @@ namespace NovaTerminal.VT;
 
 public static class UnicodeWidth
 {
-    public static int GetGraphemeWidth(string textElement)
+    // Takes a span rather than a string so the VT write path can measure a grapheme without
+    // materializing one (#165). string converts implicitly, so existing callers are unaffected.
+    public static int GetGraphemeWidth(ReadOnlySpan<char> textElement)
     {
-        if (string.IsNullOrEmpty(textElement))
+        if (textElement.IsEmpty)
         {
             return 0;
         }
@@ -172,9 +174,10 @@ public static class UnicodeWidth
         return false;
     }
 
-    public static bool ShouldAttachToPrevious(string previousGrapheme, string incomingGrapheme, bool previousEndedWithZwj)
+    // Spans, for the same reason as GetGraphemeWidth (#165).
+    public static bool ShouldAttachToPrevious(ReadOnlySpan<char> previousGrapheme, ReadOnlySpan<char> incomingGrapheme, bool previousEndedWithZwj)
     {
-        if (string.IsNullOrEmpty(previousGrapheme) || string.IsNullOrEmpty(incomingGrapheme))
+        if (previousGrapheme.IsEmpty || incomingGrapheme.IsEmpty)
         {
             return false;
         }
@@ -197,12 +200,22 @@ public static class UnicodeWidth
         return false;
     }
 
-    public static bool IsRegionalIndicatorCluster(string text)
-        => CountRegionalIndicators(text) > 0 && text.EnumerateRunes().All(IsRegionalIndicator);
-
-    public static bool IsSingleRegionalIndicator(string text)
+    public static bool IsRegionalIndicatorCluster(ReadOnlySpan<char> text)
     {
-        if (string.IsNullOrEmpty(text))
+        if (CountRegionalIndicators(text) == 0) return false;
+
+        // Was `text.EnumerateRunes().All(IsRegionalIndicator)`; the LINQ call boxed the struct
+        // enumerator on a path the write loop reaches per grapheme (#165).
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (!IsRegionalIndicator(rune)) return false;
+        }
+        return true;
+    }
+
+    public static bool IsSingleRegionalIndicator(ReadOnlySpan<char> text)
+    {
+        if (text.IsEmpty)
         {
             return false;
         }
@@ -225,9 +238,9 @@ public static class UnicodeWidth
         return count == 1;
     }
 
-    public static int CountRegionalIndicators(string text)
+    public static int CountRegionalIndicators(ReadOnlySpan<char> text)
     {
-        if (string.IsNullOrEmpty(text))
+        if (text.IsEmpty)
         {
             return 0;
         }
@@ -262,9 +275,9 @@ public static class UnicodeWidth
     private static bool IsEmojiRange(Rune rune)
         => rune.Value >= 0x1F000 && rune.Value <= 0x1FBFF;
 
-    private static bool TryGetFirstRune(string text, out Rune rune)
+    private static bool TryGetFirstRune(ReadOnlySpan<char> text, out Rune rune)
     {
-        if (string.IsNullOrEmpty(text))
+        if (text.IsEmpty)
         {
             rune = default;
             return false;

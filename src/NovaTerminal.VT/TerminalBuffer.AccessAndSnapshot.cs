@@ -786,7 +786,7 @@ namespace NovaTerminal.VT
             return matches;
         }
 
-        public int GetGraphemeWidth(string textElement)
+        public int GetGraphemeWidth(ReadOnlySpan<char> textElement)
         {
             return UnicodeWidth.GetGraphemeWidth(textElement);
         }
