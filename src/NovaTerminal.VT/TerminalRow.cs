@@ -146,6 +146,33 @@ namespace NovaTerminal.VT
         }
 
         /// <summary>
+        /// Copies <paramref name="source"/>'s side-table entries for columns below
+        /// <paramref name="columnLimit"/> onto this row, leaving higher columns untouched.
+        /// </summary>
+        /// <remarks>
+        /// Only valid where columns map one-to-one — the resize paths that copy cells straight
+        /// across rather than reflowing them (the alt screen, and detached screen buffers). Reflow
+        /// re-columns its content and has to map each cell individually instead.
+        ///
+        /// Without this, those paths rebuilt rows from <see cref="Cells"/> alone, so a resize while
+        /// an alt-screen application was up dropped every extended grapheme and OSC 8 link on
+        /// screen — the same loss as reflow's, on the no-reflow path (#164).
+        /// </remarks>
+        public void CopyRowMetadataFrom(TerminalRow source, int columnLimit)
+        {
+            if (!source.HasRowMetadata || columnLimit <= 0) return;
+
+            source._extendedText?.ForEach((col, text) =>
+            {
+                if (col < columnLimit) SetExtendedText(col, text);
+            });
+            source._hyperlinks?.ForEach((col, link) =>
+            {
+                if (col < columnLimit) SetHyperlink(col, link);
+            });
+        }
+
+        /// <summary>
         /// Installs side tables wholesale. Counterpart of the Get*Map accessors:
         /// used when a row is restored from paged scrollback (height grow) so
         /// extended graphemes and hyperlinks survive the round trip. The row

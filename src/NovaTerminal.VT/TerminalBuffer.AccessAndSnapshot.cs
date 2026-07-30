@@ -282,6 +282,9 @@ namespace NovaTerminal.VT
                 }
 
                 resized[i].IsWrapped = source[i].IsWrapped;
+                // Detached buffers are not reflowed either, so the side tables transfer by column
+                // (#164). Copying Cells and IsWrapped alone lost extended graphemes and links.
+                resized[i].CopyRowMetadataFrom(source[i], copyCols);
             }
 
             return resized;

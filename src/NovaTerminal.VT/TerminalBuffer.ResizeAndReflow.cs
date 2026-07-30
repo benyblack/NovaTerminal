@@ -191,6 +191,11 @@ namespace NovaTerminal.VT
                             {
                                 _viewport[i].Cells[c] = oldAlt[i].Cells[c];
                             }
+
+                            // The alt screen is never reflowed, so columns map 1:1 and the side
+                            // tables come straight across. Copying only Cells left the extended
+                            // graphemes and OSC 8 links behind (#164).
+                            _viewport[i].CopyRowMetadataFrom(oldAlt[i], copyCols);
                         }
                     }
 

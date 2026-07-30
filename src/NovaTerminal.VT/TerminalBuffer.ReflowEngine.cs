@@ -58,7 +58,13 @@ namespace NovaTerminal.VT
             private void Reflow(int oldCols, int oldRows, int newCols, int newRows)
             {
                 TerminalRow[]? allPhysicalRows = null;
-                (TerminalCell Cell, string? ExtendedText)[]? logicalCells = null;
+                // The hyperlink travels alongside the extended grapheme, not separately: both are
+                // column-keyed side tables, and reflow re-columns everything. Before #164 item 2a
+                // this tuple had no Hyperlink field, so hyperlinks were read out of the old rows
+                // (see the GetHyperlinkMap call below) and then silently dropped here - which made
+                // GetHyperlinkMap() on every flowed row unconditionally null, and lost every OSC 8
+                // link on any resize.
+                (TerminalCell Cell, string? ExtendedText, string? Hyperlink)[]? logicalCells = null;
 
                 try
                 {
@@ -104,7 +110,7 @@ namespace NovaTerminal.VT
                     allPhysicalRows = System.Buffers.ArrayPool<TerminalRow>.Shared.Rent(totalPhysRows);
 
                     // 3. Metadata-Aware Logical Reconstruction
-                    var logicalCellsPool = System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText)>.Shared;
+                    var logicalCellsPool = System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText, string? Hyperlink)>.Shared;
                     int maxLogicalCells = totalPhysRows * Math.Max(oldCols, newCols) + 1000;
                     logicalCells = logicalCellsPool.Rent(maxLogicalCells);
                     int logicalCellsCount = 0;
@@ -236,10 +242,17 @@ namespace NovaTerminal.VT
                                 // Smart trimming: Calculate last relevant content index
                                 // Include cells that are non-space OR have non-default background
                                 int lastContentIdx = -1;
+                                // A hyperlink counts as content even on a blank cell. OSC 8 spans
+                                // routinely include trailing spaces, and those columns carry no
+                                // signal in the cell itself - trimming them here dropped their
+                                // links for good, since everything past validLen never enters the
+                                // logical stream. HasExtendedText is checked for the same reason.
+                                bool rowHasLinks = physRow.GetHyperlinkMap() is { Count: > 0 };
                                 for (int scan = 0; scan < physRow.Cells.Length; scan++)
                                 {
                                     var cell = physRow.Cells[scan];
-                                    if ((cell.Character != ' ' && cell.Character != '\0') || !cell.IsDefaultBackground || cell.HasExtendedText)
+                                    if ((cell.Character != ' ' && cell.Character != '\0') || !cell.IsDefaultBackground || cell.HasExtendedText
+                                        || (rowHasLinks && physRow.GetHyperlink(scan) != null))
                                     {
                                         lastContentIdx = scan;
                                     }
@@ -348,7 +361,7 @@ namespace NovaTerminal.VT
                                     // Extract Left+Middle
                                     for (int k = 0; k < gapStart; k++)
                                     {
-                                        logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k));
+                                        logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
                                     }
 
                                     // Calculate new position
@@ -363,20 +376,20 @@ namespace NovaTerminal.VT
                                         var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                                         for (int s = currentPos; s < newRightPos; s++)
                                         {
-                                            logicalCells[logicalCellsCount++] = (spaceFill, null);
+                                            logicalCells[logicalCellsCount++] = (spaceFill, null, null);
                                         }
                                         // Add right content
                                         for (int k = rightStart; k <= rightEnd; k++)
                                         {
-                                            logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k));
+                                            logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
                                         }
                                     }
                                     else
                                     {
                                         // Truncate/Squish
                                         var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
-                                        logicalCells[logicalCellsCount++] = (spaceFill, null);
-                                        logicalCells[logicalCellsCount++] = (spaceFill, null);
+                                        logicalCells[logicalCellsCount++] = (spaceFill, null, null);
+                                        logicalCells[logicalCellsCount++] = (spaceFill, null, null);
 
                                         int available = newCols - (logicalCellsCount - currentLogStart);
                                         if (available > 0)
@@ -384,7 +397,7 @@ namespace NovaTerminal.VT
                                             int take = Math.Min(available, rightBlockWidth);
                                             int startOffset = rightBlockWidth - take;
                                             for (int k = rightStart + startOffset; k <= rightEnd; k++)
-                                                logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k));
+                                                logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
                                         }
                                     }
                                     isSparseRowRepositioned = true;
@@ -396,7 +409,7 @@ namespace NovaTerminal.VT
                             if (!isSparseRowRepositioned)
                             {
                                 for (int k = 0; k < validLen; k++)
-                                    logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k));
+                                    logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
                             }
 
                             if (!physRow.IsWrapped || ignoreWrap)
@@ -547,6 +560,7 @@ namespace NovaTerminal.VT
                                     var entry = logicalCells[lineStart + processed + c];
                                     row.Cells[c] = entry.Cell;
                                     row.SetExtendedText(c, entry.ExtendedText);
+                                    row.SetHyperlink(c, entry.Hyperlink);
                                 }
 
                                 // Style-Aware Padding
@@ -743,7 +757,7 @@ namespace NovaTerminal.VT
                     if (allPhysicalRows is not null)
                         System.Buffers.ArrayPool<TerminalRow>.Shared.Return(allPhysicalRows, clearArray: true);
                     if (logicalCells is not null)
-                        System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText)>.Shared.Return(logicalCells, clearArray: true);
+                        System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText, string? Hyperlink)>.Shared.Return(logicalCells, clearArray: true);
                 }
             }
         }
