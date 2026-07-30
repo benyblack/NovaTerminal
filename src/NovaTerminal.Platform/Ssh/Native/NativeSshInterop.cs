@@ -13,6 +13,11 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     private const int ResultEventReady = 1;
     private const int ResultInvalidArgument = -1;
     private const int ResultBufferTooSmall = -2;
+
+    /// Poll payload scratch buffer, retained across calls and grown on demand. See PollEvent for why
+    /// this is per-thread rather than per-instance.
+    [ThreadStatic]
+    private static byte[]? _pollBuffer;
     private const int ResultClosed = -3;
     private const int ResultCanceled = -6;
     private const int ResultPanic = -7;
@@ -299,7 +304,19 @@ public sealed partial class NativeSshInterop : INativeSshInterop
             return null;
         }
 
-        byte[] buffer = Array.Empty<byte>();
+        // Reuse the buffer across polls instead of starting from Array.Empty every time.
+        //
+        // Starting empty guaranteed the BUFFER_TOO_SMALL path for *every* non-empty payload: first
+        // call reported the length, we allocated, second call delivered. So each output chunk cost
+        // two FFI transitions and a fresh managed array, forever — the retry was the steady state,
+        // not the exception (#173 item 1). With the buffer retained it happens once per size
+        // increase and then stops.
+        //
+        // ThreadStatic rather than an instance field: NativeSshSession creates its own interop by
+        // default but the dependency is injectable, so an instance field could be shared by two
+        // sessions polling concurrently. PollEvent is synchronous, so a thread cannot change
+        // underneath a single call, which makes per-thread ownership both race-free and enough.
+        byte[] buffer = _pollBuffer ?? Array.Empty<byte>();
         NativeEventHeader header = default;
 
         try
@@ -315,6 +332,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
                 if (rc == ResultBufferTooSmall)
                 {
                     buffer = new byte[header.PayloadLength];
+                    _pollBuffer = buffer;
                     continue;
                 }
 

@@ -205,6 +205,26 @@ struct QueuedEvent {
     flags: u32,
 }
 
+/// A queued event's shape, without its payload. Lets the FFI report `payload_len` so the caller can
+/// size a buffer, without copying anything (#173 item 1).
+#[derive(Clone, Copy)]
+struct EventMeta {
+    kind: NovaSshEventKind,
+    payload_len: usize,
+    status_code: i32,
+    flags: u32,
+}
+
+/// Outcome of a single `take_event_if_fits`.
+enum EventRead {
+    /// Nothing queued.
+    Empty,
+    /// Head event's payload exceeds the supplied capacity; it stays queued for a retry.
+    TooSmall(EventMeta),
+    /// Head event, removed from the queue and owned by the caller.
+    Ready(QueuedEvent),
+}
+
 struct QueuedResponse {
     kind: NovaSshResponseKind,
     payload: Vec<u8>,
@@ -539,25 +559,43 @@ impl SharedState {
             .push_back(event);
     }
 
-    fn peek_event(&self) -> Option<QueuedEvent> {
-        self.events
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .front()
-            .map(|event| QueuedEvent {
-                kind: event.kind,
-                payload: event.payload.clone(),
-                status_code: event.status_code,
-                flags: event.flags,
-            })
-    }
+    /// Removes and returns the head event if its payload fits in `payload_capacity`; otherwise
+    /// reports its shape so the caller can size a buffer and retry, leaving it queued.
+    ///
+    /// One lock acquisition, and — the point — **no payload copy**. The previous shape was
+    /// `peek_event()` (which cloned the whole payload) followed by `pop_event()`, so every event
+    /// travelled through an extra `Vec` allocation and memcpy on the way out, and a
+    /// `BUFFER_TOO_SMALL` retry threw that clone away and did it again. With the managed caller
+    /// starting each poll at a zero-length buffer, that retry was not an edge case: it happened for
+    /// *every* non-empty payload (#173 item 1).
+    ///
+    /// Doing it under a single lock also closes a latent TOCTOU in the old peek-then-pop pair: a
+    /// second consumer could pop between the two calls, and the caller would then receive one
+    /// event's metadata with another's payload. Only one consumer polls today, so this was
+    /// unreachable rather than broken — worth removing while the code is open.
+    fn take_event_if_fits(&self, payload_capacity: usize) -> EventRead {
+        let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
 
-    fn pop_event(&self) {
-        let _ = self
-            .events
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .pop_front();
+        let Some(front) = events.front() else {
+            return EventRead::Empty;
+        };
+
+        let meta = EventMeta {
+            kind: front.kind,
+            payload_len: front.payload.len(),
+            status_code: front.status_code,
+            flags: front.flags,
+        };
+
+        if meta.payload_len > payload_capacity {
+            return EventRead::TooSmall(meta);
+        }
+
+        // Moves the payload out; nothing is duplicated.
+        match events.pop_front() {
+            Some(event) => EventRead::Ready(event),
+            None => EventRead::Empty,
+        }
     }
 
     fn queue_response(&self, response: QueuedResponse) {
@@ -721,21 +759,40 @@ pub extern "C" fn nova_ssh_poll_event(
             Some(s) => s,
             None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
         };
-        let queued = match session.shared.peek_event() {
-            Some(event_value) => event_value,
-            None => return NOVA_SSH_RESULT_OK,
+        // A null payload pointer can still carry a non-zero capacity from a caller that only wants
+        // the header, so treat it as zero capacity: the event stays queued and the caller learns
+        // payload_len from the header it just received.
+        let effective_capacity = if payload.is_null() { 0 } else { payload_capacity };
+
+        // Both outcomes report the same header, so resolve the metadata first and write it once.
+        // Writing it per-arm would duplicate four raw-pointer stores for no benefit — and each store
+        // is a separate `clippy::not_unsafe_ptr_arg_deref` site, so it would also have grown this
+        // crate's lint baseline from 14 to 18 for a purely cosmetic reason.
+        let (meta, delivered) = match session.shared.take_event_if_fits(effective_capacity) {
+            EventRead::Empty => return NOVA_SSH_RESULT_OK,
+            EventRead::TooSmall(meta) => (meta, None),
+            EventRead::Ready(queued) => (
+                EventMeta {
+                    kind: queued.kind,
+                    payload_len: queued.payload.len(),
+                    status_code: queued.status_code,
+                    flags: queued.flags,
+                },
+                Some(queued),
+            ),
         };
 
         unsafe {
-            (*event).kind = queued.kind as u32;
-            (*event).payload_len = queued.payload.len() as u32;
-            (*event).status_code = queued.status_code;
-            (*event).flags = queued.flags;
+            (*event).kind = meta.kind as u32;
+            (*event).payload_len = meta.payload_len as u32;
+            (*event).status_code = meta.status_code;
+            (*event).flags = meta.flags;
         }
 
-        if queued.payload.len() > payload_capacity {
+        let Some(queued) = delivered else {
+            // Still queued; the caller now knows how big a buffer to bring.
             return NOVA_SSH_RESULT_BUFFER_TOO_SMALL;
-        }
+        };
 
         if !payload.is_null() && !queued.payload.is_empty() {
             unsafe {
@@ -743,7 +800,6 @@ pub extern "C" fn nova_ssh_poll_event(
             }
         }
 
-        session.shared.pop_event();
         NOVA_SSH_RESULT_EVENT_READY
     })
 }
@@ -3351,6 +3407,119 @@ mod tests {
 
         let close = nova_ssh_close(session);
         assert_eq!(NOVA_SSH_RESULT_OK, close);
+    }
+
+    // The refactor in #173 item 1 turned peek-then-pop into a single take-if-fits, so the retry after
+    // BUFFER_TOO_SMALL is the path most at risk of losing or corrupting a payload. Nothing covered it
+    // before: the test above stops at the size report.
+    #[test]
+    fn retry_after_buffer_too_small_delivers_the_payload_intact() {
+        let payload = br#"{"host":"example.internal","fingerprint":"SHA256:retry-path"}"#;
+        let session = create_test_session_with_event(NovaSshEventKind::HostKeyPrompt, payload);
+        assert_ne!(0, session);
+
+        let mut event = NovaSshEvent::default();
+        let mut tiny = [0u8; 4];
+        assert_eq!(
+            NOVA_SSH_RESULT_BUFFER_TOO_SMALL,
+            nova_ssh_poll_event(session, &mut event, tiny.as_mut_ptr(), tiny.len())
+        );
+
+        // Size from the header the failed poll just wrote, exactly as the managed caller does.
+        let mut buffer = vec![0u8; event.payload_len as usize];
+        assert_eq!(
+            NOVA_SSH_RESULT_EVENT_READY,
+            nova_ssh_poll_event(session, &mut event, buffer.as_mut_ptr(), buffer.len())
+        );
+
+        assert_eq!(payload.len() as u32, event.payload_len);
+        assert_eq!(payload.as_slice(), &buffer[..], "payload came back altered");
+
+        // And the event is consumed, not left behind to be delivered twice.
+        let mut second = NovaSshEvent::default();
+        assert_eq!(
+            NOVA_SSH_RESULT_OK,
+            nova_ssh_poll_event(session, &mut second, buffer.as_mut_ptr(), buffer.len())
+        );
+
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(session));
+    }
+
+    #[test]
+    fn exactly_sized_buffer_is_accepted() {
+        // Boundary between TooSmall and Ready. An off-by-one here would either reject a correctly
+        // sized buffer forever (livelock in the managed retry loop) or overrun it.
+        let payload = b"0123456789";
+        let session = create_test_session_with_event(NovaSshEventKind::HostKeyPrompt, payload);
+
+        let mut event = NovaSshEvent::default();
+        let mut buffer = [0u8; 10];
+        assert_eq!(
+            NOVA_SSH_RESULT_EVENT_READY,
+            nova_ssh_poll_event(session, &mut event, buffer.as_mut_ptr(), buffer.len())
+        );
+        assert_eq!(payload.as_slice(), &buffer[..]);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(session));
+    }
+
+    // Bug in the pre-#173 code, fixed as a side effect and worth pinning: a caller passing a null
+    // payload pointer with a large capacity passed the size check, skipped the copy (guarded on
+    // !payload.is_null()) and then *popped the event anyway* - silently destroying it. Now a null
+    // pointer is treated as zero capacity, so the event survives for a real retry.
+    #[test]
+    fn null_payload_pointer_does_not_consume_the_event() {
+        let payload = b"payload that must survive a header-only poll";
+        let session = create_test_session_with_event(NovaSshEventKind::HostKeyPrompt, payload);
+
+        let mut event = NovaSshEvent::default();
+        assert_eq!(
+            NOVA_SSH_RESULT_BUFFER_TOO_SMALL,
+            nova_ssh_poll_event(session, &mut event, ptr::null_mut(), 4096)
+        );
+        assert_eq!(payload.len() as u32, event.payload_len);
+
+        let mut buffer = vec![0u8; event.payload_len as usize];
+        assert_eq!(
+            NOVA_SSH_RESULT_EVENT_READY,
+            nova_ssh_poll_event(session, &mut event, buffer.as_mut_ptr(), buffer.len())
+        );
+        assert_eq!(payload.as_slice(), &buffer[..]);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(session));
+    }
+
+    #[test]
+    fn queued_events_are_delivered_in_order() {
+        // take_event_if_fits pops under the same lock it peeked under; this guards the ordering that
+        // guarantees.
+        let shared = Arc::new(SharedState::new());
+        for i in 0u8..5 {
+            shared.queue_event(QueuedEvent {
+                kind: NovaSshEventKind::HostKeyPrompt,
+                payload: vec![i; 3],
+                status_code: i as i32,
+                flags: NOVA_SSH_EVENT_FLAG_JSON,
+            });
+        }
+        let session = registry_insert(NovaSshSession {
+            shared,
+            command_tx: Mutex::new(None),
+            worker: Mutex::new(None),
+        }) as usize;
+
+        for i in 0u8..5 {
+            let mut event = NovaSshEvent::default();
+            let mut buffer = [0u8; 8];
+            assert_eq!(
+                NOVA_SSH_RESULT_EVENT_READY,
+                nova_ssh_poll_event(session, &mut event, buffer.as_mut_ptr(), buffer.len())
+            );
+            assert_eq!(i as i32, event.status_code, "events came back out of order");
+            assert_eq!([i, i, i], buffer[..3]);
+        }
+
+        assert_eq!(NOVA_SSH_RESULT_OK, nova_ssh_close(session));
     }
 
     #[test]
