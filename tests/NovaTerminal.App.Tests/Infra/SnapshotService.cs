@@ -30,6 +30,23 @@ namespace NovaTerminal.Tests.Infra
         public double RenderScaling { get; init; } = 1.0;
         public string TypefaceFamily { get; init; } = "Cascadia Code PL, CaskaydiaCove Nerd Font, Cascadia Code, Consolas, Monospace";
         public float FontSize { get; init; } = 14f;
+
+        /// <summary>
+        /// Row-picture cache to render with, or <c>null</c> to render uncached.
+        /// </summary>
+        /// <remarks>
+        /// Golden-PNG capture deliberately renders with both caches off, so that every baseline is
+        /// produced by the same deterministic path. That also meant nothing in CI ever exercised the
+        /// caches — the gap #127 describes. Supplying one here lets a caller render the *same* buffer
+        /// twice and assert the second frame hit the cache, which is what detects a regression that
+        /// silently invalidates rows every frame.
+        ///
+        /// Callers own the instance and its disposal; leave it null for baseline captures.
+        /// </remarks>
+        public RowImageCache? RowCache { get; init; }
+
+        /// <summary>Glyph atlas to render with, or <c>null</c> to render uncached. See <see cref="RowCache"/>.</summary>
+        public GlyphCache? GlyphCache { get; init; }
     }
 
     public static class SnapshotService
@@ -73,9 +90,9 @@ namespace NovaTerminal.Tests.Infra
                 totalLines: buffer.TotalLines,
                 cursorRow: buffer.CursorRow,
                 cursorCol: buffer.CursorCol,
-                rowCache: null,
+                rowCache: options.RowCache,
                 enableComplexShaping: options.EnableComplexShaping,
-                glyphCache: null);
+                glyphCache: options.GlyphCache);
 
             IDisposable? primitiveOverride = null;
             if (options.ForceBoxDrawingPrimitives || options.ForceBlockElementPrimitives)
