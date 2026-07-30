@@ -833,6 +833,14 @@ pub extern "C" fn pty_create(cmd: *const c_char, cols: u16, rows: u16) -> *mut P
 pub extern "C" fn pty_read(state_ptr: *mut PtyState, buffer: *mut u8, len: c_int) -> c_int {
     ffi_guard(-1, || {
         if state_ptr.is_null() || buffer.is_null() || len < 0 {
+            // Every -1 must leave a matching message. Returning without touching the channel
+            // would leave whatever an earlier failure wrote in place, so a caller reading it
+            // after this -1 would be told about an unrelated, older problem.
+            set_last_error(format!(
+                "pty_read called with invalid arguments: state={}, buffer={}, len={len}",
+                if state_ptr.is_null() { "null" } else { "ok" },
+                if buffer.is_null() { "null" } else { "ok" },
+            ));
             return -1;
         }
         if len == 0 {
@@ -878,6 +886,12 @@ pub extern "C" fn pty_read(state_ptr: *mut PtyState, buffer: *mut u8, len: c_int
 pub extern "C" fn pty_write(state_ptr: *mut PtyState, buffer: *const u8, len: c_int) -> c_int {
     ffi_guard(-1, || {
         if state_ptr.is_null() || buffer.is_null() || len < 0 {
+            // Same contract as pty_read: a -1 never leaves a stale message behind.
+            set_last_error(format!(
+                "pty_write called with invalid arguments: state={}, buffer={}, len={len}",
+                if state_ptr.is_null() { "null" } else { "ok" },
+                if buffer.is_null() { "null" } else { "ok" },
+            ));
             return -1;
         }
         if len == 0 {
@@ -1197,6 +1211,41 @@ mod last_error_tests {
             message.contains(bogus),
             "message should name the command; got: {message}"
         );
+    }
+
+    // The channel's contract: a -1 always describes *that* call. Without this, an invalid-argument
+    // rejection returned -1 while leaving an older, unrelated message in place, so the caller was
+    // told about the wrong failure - worse than being told nothing.
+    #[test]
+    fn invalid_read_arguments_replace_a_stale_message() {
+        set_last_error("stale message from an unrelated earlier failure");
+
+        let mut buf = [0u8; 16];
+        assert_eq!(pty_read(std::ptr::null_mut(), buf.as_mut_ptr(), 16), -1);
+
+        let (rc, message) = read_last_error(256);
+        assert!(rc > 0);
+        assert!(
+            message.contains("pty_read called with invalid arguments"),
+            "expected the read rejection, got: {message}"
+        );
+        assert!(!message.contains("stale"), "stale message survived: {message}");
+    }
+
+    #[test]
+    fn invalid_write_arguments_replace_a_stale_message() {
+        set_last_error("stale message from an unrelated earlier failure");
+
+        let buf = [0u8; 16];
+        assert_eq!(pty_write(std::ptr::null_mut(), buf.as_ptr(), 16), -1);
+
+        let (rc, message) = read_last_error(256);
+        assert!(rc > 0);
+        assert!(
+            message.contains("pty_write called with invalid arguments"),
+            "expected the write rejection, got: {message}"
+        );
+        assert!(!message.contains("stale"), "stale message survived: {message}");
     }
 
     #[test]
