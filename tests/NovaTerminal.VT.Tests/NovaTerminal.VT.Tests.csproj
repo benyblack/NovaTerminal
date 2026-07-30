@@ -1,6 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- Ratchet (#108): this project builds warning-free today, so lock that in. The
+         repo-wide default in Directory.Build.props stays false until the remaining
+         projects are cleaned up; opting in per project keeps a clean project from
+         silently regressing while the noisy ones are still being worked through. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>
