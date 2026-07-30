@@ -16,6 +16,15 @@ namespace NovaTerminal.Rendering.Tests;
 /// The negative cases matter as much as the positive ones. Over-routing to the colour atlas is not a
 /// safe failure: colour glyphs are blitted as-is, so ordinary text sent there would ignore the
 /// foreground colour and always paint as rasterized.
+///
+/// **Scope, established during review of #233.** This predicate only governs graphemes that actually
+/// reach the atlas. `TerminalDrawOperation.ContainsRunesRequiringComplexShaping` diverts emoji in
+/// `1F300-1FAFF`, `2600-27BF`, regional indicators, ZWJ sequences and (as of this change) VS16 and
+/// keycap sequences to the shaper, bypassing the cache entirely. So the cases this predicate really
+/// decides are the **single-rune, emoji-default** ones that fall through: the star, the squares, the
+/// watch, the mahjong/joker tiles and the enclosed-ideographic set. The multi-codepoint entries below
+/// are kept as defence in depth — the predicate should be correct on its own terms whether or not the
+/// draw path happens to divert them today.
 /// </summary>
 public class ColorGlyphRoutingTests
 {
@@ -40,8 +49,11 @@ public class ColorGlyphRoutingTests
     // Mahjong red dragon and the black joker.
     [InlineData("\U0001F004", "mahjong tile red dragon")]
     [InlineData("\U0001F0CF", "playing card black joker")]
-    // Enclosed ideographic supplement.
+    // Enclosed Ideographic Supplement members that are Emoji_Presentation=Yes.
     [InlineData("\U0001F201", "squared katakana koko")]
+    [InlineData("\U0001F21A", "squared CJK unified ideograph 7121")]
+    [InlineData("\U0001F232", "squared CJK unified ideograph 7981")]
+    [InlineData("\U0001F250", "circled ideograph advantage")]
     // Still covered: the range the old test got right.
     [InlineData("\U0001F600", "grinning face")]
     [InlineData("\U0001F44D", "thumbs up")]
@@ -78,6 +90,14 @@ public class ColorGlyphRoutingTests
     // Arrows and math operators are text-default; without VS16 they stay tintable.
     [InlineData("→", "rightwards arrow")]
     [InlineData("≠", "not equal to")]
+    // Enclosed Ideographic Supplement members that are Emoji_Presentation=**No** - text by default,
+    // and the reason 1F200-1F2FF is enumerated rather than matched as a block. A block-wide match
+    // sent these to the colour atlas and cost them their foreground tint.
+    [InlineData("\U0001F202", "squared katakana sa (text-default)")]
+    [InlineData("\U0001F237", "squared month (text-default)")]
+    // Unassigned / non-emoji codepoints inside the same block.
+    [InlineData("\U0001F200", "square hiragana hoka (not emoji)")]
+    [InlineData("\U0001F260", "unassigned in the enclosed ideographic block")]
     public void TextGraphemes_StayOnTheAlpha8Atlas(string text, string description)
     {
         Assert.False(

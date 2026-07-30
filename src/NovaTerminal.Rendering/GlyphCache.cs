@@ -192,10 +192,19 @@ namespace NovaTerminal.Rendering
                 // Mahjong tile red dragon, playing card black joker.
                 0x1F004 or 0x1F0CF => true,
 
-                // Enclosed alphanumeric/ideographic supplement pictographs that are emoji by default.
+                // Enclosed alphanumeric supplement pictographs that are emoji by default.
                 0x1F18E => true,
                 >= 0x1F191 and <= 0x1F19A => true,
-                >= 0x1F200 and <= 0x1F2FF => true,
+
+                // Enclosed Ideographic Supplement, enumerated rather than taken as a block. Most of
+                // 1F200-1F2FF is unassigned or non-emoji, and two members - 1F202 (squared katakana
+                // SA) and 1F237 (squared month) - are Emoji_Presentation=No, i.e. text by default.
+                // A block-wide match would send those to the colour atlas and cost them their
+                // foreground tint, which is the failure mode this predicate exists to avoid.
+                0x1F201 or 0x1F21A or 0x1F22F => true,
+                >= 0x1F232 and <= 0x1F236 => true,
+                >= 0x1F238 and <= 0x1F23A => true,
+                0x1F250 or 0x1F251 => true,
 
                 // Miscellaneous Symbols / Dingbats. Kept as the original broad range: it is the one
                 // span the previous code got right, and narrowing it now would be a behaviour change
