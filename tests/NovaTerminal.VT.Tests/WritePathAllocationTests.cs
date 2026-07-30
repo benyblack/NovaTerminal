@@ -157,17 +157,17 @@ public class WritePathAllocationTests
         var buffer = new TerminalBuffer(20, 3);
         var parser = new AnsiParser(buffer);
 
-        // A ZWJ family on its own. Nothing is appended after it on purpose: `IsLastRuneZwj` returns
-        // true for *any* ZWJ in the cluster, not just a trailing one, so `_isAfterZwj` stays set and
-        // the next grapheme attaches to this cell even when the sequence is complete. That is
-        // pre-existing behaviour, unchanged by this work - my first draft of this test asserted
-        // against it by accident and caught a trailing space merged into the family.
-        parser.Process("\U0001F468‍\U0001F469‍\U0001F467");
+        // A ZWJ family, then a following character. This originally wrote the family on its own,
+        // because `IsLastRuneZwj` returned true for *any* ZWJ in the cluster and the trailing space
+        // got merged into the family - a real bug the test tripped over, filed as #236 and fixed
+        // since. Appending `z` again now that the flag means what its name says.
+        parser.Process("\U0001F468‍\U0001F469‍\U0001F467z");
 
         buffer.Lock.EnterReadLock();
         try
         {
             Assert.Equal("\U0001F468‍\U0001F469‍\U0001F467", buffer.GetGrapheme(0, 0));
+            Assert.Equal("z", buffer.GetGrapheme(2, 0));
         }
         finally { buffer.Lock.ExitReadLock(); }
     }
