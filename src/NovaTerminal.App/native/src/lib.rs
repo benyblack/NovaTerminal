@@ -322,10 +322,35 @@ mod win32 {
     #[cfg(test)]
     mod handle_ownership_tests {
         use super::*;
+        use std::sync::{Mutex, MutexGuard};
         use windows_sys::Win32::Foundation::GetHandleInformation;
         use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
 
+        /// Serializes every test in this module.
+        ///
+        /// These tests reason about handle *values* and about this process's handle *count*, and both
+        /// are process-wide state that cargo's parallel test threads race on:
+        ///
+        /// - Windows reuses handle values eagerly. After a close, the same numeric value can be
+        ///   handed straight back to a `CreatePipe` on another test thread — so `is_open(closed)`
+        ///   returns true, reporting someone else's handle as ours. That is exactly how
+        ///   `owned_handle_closes_on_drop` failed on CI while passing locally: the leak test creates
+        ///   hundreds of pipes, and on a busier runner one landed on the value we had just closed.
+        /// - `GetProcessHandleCount` is likewise perturbed by any concurrent handle activity.
+        ///
+        /// Serializing removes both races rather than widening a tolerance to paper over them. Note
+        /// this only has to cover *this* crate: other test binaries are separate processes.
+        static HANDLE_TESTS: Mutex<()> = Mutex::new(());
+
+        /// Held for the body of each test. Ignores poisoning: a panic in one test must not cascade
+        /// into spurious failures in the rest.
+        fn serialized() -> MutexGuard<'static, ()> {
+            HANDLE_TESTS.lock().unwrap_or_else(|e| e.into_inner())
+        }
+
         /// Non-zero while `handle` is still an open handle in this process.
+        ///
+        /// Only meaningful while [`HANDLE_TESTS`] is held — see the note there about value reuse.
         fn is_open(handle: HANDLE) -> bool {
             let mut flags: u32 = 0;
             (unsafe { GetHandleInformation(handle, &mut flags) }) != 0
@@ -354,6 +379,7 @@ mod win32 {
 
         #[test]
         fn owned_handle_closes_on_drop() {
+            let _guard = serialized();
             let (read, write) = new_pipe();
             assert!(is_open(read));
 
@@ -365,6 +391,7 @@ mod win32 {
 
         #[test]
         fn owned_handle_release_keeps_the_handle_open() {
+            let _guard = serialized();
             // The success path hands these to std::fs::File, so release must *not* close.
             let (read, write) = new_pipe();
 
@@ -401,6 +428,7 @@ mod win32 {
         // attempts) while being insensitive to how the fix is written.
         #[test]
         fn failed_spawn_does_not_leak_handles() {
+            let _guard = serialized();
             let bogus = "novaterminal-no-such-executable-4f2c9a.exe";
 
             // Warm up: the first few attempts touch lazily-initialized OS and CRT state, which
