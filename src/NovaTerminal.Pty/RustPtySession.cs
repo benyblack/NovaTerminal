@@ -38,12 +38,16 @@ namespace NovaTerminal.Pty
         // the process (#107). 20 attempts x 50 ms tolerates roughly a second of
         // transient failure before giving up.
         //
-        // The retry exists only because the cause cannot be identified: pty_read
-        // collapses every failure to -1 (null args, read error with errno discarded,
-        // poisoned lock, and a panic caught by ffi_guard all return the same value), so
-        // a transient condition is indistinguishable from an unrecoverable one here.
-        // Classifying them needs the pty_last_error channel tracked in #120; until then
-        // "retry a bounded number of times, then fail" is the safe reading.
+        // The retry exists because the *return code* still cannot classify the failure:
+        // pty_read collapses every error to -1 (null args, read error, poisoned lock, and a
+        // panic caught by ffi_guard all return the same value), so a transient condition is
+        // indistinguishable from an unrecoverable one from the code alone, and "retry a
+        // bounded number of times, then fail" remains the safe reading.
+        //
+        // What #120 item 3 added is the *reason*: pty_last_error now carries a message, which
+        // this loop logs when it gives up, so a frozen tab is no longer unexplained. Turning
+        // that message into a retry/no-retry decision would mean matching on error text, which
+        // is worse than the bound.
         internal const int MaxConsecutiveReadErrors = 20;
         private static readonly TimeSpan ReadErrorRetryDelay = TimeSpan.FromMilliseconds(50);
 
@@ -221,6 +225,48 @@ namespace NovaTerminal.Pty
             // Raw overload used only by PtySafeHandle.ReleaseHandle().
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
             public static extern void pty_close(IntPtr state);
+
+            // Thread-local last-failure message (#120 item 3). Must be read on the same thread
+            // that made the failing call. Writes NUL-terminated UTF-8 and returns the byte count
+            // excluding the NUL; 0 when there is nothing to report, -1 on bad arguments.
+            [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+            public static extern int pty_last_error(byte[] buffer, int len);
+        }
+
+        /// <summary>
+        /// The native layer's message for the most recent failure on this thread, or null if it
+        /// had nothing to say.
+        /// </summary>
+        /// <remarks>
+        /// Before this existed, every spawn failure surfaced as the same
+        /// "Failed to create Rust PTY session." — a missing shell binary, a deleted working
+        /// directory and an openpty failure were indistinguishable, which is exactly the
+        /// information a user needs when a tab refuses to open.
+        /// </remarks>
+        private static string? TryGetNativeLastError()
+        {
+            try
+            {
+                // 1 KiB is comfortably more than any message the native side produces; it
+                // truncates on a char boundary rather than overflowing, so a long path costs
+                // detail, not correctness.
+                var buffer = new byte[1024];
+                int written = Native.pty_last_error(buffer, buffer.Length);
+                if (written <= 0) return null;
+                return Encoding.UTF8.GetString(buffer, 0, written);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                // A native library predating this export. This helper exists only to *improve* an
+                // error message, so it must never replace one with something worse — without this
+                // catch, a stale rusty_pty turned "failed to spawn <shell>" into an unrelated
+                // EntryPointNotFoundException from inside the failure path.
+                return null;
+            }
+            catch (DllNotFoundException)
+            {
+                return null;
+            }
         }
 
         // Owns the *mut PtyState returned by pty_spawn. Passing this to every
@@ -452,7 +498,13 @@ namespace NovaTerminal.Pty
 
             if (_handle.IsInvalid)
             {
-                throw new InvalidOperationException("Failed to create Rust PTY session.");
+                // Read the native reason immediately: it is thread-local and the next spawn on
+                // this thread clears it.
+                string? reason = TryGetNativeLastError();
+                throw new InvalidOperationException(
+                    reason is null
+                        ? $"Failed to create Rust PTY session for '{effectiveShell}'."
+                        : $"Failed to create Rust PTY session for '{effectiveShell}': {reason}");
             }
 
             // Start reading and processing on DEDICATED background threads, not the
@@ -706,10 +758,13 @@ namespace NovaTerminal.Pty
 
                         if (++consecutiveReadErrors >= MaxConsecutiveReadErrors)
                         {
-                            // Fail the session instead of spinning forever. See
-                            // MaxConsecutiveReadErrors for why the cause is unknown here.
+                            // Fail the session instead of spinning forever. The native reason is
+                            // read on this thread, which is the same thread that made the failing
+                            // pty_read - the channel is thread-local (#120 item 3).
+                            string? reason = TryGetNativeLastError();
                             Console.WriteLine(
-                                $"[RustPtySession] pty_read failed {consecutiveReadErrors} times consecutively; ending session.");
+                                $"[RustPtySession] pty_read failed {consecutiveReadErrors} times consecutively; ending session."
+                                + (reason is null ? string.Empty : $" Last native error: {reason}"));
                             readFailed = true;
                             break;
                         }
