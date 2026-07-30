@@ -1840,7 +1840,15 @@ namespace NovaTerminal.Shell
                     (cp >= 0x1F300 && cp <= 0x1FAFF) || // Emoji
                     IsRegionalIndicatorRune(cp) ||       // Flag emoji sequences
                     (cp >= 0x2600 && cp <= 0x27BF) ||   // Dingbats/symbols
-                    (cp == 0x200D))                      // ZWJ
+                    (cp == 0x200D) ||                    // ZWJ
+                    // Keycap sequences ("1" + FE0F + 20E3) and any other VS16-promoted emoji.
+                    // Without these the run falls through to the per-rune loop below, which calls
+                    // the glyph cache once per *rune* rather than per grapheme cluster - so the
+                    // digit, the selector and the enclosing keycap are rasterized separately and
+                    // the composed glyph is never produced at all. Flags already reach the shaper
+                    // via IsRegionalIndicatorRune for exactly this reason (#172).
+                    (cp == 0xFE0F) ||                    // VARIATION SELECTOR-16
+                    (cp == 0x20E3))                      // COMBINING ENCLOSING KEYCAP
                 {
                     return true;
                 }
