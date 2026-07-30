@@ -9,6 +9,7 @@ using System;
 using System.Buffers;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -90,6 +91,19 @@ namespace NovaTerminal.Shell
         private const int RunBuilderInitialCapacity = 256;
         private const int RunBuilderMaxCapacity = 4096;
         private readonly StringBuilder _runBuilder = new(capacity: RunBuilderInitialCapacity);
+
+        /// <summary>
+        /// The per-cell text of the run being built, parallel to <see cref="_runBuilder"/>.
+        /// </summary>
+        /// <remarks>
+        /// #234: the per-glyph draw path used to re-split <c>runText</c> by *rune*, so every
+        /// multi-codepoint cluster was rasterized in pieces and its composed glyph never produced.
+        /// Re-segmenting the concatenated run is not the fix either — cluster boundaries do not have
+        /// to line up with cell boundaries, and segmenting across a boundary would merge two cells
+        /// into one glyph. Keeping the cell texts is exact: each entry is the cell's own text, and
+        /// each cell's width was already measured from that same string when the run was built.
+        /// </remarks>
+        private readonly List<string> _runCellTexts = new(capacity: 64);
         private float[]? _colEdges;
         private float[]? _rowEdges;
         private int _colEdgesCount;
@@ -1121,7 +1135,14 @@ namespace NovaTerminal.Shell
                     _runBuilder.Capacity = RunBuilderInitialCapacity;
                 }
 
+                if (_runCellTexts.Capacity > RunBuilderMaxCapacity)
+                {
+                    _runCellTexts.Clear();
+                    _runCellTexts.Capacity = 64;
+                }
+
                 var runBuilder = _runBuilder;
+                var runCellTexts = _runCellTexts;
 
                 for (int c = 0; c < snapshot.Cols; c++)
                 {
@@ -1142,6 +1163,7 @@ namespace NovaTerminal.Shell
                     }
 
                     runBuilder.Clear();
+                    runCellTexts.Clear();
                     int totalRunWidth = 0;
                     bool runNeedsComplexShaping = false;
                     bool runHasBoxDrawing = false;
@@ -1203,6 +1225,7 @@ namespace NovaTerminal.Shell
                         runNeedsComplexShaping = runHasComplexShapingGlyph && !runHasBoxDrawing;
 
                         runBuilder.Append(cellText);
+                        runCellTexts.Add(cellText);
                         int w = GetSafeGraphemeWidth(cellText); // GetGraphemeWidth is thread-safe
                         totalRunWidth += w;
                         k++;
@@ -1297,9 +1320,11 @@ namespace NovaTerminal.Shell
                         _blockFillPaint.Style = SKPaintStyle.Fill;
                         _blockFillPaint.IsAntialias = false;
 
-                        foreach (var rune in runText.EnumerateRunes())
+                        // One iteration per grapheme cluster, not per rune (#234). Everything in this
+                        // body already takes a cluster string and behaves correctly given one; the
+                        // enumerator is what was wrong.
+                        foreach (string grapheme in new RunGraphemeEnumerator(runCellTexts))
                         {
-                            string grapheme = rune.ToString();
                             int graphemeWidth = GetSafeGraphemeWidth(grapheme);
                             float xIdxSnap = FromDevicePx(_pixelGrid.XForCol(cellX));
 
@@ -1497,7 +1522,7 @@ namespace NovaTerminal.Shell
                     {
                         float underlineX1 = rx;
                         float underlineX2 = rx + rw;
-                        if (TryGetUnderlineBounds(runText, c, colEdges, paddingLeft, out float trimmedX1, out float trimmedX2))
+                        if (TryGetUnderlineBounds(runCellTexts, c, colEdges, paddingLeft, out float trimmedX1, out float trimmedX2))
                         {
                             underlineX1 = trimmedX1;
                             underlineX2 = trimmedX2;
@@ -2210,6 +2235,71 @@ namespace NovaTerminal.Shell
             return false;
         }
 
+        /// <summary>
+        /// Walks the grapheme clusters of a run, cell by cell.
+        /// </summary>
+        /// <remarks>
+        /// A struct with its own <c>GetEnumerator</c> so <c>foreach</c> binds to it directly: this runs
+        /// once per run per frame, and an iterator method would allocate a state machine each time.
+        ///
+        /// Segmentation is restricted to a single cell's text on purpose. Cluster boundaries are not
+        /// guaranteed to coincide with cell boundaries — a cell can hold a cluster ending in a ZWJ if a
+        /// PTY read split mid-join — and segmenting the concatenated run would then fuse two cells into
+        /// one glyph while the column arithmetic still advanced by two.
+        ///
+        /// Conversely, a cell's text is *usually* exactly one cluster but not always: the VT write
+        /// path's ZWJ attachment can leave two clusters in one cell (a trailing ZWJ followed by a
+        /// non-pictographic character does not join under GB11). So each cell is still segmented rather
+        /// than assumed to be a single cluster — but the common single-cluster and single-char cases
+        /// return the cell's own string, allocating nothing where the old code allocated per rune.
+        /// </remarks>
+        private struct RunGraphemeEnumerator
+        {
+            private readonly List<string> _cellTexts;
+            private int _cellIndex;
+            private int _offset;
+
+            public RunGraphemeEnumerator(List<string> cellTexts)
+            {
+                _cellTexts = cellTexts;
+                _cellIndex = 0;
+                _offset = 0;
+                Current = string.Empty;
+            }
+
+            public string Current { get; private set; }
+
+            public RunGraphemeEnumerator GetEnumerator() => this;
+
+            public bool MoveNext()
+            {
+                while (_cellIndex < _cellTexts.Count)
+                {
+                    string cell = _cellTexts[_cellIndex];
+                    if (_offset >= cell.Length)
+                    {
+                        _cellIndex++;
+                        _offset = 0;
+                        continue;
+                    }
+
+                    int remaining = cell.Length - _offset;
+                    int length = remaining == 1
+                        ? 1 // A single char is a whole cluster; skip the segmentation tables.
+                        : StringInfo.GetNextTextElementLength(cell, _offset);
+
+                    Current = _offset == 0 && length == cell.Length
+                        ? cell // The common case: the cell is one cluster, so reuse its string.
+                        : cell.Substring(_offset, length);
+                    _offset += length;
+                    return true;
+                }
+
+                Current = string.Empty;
+                return false;
+            }
+        }
+
         private static bool IsSingleRuneInRange(string grapheme, int minCodePointInclusive, int maxCodePointInclusive)
         {
             if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
@@ -2621,7 +2711,14 @@ namespace NovaTerminal.Shell
                 => RuntimeHelpers.GetHashCode(obj);
         }
 
-        private bool TryGetUnderlineBounds(string runText, int runStartCol, float[] colEdges, float paddingLeft, out float x1, out float x2)
+        /// <remarks>
+        /// #234: this took the concatenated run text and enumerated it by rune, so its column
+        /// arithmetic could disagree with <c>totalRunWidth</c> — which the caller sums from each
+        /// *cell's* cluster width. A keycap cell measures 2 columns as a cluster but 1 as runes (the
+        /// selector and the enclosing keycap are zero-width), so the underline came up short. Driving
+        /// both from the same per-cell strings makes the two agree by construction.
+        /// </remarks>
+        private bool TryGetUnderlineBounds(List<string> runCellTexts, int runStartCol, float[] colEdges, float paddingLeft, out float x1, out float x2)
         {
             x1 = 0f;
             x2 = 0f;
@@ -2630,9 +2727,8 @@ namespace NovaTerminal.Shell
             int startCellOffset = -1;
             int endCellOffsetExclusive = -1;
 
-            foreach (var rune in runText.EnumerateRunes())
+            foreach (string grapheme in new RunGraphemeEnumerator(runCellTexts))
             {
-                string grapheme = rune.ToString();
                 int w = GetSafeGraphemeWidth(grapheme);
                 if (w <= 0) continue;
 
