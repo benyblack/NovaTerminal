@@ -87,7 +87,7 @@ public class PaneSubscriptionLifetimeTests
     }
 
     [AvaloniaFact]
-    public void DisposingAPane_RemovesEveryTermViewHandler()
+    public void DisposingAPane_RemovesTheResizeAndMetricsHandlers()
     {
         var pane = new TerminalPane();
         pane.WireReusedTermViewHandlers();
@@ -96,10 +96,64 @@ public class PaneSubscriptionLifetimeTests
 
         pane.Dispose();
 
-        // TermView is the pane's own child, so a residual handler is not a memory leak - but
-        // DetachFromUiThread's stated contract is that a disposed pane stops reacting, and one of
-        // these two MetricsChanged handlers used to stay attached because it was an uncached lambda.
+        // Scoped deliberately to these two: they are the ones DetachFromUiThread removes, and one of
+        // the MetricsChanged pair used to stay attached because it was an uncached lambda. The wider
+        // picture - which TermView handlers survive disposal, and that the set does not grow - is
+        // pinned by DisposingAPane_LeavesOnlyTheKnownConstructionTimeHandlers below.
         Assert.Equal(0, SubscriberCount(pane.TermView, "OnResize"));
         Assert.Equal(0, SubscriberCount(pane.TermView, "MetricsChanged"));
+    }
+
+    /// Every field-like event declared on TerminalView, so the inventory below cannot silently drift
+    /// as events are added.
+    private static string[] TermViewEventNames()
+    {
+        var names = new System.Collections.Generic.List<string>();
+        foreach (EventInfo e in typeof(NovaTerminal.Shell.TerminalView)
+                     .GetEvents(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly))
+        {
+            names.Add(e.Name);
+        }
+        names.Sort(StringComparer.Ordinal);
+        return names.ToArray();
+    }
+
+    [AvaloniaFact]
+    public void DisposingAPane_LeavesOnlyTheKnownConstructionTimeHandlers()
+    {
+        // A disposed pane does NOT end up with zero TermView handlers: the ~10 subscriptions made
+        // during construction (focus, key/text input, scroll, drop, search) are never removed. That
+        // is not a leak - TermView is the pane's own child and dies with it - but it does mean
+        // "a disposed pane stops reacting" holds only for the handlers listed in the assertion above.
+        //
+        // Rather than assert a number that says nothing, this pins the *set*: adding a new
+        // construction-time subscription without a matching detach will fail here with the event
+        // named, which is the point at which someone should decide whether it needs removing.
+        var pane = new TerminalPane();
+        pane.WireReusedTermViewHandlers();
+        pane.Dispose();
+
+        var residual = new System.Collections.Generic.List<string>();
+        foreach (string name in TermViewEventNames())
+        {
+            int count = SubscriberCount(pane.TermView, name);
+            if (count > 0) residual.Add($"{name}={count}");
+        }
+
+        string[] expected =
+        [
+            "BackspaceObserved=1",
+            "CommandAssistAnchorHintChanged=1",
+            "DropNotice=1",
+            "EnterObserved=1",
+            "PasteObserved=1",
+            "Ready=1",
+            "ScrollStateChanged=1",
+            "SearchStateChanged=1",
+            "TextFileDropped=1",
+            "TextInputObserved=1",
+        ];
+
+        Assert.Equal(expected, residual.ToArray());
     }
 }
