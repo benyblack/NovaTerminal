@@ -16,6 +16,12 @@ namespace NovaTerminal.Architecture.Tests;
 /// </summary>
 public class ProjectFileLayeringTests
 {
+    // Hoisted out of the two Assert.Equal calls below to satisfy CA1861 (constant array
+    // arguments are re-allocated on every call). Both assertions expect the same single
+    // reference, so one field serves both - and this project is now built with
+    // TreatWarningsAsErrors, so the analyzer is enforced rather than advisory (#108).
+    private static readonly string[] VtOnly = ["NovaTerminal.VT"];
+
     private static string RepoRoot()
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
@@ -51,14 +57,14 @@ public class ProjectFileLayeringTests
     public void Replay_csproj_only_references_Vt()
     {
         var refs = ProjectReferences("src/NovaTerminal.Replay/NovaTerminal.Replay.csproj");
-        Assert.Equal(new[] { "NovaTerminal.VT" }, refs);
+        Assert.Equal(VtOnly, refs);
     }
 
     [Fact]
     public void Rendering_csproj_only_references_Vt()
     {
         var refs = ProjectReferences("src/NovaTerminal.Rendering/NovaTerminal.Rendering.csproj");
-        Assert.Equal(new[] { "NovaTerminal.VT" }, refs);
+        Assert.Equal(VtOnly, refs);
     }
 
     [Fact]

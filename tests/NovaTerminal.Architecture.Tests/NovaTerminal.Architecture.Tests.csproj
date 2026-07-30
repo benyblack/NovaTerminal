@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- Ratchet (#108): reached zero by hoisting two constant array arguments (CA1861) in
+         ProjectFileLayeringTests. See the repo-wide default in Directory.Build.props. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

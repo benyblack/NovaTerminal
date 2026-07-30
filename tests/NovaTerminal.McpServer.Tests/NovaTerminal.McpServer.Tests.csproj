@@ -2,6 +2,12 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- Ratchet (#108): warning-free today, so lock it in. See the repo-wide default in
+         Directory.Build.props, which stays false until the noisy projects are cleaned.
+         Verified on a clean full rebuild after clearing the McpServer file lock (#211) -
+         the lock had been masking this project entirely, since it cannot build until
+         NovaTerminal.McpServer does. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

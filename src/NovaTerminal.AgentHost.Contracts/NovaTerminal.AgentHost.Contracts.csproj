@@ -7,6 +7,12 @@
     references; enforced by NovaTerminal.Architecture.Tests.
   -->
 
+  <PropertyGroup>
+    <!-- Ratchet (#108): warning-free today, so lock it in. See the repo-wide default in
+         Directory.Build.props, which stays false until the noisy projects are cleaned. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
   <ItemGroup>
     <InternalsVisibleTo Include="NovaTerminal.McpServer.Tests" />
   </ItemGroup>

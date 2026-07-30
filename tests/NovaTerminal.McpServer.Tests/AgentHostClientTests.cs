@@ -16,6 +16,7 @@ namespace NovaTerminal.McpServer.Tests;
 /// </summary>
 public class AgentHostClientTests : IDisposable
 {
+
     private readonly string _tempDir;
 
     public AgentHostClientTests()
@@ -117,7 +118,9 @@ public class AgentHostClientTests : IDisposable
         var roundTripped = outcome.Response.Result!.Value.Deserialize(AgentHostJsonContext.Default.ListSessionsResult);
         Assert.Equal("vim", Assert.Single(roundTripped!.Sessions).Title);
 
-        await serverTask.WaitAsync(TimeSpan.FromSeconds(10));
+        // TestContext token per xUnit1051, so a cancelled test run stops waiting promptly
+        // instead of holding the full 10s ceiling.
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -148,7 +151,9 @@ public class AgentHostClientTests : IDisposable
 
         Assert.False(outcome.Available);
         Assert.Equal(AgentHostClient.ProtocolErrorMessage, outcome.UnavailableReason);
-        await serverTask.WaitAsync(TimeSpan.FromSeconds(10));
+        // TestContext token per xUnit1051, so a cancelled test run stops waiting promptly
+        // instead of holding the full 10s ceiling.
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
     }
 
     /// <summary>Accepts one connection, reads one line, replies with a raw string, then exits.</summary>
@@ -217,6 +222,12 @@ public class AgentHostClientTests : IDisposable
 /// <summary>Formatter tests: the shapes agents actually read.</summary>
 public class SessionToolsFormattingTests
 {
+    // Hoisted out of the object initialisers below to satisfy CA1861: a constant array
+    // argument is re-allocated on every call. This project is now built with
+    // TreatWarningsAsErrors (#108), so these analyzers are enforced rather than advisory.
+    private static readonly string[] HelloWorldLines = ["hello", "world"];
+    private static readonly string[] AbLines = ["a", "b"];
+
     [Fact]
     public async Task ReadScrollback_rejects_non_positive_maxLines_before_any_ipc()
     {
@@ -257,7 +268,7 @@ public class SessionToolsFormattingTests
     {
         var text = SessionTools.FormatScreen(new ScreenSnapshotDto
         {
-            Lines = new[] { "hello", "world" },
+            Lines = HelloWorldLines,
             CursorRow = 1,
             CursorCol = 5,
             CursorVisible = true,
@@ -419,7 +430,7 @@ public class SessionToolsFormattingTests
     {
         var text = SessionTools.FormatScrollback(new ReadScrollbackResult
         {
-            Lines = new[] { "a", "b" },
+            Lines = AbLines,
             StartLine = 10,
             TotalLines = 100,
         });
