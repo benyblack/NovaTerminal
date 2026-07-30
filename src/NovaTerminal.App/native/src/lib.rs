@@ -33,6 +33,123 @@ mod win32 {
         (unsafe { GetConsoleWindow() }) != 0
     }
 
+    /// Owns a Win32 handle and closes it on drop.
+    ///
+    /// `spawn_with_passthrough` has five failure exits between creating its first pipe and
+    /// handing the surviving handles to the caller. Each one used to `return Err(..)` without
+    /// closing whatever it had already created, so a shell that failed to launch leaked two to
+    /// four kernel handles per attempt (#120 item 4). Making ownership explicit removes the whole
+    /// class of mistake instead of patching the exits one at a time — the compiler now enforces
+    /// that a handle is either dropped or deliberately released.
+    struct OwnedHandle(HANDLE);
+
+    impl OwnedHandle {
+        fn get(&self) -> HANDLE {
+            self.0
+        }
+
+        /// Gives up ownership. The returned handle is the caller's to close.
+        fn release(mut self) -> HANDLE {
+            let handle = self.0;
+            self.0 = INVALID_HANDLE_VALUE;
+            handle
+        }
+    }
+
+    impl Drop for OwnedHandle {
+        fn drop(&mut self) {
+            // 0 as well as INVALID_HANDLE_VALUE: windows-sys models HANDLE as an integer, and a
+            // zeroed struct field is a plausible source of 0 here.
+            if self.0 != INVALID_HANDLE_VALUE && self.0 != 0 {
+                unsafe { CloseHandle(self.0) };
+            }
+        }
+    }
+
+    /// Owns an HPCON and closes it on drop. Same reasoning as [`OwnedHandle`]: on the
+    /// `CreateProcessW` failure path this was closed by hand, and on the two exits before it the
+    /// pseudoconsole did not exist yet — but relying on that reading each time an exit is added is
+    /// how the leaks appeared in the first place.
+    struct OwnedPseudoConsole(HPCON);
+
+    impl OwnedPseudoConsole {
+        fn get(&self) -> HPCON {
+            self.0
+        }
+
+        fn release(mut self) -> HPCON {
+            let handle = self.0;
+            self.0 = 0;
+            handle
+        }
+    }
+
+    impl Drop for OwnedPseudoConsole {
+        fn drop(&mut self) {
+            if self.0 != 0 {
+                unsafe { ClosePseudoConsole(self.0) };
+            }
+        }
+    }
+
+    /// An initialized PROC_THREAD_ATTRIBUTE_LIST plus its backing buffer.
+    ///
+    /// `DeleteProcThreadAttributeList` releases allocations the list makes internally; freeing the
+    /// buffer alone is not enough. It was called only on the `CreateProcessW` failure path, so
+    /// every *successful* spawn leaked those internals — the opposite of the usual pattern, and
+    /// easy to miss because the buffer itself is a `Vec` that does get dropped.
+    struct OwnedAttributeList {
+        buffer: Vec<u8>,
+    }
+
+    impl OwnedAttributeList {
+        /// Sizes, allocates and initializes a list with room for `count` attributes.
+        fn with_capacity(count: u32) -> Result<Self, anyhow::Error> {
+            unsafe {
+                let mut size: usize = 0;
+                // The sizing call is *expected* to fail with ERROR_INSUFFICIENT_BUFFER; only the
+                // size it writes back is meaningful, so check that rather than the return value.
+                InitializeProcThreadAttributeList(null_mut(), count, 0, &mut size);
+                if size == 0 {
+                    return Err(anyhow::anyhow!(
+                        "InitializeProcThreadAttributeList returned a zero size: {}",
+                        std::io::Error::last_os_error()
+                    ));
+                }
+
+                let mut buffer = vec![0u8; size];
+                if InitializeProcThreadAttributeList(
+                    buffer.as_mut_ptr() as LPPROC_THREAD_ATTRIBUTE_LIST,
+                    count,
+                    0,
+                    &mut size,
+                ) == 0
+                {
+                    return Err(anyhow::anyhow!(
+                        "InitializeProcThreadAttributeList failed: {}",
+                        std::io::Error::last_os_error()
+                    ));
+                }
+
+                Ok(Self { buffer })
+            }
+        }
+
+        fn as_ptr(&mut self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
+            self.buffer.as_mut_ptr() as LPPROC_THREAD_ATTRIBUTE_LIST
+        }
+    }
+
+    impl Drop for OwnedAttributeList {
+        fn drop(&mut self) {
+            unsafe {
+                DeleteProcThreadAttributeList(
+                    self.buffer.as_mut_ptr() as LPPROC_THREAD_ATTRIBUTE_LIST
+                )
+            };
+        }
+    }
+
     pub fn spawn_with_passthrough(
         cmd: &str,
         args: Option<&str>,
@@ -48,11 +165,24 @@ mod win32 {
             let mut h_out_write: HANDLE = INVALID_HANDLE_VALUE;
 
             if CreatePipe(&mut h_in_read, &mut h_in_write, null_mut(), 0) == 0 {
-                return Err(anyhow::anyhow!("Failed to create input pipe"));
+                return Err(anyhow::anyhow!(
+                    "Failed to create input pipe: {}",
+                    std::io::Error::last_os_error()
+                ));
             }
+            // Take ownership immediately, before the next call that can fail. Everything from here
+            // to the final `release()` calls is leak-free on any early return (#120 item 4).
+            let in_read = OwnedHandle(h_in_read);
+            let in_write = OwnedHandle(h_in_write);
+
             if CreatePipe(&mut h_out_read, &mut h_out_write, null_mut(), 0) == 0 {
-                return Err(anyhow::anyhow!("Failed to create output pipe"));
+                return Err(anyhow::anyhow!(
+                    "Failed to create output pipe: {}",
+                    std::io::Error::last_os_error()
+                ));
             }
+            let out_read = OwnedHandle(h_out_read);
+            let out_write = OwnedHandle(h_out_write);
 
             let size = COORD {
                 X: cols as i16,
@@ -61,37 +191,46 @@ mod win32 {
             let mut h_pc: HPCON = 0;
             let res = CreatePseudoConsole(
                 size,
-                h_in_read,
-                h_out_write,
+                in_read.get(),
+                out_write.get(),
                 PSEUDOCONSOLE_PASSTHROUGH,
                 &mut h_pc,
             );
             if res != 0 {
                 return Err(anyhow::anyhow!("CreatePseudoConsole failed: {:x}", res));
             }
+            let pseudo_console = OwnedPseudoConsole(h_pc);
 
-            // Close the handles we passed to the pseudoconsole
-            CloseHandle(h_in_read);
-            CloseHandle(h_out_write);
+            // The pseudoconsole duplicated what it needs; our ends of those two pipes are done.
+            // Dropping the guards closes them, which is what the explicit CloseHandle calls here
+            // used to do.
+            drop(in_read);
+            drop(out_write);
 
             let mut si_ex: STARTUPINFOEXW = std::mem::zeroed();
             si_ex.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
 
-            let mut attr_size: usize = 0;
-            InitializeProcThreadAttributeList(null_mut(), 1, 0, &mut attr_size);
-            let mut attr_list = vec![0u8; attr_size];
-            let lp_attr_list = attr_list.as_mut_ptr() as LPPROC_THREAD_ATTRIBUTE_LIST;
-            InitializeProcThreadAttributeList(lp_attr_list, 1, 0, &mut attr_size);
+            let mut attr_list = OwnedAttributeList::with_capacity(1)?;
+            let lp_attr_list = attr_list.as_ptr();
 
-            UpdateProcThreadAttribute(
+            // A failure here means the child would launch with no pseudoconsole attached: it would
+            // inherit this process's console (or none at all), so its output would never reach our
+            // pipes. Previously unchecked, which turned that into a silently blank tab.
+            if UpdateProcThreadAttribute(
                 lp_attr_list,
                 0,
                 PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-                h_pc as *const _,
+                pseudo_console.get() as *const _,
                 std::mem::size_of::<HPCON>(),
                 null_mut(),
                 null_mut(),
-            );
+            ) == 0
+            {
+                return Err(anyhow::anyhow!(
+                    "UpdateProcThreadAttribute(PSEUDOCONSOLE) failed: {}",
+                    std::io::Error::last_os_error()
+                ));
+            }
             si_ex.lpAttributeList = lp_attr_list;
 
             let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
@@ -152,24 +291,140 @@ mod win32 {
             );
 
             if created == 0 {
-                let err = std::io::Error::last_os_error();
-                ClosePseudoConsole(h_pc);
-                DeleteProcThreadAttributeList(lp_attr_list);
-                return Err(anyhow::anyhow!("CreateProcessW failed: {}", err));
+                // No manual cleanup: pseudo_console, attr_list, out_read and in_write all drop on
+                // the way out. The two pipe handles were leaking here before.
+                return Err(anyhow::anyhow!(
+                    "CreateProcessW failed: {}",
+                    std::io::Error::last_os_error()
+                ));
             }
 
             CloseHandle(pi.hThread);
 
-            // Wrap handles in Rust types
-            let reader = std::fs::File::from_raw_handle(h_out_read as _);
-            let writer = std::fs::File::from_raw_handle(h_in_write as _);
+            // The attribute list has done its job; dropping it calls DeleteProcThreadAttributeList,
+            // which the success path never did.
+            drop(attr_list);
+
+            // Ownership of these three moves to the caller (File takes the raw handles, and
+            // PtyState closes the HPCON), so release them from the guards rather than dropping.
+            let reader = std::fs::File::from_raw_handle(out_read.release() as _);
+            let writer = std::fs::File::from_raw_handle(in_write.release() as _);
 
             Ok((
                 Box::new(reader) as Box<dyn Read + Send>,
                 Box::new(writer) as Box<dyn Write + Send>,
-                h_pc,
+                pseudo_console.release(),
                 pi.hProcess,
             ))
+        }
+    }
+
+    #[cfg(test)]
+    mod handle_ownership_tests {
+        use super::*;
+        use windows_sys::Win32::Foundation::GetHandleInformation;
+        use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessHandleCount};
+
+        /// Non-zero while `handle` is still an open handle in this process.
+        fn is_open(handle: HANDLE) -> bool {
+            let mut flags: u32 = 0;
+            (unsafe { GetHandleInformation(handle, &mut flags) }) != 0
+        }
+
+        fn handle_count() -> u32 {
+            let mut count: u32 = 0;
+            assert_ne!(
+                unsafe { GetProcessHandleCount(GetCurrentProcess(), &mut count) },
+                0,
+                "GetProcessHandleCount failed"
+            );
+            count
+        }
+
+        fn new_pipe() -> (HANDLE, HANDLE) {
+            let mut read: HANDLE = INVALID_HANDLE_VALUE;
+            let mut write: HANDLE = INVALID_HANDLE_VALUE;
+            assert_ne!(
+                unsafe { CreatePipe(&mut read, &mut write, null_mut(), 0) },
+                0,
+                "CreatePipe failed"
+            );
+            (read, write)
+        }
+
+        #[test]
+        fn owned_handle_closes_on_drop() {
+            let (read, write) = new_pipe();
+            assert!(is_open(read));
+
+            drop(OwnedHandle(read));
+
+            assert!(!is_open(read), "drop should have closed the handle");
+            unsafe { CloseHandle(write) };
+        }
+
+        #[test]
+        fn owned_handle_release_keeps_the_handle_open() {
+            // The success path hands these to std::fs::File, so release must *not* close.
+            let (read, write) = new_pipe();
+
+            let released = OwnedHandle(read).release();
+
+            assert_eq!(released, read);
+            assert!(is_open(read), "release must leave the handle open");
+            unsafe { CloseHandle(read) };
+            unsafe { CloseHandle(write) };
+        }
+
+        #[test]
+        fn owned_handle_tolerates_sentinel_values() {
+            // Guards are constructed from out-params that stay at their sentinel when a call
+            // fails, so dropping one of those must not call CloseHandle on garbage.
+            drop(OwnedHandle(INVALID_HANDLE_VALUE));
+            drop(OwnedHandle(0));
+        }
+
+        #[test]
+        fn attribute_list_initializes_and_deletes() {
+            // Also exercises the Drop path: DeleteProcThreadAttributeList on a list that was
+            // successfully initialized. The success path never called this before.
+            let mut list = OwnedAttributeList::with_capacity(1).expect("attribute list");
+            assert!(!list.as_ptr().is_null());
+        }
+
+        // The regression test for #120 item 4. A command that cannot be launched drives
+        // spawn_with_passthrough to its CreateProcessW failure exit, which used to return without
+        // closing the two pipe handles it still owned - two kernel handles per attempt, forever.
+        //
+        // Asserted on this process's handle count rather than on internals: that is the property
+        // that actually matters, and it fails loudly against the old code (~2 handles x 200
+        // attempts) while being insensitive to how the fix is written.
+        #[test]
+        fn failed_spawn_does_not_leak_handles() {
+            let bogus = "novaterminal-no-such-executable-4f2c9a.exe";
+
+            // Warm up: the first few attempts touch lazily-initialized OS and CRT state, which
+            // moves the handle count for reasons unrelated to the leak.
+            for _ in 0..5 {
+                let _ = spawn_with_passthrough(bogus, None, None, 80, 24, &[]);
+            }
+
+            let before = handle_count();
+            const ATTEMPTS: u32 = 200;
+            for _ in 0..ATTEMPTS {
+                let result = spawn_with_passthrough(bogus, None, None, 80, 24, &[]);
+                assert!(result.is_err(), "spawning {bogus} should fail");
+            }
+            let after = handle_count();
+
+            // Generous ceiling: unrelated machinery may hold a few handles. The pre-fix leak is
+            // 2 x ATTEMPTS = 400, so this is unambiguous either way.
+            let growth = after.saturating_sub(before);
+            assert!(
+                growth < 20,
+                "handle count grew by {growth} over {ATTEMPTS} failed spawns \
+                 (before={before}, after={after}) - handles are leaking"
+            );
         }
     }
 }

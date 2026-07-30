@@ -40,10 +40,18 @@ jobs:
   # Native FFI unit/integration tests (handle registry, abuse suite, alloc balance).
   # The per-OS build job only `cargo build`s the crates; the cargo test suites
   # (rusty_ssh fail-closed handle tests + rusty_pty cancel tests) run here.
+  #
+  # Runs on Windows as well as Linux: rusty_pty's ConPTY code is behind #[cfg(windows)], so its
+  # tests - including the Win32 handle-leak regression test added for #120 - are compiled out
+  # entirely on Linux and were never actually exercised by CI.
   rust-ffi-tests:
-    name: Rust FFI Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Rust FFI Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
