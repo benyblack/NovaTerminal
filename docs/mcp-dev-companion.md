@@ -41,18 +41,50 @@ hand). The dev-companion tools locate the repository automatically by walking up
 `NovaTerminal.sln`; you can override that with the `NOVATERMINAL_REPO_ROOT` environment variable.
 The live-session tools need the NovaTerminal app running with the opt-ins enabled.
 
-Build once, then run the built DLL (clients should point at the DLL, **not** `dotnet run` —
-`run` emits build/restore output to stdout, which corrupts the JSON-RPC stream):
+Clients should point at the built DLL, **not** `dotnet run` — `run` emits build/restore
+output to stdout, which corrupts the JSON-RPC stream.
+
+**Point the client at the sidecar copy, not at `src/.../bin/`** (#211). The server is a
+long-lived process, so while it runs from the repo tree it holds
+`NovaTerminal.AgentHost.Contracts.dll` open, and *every* full repo build then fails with
+`MSB3027`/`MSB3021` on the McpServer copy step — whether or not the app is running.
+`scripts/run-sidecar.ps1` builds and mirrors the server to a fixed location outside the repo
+and prints the exact path to configure:
+
+```powershell
+scripts/run-sidecar.ps1                     # builds + mirrors app and MCP server, launches the app
+scripts/run-sidecar.ps1 -SkipMcpServer      # app only
+```
+
+The script prints the exact path to configure. It lives at:
+
+```
+%LOCALAPPDATA%\NovaTerminal-sidecar\McpServer\<Configuration>\net10.0\NovaTerminal.McpServer.dll
+~/.local/share/NovaTerminal-sidecar/McpServer/<Configuration>/net10.0/NovaTerminal.McpServer.dll
+```
+
+**Paste the resolved absolute path into client config, not the `%LOCALAPPDATA%` form.** Most
+MCP clients hand their `args` straight to the process with no shell involved, so an
+environment-variable reference is taken literally and the DLL lookup fails. (`%VAR%` also does
+not expand in PowerShell even on a command line.) VS Code is the exception — its `mcp.json`
+performs its own `${env:...}` substitution.
+
+Because the mirror is refreshed on every `run-sidecar.ps1` invocation, it cannot go silently
+stale the way a hand-made copy does. It does lag while a client holds the server open — the
+script warns when it could not refresh, and restarting the MCP client picks up the new build.
+The repo stays buildable either way, which is the point.
+
+To run it by hand instead (it speaks stdio, so this is mainly a smoke check):
 
 ```bash
-# from the repo root
 dotnet build -c Release src/NovaTerminal.McpServer
 dotnet src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll
 ```
 
 ### Client configuration
 
-- Claude Code: `claude mcp add novaterminal -- dotnet "<path-to-repo>/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"`
+- Claude Code (substitute the path `run-sidecar.ps1` printed):
+  `claude mcp add novaterminal -- dotnet "C:\Users\<you>\AppData\Local\NovaTerminal-sidecar\McpServer\Debug\net10.0\NovaTerminal.McpServer.dll"`
 - Claude Desktop: [examples/mcp/claude_desktop_config.json](../examples/mcp/claude_desktop_config.json)
 - VS Code: [examples/mcp/vscode_mcp_config.json](../examples/mcp/vscode_mcp_config.json)
 
