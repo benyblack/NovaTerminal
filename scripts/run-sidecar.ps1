@@ -88,12 +88,20 @@ function Sync-Directory {
     }
 
     # No rsync: clear dest and recopy. Not incremental, but correct.
+    #
+    # The removal deliberately does NOT suppress errors. It used to (inherited from the
+    # inline version of this code), which was harmless while nothing inspected the outcome -
+    # but now that this function reports success to callers, a failed removal followed by a
+    # successful copy would return $true with stale destination-only files still present.
+    # That is a mirror reported as fresh when it is not, which is the exact failure this
+    # script exists to prevent. Let it throw into the catch below.
     try {
-        if (Test-Path $To) { Remove-Item -Recurse -Force (Join-Path $To '*') -ErrorAction SilentlyContinue }
+        if (Test-Path $To) { Remove-Item -Recurse -Force (Join-Path $To '*') }
         Copy-Item -Recurse -Force (Join-Path $From '*') $To
         return $true
     }
     catch {
+        Write-Warning "[sidecar] Mirror to $To failed: $($_.Exception.Message)"
         return $false
     }
 }

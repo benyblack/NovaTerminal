@@ -56,12 +56,18 @@ scripts/run-sidecar.ps1                     # builds + mirrors app and MCP serve
 scripts/run-sidecar.ps1 -SkipMcpServer      # app only
 ```
 
-The sidecar path is:
+The script prints the exact path to configure. It lives at:
 
 ```
 %LOCALAPPDATA%\NovaTerminal-sidecar\McpServer\<Configuration>\net10.0\NovaTerminal.McpServer.dll
 ~/.local/share/NovaTerminal-sidecar/McpServer/<Configuration>/net10.0/NovaTerminal.McpServer.dll
 ```
+
+**Paste the resolved absolute path into client config, not the `%LOCALAPPDATA%` form.** Most
+MCP clients hand their `args` straight to the process with no shell involved, so an
+environment-variable reference is taken literally and the DLL lookup fails. (`%VAR%` also does
+not expand in PowerShell even on a command line.) VS Code is the exception — its `mcp.json`
+performs its own `${env:...}` substitution.
 
 Because the mirror is refreshed on every `run-sidecar.ps1` invocation, it cannot go silently
 stale the way a hand-made copy does. It does lag while a client holds the server open — the
@@ -77,7 +83,8 @@ dotnet src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll
 
 ### Client configuration
 
-- Claude Code: `claude mcp add novaterminal -- dotnet "%LOCALAPPDATA%\NovaTerminal-sidecar\McpServer\Debug\net10.0\NovaTerminal.McpServer.dll"`
+- Claude Code (substitute the path `run-sidecar.ps1` printed):
+  `claude mcp add novaterminal -- dotnet "C:\Users\<you>\AppData\Local\NovaTerminal-sidecar\McpServer\Debug\net10.0\NovaTerminal.McpServer.dll"`
 - Claude Desktop: [examples/mcp/claude_desktop_config.json](../examples/mcp/claude_desktop_config.json)
 - VS Code: [examples/mcp/vscode_mcp_config.json](../examples/mcp/vscode_mcp_config.json)
 
