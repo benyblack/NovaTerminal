@@ -78,6 +78,74 @@ namespace NovaTerminal.VT
         public Storage.SmallMap<string>? GetHyperlinkMap() => _hyperlinks;
 
         /// <summary>
+        /// True when this row carries any side-table entry. Lets callers on the write hot path
+        /// (insert mode runs per printable character) skip metadata maintenance entirely for
+        /// the overwhelmingly common plain-ASCII, no-hyperlink row.
+        /// </summary>
+        public bool HasRowMetadata => _extendedText != null || _hyperlinks != null;
+
+        /// <summary>
+        /// Moves side-table entries to follow a horizontal cell shift, so extended graphemes and
+        /// hyperlinks stay attached to the cells they describe.
+        /// </summary>
+        /// <param name="startCol">First column affected — the cursor column for ICH/DCH.</param>
+        /// <param name="delta">
+        /// Positive to shift right (ICH / insert mode), negative to shift left (DCH).
+        /// </param>
+        /// <param name="cols">Row width; entries pushed past it are dropped.</param>
+        /// <remarks>
+        /// Without this, <c>CSI @</c> / <c>CSI P</c> moved <see cref="Cells"/> but left the maps
+        /// keyed to pre-shift columns: cells kept <c>HasExtendedText</c> while their strings —
+        /// and their hyperlinks — pointed at the wrong columns (issue #164, item 1).
+        /// </remarks>
+        public void ShiftRowMetadata(int startCol, int delta, int cols)
+        {
+            if (delta == 0) return;
+            _extendedText = ShiftMap(_extendedText, startCol, delta, cols);
+            _hyperlinks = ShiftMap(_hyperlinks, startCol, delta, cols);
+        }
+
+        private static Storage.SmallMap<string>? ShiftMap(
+            Storage.SmallMap<string>? map, int startCol, int delta, int cols)
+        {
+            if (map is null || map.Count == 0) return null;
+
+            // Snapshot before rebuilding: shifting in place would revisit entries that had already
+            // been relocated (and, for a right shift, overwrite ones not yet visited).
+            int n = map.Count;
+            var keys = new int[n];
+            var values = new string[n];
+            int i = 0;
+            map.ForEach((col, value) =>
+            {
+                keys[i] = col;
+                values[i] = value;
+                i++;
+            });
+
+            Storage.SmallMap<string>? shifted = null;
+            for (int e = 0; e < n; e++)
+            {
+                int col = keys[e];
+                int dest = col;
+                if (col >= startCol)
+                {
+                    dest = col + delta;
+
+                    // Dropped: pushed off the end of the row (ICH), or consumed by the deletion
+                    // itself (DCH moves the deleted columns to below startCol). Columns left of
+                    // startCol are untouched and must not be range-checked against startCol.
+                    if (dest < startCol || dest >= cols) continue;
+                }
+
+                shifted ??= new Storage.SmallMap<string>();
+                shifted.Set(dest, values[e]);
+            }
+
+            return shifted;
+        }
+
+        /// <summary>
         /// Installs side tables wholesale. Counterpart of the Get*Map accessors:
         /// used when a row is restored from paged scrollback (height grow) so
         /// extended graphemes and hyperlinks survive the round trip. The row

@@ -580,6 +580,12 @@ NormalWrite:
                 row.Cells[c] = row.Cells[c - count];
             }
 
+            // The extended-grapheme and hyperlink side tables are keyed by column, so they have to
+            // move with the cells they describe — otherwise a cell keeps HasExtendedText while its
+            // string stays behind at the old column (#164). Insert mode reaches this per printable
+            // character, hence the HasRowMetadata guard.
+            if (row.HasRowMetadata) row.ShiftRowMetadata(_cursorCol, count, Cols);
+
             // Fill gap with default empty cells
             var empty = new TerminalCell(' ', CurrentForeground, CurrentBackground, false, false, IsDefaultForeground, IsDefaultBackground, false, CurrentFgIndex, CurrentBgIndex, false, false, false, false, false, false);
             for (int c = _cursorCol; c < endCol; c++)
@@ -619,6 +625,10 @@ NormalWrite:
             {
                 row.Cells[c] = row.Cells[c + count];
             }
+
+            // Side tables follow the cells (#164). Entries in the deleted range are dropped; the
+            // blanked tail columns end up with no entries, matching the empty cells written below.
+            if (row.HasRowMetadata) row.ShiftRowMetadata(_cursorCol, -count, Cols);
 
             // Update images on this row: shift those to the right of cursor left
             int absY = _isAltScreen ? _cursorRow : (_scrollback.Count + _cursorRow);
