@@ -220,7 +220,7 @@ public sealed class TerminalViewKeyHandlingTests
             Width = 900,
             Height = 500
         };
-        var settings = TerminalSettings.Load();
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
         settings.CommandAssistEnabled = true;
         settings.CommandAssistHistoryEnabled = true;
         pane.ApplySettings(settings);

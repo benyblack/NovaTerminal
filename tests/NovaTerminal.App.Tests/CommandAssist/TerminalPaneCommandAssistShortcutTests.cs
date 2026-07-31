@@ -15,7 +15,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     public void ApplySettings_WhenAssistEnabled_DoesNotEagerlyInitializeController()
     {
         using var pane = new TerminalPane();
-        var settings = TerminalSettings.Load();
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
         settings.CommandAssistEnabled = true;
         settings.CommandAssistHistoryEnabled = true;
 
@@ -52,7 +52,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     public void OpenCommandAssistHelp_WhenDisabledInSettings_ReturnsFalse()
     {
         using var pane = new TerminalPane();
-        var settings = TerminalSettings.Load();
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
         settings.CommandAssistEnabled = false;
         settings.CommandAssistHistoryEnabled = true;
         pane.ApplySettings(settings);
@@ -176,7 +176,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
 
     private static void ConfigureCommandAssist(TerminalPane pane)
     {
-        var settings = TerminalSettings.Load();
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
         settings.CommandAssistEnabled = true;
         settings.CommandAssistHistoryEnabled = true;
         pane.ApplySettings(settings);

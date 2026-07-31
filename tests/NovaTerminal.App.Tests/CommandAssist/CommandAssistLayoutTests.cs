@@ -242,9 +242,12 @@ public sealed class CommandAssistLayoutTests
 
         TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
         Assert.NotNull(pane.Buffer);
+        // Metrics before layout, not after (#232): arranging TermView resizes the buffer to
+        // Bounds.Height / CellHeight, so pinning afterwards leaves the row count - and therefore any
+        // cursor row this test sets - derived from the ambient font instead of from these numbers.
+        termView.SetMetricsForTest(10, 18);
         termView.Measure(new Size(900, 500));
         termView.Arrange(new Rect(0, 0, 900, 500));
-        termView.SetMetricsForTest(10, 18);
         pane.Buffer.SetCursorPosition(0, 1);
 
         CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
@@ -274,9 +277,11 @@ public sealed class CommandAssistLayoutTests
 
         TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
         Assert.NotNull(pane.Buffer);
+        // See the note on metric ordering above (#232). Here it mattered doubly: at the ambient cell
+        // height this machine produces, the buffer was 17 rows and row 18 was silently clamped to 16.
+        termView.SetMetricsForTest(10, 18);
         termView.Measure(new Size(900, 500));
         termView.Arrange(new Rect(0, 0, 900, 500));
-        termView.SetMetricsForTest(10, 18);
         pane.Buffer.SetCursorPosition(0, 18);
 
         CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
@@ -340,10 +345,16 @@ public sealed class CommandAssistLayoutTests
 
         TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
         Assert.NotNull(pane.Buffer);
+        // See the note on metric ordering above (#232).
+        termView.SetMetricsForTest(10, 18);
         termView.Measure(new Size(900, 220));
         termView.Arrange(new Rect(0, 0, 900, 220));
-        termView.SetMetricsForTest(10, 18);
         pane.Buffer.SetCursorPosition(0, 1);
+
+        // The suppression decision is `cursorRow / (visibleRows - 1) < 0.55`, so it turns entirely on
+        // these two numbers. Asserting them makes an environment that produces different ones fail
+        // here, with the numbers, instead of further down as a confusing null layout.
+        AssertPromptHint(termView, expectedCursorRow: 1, expectedVisibleRows: 12);
 
         CommandAssistAnchorLayout? layout = pane.CalculateCommandAssistAnchorLayoutForTest();
 
@@ -370,10 +381,19 @@ public sealed class CommandAssistLayoutTests
 
         TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
         Assert.NotNull(pane.Buffer);
+        // #232: this is the test that was red locally and green in CI. Arranging TermView resizes the
+        // buffer to Bounds.Height / CellHeight, so with metrics pinned *after* the arrange the row
+        // count came from the ambient font. On this machine that gave 7 rows, row 7 was clamped to 6,
+        // and 6/11 = 0.545 falls just under the 0.55 band-start ratio - suppressed, layout null. On CI
+        // the row count was larger, row 7 survived, 7/11 = 0.636 cleared the ratio. A margin of 0.005
+        // between passing and failing, decided by a font.
+        termView.SetMetricsForTest(10, 18);
         termView.Measure(new Size(900, 220));
         termView.Arrange(new Rect(0, 0, 900, 220));
-        termView.SetMetricsForTest(10, 18);
         pane.Buffer.SetCursorPosition(0, 7);
+
+        // 220 / 18 = 12 rows, cursor row 7, so 7/11 = 0.636 - above the ratio, hence not suppressed.
+        AssertPromptHint(termView, expectedCursorRow: 7, expectedVisibleRows: 12);
 
         CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
 
@@ -605,11 +625,34 @@ public sealed class CommandAssistLayoutTests
         Assert.Equal("No local help found.", emptyState.Text);
     }
 
+    /// <summary>
+    /// Asserts the prompt hint the anchor calculation will actually read.
+    /// </summary>
+    /// <remarks>
+    /// #232: the suppression rule is <c>cursorRow / (visibleRows - 1) &lt; 0.55</c>, and both numbers
+    /// come from TermView's arranged height divided by its cell height. Pinning the metrics keeps them
+    /// deterministic; asserting them here means a future change to how rows are derived fails with the
+    /// numbers rather than as an unexplained null layout twenty lines later.
+    /// </remarks>
+    private static void AssertPromptHint(TerminalView termView, int expectedCursorRow, int expectedVisibleRows)
+    {
+        CommandAssistPromptHint? hint = termView.GetCommandAssistPromptHint();
+        Assert.NotNull(hint);
+        Assert.Equal(expectedVisibleRows, hint!.Value.VisibleRows);
+        Assert.Equal(expectedCursorRow, hint.Value.VisibleCursorVisualRow);
+    }
+
     private static void ConfigureCommandAssist(TerminalPane pane)
     {
-        var settings = TerminalSettings.Load();
-        settings.CommandAssistEnabled = true;
-        settings.CommandAssistHistoryEnabled = true;
+        // Constructed, not TerminalSettings.Load() (#232). Load() reads the *developer's* settings
+        // file, so the font family and size a test runs against were whatever this machine happened to
+        // have configured - 18pt here, 14pt on a CI runner with no settings file at all. That is the
+        // mechanism behind "fails locally, green in CI", and it applied to every test in this file.
+        var settings = new TerminalSettings
+        {
+            CommandAssistEnabled = true,
+            CommandAssistHistoryEnabled = true
+        };
         pane.ApplySettings(settings);
     }
 }
