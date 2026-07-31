@@ -31,13 +31,14 @@ Fixes #
        cannot be merged — see CONTRIBUTING.md. -->
 
 - **Which categories did you run locally?**
-  <!-- The default `scripts/build.sh test` run EXCLUDES Replay, RenderMetrics,
-       PtySmoke, Stress and GoldenSharedPng — those run in their own CI jobs.
-       And tests/NovaTerminal.App.Tests is NON-BLOCKING in CI (#81), so a
-       failure there will not turn the check red. If your change touches
-       either area, run it locally and say so here. -->
+  <!-- A bare `scripts/build.sh test` applies no filter and runs everything. But
+       CI's gating job EXCLUDES Replay, RenderMetrics, PtySmoke, Stress and
+       GoldenSharedPng (each gets a dedicated job), and
+       tests/NovaTerminal.App.Tests is NON-BLOCKING there (#81) — so a failure in
+       it will not turn the check red. If your change touches either area, run it
+       locally and say so here. -->
 
-  - [ ] default unit lane (`scripts/build.sh test`)
+  - [ ] full unfiltered run (`scripts/build.sh test`)
   - [ ] `Category=Replay`
   - [ ] `Category=RenderMetrics`
   - [ ] `Category=PtySmoke`

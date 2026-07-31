@@ -43,7 +43,11 @@ build appears to hang forever — usually looking stuck in `BuildCliShim`. If th
 happens to you, you called `dotnet` directly; run `dotnet build-server shutdown`
 and retry through the wrapper.
 
-To rehearse the full CI lane locally before pushing: `ci/run.sh` or `ci/run.ps1`.
+To rehearse CI locally before pushing: `ci/run.sh` or `ci/run.ps1`. That does a
+clean Release build, runs the whole test suite unfiltered, re-runs the replay
+category on its own, and does an AOT publish. It does **not** reproduce the
+three-OS matrix or the per-category job split, so a green local run is strong
+evidence but not a guarantee.
 
 ### 3. Pick something small
 
@@ -269,18 +273,25 @@ right coverage together is a normal part of review here.
 
 ### Test Categories
 
-Suites are tagged with an xUnit `Category` trait. **The default `test` run
-excludes the heavy ones** — they run in their own CI jobs — so passing
-`scripts/build.sh test` does not mean you ran everything:
+Suites are tagged with an xUnit `Category` trait so CI can split the slow ones
+into their own jobs. **The tags do not filter anything by default** — a bare
+`scripts/build.sh test` applies no `--filter` and runs every category, which is
+slower locally but means you are not accidentally skipping anything:
 
 ```bash
-scripts/build.sh test                              # default lane, excludes the below
-scripts/build.sh test --filter Category=Replay     # run one explicitly
+scripts/build.sh test                              # everything, no filter
+scripts/build.sh test --filter Category=Replay     # just one category
+scripts/build.sh test tests/NovaTerminal.VT.Tests  # just one project — fastest inner loop
+
+# What CI's gating job actually runs (the heavy categories are excluded there
+# because they each get a dedicated job):
+scripts/build.sh test --filter \
+  "Category!=Replay&Category!=RenderMetrics&Category!=PtySmoke&Category!=Stress&Category!=GoldenSharedPng"
 ```
 
 | Category | Guards | Add or run one when |
 |---|---|---|
-| *(untagged)* | The default lane. Deterministic, must pass. | Always. |
+| *(untagged)* | The gating lane — the deterministic majority. Must pass. | Always. |
 | `Replay` | Byte stream → buffer state is a pure, stable function. | You change VT semantics, buffer state, or reflow. |
 | `RenderMetrics` | Frame time, cache hit rates, invalidation counts. | You touch the draw path, glyph/row caches, or invalidation. |
 | `GoldenSharedPng` | Pixel output of the shared renderer. | You change glyph rasterisation or layout. |
