@@ -313,6 +313,44 @@ jobs:
   # guards the #124 parser DoS with a 2s ceiling, and measured 2088ms under instrumentation
   # locally. Instrumenting the gate would make the gate's own timing assertions unreliable,
   # so correctness and measurement are kept apart.
+  # Formatting was previously checked only by ci/run.{ps1,sh}, and those were deliberately
+  # report-only because main carried 674 pre-existing whitespace violations. Nothing in
+  # GitHub CI looked at formatting at all, so the count drifted upward unnoticed (649 -> 674
+  # over two weeks with nobody working on it). #216 swept the backlog; this job is the half
+  # that stops it re-accumulating.
+  #
+  # Runs on both OSes on purpose. `.editorconfig` requires CRLF while git stores LF, so
+  # before `.gitattributes` pinned the checkout this check reached a different verdict per
+  # platform. The ubuntu leg is what proves that pinning works.
+  #
+  # Scoped to `whitespace`: a bare `dotnet format` also runs the style and analyzer passes,
+  # whose diagnostics belong to #108. Mixing them would make this gate fail for reasons
+  # unrelated to formatting.
+  format:
+    name: Format (whitespace)
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/*.csproj"
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Verify formatting
+        run: dotnet format whitespace --verify-no-changes --no-restore
+
   coverage:
     name: Coverage (NovaTerminal.VT floor)
     runs-on: ubuntu-latest
