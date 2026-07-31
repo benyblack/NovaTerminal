@@ -857,12 +857,15 @@ pub extern "C" fn nova_ssh_open_direct_tcpip(
         }
 
         let args = unsafe { args.as_ref() }.expect("validated non-null args");
-        let host_to_connect = match read_c_string(args.host_to_connect) {
+        let host_to_connect = match read_c_arg(args.host_to_connect).required() {
             Some(value) => value,
             None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
         };
-        let originator_address =
-            read_c_string(args.originator_address).unwrap_or_else(|| "127.0.0.1".to_owned());
+        // Absent falls back to the loopback default; invalid UTF-8 is rejected rather than mangled.
+        let originator_address = match read_c_arg(args.originator_address).or_default("127.0.0.1") {
+            Some(value) => value,
+            None => return NOVA_SSH_RESULT_INVALID_ARGUMENT,
+        };
 
         let session = match registry_get(handle) {
             Some(s) => s,
@@ -1182,12 +1185,13 @@ pub extern "C" fn nova_ssh_string_free(value: *mut c_char) {
 impl ConnectConfig {
     fn from_args(args: *const NovaSshConnectArgs) -> Option<Self> {
         let args = unsafe { args.as_ref()? };
-        let host = read_c_string(args.host)?;
-        let user = read_c_string(args.user)?;
-        let term = read_c_string(args.term).unwrap_or_else(|| "xterm-256color".to_owned());
-        let identity_file = read_c_string(args.identity_file);
-        let jump_host = read_c_string(args.jump_host);
-        let jump_user = read_c_string(args.jump_user);
+        // Every one of these rejects invalid UTF-8; they differ only in what *absence* means.
+        let host = read_c_arg(args.host).required()?;
+        let user = read_c_arg(args.user).required()?;
+        let term = read_c_arg(args.term).or_default("xterm-256color")?;
+        let identity_file = read_c_arg(args.identity_file).optional()?;
+        let jump_host = read_c_arg(args.jump_host).optional()?;
+        let jump_user = read_c_arg(args.jump_user).optional()?;
         let effective_jump_host = jump_host.map(|host| JumpHostConfig {
             host,
             user: jump_user.unwrap_or_else(|| user.clone()),
@@ -1218,10 +1222,12 @@ impl ConnectConfig {
                 args.keepalive_count_max
             },
             remote_shell_kind: parse_remote_shell_kind(args.remote_shell_kind),
-            shell_detection_command: read_c_string(args.shell_detection_command),
-            bash_cwd_bootstrap: read_c_string(args.bash_cwd_bootstrap),
-            zsh_cwd_bootstrap: read_c_string(args.zsh_cwd_bootstrap),
-            fish_cwd_bootstrap: read_c_string(args.fish_cwd_bootstrap),
+            // These four are shell commands sent to the remote. Substituting U+FFFD into a command
+            // string is strictly worse than refusing it, which is why they reject rather than skip.
+            shell_detection_command: read_c_arg(args.shell_detection_command).optional()?,
+            bash_cwd_bootstrap: read_c_arg(args.bash_cwd_bootstrap).optional()?,
+            zsh_cwd_bootstrap: read_c_arg(args.zsh_cwd_bootstrap).optional()?,
+            fish_cwd_bootstrap: read_c_arg(args.fish_cwd_bootstrap).optional()?,
         })
     }
 }
@@ -1369,19 +1375,74 @@ where
     }
 }
 
-fn read_c_string(value: *const c_char) -> Option<String> {
-    if value.is_null() {
-        return None;
+/// The three distinct outcomes of reading a C string argument.
+///
+/// #121: this used to be `Option<String>` produced via `to_string_lossy()`, which collapsed "not
+/// supplied" and "supplied but not valid UTF-8" into the same value — and worse, silently turned the
+/// second into a *plausible* string with U+FFFD substituted for the bad bytes. That is the same class
+/// of defect as #152, where the DllImport ANSI default mangled non-ASCII into U+FFFD; the SFTP entry
+/// points reject invalid encoding explicitly, and the connect path quietly accepted it.
+///
+/// The rule the call sites now follow: **invalid encoding is always an error**, and absence keeps
+/// whatever meaning it already had at that site. Keeping the two apart is what makes that expressible
+/// — with a single `None` an optional argument cannot tell "the caller left this out, use the default"
+/// from "the caller sent garbage, refuse".
+enum CArg {
+    /// Null, or present but empty/whitespace once trimmed.
+    Absent,
+    /// Present, non-empty, and not valid UTF-8.
+    InvalidUtf8,
+    Value(String),
+}
+
+impl CArg {
+    /// For arguments that must be supplied: absent and invalid both reject.
+    fn required(self) -> Option<String> {
+        match self {
+            CArg::Value(value) => Some(value),
+            CArg::Absent | CArg::InvalidUtf8 => None,
+        }
     }
 
-    let string = unsafe { CStr::from_ptr(value) }
-        .to_string_lossy()
-        .trim()
-        .to_owned();
-    if string.is_empty() {
-        None
-    } else {
-        Some(string)
+    /// For optional arguments: invalid rejects, absent yields `None`.
+    ///
+    /// The doubled `Option` is what lets a caller write `read_c_arg(x).optional()?` — the outer `?`
+    /// propagates the rejection, the inner `None` means "not supplied". Without this an invalid
+    /// `identity_file` would silently fall back to password auth, and an invalid `bash_cwd_bootstrap`
+    /// would silently disable cwd tracking, which is exactly the trap a uniform `None` sets.
+    fn optional(self) -> Option<Option<String>> {
+        match self {
+            CArg::InvalidUtf8 => None,
+            CArg::Absent => Some(None),
+            CArg::Value(value) => Some(Some(value)),
+        }
+    }
+
+    /// For optional arguments with a default: invalid rejects, absent takes the default.
+    fn or_default(self, fallback: &str) -> Option<String> {
+        match self {
+            CArg::InvalidUtf8 => None,
+            CArg::Absent => Some(fallback.to_owned()),
+            CArg::Value(value) => Some(value),
+        }
+    }
+}
+
+fn read_c_arg(value: *const c_char) -> CArg {
+    if value.is_null() {
+        return CArg::Absent;
+    }
+
+    match unsafe { CStr::from_ptr(value) }.to_str() {
+        Err(_) => CArg::InvalidUtf8,
+        Ok(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                CArg::Absent
+            } else {
+                CArg::Value(trimmed.to_owned())
+            }
+        }
     }
 }
 
@@ -4506,5 +4567,175 @@ mod alloc_balance_tests {
         }
         let after = OUTSTANDING_FFI_STRINGS.load(Ordering::SeqCst);
         assert_eq!(before, after, "every FFI-allocated string must be freed");
+    }
+}
+
+/// #121: connect arguments reject invalid UTF-8 instead of mangling it.
+#[cfg(test)]
+mod connect_arg_encoding_tests {
+    use super::*;
+    use std::ffi::CString;
+
+    // These exercise ConnectConfig::from_args directly rather than nova_ssh_connect, because a call
+    // that *succeeds* returns a handle and spawns a worker thread that tries to reach the host. Testing
+    // the parse in isolation keeps the "absent still defaults" and "absent still skips" halves
+    // assertable without any network attempt.
+    //
+    // All three behaviours have to be distinguished. A test that only checked "invalid is rejected"
+    // would pass against a naive fix that returns None for invalid *and* silently drops optional
+    // arguments — which would disable identity-file auth and cwd tracking without a word.
+
+    /// Not valid UTF-8: a lone continuation byte, a bad two-byte sequence, and a surrogate half.
+    const BAD_UTF8: &[u8] = b"\x80\xC3\x28\xED\xA0\x80";
+
+    fn bad_utf8_cstring() -> CString {
+        CString::new(BAD_UTF8).expect("fixture must not contain an interior NUL")
+    }
+
+    fn valid_base_args(host: &CString, user: &CString) -> NovaSshConnectArgs {
+        NovaSshConnectArgs {
+            host: host.as_ptr(),
+            user: user.as_ptr(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn connect_args_reject_invalid_utf8_in_required_fields() {
+        let good = CString::new("nova").unwrap();
+        let bad = bad_utf8_cstring();
+
+        let mut args = valid_base_args(&good, &good);
+        args.host = bad.as_ptr();
+        assert!(
+            ConnectConfig::from_args(&args).is_none(),
+            "an invalid-UTF-8 host must be refused, not accepted with U+FFFD substituted"
+        );
+
+        let mut args = valid_base_args(&good, &good);
+        args.user = bad.as_ptr();
+        assert!(
+            ConnectConfig::from_args(&args).is_none(),
+            "an invalid-UTF-8 user must be refused"
+        );
+    }
+
+    #[test]
+    fn connect_args_reject_invalid_utf8_in_defaulted_fields() {
+        // The discriminating case for `or_default`: invalid must reject rather than quietly fall back
+        // to the default, which would send a mangled TERM to the remote.
+        let good = CString::new("nova").unwrap();
+        let bad = bad_utf8_cstring();
+
+        let mut args = valid_base_args(&good, &good);
+        args.term = bad.as_ptr();
+
+        assert!(
+            ConnectConfig::from_args(&args).is_none(),
+            "an invalid-UTF-8 term must be refused, not replaced with the default"
+        );
+    }
+
+    #[test]
+    fn connect_args_reject_invalid_utf8_in_optional_fields() {
+        // The discriminating case for `optional`: invalid must reject rather than be treated as
+        // "not supplied", which would silently fall back to password auth or disable cwd tracking.
+        let good = CString::new("nova").unwrap();
+        let bad = bad_utf8_cstring();
+
+        type Setter = fn(&mut NovaSshConnectArgs, *const c_char);
+
+        let sites: [(&str, Setter); 7] = [
+            ("identity_file", |a, p| a.identity_file = p),
+            ("jump_host", |a, p| a.jump_host = p),
+            ("jump_user", |a, p| a.jump_user = p),
+            ("shell_detection_command", |a, p| {
+                a.shell_detection_command = p
+            }),
+            ("bash_cwd_bootstrap", |a, p| a.bash_cwd_bootstrap = p),
+            ("zsh_cwd_bootstrap", |a, p| a.zsh_cwd_bootstrap = p),
+            ("fish_cwd_bootstrap", |a, p| a.fish_cwd_bootstrap = p),
+        ];
+
+        for (name, apply) in sites {
+            let mut args = valid_base_args(&good, &good);
+            apply(&mut args, bad.as_ptr());
+
+            assert!(
+                ConnectConfig::from_args(&args).is_none(),
+                "an invalid-UTF-8 {name} must be refused, not silently dropped"
+            );
+        }
+    }
+
+    #[test]
+    fn absent_optional_connect_args_keep_their_existing_meaning() {
+        // The other half, and the reason `optional()` returns a doubled Option: absence must still mean
+        // "not supplied". Without this assertion the rejection tests above would also pass against a
+        // fix that refused *every* absent optional argument, breaking every password-auth connection.
+        let good = CString::new("nova").unwrap();
+        let args = valid_base_args(&good, &good);
+
+        let config =
+            ConnectConfig::from_args(&args).expect("host and user alone must be sufficient");
+
+        assert_eq!(
+            "xterm-256color", config.term,
+            "absent term still takes the default"
+        );
+        assert!(
+            config.identity_file.is_none(),
+            "absent identity_file still means password auth"
+        );
+        assert!(
+            config.jump_host.is_none(),
+            "absent jump_host still means no jump"
+        );
+        assert!(config.shell_detection_command.is_none());
+        assert!(config.bash_cwd_bootstrap.is_none());
+        assert!(config.zsh_cwd_bootstrap.is_none());
+        assert!(config.fish_cwd_bootstrap.is_none());
+    }
+
+    #[test]
+    fn supplied_optional_connect_args_are_preserved() {
+        // Guards the guard: if `optional()` returned Some(None) unconditionally, every test above would
+        // still pass while the arguments were silently discarded.
+        let good = CString::new("nova").unwrap();
+        let identity = CString::new("/home/nova/.ssh/id_ed25519").unwrap();
+        let bootstrap = CString::new("printf '\\033]7;%s\\a' \"$PWD\"").unwrap();
+
+        let mut args = valid_base_args(&good, &good);
+        args.identity_file = identity.as_ptr();
+        args.bash_cwd_bootstrap = bootstrap.as_ptr();
+
+        let config =
+            ConnectConfig::from_args(&args).expect("valid optional arguments must be accepted");
+
+        assert_eq!(
+            Some("/home/nova/.ssh/id_ed25519"),
+            config.identity_file.as_deref()
+        );
+        assert_eq!(
+            Some("printf '\\033]7;%s\\a' \"$PWD\""),
+            config.bash_cwd_bootstrap.as_deref()
+        );
+    }
+
+    #[test]
+    fn whitespace_only_connect_args_are_treated_as_absent_not_invalid() {
+        // Pre-existing behaviour that must survive the change: read_c_arg trims, and an argument that
+        // is empty once trimmed counts as absent rather than as a value or an error.
+        let good = CString::new("nova").unwrap();
+        let blank = CString::new("   ").unwrap();
+
+        let mut args = valid_base_args(&good, &good);
+        args.identity_file = blank.as_ptr();
+        args.term = blank.as_ptr();
+
+        let config = ConnectConfig::from_args(&args).expect("blank optionals must not reject");
+
+        assert!(config.identity_file.is_none());
+        assert_eq!("xterm-256color", config.term);
     }
 }
