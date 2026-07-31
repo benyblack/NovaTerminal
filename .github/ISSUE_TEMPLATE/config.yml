@@ -1,0 +1,17 @@
+# Blank issues stay enabled deliberately: the goal is to lower the barrier to
+# reporting, and a form that does not fit should never be a reason to stay
+# silent. Flip to false if untriageable issues become a real problem.
+blank_issues_enabled: true
+
+contact_links:
+  - name: Good first issues
+    url: https://github.com/benyblack/NovaTerminal/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22
+    about: Want to contribute? Start here — these are scoped to be landable in an evening.
+
+  - name: Contributing guide
+    url: https://github.com/benyblack/NovaTerminal/blob/main/CONTRIBUTING.md
+    about: How to build, test, and get a PR merged. Read the "Start Here" section first.
+
+  - name: Security vulnerability
+    url: https://github.com/benyblack/NovaTerminal/security/advisories/new
+    about: Report privately via a security advisory — please do not open a public issue.
