@@ -40,7 +40,7 @@ namespace NovaTerminal.VT.Storage
         // Sparse per-row metadata side-channels. null = no extended text/hyperlinks on any row in this page.
         // Indexed by rowIndex (0..RowsInPage-1). Each element is null if that row has no metadata.
         private SmallMap<string>?[]? _extendedText;
-        private SmallMap<string>?[]? _hyperlinks;
+        private SmallMap<NovaTerminal.VT.Links.Hyperlink>?[]? _hyperlinks;
 
         public TerminalPage(int rowsInPage, int cols)
         {
@@ -180,8 +180,8 @@ namespace NovaTerminal.VT.Storage
 
         // ── Hyperlink Metadata ───────────────────────────────────────────────────
 
-        /// <summary>Gets the hyperlink URL for a cell, or null if none.</summary>
-        public string? GetHyperlink(int rowIndex, int col)
+        /// <summary>Gets the hyperlink identity for a cell, or null if none.</summary>
+        public NovaTerminal.VT.Links.Hyperlink? GetHyperlink(int rowIndex, int col)
         {
             if (_hyperlinks == null) return null;
             var map = _hyperlinks[rowIndex];
@@ -190,15 +190,15 @@ namespace NovaTerminal.VT.Storage
         }
 
         /// <summary>Copies all hyperlink entries from an existing SmallMap into the specified row.</summary>
-        public void SetHyperlinkFromMap(int rowIndex, SmallMap<string>? source)
+        public void SetHyperlinkFromMap(int rowIndex, SmallMap<NovaTerminal.VT.Links.Hyperlink>? source)
         {
             if (source == null || source.Count == 0) return;
-            _hyperlinks ??= new SmallMap<string>?[RowsInPage];
+            _hyperlinks ??= new SmallMap<NovaTerminal.VT.Links.Hyperlink>?[RowsInPage];
             _hyperlinks[rowIndex] = source;
         }
 
         /// <summary>Returns the raw SmallMap for the row's hyperlinks (null if none).</summary>
-        public SmallMap<string>? GetHyperlinkMap(int rowIndex) =>
+        public SmallMap<NovaTerminal.VT.Links.Hyperlink>? GetHyperlinkMap(int rowIndex) =>
             _hyperlinks?[rowIndex];
 
         /// <summary>

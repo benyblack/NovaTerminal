@@ -57,7 +57,11 @@ namespace NovaTerminal.VT
 
         public bool IsHidden { get => _isHidden; set { _isHidden = value; _isStyleDirty = true; } }
 
-        public string? CurrentHyperlink
+        /// <summary>
+        /// The hyperlink identity applied to subsequently written cells, or <c>null</c> when no link is
+        /// open. Set from an OSC 8 open; cleared by an OSC 8 close.
+        /// </summary>
+        public Links.Hyperlink? CurrentHyperlink
         {
             get => _currentHyperlink;
             set => _currentHyperlink = value;

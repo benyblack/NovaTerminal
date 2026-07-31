@@ -79,6 +79,12 @@ namespace NovaTerminal.VT
         public Action<int?>? OnCommandFinished { get; set; }
         public Action<int?, long?>? OnCommandFinishedDetailed { get; set; }
 
+        /// <summary>
+        /// Interns OSC 8 hyperlink identities. Per-parser rather than static: two terminals must not share
+        /// a link table, or the same (URI, id) pair written in one pane would group with cells in another.
+        /// </summary>
+        private readonly Links.HyperlinkRegistry _hyperlinks = new();
+
         public AnsiParser(TerminalBuffer buffer, bool? forceConPtyFiltering = null)
         {
             _buffer = buffer;
@@ -1581,13 +1587,23 @@ namespace NovaTerminal.VT
 
             // OSC 8: hyperlinks (open/close)
             // Format: OSC 8 ; params ; URI ST/BEL
+            //
+            // #95 gap 2: the params field used to be discarded — only everything after the second ';' was
+            // read. That field carries `id=`, which is what states that two runs of cells are one anchor,
+            // so hyperlink identity was being thrown away before it reached the buffer. It is parsed here
+            // and resolved into an interned identity; see Links/HyperlinkRegistry.cs.
+            //
+            // A close (`OSC 8 ; ; ST`) has an empty URI and resolves to null, which clears the open link.
+            // Switching straight from one link to another without closing is legal per the spec and needs
+            // no special handling: it is just another assignment.
             if (code == "8")
             {
                 int secondSep = data.IndexOf(';');
                 if (secondSep >= 0)
                 {
+                    string parameters = data.Substring(0, secondSep);
                     string uri = data.Substring(secondSep + 1);
-                    _buffer.CurrentHyperlink = string.IsNullOrWhiteSpace(uri) ? null : uri;
+                    _buffer.CurrentHyperlink = _hyperlinks.Resolve(parameters, uri);
                 }
             }
         }

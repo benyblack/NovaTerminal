@@ -12,6 +12,10 @@ public class RowMetadataShiftTests
 {
     private const string ThumbsUp = "\U0001F44D"; // astral, width 2: lead cell + continuation
     private const string Uri = "https://example.com/";
+    // #95 gap 2: hyperlinks are an identity now, not a bare URI. Build them through the registry, the
+    // same way the parser does, rather than reaching for an internal constructor.
+    private static readonly NovaTerminal.VT.Links.HyperlinkRegistry Registry = new();
+    private static NovaTerminal.VT.Links.Hyperlink Link(string uri) => Registry.Resolve(null, uri)!;
 
     private static (TerminalBuffer Buffer, AnsiParser Parser) NewTerminal(int cols = 20, int rows = 3)
     {
@@ -59,7 +63,7 @@ public class RowMetadataShiftTests
             var row = buffer.GetRowAbsolute(0);
             Assert.NotNull(row);
             var links = new string?[cols];
-            for (int c = 0; c < cols; c++) links[c] = row!.GetHyperlink(c);
+            for (int c = 0; c < cols; c++) links[c] = row!.GetHyperlink(c)?.Uri;
             return links;
         }
         finally { buffer.Lock.ExitReadLock(); }
@@ -268,7 +272,7 @@ public class RowMetadataShiftTests
         // not with empty ones - HasRowMetadata is the write path's fast-path guard.
         var row = new TerminalRow(4);
         row.SetExtendedText(3, ThumbsUp);
-        row.SetHyperlink(3, Uri);
+        row.SetHyperlink(3, Link(Uri));
         Assert.True(row.HasRowMetadata);
 
         row.ShiftRowMetadata(0, 4, 4);

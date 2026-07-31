@@ -12,6 +12,11 @@ namespace NovaTerminal.Tests.BufferTests
     /// </summary>
     public class ScrollbackMetadataTests
     {
+        // #95 gap 2: hyperlinks carry identity now, not a bare URI. Build them through the registry, the
+        // same way the parser does, rather than reaching for an internal constructor.
+        private static readonly NovaTerminal.VT.Links.HyperlinkRegistry Registry = new();
+        private static NovaTerminal.VT.Links.Hyperlink Link(string uri) => Registry.Resolve(null, uri)!;
+
         [Fact]
         public void AppendRow_WithExtendedText_IsRetained()
         {
@@ -39,8 +44,8 @@ namespace NovaTerminal.Tests.BufferTests
             var pool = new TerminalPagePool();
             var scrollback = new ScrollbackPages(10, pool, maxScrollbackBytes: 16L * 1024 * 1024);
 
-            var links = new SmallMap<string>();
-            links.Set(5, "https://example.com");
+            var links = new SmallMap<NovaTerminal.VT.Links.Hyperlink>();
+            links.Set(5, Link("https://example.com"));
 
             var row = new TerminalCell[10];
             scrollback.AppendRow(row, false, hyperlinks: links);
@@ -49,7 +54,7 @@ namespace NovaTerminal.Tests.BufferTests
             var retrieved = scrollback.GetHyperlinkMap(0);
             Assert.NotNull(retrieved);
             Assert.True(retrieved!.TryGet(5, out var url));
-            Assert.Equal("https://example.com", url);
+            Assert.Equal("https://example.com", url!.Uri);
 
             pool.Clear();
         }
@@ -70,7 +75,7 @@ namespace NovaTerminal.Tests.BufferTests
             scrollback.AppendRow(row);
 
             // Row 2: hyperlink in col 3
-            var links2 = new SmallMap<string>(); links2.Set(3, "https://nova.dev");
+            var links2 = new SmallMap<NovaTerminal.VT.Links.Hyperlink>(); links2.Set(3, Link("https://nova.dev"));
             scrollback.AppendRow(row, false, hyperlinks: links2);
 
             Assert.Equal(3, scrollback.Count);
@@ -86,7 +91,7 @@ namespace NovaTerminal.Tests.BufferTests
             var m2 = scrollback.GetHyperlinkMap(2);
             Assert.NotNull(m2);
             Assert.True(m2!.TryGet(3, out var u2));
-            Assert.Equal("https://nova.dev", u2);
+            Assert.Equal("https://nova.dev", u2!.Uri);
 
             pool.Clear();
         }
@@ -139,12 +144,12 @@ namespace NovaTerminal.Tests.BufferTests
         public void TerminalRow_GetHyperlinkMap_ReturnsMapAfterSet()
         {
             var row = new TerminalRow(10);
-            row.SetHyperlink(7, "https://example.org");
+            row.SetHyperlink(7, Link("https://example.org"));
 
             var map = row.GetHyperlinkMap();
             Assert.NotNull(map);
             Assert.True(map!.TryGet(7, out var link));
-            Assert.Equal("https://example.org", link);
+            Assert.Equal("https://example.org", link!.Uri);
         }
 
         [Fact]
@@ -158,12 +163,12 @@ namespace NovaTerminal.Tests.BufferTests
             page.SetExtendedTextFromMap(0, extMap);
 
             // Row 1: hyperlink — build map separately and attach
-            var linkMap = new SmallMap<string>();
-            linkMap.Set(9, "http://test.io");
+            var linkMap = new SmallMap<NovaTerminal.VT.Links.Hyperlink>();
+            linkMap.Set(9, Link("http://test.io"));
             page.SetHyperlinkFromMap(1, linkMap);
 
             Assert.Equal("ñ", page.GetExtendedText(0, 1));
-            Assert.Equal("http://test.io", page.GetHyperlink(1, 9));
+            Assert.Equal("http://test.io", page.GetHyperlink(1, 9)?.Uri);
 
             // Row 2 has nothing
             Assert.Null(page.GetExtendedTextMap(2));

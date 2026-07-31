@@ -13,6 +13,10 @@ public class ReflowMetadataTests
 {
     private const string Uri = "https://example.com/reflow";
     private const string OtherUri = "https://example.com/other";
+    // #95 gap 2: hyperlinks are an identity now, not a bare URI. Build them through the registry, the
+    // same way the parser does, rather than reaching for an internal constructor.
+    private static readonly NovaTerminal.VT.Links.HyperlinkRegistry Registry = new();
+    private static NovaTerminal.VT.Links.Hyperlink Link(string uri) => Registry.Resolve(null, uri)!;
     private const string ThumbsUp = "\U0001F44D";
 
     private static string?[] LinksOnRow(TerminalBuffer buffer, int viewRow, int cols)
@@ -23,7 +27,7 @@ public class ReflowMetadataTests
             var row = buffer.GetRowAbsolute(buffer.Scrollback.Count + viewRow);
             Assert.NotNull(row);
             var links = new string?[cols];
-            for (int c = 0; c < cols; c++) links[c] = row!.GetHyperlink(c);
+            for (int c = 0; c < cols; c++) links[c] = row!.GetHyperlink(c)?.Uri;
             return links;
         }
         finally { buffer.Lock.ExitReadLock(); }
@@ -191,15 +195,15 @@ public class ReflowMetadataTests
     {
         var source = new TerminalRow(8);
         source.SetExtendedText(1, ThumbsUp);
-        source.SetHyperlink(1, Uri);
+        source.SetHyperlink(1, Link(Uri));
         source.SetExtendedText(6, ThumbsUp);
-        source.SetHyperlink(6, OtherUri);
+        source.SetHyperlink(6, Link(OtherUri));
 
         var target = new TerminalRow(4);
         target.CopyRowMetadataFrom(source, 4);
 
         Assert.Equal(ThumbsUp, target.GetExtendedText(1));
-        Assert.Equal(Uri, target.GetHyperlink(1));
+        Assert.Equal(Uri, target.GetHyperlink(1)?.Uri);
         // Column 6 is outside the target's width; copying it would key the map past the row.
         Assert.Null(target.GetExtendedText(6));
         Assert.Null(target.GetHyperlink(6));

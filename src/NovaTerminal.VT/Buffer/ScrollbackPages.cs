@@ -109,7 +109,7 @@ namespace NovaTerminal.VT.Storage
             ReadOnlySpan<TerminalCell> row,
             bool isWrapped = false,
             SmallMap<string>? extendedText = null,
-            SmallMap<string>? hyperlinks = null)
+            SmallMap<NovaTerminal.VT.Links.Hyperlink>? hyperlinks = null)
         {
             if (row.Length != _cols)
                 throw new ArgumentException($"Row length {row.Length} must equal Cols {_cols}.", nameof(row));
@@ -219,7 +219,7 @@ namespace NovaTerminal.VT.Storage
         }
 
         /// <summary>Returns the hyperlink SmallMap for the given logical row, or null if none.</summary>
-        public SmallMap<string>? GetHyperlinkMap(int logicalIndex)
+        public SmallMap<NovaTerminal.VT.Links.Hyperlink>? GetHyperlinkMap(int logicalIndex)
         {
             (TerminalPage page, int rowInPage) = FindPage(logicalIndex);
             return page.GetHyperlinkMap(rowInPage);
@@ -269,7 +269,7 @@ namespace NovaTerminal.VT.Storage
             Span<TerminalCell> destination,
             out bool isWrapped,
             out SmallMap<string>? extendedText,
-            out SmallMap<string>? hyperlinks)
+            out SmallMap<NovaTerminal.VT.Links.Hyperlink>? hyperlinks)
         {
             isWrapped = false;
             extendedText = null;
