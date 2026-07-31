@@ -779,10 +779,23 @@ namespace NovaTerminal.AgentHost
         /// </summary>
         private AgentHostResponse HandleCaptureScreen(AgentHostRequest request)
         {
-            var p = DeserializeParams(request, AgentHostJsonContext.Default.CaptureScreenParams);
+            CaptureScreenParams? p;
+            try
+            {
+                p = DeserializeParams(request, AgentHostJsonContext.Default.CaptureScreenParams);
+            }
+            catch (JsonException)
+            {
+                // A missing/mistyped paneId throws here rather than returning null.
+                // Journal it for the same reason the acting methods do: a malformed
+                // attempt is still an externally reachable attempt on the user's
+                // screen, and the journal is what makes it visible.
+                p = null;
+            }
             if (p == null)
             {
-                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "captureScreen requires params with a paneId.");
+                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, null, "screen",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "captureScreen requires params with a paneId."));
             }
 
             // Third default-off gate, on the same tier as replay export: observe

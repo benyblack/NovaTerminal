@@ -231,15 +231,39 @@ public class AgentHostCaptureProtocolTests : IDisposable
     }
 
     [Fact]
-    public void Capture_without_params_is_a_malformed_request()
+    public void Capture_without_params_is_a_malformed_request_and_is_still_journaled()
     {
-        using var service = NewService(new AgentSessionRegistry());
+        // A malformed attempt is still an externally reachable attempt on the
+        // user's screen, so it belongs in the journal like the acting methods'.
+        var journal = new AgentActivityJournal();
+        using var service = NewService(new AgentSessionRegistry(), journal);
         service.ScreenshotEnabled = true;
 
         var line = $"{{\"v\":{AgentHostProtocol.Version},\"id\":7,\"method\":\"{AgentHostProtocol.Methods.CaptureScreen}\",\"params\":null}}";
         var response = Handle(service, line);
 
         Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, response.Error?.Code);
+        var entry = Assert.Single(journal.Snapshot());
+        Assert.Equal(AgentHostProtocol.Methods.CaptureScreen, entry.Method);
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, entry.Outcome);
+        Assert.Null(entry.PaneId);
+    }
+
+    [Fact]
+    public void Capture_with_an_unparseable_paneId_is_malformed_and_journaled()
+    {
+        // `required Guid PaneId` throws JsonException rather than yielding null,
+        // which used to escape to the outer handler and skip the journal.
+        var journal = new AgentActivityJournal();
+        using var service = NewService(new AgentSessionRegistry(), journal);
+        service.ScreenshotEnabled = true;
+
+        var line = $"{{\"v\":{AgentHostProtocol.Version},\"id\":8,\"method\":\"{AgentHostProtocol.Methods.CaptureScreen}\",\"params\":{{\"paneId\":\"not-a-guid\"}}}}";
+        var response = Handle(service, line);
+
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, response.Error?.Code);
+        var entry = Assert.Single(journal.Snapshot());
+        Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, entry.Outcome);
     }
 
     [Fact]

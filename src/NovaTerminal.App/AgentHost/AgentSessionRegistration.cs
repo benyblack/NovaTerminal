@@ -345,6 +345,14 @@ namespace NovaTerminal.AgentHost
                 return false;
             }
 
+            // Cell metrics and grid size come from different places (the pane's
+            // last publish vs. the buffer just now), so a capture that lands
+            // between a font change and the resize it triggers pairs the new cell
+            // size with the pre-resize row/column count. That is not a torn image:
+            // the draw operation lays out exactly these rows/cols at exactly these
+            // metrics, so the content fills the canvas either way — it is the same
+            // one-frame transition the live control paints in that same window,
+            // which is what a screenshot of a resizing pane should look like.
             var width = (int)Math.Ceiling(cols * (double)parameters.Metrics.CellWidth);
             var height = (int)Math.Ceiling(rows * (double)parameters.Metrics.CellHeight);
             if (width <= 0 || height <= 0)
