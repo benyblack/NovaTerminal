@@ -5,12 +5,34 @@ using SkiaSharp;
 
 namespace NovaTerminal.Rendering
 {
+    /// <summary>
+    /// A rasterized glyph in the atlas, and where to put it.
+    /// </summary>
+    /// <param name="Rect">The glyph's pixels within its atlas surface.</param>
+    /// <param name="Type">Which surface — see <see cref="GlyphCache.WantsColorGlyph"/>.</param>
+    /// <param name="OffsetX">
+    /// Device-pixel X of the sprite's left edge relative to the pen origin. Usually 0, negative for a
+    /// glyph whose ink starts left of the origin.
+    /// </param>
+    /// <param name="OffsetY">
+    /// Device-pixel Y of the sprite's top edge relative to the baseline, so normally negative.
+    /// </param>
+    /// <remarks>
+    /// #172 item 2: the atlas used to pack every glyph into its <em>advance</em> box — advance width by
+    /// font-wide ascent-to-descent — and the caller placed the sprite at (pen, baseline + ascent),
+    /// which only works while ink stays inside that box. It frequently does not, so the offsets are
+    /// now carried per glyph rather than assumed.
+    /// </remarks>
+    public readonly record struct GlyphSprite(SKRect Rect, AtlasType Type, int OffsetX, int OffsetY);
+
     public class GlyphCache : IDisposable
     {
         private class CacheEntry
         {
             public SKRect Rect;
             public AtlasType Type;
+            public int OffsetX;
+            public int OffsetY;
             public long LastUsed;
         }
 
@@ -80,7 +102,7 @@ namespace NovaTerminal.Rendering
             _atlas = new GlyphAtlas();
         }
 
-        public (SKRect Rect, AtlasType Type)? GetOrAdd(string text, SKFont font, float scale)
+        public GlyphSprite? GetOrAdd(string text, SKFont font, float scale)
         {
             if (string.IsNullOrEmpty(text)) return null;
 
@@ -91,37 +113,45 @@ namespace NovaTerminal.Rendering
                 if (_entries.TryGetValue(key, out var entry))
                 {
                     entry.LastUsed = ++_usageCounter;
-                    return (entry.Rect, entry.Type);
+                    return new GlyphSprite(entry.Rect, entry.Type, entry.OffsetX, entry.OffsetY);
                 }
 
-                var packed = RasterizeAndPack(key);
+                var packed = RasterizeAndPack(key, out bool tooLargeForAtlas);
                 if (packed == null)
                 {
-                    // Atlas overflow. Rather than wiping every cached glyph (the old behaviour,
+                    // A glyph bigger than the whole atlas will never fit, so evicting cannot help.
+                    // Bailing out here matters more since #172 made the packed box the *ink* box,
+                    // which can exceed the advance box: without this, one oversized glyph in the
+                    // visible set would reset the atlas on every single frame, permanently.
+                    if (tooLargeForAtlas) return null;
+
+                    // Genuine overflow. Rather than wiping every cached glyph (the old behaviour,
                     // which forced the whole visible set to be re-rasterized next frame — #125),
                     // rebuild keeping the most-recently-used half so the hot working set stays
                     // warm. Fall back to a full wipe only if even that can't make room.
                     RebuildRetainingHotEntries();
-                    packed = RasterizeAndPack(key);
+                    packed = RasterizeAndPack(key, out _);
                     if (packed == null)
                     {
                         ClearInternal();
                         RendererStatistics.RecordGlyphAtlasReset();
-                        packed = RasterizeAndPack(key);
+                        packed = RasterizeAndPack(key, out _);
                         if (packed == null) return null;
                     }
                 }
 
-                var newEntry = new CacheEntry
+                var sprite = packed.Value;
+                _entries[key] = new CacheEntry
                 {
-                    Rect = packed.Value.Rect,
-                    Type = packed.Value.Type,
+                    Rect = sprite.Rect,
+                    Type = sprite.Type,
+                    OffsetX = sprite.OffsetX,
+                    OffsetY = sprite.OffsetY,
                     LastUsed = ++_usageCounter
                 };
 
-                _entries[key] = newEntry;
                 _needsUpdate = true;
-                return (newEntry.Rect, newEntry.Type);
+                return sprite;
             }
         }
 
@@ -231,11 +261,19 @@ namespace NovaTerminal.Rendering
             };
         }
 
-        // Measures, packs, and rasterizes a glyph into the atlas. Returns null (without touching
-        // _entries) when the atlas has no room, so callers can decide how to evict. Must be called
-        // under _lock.
-        private (SKRect Rect, AtlasType Type)? RasterizeAndPack(GlyphKey key)
+        /// <summary>
+        /// Measures, packs and rasterizes a glyph into the atlas. Returns null without touching
+        /// <c>_entries</c> when it did not fit, so the caller can decide how to evict. Must be called
+        /// under <c>_lock</c>.
+        /// </summary>
+        /// <param name="tooLargeForAtlas">
+        /// True when the glyph is larger than an entire atlas surface and so can never fit, however
+        /// much is evicted. Distinguished from ordinary overflow because the caller's response has to
+        /// differ: evicting is pointless and resetting every frame is worse than not caching it.
+        /// </param>
+        private GlyphSprite? RasterizeAndPack(GlyphKey key, out bool tooLargeForAtlas)
         {
+            tooLargeForAtlas = false;
             string text = key.Text;
 
             var type = WantsColorGlyph(text) ? AtlasType.Color : AtlasType.Alpha8;
@@ -247,13 +285,43 @@ namespace NovaTerminal.Rendering
             physFont.Hinting = SKFontHinting.Full;
             physFont.Subpixel = true;
 
-            // Measure the glyph at physical size
-            float width = physFont.MeasureText(text);
-            var metrics = physFont.Metrics;
-            int h = (int)Math.Ceiling(metrics.Descent - metrics.Ascent);
-            int w = (int)Math.Ceiling(width);
+            // #172 item 2: pack the *ink* bounds, not the advance box. The old box was
+            // ceil(MeasureText) wide by ceil(descent - ascent) tall with the glyph drawn at
+            // y = round(-ascent), which silently cropped anything reaching outside it — measured in
+            // Cascadia Code at 14px, that is Ã Å Ñ Õ Ĩ Ũ losing the top row of their diacritic, ď its
+            // rightmost column and ĥ its leftmost; at 1.5x scaling, 62 glyphs in Latin-1 + Latin
+            // Extended-A. Ink bounds are exact by construction, and usually *smaller* than the advance
+            // box vertically, so the atlas also packs denser.
+            physFont.MeasureText(text, out SKRect bounds);
 
-            if (w == 0) w = 1;
+            int left;
+            int top;
+            int w;
+            int h;
+            if (bounds.IsEmpty)
+            {
+                // No ink at all (a space, or a glyph the typeface draws as nothing). A 1x1
+                // transparent sprite blits to nothing, which is the correct result and far smaller
+                // than the blank advance-width box this used to reserve.
+                left = 0;
+                top = 0;
+                w = 1;
+                h = 1;
+            }
+            else
+            {
+                left = (int)Math.Floor(bounds.Left);
+                top = (int)Math.Floor(bounds.Top);
+                w = Math.Max(1, (int)Math.Ceiling(bounds.Right) - left);
+                h = Math.Max(1, (int)Math.Ceiling(bounds.Bottom) - top);
+            }
+
+            // Pack() adds a 1px gutter, so the usable maximum is one less than the surface.
+            if (w >= GlyphAtlas.AtlasSize || h >= GlyphAtlas.AtlasSize)
+            {
+                tooLargeForAtlas = true;
+                return null;
+            }
 
             var rect = _atlas.Pack(w, h, type);
             if (rect == null) return null;
@@ -265,10 +333,11 @@ namespace NovaTerminal.Rendering
                     IsAntialias = true,
                     Color = SKColors.White,
                 };
-                canvas.DrawText(text, 0, (float)Math.Round(-metrics.Ascent), physFont, paint);
+                // Shift the pen so the ink's top-left lands on the sprite's top-left.
+                canvas.DrawText(text, -left, -top, physFont, paint);
             }, type);
 
-            return (rect.Value, type);
+            return new GlyphSprite(rect.Value, type, left, top);
         }
 
         // Reset the atlas and re-pack only the most-recently-used half of the cached glyphs,
@@ -286,12 +355,21 @@ namespace NovaTerminal.Rendering
 
             foreach (var kv in kept)
             {
-                var packed = RasterizeAndPack(kv.Key);
-                if (packed == null) break; // ran out of room again — drop the rest (coldest first)
+                var packed = RasterizeAndPack(kv.Key, out bool tooLarge);
+                if (packed == null)
+                {
+                    // An oversized glyph can never be re-packed, but the rest of the working set
+                    // still can, so skip it rather than abandoning the rebuild.
+                    if (tooLarge) continue;
+                    break; // ran out of room again — drop the rest (coldest first)
+                }
+
                 _entries[kv.Key] = new CacheEntry
                 {
                     Rect = packed.Value.Rect,
                     Type = packed.Value.Type,
+                    OffsetX = packed.Value.OffsetX,
+                    OffsetY = packed.Value.OffsetY,
                     LastUsed = kv.Value.LastUsed
                 };
             }
