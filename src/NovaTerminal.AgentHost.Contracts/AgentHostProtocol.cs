@@ -49,6 +49,21 @@ public static class AgentHostProtocol
     /// <summary>Subfolder of the recordings directory where agent-triggered exports land (A4).</summary>
     public const string AgentExportsSubdirectory = "agent-exports";
 
+    /// <summary>
+    /// Ceiling on the pixel area a single <c>captureScreen</c> may render (A5).
+    /// A pane's image is its whole grid at 1:1, so a very large window on a very
+    /// small font could otherwise ask for a bitmap of hundreds of megabytes.
+    /// </summary>
+    public const long MaxCapturePixels = 16_000_000;
+
+    /// <summary>
+    /// Ceiling on a PNG returned inline (base64 in the result frame) by
+    /// <c>captureScreen</c>. Past this the file is still written and its path
+    /// returned; only the inline copy is dropped, so one screenshot cannot
+    /// flood the caller's context or the NDJSON channel.
+    /// </summary>
+    public const int MaxInlineCaptureBytes = 3 * 1024 * 1024;
+
     /// <summary>Method names. Observe-only; later milestones append, they never repurpose.</summary>
     public static class Methods
     {
@@ -79,6 +94,15 @@ public static class AgentHostProtocol
 
         /// <summary>A3: closes a live pane by id.</summary>
         public const string CloseSession = "closeSession";
+
+        /// <summary>
+        /// A5: renders a pane's visible grid to a PNG and returns its path (plus,
+        /// on request, the image inline). Additive in protocol version 1. Observe
+        /// tier — it mutates nothing — but gated by its own default-off
+        /// screenshot sub-toggle, because an image discloses more than the text
+        /// <c>readScreen</c> returns.
+        /// </summary>
+        public const string CaptureScreen = "captureScreen";
     }
 
     /// <summary>Server-side cap on a single <c>sendInput</c> payload, in bytes (A3).</summary>
@@ -167,5 +191,19 @@ public static class AgentHostProtocol
 
         /// <summary>A3: <c>spawnSession</c> resolved a profile but the tab failed to open.</summary>
         public const string SpawnFailed = "spawnFailed";
+
+        /// <summary>
+        /// A5: <c>captureScreen</c> was called but the user has not enabled
+        /// "Agent screenshots" — the third default-off gate on top of observe, on
+        /// the same tier as <see cref="ExportDisabled"/>.
+        /// </summary>
+        public const string CaptureDisabled = "captureDisabled";
+
+        /// <summary>
+        /// A5: the session exists but cannot be rendered right now — the pane has
+        /// not been laid out and measured yet, is being torn down, or its grid
+        /// exceeds <see cref="MaxCapturePixels"/>. The message says which.
+        /// </summary>
+        public const string CaptureUnavailable = "captureUnavailable";
     }
 }

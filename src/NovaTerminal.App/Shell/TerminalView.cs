@@ -633,7 +633,7 @@ namespace NovaTerminal.Shell
         private static readonly List<SKTypeface> FallbackChain = new();
         private static bool _fallbackChainInitialized = false;
 
-        private void EnsureFallbackChain()
+        private static void EnsureFallbackChain()
         {
             if (_fallbackChainInitialized) return;
             lock (FallbackChain)
@@ -652,6 +652,22 @@ namespace NovaTerminal.Shell
                     }
                 }
                 _fallbackChainInitialized = true;
+            }
+        }
+
+        /// <summary>
+        /// The process-wide glyph fallback chain the live renderer draws with,
+        /// for <see cref="TerminalSnapshotRenderer"/>. SKTypeface instances are
+        /// immutable and already shared with every draw operation, so handing the
+        /// same ones to an off-thread capture adds no new sharing — unlike the
+        /// SKFont, which the capture allocates for itself.
+        /// </summary>
+        internal static SKTypeface[] GetSnapshotFallbackChain()
+        {
+            EnsureFallbackChain();
+            lock (FallbackChain)
+            {
+                return FallbackChain.ToArray();
             }
         }
 
@@ -678,6 +694,12 @@ namespace NovaTerminal.Shell
                 InvalidateVisual();
             }
         }
+
+        /// <summary>Ligature setting currently in effect (for snapshot capture).</summary>
+        internal bool EnableLigatures => _enableLigatures;
+
+        /// <summary>Complex-shaping setting currently in effect (for snapshot capture).</summary>
+        internal bool EnableComplexShaping => _enableComplexShaping;
 
         public int Cols => (_metrics.CellWidth > 0) ? (int)(Math.Max(0, Bounds.Width - 4) / _metrics.CellWidth) : 0;
         public int Rows => (_metrics.CellHeight > 0) ? (int)(Bounds.Height / _metrics.CellHeight) : 0;
@@ -1064,7 +1086,13 @@ namespace NovaTerminal.Shell
             return tf;
         }
 
-        private static SKTypeface ResolveMonospacePrimaryTypeface(string configuredFamily, out bool usedFallback)
+        /// <summary>
+        /// Resolves the primary monospace typeface for <paramref name="configuredFamily"/>.
+        /// Internal rather than private so <see cref="TerminalSnapshotRenderer"/> can
+        /// resolve fonts exactly the way the live control does
+        /// (<see cref="SnapshotFontResolution.LiveParity"/>).
+        /// </summary>
+        internal static SKTypeface ResolveMonospacePrimaryTypeface(string configuredFamily, out bool usedFallback)
         {
             usedFallback = false;
 

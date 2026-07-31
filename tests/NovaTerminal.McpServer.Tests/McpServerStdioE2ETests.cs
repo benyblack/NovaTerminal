@@ -18,7 +18,7 @@ public class McpServerStdioE2ETests
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(60);
 
-    // The 15 tools the server is expected to register (v0.4).
+    // Every tool the server is expected to register (v0.4).
     private static readonly string[] ExpectedToolNames =
     {
         "novaterminal.get_project_summary",
@@ -42,6 +42,7 @@ public class McpServerStdioE2ETests
         "novaterminal.get_session_status",
         "novaterminal.wait_for_events",
         "novaterminal.export_replay",
+        "novaterminal.capture_screen",
         "novaterminal.send_input",
         "novaterminal.spawn_session",
         "novaterminal.close_session",

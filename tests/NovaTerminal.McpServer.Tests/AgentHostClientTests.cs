@@ -2,6 +2,7 @@ using System.IO.Pipes;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using ModelContextProtocol.Protocol;
 using NovaTerminal.AgentHost.Contracts;
 using NovaTerminal.McpServer;
 using NovaTerminal.McpServer.Tools;
@@ -354,6 +355,71 @@ public class SessionToolsFormattingTests
         // Empty result teaches the retry cursor.
         var empty = SessionTools.FormatEvents(new WaitForEventsResult { Events = Array.Empty<AgentEventDto>(), NextSeq = 12, OldestSeq = 10 }, sinceSeq: 12);
         Assert.Contains("No events within the wait window. Call again with sinceSeq=12.", empty, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FormatCapture_reports_path_geometry_and_what_the_image_excludes()
+    {
+        var text = SessionTools.FormatCapture(new CaptureScreenResult
+        {
+            FilePath = @"C:\rec\agent-exports\nova_screen_20260731_120000_abc123.png",
+            Width = 640,
+            Height = 384,
+            Cols = 80,
+            Rows = 24,
+            ByteCount = 12_345,
+            Downscaled = false,
+        });
+
+        Assert.Contains("nova_screen_20260731_120000_abc123.png", text, StringComparison.Ordinal);
+        Assert.Contains("640x384 px for a 80x24 grid", text, StringComparison.Ordinal);
+        Assert.Contains("no window chrome", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("downscaled", text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("omitted", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void FormatCapture_flags_downscaling_and_a_dropped_inline_image()
+    {
+        var text = SessionTools.FormatCapture(new CaptureScreenResult
+        {
+            FilePath = "/tmp/shot.png",
+            Width = 160,
+            Height = 96,
+            Cols = 80,
+            Rows = 24,
+            ByteCount = 4_000_000,
+            Downscaled = true,
+            InlineOmitted = true,
+        });
+
+        Assert.Contains("downscaled from the pane's native size", text, StringComparison.Ordinal);
+        Assert.Contains("inline image was omitted", text, StringComparison.Ordinal);
+        Assert.Contains("smaller maxWidth", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CaptureScreen_rejects_a_negative_maxWidth_before_any_ipc()
+    {
+        var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
+
+        var blocks = await SessionTools.CaptureScreen(
+            client, Guid.NewGuid().ToString(), inline: false, maxWidth: -1, TestContext.Current.CancellationToken);
+
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(blocks)).Text;
+        Assert.StartsWith("Error: maxWidth must be 0", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CaptureScreen_rejects_a_malformed_pane_id_before_any_ipc()
+    {
+        var client = new AgentHostClient(Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "nothing.json"));
+
+        var blocks = await SessionTools.CaptureScreen(
+            client, "not-a-guid", inline: false, maxWidth: 0, TestContext.Current.CancellationToken);
+
+        var text = Assert.IsType<TextContentBlock>(Assert.Single(blocks)).Text;
+        Assert.Contains("is not a valid pane id", text, StringComparison.Ordinal);
     }
 
     [Fact]

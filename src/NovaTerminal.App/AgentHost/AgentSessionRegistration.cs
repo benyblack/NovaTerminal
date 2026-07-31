@@ -1,8 +1,31 @@
 using System;
+using NovaTerminal.Shell;
 using NovaTerminal.VT;
 
 namespace NovaTerminal.AgentHost
 {
+    /// <summary>A rendered pane screenshot (A5), as returned by <see cref="AgentSessionRegistration.TryCapturePng"/>.</summary>
+    public readonly record struct AgentCaptureInfo(
+        byte[] Png,
+        int Width,
+        int Height,
+        int Cols,
+        int Rows,
+        bool Downscaled);
+
+    /// <summary>Why a capture could not be produced; mapped to a protocol error code by the endpoint.</summary>
+    public enum AgentCaptureError
+    {
+        /// <summary>
+        /// The pane has no usable render state right now: it has not been laid
+        /// out and measured yet, is being torn down, or the render threw.
+        /// </summary>
+        Unavailable,
+
+        /// <summary>The pane's grid would render larger than the per-capture pixel budget.</summary>
+        TooLarge,
+    }
+
     /// <summary>
     /// One live pane's entry in <see cref="AgentSessionRegistry"/>.
     ///
@@ -264,6 +287,124 @@ namespace NovaTerminal.AgentHost
         public bool IsActive
         {
             get { lock (_gate) { return _isActive; } }
+        }
+
+        // Render inputs for captureScreen (A5), pushed by the pane on the UI
+        // thread whenever font metrics or font-related settings change. Kept as
+        // plain values under the gate for the same reason as the metadata
+        // snapshot: the endpoint renders on an IPC thread and must never read
+        // the control. Null until the pane has measured its font.
+        private PaneRenderParameters? _renderParameters;
+
+        /// <summary>Publishes the pane's current render inputs. UI thread.</summary>
+        public void UpdateRenderParameters(PaneRenderParameters parameters)
+        {
+            lock (_gate) { _renderParameters = parameters; }
+        }
+
+        /// <summary>The last published render inputs, or null when the pane has not been measured yet.</summary>
+        public PaneRenderParameters? RenderParameters
+        {
+            get { lock (_gate) { return _renderParameters; } }
+        }
+
+        /// <summary>
+        /// Renders the pane's visible grid to a PNG (A5), off the UI thread,
+        /// through the same <see cref="TerminalSnapshotRenderer"/> the golden
+        /// render tests use. <paramref name="maxWidth"/> (0 = no cap) resamples
+        /// the result down afterwards; the render itself is always 1:1 so it
+        /// cannot vary with the user's monitor scaling.
+        /// </summary>
+        public bool TryCapturePng(int maxWidth, out AgentCaptureInfo info, out AgentCaptureError error)
+        {
+            info = default;
+            error = AgentCaptureError.Unavailable;
+
+            if (RenderParameters is not { } parameters || !parameters.IsUsable)
+            {
+                return false;
+            }
+
+            var buffer = Buffer;
+            int cols, rows;
+            bool cursorVisible;
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                cols = buffer.Cols;
+                rows = buffer.Rows;
+                cursorVisible = buffer.Modes.IsCursorVisible;
+            }
+            finally
+            {
+                buffer.Lock.ExitReadLock();
+            }
+
+            if (cols <= 0 || rows <= 0)
+            {
+                return false;
+            }
+
+            // Cell metrics and grid size come from different places (the pane's
+            // last publish vs. the buffer just now), so a capture that lands
+            // between a font change and the resize it triggers pairs the new cell
+            // size with the pre-resize row/column count. That is not a torn image:
+            // the draw operation lays out exactly these rows/cols at exactly these
+            // metrics, so the content fills the canvas either way — it is the same
+            // one-frame transition the live control paints in that same window,
+            // which is what a screenshot of a resizing pane should look like.
+            var width = (int)Math.Ceiling(cols * (double)parameters.Metrics.CellWidth);
+            var height = (int)Math.Ceiling(rows * (double)parameters.Metrics.CellHeight);
+            if (width <= 0 || height <= 0)
+            {
+                return false;
+            }
+            if ((long)width * height > Contracts.AgentHostProtocol.MaxCapturePixels)
+            {
+                error = AgentCaptureError.TooLarge;
+                return false;
+            }
+
+            var options = new TerminalSnapshotOptions
+            {
+                // What the user is looking at: their font, their theme, an opaque
+                // background. Not what they have selected — a selection highlight
+                // is transient UI state, and including it would make two captures
+                // of the same output differ.
+                FontResolution = SnapshotFontResolution.LiveParity,
+                FillBackground = true,
+                TypefaceFamily = parameters.FontFamily,
+                FontSize = parameters.FontSize,
+                EnableLigatures = parameters.EnableLigatures,
+                EnableComplexShaping = parameters.EnableComplexShaping,
+
+                // Follows the buffer's cursor mode, never the control's blink
+                // phase or focus: a blinking cursor would make consecutive
+                // captures of an idle session disagree.
+                HideCursor = !cursorVisible,
+            };
+
+            try
+            {
+                using var bitmap = TerminalSnapshotRenderer.Capture(buffer, parameters.Metrics, width, height, options);
+                using var downscaled = TerminalSnapshotRenderer.DownscaleToWidth(bitmap, maxWidth);
+                var final = downscaled ?? bitmap;
+                info = new AgentCaptureInfo(
+                    TerminalSnapshotRenderer.EncodePng(final),
+                    final.Width,
+                    final.Height,
+                    cols,
+                    rows,
+                    Downscaled: downscaled != null);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // Font resolution, Skia allocation, or a torn-down buffer. The
+                // capture is a read: failing it must never take the endpoint down.
+                System.Diagnostics.Debug.WriteLine($"[AgentHost] captureScreen render failed: {ex}");
+                return false;
+            }
         }
 
         /// <summary>Atomically replaces the pane-owned metadata. Called on the UI thread by the pane.</summary>

@@ -21,9 +21,11 @@ constrained and isolated:
 are gated by explicit, default-off user opt-ins:
 
 - **Observe** (`list_sessions`, `read_screen`, `read_scrollback`, `get_session_status`,
-  `wait_for_events`, `export_replay`) requires "Agent access (observe)". Read-only.
-  `export_replay` additionally requires the "Agent replay export" sub-toggle and never records
-  typed input.
+  `wait_for_events`, `export_replay`, `capture_screen`) requires "Agent access (observe)".
+  Read-only. `export_replay` additionally requires the "Agent replay export" sub-toggle and never
+  records typed input. `capture_screen` additionally requires the "Agent screenshots" sub-toggle and
+  is recorded in the activity journal: it renders the pane offscreen from its buffer (never a screen
+  grab), so the image contains that pane's grid and nothing else.
 - **Act** (`send_input`, `spawn_session`, `close_session`) requires a *separate* "Agent access
   (act)" opt-in on top of observe; SSH sessions additionally require a per-profile allowlist. Every
   acting call — allowed or denied — is recorded in an in-app activity journal. See the threat model
@@ -120,7 +122,7 @@ tool list.
 
 The repo / dev-companion tools below are read-only and offline. The live-session tools
 (`list_sessions`, `read_screen`, `read_scrollback`, `get_session_status`, `wait_for_events`,
-`export_replay`, `send_input`, `spawn_session`, `close_session`) proxy the running app and require
+`export_replay`, `capture_screen`, `send_input`, `spawn_session`, `close_session`) proxy the running app and require
 the opt-in toggles described under **Safety posture** — the last three *act* on sessions. See
 [`docs/mcp/tools.md`](../../docs/mcp/tools.md) for the authoritative list and notes; the
 dev-companion set:

@@ -1,6 +1,6 @@
 # Agent host — known limitations
 
-Current limitations of the agent-host surface (A1–A4). None are correctness bugs
+Current limitations of the agent-host surface (A1–A5). None are correctness bugs
 in the deterministic core; they are boundaries of what the current signals can
 observe. Tracked against the DIRECTION follow-ups.
 
@@ -51,8 +51,20 @@ From `docs/agent-host/DIRECTION.md` and the milestone design docs:
 - **`Idle` transitions surface only via the 1 s sweep** — an idle transition is
   observed on the next sweep tick, not instantaneously.
 - **Replay `--replay --at <ms>` / PNG output** — A4 ships headless
-  render-to-text of the final screen; frame-stepping and image output are
-  out of scope for now (Virtual fast-forward already covers most of it).
+  render-to-text of the final screen; frame-stepping and rendering a *replay
+  file* to an image are out of scope for now (Virtual fast-forward already
+  covers most of it). Rendering a *live* pane to a PNG shipped in A5 as
+  `capture_screen`, and a replay-to-PNG path would reuse the same
+  `TerminalSnapshotRenderer`.
+- **Screenshots are the pane's grid, not the window** — `capture_screen` renders
+  the terminal grid offscreen from the buffer. That is what makes it
+  deterministic, occlusion-proof, and incapable of leaking another window into
+  the image, but it also means tab bars, the command-assist bar, split borders,
+  and any other app chrome are not in the picture. UI-level screenshots would be
+  a separate feature.
+- **Screenshots need the pane to have been measured** — a pane that has never
+  been laid out (created but never shown) has no cell geometry to render into and
+  returns `captureUnavailable`; `read_screen` works regardless.
 - **Replay ships in the app executable** — the self-contained AOT release bundle
   contains no separate `NovaTerminal.Cli`; the app exe serves `--replay <file>`
   itself (`NovaTerminal --replay …`), the same headless render as the dev CLI.

@@ -200,6 +200,24 @@ namespace NovaTerminal.Controls
                 Profile?.Id);
         }
 
+        /// <summary>
+        /// Pushes this pane's render inputs (cell metrics, font, shaping flags)
+        /// into its agent-session registration so <c>captureScreen</c> can render
+        /// the pane off the UI thread (A5). UI thread only; called whenever the
+        /// font is re-measured or settings are applied.
+        /// </summary>
+        private void UpdateAgentRenderParameters()
+        {
+            if (_agentRegistration == null) return;
+
+            _agentRegistration.UpdateRenderParameters(new NovaTerminal.Shell.PaneRenderParameters(
+                TermView.Metrics,
+                TermView.Typeface.FontFamily.Name,
+                (float)TermView.FontSize,
+                TermView.EnableLigatures,
+                TermView.EnableComplexShaping));
+        }
+
         public string GetBaseTabTitle()
         {
             if (!string.IsNullOrWhiteSpace(CurrentOscTitle))
@@ -1852,9 +1870,18 @@ namespace NovaTerminal.Controls
                     Parser.CellWidth = cwMetric;
                     Parser.CellHeight = chMetric;
                 }
+
+                // Cell geometry just changed, so the agent-host's copy of this
+                // pane's render inputs is stale (A5 captureScreen).
+                UpdateAgentRenderParameters();
             };
             TermView.MetricsChanged -= _onTermViewMetricsChanged;
             TermView.MetricsChanged += _onTermViewMetricsChanged;
+
+            // The view may already have measured its font before this subscription
+            // existed, in which case the MetricsChanged that would have published
+            // the render parameters has already been and gone.
+            UpdateAgentRenderParameters();
         }
 
         private void HandleWorkingDirectoryChanged(string cwd)
@@ -1917,6 +1944,9 @@ namespace NovaTerminal.Controls
                 if (cw > 0) Parser.CellWidth = cw;
                 if (ch > 0) Parser.CellHeight = ch;
             }
+
+            // Font family/size and shaping toggles just moved with the settings.
+            UpdateAgentRenderParameters();
         }
 
 

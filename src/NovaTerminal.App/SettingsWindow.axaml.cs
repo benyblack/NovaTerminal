@@ -1404,6 +1404,8 @@ namespace NovaTerminal
             if (agentAccessObserveToggle != null) agentAccessObserveToggle.IsChecked = _settings.AgentAccessObserveEnabled;
             var agentReplayExportToggle = this.FindControl<CheckBox>("AgentReplayExportToggle");
             if (agentReplayExportToggle != null) agentReplayExportToggle.IsChecked = _settings.AgentReplayExportEnabled;
+            var agentScreenshotToggle = this.FindControl<CheckBox>("AgentScreenshotToggle");
+            if (agentScreenshotToggle != null) agentScreenshotToggle.IsChecked = _settings.AgentScreenshotEnabled;
             var agentAccessActToggle = this.FindControl<CheckBox>("AgentAccessActToggle");
             if (agentAccessActToggle != null) agentAccessActToggle.IsChecked = _settings.AgentAccessActEnabled;
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");
@@ -1640,6 +1642,8 @@ namespace NovaTerminal
             if (agentAccessObserveToggle != null) _settings.AgentAccessObserveEnabled = agentAccessObserveToggle.IsChecked == true;
             var agentReplayExportToggle = this.FindControl<CheckBox>("AgentReplayExportToggle");
             if (agentReplayExportToggle != null) _settings.AgentReplayExportEnabled = agentReplayExportToggle.IsChecked == true;
+            var agentScreenshotToggle = this.FindControl<CheckBox>("AgentScreenshotToggle");
+            if (agentScreenshotToggle != null) _settings.AgentScreenshotEnabled = agentScreenshotToggle.IsChecked == true;
             var agentAccessActToggle = this.FindControl<CheckBox>("AgentAccessActToggle");
             if (agentAccessActToggle != null) _settings.AgentAccessActEnabled = agentAccessActToggle.IsChecked == true;
             var longCommandNotificationsToggle = this.FindControl<CheckBox>("LongCommandNotificationsToggle");

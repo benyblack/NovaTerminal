@@ -45,6 +45,7 @@ These require NovaTerminal to be **running** with the relevant opt-in enabled. G
 | `novaterminal.get_session_status` | `paneId` | What the session is doing now — running / awaitingInput / idle / exited — with a confidence tier (precise = shell-integration events; heuristic = PTY signals), in-flight command, and exit code when known. |
 | `novaterminal.wait_for_events` | `sinceSeq?`, `timeoutMs?` | Long-polls the per-session event ring for status/command events after a cursor, so an agent can await completion instead of polling. |
 | `novaterminal.export_replay` | `paneId` | Exports the session's recent output + resizes as a deterministic `.rec` file (replay with `NovaTerminal --replay <file>`). **Never records input.** Requires the additional **Agent replay export** sub-toggle. |
+| `novaterminal.capture_screen` | `paneId`, `inline?`, `maxWidth?` | Renders the pane to a PNG and returns its path (plus the image itself when `inline=true`). Rendered offscreen from the buffer, so a minimized or occluded window captures identically and no other window can leak in. Requires the additional **Agent screenshots** sub-toggle, and every capture is journaled. |
 
 ### Act — requires the separate **Agent access (act)** opt-in *on top of* observe
 
@@ -65,6 +66,10 @@ targets additionally require a per-profile allowlist.
   `generate_codex_prompt_for_issue` are fully self-contained (no filesystem access).
 - `validate_settings_json` validates the top-level settings shape and the structure of its
   collections; it does not deep-validate embedded `Profiles`/`TabTemplateRules` entries.
+- `capture_screen` renders through the same `TerminalSnapshotRenderer` the golden-PNG render tests
+  pin down, always at 1:1 (never the monitor's DPI scaling) and with no blink phase, selection, or
+  render HUD, so two captures of an unchanged buffer are byte-identical on a given machine. The
+  image is the pane's grid only — no window chrome, no other panes.
 - The live-session tools reach the app only through the zero-reference
   `NovaTerminal.AgentHost.Contracts` wire types over a per-user local IPC endpoint — the server
   still links no terminal, PTY, SSH, or rendering code.
@@ -73,5 +78,7 @@ targets additionally require a per-profile allowlist.
 
 - **`generate_test_plan_for_change`**: largely covered by `generate_codex_prompt_for_issue`
   (its "tests to update" section) and `generate_vt_test_plan`.
-- **Replay frame-stepping / image output** (`--replay --at <ms>`, PNG): `export_replay` + the
-  headless renderer cover final-screen text today; frame-by-frame and images are future work.
+- **Replay frame-stepping** (`--replay --at <ms>`): `export_replay` + the headless renderer cover
+  final-screen text today; stepping frame by frame is future work. Still images of a *live* pane are
+  covered by `capture_screen`; PNG output from a *replay* file would reuse the same
+  `TerminalSnapshotRenderer`.

@@ -111,7 +111,9 @@ Desktop, VS Code, …):
 - **Repo / dev-companion tools** — read-only and offline: project docs, VT/ANSI conformance
   data, and theme / SSH-profile / settings JSON validators.
 - **Observe** (opt-in, default off) — `list_sessions`, `read_screen`, `read_scrollback`,
-  `get_session_status`, `wait_for_events`, `export_replay`: read live sessions deterministically.
+  `get_session_status`, `wait_for_events`, `export_replay`, `capture_screen`: read live sessions
+  deterministically, as text or as a rendered PNG (screenshots need their own sub-toggle and are
+  journaled).
 - **Act** (a *separate* opt-in, on top of observe) — `send_input`, `spawn_session`,
   `close_session`: type into, open, and close sessions. SSH targets additionally require a
   per-profile allowlist, and every acting call — allowed or denied — is recorded in an in-app
@@ -219,7 +221,11 @@ Enforced invariants (`NovaTerminal.Architecture.Tests`): `VT` is a leaf with zer
   `novaterminal.export_replay` to save a session's recent output (never
   input — typed keys are not retained) as a standard `.rec` file, and anyone
   can re-render it deterministically with
-  `NovaTerminal.Cli --replay <file> [--attributes]`.
+  `NovaTerminal.Cli --replay <file> [--attributes]`. When the pixels are what
+  matter — inline images, TUI layout, a rendering bug — `novaterminal.capture_screen`
+  (its own "Agent screenshots" opt-in, also journaled) renders a pane to a PNG
+  offscreen from its buffer, so a minimized or occluded window captures
+  identically and nothing outside the pane can appear in the image.
 - **VT conformance program** — every supported VT/ANSI feature is tracked in a
   matrix; a dedicated CI lane regenerates the report and fails on regressions.
   See [`docs/vt_coverage_matrix.md`](docs/vt_coverage_matrix.md) and

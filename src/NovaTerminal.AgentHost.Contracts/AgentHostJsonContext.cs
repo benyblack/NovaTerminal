@@ -19,6 +19,8 @@ namespace NovaTerminal.AgentHost.Contracts;
 [JsonSerializable(typeof(ListSessionsResult))]
 [JsonSerializable(typeof(ReadScreenParams))]
 [JsonSerializable(typeof(ScreenSnapshotDto))]
+[JsonSerializable(typeof(CaptureScreenParams))]
+[JsonSerializable(typeof(CaptureScreenResult))]
 [JsonSerializable(typeof(ReadScrollbackParams))]
 [JsonSerializable(typeof(ReadScrollbackResult))]
 [JsonSerializable(typeof(GetSessionStatusParams))]

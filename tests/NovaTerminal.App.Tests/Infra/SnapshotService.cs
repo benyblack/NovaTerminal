@@ -1,12 +1,10 @@
 using NovaTerminal.Shell;
 using Avalonia;
-using Avalonia.Media;
 using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Rendering;
 using SkiaSharp;
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Runtime.InteropServices;
 using Xunit.Sdk;
@@ -53,46 +51,18 @@ namespace NovaTerminal.Tests.Infra
     {
         private static readonly object AvaloniaInitGate = new();
 
+        /// <summary>
+        /// Captures through the production renderer
+        /// (<see cref="TerminalSnapshotRenderer"/>), which is where this method's
+        /// body used to live. Baselines therefore pin down the same code the
+        /// agent-host <c>captureScreen</c> path and any CLI PNG output run; the
+        /// test-only knobs (Avalonia bootstrap, primitive-rendering overrides)
+        /// stay here.
+        /// </summary>
         public static SKBitmap Capture(TerminalBuffer buffer, CellMetrics metrics, int width, int height, SnapshotCaptureOptions? options = null)
         {
             options ??= new SnapshotCaptureOptions();
             EnsureAvaloniaInitialized();
-
-            var bitmap = new SKBitmap(width, height);
-            var canvas = new SKCanvas(bitmap);
-
-            var typeface = new Typeface(options.TypefaceFamily);
-            var glyphTypeface = typeface.GlyphTypeface;
-            var skTypeface = new SharedSKTypeface(SKTypeface.FromFamilyName(typeface.FontFamily.Name));
-            var skFont = new SharedSKFont(new SKFont(skTypeface.Typeface, options.FontSize));
-
-            var op = new TerminalDrawOperation(
-                new Rect(0, 0, width, height),
-                buffer,
-                scrollOffset: 0,
-                selection: options.Selection ?? new SelectionState(),
-                searchMatches: null,
-                activeSearchIndex: -1,
-                metrics: metrics,
-                typeface: typeface,
-                fontSize: options.FontSize,
-                glyphTypeface: glyphTypeface,
-                skTypeface: skTypeface,
-                skFont: skFont,
-                enableLigatures: options.EnableLigatures,
-                fallbackCache: new ConcurrentDictionary<string, SKTypeface?>(),
-                fallbackChain: Array.Empty<SKTypeface>(),
-                opacity: 1.0,
-                hideCursor: options.HideCursor,
-                renderScaling: options.RenderScaling <= 0 ? 1.0 : options.RenderScaling,
-                snapshotRows: buffer.Rows,
-                snapshotCols: buffer.Cols,
-                totalLines: buffer.TotalLines,
-                cursorRow: buffer.CursorRow,
-                cursorCol: buffer.CursorCol,
-                rowCache: options.RowCache,
-                enableComplexShaping: options.EnableComplexShaping,
-                glyphCache: options.GlyphCache);
 
             IDisposable? primitiveOverride = null;
             if (options.ForceBoxDrawingPrimitives || options.ForceBlockElementPrimitives)
@@ -104,18 +74,31 @@ namespace NovaTerminal.Tests.Infra
 
             try
             {
-                op.DrawTerminalInternal(canvas);
-                return bitmap;
+                return TerminalSnapshotRenderer.Capture(buffer, metrics, width, height, ToRendererOptions(options));
             }
             finally
             {
                 primitiveOverride?.Dispose();
-                op.Dispose();
-                skFont.Dispose();
-                skTypeface.Dispose();
-                canvas.Dispose();
             }
         }
+
+        /// <summary>
+        /// Maps the test options onto the renderer's. Everything the baselines
+        /// depend on keeps its historical value: no background fill, Skia's plain
+        /// family lookup, opacity 1.0, no fallback chain.
+        /// </summary>
+        private static TerminalSnapshotOptions ToRendererOptions(SnapshotCaptureOptions options) => new()
+        {
+            Selection = options.Selection,
+            HideCursor = options.HideCursor,
+            EnableLigatures = options.EnableLigatures,
+            EnableComplexShaping = options.EnableComplexShaping,
+            RenderScaling = options.RenderScaling,
+            TypefaceFamily = options.TypefaceFamily,
+            FontSize = options.FontSize,
+            RowCache = options.RowCache,
+            GlyphCache = options.GlyphCache,
+        };
 
         public static byte[] CapturePng(TerminalBuffer buffer, CellMetrics metrics, int width, int height, SnapshotCaptureOptions? options = null)
         {
@@ -123,12 +106,7 @@ namespace NovaTerminal.Tests.Infra
             return EncodePng(bitmap);
         }
 
-        public static byte[] EncodePng(SKBitmap bitmap)
-        {
-            using var image = SKImage.FromBitmap(bitmap);
-            using var data = image.Encode(SKEncodedImageFormat.Png, 100);
-            return data.ToArray();
-        }
+        public static byte[] EncodePng(SKBitmap bitmap) => TerminalSnapshotRenderer.EncodePng(bitmap);
 
         public static void CompareToBaseline(BaselineScope scope, string name, byte[] actualPngBytes)
         {
@@ -331,7 +309,12 @@ namespace NovaTerminal.Tests.Infra
         private static string GetTestOutputRoot()
             => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TestOutput");
 
-        private static void EnsureAvaloniaInitialized()
+        /// <summary>
+        /// Boots enough of Avalonia for font resolution. Public because callers
+        /// that use <see cref="TerminalSnapshotRenderer"/> directly (rather than
+        /// through <see cref="Capture"/>) still need the font manager up.
+        /// </summary>
+        public static void EnsureAvaloniaInitialized()
         {
             if (Application.Current != null)
             {

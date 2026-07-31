@@ -1953,10 +1953,11 @@ namespace NovaTerminal
 
             // Agent-host observe endpoint (docs/agent-host/DIRECTION.md, A1):
             // strictly no-op unless the user opted in via Settings. The replay
-            // export sub-gate (A4) and the act gate + SSH allowlist (A3) are
-            // pushed alongside so the endpoint checks the current settings on
-            // every request.
+            // export sub-gate (A4), the screenshot sub-gate (A5), and the act gate
+            // + SSH allowlist (A3) are pushed alongside so the endpoint checks the
+            // current settings on every request.
             AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
+            AgentHost.AgentHostService.Instance.ScreenshotEnabled = _settings.AgentScreenshotEnabled;
             AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
             AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
             AgentHost.AgentHostService.Instance.SetActionExecutor(this);
@@ -5054,8 +5055,10 @@ namespace NovaTerminal
                 ApplySettingsToAllTabs();
                 UpdateTransparencyHints();
                 // Live-apply the agent-host observe endpoint (no restart needed),
-                // including the A4 replay-export sub-gate and the A3 act gate.
+                // including the A4 replay-export and A5 screenshot sub-gates and
+                // the A3 act gate.
                 AgentHost.AgentHostService.Instance.ReplayExportEnabled = _settings.AgentReplayExportEnabled;
+                AgentHost.AgentHostService.Instance.ScreenshotEnabled = _settings.AgentScreenshotEnabled;
                 AgentHost.AgentHostService.Instance.ActEnabled = _settings.AgentAccessActEnabled;
                 AgentHost.AgentHostService.Instance.SetSshProfileAllowlist(IsSshProfileAgentAllowed);
                 AgentHost.AgentHostService.Instance.SetActionExecutor(this);
