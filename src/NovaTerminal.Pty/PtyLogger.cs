@@ -33,8 +33,23 @@ namespace NovaTerminal.Pty
     /// </remarks>
     public static class PtyLogger
     {
-        /// <summary>Receives every message at or above <see cref="MinimumLevel"/>. Null discards.</summary>
-        public static Action<PtyLogLevel, string>? Sink { get; set; }
+        /// <summary>
+        /// Receives every message at or above <see cref="MinimumLevel"/>. Never null by default.
+        /// </summary>
+        /// <remarks>
+        /// Defaults to the console rather than to nothing, which review of #244 caught: a null default
+        /// would have fixed the GUI (which replaces this) while making every *other* consumer worse than
+        /// before — PTY diagnostics in the test host and in any library use previously reached a real
+        /// console and would have started disappearing instead.
+        ///
+        /// The console is the right default precisely because it is only wrong when no console exists,
+        /// and the one host in that position sets its own sink at startup before any session is created.
+        /// This is also the only place in the PTY layer allowed to name <c>Console</c>: the guard in
+        /// <c>DiagnosticSinkTests</c> exists to stop *call sites* choosing a destination, and funnelling
+        /// that choice into a single documented default is what it is funnelling them towards.
+        /// </remarks>
+        public static Action<PtyLogLevel, string>? Sink { get; set; } =
+            static (level, message) => Console.Error.WriteLine(level == PtyLogLevel.Info ? message : $"[{level}] {message}");
 
         public static PtyLogLevel MinimumLevel { get; set; } = PtyLogLevel.Debug;
 

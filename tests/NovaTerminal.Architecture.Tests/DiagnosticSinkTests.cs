@@ -29,6 +29,21 @@ public class DiagnosticSinkTests
         "NovaTerminal.Conformance",
     ];
 
+    /// <summary>
+    /// The single file allowed to name <c>Console</c> outside the console tools.
+    /// </summary>
+    /// <remarks>
+    /// <c>PtyLogger</c> *is* the destination decision. The rule this test enforces is that call sites do
+    /// not each pick a destination; a logging sink's documented default is where that choice belongs, and
+    /// its default has to be the console so that hosts which have one keep seeing PTY diagnostics.
+    /// Deliberately a one-element list, and <see cref="Only_PtyLogger_is_exempt_from_the_console_rule"/>
+    /// keeps it that way.
+    /// </remarks>
+    private static readonly string[] SinkImplementationFiles =
+    [
+        "PtyLogger.cs",
+    ];
+
     private static string RepoRoot()
     {
         DirectoryInfo? dir = new(AppContext.BaseDirectory);
@@ -59,6 +74,11 @@ public class DiagnosticSinkTests
 
             if (ConsoleToolProjects.Any(p =>
                     file.Contains($"{Path.DirectorySeparatorChar}{p}{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            if (SinkImplementationFiles.Contains(Path.GetFileName(file), StringComparer.Ordinal))
             {
                 continue;
             }
@@ -100,6 +120,22 @@ public class DiagnosticSinkTests
             .Sum(f => Regex.Count(File.ReadAllText(f), @"Console\s*\.", RegexOptions.None, TimeSpan.FromSeconds(5)));
 
         Assert.True(writes > 0, "expected the conformance tool to print to stdout; the exclusion list may be stale");
+    }
+
+    [Fact]
+    public void Only_PtyLogger_is_exempt_from_the_console_rule()
+    {
+        // An exemption list is how a guard like this rots. One entry, asserted.
+        Assert.Equal(["PtyLogger.cs"], SinkImplementationFiles);
+    }
+
+    [Fact]
+    public void PtyLogger_has_a_sink_by_default()
+    {
+        // Review of #244: a null default would have fixed the GUI while making every other consumer
+        // worse, since PTY diagnostics in the test host previously reached a real console. The GUI
+        // replaces this before creating any session.
+        Assert.NotNull(PtyLogger.Sink);
     }
 
     [Fact]
