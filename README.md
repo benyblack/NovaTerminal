@@ -347,6 +347,15 @@ current known-issues backlog.
 
 ---
 
+### Acknowledgements
+
+Thanks to [**Greptile**](https://www.greptile.com/) for granting NovaTerminal
+free access to their AI code review as an open source project. It reviews every
+pull request here, and that extra pair of eyes is a real help on a codebase
+where correctness is the whole point.
+
+---
+
 ## Philosophy
 
 NovaTerminal aims to be:
