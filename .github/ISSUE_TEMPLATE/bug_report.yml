@@ -1,0 +1,95 @@
+name: Bug report
+description: Something renders, behaves, or crashes wrongly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. For a terminal emulator the single most useful
+        thing you can give us is **a way to reproduce it deterministically** —
+        an escape sequence, a `printf`, or a command that triggers it.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see?
+      placeholder: |
+        Wide CJK characters leave a gap after a resize.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: How to reproduce
+      description: |
+        Ideally a command or escape sequence we can paste. Byte-level is best —
+        e.g. `printf '\e[3;1H\e[2Khello'`. If it only reproduces inside a
+        specific TUI program, name it and its version.
+      placeholder: |
+        1. printf '\e[?1049h'
+        2. Resize the window narrower than the content
+        3. printf '\e[?1049l'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: other-terminals
+    attributes:
+      label: Does it reproduce in another terminal?
+      description: |
+        This one distinction saves a lot of triage — it tells us whether the
+        bug is ours or upstream in the program you are running.
+      options:
+        - "No — NovaTerminal only (works correctly elsewhere)"
+        - "Yes — other terminals do the same thing"
+        - "Haven't checked"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and version
+      placeholder: "Windows 11 26200 / Ubuntu 24.04 / macOS 15.3 (arm64)"
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: NovaTerminal version or commit
+      description: |
+        The release bundle version, or `git rev-parse --short HEAD` if you built
+        from source.
+      placeholder: "0.4.0 or 8f2e416"
+    validations:
+      required: true
+
+  - type: input
+    id: shell
+    attributes:
+      label: Shell
+      description: Include whether it is local, over SSH, or under WSL.
+      placeholder: "pwsh 7.5 (local) / bash 5.2 over SSH / zsh under WSL2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: |
+        Screenshots or a screen recording help for rendering bugs. Crash?
+        Include the stack trace. If you have a replay recording of the session,
+        attach it — that is the fastest possible repro.
+    validations:
+      required: false

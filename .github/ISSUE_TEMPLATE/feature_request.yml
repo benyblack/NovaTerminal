@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest a capability NovaTerminal does not have yet
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        NovaTerminal prioritises correctness over feature velocity, so feature
+        work is gated on the roadmap phases in
+        [`docs/ROADMAP.md`](https://github.com/benyblack/NovaTerminal/blob/main/docs/ROADMAP.md).
+        A good request tells us the problem first — that often surfaces a better
+        solution than the one either of us started with.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you hitting?
+      description: The workflow that is awkward or impossible today.
+      placeholder: |
+        I work over SSH and cannot copy command output back to my local
+        clipboard without a mouse selection.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: |
+        If there is prior art — how xterm, kitty, WezTerm, Windows Terminal or
+        Ghostty does it — say so. Matching an existing convention is usually
+        preferred over inventing one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for this
+          required: true
+        - label: I am willing to work on this myself (optional, but say so — we will help)
+          required: false

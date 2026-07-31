@@ -14,7 +14,7 @@ invariant changes.
 
 ## NovaTerminal.VT (`src/NovaTerminal.VT/`)
 
-**Namespace:** `NovaTerminal.VT` (+ `.Export`, `.Storage` sub-namespaces)
+**Namespace:** `NovaTerminal.VT` (+ `.Export`, `.Links`, `.Storage` sub-namespaces)
 **Depends on:** *(leaf — only BCL)*
 **Public surface:** `AnsiParser`, `TerminalBuffer`, `TerminalRow`, `TerminalCell`, `BufferSnapshot`, `RenderSnapshots.*`, `ReplayModels.*`, `TerminalTheme`, `UnicodeWidth`
 
@@ -34,7 +34,7 @@ invariant changes.
 - **Lock re-entrancy contract:** `Lock` is a non-recursive `ReaderWriterLockSlim`. `EnterReadLockIfNeeded()` returns `false` (and acquires nothing) when a read *or* write lock is already held. `EnterWriteLockIfNeeded()` returns `false` only when a *write* lock is already held — calling it while holding a read lock throws `LockRecursionException` (upgrading is not supported), it does **not** return `false`. Both return `true` when they actually acquired the lock. The returned `bool` says *whether this call took the lock* — callers must pass it to the matching `Exit…IfNeeded(..., lockTaken)` and must **not** unlock when it is `false`. Treating a `false` return as "lock acquired" double-unlocks (or unlocks a caller's outer lock).
 - **`GetRowAbsolute()` null contract:** returns `null` for any absolute row that has no persistent `TerminalRow` — including **paged-out scrollback rows** (scrollback lives in `ScrollbackPages`, not as row objects), out-of-range rows, and negative indices. To read scrollback content use the cell/grapheme accessors (`GetCellAbsolute`, `GetGraphemeAbsolute`), which page it in; callers that assume a non-null row for scrollback indices will NRE.
 - No OS, PTY, rendering, or UI logic in this assembly (`Vt_must_be_a_leaf_assembly` arch test)
-- All types in `NovaTerminal.VT.*` namespace (`All_VT_types_use_NovaTerminal_VT_namespace`)
+- All types in `NovaTerminal.VT.*` namespace (`Leaf_assembly_types_reside_in_its_own_namespace`, `NamespaceAlignmentTests.cs`)
 
 **Test authority**
 - Primary: `tests/NovaTerminal.VT.Tests/`
@@ -61,7 +61,7 @@ invariant changes.
 - Snapshot format is forward-compatible within v2
 
 **Test authority**
-- `tests/NovaTerminal.Core.Tests/Replay/`
+- `tests/NovaTerminal.Platform.Tests/Replay/`
 - `tests/NovaTerminal.App.Tests/ReplayTests/`
 - `tests/NovaTerminal.App.Tests/Regressions/` (Midnight Commander, regression suite)
 
@@ -91,7 +91,7 @@ invariant changes.
 - Renderer metrics: `tests/NovaTerminal.App.Tests/RenderTests/RendererMetricsTests.cs`
 - Golden PNG comparisons: `tests/NovaTerminal.App.Tests/RenderTests/GoldenSharedPngTests.cs`, `GoldenFontPngTests.cs`
 
-> **Note:** Today the Avalonia renderer composition (`TerminalView`, `TerminalDrawOperation`) lives in `src/NovaTerminal.App/Core/` — see `docs/ARCHITECTURE.md` § 14 Known Tech Debt.
+> **Note:** Today the Avalonia renderer composition (`TerminalView`, `TerminalDrawOperation`) lives in `src/NovaTerminal.App/Shell/` — see `docs/ARCHITECTURE.md` § 14 Known Tech Debt, tracked as #113.
 
 ---
 
@@ -119,9 +119,9 @@ invariant changes.
 
 ---
 
-## NovaTerminal.Core (`src/NovaTerminal.Core/`)
+## NovaTerminal.Platform (`src/NovaTerminal.Platform/`)
 
-**Namespace:** `NovaTerminal.Core` (+ `.Input`, `.Paths`, `.Process`, `.Execution`, plus the SSH sub-tree)
+**Namespace:** `NovaTerminal.Platform` (+ `.Input`, `.Paths`, `.Execution`, plus the SSH sub-tree)
 **Depends on:** Pty
 **Public surface:** `TerminalInputSender`, path mappers, process abstractions, the SSH stack (`Ssh/{Interactions,Launch,Models,Native,OpenSsh,Sessions,Storage,Transport}`)
 
@@ -133,31 +133,78 @@ invariant changes.
 - Future home of `SessionBufferBinder` and other session-orchestration helpers
 
 **Invariants**
-- Name is a historical artifact — this is NOT the terminal engine (that's VT). Rename to `NovaTerminal.Platform` is a planned follow-up.
+- This is NOT the terminal engine (that's VT). Renamed from `NovaTerminal.Core` in #76 to end the three-way "Core" name overload.
 - No Avalonia or Skia in the dependency closure
 - SSH transports must satisfy `IRemoteTerminalTransport` so all SSH session implementations are interchangeable
 
 **Test authority**
-- Primary: `tests/NovaTerminal.Core.Tests/`
-- Docker-gated E2E: `tests/NovaTerminal.Core.Tests/Ssh/NativeSshDockerE2eTests.cs` (skipped without Docker)
+- Primary: `tests/NovaTerminal.Platform.Tests/`
+- Docker-gated E2E: `tests/NovaTerminal.Platform.Tests/Ssh/NativeSshDockerE2eTests.cs` (skipped without Docker)
 - App-side integration: `tests/NovaTerminal.App.Tests/Ssh/`, `tests/NovaTerminal.App.Tests/Input/`
+
+---
+
+## NovaTerminal.AgentHost.Contracts (`src/NovaTerminal.AgentHost.Contracts/`)
+
+**Namespace:** `NovaTerminal.AgentHost.Contracts`
+**Depends on:** *(leaf — only BCL)*
+**Public surface:** `AgentHostProtocol`, `AgentHostDiscovery`, `AgentHostJsonContext`, `Frames.*`, and the contract DTO groups (`ActContracts`, `SessionContracts`, `StatusContracts`, `ReplayContracts`)
+
+**Owns**
+- The wire protocol between the app's agent host and any external client (today: the MCP server)
+- Frame definitions, discovery, and the source-generated JSON serialization context
+
+**Invariants** (enforced by `AgentHostContracts_must_be_a_leaf_assembly` and `AgentHostContracts_csproj_must_have_no_project_references`)
+- Leaf assembly — no project references at all, so both sides of the wire can depend on it without pulling in a dependency graph
+- Shared by App and McpServer: a breaking change here breaks the agent integration on both sides at once. Version the protocol rather than redefining a frame in place.
+
+**Test authority**
+- `tests/NovaTerminal.McpServer.Tests/AgentHostClientTests.cs`
+- End-to-end over real stdio: `tests/NovaTerminal.McpServer.Tests/McpServerStdioE2ETests.cs`
+
+---
+
+## NovaTerminal.McpServer (`src/NovaTerminal.McpServer/`)
+
+**Namespace:** `NovaTerminal.McpServer` (+ `.Tools`)
+**Depends on:** AgentHost.Contracts
+**Public surface:** `Program` (stdio entry point), `AgentHostClient`, `RepoContext`, and the tool groups under `Tools/` (`SessionTools`, `VtTools`, `ThemeTools`, `SettingsTools`, `ConnectionProfileTools`, `ProjectTools`, `WorkflowTools`)
+
+**Owns**
+- The opt-in MCP server that lets external agents observe live terminal sessions, and — behind a separate opt-in — drive them
+- Tool schemas exposed over MCP, and their validation of caller input
+- Talking to the running app through `AgentHostClient` over the AgentHost protocol
+
+**Invariants**
+- **Does not reference App, VT, Pty, or Rendering.** It is a client of the running app over the wire, not an in-process consumer — so it can never reach into terminal state directly.
+- Observe and act are separately gated. A tool that mutates session state belongs behind the act opt-in.
+- Tool schemas are part of the public contract: `ConnectionProfileDriftGuardTests` exists to catch schema drift against the app's real profile shape.
+
+**Test authority**
+- Primary: `tests/NovaTerminal.McpServer.Tests/`
+- Schema-drift guard: `ConnectionProfileDriftGuardTests.cs`
+- Stdio end-to-end: `McpServerStdioE2ETests.cs`
+
+> **Note:** the dev companion runs the server from `bin/`, so a connected client
+> can hold a lock that blocks repo builds — tracked as #211. See
+> `docs/mcp-dev-companion.md`.
 
 ---
 
 ## NovaTerminal.App (`src/NovaTerminal.App/`)
 
 **Namespace:** `NovaTerminal` (NOT `NovaTerminal.App` — see test-root-namespace note in `NovaTerminal.App.Tests`)
-**Depends on:** Core, VT, Rendering, Pty, Replay, Avalonia 12.0.4, SkiaSharp 3.119.4
+**Depends on:** Platform, VT, Rendering, Pty, Replay, AgentHost.Contracts, Avalonia 12.0.4, SkiaSharp 3.119.4
 **Public surface:** `App`, `MainWindow`, `TerminalPane`, settings window, theme manager, command palette, command-assist controller, profile importers, startup orchestrator
 
 **Owns**
 - Avalonia UI: windows, controls, view-models
-- The currently-in-App renderer composition: `Core/TerminalView.cs`, `Core/TerminalDrawOperation.cs` (slated to move to Rendering)
+- The currently-in-App renderer composition: `Shell/TerminalView.cs`, `Shell/TerminalDrawOperation.cs` (slated to move to Rendering — #113)
 - Theme management and bundled fonts
 - Profile import/export (Alacritty, iTerm2, Windows Terminal)
 - Command palette and shortcuts
 - CommandAssist (full sub-architecture under `CommandAssist/{Application,Domain,Models,Storage,ShellIntegration,ViewModels,Views}`)
-- Startup orchestration (eight `Startup*.cs` files in `Core/`)
+- Startup orchestration (seven `Startup*.cs` files in `Shell/`)
 - Workspace and session lifecycle
 - SSH UI: connection manager, transfer center, remote files sidebar, vault, sftp service, ssh-askpass
 
@@ -192,7 +239,7 @@ invariant changes.
 
 **Test authority**
 - `tests/NovaTerminal.App.Tests/VtReportCliTests.cs`
-- `tests/NovaTerminal.App.Tests/Core/CliConsoleBindingsTests.cs`
+- Console-output rules for CLI vs GUI assemblies: `tests/NovaTerminal.Architecture.Tests/DiagnosticSinkTests.cs`
 
 ---
 
@@ -212,7 +259,7 @@ invariant changes.
 - The shipped `vt-conformance-report.json` artifact's `matrixSha256` must match a fresh re-run on `vt_coverage_matrix.md` — verified by `tests/NovaTerminal.App.Tests/VtReportCliTests.ShippedArtifact_MatchesFreshToolOutput`
 
 **Test authority**
-- `tests/NovaTerminal.Core.Tests/Conformance/VtConformanceToolTests.cs`
+- `tests/NovaTerminal.Platform.Tests/Conformance/VtConformanceToolTests.cs`
 - `tests/NovaTerminal.App.Tests/VtReportCliTests.cs`
 
 ---
@@ -223,13 +270,23 @@ invariant changes.
 
 **Owns** the layering and namespace-alignment rules. Adding a new architectural invariant means adding a fact here. See `docs/ARCHITECTURE.md` § 12 for the current enforced rule set.
 
+Four files, by concern:
+- `LayeringTests.cs` — assembly-level dependency rules (`Vt_must_be_a_leaf_assembly`, `Pty_must_not_depend_on_Vt`, …)
+- `ProjectFileLayeringTests.cs` — the same rules asserted against the `.csproj` files, so a stray `ProjectReference` fails even if no code uses it yet
+- `NamespaceAlignmentTests.cs` — one assembly, one namespace prefix
+- `DiagnosticSinkTests.cs` — GUI and library code must not write diagnostics to the console; CLI tools may
+
 ### `tests/NovaTerminal.VT.Tests/` + `tests/NovaTerminal.Rendering.Tests/`
 
 **Own** the fast unit suites for VT and Rendering — designed to run in seconds, no Avalonia in the dependency closure, suitable for tight inner-loop iteration.
 
-### `tests/NovaTerminal.Core.Tests/` + `tests/NovaTerminal.App.Tests/`
+### `tests/NovaTerminal.Platform.Tests/` + `tests/NovaTerminal.App.Tests/`
 
-**Own** integration coverage. Core.Tests is the SSH + platform-utilities suite; App.Tests is the full Avalonia-headless integration suite (replay regressions, golden PNGs, command-assist harnesses, shell-integration tests).
+**Own** integration coverage. Platform.Tests is the SSH + platform-utilities suite; App.Tests is the full Avalonia-headless integration suite (replay regressions, golden PNGs, command-assist harnesses, shell-integration tests).
+
+### `tests/NovaTerminal.McpServer.Tests/`
+
+**Owns** the MCP tool surface: tool behaviour, input validation, the connection-profile schema-drift guard, and a stdio end-to-end test that exercises the real protocol rather than a mock.
 
 ### `tests/NovaTerminal.Benchmarks/` + `tests/NovaTerminal.ExternalSuites/`
 
