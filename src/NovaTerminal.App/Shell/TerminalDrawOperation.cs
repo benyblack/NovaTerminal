@@ -1314,7 +1314,11 @@ namespace NovaTerminal.Shell
 
                         int cellX = c;
                         float yBaselineSnap = baselineYDip;
-                        float glyphY = FromDevicePx(ToDevicePx(yBaselineSnap + font.Metrics.Ascent));
+                        // #172 item 2: the sprite's position now comes from the atlas entry's own ink
+                        // bearing rather than from the font's ascent, so there is no single per-run
+                        // glyph Y any more. Snapping to the device-pixel grid still happens, just per
+                        // glyph and against the baseline.
+                        int baselineDevicePx = ToDevicePx(yBaselineSnap);
                         float invScale = (float)(1.0 / _renderScaling);
                         _blockFillPaint.Color = fg;
                         _blockFillPaint.Style = SKPaintStyle.Fill;
@@ -1474,15 +1478,21 @@ namespace NovaTerminal.Shell
 
                             if (cached != null)
                             {
-                                var (rect, type) = cached.Value;
-                                var xform = SKRotationScaleMatrix.Create(invScale, 0, xIdxSnap, glyphY, 0, 0);
-                                if (type == AtlasType.Alpha8)
+                                var sprite = cached.Value;
+
+                                // Offsets are integer device pixels from the pen origin, and both
+                                // xIdxSnap and the baseline are already on the device-pixel grid, so
+                                // the sprite stays pixel-aligned and therefore sharp.
+                                float spriteX = FromDevicePx(ToDevicePx(xIdxSnap) + sprite.OffsetX);
+                                float spriteY = FromDevicePx(baselineDevicePx + sprite.OffsetY);
+                                var xform = SKRotationScaleMatrix.Create(invScale, 0, spriteX, spriteY, 0, 0);
+                                if (sprite.Type == AtlasType.Alpha8)
                                 {
-                                    AddAlphaBatchEntry(rect, xform, fg);
+                                    AddAlphaBatchEntry(sprite.Rect, xform, fg);
                                 }
                                 else
                                 {
-                                    AddColorBatchEntry(rect, xform);
+                                    AddColorBatchEntry(sprite.Rect, xform);
                                 }
                             }
                             else
