@@ -38,6 +38,50 @@ namespace NovaTerminal.Rendering
             _palette[7] = new SixelColor(255, 255, 255);
         }
 
+        internal static (byte R, byte G, byte B) HlsToRgb(int hue, int lightness, int saturation)
+        {
+            hue = Math.Clamp(hue, 0, 360);
+            lightness = Math.Clamp(lightness, 0, 100);
+            saturation = Math.Clamp(saturation, 0, 100);
+
+            double l = lightness / 100.0;
+            double s = saturation / 100.0;
+
+            if (s == 0)
+            {
+                byte value = ToByte(l);
+                return (value, value, value);
+            }
+
+            double h = ((hue + 240) % 360) / 360.0;
+            double q = l < 0.5
+                ? l * (1 + s)
+                : l + s - (l * s);
+            double p = (2 * l) - q;
+
+            return (
+                ToByte(HueToRgb(p, q, h + (1.0 / 3.0))),
+                ToByte(HueToRgb(p, q, h)),
+                ToByte(HueToRgb(p, q, h - (1.0 / 3.0))));
+        }
+
+        private static double HueToRgb(double p, double q, double hue)
+        {
+            if (hue < 0) hue += 1;
+            if (hue > 1) hue -= 1;
+
+            if (hue < 1.0 / 6.0) return p + ((q - p) * 6 * hue);
+            if (hue < 1.0 / 2.0) return q;
+            if (hue < 2.0 / 3.0) return p + ((q - p) * ((2.0 / 3.0) - hue) * 6);
+            return p;
+        }
+
+        private static byte ToByte(double channel)
+        {
+            int percentage = Math.Clamp((int)(channel * 100), 0, 100);
+            return (byte)((percentage * 255 + 50) / 100);
+        }
+
         public SKBitmap? Decode(string dcs)
         {
             // dcs is everything between 'q' and 'ST'
@@ -96,10 +140,10 @@ namespace NovaTerminal.Rendering
                                         (byte)(p2 * 255 / 100),
                                         (byte)(p3 * 255 / 100));
                                 }
-                                else if (type == 1) // HLS (simplified conversion)
+                                else if (type == 1)
                                 {
-                                    // TODO: Full HLS to RGB conversion if needed
-                                    _palette[idx] = new SixelColor(200, 200, 200);
+                                    var (r, g, b) = HlsToRgb(p1, p2, p3);
+                                    _palette[idx] = new SixelColor(r, g, b);
                                 }
                             }
                         }
