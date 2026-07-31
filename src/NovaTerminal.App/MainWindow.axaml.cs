@@ -4366,9 +4366,25 @@ namespace NovaTerminal
             CommandRegistry.Register("SFTP: Download Folder...", "Remote", () => _ = InitiateSftpTransfer(null, TransferDirection.Download, TransferKind.Folder), "");
             CommandRegistry.Register("SFTP: Show Transfers", "Remote", () => ToggleTransferCenter(), "");
 
-            // Themes
-            CommandRegistry.Register("Theme: Solarized Dark", "Theme", () => { _settings.ThemeName = "Solarized Dark"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
-            CommandRegistry.Register("Theme: Default Dark", "Theme", () => { _settings.ThemeName = "Default (Dark)"; ApplyThemeToUI(); ApplySettingsToAllTabs(); _settings.Save(); }, "");
+            // Themes: one entry per installed theme (built-in + imported), so the
+            // palette never drifts from what the Settings theme list offers.
+            foreach (var themeName in _settings.ThemeManager.GetAvailableThemes()
+                         .OrderBy(t => t, StringComparer.OrdinalIgnoreCase))
+            {
+                CommandRegistry.Register(
+                    $"Theme: {themeName}",
+                    "Theme",
+                    () =>
+                    {
+                        _settings.ThemeName = themeName;
+                        _settings.RefreshActiveTheme();
+                        ApplyThemeToUI();
+                        ApplySettingsToAllTabs();
+                        _settings.Save();
+                    },
+                    "",
+                    $"theme:{themeName}");
+            }
 
             // Cursor UX
             CommandRegistry.Register("Cursor: Block", "View", () => { _settings.CursorStyle = "Block"; ApplySettingsToAllTabs(); _settings.Save(); }, "");
