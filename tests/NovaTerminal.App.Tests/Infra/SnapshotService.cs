@@ -25,8 +25,13 @@ namespace NovaTerminal.Tests.Infra
         public bool HideCursor { get; init; }
         public bool EnableLigatures { get; init; }
         public bool EnableComplexShaping { get; init; } = true;
-        public bool ForceBoxDrawingPrimitives { get; init; }
-        public bool ForceBlockElementPrimitives { get; init; }
+        /// <summary>
+        /// Tri-state primitive overrides. <c>null</c> uses the shipping default, <c>true</c> forces the
+        /// primitive path, <c>false</c> forces font-glyph rendering. Explicit <c>false</c> matters now
+        /// that primitives are the default — it is the only way to keep the font path under test.
+        /// </summary>
+        public bool? ForceBoxDrawingPrimitives { get; init; }
+        public bool? ForceBlockElementPrimitives { get; init; }
         public double RenderScaling { get; init; } = 1.0;
         public string TypefaceFamily { get; init; } = "Cascadia Code PL, CaskaydiaCove Nerd Font, Cascadia Code, Consolas, Monospace";
         public float FontSize { get; init; } = 14f;
@@ -95,11 +100,13 @@ namespace NovaTerminal.Tests.Infra
                 glyphCache: options.GlyphCache);
 
             IDisposable? primitiveOverride = null;
-            if (options.ForceBoxDrawingPrimitives || options.ForceBlockElementPrimitives)
+            if (options.ForceBoxDrawingPrimitives.HasValue || options.ForceBlockElementPrimitives.HasValue)
             {
                 primitiveOverride = TerminalDrawOperation.PushPrimitiveRenderingOverrideForTests(
-                    useBoxDrawingPrimitives: options.ForceBoxDrawingPrimitives,
-                    useBlockElementPrimitives: options.ForceBlockElementPrimitives);
+                    useBoxDrawingPrimitives: options.ForceBoxDrawingPrimitives
+                        ?? TerminalDrawOperation.DefaultBoxDrawingPrimitivesEnabledForTests,
+                    useBlockElementPrimitives: options.ForceBlockElementPrimitives
+                        ?? TerminalDrawOperation.DefaultBlockElementPrimitivesEnabledForTests);
             }
 
             try

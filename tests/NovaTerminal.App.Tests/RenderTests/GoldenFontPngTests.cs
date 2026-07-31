@@ -85,6 +85,41 @@ namespace NovaTerminal.Tests.RenderTests
             SnapshotService.CompareToBaseline(BaselineScope.OS, "font/ComplexShaping", pngBytes);
         }
 
+        /// <summary>
+        /// Box drawing with primitives explicitly OFF, i.e. rendered from font glyphs.
+        /// </summary>
+        /// <remarks>
+        /// Primitives are the shipping default, so without this the font path has no coverage at all —
+        /// which is how the dashed-vertical-border regression stayed invisible to CI while every
+        /// existing box golden forced primitives on. Font-dependent by nature, hence OS-scoped and
+        /// gated on font availability. Compare against shared/BoxDrawingGridPrimitives, which renders
+        /// the identical buffer through the primitive path.
+        /// </remarks>
+        [FontGoldenFact("Cascadia Code PL", "CaskaydiaCove Nerd Font", "Cascadia Code", "Consolas")]
+        public void GoldenFontPng_BoxDrawingGridFontGlyphs_MatchBaseline()
+        {
+            const int cols = 32;
+            const int rows = 7;
+            var buffer = CreateThemedBuffer(cols, rows);
+            var parser = new AnsiParser(buffer);
+
+            parser.Process("┌────────┬────────┐\r\n");
+            parser.Process("│        │        │\r\n");
+            parser.Process("├────────┼────────┤\r\n");
+            parser.Process("│        │        │\r\n");
+            parser.Process("└────────┴────────┘\r\n");
+            parser.Process("╔══════╦══════╗\r\n");
+            parser.Process("╚══════╩══════╝");
+
+            byte[] pngBytes = SnapshotService.CapturePng(buffer, Metrics, WidthFor(cols), HeightFor(rows), new SnapshotCaptureOptions
+            {
+                ForceBoxDrawingPrimitives = false,
+                HideCursor = true
+            });
+
+            SnapshotService.CompareToBaseline(BaselineScope.OS, "font/BoxDrawingGridFontGlyphs", pngBytes);
+        }
+
         private static TerminalBuffer CreateThemedBuffer(int cols, int rows)
         {
             return new TerminalBuffer(cols, rows)

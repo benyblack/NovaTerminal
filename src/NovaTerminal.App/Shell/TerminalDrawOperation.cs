@@ -57,7 +57,11 @@ namespace NovaTerminal.Shell
         private static readonly bool GlyphDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GLYPH");
         private static readonly bool GridDiagnosticsEnabled = IsEnvFlagEnabled("NOVATERM_DIAG_GRID");
         private static readonly bool ForceKnownGoodBoxFont = IsEnvFlagEnabled("NOVATERM_FORCE_BOX_FONT");
-        private static readonly bool UseBoxDrawingPrimitives = IsEnvFlagEnabled("NOVATERM_BOX_PRIMITIVES");
+        // On by default: font-supplied box glyphs do not span the full cell height on most
+        // installed fonts, leaving a gap at every row boundary so vertical borders render as
+        // dashed ladders. The primitive path fills cell-edge to cell-edge. Set
+        // NOVATERM_BOX_PRIMITIVES=0 to fall back to font glyphs.
+        private static readonly bool UseBoxDrawingPrimitives = IsEnvFlagEnabled("NOVATERM_BOX_PRIMITIVES", defaultValue: true);
         private static readonly bool UseBlockElementPrimitives = IsEnvFlagEnabled("NOVATERM_BLOCK_PRIMITIVES");
         private static readonly AsyncLocal<TestPrimitiveRenderOverride?> PrimitiveRenderOverrideForTests = new();
         private static readonly ConcurrentDictionary<string, byte> GlyphDiagOnce = new();
@@ -1426,9 +1430,14 @@ namespace NovaTerminal.Shell
                                     continue;
                                 }
 
+                                // Only flush the text batch for code points the primitive path can
+                                // actually draw. The 0x2500-0x257F block is much wider than our
+                                // segment table (dashed variants, mixed-weight joins, diagonals), and
+                                // flushing for those cost a batch break and then fell through to the
+                                // font anyway.
                                 if (IsBoxDrawingPrimitiveRenderingEnabled() &&
                                     TryGetSingleRuneCodePoint(grapheme, out int cpBox) &&
-                                    cpBox >= 0x2500 && cpBox <= 0x257F)
+                                    IsHandledBoxDrawingCodepoint(cpBox))
                                 {
                                     FlushBatches(canvas);
                                     if (TryDrawBoxDrawingGlyph(canvas, grapheme, cellX1, rowTopYDip, cellW, cellH, fg))
@@ -1600,6 +1609,19 @@ namespace NovaTerminal.Shell
             return raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Reads a flag that is on unless explicitly disabled. Unset keeps <paramref name="defaultValue"/>;
+        /// "0"/"false" turns it off, "1"/"true" turns it on. Unrecognised values keep the default.
+        /// </summary>
+        private static bool IsEnvFlagEnabled(string name, bool defaultValue)
+        {
+            string? raw = Environment.GetEnvironmentVariable(name);
+            if (string.IsNullOrWhiteSpace(raw)) return defaultValue;
+            if (raw == "1" || string.Equals(raw, "true", StringComparison.OrdinalIgnoreCase)) return true;
+            if (raw == "0" || string.Equals(raw, "false", StringComparison.OrdinalIgnoreCase)) return false;
+            return defaultValue;
+        }
+
         private static bool IsBoxDrawingPrimitiveRenderingEnabled()
         {
             TestPrimitiveRenderOverride? overrideFlags = PrimitiveRenderOverrideForTests.Value;
@@ -1611,6 +1633,12 @@ namespace NovaTerminal.Shell
             TestPrimitiveRenderOverride? overrideFlags = PrimitiveRenderOverrideForTests.Value;
             return overrideFlags?.UseBlockElementPrimitives ?? UseBlockElementPrimitives;
         }
+
+        /// <summary>Ambient default, so a test override can pin one primitive path without disturbing the other.</summary>
+        internal static bool DefaultBoxDrawingPrimitivesEnabledForTests => UseBoxDrawingPrimitives;
+
+        /// <inheritdoc cref="DefaultBoxDrawingPrimitivesEnabledForTests"/>
+        internal static bool DefaultBlockElementPrimitivesEnabledForTests => UseBlockElementPrimitives;
 
         internal static IDisposable PushPrimitiveRenderingOverrideForTests(bool useBoxDrawingPrimitives, bool useBlockElementPrimitives)
         {
@@ -2422,19 +2450,26 @@ namespace NovaTerminal.Shell
             if ((mask & 0b1000) != 0 && x2 > xMid && y2 > yMid) canvas.DrawRect(xMid, yMid, x2 - xMid, y2 - yMid, paint); // LR
         }
 
-        private bool TryDrawBoxDrawingGlyph(SKCanvas canvas, string grapheme, float x, float y, float w, float h, SKColor color)
+        private const int SegUp = 1 << 0;
+        private const int SegDown = 1 << 1;
+        private const int SegLeft = 1 << 2;
+        private const int SegRight = 1 << 3;
+
+        /// <summary>
+        /// True when <paramref name="cp"/> is a box-drawing code point the primitive renderer has a
+        /// segment definition for. Callers use this to avoid breaking the text batch for code points
+        /// that would fall through to font rendering anyway.
+        /// </summary>
+        internal static bool IsHandledBoxDrawingCodepoint(int cp)
+            => TryGetBoxDrawingSegments(cp, out _, out _, out _);
+
+        private static bool TryGetBoxDrawingSegments(int cp, out int seg, out bool isDouble, out bool isRoundedArc)
         {
-            if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
+            seg = 0;
+            isDouble = false;
+            isRoundedArc = false;
+
             if (cp < 0x2500 || cp > 0x257F) return false;
-
-            const int SegUp = 1 << 0;
-            const int SegDown = 1 << 1;
-            const int SegLeft = 1 << 2;
-            const int SegRight = 1 << 3;
-
-            int seg = 0;
-            bool isDouble = false;
-            bool isRoundedArc = false;
 
             switch (cp)
             {
@@ -2486,6 +2521,14 @@ namespace NovaTerminal.Shell
                 default:
                     return false;
             }
+
+            return true;
+        }
+
+        private bool TryDrawBoxDrawingGlyph(SKCanvas canvas, string grapheme, float x, float y, float w, float h, SKColor color)
+        {
+            if (!TryGetSingleRuneCodePoint(grapheme, out int cp)) return false;
+            if (!TryGetBoxDrawingSegments(cp, out int seg, out bool isDouble, out bool isRoundedArc)) return false;
 
             int x1px = ToDevicePx(x);
             int y1px = ToDevicePx(y);
