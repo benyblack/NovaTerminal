@@ -45,11 +45,29 @@ and retry through the wrapper.
 
 To rehearse CI locally before pushing: `ci/run.sh` or `ci/run.ps1`. That does a
 clean Release build, runs the whole test suite unfiltered, re-runs the replay
-category on its own, and does an AOT publish. It does **not** reproduce the
-three-OS matrix or the per-category job split, so a green local run is strong
-evidence but not a guarantee.
+category on its own, checks formatting, and does an AOT publish. It does **not**
+reproduce the three-OS matrix or the per-category job split, so a green local run
+is strong evidence but not a guarantee.
 
-### 3. Pick something small
+### 3. Formatting
+
+Formatting is a **blocking** CI check. Before pushing:
+
+```bash
+dotnet format whitespace          # fixes it
+dotnet format whitespace --verify-no-changes   # what CI runs
+```
+
+Only the whitespace pass is gated — indentation, alignment, brace placement, line
+breaks. The style and analyzer passes are **not** enforced yet (tracked in #108),
+so do not run a bare `dotnet format`: it will also rewrite things this project has
+not agreed on, and your diff becomes unreviewable.
+
+`.editorconfig` defines the rules and `.gitattributes` pins line endings, so the
+check gives the same answer on Windows and Linux. If your editor fights it, trust
+`dotnet format` — that is what CI runs.
+
+### 4. Pick something small
 
 Issues labelled [`good first issue`][gfi] are scoped to be landable in an
 evening and are deliberately kept away from the load-bearing parts of the VT
@@ -61,7 +79,7 @@ theme/recipe additions are always welcome and always reviewed.
 [gfi]: https://github.com/benyblack/NovaTerminal/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22
 [hw]: https://github.com/benyblack/NovaTerminal/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22
 
-### 4. Ask
+### 5. Ask
 
 If you are unsure whether an approach fits, comment on the issue before writing
 much code. That costs you a day of waiting and saves you a week of rework. We
@@ -366,6 +384,9 @@ providing it up front just gets you a faster first response.
 
 All PRs are automatically checked by CI:
 
+- formatting (`dotnet format whitespace`, Windows + Linux — blocking). The
+  cheapest check to fail and the cheapest to fix: run `dotnet format whitespace`
+  and commit the result.
 - unit tests (VT, Rendering, Architecture, Platform, McpServer — blocking)
 - headless App.Tests (currently non-blocking due to an upstream
   Avalonia.Headless teardown deadlock, tracked in #81). Note: this is a
@@ -397,6 +418,10 @@ Maintainers may request:
 - Avoid premature optimization
 - Keep methods small and explicit
 - Comment *why*, not *what*
+
+Mechanical formatting is not a matter of taste here — `.editorconfig` decides it
+and CI enforces it. Run `dotnet format whitespace` and move on; there is nothing
+to argue about and no reviewer will ask you to hand-align anything.
 
 ---
 
