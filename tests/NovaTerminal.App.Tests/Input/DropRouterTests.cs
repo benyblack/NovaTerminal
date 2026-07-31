@@ -54,18 +54,19 @@ namespace NovaTerminal.Tests.Input
         [Fact]
         public async Task HandleDropAsync_RespectsShellOverride()
         {
-            var context = new SessionContext { 
-                IsEchoEnabled = true, 
+            var context = new SessionContext
+            {
+                IsEchoEnabled = true,
                 DetectedShell = DetectedShell.PosixSh,
                 ShellOverride = ShellOverride.Pwsh
             };
-            
+
             var paths = new List<string> { "a'b.txt" };
 
             var result = await DropRouter.HandleDropAsync(context, paths, isAltHeld: false);
 
             Assert.True(result.Handled);
-            Assert.Equal("'a''b.txt' ", result.TextToSend); 
+            Assert.Equal("'a''b.txt' ", result.TextToSend);
         }
 
         [Fact]

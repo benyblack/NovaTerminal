@@ -85,7 +85,7 @@ public class AgentHostServiceTests : IDisposable
     public void Version_mismatch_is_rejected_with_stable_error_code()
     {
         using var service = NewService(new AgentSessionRegistry());
-        var response = Handle(service,RequestLine(AgentHostProtocol.Methods.ListSessions, version: 99));
+        var response = Handle(service, RequestLine(AgentHostProtocol.Methods.ListSessions, version: 99));
         Assert.Equal(AgentHostProtocol.ErrorCodes.VersionMismatch, response.Error?.Code);
     }
 
@@ -93,7 +93,7 @@ public class AgentHostServiceTests : IDisposable
     public void Malformed_frame_is_rejected_not_thrown()
     {
         using var service = NewService(new AgentSessionRegistry());
-        var response = Handle(service,"this is not json");
+        var response = Handle(service, "this is not json");
         Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, response.Error?.Code);
     }
 
@@ -101,7 +101,7 @@ public class AgentHostServiceTests : IDisposable
     public void Unknown_method_is_rejected_with_stable_error_code()
     {
         using var service = NewService(new AgentSessionRegistry());
-        var response = Handle(service,RequestLine("thisMethodDoesNotExist"));
+        var response = Handle(service, RequestLine("thisMethodDoesNotExist"));
         Assert.Equal(AgentHostProtocol.ErrorCodes.UnknownMethod, response.Error?.Code);
     }
 
@@ -109,8 +109,8 @@ public class AgentHostServiceTests : IDisposable
     public void Missing_params_is_a_malformed_request_not_a_missing_session()
     {
         using var service = NewService(new AgentSessionRegistry());
-        var readScreen = Handle(service,RequestLine(AgentHostProtocol.Methods.ReadScreen));
-        var readScrollback = Handle(service,RequestLine(AgentHostProtocol.Methods.ReadScrollback));
+        var readScreen = Handle(service, RequestLine(AgentHostProtocol.Methods.ReadScreen));
+        var readScrollback = Handle(service, RequestLine(AgentHostProtocol.Methods.ReadScrollback));
         Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, readScreen.Error?.Code);
         Assert.Equal(AgentHostProtocol.ErrorCodes.MalformedRequest, readScrollback.Error?.Code);
     }
@@ -131,7 +131,7 @@ public class AgentHostServiceTests : IDisposable
         var registration = Register(registry, buffer);
         using var service = NewService(registry);
 
-        var response = Handle(service,RequestLine(
+        var response = Handle(service, RequestLine(
             AgentHostProtocol.Methods.ReadScrollback,
             paramsObj: new ReadScrollbackParams { PaneId = registration.PaneId, StartLine = 0, MaxLines = 10 }));
         var result = ResultOf(response, AgentHostJsonContext.Default.ReadScrollbackResult);
@@ -143,7 +143,7 @@ public class AgentHostServiceTests : IDisposable
     public void ReadScreen_for_unknown_pane_reports_session_not_found()
     {
         using var service = NewService(new AgentSessionRegistry());
-        var response = Handle(service,RequestLine(
+        var response = Handle(service, RequestLine(
             AgentHostProtocol.Methods.ReadScreen,
             paramsObj: new ReadScreenParams { PaneId = Guid.NewGuid() }));
         Assert.Equal(AgentHostProtocol.ErrorCodes.SessionNotFound, response.Error?.Code);
@@ -161,7 +161,7 @@ public class AgentHostServiceTests : IDisposable
         var registration = Register(registry, buffer);
         using var service = NewService(registry);
 
-        var response = Handle(service,RequestLine(
+        var response = Handle(service, RequestLine(
             AgentHostProtocol.Methods.ReadScreen,
             paramsObj: new ReadScreenParams { PaneId = registration.PaneId, IncludeAttributes = true }));
         var dto = ResultOf(response, AgentHostJsonContext.Default.ScreenSnapshotDto);
@@ -189,7 +189,7 @@ public class AgentHostServiceTests : IDisposable
         var registration = Register(registry, buffer);
         using var service = NewService(registry);
 
-        var response = Handle(service,RequestLine(
+        var response = Handle(service, RequestLine(
             AgentHostProtocol.Methods.ReadScrollback,
             paramsObj: new ReadScrollbackParams { PaneId = registration.PaneId, StartLine = 1, MaxLines = 3 }));
         var result = ResultOf(response, AgentHostJsonContext.Default.ReadScrollbackResult);

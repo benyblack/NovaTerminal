@@ -36,7 +36,7 @@ namespace NovaTerminal.Tests
             {
                 return GetTextFromSpan(sb.GetRow(absoluteIndex));
             }
-            
+
             int vpIndex = absoluteIndex - sbCount;
             if (vpIndex >= 0 && vpIndex < vp.Length)
             {

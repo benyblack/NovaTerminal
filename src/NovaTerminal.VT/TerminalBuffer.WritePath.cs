@@ -318,7 +318,7 @@ namespace NovaTerminal.VT
             } // End of attachment attempt logic
 
             // NORMAL WRITE LOGIC:
-NormalWrite:
+        NormalWrite:
             int width = GetGraphemeWidth(grapheme);
 
             // Handle Pending Wrap State (M1.3)
@@ -468,7 +468,7 @@ NormalWrite:
             if (isFullScreenScroll && !_isAltScreen)
             {
                 long prevEvicted = _scrollback.TotalRowsEvicted;
-                
+
                 // This copies the cell array into the page-based store;
                 // No TerminalRow object is stored in scrollback anymore.
                 var evictingRow = _viewport[0];

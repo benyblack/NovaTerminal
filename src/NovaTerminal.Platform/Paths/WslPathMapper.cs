@@ -12,7 +12,7 @@ namespace NovaTerminal.Platform.Paths
     {
         private readonly IProcessRunner _processRunner;
         private readonly string? _distroName;
-        
+
         // LRU Cache: (NormalizedWindowsPath) -> WSLPath
         private static readonly ConcurrentDictionary<(string? Distro, string WinPath), string> _cache = new();
         private static readonly Queue<(string? Distro, string WinPath)> _lruKeys = new();
@@ -45,7 +45,7 @@ namespace NovaTerminal.Platform.Paths
                     : $"-d {_distroName} wslpath -a -u \"{normalizedWinPath}\"";
 
                 var runResult = await _processRunner.RunProcessAsync("wsl.exe", arguments, ct);
-                
+
                 if (runResult.ExitCode == 0 && !string.IsNullOrWhiteSpace(runResult.StdOut))
                 {
                     resultWslPath = runResult.StdOut.Trim();

@@ -33,7 +33,7 @@ namespace NovaTerminal.Platform.Input
                         {
                             nulCount++;
                             // A heuristic: if we see even a single NUL byte in the first 8k, it's likely binary.
-                            return false; 
+                            return false;
                         }
                     }
 

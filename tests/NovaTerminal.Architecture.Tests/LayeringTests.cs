@@ -5,11 +5,11 @@ namespace NovaTerminal.Architecture.Tests;
 
 public class LayeringTests
 {
-    private static Assembly Vt        => typeof(global::NovaTerminal.VT.AnsiParser).Assembly;
-    private static Assembly Replay    => typeof(global::NovaTerminal.Replay.ReplayReader).Assembly;
+    private static Assembly Vt => typeof(global::NovaTerminal.VT.AnsiParser).Assembly;
+    private static Assembly Replay => typeof(global::NovaTerminal.Replay.ReplayReader).Assembly;
     private static Assembly Rendering => typeof(global::NovaTerminal.Rendering.GlyphAtlas).Assembly;
-    private static Assembly Pty       => typeof(global::NovaTerminal.Pty.ITerminalSession).Assembly;
-    private static Assembly Platform  => typeof(global::NovaTerminal.Platform.Input.TerminalInputSender).Assembly;
+    private static Assembly Pty => typeof(global::NovaTerminal.Pty.ITerminalSession).Assembly;
+    private static Assembly Platform => typeof(global::NovaTerminal.Platform.Input.TerminalInputSender).Assembly;
     private static Assembly AgentHostContracts => typeof(global::NovaTerminal.AgentHost.Contracts.AgentHostProtocol).Assembly;
 
     [Fact]

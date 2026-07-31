@@ -380,13 +380,21 @@ public class SessionToolsFormattingTests
     {
         var truncated = SessionTools.FormatExport(new ExportReplayResult
         {
-            FilePath = "/tmp/x.rec", EventCount = 5, FirstEventMs = 0, LastEventMs = 9, TruncatedAtStart = true,
+            FilePath = "/tmp/x.rec",
+            EventCount = 5,
+            FirstEventMs = 0,
+            LastEventMs = 9,
+            TruncatedAtStart = true,
         });
         Assert.Contains("suffix of the session", truncated, StringComparison.Ordinal);
 
         var empty = SessionTools.FormatExport(new ExportReplayResult
         {
-            FilePath = "/tmp/y.rec", EventCount = 0, FirstEventMs = 0, LastEventMs = 0, TruncatedAtStart = false,
+            FilePath = "/tmp/y.rec",
+            EventCount = 0,
+            FirstEventMs = 0,
+            LastEventMs = 0,
+            TruncatedAtStart = false,
         });
         Assert.Contains("no events", empty, StringComparison.OrdinalIgnoreCase);
     }

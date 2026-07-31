@@ -48,7 +48,7 @@ namespace NovaTerminal.VT
 
             // Scrollback rows are now paged, they don't exist as persistent TerminalRow objects.
             if (absRow < _scrollback.Count) return null;
-            
+
             int viewportRow = absRow - _scrollback.Count;
             if (viewportRow < 0 || viewportRow >= Rows) return null;
             return _viewport[viewportRow];
@@ -83,7 +83,7 @@ namespace NovaTerminal.VT
         {
             AssertLockHeld();
             if (absRow < 0 || col < 0 || col >= Cols) return " ";
-            
+
             if (!_isAltScreen && absRow < _scrollback.Count)
             {
                 // The side table has been carried into scrollback since the row-metadata
@@ -113,7 +113,7 @@ namespace NovaTerminal.VT
             try
             {
                 if (absRow < 0 || col < 0 || col >= Cols) return null;
-                
+
                 if (!_isAltScreen && absRow < _scrollback.Count)
                 {
                     // Same gap as GetGraphemeAbsolute: the hyperlink side table survives

@@ -393,16 +393,16 @@ namespace NovaTerminal.VT
             {
                 _cachedAnsiPalette = new TermColor[16];
             }
-            _cachedAnsiPalette[0]  = Theme.Black;
-            _cachedAnsiPalette[1]  = Theme.Red;
-            _cachedAnsiPalette[2]  = Theme.Green;
-            _cachedAnsiPalette[3]  = Theme.Yellow;
-            _cachedAnsiPalette[4]  = Theme.Blue;
-            _cachedAnsiPalette[5]  = Theme.Magenta;
-            _cachedAnsiPalette[6]  = Theme.Cyan;
-            _cachedAnsiPalette[7]  = Theme.White;
-            _cachedAnsiPalette[8]  = Theme.BrightBlack;
-            _cachedAnsiPalette[9]  = Theme.BrightRed;
+            _cachedAnsiPalette[0] = Theme.Black;
+            _cachedAnsiPalette[1] = Theme.Red;
+            _cachedAnsiPalette[2] = Theme.Green;
+            _cachedAnsiPalette[3] = Theme.Yellow;
+            _cachedAnsiPalette[4] = Theme.Blue;
+            _cachedAnsiPalette[5] = Theme.Magenta;
+            _cachedAnsiPalette[6] = Theme.Cyan;
+            _cachedAnsiPalette[7] = Theme.White;
+            _cachedAnsiPalette[8] = Theme.BrightBlack;
+            _cachedAnsiPalette[9] = Theme.BrightRed;
             _cachedAnsiPalette[10] = Theme.BrightGreen;
             _cachedAnsiPalette[11] = Theme.BrightYellow;
             _cachedAnsiPalette[12] = Theme.BrightBlue;

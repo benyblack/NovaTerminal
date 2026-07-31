@@ -81,10 +81,14 @@ namespace NovaTerminal.Shell
 
             DragDrop.SetAllowDrop(this, true);
             AddHandler(DragDrop.DragOverEvent, OnDragOver);
-            AddHandler(DragDrop.DropEvent, async (s, e) => {
-                try {
+            AddHandler(DragDrop.DropEvent, async (s, e) =>
+            {
+                try
+                {
                     await OnDropAsync(s, e);
-                } catch (Exception ex) {
+                }
+                catch (Exception ex)
+                {
                     System.Diagnostics.Debug.WriteLine($"[TerminalView] OnDropAsync Failed: {ex}");
                 }
             });
@@ -218,7 +222,7 @@ namespace NovaTerminal.Shell
                     }
                     break;
 
-                // Arrows
+                    // Arrows
             }
 
             string? sequence = TerminalInputModeEncoder.EncodeSpecialKey(key, _buffer?.Modes);
@@ -304,7 +308,7 @@ namespace NovaTerminal.Shell
                         _lastCursorRow = cursorRow;
                         _lastCursorCol = cursorCol;
                         CommandAssistAnchorHintChanged?.Invoke();
-                        
+
                         // Reset blink timer on VT cursor movement (like in Vim)
                         // Ensure we don't override the transient cursor suppression (used by AnsiParser for animated text)
                         long now = DateTime.UtcNow.Ticks;
@@ -346,10 +350,10 @@ namespace NovaTerminal.Shell
         private void ResetCursorBlink()
         {
             if (!_cursorBlinkEnabled) return;
-            
+
             // Block transient cursor suppression for 200ms to allow smooth TUI navigation
             _buffer?.BlockCursorSuppression(TimeSpan.FromMilliseconds(200));
-            
+
             _cursorBlinkPhase = true;
             _cursorBlinkTimer.Stop();
             // Restart only if blink should be running at all: an unconditional Start here
@@ -380,7 +384,7 @@ namespace NovaTerminal.Shell
             if (_buffer == null) return;
 
             var m = _buffer.GetMemoryMetrics(_glyphCache.EntryCount, _glyphCache.AtlasByteSize);
-            
+
             // Format for easy log parsing/grep
             TerminalLogger.Log(
                 $"[TerminalMemory] " +
@@ -465,7 +469,7 @@ namespace NovaTerminal.Shell
                 if (paths.Count > 0)
                 {
                     bool isAlt = e.KeyModifiers.HasFlag(KeyModifiers.Alt);
-                    
+
                     bool isWsl = _session.ShellCommand?.Contains("wsl", StringComparison.OrdinalIgnoreCase) ?? false;
                     string? distroName = null;
                     if (isWsl && !string.IsNullOrWhiteSpace(_session.ShellArguments))
@@ -1648,8 +1652,8 @@ namespace NovaTerminal.Shell
             if (cursorBlinkMode && !_cursorBlinkPhase) hideCursor = true;
             if (cursorSuppressedTemporarily)
             {
-                 hideCursor = true;
-                 TerminalLogger.Log($"[TerminalView] Render: Cursor suppressed temporarily.");
+                hideCursor = true;
+                TerminalLogger.Log($"[TerminalView] Render: Cursor suppressed temporarily.");
             }
 
             // Create and dispatch custom draw op

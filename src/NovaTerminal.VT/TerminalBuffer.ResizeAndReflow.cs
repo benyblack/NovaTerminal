@@ -52,7 +52,7 @@ namespace NovaTerminal.VT
                     {
                         var oldAlt = _viewport;
                         _viewport = new TerminalRow[newRows];
-                        
+
                         var lastCell = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                         if (oldAlt.Length > 0 && oldCols > 0)
                         {
@@ -62,11 +62,11 @@ namespace NovaTerminal.VT
 
                         for (int i = 0; i < newRows; i++)
                         {
-                            if (i < oldAlt.Length) 
+                            if (i < oldAlt.Length)
                             {
                                 _viewport[i] = oldAlt[i];
                             }
-                            else 
+                            else
                             {
                                 _viewport[i] = new TerminalRow(newCols);
                                 for (int cx = 0; cx < newCols; cx++) _viewport[i].Cells[cx] = lastCell;
@@ -90,7 +90,7 @@ namespace NovaTerminal.VT
                     else
                     {
                         // Main screen: Still needs redistribution to maintain scrollback vs viewport split
-                        
+
                         if (newRows < oldRows)
                         {
                             // Shrink height: push top of viewport to scrollback
@@ -164,7 +164,7 @@ namespace NovaTerminal.VT
                     // We preserve what fits top-left to avoid flashing empty if redraw is slow.
                     var oldAlt = _viewport;
                     _viewport = new TerminalRow[newRows];
-                    
+
                     var lastCell = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
                     if (oldAlt.Length > 0 && oldCols > 0)
                     {
@@ -294,7 +294,7 @@ namespace NovaTerminal.VT
 
                 Array.Copy(_viewport, 0, newViewport, linesNeeded, oldRows);
                 _cursorRow += linesNeeded;
-                
+
                 // Shift MAIN-screen images DOWN (alt coordinates are viewport-relative
                 // and unaffected by the scrollback/viewport redistribution).
                 for (int i = 0; i < _images.Count; i++)
