@@ -97,7 +97,7 @@ namespace NovaTerminal.UI.Replay
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ReplayViewModel] Init Error: {ex.Message}");
+                TerminalLogger.Error($"[ReplayViewModel] Init Error: {ex.Message}");
             }
         }
 

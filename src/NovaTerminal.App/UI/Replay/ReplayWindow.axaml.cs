@@ -267,7 +267,7 @@ namespace NovaTerminal.UI.Replay
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ReplayWindow] Playback Error: {ex.Message}");
+                TerminalLogger.Error($"[ReplayWindow] Playback Error: {ex.Message}");
             }
             finally
             {

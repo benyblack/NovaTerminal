@@ -478,7 +478,7 @@ namespace NovaTerminal.Pty
                 }
             }
 
-            Console.WriteLine($"[RustPtySession] Spawning '{effectiveShell}' args='{combinedArgs}' cwd='{cwd}' at {cols}x{rows}");
+            PtyLogger.Info($"[RustPtySession] Spawning '{effectiveShell}' args='{combinedArgs}' cwd='{cwd}' at {cols}x{rows}");
             if (environmentOverrides != null && environmentOverrides.Count > 0)
             {
                 // Pack overrides as newline-separated KEY=VALUE pairs. The
@@ -576,7 +576,7 @@ namespace NovaTerminal.Pty
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[RustPtySession] PS Injection Failed: {ex.Message}");
+                        PtyLogger.Warning($"[RustPtySession] PS Injection Failed: {ex.Message}");
                     }
                     finally
                     {
@@ -644,7 +644,7 @@ namespace NovaTerminal.Pty
             {
                 // Try-pattern: expected I/O failures (bad path, permissions, full
                 // disk) must not crash the host on an agent-triggered export.
-                Console.WriteLine($"[RustPtySession] Flight recording export failed: {ex.Message}");
+                PtyLogger.Warning($"[RustPtySession] Flight recording export failed: {ex.Message}");
                 info = default;
                 return false;
             }
@@ -660,11 +660,11 @@ namespace NovaTerminal.Pty
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RustPtySession] Recording start marker failed: {ex.Message}");
+                PtyLogger.Warning($"[RustPtySession] Recording start marker failed: {ex.Message}");
             }
 
             _recorder = recorder;
-            Console.WriteLine($"[RustPtySession] Recording started to: {filePath}");
+            PtyLogger.Info($"[RustPtySession] Recording started to: {filePath}");
         }
 
         public void StopRecording()
@@ -679,7 +679,7 @@ namespace NovaTerminal.Pty
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RustPtySession] Recording stop marker failed: {ex.Message}");
+                PtyLogger.Warning($"[RustPtySession] Recording stop marker failed: {ex.Message}");
             }
 
             try
@@ -688,10 +688,10 @@ namespace NovaTerminal.Pty
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RustPtySession] Recorder dispose failed: {ex.Message}");
+                PtyLogger.Warning($"[RustPtySession] Recorder dispose failed: {ex.Message}");
             }
 
-            Console.WriteLine("[RustPtySession] Recording stopped.");
+            PtyLogger.Info("[RustPtySession] Recording stopped.");
         }
 
         private void ReadLoop()
@@ -748,7 +748,7 @@ namespace NovaTerminal.Pty
                     }
                     else if (read == 0) // EOF
                     {
-                        Console.WriteLine("[RustPtySession] EOF received.");
+                        PtyLogger.Info("[RustPtySession] EOF received.");
                         break;
                     }
                     else // read < 0: error
@@ -762,7 +762,7 @@ namespace NovaTerminal.Pty
                             // read on this thread, which is the same thread that made the failing
                             // pty_read - the channel is thread-local (#120 item 3).
                             string? reason = TryGetNativeLastError();
-                            Console.WriteLine(
+                            PtyLogger.Error(
                                 $"[RustPtySession] pty_read failed {consecutiveReadErrors} times consecutively; ending session."
                                 + (reason is null ? string.Empty : $" Last native error: {reason}"));
                             readFailed = true;
@@ -779,7 +779,7 @@ namespace NovaTerminal.Pty
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RustPtySession] ReadLoop terminated by unhandled exception: {ex}");
+                PtyLogger.Error($"[RustPtySession] ReadLoop terminated by unhandled exception: {ex}");
             }
             finally
             {
@@ -831,7 +831,7 @@ namespace NovaTerminal.Pty
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[RustPtySession] teardown after read failure failed: {ex.Message}");
+                        PtyLogger.Error($"[RustPtySession] teardown after read failure failed: {ex.Message}");
                     }
                 }
 
@@ -862,7 +862,7 @@ namespace NovaTerminal.Pty
                 // Dedicated thread: OnOutputReceived runs arbitrary subscriber code, and
                 // an unhandled exception here would crash the process. Contain + log so a
                 // misbehaving subscriber can't take down the host; still notify exit below.
-                Console.WriteLine($"[RustPtySession] ProcessLoop terminated by unhandled exception: {ex}");
+                PtyLogger.Error($"[RustPtySession] ProcessLoop terminated by unhandled exception: {ex}");
             }
             TryNotifyExit(0);
         }
@@ -899,7 +899,7 @@ namespace NovaTerminal.Pty
                         int written = Native.pty_write(_handle, data, data.Length);
                         if (written != data.Length)
                         {
-                            Console.WriteLine($"[RustPtySession] pty_write returned {written} (expected {data.Length}); input may be lost");
+                            PtyLogger.Warning($"[RustPtySession] pty_write returned {written} (expected {data.Length}); input may be lost");
                         }
                     }
                     catch (ObjectDisposedException)
@@ -911,7 +911,7 @@ namespace NovaTerminal.Pty
             catch (OperationCanceledException) { /* dispose */ }
             catch (Exception ex)
             {
-                Console.WriteLine($"[RustPtySession] WriteLoop terminated by unhandled exception: {ex}");
+                PtyLogger.Error($"[RustPtySession] WriteLoop terminated by unhandled exception: {ex}");
             }
         }
 
@@ -920,7 +920,7 @@ namespace NovaTerminal.Pty
             if (_handle.IsClosed || _handle.IsInvalid || cols <= 0 || rows <= 0) return;
             _cols = cols;
             _rows = rows;
-            Console.WriteLine($"[RustPtySession] Resizing to {cols}x{rows}");
+            PtyLogger.Debug($"[RustPtySession] Resizing to {cols}x{rows}");
             try { Native.pty_resize(_handle, (ushort)cols, (ushort)rows); }
             catch (ObjectDisposedException) { /* session disposed mid-call — ignore resize */ }
             _recorder?.RecordResize(cols, rows);
@@ -940,7 +940,7 @@ namespace NovaTerminal.Pty
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[RustPtySession] StopRecording during dispose failed: {ex.Message}");
+                    PtyLogger.Warning($"[RustPtySession] StopRecording during dispose failed: {ex.Message}");
                 }
             }
 
@@ -973,14 +973,14 @@ namespace NovaTerminal.Pty
                 }
                 if (!(_readLoopThread?.Join(DisposeJoinTimeout) ?? true))
                 {
-                    Console.WriteLine("[RustPtySession] ReadLoop did not exit within join timeout.");
+                    PtyLogger.Warning("[RustPtySession] ReadLoop did not exit within join timeout.");
                 }
             }
 
             // 4. Join the process loop (it exits once the queue is completed/cancelled).
             if (!(_processLoopThread?.Join(DisposeJoinTimeout) ?? true))
             {
-                Console.WriteLine("[RustPtySession] ProcessLoop did not exit within join timeout.");
+                PtyLogger.Warning("[RustPtySession] ProcessLoop did not exit within join timeout.");
             }
 
             // 4b. Join the writer. A write blocked on a full pipe unblocks when the
@@ -988,7 +988,7 @@ namespace NovaTerminal.Pty
             //     IsBackground, so a timed-out join can never block process exit.
             if (!(_writeLoopThread?.Join(DisposeJoinTimeout) ?? true))
             {
-                Console.WriteLine("[RustPtySession] WriteLoop did not exit within join timeout.");
+                PtyLogger.Warning("[RustPtySession] WriteLoop did not exit within join timeout.");
             }
 
             // 5. Release the handle. SafeHandle guarantees pty_close runs only once
@@ -1033,7 +1033,7 @@ namespace NovaTerminal.Pty
                 {
                     // The whole point of tracking the task: a failure here used to be
                     // swallowed as an unobserved exception.
-                    Console.WriteLine($"[RustPtySession] PS injection task faulted: {ex.Message}");
+                    PtyLogger.Warning($"[RustPtySession] PS injection task faulted: {ex.Message}");
                 }
             }
 
@@ -1058,7 +1058,7 @@ namespace NovaTerminal.Pty
             catch (Exception ex)
             {
                 // Best effort: a leftover temp script must never fail a disposal.
-                Console.WriteLine($"[RustPtySession] PS init script cleanup failed: {ex.Message}");
+                PtyLogger.Warning($"[RustPtySession] PS init script cleanup failed: {ex.Message}");
             }
         }
 

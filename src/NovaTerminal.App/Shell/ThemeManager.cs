@@ -62,7 +62,7 @@ namespace NovaTerminal.Shell
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[ThemeManager] Error loading theme from {file}: {ex.Message}");
+                    TerminalLogger.Warning($"[ThemeManager] Error loading theme from {file}: {ex.Message}");
                 }
             }
             _isLoaded = true;
@@ -144,7 +144,7 @@ namespace NovaTerminal.Shell
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ThemeManager] Error saving theme {theme.Name}: {ex.Message}");
+                TerminalLogger.Error($"[ThemeManager] Error saving theme {theme.Name}: {ex.Message}");
             }
         }
 
@@ -167,7 +167,7 @@ namespace NovaTerminal.Shell
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[ThemeManager] Error deleting theme {name}: {ex.Message}");
+                    TerminalLogger.Error($"[ThemeManager] Error deleting theme {name}: {ex.Message}");
                 }
             }
         }
