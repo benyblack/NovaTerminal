@@ -14,6 +14,13 @@ on:
     - cron: "30 3 * * *"
   workflow_dispatch:
 
+# No job here writes to the repository: every step is build/test plus
+# checkout/setup-dotnet/cache/upload-artifact, none of which touch GITHUB_TOKEN
+# beyond reading the source. Grant the minimum and let any future job that needs
+# more opt in with its own job-level `permissions:` block.
+permissions:
+  contents: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
