@@ -173,7 +173,7 @@ namespace NovaTerminal.VT.Storage
                 throw new ArgumentOutOfRangeException(nameof(logicalIndex));
 
             long absRow = _totalRowsEvicted + logicalIndex;
-            
+
             // Fast path: Sequential access cache
             if (_lastAccessedPage != null && !_lastAccessedPage.IsReturned)
             {
@@ -327,7 +327,7 @@ namespace NovaTerminal.VT.Storage
             _currentBytes = 0;
             _totalRowsAppended = 0;
             _totalRowsEvicted = 0;
-            
+
             _lastAccessedPage = null;
             _lastAccessedPageStartAbsRow = 0;
         }

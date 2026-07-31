@@ -1736,7 +1736,7 @@ namespace NovaTerminal.Controls
                     {
                         System.Diagnostics.Debug.WriteLine($"[TerminalPane] SSH connection failed for '{profile.Name}': {ex.Message}");
                         WriteBanner($"\r\n[ERROR] SSH Connection Failed: {SanitizeBannerValue(ex.Message)}\r\n");
-                        
+
                         // Fail loudly: Do not fall back to RustPtySession with missing arguments.
                         return;
                     }
@@ -2613,7 +2613,8 @@ namespace NovaTerminal.Controls
             var topLevel = TopLevel.GetTopLevel(this);
             if (topLevel?.StorageProvider == null) return;
 
-            string ext = format.ToLowerInvariant() switch {
+            string ext = format.ToLowerInvariant() switch
+            {
                 "png" => ".png",
                 "ansi" => ".ansi",
                 _ => ".txt"
@@ -2633,12 +2634,12 @@ namespace NovaTerminal.Controls
                 {
                     var dpi = topLevel.RenderScaling;
                     var pixelSize = new PixelSize(
-                        (int)Math.Ceiling(TermView.Bounds.Width * dpi), 
+                        (int)Math.Ceiling(TermView.Bounds.Width * dpi),
                         (int)Math.Ceiling(TermView.Bounds.Height * dpi));
-                    
+
                     var rtb = new Avalonia.Media.Imaging.RenderTargetBitmap(pixelSize, new Vector(96 * dpi, 96 * dpi));
                     rtb.Render(TermView);
-                    
+
                     using var stream = await file.OpenWriteAsync();
                     rtb.Save(stream);
                 }

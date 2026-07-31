@@ -267,7 +267,7 @@ public sealed class OpenSshConfigCompilerTests
             string secondHash = File.ReadAllText(hashPath);
 
             Assert.NotEqual(firstHash, secondHash);
-            
+
             string configText = File.ReadAllText(secondResult.ConfigFilePath);
             Assert.Contains("User new_user", configText);
         }

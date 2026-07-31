@@ -113,7 +113,7 @@ public class McpServerStdioE2ETests
         {
             Name = "novaterminal-dev-e2e",
             Command = "dotnet",
-            Arguments = [ ServerDllPath() ],
+            Arguments = [ServerDllPath()],
             EnvironmentVariables = new Dictionary<string, string?>
             {
                 ["NOVATERMINAL_REPO_ROOT"] = RepoRoot(),

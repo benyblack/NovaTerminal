@@ -27,11 +27,11 @@ namespace NovaTerminal.Tests.Buffer
             // Arrange: create a scrollback with 1000 pages (64,000 rows)
             int cols = 80;
             var scrollback = new ScrollbackPages(cols, _pool, maxScrollbackBytes: 256L * 1024 * 1024);
-            
+
             var defCell = TerminalCell.Default;
             var rowArray = new TerminalCell[80];
             for (int i = 0; i < 80; i++) rowArray[i] = defCell;
-            
+
             int totalRows = 64000;
             for (int i = 0; i < totalRows; i++)
             {
@@ -39,7 +39,7 @@ namespace NovaTerminal.Tests.Buffer
                 rowArray[0].Character = (char)('A' + (i % 26));
                 scrollback.AppendRow(rowArray.AsSpan());
             }
-            
+
             // Assert Count matches
             Assert.Equal(totalRows, scrollback.Count);
 

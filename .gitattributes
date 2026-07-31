@@ -1,0 +1,30 @@
+# Line endings are declared here rather than left to each developer's `core.autocrlf` (#216).
+#
+# Why this file exists: `.editorconfig` sets `end_of_line = crlf`, but the repository stores text
+# blobs as LF. On a Windows checkout with `autocrlf=true` the working tree is CRLF and matches
+# `.editorconfig`; on a Linux checkout it is LF and does not. So `dotnet format --verify-no-changes`
+# reached a *different verdict on the same commit* depending on the platform. A format gate whose
+# answer depends on who runs it is worse than no gate, so the rules below make it deterministic.
+#
+# Deliberately narrow: only the extensions the toolchain actually has an opinion about are declared.
+# Everything else stays unspecified, so byte-exact test fixtures (`*.rec` replay recordings, `*.snap`
+# snapshot expectations) and binaries (golden `*.png`) keep exactly the behaviour they have today.
+# Git already auto-detects the images as binary; re-declaring them would change Windows checkout for
+# fixtures that several tests compare as text, which is a risk with no upside here.
+
+# C# and the Avalonia/MSBuild files alongside it: checked out CRLF everywhere, matching
+# `.editorconfig`. These are the rules the format gate depends on.
+*.cs        text eol=crlf
+*.axaml     text eol=crlf
+*.csproj    text eol=crlf
+*.props     text eol=crlf
+*.targets   text eol=crlf
+*.sln       text eol=crlf
+*.runsettings text eol=crlf
+
+# Shell scripts must be LF or they fail to execute on Linux, regardless of authoring platform.
+*.sh        text eol=lf
+
+# Rust sources: LF, matching cargo/rustfmt convention and the crates' own history.
+*.rs        text eol=lf
+*.toml      text eol=lf

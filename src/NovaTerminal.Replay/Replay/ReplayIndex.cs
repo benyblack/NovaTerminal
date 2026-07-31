@@ -75,7 +75,7 @@ namespace NovaTerminal.Replay
             var entries = new List<ReplayIndexEntry>();
             if (!File.Exists(filePath)) return new ReplayIndex(entries);
 
-            const int bufferSize = 81920; 
+            const int bufferSize = 81920;
             byte[] buffer = new byte[bufferSize];
 
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, bufferSize, true);
@@ -90,7 +90,7 @@ namespace NovaTerminal.Replay
                 for (int i = 0; i < bytesRead; i++)
                 {
                     byte b = buffer[i];
-                    
+
                     if (b == '\n')
                     {
                         // Parse line bytes, excluding newline characters
@@ -138,7 +138,7 @@ namespace NovaTerminal.Replay
             {
                 var reader = new Utf8JsonReader(lineBytes);
                 long? foundTime = null;
-                
+
                 while (reader.Read())
                 {
                     if (foundTime == null && reader.TokenType == JsonTokenType.PropertyName && reader.ValueTextEquals("t"u8))
@@ -149,7 +149,7 @@ namespace NovaTerminal.Replay
                         }
                     }
                 }
-                
+
                 return foundTime;
             }
             catch (JsonException)

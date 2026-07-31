@@ -53,11 +53,11 @@ namespace NovaTerminal.Platform.Tests.Export
         public void ExportToAnsi_ShouldEmitDeltaOnPaletteToRgbSwap()
         {
             var buffer = new TerminalBuffer(80, 24);
-            
+
             // Palette Red (Index 1) -> Truecolor Red (rgb 255,0,0) -> same 1 value but different flags
             var paletteRed = new TerminalCell('A', 1, 0, (ushort)TerminalCellFlags.PaletteForeground | (ushort)TerminalCellFlags.DefaultBackground);
             ushort trueColorFlags = (ushort)TerminalCellFlags.DefaultBackground; // NOT PaletteForeground
-            uint trueColorRedInt = new TermColor(255, 0, 0).ToUint(); 
+            uint trueColorRedInt = new TermColor(255, 0, 0).ToUint();
             var truecolorRed = new TerminalCell('B', trueColorRedInt, 0, trueColorFlags);
 
             buffer.ViewportRows[0].Cells[0] = paletteRed;

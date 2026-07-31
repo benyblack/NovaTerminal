@@ -14,9 +14,9 @@ namespace NovaTerminal.Platform
     public static class DropRouter
     {
         public static async Task<DropRouterResult> HandleDropAsync(
-            SessionContext context, 
-            IReadOnlyList<string> paths, 
-            bool isAltHeld, 
+            SessionContext context,
+            IReadOnlyList<string> paths,
+            bool isAltHeld,
             IPathMapper? pathMapper = null)
         {
             if (!context.IsEchoEnabled && !isAltHeld)

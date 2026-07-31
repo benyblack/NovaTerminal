@@ -31,10 +31,10 @@ namespace NovaTerminal.VT.Storage
         public int UsedRows;
 
         private bool _returned;
-        
+
         /// <summary>Returns true if this page has been returned to the pool and should not be accessed.</summary>
         public bool IsReturned => _returned;
-        
+
         private ulong _isWrappedMask;
 
         // Sparse per-row metadata side-channels. null = no extended text/hyperlinks on any row in this page.

@@ -26,9 +26,9 @@ namespace NovaTerminal.Tests.Storage
         {
             var map = new SmallMap<string>();
             map.Set(10, "Value10");
-            
+
             bool found = map.TryGet(10, out var value);
-            
+
             Assert.True(found);
             Assert.Equal("Value10", value);
         }
@@ -38,9 +38,9 @@ namespace NovaTerminal.Tests.Storage
         {
             var map = new SmallMap<string>();
             map.Set(10, "Value10");
-            
+
             bool found = map.TryGet(20, out var value);
-            
+
             Assert.False(found);
             Assert.Null(value);
         }
@@ -51,7 +51,7 @@ namespace NovaTerminal.Tests.Storage
             var map = new SmallMap<string>();
             map.Set(10, "OldValue");
             map.Set(10, "NewValue");
-            
+
             Assert.Equal(1, map.Count);
             map.TryGet(10, out var value);
             Assert.Equal("NewValue", value);
@@ -65,7 +65,7 @@ namespace NovaTerminal.Tests.Storage
             {
                 map.Set(i, $"Value{i}");
             }
-            
+
             Assert.Equal(8, map.Count);
             for (int i = 0; i < 8; i++)
             {
@@ -82,7 +82,7 @@ namespace NovaTerminal.Tests.Storage
             {
                 map.Set(i, $"Value{i}");
             }
-            
+
             Assert.Equal(9, map.Count);
             for (int i = 0; i < 9; i++)
             {
@@ -98,9 +98,9 @@ namespace NovaTerminal.Tests.Storage
             map.Set(1, "V1");
             map.Set(2, "V2");
             map.Set(3, "V3");
-            
+
             map.Remove(2);
-            
+
             Assert.Equal(2, map.Count);
             Assert.True(map.TryGet(1, out _));
             Assert.False(map.TryGet(2, out _));
@@ -115,9 +115,9 @@ namespace NovaTerminal.Tests.Storage
             {
                 map.Set(i, $"V{i}");
             }
-            
+
             map.Remove(5);
-            
+
             Assert.Equal(9, map.Count);
             Assert.False(map.TryGet(5, out _));
             Assert.True(map.TryGet(4, out _));

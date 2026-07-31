@@ -40,14 +40,18 @@ echo "=== TEST ==="
 echo "=== REPLAY TESTS ==="
 "$BUILD" test -c Release --filter Category=Replay
 
-# Reported, not enforced. `dotnet format --verify-no-changes` currently fails on main
-# with 649 pre-existing whitespace violations across 79 files (~480 of them in
-# TerminalDrawOperation.cs and TerminalBuffer.ReflowEngine.cs alone), so gating on it
-# would make this script permanently red and mask real failures after it. The sweep is
-# tracked in #216; flip this back to a hard failure once it lands.
-echo "=== FORMAT CHECK (report only) ==="
-if ! dotnet format --verify-no-changes; then
-    echo "FORMAT CHECK: differences found (not failing the run - see comment above)."
+# Enforced as of #216: the 674 pre-existing whitespace violations that made this
+# report-only have been swept, and `.gitattributes` now pins line endings so the check
+# reaches the same verdict on Windows and Linux (it did not before - `.editorconfig`
+# wants CRLF while git stores LF, so the answer depended on core.autocrlf).
+#
+# Scoped to `whitespace` deliberately. A bare `dotnet format` also runs the style and
+# analyzer passes, whose diagnostics are #108's territory; mixing them in here would
+# make this gate fail for reasons that have nothing to do with formatting.
+echo "=== FORMAT CHECK ==="
+if ! dotnet format whitespace --verify-no-changes; then
+    echo "FORMAT CHECK FAILED: run 'dotnet format whitespace' and commit the result."
+    exit 1
 fi
 
 echo "CI SUCCESS"

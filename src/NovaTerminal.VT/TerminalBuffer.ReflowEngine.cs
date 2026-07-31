@@ -170,261 +170,261 @@ namespace NovaTerminal.VT
                             altSavedInLogicalOffset = (logicalCellsCount - currentLogStart) + _savedCursors.Alt.Col;
                         }
 
-                            int validLen = physRow.Cells.Length;
+                        int validLen = physRow.Cells.Length;
 
-                            // HEURISTIC: TUI Border Protection
-                            // If a line is marked as Wrapped, but it ends with a box-drawing character OR a colored background,
-                            // it is likely a fixed-width TUI element that should NOT flow into the next line on resize.
-                            bool ignoreWrap = false;
-                            if (physRow.IsWrapped)
+                        // HEURISTIC: TUI Border Protection
+                        // If a line is marked as Wrapped, but it ends with a box-drawing character OR a colored background,
+                        // it is likely a fixed-width TUI element that should NOT flow into the next line on resize.
+                        bool ignoreWrap = false;
+                        if (physRow.IsWrapped)
+                        {
+                            // 1. Check for TUI Background Fill (at the very edge)
+                            // TUI apps often fill the background with a specific color (e.g. blue for MC).
+                            // If the last cell has a non-default background AND is a SPACE, it likely hit the edge of a panel.
+                            // We must NOT trigger this for regular text (e.g. "Hint" with black BG), or it won't reflow.
+                            if (physRow.Cells.Length > 0)
                             {
-                                // 1. Check for TUI Background Fill (at the very edge)
-                                // TUI apps often fill the background with a specific color (e.g. blue for MC).
-                                // If the last cell has a non-default background AND is a SPACE, it likely hit the edge of a panel.
-                                // We must NOT trigger this for regular text (e.g. "Hint" with black BG), or it won't reflow.
-                                if (physRow.Cells.Length > 0)
+                                // Scan backwards for the last actual content (skipping newly allocated nulls from resize)
+                                TerminalCell lastCell = default;
+                                bool found = false;
+                                for (int k = physRow.Cells.Length - 1; k >= 0; k--)
                                 {
-                                    // Scan backwards for the last actual content (skipping newly allocated nulls from resize)
-                                    TerminalCell lastCell = default;
-                                    bool found = false;
-                                    for (int k = physRow.Cells.Length - 1; k >= 0; k--)
+                                    if (physRow.Cells[k].Character != '\0')
                                     {
-                                        if (physRow.Cells[k].Character != '\0')
-                                        {
-                                            lastCell = physRow.Cells[k];
-                                            found = true;
-                                            break;
-                                        }
-                                    }
-
-                                    if (found && lastCell.Character == ' ' && !lastCell.IsDefaultBackground)
-                                    {
-                                        ignoreWrap = true;
-                                    }
-                                    else
-                                    {
-                                        // 2. Check for Border Characters (ignoring trailing spaces)
-                                        for (int k = physRow.Cells.Length - 1; k >= 0; k--)
-                                        {
-                                            var c = physRow.Cells[k];
-                                            char ch = c.Character;
-                                            if (ch != ' ' && ch != '\0')
-                                            {
-                                                // Vertical bars, corners, etc.
-                                                // U+2500 to U+257F are Box Drawing. 
-                                                // U+2580 to U+259F are Block Elements (Full Block, Shades, etc.) used for scrollbars/shadows.
-                                                // U+FF00 to U+FFEF are Halfwidth and Fullwidth Forms (includes Fullwidth Pipe U+FF5C).
-                                                // '|' is standard vertical bar (U+007C).
-                                                // '+' and '-' can be ASCII borders.
-                                                // '>' is often used by MC to indicate horizontal scroll overflow.
-                                                if (ch == '|' || ch == '+' || ch == '-' || ch == '>' ||
-                                                   (ch >= '\u2500' && ch <= '\u257F') ||
-                                                   (ch >= '\u2580' && ch <= '\u259F') ||
-                                                   (ch >= '\uFF00' && ch <= '\uFFEF'))
-                                                {
-                                                    ignoreWrap = true;
-                                                }
-                                                // Special Case: MC Headers like ".[^]" often end with ']' or '^'.
-                                                // These are text characters, so we can't protect them globally (would break text wrapping).
-                                                // However, in TUI headers, they typically have a specific background color.
-                                                // Also protect Arrows '↑' (U+2191) and '↓' (U+2193) which are sometimes used as sort indicators.
-                                                else if ((ch == ']' || ch == '[' || ch == '^' || ch == '\u2191' || ch == '\u2193') && !c.IsDefaultBackground)
-                                                {
-                                                    ignoreWrap = true;
-                                                }
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (!physRow.IsWrapped || ignoreWrap)
-                            {
-                                // Smart trimming: Calculate last relevant content index
-                                // Include cells that are non-space OR have non-default background
-                                int lastContentIdx = -1;
-                                // A hyperlink counts as content even on a blank cell. OSC 8 spans
-                                // routinely include trailing spaces, and those columns carry no
-                                // signal in the cell itself - trimming them here dropped their
-                                // links for good, since everything past validLen never enters the
-                                // logical stream. HasExtendedText is checked for the same reason.
-                                bool rowHasLinks = physRow.GetHyperlinkMap() is { Count: > 0 };
-                                for (int scan = 0; scan < physRow.Cells.Length; scan++)
-                                {
-                                    var cell = physRow.Cells[scan];
-                                    if ((cell.Character != ' ' && cell.Character != '\0') || !cell.IsDefaultBackground || cell.HasExtendedText
-                                        || (rowHasLinks && physRow.GetHyperlink(scan) != null))
-                                    {
-                                        lastContentIdx = scan;
-                                    }
-                                }
-
-                                // Determine valid length based on content
-                                if (lastContentIdx >= 0)
-                                {
-                                    validLen = lastContentIdx + 1;
-                                }
-                                else
-                                {
-                                    validLen = 0;
-                                }
-
-                                // Special case: Preserve padding up to the cursor if it's on this row
-                                if (i == absCursorPhysicalIdx && _cursorCol > validLen)
-                                {
-                                    validLen = _cursorCol;
-                                }
-                            }
-
-                            // Improved sparse row detection: Find the LARGEST contiguous gap
-                            // This preserves middle content (e.g. "Left ... Middle ... Right")
-                            bool isSparseRowRepositioned = false;
-                            if (!physRow.IsWrapped && i >= Math.Max(0, absCursorPhysicalIdx - 2) && i <= absCursorPhysicalIdx)
-                            {
-                                // Find largest gap strictly BETWEEN content
-                                // We need to know if the gap is followed by content, otherwise it's just trailing space
-                                // Scan logic:
-                                // 1. Identify all gaps.
-                                // 2. Identify the gap that is:
-                                //    a) Large (> 10)
-                                //    b) Followed by content (not end of line)
-                                //    c) The largest such gap in the row
-
-                                int bestGapStart = -1;
-                                int bestGapLength = 0;
-
-                                int currentScanStart = -1;
-                                int currentScanLength = 0;
-
-                                // First we need to find the "end of row content" to ignore trailing spaces
-                                int lastContentIndex = -1;
-                                for (int scan = physRow.Cells.Length - 1; scan >= 0; scan--)
-                                {
-                                    var cell = physRow.Cells[scan];
-                                    if (cell.Character != ' ' && cell.Character != '\0')
-                                    {
-                                        lastContentIndex = scan;
+                                        lastCell = physRow.Cells[k];
+                                        found = true;
                                         break;
                                     }
                                 }
 
-                                if (lastContentIndex > 0)
+                                if (found && lastCell.Character == ' ' && !lastCell.IsDefaultBackground)
                                 {
-                                    // ONLY Scan up to lastContentIndex
-                                    // This ensures any gap we find implies there is content AFTER it.
-                                    for (int scan = 0; scan <= lastContentIndex; scan++)
-                                    {
-                                        var cell = physRow.Cells[scan];
-                                        bool isSpace = (cell.Character == ' ' || cell.Character == '\0');
-
-                                        if (isSpace)
-                                        {
-                                            if (currentScanStart == -1) currentScanStart = scan;
-                                            currentScanLength++;
-                                        }
-                                        else
-                                        {
-                                            if (currentScanStart != -1)
-                                            {
-                                                if (currentScanLength > bestGapLength)
-                                                {
-                                                    bestGapLength = currentScanLength;
-                                                    bestGapStart = currentScanStart;
-                                                }
-                                                currentScanStart = -1;
-                                                currentScanLength = 0;
-                                            }
-                                        }
-                                    }
-                                    // Check gap if content resumes exactly at lastContentIndex? handled by loop
-                                    // The loop stops AT lastContentIndex. If the character at lastContentIndex is content,
-                                    // the else block triggers and we check the gap before it. Correct.
+                                    ignoreWrap = true;
                                 }
-
-                                // Determine threshold for gap
-                                // Standard: 10 spaces
-                                // Special: 2 spaces IF the content touches the right edge (implies a shrunk right-prompt)
-                                bool isRightPinned = lastContentIndex == physRow.Cells.Length - 1;
-                                int gapThreshold = isRightPinned ? 2 : 10;
-
-                                if (bestGapLength >= gapThreshold)
+                                else
                                 {
-                                    // We found a split!
-                                    // Left+Middle = 0 .. bestGapStart (exclusive)
-                                    // Gap = bestGapStart .. bestGapStart + bestGapLength
-                                    // Right = bestGapStart + bestGapLength .. lastContentIndex (inclusive)
-
-                                    int gapStart = bestGapStart;
-                                    int gapEnd = bestGapStart + bestGapLength;
-                                    int rightStart = gapEnd;
-                                    int rightEnd = lastContentIndex;
-
-                                    // Extract Left+Middle
-                                    for (int k = 0; k < gapStart; k++)
+                                    // 2. Check for Border Characters (ignoring trailing spaces)
+                                    for (int k = physRow.Cells.Length - 1; k >= 0; k--)
                                     {
-                                        logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
+                                        var c = physRow.Cells[k];
+                                        char ch = c.Character;
+                                        if (ch != ' ' && ch != '\0')
+                                        {
+                                            // Vertical bars, corners, etc.
+                                            // U+2500 to U+257F are Box Drawing. 
+                                            // U+2580 to U+259F are Block Elements (Full Block, Shades, etc.) used for scrollbars/shadows.
+                                            // U+FF00 to U+FFEF are Halfwidth and Fullwidth Forms (includes Fullwidth Pipe U+FF5C).
+                                            // '|' is standard vertical bar (U+007C).
+                                            // '+' and '-' can be ASCII borders.
+                                            // '>' is often used by MC to indicate horizontal scroll overflow.
+                                            if (ch == '|' || ch == '+' || ch == '-' || ch == '>' ||
+                                               (ch >= '\u2500' && ch <= '\u257F') ||
+                                               (ch >= '\u2580' && ch <= '\u259F') ||
+                                               (ch >= '\uFF00' && ch <= '\uFFEF'))
+                                            {
+                                                ignoreWrap = true;
+                                            }
+                                            // Special Case: MC Headers like ".[^]" often end with ']' or '^'.
+                                            // These are text characters, so we can't protect them globally (would break text wrapping).
+                                            // However, in TUI headers, they typically have a specific background color.
+                                            // Also protect Arrows '↑' (U+2191) and '↓' (U+2193) which are sometimes used as sort indicators.
+                                            else if ((ch == ']' || ch == '[' || ch == '^' || ch == '\u2191' || ch == '\u2193') && !c.IsDefaultBackground)
+                                            {
+                                                ignoreWrap = true;
+                                            }
+                                            break;
+                                        }
                                     }
+                                }
+                            }
+                        }
 
-                                    // Calculate new position
-                                    int rightBlockWidth = rightEnd - rightStart + 1;
-                                    int newRightPos = newCols - rightBlockWidth;
+                        if (!physRow.IsWrapped || ignoreWrap)
+                        {
+                            // Smart trimming: Calculate last relevant content index
+                            // Include cells that are non-space OR have non-default background
+                            int lastContentIdx = -1;
+                            // A hyperlink counts as content even on a blank cell. OSC 8 spans
+                            // routinely include trailing spaces, and those columns carry no
+                            // signal in the cell itself - trimming them here dropped their
+                            // links for good, since everything past validLen never enters the
+                            // logical stream. HasExtendedText is checked for the same reason.
+                            bool rowHasLinks = physRow.GetHyperlinkMap() is { Count: > 0 };
+                            for (int scan = 0; scan < physRow.Cells.Length; scan++)
+                            {
+                                var cell = physRow.Cells[scan];
+                                if ((cell.Character != ' ' && cell.Character != '\0') || !cell.IsDefaultBackground || cell.HasExtendedText
+                                    || (rowHasLinks && physRow.GetHyperlink(scan) != null))
+                                {
+                                    lastContentIdx = scan;
+                                }
+                            }
 
-                                    int currentPos = logicalCellsCount - currentLogStart; // This is effectively gapStart
+                            // Determine valid length based on content
+                            if (lastContentIdx >= 0)
+                            {
+                                validLen = lastContentIdx + 1;
+                            }
+                            else
+                            {
+                                validLen = 0;
+                            }
 
-                                    if (newRightPos > currentPos + 2 && (newRightPos + rightBlockWidth) <= newCols)
+                            // Special case: Preserve padding up to the cursor if it's on this row
+                            if (i == absCursorPhysicalIdx && _cursorCol > validLen)
+                            {
+                                validLen = _cursorCol;
+                            }
+                        }
+
+                        // Improved sparse row detection: Find the LARGEST contiguous gap
+                        // This preserves middle content (e.g. "Left ... Middle ... Right")
+                        bool isSparseRowRepositioned = false;
+                        if (!physRow.IsWrapped && i >= Math.Max(0, absCursorPhysicalIdx - 2) && i <= absCursorPhysicalIdx)
+                        {
+                            // Find largest gap strictly BETWEEN content
+                            // We need to know if the gap is followed by content, otherwise it's just trailing space
+                            // Scan logic:
+                            // 1. Identify all gaps.
+                            // 2. Identify the gap that is:
+                            //    a) Large (> 10)
+                            //    b) Followed by content (not end of line)
+                            //    c) The largest such gap in the row
+
+                            int bestGapStart = -1;
+                            int bestGapLength = 0;
+
+                            int currentScanStart = -1;
+                            int currentScanLength = 0;
+
+                            // First we need to find the "end of row content" to ignore trailing spaces
+                            int lastContentIndex = -1;
+                            for (int scan = physRow.Cells.Length - 1; scan >= 0; scan--)
+                            {
+                                var cell = physRow.Cells[scan];
+                                if (cell.Character != ' ' && cell.Character != '\0')
+                                {
+                                    lastContentIndex = scan;
+                                    break;
+                                }
+                            }
+
+                            if (lastContentIndex > 0)
+                            {
+                                // ONLY Scan up to lastContentIndex
+                                // This ensures any gap we find implies there is content AFTER it.
+                                for (int scan = 0; scan <= lastContentIndex; scan++)
+                                {
+                                    var cell = physRow.Cells[scan];
+                                    bool isSpace = (cell.Character == ' ' || cell.Character == '\0');
+
+                                    if (isSpace)
                                     {
-                                        // Fill spaces
-                                        var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
-                                        for (int s = currentPos; s < newRightPos; s++)
-                                        {
-                                            logicalCells[logicalCellsCount++] = (spaceFill, null, null);
-                                        }
-                                        // Add right content
-                                        for (int k = rightStart; k <= rightEnd; k++)
-                                        {
-                                            logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
-                                        }
+                                        if (currentScanStart == -1) currentScanStart = scan;
+                                        currentScanLength++;
                                     }
                                     else
                                     {
-                                        // Truncate/Squish
-                                        var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
-                                        logicalCells[logicalCellsCount++] = (spaceFill, null, null);
-                                        logicalCells[logicalCellsCount++] = (spaceFill, null, null);
-
-                                        int available = newCols - (logicalCellsCount - currentLogStart);
-                                        if (available > 0)
+                                        if (currentScanStart != -1)
                                         {
-                                            int take = Math.Min(available, rightBlockWidth);
-                                            int startOffset = rightBlockWidth - take;
-                                            for (int k = rightStart + startOffset; k <= rightEnd; k++)
-                                                logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
+                                            if (currentScanLength > bestGapLength)
+                                            {
+                                                bestGapLength = currentScanLength;
+                                                bestGapStart = currentScanStart;
+                                            }
+                                            currentScanStart = -1;
+                                            currentScanLength = 0;
                                         }
                                     }
-                                    isSparseRowRepositioned = true;
+                                }
+                                // Check gap if content resumes exactly at lastContentIndex? handled by loop
+                                // The loop stops AT lastContentIndex. If the character at lastContentIndex is content,
+                                // the else block triggers and we check the gap before it. Correct.
+                            }
+
+                            // Determine threshold for gap
+                            // Standard: 10 spaces
+                            // Special: 2 spaces IF the content touches the right edge (implies a shrunk right-prompt)
+                            bool isRightPinned = lastContentIndex == physRow.Cells.Length - 1;
+                            int gapThreshold = isRightPinned ? 2 : 10;
+
+                            if (bestGapLength >= gapThreshold)
+                            {
+                                // We found a split!
+                                // Left+Middle = 0 .. bestGapStart (exclusive)
+                                // Gap = bestGapStart .. bestGapStart + bestGapLength
+                                // Right = bestGapStart + bestGapLength .. lastContentIndex (inclusive)
+
+                                int gapStart = bestGapStart;
+                                int gapEnd = bestGapStart + bestGapLength;
+                                int rightStart = gapEnd;
+                                int rightEnd = lastContentIndex;
+
+                                // Extract Left+Middle
+                                for (int k = 0; k < gapStart; k++)
+                                {
+                                    logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
                                 }
 
+                                // Calculate new position
+                                int rightBlockWidth = rightEnd - rightStart + 1;
+                                int newRightPos = newCols - rightBlockWidth;
+
+                                int currentPos = logicalCellsCount - currentLogStart; // This is effectively gapStart
+
+                                if (newRightPos > currentPos + 2 && (newRightPos + rightBlockWidth) <= newCols)
+                                {
+                                    // Fill spaces
+                                    var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                                    for (int s = currentPos; s < newRightPos; s++)
+                                    {
+                                        logicalCells[logicalCellsCount++] = (spaceFill, null, null);
+                                    }
+                                    // Add right content
+                                    for (int k = rightStart; k <= rightEnd; k++)
+                                    {
+                                        logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
+                                    }
+                                }
+                                else
+                                {
+                                    // Truncate/Squish
+                                    var spaceFill = new TerminalCell(' ', Theme.Foreground, Theme.Background, false, false, true, true);
+                                    logicalCells[logicalCellsCount++] = (spaceFill, null, null);
+                                    logicalCells[logicalCellsCount++] = (spaceFill, null, null);
+
+                                    int available = newCols - (logicalCellsCount - currentLogStart);
+                                    if (available > 0)
+                                    {
+                                        int take = Math.Min(available, rightBlockWidth);
+                                        int startOffset = rightBlockWidth - take;
+                                        for (int k = rightStart + startOffset; k <= rightEnd; k++)
+                                            logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
+                                    }
+                                }
+                                isSparseRowRepositioned = true;
                             }
 
-                            // Normal processing if not sparse row or repositioning failed
-                            if (!isSparseRowRepositioned)
-                            {
-                                for (int k = 0; k < validLen; k++)
-                                    logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
-                            }
-
-                            if (!physRow.IsWrapped || ignoreWrap)
-                            {
-                                logicalLines.Add((currentLogStart, logicalCellsCount - currentLogStart, false, currentStartPhys));
-                                currentLogStart = -1;
-                            }
                         }
 
-                        if (currentLogStart != -1)
+                        // Normal processing if not sparse row or repositioning failed
+                        if (!isSparseRowRepositioned)
                         {
-                            logicalLines.Add((currentLogStart, logicalCellsCount - currentLogStart, true, currentStartPhys));
+                            for (int k = 0; k < validLen; k++)
+                                logicalCells[logicalCellsCount++] = (physRow.Cells[k], physRow.GetExtendedText(k), physRow.GetHyperlink(k));
                         }
+
+                        if (!physRow.IsWrapped || ignoreWrap)
+                        {
+                            logicalLines.Add((currentLogStart, logicalCellsCount - currentLogStart, false, currentStartPhys));
+                            currentLogStart = -1;
+                        }
+                    }
+
+                    if (currentLogStart != -1)
+                    {
+                        logicalLines.Add((currentLogStart, logicalCellsCount - currentLogStart, true, currentStartPhys));
+                    }
                     // 5. Distribution logic
                     _scrollback.Clear();
                     _viewport = new TerminalRow[newRows];
@@ -621,7 +621,7 @@ namespace NovaTerminal.VT
                             allFlowedRows[i].GetExtendedTextMap(),
                             allFlowedRows[i].GetHyperlinkMap());
                     }
-                    
+
                     int discardedRows = (int)newScrollback.TotalRowsEvicted;
                     _scrollback = newScrollback;
 

@@ -12,7 +12,7 @@ namespace NovaTerminal.Tests.Buffer
         public void GetMemoryMetrics_ReturnsReasonableValues()
         {
             var buffer = new TerminalBuffer(80, 24);
-            
+
             // Add some scrollback
             var row = new TerminalCell[80];
             for (int i = 0; i < 100; i++)

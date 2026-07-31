@@ -20,22 +20,22 @@ public sealed class SshLaunchDetails
     public required string CommandLine { get; init; }
 }
 
-    public sealed class SshConnectionService
+public sealed class SshConnectionService
+{
+    private const string FavoriteTag = "favorite";
+
+    private readonly ISshProfileStore _profileStore;
+
+    public SshConnectionService(ISshProfileStore? profileStore = null)
+        : this(profileStore, null)
     {
-        private const string FavoriteTag = "favorite";
+    }
 
-        private readonly ISshProfileStore _profileStore;
-
-        public SshConnectionService(ISshProfileStore? profileStore = null)
-            : this(profileStore, null)
-        {
-        }
-
-        public SshConnectionService(ISshProfileStore? profileStore, ISshPasswordVault? passwordVault)
-        {
-            _profileStore = profileStore ?? new JsonSshProfileStore();
-            _ = passwordVault;
-        }
+    public SshConnectionService(ISshProfileStore? profileStore, ISshPasswordVault? passwordVault)
+    {
+        _profileStore = profileStore ?? new JsonSshProfileStore();
+        _ = passwordVault;
+    }
 
     public IReadOnlyList<TerminalProfile> GetConnectionProfiles()
     {

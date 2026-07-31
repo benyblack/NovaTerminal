@@ -291,7 +291,7 @@ namespace NovaTerminal.Tests
             var contentTexts = new List<string>();
             var sbRows = GetScrollback(buffer);
             for (int i = 0; i < sbRows.Count; i++) contentTexts.Add(GetTextFromSpan(sbRows.GetRow(i)));
-            
+
             var vpRows = GetViewport(buffer);
             foreach (var r in vpRows) contentTexts.Add(GetRowTextContent(r));
 
@@ -408,7 +408,7 @@ namespace NovaTerminal.Tests
             var list = new List<string>();
             var sb = GetScrollback(buffer);
             for (int i = 0; i < sb.Count; i++) list.Add(GetTextFromSpan(sb.GetRow(i)));
-            
+
             var vp = GetViewport(buffer);
             foreach (var r in vp) list.Add(GetRowTextContent(r));
             return list;

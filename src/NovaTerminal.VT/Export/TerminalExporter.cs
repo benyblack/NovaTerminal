@@ -20,7 +20,7 @@ namespace NovaTerminal.VT.Export
                     {
                         var cell = buffer.GetCell(c, r);
                         if (cell.IsWideContinuation) continue;
-                        
+
                         string text = buffer.GetGrapheme(c, r);
                         rowSb.Append(text);
                         if (!string.IsNullOrWhiteSpace(text) && text != "\0")
@@ -28,7 +28,7 @@ namespace NovaTerminal.VT.Export
                             lastNonEmpty = rowSb.Length;
                         }
                     }
-                    
+
                     if (lastNonEmpty >= 0)
                     {
                         sb.AppendLine(rowSb.ToString().Substring(0, lastNonEmpty));
@@ -38,7 +38,7 @@ namespace NovaTerminal.VT.Export
                         sb.AppendLine();
                     }
                 }
-                
+
                 return sb.ToString().TrimEnd();
             }
             finally
@@ -84,11 +84,11 @@ namespace NovaTerminal.VT.Export
 
                         sb.Append(buffer.GetGrapheme(c, r));
                     }
-                    
+
                     // Reset at end of line if needed
-                    bool needsEolReset = !lastCell.IsDefaultBackground || !lastCell.IsDefaultForeground || 
-                                       lastCell.IsBold || lastCell.IsItalic || lastCell.IsUnderline || 
-                                       lastCell.IsInverse || lastCell.IsStrikethrough || lastCell.IsFaint || 
+                    bool needsEolReset = !lastCell.IsDefaultBackground || !lastCell.IsDefaultForeground ||
+                                       lastCell.IsBold || lastCell.IsItalic || lastCell.IsUnderline ||
+                                       lastCell.IsInverse || lastCell.IsStrikethrough || lastCell.IsFaint ||
                                        lastCell.IsHidden || lastCell.IsBlink;
 
                     if (!isFirstCell && needsEolReset)
@@ -96,7 +96,7 @@ namespace NovaTerminal.VT.Export
                         sb.Append("\x1b[0m");
                         lastCell = TerminalCell.Default;
                     }
-                    
+
                     sb.AppendLine();
                 }
                 return sb.ToString().TrimEnd();
@@ -156,7 +156,7 @@ namespace NovaTerminal.VT.Export
                 if (cell.IsInverse) codes.Add(7);
                 if (cell.IsHidden) codes.Add(8);
                 if (cell.IsStrikethrough) codes.Add(9);
-                
+
                 // Colors will be added below
             }
             else

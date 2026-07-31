@@ -378,11 +378,11 @@ namespace NovaTerminal.Controls
 
             SetText("DetailTitle", row.Name);
             SetText("DetailEndpoint", row.Endpoint);
-            SetText("KvHost",  string.IsNullOrWhiteSpace(row.Host)  ? "—" : row.Host);
-            SetText("KvPort",  row.Port.ToString());
-            SetText("KvUser",  string.IsNullOrWhiteSpace(row.User)  ? "—" : row.User);
+            SetText("KvHost", string.IsNullOrWhiteSpace(row.Host) ? "—" : row.Host);
+            SetText("KvPort", row.Port.ToString());
+            SetText("KvUser", string.IsNullOrWhiteSpace(row.User) ? "—" : row.User);
             SetText("KvGroup", string.IsNullOrWhiteSpace(row.GroupPath) ? "Ungrouped" : row.GroupPath);
-            SetText("KvAuth",  DescribeAuth(row.Profile));
+            SetText("KvAuth", DescribeAuth(row.Profile));
 
             var fav = this.FindControl<PathIcon>("DetailFavStar");
             if (fav != null) fav.IsVisible = row.IsFavorite;

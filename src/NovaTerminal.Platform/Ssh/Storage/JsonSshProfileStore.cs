@@ -139,7 +139,7 @@ public sealed class JsonSshProfileStore : ISshProfileStore
                 string directory = Path.GetDirectoryName(_storeFilePath) ?? string.Empty;
                 string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
                 string backupPath = Path.Combine(directory, $"profiles.json.corrupt.{timestamp}.json");
-                
+
                 File.Move(_storeFilePath, backupPath);
             }
         }
@@ -189,10 +189,10 @@ public sealed class JsonSshProfileStore : ISshProfileStore
         }
 
         string json = JsonSerializer.Serialize(document, SshJsonContext.Default.SshStoreDocument);
-        
+
         string tempPath = Path.Combine(directory ?? string.Empty, $"profiles.json.{Guid.NewGuid():N}.tmp");
         File.WriteAllText(tempPath, json);
-        
+
         try
         {
             if (File.Exists(_storeFilePath))

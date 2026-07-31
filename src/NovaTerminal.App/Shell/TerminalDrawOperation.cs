@@ -353,7 +353,7 @@ namespace NovaTerminal.Shell
                 frame.ThemeFg = new SKColor(renderSnapshot.Theme.Foreground.R, renderSnapshot.Theme.Foreground.G, renderSnapshot.Theme.Foreground.B, 255);
                 frame.CursorColor = new SKColor(renderSnapshot.Theme.CursorColor.R, renderSnapshot.Theme.CursorColor.G, renderSnapshot.Theme.CursorColor.B, 255);
                 frame.CursorStyle = renderSnapshot.CursorStyle;
-                
+
                 if (renderSnapshot.Images.Length > 0 && renderSnapshot.Images.Array != null)
                 {
                     frame.Images = new List<RenderImageSnapshot>(renderSnapshot.Images.Length);
@@ -367,7 +367,7 @@ namespace NovaTerminal.Shell
                     frame.Images = new List<RenderImageSnapshot>();
                 }
 
-                 // IMPORTANT: Always add exactly one RowRenderItem per visual row
+                // IMPORTANT: Always add exactly one RowRenderItem per visual row
                 // so render loop can safely use r for Y positioning.
                 // Skip row picture cache for AltScreen (mc, vim, htop etc.) — these apps
                 // redraw every row on every focus/resize, giving near-zero cache hit rate.
@@ -808,7 +808,7 @@ namespace NovaTerminal.Shell
                 }
 
                 CompleteFramePerfMetrics(perfWriter, frameSw.Elapsed.TotalMilliseconds, dirtyRowCount, dirtySpanCount);
-                
+
                 return renderSnapshot;
             }
             catch (Exception ex)
@@ -877,7 +877,7 @@ namespace NovaTerminal.Shell
             textY += lineHeight;
             canvas.DrawText($"Draws: {metrics.DrawCallsTotal} (Cache:{metrics.RowPictureCacheHits}/{metrics.RowPictureCacheMisses})", textX, textY, textPaint);
             textY += lineHeight;
-            canvas.DrawText($"Atlas Builds: {metrics.AtlasAlphaGlyphs}/{metrics.AtlasColorGlyphs} | Mem: {metrics.AllocBytesThisFrame/1024.0:F1} kb", textX, textY, textPaint);
+            canvas.DrawText($"Atlas Builds: {metrics.AtlasAlphaGlyphs}/{metrics.AtlasColorGlyphs} | Mem: {metrics.AllocBytesThisFrame / 1024.0:F1} kb", textX, textY, textPaint);
         }
 
         private void FlushBatches(SKCanvas canvas)
@@ -1280,276 +1280,276 @@ namespace NovaTerminal.Shell
                             ? ResolveTypefaceForCodePoint(fallbackChar, primaryTf)
                             : primaryTf;
 
-                    bool useLayer = totalRunWidth > 1;
-                    if (useLayer)
-                    {
-                        canvas.SaveLayer(new SKRect(rx, rowTopYDip, rx + rw, rowTopYDip + (float)_metrics.CellHeight), null);
-                    }
-
-                    var shapingResources = GetOrCreateShapingResources(tfToUse ?? primaryTf);
-                    var shapedFont = shapingResources.Font;
-                    var shaper = shapingResources.Shaper;
-                    LogBoxRunDiagnostics(runText, totalRunWidth, shapedFont, shapedFont.MeasureText(runText));
-                    canvas.DrawShapedText(shaper, runText, rx, baselineYDip, shapedFont, fgPaint);
-                    IncrementShapedTextRun();
-                    IncrementTextDrawCall();
-
-                    if (useLayer) canvas.Restore();
-                    cellsRendered += totalRunWidth;
-                }
-                else
-                {
-                    if (_glyphCache != null && !runIsItalic)
-                    {
-                        if (ShouldDrawRunDirectWhenGlyphCacheEnabled(runText))
+                        bool useLayer = totalRunWidth > 1;
+                        if (useLayer)
                         {
-                            FlushBatches(canvas);
-                            canvas.DrawText(runText, rx, baselineYDip, font, fgPaint);
-                            IncrementTextDrawCall();
-                            IncrementDirectDrawTextCall();
-                            cellsRendered += totalRunWidth;
-                            c = k - 1;
-                            continue;
+                            canvas.SaveLayer(new SKRect(rx, rowTopYDip, rx + rw, rowTopYDip + (float)_metrics.CellHeight), null);
                         }
 
-                        int cellX = c;
-                        float yBaselineSnap = baselineYDip;
-                        // #172 item 2: the sprite's position now comes from the atlas entry's own ink
-                        // bearing rather than from the font's ascent, so there is no single per-run
-                        // glyph Y any more. Snapping to the device-pixel grid still happens, just per
-                        // glyph and against the baseline.
-                        int baselineDevicePx = ToDevicePx(yBaselineSnap);
-                        float invScale = (float)(1.0 / _renderScaling);
-                        _blockFillPaint.Color = fg;
-                        _blockFillPaint.Style = SKPaintStyle.Fill;
-                        _blockFillPaint.IsAntialias = false;
+                        var shapingResources = GetOrCreateShapingResources(tfToUse ?? primaryTf);
+                        var shapedFont = shapingResources.Font;
+                        var shaper = shapingResources.Shaper;
+                        LogBoxRunDiagnostics(runText, totalRunWidth, shapedFont, shapedFont.MeasureText(runText));
+                        canvas.DrawShapedText(shaper, runText, rx, baselineYDip, shapedFont, fgPaint);
+                        IncrementShapedTextRun();
+                        IncrementTextDrawCall();
 
-                        // One iteration per grapheme cluster, not per rune (#234). Everything in this
-                        // body already takes a cluster string and behaves correctly given one; the
-                        // enumerator is what was wrong.
-                        foreach (string grapheme in new RunGraphemeEnumerator(runCellTexts))
-                        {
-                            int graphemeWidth = GetSafeGraphemeWidth(grapheme);
-                            float xIdxSnap = FromDevicePx(_pixelGrid.XForCol(cellX));
-
-                            int fallbackChar = FindFirstMissingGlyphCodePoint(grapheme, primaryTf);
-                            SKFont glyphFont = font;
-                            if (fallbackChar != 0)
-                            {
-                                var glyphTf = ResolveTypefaceForCodePoint(fallbackChar, primaryTf);
-                                if (glyphTf != primaryTf)
-                                {
-                                    glyphFont = GetOrCreateFallbackFont(glyphTf);
-                                }
-                            }
-
-                            if (GlyphDiagnosticsEnabled && IsSingleRuneInRange(grapheme, 0x2500, 0x257F))
-                            {
-                                float measuredGlyphWidth = glyphFont.MeasureText(grapheme);
-                                float expectedGlyphWidth = graphemeWidth * _metrics.CellWidth;
-                                string glyphFamily = glyphFont.Typeface?.FamilyName ?? "unknown";
-                                string diagKey = $"boxglyph:{glyphFamily}:{grapheme}";
-                                string diagMsg = $"[GlyphDiag] box-glyph='{grapheme}' font='{glyphFamily}' measuredDip={measuredGlyphWidth:F4} expectedDip={expectedGlyphWidth:F4} delta={measuredGlyphWidth - expectedGlyphWidth:F4}";
-                                LogDiagOnce(diagKey, diagMsg);
-                            }
-
-                            float cellX1 = xIdxSnap;
-                            float cellX2 = FromDevicePx(_pixelGrid.XForCol(cellX + graphemeWidth));
-                            float cellW = cellX2 - cellX1;
-                            float cellH = snappedCellHeight;
-                            bool hasSingleRune = TryGetSingleRuneCodePoint(grapheme, out int graphemeCodePoint);
-                            bool isBlockShadeOrQuadrant = hasSingleRune && graphemeCodePoint >= 0x2580 && graphemeCodePoint <= 0x259F;
-                            bool isBrailleGlyph = hasSingleRune && graphemeCodePoint >= 0x2800 && graphemeCodePoint <= 0x28FF;
-                            bool isBlackSquareGlyph = hasSingleRune && graphemeCodePoint == 0x25A0;
-                            bool graphGlyphMissing = false;
-                            if ((isBlockShadeOrQuadrant || isBrailleGlyph || isBlackSquareGlyph) &&
-                                (glyphFont.Typeface == null || !glyphFont.Typeface.ContainsGlyph(graphemeCodePoint)))
-                            {
-                                graphGlyphMissing = true;
-                            }
-                            bool usePrimitiveBlockLike = IsBlockElementPrimitiveRenderingEnabled() || isBlockShadeOrQuadrant || isBlackSquareGlyph || graphGlyphMissing;
-                            bool usePrimitiveBraille = IsBlockElementPrimitiveRenderingEnabled() || graphGlyphMissing;
-
-                            // Prefer primitives for block/shade/quadrant bar glyphs to guarantee
-                            // seam-free cell fills. For braille, keep font rendering unless
-                            // primitives are enabled or the current typeface lacks the glyph.
-                            if (usePrimitiveBlockLike &&
-                                TryGetBlockFillRect(grapheme, out int xStartEighths, out int xEndEighths, out int yStartEighths, out int yEndEighths))
-                            {
-                                FlushBatches(canvas);
-
-                                float fillX1 = xStartEighths == 0 ? cellX1 : SnapX(cellX1 + (cellW * (xStartEighths / 8f)));
-                                float fillX2 = xEndEighths == 8 ? cellX2 : SnapX(cellX1 + (cellW * (xEndEighths / 8f)));
-                                float rowBottom = rowTopYDip + cellH;
-                                float fillY1 = yStartEighths == 0 ? rowTopYDip : SnapY(rowTopYDip + (cellH * (yStartEighths / 8f)));
-                                float fillY2 = yEndEighths == 8 ? rowBottom : SnapY(rowTopYDip + (cellH * (yEndEighths / 8f)));
-                                if (fillX2 > fillX1 && fillY2 > fillY1)
-                                {
-                                    canvas.DrawRect(fillX1, fillY1, fillX2 - fillX1, fillY2 - fillY1, _blockFillPaint);
-                                    IncrementRectDrawCall();
-                                }
-
-                                cellX += graphemeWidth;
-                                continue;
-                            }
-
-                            if (usePrimitiveBlockLike && TryGetShadeFillAlpha(grapheme, out float shadeAlpha))
-                            {
-                                FlushBatches(canvas);
-                                byte shadeA = (byte)Math.Clamp((int)Math.Round(fg.Alpha * shadeAlpha), 0, 255);
-                                _shadeFillPaint.Color = new SKColor(fg.Red, fg.Green, fg.Blue, shadeA);
-                                _shadeFillPaint.Style = SKPaintStyle.Fill;
-                                _shadeFillPaint.IsAntialias = false;
-                                if (cellW > 0 && cellH > 0)
-                                {
-                                    canvas.DrawRect(cellX1, rowTopYDip, cellW, cellH, _shadeFillPaint);
-                                    IncrementRectDrawCall();
-                                }
-
-                                cellX += graphemeWidth;
-                                continue;
-                            }
-
-                            if (usePrimitiveBlockLike && TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
-                            {
-                                FlushBatches(canvas);
-                                DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopYDip, cellW, cellH, _blockFillPaint);
-                                cellX += graphemeWidth;
-                                continue;
-                            }
-
-                            if (usePrimitiveBraille && TryGetBraillePattern(grapheme, out byte brailleMask))
-                            {
-                                FlushBatches(canvas);
-                                DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopYDip, cellW, cellH, _blockFillPaint);
-                                cellX += graphemeWidth;
-                                continue;
-                            }
-
-                            if (IsBoxDrawingPrimitiveRenderingEnabled() &&
-                                TryGetSingleRuneCodePoint(grapheme, out int cpBox) &&
-                                cpBox >= 0x2500 && cpBox <= 0x257F)
-                            {
-                                FlushBatches(canvas);
-                                if (TryDrawBoxDrawingGlyph(canvas, grapheme, cellX1, rowTopYDip, cellW, cellH, fg))
-                                {
-                                    cellX += graphemeWidth;
-                                    continue;
-                                }
-                            }
-
-                            if (ShouldForceDirectTextForGraphGlyph(grapheme))
-                            {
-                                FlushBatches(canvas);
-                                DrawDirectGrapheme(
-                                    canvas,
-                                    grapheme,
-                                    xIdxSnap,
-                                    yBaselineSnap,
-                                    glyphFont,
-                                    fgPaint,
-                                    cellX1,
-                                    rowTopYDip,
-                                    cellW,
-                                    cellH);
-                                cellX += graphemeWidth;
-                                continue;
-                            }
-
-                            if (ShouldBypassGlyphAtlasForGrapheme(grapheme))
-                            {
-                                FlushBatches(canvas);
-                                DrawDirectGrapheme(
-                                    canvas,
-                                    grapheme,
-                                    xIdxSnap,
-                                    yBaselineSnap,
-                                    glyphFont,
-                                    fgPaint,
-                                    cellX1,
-                                    rowTopYDip,
-                                    cellW,
-                                    cellH);
-                                cellX += graphemeWidth;
-                                continue;
-                            }
-
-                            var cached = _glyphCache.GetOrAdd(grapheme, glyphFont, (float)_renderScaling);
-
-                            if (cached != null)
-                            {
-                                var sprite = cached.Value;
-
-                                // Offsets are integer device pixels from the pen origin, and both
-                                // xIdxSnap and the baseline are already on the device-pixel grid, so
-                                // the sprite stays pixel-aligned and therefore sharp.
-                                float spriteX = FromDevicePx(ToDevicePx(xIdxSnap) + sprite.OffsetX);
-                                float spriteY = FromDevicePx(baselineDevicePx + sprite.OffsetY);
-                                var xform = SKRotationScaleMatrix.Create(invScale, 0, spriteX, spriteY, 0, 0);
-                                if (sprite.Type == AtlasType.Alpha8)
-                                {
-                                    AddAlphaBatchEntry(sprite.Rect, xform, fg);
-                                }
-                                else
-                                {
-                                    AddColorBatchEntry(sprite.Rect, xform);
-                                }
-                            }
-                            else
-                            {
-                                FlushBatches(canvas);
-                                canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, glyphFont, fgPaint);
-                                IncrementTextDrawCall();
-                                IncrementDirectDrawTextCall();
-                            }
-                            cellX += graphemeWidth;
-                        }
-                        LogBoxRunDiagnostics(runText, totalRunWidth, font, font.MeasureText(runText));
+                        if (useLayer) canvas.Restore();
+                        cellsRendered += totalRunWidth;
                     }
                     else
                     {
-                        canvas.DrawText(runText, rx, baselineYDip, font, fgPaint);
-                        IncrementTextDrawCall();
-                        IncrementDirectDrawTextCall();
-                    }
-                    cellsRendered += totalRunWidth;
-                }
-
-                if (appliedItalicTransform)
-                {
-                    canvas.Restore();
-                }
-
-                bool underlineHasVisibleText = runIsUnderline && ContainsNonWhitespace(runText);
-                if (underlineHasVisibleText || runIsStrikethrough)
-                {
-                    _decoStrokePaint.Color = fg;
-                    _decoStrokePaint.IsAntialias = true;
-                    _decoStrokePaint.Style = SKPaintStyle.Stroke;
-                    _decoStrokePaint.StrokeWidth = strokeWidth;
-
-                    if (underlineHasVisibleText)
-                    {
-                        float underlineX1 = rx;
-                        float underlineX2 = rx + rw;
-                        if (TryGetUnderlineBounds(runCellTexts, c, colEdges, paddingLeft, out float trimmedX1, out float trimmedX2))
+                        if (_glyphCache != null && !runIsItalic)
                         {
-                            underlineX1 = trimmedX1;
-                            underlineX2 = trimmedX2;
+                            if (ShouldDrawRunDirectWhenGlyphCacheEnabled(runText))
+                            {
+                                FlushBatches(canvas);
+                                canvas.DrawText(runText, rx, baselineYDip, font, fgPaint);
+                                IncrementTextDrawCall();
+                                IncrementDirectDrawTextCall();
+                                cellsRendered += totalRunWidth;
+                                c = k - 1;
+                                continue;
+                            }
+
+                            int cellX = c;
+                            float yBaselineSnap = baselineYDip;
+                            // #172 item 2: the sprite's position now comes from the atlas entry's own ink
+                            // bearing rather than from the font's ascent, so there is no single per-run
+                            // glyph Y any more. Snapping to the device-pixel grid still happens, just per
+                            // glyph and against the baseline.
+                            int baselineDevicePx = ToDevicePx(yBaselineSnap);
+                            float invScale = (float)(1.0 / _renderScaling);
+                            _blockFillPaint.Color = fg;
+                            _blockFillPaint.Style = SKPaintStyle.Fill;
+                            _blockFillPaint.IsAntialias = false;
+
+                            // One iteration per grapheme cluster, not per rune (#234). Everything in this
+                            // body already takes a cluster string and behaves correctly given one; the
+                            // enumerator is what was wrong.
+                            foreach (string grapheme in new RunGraphemeEnumerator(runCellTexts))
+                            {
+                                int graphemeWidth = GetSafeGraphemeWidth(grapheme);
+                                float xIdxSnap = FromDevicePx(_pixelGrid.XForCol(cellX));
+
+                                int fallbackChar = FindFirstMissingGlyphCodePoint(grapheme, primaryTf);
+                                SKFont glyphFont = font;
+                                if (fallbackChar != 0)
+                                {
+                                    var glyphTf = ResolveTypefaceForCodePoint(fallbackChar, primaryTf);
+                                    if (glyphTf != primaryTf)
+                                    {
+                                        glyphFont = GetOrCreateFallbackFont(glyphTf);
+                                    }
+                                }
+
+                                if (GlyphDiagnosticsEnabled && IsSingleRuneInRange(grapheme, 0x2500, 0x257F))
+                                {
+                                    float measuredGlyphWidth = glyphFont.MeasureText(grapheme);
+                                    float expectedGlyphWidth = graphemeWidth * _metrics.CellWidth;
+                                    string glyphFamily = glyphFont.Typeface?.FamilyName ?? "unknown";
+                                    string diagKey = $"boxglyph:{glyphFamily}:{grapheme}";
+                                    string diagMsg = $"[GlyphDiag] box-glyph='{grapheme}' font='{glyphFamily}' measuredDip={measuredGlyphWidth:F4} expectedDip={expectedGlyphWidth:F4} delta={measuredGlyphWidth - expectedGlyphWidth:F4}";
+                                    LogDiagOnce(diagKey, diagMsg);
+                                }
+
+                                float cellX1 = xIdxSnap;
+                                float cellX2 = FromDevicePx(_pixelGrid.XForCol(cellX + graphemeWidth));
+                                float cellW = cellX2 - cellX1;
+                                float cellH = snappedCellHeight;
+                                bool hasSingleRune = TryGetSingleRuneCodePoint(grapheme, out int graphemeCodePoint);
+                                bool isBlockShadeOrQuadrant = hasSingleRune && graphemeCodePoint >= 0x2580 && graphemeCodePoint <= 0x259F;
+                                bool isBrailleGlyph = hasSingleRune && graphemeCodePoint >= 0x2800 && graphemeCodePoint <= 0x28FF;
+                                bool isBlackSquareGlyph = hasSingleRune && graphemeCodePoint == 0x25A0;
+                                bool graphGlyphMissing = false;
+                                if ((isBlockShadeOrQuadrant || isBrailleGlyph || isBlackSquareGlyph) &&
+                                    (glyphFont.Typeface == null || !glyphFont.Typeface.ContainsGlyph(graphemeCodePoint)))
+                                {
+                                    graphGlyphMissing = true;
+                                }
+                                bool usePrimitiveBlockLike = IsBlockElementPrimitiveRenderingEnabled() || isBlockShadeOrQuadrant || isBlackSquareGlyph || graphGlyphMissing;
+                                bool usePrimitiveBraille = IsBlockElementPrimitiveRenderingEnabled() || graphGlyphMissing;
+
+                                // Prefer primitives for block/shade/quadrant bar glyphs to guarantee
+                                // seam-free cell fills. For braille, keep font rendering unless
+                                // primitives are enabled or the current typeface lacks the glyph.
+                                if (usePrimitiveBlockLike &&
+                                    TryGetBlockFillRect(grapheme, out int xStartEighths, out int xEndEighths, out int yStartEighths, out int yEndEighths))
+                                {
+                                    FlushBatches(canvas);
+
+                                    float fillX1 = xStartEighths == 0 ? cellX1 : SnapX(cellX1 + (cellW * (xStartEighths / 8f)));
+                                    float fillX2 = xEndEighths == 8 ? cellX2 : SnapX(cellX1 + (cellW * (xEndEighths / 8f)));
+                                    float rowBottom = rowTopYDip + cellH;
+                                    float fillY1 = yStartEighths == 0 ? rowTopYDip : SnapY(rowTopYDip + (cellH * (yStartEighths / 8f)));
+                                    float fillY2 = yEndEighths == 8 ? rowBottom : SnapY(rowTopYDip + (cellH * (yEndEighths / 8f)));
+                                    if (fillX2 > fillX1 && fillY2 > fillY1)
+                                    {
+                                        canvas.DrawRect(fillX1, fillY1, fillX2 - fillX1, fillY2 - fillY1, _blockFillPaint);
+                                        IncrementRectDrawCall();
+                                    }
+
+                                    cellX += graphemeWidth;
+                                    continue;
+                                }
+
+                                if (usePrimitiveBlockLike && TryGetShadeFillAlpha(grapheme, out float shadeAlpha))
+                                {
+                                    FlushBatches(canvas);
+                                    byte shadeA = (byte)Math.Clamp((int)Math.Round(fg.Alpha * shadeAlpha), 0, 255);
+                                    _shadeFillPaint.Color = new SKColor(fg.Red, fg.Green, fg.Blue, shadeA);
+                                    _shadeFillPaint.Style = SKPaintStyle.Fill;
+                                    _shadeFillPaint.IsAntialias = false;
+                                    if (cellW > 0 && cellH > 0)
+                                    {
+                                        canvas.DrawRect(cellX1, rowTopYDip, cellW, cellH, _shadeFillPaint);
+                                        IncrementRectDrawCall();
+                                    }
+
+                                    cellX += graphemeWidth;
+                                    continue;
+                                }
+
+                                if (usePrimitiveBlockLike && TryGetQuadrantFillMask(grapheme, out byte quadrantMask))
+                                {
+                                    FlushBatches(canvas);
+                                    DrawQuadrantSubcells(canvas, quadrantMask, cellX1, rowTopYDip, cellW, cellH, _blockFillPaint);
+                                    cellX += graphemeWidth;
+                                    continue;
+                                }
+
+                                if (usePrimitiveBraille && TryGetBraillePattern(grapheme, out byte brailleMask))
+                                {
+                                    FlushBatches(canvas);
+                                    DrawBrailleSubcells(canvas, brailleMask, cellX1, rowTopYDip, cellW, cellH, _blockFillPaint);
+                                    cellX += graphemeWidth;
+                                    continue;
+                                }
+
+                                if (IsBoxDrawingPrimitiveRenderingEnabled() &&
+                                    TryGetSingleRuneCodePoint(grapheme, out int cpBox) &&
+                                    cpBox >= 0x2500 && cpBox <= 0x257F)
+                                {
+                                    FlushBatches(canvas);
+                                    if (TryDrawBoxDrawingGlyph(canvas, grapheme, cellX1, rowTopYDip, cellW, cellH, fg))
+                                    {
+                                        cellX += graphemeWidth;
+                                        continue;
+                                    }
+                                }
+
+                                if (ShouldForceDirectTextForGraphGlyph(grapheme))
+                                {
+                                    FlushBatches(canvas);
+                                    DrawDirectGrapheme(
+                                        canvas,
+                                        grapheme,
+                                        xIdxSnap,
+                                        yBaselineSnap,
+                                        glyphFont,
+                                        fgPaint,
+                                        cellX1,
+                                        rowTopYDip,
+                                        cellW,
+                                        cellH);
+                                    cellX += graphemeWidth;
+                                    continue;
+                                }
+
+                                if (ShouldBypassGlyphAtlasForGrapheme(grapheme))
+                                {
+                                    FlushBatches(canvas);
+                                    DrawDirectGrapheme(
+                                        canvas,
+                                        grapheme,
+                                        xIdxSnap,
+                                        yBaselineSnap,
+                                        glyphFont,
+                                        fgPaint,
+                                        cellX1,
+                                        rowTopYDip,
+                                        cellW,
+                                        cellH);
+                                    cellX += graphemeWidth;
+                                    continue;
+                                }
+
+                                var cached = _glyphCache.GetOrAdd(grapheme, glyphFont, (float)_renderScaling);
+
+                                if (cached != null)
+                                {
+                                    var sprite = cached.Value;
+
+                                    // Offsets are integer device pixels from the pen origin, and both
+                                    // xIdxSnap and the baseline are already on the device-pixel grid, so
+                                    // the sprite stays pixel-aligned and therefore sharp.
+                                    float spriteX = FromDevicePx(ToDevicePx(xIdxSnap) + sprite.OffsetX);
+                                    float spriteY = FromDevicePx(baselineDevicePx + sprite.OffsetY);
+                                    var xform = SKRotationScaleMatrix.Create(invScale, 0, spriteX, spriteY, 0, 0);
+                                    if (sprite.Type == AtlasType.Alpha8)
+                                    {
+                                        AddAlphaBatchEntry(sprite.Rect, xform, fg);
+                                    }
+                                    else
+                                    {
+                                        AddColorBatchEntry(sprite.Rect, xform);
+                                    }
+                                }
+                                else
+                                {
+                                    FlushBatches(canvas);
+                                    canvas.DrawText(grapheme, xIdxSnap, yBaselineSnap, glyphFont, fgPaint);
+                                    IncrementTextDrawCall();
+                                    IncrementDirectDrawTextCall();
+                                }
+                                cellX += graphemeWidth;
+                            }
+                            LogBoxRunDiagnostics(runText, totalRunWidth, font, font.MeasureText(runText));
+                        }
+                        else
+                        {
+                            canvas.DrawText(runText, rx, baselineYDip, font, fgPaint);
+                            IncrementTextDrawCall();
+                            IncrementDirectDrawTextCall();
+                        }
+                        cellsRendered += totalRunWidth;
+                    }
+
+                    if (appliedItalicTransform)
+                    {
+                        canvas.Restore();
+                    }
+
+                    bool underlineHasVisibleText = runIsUnderline && ContainsNonWhitespace(runText);
+                    if (underlineHasVisibleText || runIsStrikethrough)
+                    {
+                        _decoStrokePaint.Color = fg;
+                        _decoStrokePaint.IsAntialias = true;
+                        _decoStrokePaint.Style = SKPaintStyle.Stroke;
+                        _decoStrokePaint.StrokeWidth = strokeWidth;
+
+                        if (underlineHasVisibleText)
+                        {
+                            float underlineX1 = rx;
+                            float underlineX2 = rx + rw;
+                            if (TryGetUnderlineBounds(runCellTexts, c, colEdges, paddingLeft, out float trimmedX1, out float trimmedX2))
+                            {
+                                underlineX1 = trimmedX1;
+                                underlineX2 = trimmedX2;
+                            }
+
+                            float underlineY = FromDevicePx(_pixelGrid.YForUnderline(rowIndex));
+                            canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, _decoStrokePaint);
+                            IncrementRectDrawCall();
                         }
 
-                        float underlineY = FromDevicePx(_pixelGrid.YForUnderline(rowIndex));
-                        canvas.DrawLine(underlineX1, underlineY, underlineX2, underlineY, _decoStrokePaint);
-                        IncrementRectDrawCall();
+                        if (runIsStrikethrough)
+                        {
+                            float strikeY = FromDevicePx(_pixelGrid.YForStrike(rowIndex));
+                            canvas.DrawLine(rx, strikeY, rx + rw, strikeY, _decoStrokePaint);
+                            IncrementRectDrawCall();
+                        }
                     }
-
-                    if (runIsStrikethrough)
-                    {
-                        float strikeY = FromDevicePx(_pixelGrid.YForStrike(rowIndex));
-                        canvas.DrawLine(rx, strikeY, rx + rw, strikeY, _decoStrokePaint);
-                        IncrementRectDrawCall();
-                    }
-                }
 
                     c = k - 1;
                 }
@@ -1876,12 +1876,12 @@ namespace NovaTerminal.Shell
                     IsRegionalIndicatorRune(cp) ||       // Flag emoji sequences
                     (cp >= 0x2600 && cp <= 0x27BF) ||   // Dingbats/symbols
                     (cp == 0x200D) ||                    // ZWJ
-                    // Keycap sequences ("1" + FE0F + 20E3) and any other VS16-promoted emoji.
-                    // Without these the run falls through to the per-rune loop below, which calls
-                    // the glyph cache once per *rune* rather than per grapheme cluster - so the
-                    // digit, the selector and the enclosing keycap are rasterized separately and
-                    // the composed glyph is never produced at all. Flags already reach the shaper
-                    // via IsRegionalIndicatorRune for exactly this reason (#172).
+                                                         // Keycap sequences ("1" + FE0F + 20E3) and any other VS16-promoted emoji.
+                                                         // Without these the run falls through to the per-rune loop below, which calls
+                                                         // the glyph cache once per *rune* rather than per grapheme cluster - so the
+                                                         // digit, the selector and the enclosing keycap are rasterized separately and
+                                                         // the composed glyph is never produced at all. Flags already reach the shaper
+                                                         // via IsRegionalIndicatorRune for exactly this reason (#172).
                     (cp == 0xFE0F) ||                    // VARIATION SELECTOR-16
                     (cp == 0x20E3))                      // COMBINING ENCLOSING KEYCAP
                 {
