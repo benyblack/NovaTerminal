@@ -78,7 +78,8 @@ namespace NovaTerminal.Rendering
 
         private static byte ToByte(double channel)
         {
-            return (byte)Math.Clamp((int)(channel * 255), 0, 255);
+            int percentage = Math.Clamp((int)(channel * 100), 0, 100);
+            return (byte)((percentage * 255 + 50) / 100);
         }
 
         public SKBitmap? Decode(string dcs)

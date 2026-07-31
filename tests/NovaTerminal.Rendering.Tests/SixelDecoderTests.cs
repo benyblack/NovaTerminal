@@ -30,9 +30,10 @@ public class SixelDecoderTests
     [InlineData(0, 50, 100, 0, 0, 255)]
     [InlineData(120, 50, 100, 255, 0, 0)]
     [InlineData(240, 50, 100, 0, 255, 0)]
+    [InlineData(121, 50, 100, 255, 3, 0)]
     [InlineData(42, 0, 100, 0, 0, 0)]
     [InlineData(42, 100, 100, 255, 255, 255)]
-    [InlineData(42, 50, 0, 127, 127, 127)]
+    [InlineData(42, 50, 0, 128, 128, 128)]
     public void HlsToRgb_ReturnsExpectedColor(
         int hue,
         int lightness,
