@@ -16,7 +16,10 @@ namespace NovaTerminal.VT
 
         // M2.2: Side-table for extended graphemes (strings)
         private Storage.SmallMap<string>? _extendedText;
-        private Storage.SmallMap<string>? _hyperlinks;
+
+        // #95 gap 2: holds link identity, not just the URI. Cells in the same logical OSC 8 anchor share
+        // one Hyperlink reference, so grouping is reference equality — see Links/Hyperlink.cs.
+        private Storage.SmallMap<Links.Hyperlink>? _hyperlinks;
 
         public string? GetExtendedText(int col)
         {
@@ -41,22 +44,22 @@ namespace NovaTerminal.VT
             _extendedText = null;
         }
 
-        public string? GetHyperlink(int col)
+        public Links.Hyperlink? GetHyperlink(int col)
         {
             if (_hyperlinks == null) return null;
             return _hyperlinks.TryGet(col, out var link) ? link : null;
         }
 
-        public void SetHyperlink(int col, string? link)
+        public void SetHyperlink(int col, Links.Hyperlink? link)
         {
-            if (string.IsNullOrWhiteSpace(link))
+            if (link is null)
             {
                 _hyperlinks?.Remove(col);
                 if (_hyperlinks?.Count == 0) _hyperlinks = null;
                 return;
             }
 
-            _hyperlinks ??= new Storage.SmallMap<string>();
+            _hyperlinks ??= new Storage.SmallMap<Links.Hyperlink>();
             _hyperlinks.Set(col, link);
         }
 
@@ -75,7 +78,7 @@ namespace NovaTerminal.VT
         /// Returns the raw SmallMap backing hyperlinks for this row.
         /// This is intended for preservation into paged scrollback — do not cache or mutate.
         /// </summary>
-        public Storage.SmallMap<string>? GetHyperlinkMap() => _hyperlinks;
+        public Storage.SmallMap<Links.Hyperlink>? GetHyperlinkMap() => _hyperlinks;
 
         /// <summary>
         /// True when this row carries any side-table entry. Lets callers on the write hot path
@@ -105,8 +108,10 @@ namespace NovaTerminal.VT
             _hyperlinks = ShiftMap(_hyperlinks, startCol, delta, cols);
         }
 
-        private static Storage.SmallMap<string>? ShiftMap(
-            Storage.SmallMap<string>? map, int startCol, int delta, int cols)
+        // Generic over the value type so the extended-text and hyperlink maps share one implementation:
+        // they must shift identically, and two copies of this logic is how they would drift apart.
+        private static Storage.SmallMap<T>? ShiftMap<T>(
+            Storage.SmallMap<T>? map, int startCol, int delta, int cols) where T : class
         {
             if (map is null || map.Count == 0) return null;
 
@@ -114,7 +119,7 @@ namespace NovaTerminal.VT
             // been relocated (and, for a right shift, overwrite ones not yet visited).
             int n = map.Count;
             var keys = new int[n];
-            var values = new string[n];
+            var values = new T[n];
             int i = 0;
             map.ForEach((col, value) =>
             {
@@ -123,7 +128,7 @@ namespace NovaTerminal.VT
                 i++;
             });
 
-            Storage.SmallMap<string>? shifted = null;
+            Storage.SmallMap<T>? shifted = null;
             for (int e = 0; e < n; e++)
             {
                 int col = keys[e];
@@ -138,7 +143,7 @@ namespace NovaTerminal.VT
                     if (dest < startCol || dest >= cols) continue;
                 }
 
-                shifted ??= new Storage.SmallMap<string>();
+                shifted ??= new Storage.SmallMap<T>();
                 shifted.Set(dest, values[e]);
             }
 
@@ -178,7 +183,7 @@ namespace NovaTerminal.VT
         /// extended graphemes and hyperlinks survive the round trip. The row
         /// takes ownership of the maps.
         /// </summary>
-        public void RestoreSideTables(Storage.SmallMap<string>? extendedText, Storage.SmallMap<string>? hyperlinks)
+        public void RestoreSideTables(Storage.SmallMap<string>? extendedText, Storage.SmallMap<Links.Hyperlink>? hyperlinks)
         {
             _extendedText = extendedText is { Count: > 0 } ? extendedText : null;
             _hyperlinks = hyperlinks is { Count: > 0 } ? hyperlinks : null;

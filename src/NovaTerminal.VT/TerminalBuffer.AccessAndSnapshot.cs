@@ -107,7 +107,22 @@ namespace NovaTerminal.VT
             return (cell.HasExtendedText ? row.GetExtendedText(col) : null) ?? cell.Character.ToString();
         }
 
+        /// <summary>
+        /// Returns the URI of the hyperlink on a cell, or <c>null</c> if it has none.
+        /// </summary>
+        /// <remarks>
+        /// For "do these two cells belong to the same anchor?" use
+        /// <see cref="GetHyperlinkIdentityAbsolute"/> instead — equal URIs do not imply one link, which is
+        /// the whole reason OSC 8 has an <c>id</c> parameter.
+        /// </remarks>
         public string? GetHyperlinkAbsolute(int col, int absRow)
+            => GetHyperlinkIdentityAbsolute(col, absRow)?.Uri;
+
+        /// <summary>
+        /// Returns the hyperlink identity on a cell, or <c>null</c> if it has none. Cells in the same
+        /// logical OSC 8 anchor return the same instance, so identity is reference equality.
+        /// </summary>
+        public Links.Hyperlink? GetHyperlinkIdentityAbsolute(int col, int absRow)
         {
             bool lockTaken = EnterReadLockIfNeeded();
             try
@@ -120,8 +135,8 @@ namespace NovaTerminal.VT
                     // into scrollback, but this read path returned null unconditionally, so
                     // an OSC 8 link stopped being a link as soon as it scrolled off screen.
                     var hyperlinks = _scrollback.GetHyperlinkMap(absRow);
-                    return hyperlinks != null && hyperlinks.TryGet(col, out string? uri)
-                        ? uri
+                    return hyperlinks != null && hyperlinks.TryGet(col, out Links.Hyperlink? link)
+                        ? link
                         : null;
                 }
 

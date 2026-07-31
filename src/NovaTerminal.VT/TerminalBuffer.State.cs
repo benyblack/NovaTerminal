@@ -38,7 +38,7 @@ namespace NovaTerminal.VT
         private bool _isBlink { get => _state.IsBlink; set => _state.IsBlink = value; }
         private bool _isStrikethrough { get => _state.IsStrikethrough; set => _state.IsStrikethrough = value; }
         private bool _isHidden { get => _state.IsHidden; set => _state.IsHidden = value; }
-        private string? _currentHyperlink { get => _state.CurrentHyperlink; set => _state.CurrentHyperlink = value; }
+        private Links.Hyperlink? _currentHyperlink { get => _state.CurrentHyperlink; set => _state.CurrentHyperlink = value; }
         private bool _isPendingWrap { get => _state.IsPendingWrap; set => _state.IsPendingWrap = value; }
 
         // Output synchronization state
@@ -76,7 +76,7 @@ namespace NovaTerminal.VT
             public bool IsBlink;
             public bool IsStrikethrough;
             public bool IsHidden;
-            public string? CurrentHyperlink;
+            public Links.Hyperlink? CurrentHyperlink;
             public bool IsPendingWrap;
 
             public bool IsSynchronizedOutput;

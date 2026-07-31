@@ -66,7 +66,7 @@ namespace NovaTerminal.VT
                 // (see the GetHyperlinkMap call below) and then silently dropped here - which made
                 // GetHyperlinkMap() on every flowed row unconditionally null, and lost every OSC 8
                 // link on any resize.
-                (TerminalCell Cell, string? ExtendedText, string? Hyperlink)[]? logicalCells = null;
+                (TerminalCell Cell, string? ExtendedText, Links.Hyperlink? Hyperlink)[]? logicalCells = null;
 
                 try
                 {
@@ -112,7 +112,7 @@ namespace NovaTerminal.VT
                     allPhysicalRows = System.Buffers.ArrayPool<TerminalRow>.Shared.Rent(totalPhysRows);
 
                     // 3. Metadata-Aware Logical Reconstruction
-                    var logicalCellsPool = System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText, string? Hyperlink)>.Shared;
+                    var logicalCellsPool = System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText, Links.Hyperlink? Hyperlink)>.Shared;
                     int maxLogicalCells = totalPhysRows * Math.Max(oldCols, newCols) + 1000;
                     logicalCells = logicalCellsPool.Rent(maxLogicalCells);
                     int logicalCellsCount = 0;
@@ -759,7 +759,7 @@ namespace NovaTerminal.VT
                     if (allPhysicalRows is not null)
                         System.Buffers.ArrayPool<TerminalRow>.Shared.Return(allPhysicalRows, clearArray: true);
                     if (logicalCells is not null)
-                        System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText, string? Hyperlink)>.Shared.Return(logicalCells, clearArray: true);
+                        System.Buffers.ArrayPool<(TerminalCell Cell, string? ExtendedText, Links.Hyperlink? Hyperlink)>.Shared.Return(logicalCells, clearArray: true);
                 }
             }
         }
