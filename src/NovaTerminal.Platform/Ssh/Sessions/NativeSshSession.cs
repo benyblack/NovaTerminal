@@ -72,7 +72,7 @@ public sealed class NativeSshSession : ITerminalSession
         _ = extraArgs;
         _cols = cols;
         _rows = rows;
-        _log = log ?? Console.WriteLine;
+        _log = log ?? TerminalLogger.Log;
         _interop = interop ?? new NativeSshInterop();
         _interactionHandler = interactionHandler;
         _profileId = profile.Id;

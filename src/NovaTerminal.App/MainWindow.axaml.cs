@@ -5309,7 +5309,7 @@ namespace NovaTerminal
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error executing command {commandTitle}: {ex.Message}");
+                TerminalLogger.Error($"Error executing command {commandTitle}: {ex.Message}");
                 await ShowSimpleMessageDialogAsync(commandTitle, ex.Message);
             }
         }
@@ -5456,7 +5456,7 @@ namespace NovaTerminal
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"Error executing command {cmd.Title}: {ex.Message}");
+                    TerminalLogger.Error($"Error executing command {cmd.Title}: {ex.Message}");
                 }
             }, DispatcherPriority.Background);
         }

@@ -106,7 +106,7 @@ public sealed class OpenSshSession : ITerminalSession
         string args = SshArgBuilder.BuildCommandLine(launchPlan.Arguments);
         string safeArgs = SshArgBuilder.SanitizeForLog(args);
 
-        Action<string> logger = log ?? Console.WriteLine;
+        Action<string> logger = log ?? TerminalLogger.Log;
         logger($"[OpenSshSession] Using OpenSSH executable: {launchPlan.SshExecutablePath}");
         logger($"[OpenSshSession] Arguments: {safeArgs}");
         logger($"[OpenSshSession] Generated config: {launchPlan.ConfigFilePath}");

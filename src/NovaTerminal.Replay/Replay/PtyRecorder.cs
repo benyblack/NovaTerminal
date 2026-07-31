@@ -249,7 +249,7 @@ namespace NovaTerminal.Replay
             catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                Console.WriteLine($"[PtyRecorder] Write failed: {ex.Message}");
+                TerminalLogger.Warning($"[PtyRecorder] Write failed: {ex.Message}");
             }
         }
 

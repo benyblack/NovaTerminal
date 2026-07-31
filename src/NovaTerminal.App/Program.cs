@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Media;
 using System;
 using NovaTerminal.Platform;
+using NovaTerminal.Pty;
 using NovaTerminal.VT;
 
 namespace NovaTerminal;
@@ -41,6 +42,11 @@ class Program
                 return;
             }
 
+            // The PTY layer cannot reference VT (Pty_must_not_depend_on_Vt), so it reports through its
+            // own sink; bridge it here so its diagnostics reach the same debug log as everything else.
+            // Before #109 they went to Console.WriteLine, i.e. nowhere in a GUI process.
+            PtyLogger.Sink = static (level, message) => TerminalLogger.Log(ToLogLevel(level), message);
+
             // Log startup info
             TerminalLogger.Log("NovaTerminal started with args: " + string.Join(" ", args));
             TerminalLogger.Log("Log file path: " + AppLogger.GetLogFilePath());
@@ -57,6 +63,24 @@ class Program
             throw;
         }
     }
+
+    /// <summary>
+    /// Maps the PTY layer's severity onto the app's.
+    /// </summary>
+    /// <remarks>
+    /// Written out rather than cast. The two enums happen to agree member-for-member today, so
+    /// <c>(LogLevel)level</c> would work and would keep working right up until someone inserted a member
+    /// into one of them, at which point every PTY message would be silently mislevelled.
+    /// <c>PtyLogLevelsMatchAppLogLevels</c> in the architecture tests pins the correspondence.
+    /// </remarks>
+    internal static LogLevel ToLogLevel(PtyLogLevel level) => level switch
+    {
+        PtyLogLevel.Debug => LogLevel.Debug,
+        PtyLogLevel.Info => LogLevel.Info,
+        PtyLogLevel.Warning => LogLevel.Warning,
+        PtyLogLevel.Error => LogLevel.Error,
+        _ => LogLevel.Info,
+    };
 
     // Identifies exactly which build is running, so a stale side-by-side copy is obvious
     // in debug.log. Reports git SHA (stamped at compile via the StampGitInfo MSBuild target),
