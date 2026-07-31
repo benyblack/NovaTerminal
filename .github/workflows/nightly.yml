@@ -11,6 +11,11 @@ on:
         default: false
         type: boolean
 
+# Stress runs only build, run, and upload artifacts — nothing writes back to the
+# repository. See the note in ci.yml.
+permissions:
+  contents: read
+
 concurrency:
   group: nightly-stress-${{ github.ref }}
   cancel-in-progress: true

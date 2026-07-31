@@ -22,6 +22,11 @@ on:
       - ".github/workflows/vt-conformance.yml"
   workflow_dispatch:
 
+# The matrix gate only reads the checkout and fails the run; it never comments on
+# the PR or pushes. See the note in ci.yml.
+permissions:
+  contents: read
+
 env:
   DOTNET_NOLOGO: true
   DOTNET_CLI_TELEMETRY_OPTOUT: true
