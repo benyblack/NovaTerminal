@@ -103,6 +103,77 @@ public sealed record ScreenSnapshotDto
     public required int Cols { get; init; }
 }
 
+/// <summary>Params for <c>captureScreen</c> (A5).</summary>
+public sealed record CaptureScreenParams
+{
+    [JsonPropertyName("paneId")]
+    public required Guid PaneId { get; init; }
+
+    /// <summary>
+    /// When true the endpoint also returns the PNG bytes base64-encoded in
+    /// <see cref="CaptureScreenResult.PngBase64"/>, so a caller that cannot read
+    /// local files still sees the image. Dropped when the PNG exceeds
+    /// <see cref="AgentHostProtocol.MaxInlineCaptureBytes"/>.
+    /// </summary>
+    [JsonPropertyName("inline")]
+    public bool Inline { get; init; }
+
+    /// <summary>
+    /// Resample the capture down to at most this pixel width, preserving aspect
+    /// ratio. 0 (the default) keeps the pane's native 1:1 size. The render itself
+    /// always happens at 1:1; this only scales the result.
+    /// </summary>
+    [JsonPropertyName("maxWidth")]
+    public int MaxWidth { get; init; }
+}
+
+/// <summary>Result payload for <c>captureScreen</c> (A5).</summary>
+public sealed record CaptureScreenResult
+{
+    /// <summary>Absolute path of the written PNG.</summary>
+    [JsonPropertyName("filePath")]
+    public required string FilePath { get; init; }
+
+    /// <summary>Pixel width of the delivered image (after any downscale).</summary>
+    [JsonPropertyName("width")]
+    public required int Width { get; init; }
+
+    /// <summary>Pixel height of the delivered image (after any downscale).</summary>
+    [JsonPropertyName("height")]
+    public required int Height { get; init; }
+
+    /// <summary>Grid columns that were rendered.</summary>
+    [JsonPropertyName("cols")]
+    public required int Cols { get; init; }
+
+    /// <summary>Grid rows that were rendered.</summary>
+    [JsonPropertyName("rows")]
+    public required int Rows { get; init; }
+
+    /// <summary>Size of the PNG on disk, in bytes.</summary>
+    [JsonPropertyName("byteCount")]
+    public required int ByteCount { get; init; }
+
+    /// <summary>True when <c>maxWidth</c> forced a resample.</summary>
+    [JsonPropertyName("downscaled")]
+    public required bool Downscaled { get; init; }
+
+    /// <summary>
+    /// Base64 PNG, present only when the caller asked for it and it fit under the
+    /// inline cap. Omitted from the wire when null.
+    /// </summary>
+    [JsonPropertyName("pngBase64")]
+    public string? PngBase64 { get; init; }
+
+    /// <summary>
+    /// True when the caller asked for an inline image and the endpoint dropped it
+    /// for exceeding <see cref="AgentHostProtocol.MaxInlineCaptureBytes"/>. The
+    /// file on disk is unaffected.
+    /// </summary>
+    [JsonPropertyName("inlineOmitted")]
+    public bool InlineOmitted { get; init; }
+}
+
 /// <summary>Params for <c>readScrollback</c> (ranged read, oldest line = 0).</summary>
 public sealed record ReadScrollbackParams
 {

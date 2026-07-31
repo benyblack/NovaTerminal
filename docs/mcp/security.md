@@ -22,8 +22,14 @@ The observe/act tools proxy the **running** NovaTerminal app over a **per-user l
 macOS/Linux). They are gated by opt-ins in the app's settings:
 
 - **Observe** (`list_sessions`, `read_screen`, `read_scrollback`, `get_session_status`,
-  `wait_for_events`, `export_replay`) requires **Agent access (observe)**. Read-only. Replay export
-  additionally requires the **Agent replay export** sub-toggle and **never records typed input**.
+  `wait_for_events`, `export_replay`, `capture_screen`) requires **Agent access (observe)**.
+  Read-only. Replay export additionally requires the **Agent replay export** sub-toggle and **never
+  records typed input**. Screenshots additionally require the **Agent screenshots** sub-toggle: a
+  rendered image discloses strictly more than the text `read_screen` returns — inline images
+  (sixel), the theme, everything drawn on the grid — so it is its own decision rather than riding
+  the observe toggle, and every capture (allowed or denied) is recorded in the **activity journal**
+  alongside the acting calls. Captures render the pane's grid offscreen from its buffer: they are
+  not screen grabs, so no other window, pane, or piece of app chrome can appear in one.
 - **Act** (`send_input`, `spawn_session`, `close_session`) requires a **separate** **Agent access
   (act)** opt-in *on top of* observe. SSH targets additionally require a **per-profile allowlist**.
   Every acting call — allowed or denied — is recorded in an in-app **activity journal**.

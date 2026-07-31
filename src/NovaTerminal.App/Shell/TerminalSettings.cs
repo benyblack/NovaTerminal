@@ -61,6 +61,13 @@ namespace NovaTerminal.Shell
         // (privacy decision in docs/plans/2026-07-07-agent-host-a4-replay-design.md).
         // Off by default; both toggles must be on for an export to succeed.
         public bool AgentReplayExportEnabled { get; set; } = false;
+        // A5 sub-gate on top of the observe toggle: allows agents to render a
+        // session to a PNG (novaterminal.capture_screen). Its own decision rather
+        // than riding the observe toggle because an image discloses more than the
+        // text readScreen returns — inline images, the theme, everything drawn on
+        // the grid. Off by default; both toggles must be on for a capture to
+        // succeed, and every capture is shown in the agent activity journal.
+        public bool AgentScreenshotEnabled { get; set; } = false;
         // A3 act surface: separate default-off opt-in letting agents type into,
         // spawn, and close sessions (novaterminal.send_input / spawn_session /
         // close_session). On top of observe; SSH sessions additionally require

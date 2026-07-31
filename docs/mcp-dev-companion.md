@@ -22,7 +22,7 @@ Proxy the **running** NovaTerminal app over a per-user local IPC endpoint, gated
 default-off opt-ins in the app's settings:
 
 - **Observe** (opt-in) — read live sessions: `list_sessions`, `read_screen`, `read_scrollback`,
-  `get_session_status`, `wait_for_events`, `export_replay`.
+  `get_session_status`, `wait_for_events`, `export_replay`, `capture_screen`.
 - **Act** (a *separate* opt-in, on top of observe) — `send_input`, `spawn_session`,
   `close_session`. SSH targets require a per-profile allowlist, and every acting call — allowed or
   denied — is recorded in an in-app activity journal.

@@ -120,8 +120,11 @@ NovaTerminal.McpServer  ── local IPC (named pipe / unix socket) ──▶  N
 | notifications (completion / stall) | off | same toggle |
 | send input, spawn/close sessions & panes | off | separate explicit opt-in, per-profile allowlist for SSH |
 | replay export | off | observe permission + explicit export action |
+| screenshot (render a pane to PNG) | off | observe permission + explicit screenshot opt-in |
 
-Every acting tool call is journaled to a visible activity log in the UI.
+Every acting tool call is journaled to a visible activity log in the UI, as is
+every screenshot: a picture of the user's screen is worth showing them even
+though it acts on nothing.
 Nothing is silent — same principle as the credential-consent rules.
 
 ---
@@ -201,6 +204,28 @@ Each milestone is independently shippable and announceable. Estimates assume
 **Acceptance criteria**
 - Exported replays round-trip through the existing replay runner with
   byte-identical buffer snapshots on all three OSes
+
+### A5 — Screenshots (see what the agent sees)
+
+**Deliverables**
+- [x] `novaterminal.capture_screen`: renders a pane to a PNG and returns its
+      path, plus the image inline on request (size-capped, `maxWidth`
+      downscale). Gated by the default-off `AgentScreenshotEnabled` sub-toggle
+      on top of observe, and journaled like an acting call.
+- [x] The snapshot renderer (`TerminalSnapshotRenderer`) promoted out of test
+      infrastructure into the App, so the golden-PNG baselines, the agent
+      capture path, and any future CLI PNG output are one code path. Renders
+      through the real `TerminalDrawOperation` with no window, visual tree, or
+      GPU surface — a minimized or occluded window captures identically, and
+      nothing outside the pane can appear in the image.
+
+**Acceptance criteria**
+- [x] Two captures of an unchanged buffer are byte-identical (render fixed at
+      1:1 rather than the monitor's DPI, cursor follows the buffer's mode rather
+      than a blink phase, no selection or render HUD)
+- [x] Capture hard-fails with `captureDisabled` when only observe is granted,
+      and with `captureUnavailable` for a pane that has not been measured or
+      whose grid exceeds the pixel budget
 
 ### Parallel track — Distribution
 

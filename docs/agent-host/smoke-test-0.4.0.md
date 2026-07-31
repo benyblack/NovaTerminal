@@ -42,12 +42,13 @@ With **all** agent toggles off (fresh settings):
 
 Settings → the Agent access rows:
 
-- [ ] Verify three toggles exist: **Agent access (observe)**, **Agent replay
-  export** (indented), **Agent access (act)** (indented). Toggle observe on, others
-  off; Save.
+- [ ] Verify four toggles exist: **Agent access (observe)**, **Agent replay
+  export** (indented), **Agent screenshots** (indented), **Agent access (act)**
+  (indented). Toggle observe on, others off; Save.
 - [ ] Reopen Settings — observe still on. Check `%LOCALAPPDATA%\NovaTerminal\settings.json`:
   `AgentAccessObserveEnabled: true`, `AgentReplayExportEnabled: false`,
-  `AgentAccessActEnabled: false`. Red flag: values don't round-trip.
+  `AgentScreenshotEnabled: false`, `AgentAccessActEnabled: false`. Red flag: values
+  don't round-trip.
 - [ ] With observe now on, `agent-endpoint.json` appears next to settings.json.
 
 ## 3. Observe + status (A1/A2) — observe ON only
@@ -82,6 +83,32 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
   Expected: prints the final screen; exit code 0. Red flag: crash, or an empty
   screen for a session that clearly had output.
 - [ ] Turn "Agent replay export" **off**, retry `export_replay` → `exportDisabled`.
+
+## 4b. Screenshots (A5) — enable "Agent screenshots"
+
+- [ ] With screenshots still **off**: `novaterminal.capture_screen <paneId>` →
+  **`captureDisabled`**, and nothing is written under `recordings\agent-exports\`.
+  Red flag: an image appears anyway.
+- [ ] Turn "Agent screenshots" on (Save), then `capture_screen <paneId>` → returns a
+  `nova_screen_*.png` path under
+  `%LOCALAPPDATA%\NovaTerminal\recordings\agent-exports\`, with the pane's grid size.
+  Open the file: it should look like that pane — same font, same theme, same text —
+  with no tab bar or other chrome. Red flag: transparent background, wrong font, or a
+  picture of a different pane.
+- [ ] Run something with colour and box drawing (e.g. `htop` in WSL, or any TUI) and
+  capture again: colours and borders should match the screen.
+- [ ] `capture_screen <paneId>` with `inline=true` → the image comes back in the tool
+  result, not just a path.
+- [ ] `capture_screen <paneId>` with `maxWidth=400` → a smaller image; the result says
+  it was downscaled.
+- [ ] **Minimize the window** (or cover it completely) and capture again → the same
+  image as before, not a blank or clipped one. This is the offscreen-render guarantee.
+  Red flag: an empty/black image while minimized.
+- [ ] Capture the same idle pane twice and compare the two files byte-for-byte
+  (`fc /b` on Windows, `cmp` elsewhere) → identical. Red flag: differing bytes for an
+  unchanged screen (something non-deterministic leaked into the render).
+- [ ] New-tab menu (`+`) → **Agent Activity…** lists both the denied `captureDisabled`
+  attempt and the successful captures.
 
 ## 5. Act gating (A3) — the security-critical checks
 
@@ -134,5 +161,8 @@ Have a couple of tabs open; run something interactive (e.g. `vim` or a `ping -t`
   ships no separate CLI — the app executable serves `--replay` itself
   (`NovaTerminal --replay "<.rec>"`), so that is the end-user invocation.
 - These are the surfaces verified by build/logic tests but not visually in this
-  cycle: the three toggles, the SSH allowlist checkbox, and the Agent Activity
+  cycle: the four toggles, the SSH allowlist checkbox, and the Agent Activity
   window. Steps 2, 5c, and 6 are the highest-value manual confirmations.
+- Step 4b's determinism and offscreen guarantees are covered headlessly by
+  `AgentHostCaptureProtocolTests`; what only a human can confirm is that the image
+  actually *looks like* the pane on screen (font, theme, box drawing).

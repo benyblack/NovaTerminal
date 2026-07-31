@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using NovaTerminal.AgentHost.Contracts;
 
@@ -49,6 +50,53 @@ public static class SessionTools
         return TryDeserializeResult(result, AgentHostJsonContext.Default.ScreenSnapshotDto, out var dto)
             ? FormatScreen(dto!)
             : AgentHostClient.ProtocolErrorMessage;
+    }
+
+    [McpServerTool(Name = "novaterminal.capture_screen"),
+     Description("Renders a live NovaTerminal session to a PNG image and returns its path — use it when the pixels matter and text does not carry them: inline images (sixel), box-drawing and TUI layout, colour and theme problems, or a rendering bug you need to see. The pane is rendered offscreen from its buffer, not screen-grabbed, so it works even if the window is minimized, occluded, or on another desktop, and no other window can leak into the image. Set inline=true to also get the image itself back (capped; the file is written either way), and maxWidth to shrink it. Read-only. Requires BOTH 'Agent access (observe)' and its 'Agent screenshots' sub-toggle in NovaTerminal settings, and every capture is shown in the app's agent activity journal. For reading text, novaterminal.read_screen is cheaper and needs no extra permission. Get paneId from novaterminal.list_sessions.")]
+    public static async Task<IEnumerable<ContentBlock>> CaptureScreen(
+        AgentHostClient client,
+        [Description("The pane id (GUID) from novaterminal.list_sessions.")] string paneId,
+        [Description("If true, return the PNG in the response as an image as well as writing it to disk. Default false (path only).")] bool inline = false,
+        [Description("Shrink the image to at most this pixel width, preserving aspect ratio. 0 (default) keeps the pane's native size.")] int maxWidth = 0,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Guid.TryParse(paneId, out var pane))
+        {
+            return Text($"Error: '{paneId}' is not a valid pane id (GUID). Use novaterminal.list_sessions to find live pane ids.");
+        }
+        if (maxWidth < 0)
+        {
+            return Text("Error: maxWidth must be 0 (native size) or greater.");
+        }
+
+        var parameters = JsonSerializer.SerializeToElement(
+            new CaptureScreenParams { PaneId = pane, Inline = inline, MaxWidth = maxWidth },
+            AgentHostJsonContext.Default.CaptureScreenParams);
+        var outcome = await client.CallAsync(AgentHostProtocol.Methods.CaptureScreen, parameters, cancellationToken).ConfigureAwait(false);
+        if (!TryUnwrap(outcome, out var result, out var error)) return Text(error);
+
+        if (!TryDeserializeResult(result, AgentHostJsonContext.Default.CaptureScreenResult, out var dto))
+        {
+            return Text(AgentHostClient.ProtocolErrorMessage);
+        }
+
+        var blocks = new List<ContentBlock> { new TextContentBlock { Text = FormatCapture(dto!) } };
+        if (dto!.PngBase64 is { Length: > 0 } base64)
+        {
+            // Decoded here rather than passing the base64 through: FromBytes owns
+            // the encoding, so a malformed payload fails here instead of shipping
+            // an unreadable image block to the caller.
+            try
+            {
+                blocks.Add(ImageContentBlock.FromBytes(Convert.FromBase64String(base64), "image/png"));
+            }
+            catch (FormatException)
+            {
+                blocks.Add(new TextContentBlock { Text = "The inline image could not be decoded; read the PNG from the path above instead." });
+            }
+        }
+        return blocks;
     }
 
     [McpServerTool(Name = "novaterminal.read_scrollback"),
@@ -235,6 +283,13 @@ public static class SessionTools
     // ── Shared plumbing ─────────────────────────────────────────────────────
 
     /// <summary>
+    /// Wraps a message as the single text block a tool returns. Only the tools
+    /// that can also return an image declare <c>ContentBlock</c>; the rest return
+    /// a plain string, which the SDK wraps for them.
+    /// </summary>
+    private static IEnumerable<ContentBlock> Text(string text) => [new TextContentBlock { Text = text }];
+
+    /// <summary>
     /// Deserializes a result payload, treating malformed/empty payloads as a
     /// protocol error rather than throwing out of the tool. Contract note: the
     /// DTOs' array/string members are declared <c>required</c> and non-nullable,
@@ -393,6 +448,20 @@ public static class SessionTools
             }
         }
         return sb.ToString().TrimEnd();
+    }
+
+    internal static string FormatCapture(CaptureScreenResult dto)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine($"Screenshot written: {dto.FilePath}");
+        sb.AppendLine(
+            $"{dto.Width}x{dto.Height} px for a {dto.Cols}x{dto.Rows} grid, {dto.ByteCount:N0} bytes{(dto.Downscaled ? " (downscaled from the pane's native size)" : "")}.");
+        if (dto.InlineOmitted)
+        {
+            sb.AppendLine("The inline image was omitted because it exceeded the inline size cap — read the file from the path above, or retry with a smaller maxWidth.");
+        }
+        sb.Append("The image is the pane's grid only: no window chrome, no other panes, no selection highlight, and no cursor blink (the cursor is drawn whenever the session has it enabled).");
+        return sb.ToString();
     }
 
     internal static string FormatScrollback(ReadScrollbackResult dto)

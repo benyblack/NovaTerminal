@@ -87,6 +87,25 @@ namespace NovaTerminal.AgentHost
             set => _replayExportEnabled = value;
         }
 
+        // A5 screenshot gate. Volatile for the same UI-writes/IPC-reads reason as
+        // the export gate above.
+        private volatile bool _screenshotEnabled;
+
+        /// <summary>
+        /// Third default-off gate, for <c>captureScreen</c> (A5): mirrors
+        /// <c>TerminalSettings.AgentScreenshotEnabled</c>, pushed by MainWindow
+        /// alongside <see cref="Apply"/>. Same tier as
+        /// <see cref="ReplayExportEnabled"/> — observe permission plus an explicit
+        /// opt-in — because a rendered image discloses more than the text
+        /// <c>readScreen</c> returns (inline images, theme, everything on the
+        /// grid), and it is worth its own decision.
+        /// </summary>
+        public bool ScreenshotEnabled
+        {
+            get => _screenshotEnabled;
+            set => _screenshotEnabled = value;
+        }
+
         // A3 act gate. Volatile for the same UI-writes/IPC-reads reason as the
         // export gate above.
         private volatile bool _actEnabled;
@@ -642,6 +661,7 @@ namespace NovaTerminal.AgentHost
                     AgentHostProtocol.Methods.GetSessionStatus => HandleGetSessionStatus(request),
                     AgentHostProtocol.Methods.WaitForEvents => await HandleWaitForEventsAsync(request, cancellationToken).ConfigureAwait(false),
                     AgentHostProtocol.Methods.ExportReplay => HandleExportReplay(request),
+                    AgentHostProtocol.Methods.CaptureScreen => HandleCaptureScreen(request),
                     AgentHostProtocol.Methods.SendInput => HandleSendInput(request),
                     AgentHostProtocol.Methods.SpawnSession => await HandleSpawnSessionAsync(request).ConfigureAwait(false),
                     AgentHostProtocol.Methods.CloseSession => await HandleCloseSessionAsync(request).ConfigureAwait(false),
@@ -749,6 +769,91 @@ namespace NovaTerminal.AgentHost
                 TruncatedAtStart = info.TruncatedAtStart,
             };
             return Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.ExportReplayResult));
+        }
+
+        /// <summary>
+        /// A5: renders a pane to a PNG on this IPC thread (never the UI thread —
+        /// the snapshot renderer needs no visual tree, so a minimized or occluded
+        /// window captures exactly the same image) and writes it beside the
+        /// agent replay exports.
+        /// </summary>
+        private AgentHostResponse HandleCaptureScreen(AgentHostRequest request)
+        {
+            var p = DeserializeParams(request, AgentHostJsonContext.Default.CaptureScreenParams);
+            if (p == null)
+            {
+                return Error(request.Id, AgentHostProtocol.ErrorCodes.MalformedRequest, "captureScreen requires params with a paneId.");
+            }
+
+            // Third default-off gate, on the same tier as replay export: observe
+            // got the caller this far, a picture of the screen needs its own opt-in.
+            if (!ScreenshotEnabled)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, "screen",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureDisabled,
+                        "Agent screenshots are disabled. Enable Settings → Agent access (observe) → Agent screenshots in NovaTerminal, then retry."));
+            }
+
+            if (!_registry.TryGet(p.PaneId, out var registration))
+            {
+                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, "screen",
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.SessionNotFound, $"No live session with paneId '{p.PaneId}'."));
+            }
+
+            if (!registration.TryCapturePng(Math.Max(0, p.MaxWidth), out var capture, out var captureError))
+            {
+                var message = captureError == AgentCaptureError.TooLarge
+                    ? $"This pane's grid would render larger than the {AgentHostProtocol.MaxCapturePixels:N0}-pixel per-capture budget. Make the window smaller (or the font larger) and retry."
+                    : "This session cannot be rendered right now (the pane has not been measured yet, or is being torn down). Retry shortly; novaterminal.read_screen works regardless.";
+                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, registration.ProfileName,
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureUnavailable, message));
+            }
+
+            string filePath;
+            try
+            {
+                var exportDir = _exportDirectoryOverride
+                    ?? Path.Combine(NovaTerminal.Shell.AppPaths.RecordingsDirectory, AgentHostProtocol.AgentExportsSubdirectory);
+                Directory.CreateDirectory(exportDir);
+                // Random suffix for the same reason as replay export: the timestamp
+                // has one-second resolution, and a second capture within that
+                // second must not overwrite the first.
+                filePath = Path.Combine(exportDir, BuildCaptureFileName(DateTime.Now, Guid.NewGuid().ToString("N")));
+                File.WriteAllBytes(filePath, capture.Png);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, registration.ProfileName,
+                    Error(request.Id, AgentHostProtocol.ErrorCodes.CaptureUnavailable, $"The screenshot could not be written: {ex.Message}"));
+            }
+
+            var inlineRequested = p.Inline;
+            var inlineFits = capture.Png.Length <= AgentHostProtocol.MaxInlineCaptureBytes;
+            var result = new CaptureScreenResult
+            {
+                FilePath = Path.GetFullPath(filePath),
+                Width = capture.Width,
+                Height = capture.Height,
+                Cols = capture.Cols,
+                Rows = capture.Rows,
+                ByteCount = capture.Png.Length,
+                Downscaled = capture.Downscaled,
+                PngBase64 = inlineRequested && inlineFits ? Convert.ToBase64String(capture.Png) : null,
+                InlineOmitted = inlineRequested && !inlineFits,
+            };
+            return Journaled(request, AgentHostProtocol.Methods.CaptureScreen, p.PaneId, registration.ProfileName,
+                Ok(request.Id, JsonSerializer.SerializeToElement(result, AgentHostJsonContext.Default.CaptureScreenResult)));
+        }
+
+        internal static string BuildCaptureFileName(DateTime timestamp, string uniqueSuffix)
+        {
+            var normalized = string.IsNullOrWhiteSpace(uniqueSuffix)
+                ? Guid.NewGuid().ToString("N")
+                : uniqueSuffix.Trim().ToLowerInvariant();
+            var shortSuffix = normalized.Length > 6 ? normalized[..6] : normalized.PadRight(6, '0');
+            return string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"nova_screen_{timestamp:yyyyMMdd_HHmmss}_{shortSuffix}.png");
         }
 
         private AgentHostResponse HandleSendInput(AgentHostRequest request)
@@ -935,9 +1040,11 @@ namespace NovaTerminal.AgentHost
         }
 
         /// <summary>
-        /// Records an acting attempt to the journal (allowed or denied) and
-        /// returns the response unchanged. Outcome = "ok" or the error code, so
-        /// the user sees everything an agent tried.
+        /// Records an attempt to the journal (allowed or denied) and returns the
+        /// response unchanged. Outcome = "ok" or the error code, so the user sees
+        /// everything an agent tried. Every acting call goes through here, plus
+        /// <c>captureScreen</c>: it acts on nothing, but a screenshot of the
+        /// user's screen is the kind of thing they should be able to see happened.
         /// </summary>
         private AgentHostResponse Journaled(AgentHostRequest request, string method, Guid? paneId, string target, AgentHostResponse response)
         {
