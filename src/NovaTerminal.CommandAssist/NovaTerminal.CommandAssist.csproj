@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <!-- TerminalPane calls the internal CommandAssistKeyRouter; the App assembly is named
+         "NovaTerminal", not "NovaTerminal.App". -->
+    <InternalsVisibleTo Include="NovaTerminal" />
+    <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,4 +1,3 @@
-using NovaTerminal.Shell;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,8 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.Storage;
 
@@ -146,7 +143,7 @@ public sealed class JsonHistoryStore : IHistoryStore
             await using FileStream stream = File.OpenRead(_filePath);
             List<CommandHistoryEntry>? entries = await JsonSerializer.DeserializeAsync(
                 stream,
-                AppJsonContext.Default.ListCommandHistoryEntry,
+                CommandAssistJsonContext.Default.ListCommandHistoryEntry,
                 cancellationToken);
 
             return entries ?? new List<CommandHistoryEntry>();
@@ -166,7 +163,7 @@ public sealed class JsonHistoryStore : IHistoryStore
         }
 
         await using FileStream stream = File.Create(_filePath);
-        await JsonSerializer.SerializeAsync(stream, entries, AppJsonContext.Default.ListCommandHistoryEntry, cancellationToken);
+        await JsonSerializer.SerializeAsync(stream, entries, CommandAssistJsonContext.Default.ListCommandHistoryEntry, cancellationToken);
     }
 
     private static int Score(string commandText, string query)

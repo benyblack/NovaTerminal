@@ -1,4 +1,3 @@
-using NovaTerminal.Shell;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,8 +6,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.Storage;
 
@@ -91,7 +88,7 @@ public sealed class JsonSnippetStore : ISnippetStore
             await using FileStream stream = File.OpenRead(_filePath);
             List<CommandSnippet>? snippets = await JsonSerializer.DeserializeAsync(
                 stream,
-                AppJsonContext.Default.ListCommandSnippet,
+                CommandAssistJsonContext.Default.ListCommandSnippet,
                 cancellationToken);
 
             return snippets ?? new List<CommandSnippet>();
@@ -111,6 +108,6 @@ public sealed class JsonSnippetStore : ISnippetStore
         }
 
         await using FileStream stream = File.Create(_filePath);
-        await JsonSerializer.SerializeAsync(stream, snippets, AppJsonContext.Default.ListCommandSnippet, cancellationToken);
+        await JsonSerializer.SerializeAsync(stream, snippets, CommandAssistJsonContext.Default.ListCommandSnippet, cancellationToken);
     }
 }

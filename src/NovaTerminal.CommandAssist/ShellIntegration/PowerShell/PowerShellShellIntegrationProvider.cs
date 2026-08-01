@@ -1,22 +1,30 @@
-using NovaTerminal.Shell;
 using System;
 using System.Linq;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 
 public sealed class PowerShellShellIntegrationProvider : IShellIntegrationProvider
 {
-    public bool CanIntegrate(string? shellKind, TerminalProfile? profile)
+    private readonly string _bootstrapDirectory;
+
+    /// <param name="bootstrapDirectory">
+    /// Directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>AppPaths.CommandAssistDirectory</c>).
+    /// </param>
+    public PowerShellShellIntegrationProvider(string bootstrapDirectory)
+    {
+        _bootstrapDirectory = bootstrapDirectory;
+    }
+
+    public bool CanIntegrate(string? shellKind, string? shellCommand)
     {
         if (string.Equals(shellKind, "pwsh", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        string command = profile?.Command ?? string.Empty;
+        string command = shellCommand ?? string.Empty;
         return command.Contains("pwsh", StringComparison.OrdinalIgnoreCase) ||
                command.Contains("powershell", StringComparison.OrdinalIgnoreCase);
     }
@@ -32,7 +40,7 @@ public sealed class PowerShellShellIntegrationProvider : IShellIntegrationProvid
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = PowerShellBootstrapBuilder.WriteScript(AppPaths.CommandAssistDirectory);
+        string bootstrapScriptPath = PowerShellBootstrapBuilder.WriteScript(_bootstrapDirectory);
         string mergedArguments = BuildPowerShellArguments(shellArguments, bootstrapScriptPath);
         return new ShellIntegrationLaunchPlan(
             IsIntegrated: true,

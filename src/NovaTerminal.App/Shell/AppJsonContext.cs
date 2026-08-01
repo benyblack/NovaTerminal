@@ -3,7 +3,6 @@ using System;
 using System.Text.Json.Serialization;
 using NovaTerminal.Platform;
 using NovaTerminal.VT;
-using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.Shell.Shortcuts;
 
 namespace NovaTerminal.Shell
@@ -16,8 +15,8 @@ namespace NovaTerminal.Shell
     [JsonSerializable(typeof(List<TerminalProfile>))]
     [JsonSerializable(typeof(List<TabTemplateRule>))]
     [JsonSerializable(typeof(List<ForwardingRule>))]
-    [JsonSerializable(typeof(List<CommandHistoryEntry>))]
-    [JsonSerializable(typeof(List<CommandSnippet>))]
+    // Command Assist storage types moved to NovaTerminal.CommandAssist's own
+    // CommandAssistJsonContext when that assembly was extracted; nothing in App serializes them.
     [JsonSerializable(typeof(Dictionary<string, string>))]
     [JsonSerializable(typeof(Dictionary<string, CommandPaletteUsageEntry>))]
     [JsonSerializable(typeof(WorkspacePolicyHooks))]

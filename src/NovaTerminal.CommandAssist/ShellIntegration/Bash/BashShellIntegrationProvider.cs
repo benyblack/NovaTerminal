@@ -1,21 +1,30 @@
 using System;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Bash;
 
 public sealed class BashShellIntegrationProvider : IShellIntegrationProvider
 {
-    public bool CanIntegrate(string? shellKind, TerminalProfile? profile)
+    private readonly string _bootstrapDirectory;
+
+    /// <param name="bootstrapDirectory">
+    /// Directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>AppPaths.CommandAssistDirectory</c>) so this assembly does not need to know where the
+    /// application stores its data.
+    /// </param>
+    public BashShellIntegrationProvider(string bootstrapDirectory)
+    {
+        _bootstrapDirectory = bootstrapDirectory;
+    }
+
+    public bool CanIntegrate(string? shellKind, string? shellCommand)
     {
         if (string.Equals(shellKind, "bash", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        string command = profile?.Command ?? string.Empty;
+        string command = shellCommand ?? string.Empty;
         return command.Contains("bash", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -30,7 +39,7 @@ public sealed class BashShellIntegrationProvider : IShellIntegrationProvider
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = BashBootstrapBuilder.WriteScript(AppPaths.CommandAssistDirectory);
+        string bootstrapScriptPath = BashBootstrapBuilder.WriteScript(_bootstrapDirectory);
         string mergedArguments = BuildBashArguments(shellArguments, bootstrapScriptPath);
         return new ShellIntegrationLaunchPlan(
             IsIntegrated: true,

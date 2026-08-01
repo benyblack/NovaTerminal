@@ -38,12 +38,12 @@ public sealed class ShellIntegrationRegistryTests
     {
         var registry = new ShellIntegrationRegistry(new IShellIntegrationProvider[]
         {
-            new PowerShellShellIntegrationProvider()
+            new PowerShellShellIntegrationProvider(AppPaths.CommandAssistDirectory)
         });
 
         IShellIntegrationProvider? provider = registry.GetProvider(
             shellKind: "pwsh",
-            profile: new TerminalProfile { Command = "pwsh.exe" });
+            shellCommand: "pwsh.exe");
 
         Assert.NotNull(provider);
         Assert.IsType<PowerShellShellIntegrationProvider>(provider);
@@ -54,12 +54,12 @@ public sealed class ShellIntegrationRegistryTests
     {
         var registry = new ShellIntegrationRegistry(new IShellIntegrationProvider[]
         {
-            new PowerShellShellIntegrationProvider()
+            new PowerShellShellIntegrationProvider(AppPaths.CommandAssistDirectory)
         });
 
         IShellIntegrationProvider? provider = registry.GetProvider(
             shellKind: "posix",
-            profile: new TerminalProfile { Command = "/bin/bash" });
+            shellCommand: "/bin/bash");
 
         Assert.Null(provider);
     }
@@ -71,7 +71,7 @@ public sealed class ShellIntegrationRegistryTests
 
         IShellIntegrationProvider? provider = registry.GetProvider(
             shellKind: "bash",
-            profile: new TerminalProfile { Command = "/bin/bash" });
+            shellCommand: "/bin/bash");
 
         Assert.IsType<BashShellIntegrationProvider>(provider);
     }
@@ -83,7 +83,7 @@ public sealed class ShellIntegrationRegistryTests
 
         IShellIntegrationProvider? provider = registry.GetProvider(
             shellKind: "zsh",
-            profile: new TerminalProfile { Command = "/bin/zsh" });
+            shellCommand: "/bin/zsh");
 
         Assert.IsType<ZshShellIntegrationProvider>(provider);
     }
@@ -95,7 +95,7 @@ public sealed class ShellIntegrationRegistryTests
 
         IShellIntegrationProvider? provider = registry.GetProvider(
             shellKind: "fish",
-            profile: new TerminalProfile { Command = "/usr/local/bin/fish" });
+            shellCommand: "/usr/local/bin/fish");
 
         Assert.IsType<FishShellIntegrationProvider>(provider);
     }

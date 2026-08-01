@@ -2770,7 +2770,7 @@ namespace NovaTerminal.Controls
 
             string shellKind = DetermineShellKind(effectiveShell);
             var registry = CommandAssistInfrastructure.GetShellIntegrationRegistry();
-            IShellIntegrationProvider? provider = registry.GetProvider(shellKind, profile);
+            IShellIntegrationProvider? provider = registry.GetProvider(shellKind, profile?.Command);
             if (provider == null)
             {
                 return;

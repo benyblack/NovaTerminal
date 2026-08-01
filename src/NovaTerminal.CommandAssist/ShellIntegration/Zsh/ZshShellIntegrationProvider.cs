@@ -1,24 +1,32 @@
-using NovaTerminal.Shell;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
-namespace NovaTerminal.CommandAssist.ShellIntegration.Fish;
+namespace NovaTerminal.CommandAssist.ShellIntegration.Zsh;
 
-public sealed class FishShellIntegrationProvider : IShellIntegrationProvider
+public sealed class ZshShellIntegrationProvider : IShellIntegrationProvider
 {
-    public bool CanIntegrate(string? shellKind, TerminalProfile? profile)
+    private readonly string _bootstrapDirectory;
+
+    /// <param name="bootstrapDirectory">
+    /// Directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>AppPaths.CommandAssistDirectory</c>).
+    /// </param>
+    public ZshShellIntegrationProvider(string bootstrapDirectory)
     {
-        if (string.Equals(shellKind, "fish", StringComparison.OrdinalIgnoreCase))
+        _bootstrapDirectory = bootstrapDirectory;
+    }
+
+    public bool CanIntegrate(string? shellKind, string? shellCommand)
+    {
+        if (string.Equals(shellKind, "zsh", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        string command = profile?.Command ?? string.Empty;
-        return command.Contains("fish", StringComparison.OrdinalIgnoreCase);
+        string command = shellCommand ?? string.Empty;
+        return command.Contains("zsh", StringComparison.OrdinalIgnoreCase);
     }
 
     public ShellIntegrationLaunchPlan CreateLaunchPlan(string shellCommand, string? shellArguments, string? workingDirectory)
@@ -32,12 +40,9 @@ public sealed class FishShellIntegrationProvider : IShellIntegrationProvider
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = FishBootstrapBuilder.WriteScript(AppPaths.CommandAssistDirectory);
-        // XDG_CONFIG_HOME must be the parent of the "fish" directory that
-        // contains config.fish, not the fish directory itself.
-        string? fishDir = Path.GetDirectoryName(bootstrapScriptPath);
-        string? xdgConfigHome = fishDir != null ? Path.GetDirectoryName(fishDir) : null;
-        if (string.IsNullOrEmpty(xdgConfigHome))
+        string bootstrapScriptPath = ZshBootstrapBuilder.WriteScript(_bootstrapDirectory);
+        string? zdotdir = Path.GetDirectoryName(bootstrapScriptPath);
+        if (string.IsNullOrEmpty(zdotdir))
         {
             return new ShellIntegrationLaunchPlan(
                 IsIntegrated: false,
@@ -48,7 +53,7 @@ public sealed class FishShellIntegrationProvider : IShellIntegrationProvider
 
         var envOverrides = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["XDG_CONFIG_HOME"] = xdgConfigHome
+            ["ZDOTDIR"] = zdotdir
         };
 
         return new ShellIntegrationLaunchPlan(
@@ -68,9 +73,10 @@ public sealed class FishShellIntegrationProvider : IShellIntegrationProvider
 
         foreach (string token in shellArguments.Split(' ', StringSplitOptions.RemoveEmptyEntries))
         {
-            // -c runs fish in non-interactive command mode; --no-config / -N
-            // skip the config.fish that carries the bootstrap.
-            if (token == "-c" || token == "--no-config" || token == "-N")
+            // -c runs zsh in non-interactive mode; --no-rcs / -f skip startup
+            // files, defeating the bootstrap. Either is incompatible with
+            // automatic shell integration injection.
+            if (token == "-c" || token == "--no-rcs" || token == "-f")
             {
                 return true;
             }
