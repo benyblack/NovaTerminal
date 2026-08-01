@@ -128,6 +128,116 @@ public sealed class AnsiParserHardeningTests
         Assert.Equal("X", GetVisiblePlainText(buffer).Trim());
     }
 
+    [Theory]
+    [InlineData("\x1b[?u")]
+    [InlineData("\x1b[>1u")]
+    [InlineData("\x1b[<u")]
+    [InlineData("\x1b[=1u")]
+    public void PrefixedRestoreCursor_IsIgnored_DoesNotMoveCursor(string sequence)
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        // Save cursor at (0,0), then move elsewhere before the prefixed "u" under test.
+        // A kitty keyboard query/push/pop/set must NOT be treated as SCO restore-cursor.
+        parser.Process("\x1b[s");
+        parser.Process("\x1b[10;20H");
+
+        parser.Process(sequence);
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(9, buffer.CursorRow);
+            Assert.Equal(19, buffer.CursorCol);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
+    [Fact]
+    public void PrefixedSaveCursor_XtSave_DoesNotOverwriteSavedCursor()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        parser.Process("\x1b[5;5H"); // move to row 4, col 4 (0-based)
+        parser.Process("\x1b[s");    // SCO save at (4,4)
+
+        parser.Process("\x1b[10;10H"); // move to row 9, col 9
+        parser.Process("\x1b[?1049s");  // XTSAVE - must NOT overwrite the SCO-saved cursor
+
+        parser.Process("\x1b[u"); // SCO restore - should return to (4,4), not (9,9)
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(4, buffer.CursorRow);
+            Assert.Equal(4, buffer.CursorCol);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
+    [Fact]
+    public void PrefixedRestore_XtRestore_DoesNotChangeScrollRegionOrCursor()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        parser.Process("\x1b[5;20r");   // DECSTBM: scroll region rows 4..19 (0-based)
+        parser.Process("\x1b[10;10H");  // move cursor to row 9, col 9
+
+        parser.Process("\x1b[?1049r");  // XTRESTORE - must NOT be treated as DECSTBM
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(4, buffer.ScrollTop);
+            Assert.Equal(19, buffer.ScrollBottom);
+            Assert.Equal(9, buffer.CursorRow);
+            Assert.Equal(9, buffer.CursorCol);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
+    [Fact]
+    public void PlainSaveAndRestoreCursor_StillWorks()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        parser.Process("\x1b[3;7H"); // move to row 2, col 6
+        parser.Process("\x1b[s");    // save
+
+        parser.Process("\x1b[1;1H"); // move to origin
+
+        parser.Process("\x1b[u"); // restore
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(2, buffer.CursorRow);
+            Assert.Equal(6, buffer.CursorCol);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
+    [Fact]
+    public void PlainSetScrollingRegion_StillWorks()
+    {
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        parser.Process("\x1b[5;20r"); // DECSTBM rows 5..20 (1-based) -> 4..19 (0-based)
+
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Equal(4, buffer.ScrollTop);
+            Assert.Equal(19, buffer.ScrollBottom);
+        }
+        finally { buffer.Lock.ExitReadLock(); }
+    }
+
     private static string GetVisiblePlainText(TerminalBuffer buffer)
     {
         return string.Join("\n", buffer.ViewportRows.Select(GetRowText)).TrimEnd();
