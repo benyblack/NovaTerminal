@@ -25,6 +25,13 @@ namespace NovaTerminal.VT
         public bool IsEchoEnabled { get; set; } = true;   // 12 - SRM (Send/Receive Mode)
 
         /// <summary>
+        /// Kitty keyboard protocol progressive-enhancement flags (CSI ? u / CSI &gt; u /
+        /// CSI &lt; u / CSI = u). Per-screen-buffer flag stacks; the App input layer reads
+        /// <see cref="KittyKeyboardState.DisambiguateEscapeCodes"/> when encoding key events.
+        /// </summary>
+        public KittyKeyboardState KittyKeyboard { get; set; } = new KittyKeyboardState();
+
+        /// <summary>
         /// Clears the input-reporting modes a full-screen application turns on for itself
         /// (mouse tracking and focus reporting). Called when the shell signals a fresh prompt
         /// so a TUI that exited uncleanly — Ctrl+C, crash, or output dropped during PTY
@@ -59,7 +66,8 @@ namespace NovaTerminal.VT
                 CursorStyle = this.CursorStyle,
                 IsInsertMode = this.IsInsertMode,
                 IsLineFeedNewLineMode = this.IsLineFeedNewLineMode,
-                IsEchoEnabled = this.IsEchoEnabled
+                IsEchoEnabled = this.IsEchoEnabled,
+                KittyKeyboard = this.KittyKeyboard.Clone()
             };
         }
     }

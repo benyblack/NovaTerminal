@@ -880,14 +880,21 @@ namespace NovaTerminal.VT
                             _buffer.SaveCursor();
                         }
                         break;
-                    case 'u': // Restore Cursor (ANSI.SYS / SCO)
-                              // Ignore leader-prefixed "...u" sequences, e.g. CSI ? u (kitty keyboard
-                              // protocol query), CSI > Pm u (kitty keyboard push), CSI < Pm u (kitty
-                              // keyboard pop), CSI = Pm u (kitty keyboard set). They are NOT SCO
-                              // restore-cursor. The kitty keyboard protocol itself is issue #266.
-                        if (leader == '\0' && intermediates.Length == 0)
+                    case 'u': // Restore Cursor (ANSI.SYS / SCO) or kitty keyboard protocol
+                              // Only the bare form is SCO restore-cursor. The leader-prefixed
+                              // forms belong to the kitty keyboard protocol and must never move
+                              // the cursor: CSI ? u (query), CSI > Pm u (push), CSI < Pm u (pop),
+                              // CSI = Pm ; Pm u (set).
+                        if (intermediates.Length == 0)
                         {
-                            _buffer.RestoreCursor();
+                            if (leader == '\0')
+                            {
+                                _buffer.RestoreCursor();
+                            }
+                            else
+                            {
+                                HandleKittyKeyboardProtocol(leader, validArgs);
+                            }
                         }
                         break;
                     case 'm': // SGR (Select Graphic Rendition)
@@ -1153,6 +1160,40 @@ namespace NovaTerminal.VT
                         // Only log unhandled modes as they might be important for future features
                         break;
                 }
+            }
+        }
+
+        /// <summary>
+        /// Kitty keyboard protocol control sequences
+        /// (https://sw.kovidgoyal.net/kitty/keyboard-protocol/). All four forms end in 'u'
+        /// and are distinguished from SCO restore-cursor by their CSI leader byte:
+        ///   CSI ? u              query   -> reply CSI ? flags u
+        ///   CSI &gt; flags u        push    (flags omitted = 0)
+        ///   CSI &lt; number u       pop     (number omitted = 1)
+        ///   CSI = flags ; mode u set     (mode 1 = replace, 2 = OR, 3 = AND NOT; default 1)
+        /// None of them move the cursor. Flags we do not honor are masked out by
+        /// <see cref="KittyKeyboardState"/> so the query never advertises unimplemented tiers.
+        /// </summary>
+        private void HandleKittyKeyboardProtocol(char leader, ReadOnlySpan<int> args)
+        {
+            KittyKeyboardState kitty = _buffer.Modes.KittyKeyboard;
+
+            switch (leader)
+            {
+                case '?':
+                    OnResponse?.Invoke(kitty.FormatQueryResponse());
+                    break;
+                case '>':
+                    kitty.Push(args.Length > 0 ? args[0] : 0);
+                    break;
+                case '<':
+                    kitty.Pop(args.Length > 0 && args[0] > 0 ? args[0] : 1);
+                    break;
+                case '=':
+                    kitty.Set(
+                        args.Length > 0 ? args[0] : 0,
+                        args.Length > 1 && args[1] > 0 ? args[1] : 1);
+                    break;
             }
         }
 

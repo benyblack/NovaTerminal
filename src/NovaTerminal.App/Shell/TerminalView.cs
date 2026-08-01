@@ -137,6 +137,16 @@ namespace NovaTerminal.Shell
             // Logic copied from MainWindow
             bool isCtrl = (keyModifiers & KeyModifiers.Control) != 0;
 
+            // Kitty keyboard protocol (disambiguate tier). Must run before every legacy path
+            // below - including Alt-sends-ESC - because the protocol replaces those encodings
+            // for the keys it claims. When the protocol is off (flags = 0) the encoder returns
+            // null for every key and the legacy behavior below is byte-identical to before.
+            if (TryEncodeKittyKey(key, keyModifiers, out string? kittySequence))
+            {
+                _session.SendInput(kittySequence!);
+                return true;
+            }
+
             // Alt/Meta-sends-ESC must run BEFORE the unconditional Enter/Back/Tab/Escape cases
             // below, which would otherwise swallow Alt+<those> and send the bare control byte.
             if ((keyModifiers & KeyModifiers.Alt) != 0)
@@ -233,6 +243,34 @@ namespace NovaTerminal.Shell
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Applies the two NovaTerminal-local carve-outs that must win over the kitty keyboard
+        /// protocol, then defers to <see cref="TerminalInputModeEncoder.EncodeKittyKey"/>.
+        ///
+        /// 1. Enter on a dead session still has to bubble up to TerminalPane's
+        ///    "[Press Enter to reconnect]" handler instead of being swallowed into a dead PTY.
+        /// 2. Ctrl+C with an active selection is copy-to-clipboard, matching the behavior users
+        ///    already have; without a selection it is a real Ctrl+C and the protocol encodes it
+        ///    as CSI 99;5u (the spec explicitly notes Ctrl+C stops raising SIGINT in this mode).
+        /// </summary>
+        private bool TryEncodeKittyKey(Key key, KeyModifiers keyModifiers, out string? sequence)
+        {
+            sequence = null;
+
+            if (key == Key.Enter && _session?.IsProcessRunning != true)
+            {
+                return false;
+            }
+
+            if (key == Key.C && (keyModifiers & KeyModifiers.Control) != 0 && HasSelection())
+            {
+                return false;
+            }
+
+            sequence = TerminalInputModeEncoder.EncodeKittyKey(key, keyModifiers, _buffer?.Modes);
+            return sequence != null;
         }
 
         private TerminalBuffer? _buffer;

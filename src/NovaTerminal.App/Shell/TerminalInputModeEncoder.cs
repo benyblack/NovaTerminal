@@ -63,6 +63,135 @@ namespace NovaTerminal.Shell
             };
         }
 
+        // Kitty keyboard protocol modifier bit field (shift=1, alt=2, ctrl=4, super=8).
+        // The value transmitted in the escape code is 1 + this bit field.
+        private const int KittyShift = 0b1;
+        private const int KittyAlt = 0b10;
+        private const int KittyCtrl = 0b100;
+        private const int KittySuper = 0b1000;
+
+        // Functional key codes from the kitty spec's functional key table. These three keep
+        // their C0 byte for legacy compatibility when unmodified.
+        private const int KittyKeyTab = 9;
+        private const int KittyKeyEnter = 13;
+        private const int KittyKeyEscape = 27;
+        private const int KittyKeyBackspace = 127;
+
+        /// <summary>
+        /// Encodes a key event using the kitty keyboard protocol's <c>CSI number ; modifiers u</c>
+        /// form when the disambiguate-escape-codes tier (flag 0b1) is active for the current
+        /// screen buffer. Returns <c>null</c> when the protocol is off, or when the key is one the
+        /// disambiguate tier deliberately leaves in its legacy encoding - the caller then falls
+        /// through to the unchanged legacy paths, so behavior is byte-identical with flags = 0.
+        ///
+        /// Per spec (https://sw.kovidgoyal.net/kitty/keyboard-protocol/#disambiguate-escape-codes):
+        /// - Esc always becomes <c>CSI 27 u</c>, which is the whole point of the tier: it is what
+        ///   lets an application tell a real Esc keypress from the start of an escape sequence.
+        /// - Enter, Tab and Backspace keep their legacy bytes when unmodified (so a user can still
+        ///   type "reset" at a shell prompt after a crashed TUI leaves the mode on), but take the
+        ///   CSI u form as soon as any modifier is held. This is the Shift+Enter fix:
+        ///   <c>CSI 13;2u</c>.
+        /// - "Legacy text" keys (a-z, 0-9, the ASCII punctuation keys and Space) switch to CSI u
+        ///   whenever ctrl, alt or super is held, which is what disambiguates Ctrl+I from Tab and
+        ///   Ctrl+M from Enter. Plain and shift-only presses still produce text.
+        /// - Keypad and functional keys (arrows, F-keys, Home/End/PgUp/PgDn, Insert/Delete) are out
+        ///   of scope for this tier in NovaTerminal and keep their legacy encodings.
+        ///
+        /// The modifiers field is omitted entirely when no modifiers are active, per spec.
+        /// </summary>
+        public static string? EncodeKittyKey(Key key, KeyModifiers modifiers, ModeState? modes)
+        {
+            if (modes?.KittyKeyboard.DisambiguateEscapeCodes != true)
+            {
+                return null;
+            }
+
+            int modifierBits = GetKittyModifierBits(modifiers);
+
+            switch (key)
+            {
+                case Key.Escape:
+                    return FormatKittyCsiU(KittyKeyEscape, modifierBits);
+                case Key.Enter:
+                    return modifierBits == 0 ? null : FormatKittyCsiU(KittyKeyEnter, modifierBits);
+                case Key.Tab:
+                    return modifierBits == 0 ? null : FormatKittyCsiU(KittyKeyTab, modifierBits);
+                case Key.Back:
+                    return modifierBits == 0 ? null : FormatKittyCsiU(KittyKeyBackspace, modifierBits);
+            }
+
+            // Unmodified and shift-only presses of text keys still arrive through OnTextInput
+            // as plain UTF-8; only ctrl/alt/super combinations are ambiguous in legacy encoding.
+            if ((modifierBits & ~KittyShift) == 0)
+            {
+                return null;
+            }
+
+            int codepoint = GetUnshiftedCodepoint(key);
+            return codepoint < 0 ? null : FormatKittyCsiU(codepoint, modifierBits);
+        }
+
+        private static int GetKittyModifierBits(KeyModifiers modifiers)
+        {
+            int bits = 0;
+            if ((modifiers & KeyModifiers.Shift) != 0) bits |= KittyShift;
+            if ((modifiers & KeyModifiers.Alt) != 0) bits |= KittyAlt;
+            if ((modifiers & KeyModifiers.Control) != 0) bits |= KittyCtrl;
+            if ((modifiers & KeyModifiers.Meta) != 0) bits |= KittySuper;
+            return bits;
+        }
+
+        private static string FormatKittyCsiU(int codepoint, int modifierBits)
+        {
+            string csi = ((char)0x1b) + "[";
+            return modifierBits == 0
+                ? string.Concat(csi, codepoint.ToString(System.Globalization.CultureInfo.InvariantCulture), "u")
+                : string.Concat(
+                    csi,
+                    codepoint.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ";",
+                    (modifierBits + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    "u");
+        }
+
+        /// <summary>
+        /// Maps an Avalonia key to the unshifted ASCII codepoint the kitty protocol requires
+        /// ("the codepoint used is always the lower-case (or more technically, un-shifted)
+        /// version of the key"). Returns -1 for keys outside the spec's legacy-text set, which
+        /// keeps them on their legacy encodings. Punctuation is resolved against the US layout
+        /// because Avalonia's <see cref="Key"/> enum is itself a US-layout virtual key code.
+        /// </summary>
+        private static int GetUnshiftedCodepoint(Key key)
+        {
+            if (key >= Key.A && key <= Key.Z)
+            {
+                return 'a' + (key - Key.A);
+            }
+
+            if (key >= Key.D0 && key <= Key.D9)
+            {
+                return '0' + (key - Key.D0);
+            }
+
+            return key switch
+            {
+                Key.Space => ' ',
+                Key.OemTilde => '`',
+                Key.OemMinus => '-',
+                Key.OemPlus => '=',
+                Key.OemOpenBrackets => '[',
+                Key.OemCloseBrackets => ']',
+                Key.OemPipe => '\\',
+                Key.OemBackslash => '\\',
+                Key.OemSemicolon => ';',
+                Key.OemQuotes => '\'',
+                Key.OemComma => ',',
+                Key.OemPeriod => '.',
+                Key.OemQuestion => '/',
+                _ => -1
+            };
+        }
+
         /// <summary>
         /// Encodes an Alt/Meta + printable key as an ESC-prefixed sequence, matching the
         /// standard xterm "metaSendsEscape" behavior (e.g. Alt+V -> ESC v). This restores

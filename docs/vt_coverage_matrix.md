@@ -112,6 +112,7 @@ It is designed to be:
 | Bracketed paste | ?2004 | Input feature | ⚠ Partial | Unit | Input layer | |
 | Mouse reporting | ?1000/1002/1003/1006 etc | | ⚠ Partial | Manual/Unit | Input layer | |
 | Cursor style | CSI Ps SP q | DECSCUSR block/beam/underline + blink state | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+Renderer | |
+| Kitty keyboard protocol | CSI ? u / CSI > Pm u / CSI < Pm u / CSI = Pm ; Pm u | Progressive-enhancement flags: query, push, pop, set. Per-screen-buffer flag stacks (depth 32, oldest evicted on overflow); RIS clears both | ✅ Supported | Unit: `tests/NovaTerminal.VT.Tests/KittyKeyboardProtocolTests.cs`, `tests/NovaTerminal.App.Tests/Input/KittyKeyboardEncodingTests.cs`, `tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs` | Parser+Input | Scope: disambiguate-escape-codes tier (`0b1`) only. Bits `0b10`/`0b100`/`0b1000`/`0b10000` (event types, alternate keys, all-keys, associated text) are accepted but masked out on push/set, so the `CSI ? u` reply only advertises flags actually honored. Key encoding covers Esc, modified Enter/Tab/Backspace, and ctrl/alt/super combinations on the spec's legacy-text keys; keypad and functional keys keep their legacy encodings |
 
 ---
 
