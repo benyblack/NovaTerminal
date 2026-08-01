@@ -69,6 +69,16 @@ namespace NovaTerminal.VT
 
         public float CellWidth { get; set; } = 10.0f;  // Default fallback
         public float CellHeight { get; set; } = 20.0f; // Default fallback
+
+        /// <summary>
+        /// Colors reported in response to OSC 10/11 (foreground/background) queries. The host
+        /// (NovaTerminal.App) sets these from the active theme; when unset, <see cref="HandleOsc"/>
+        /// falls back to a sane default rather than staying silent (#265: silence made OpenCode and
+        /// vim/nvim's startup theme probes stall for their ~1s timeout on every launch).
+        /// </summary>
+        public TermColor? DefaultForeground { get; set; }
+        public TermColor? DefaultBackground { get; set; }
+
         public Action<string>? OnResponse { get; set; }
         public Action? OnBell { get; set; }
         public Action<string>? OnWorkingDirectoryChanged { get; set; }
@@ -1534,6 +1544,29 @@ namespace NovaTerminal.VT
                 return;
             }
 
+            // OSC 10/11: dynamic foreground/background color queries.
+            // Query form is "10;?" / "11;?" (BEL and ST termination are both already
+            // normalized away by the caller before HandleOsc ever sees this string).
+            // xterm answers with "OSC 1x ; rgb:RRRR/GGGG/BBBB ST", 16 bits per channel
+            // (8-bit channel replicated: value * 0x101). OpenCode and vim/nvim send this
+            // at startup with a ~1s timeout to detect a dark/light theme; never responding
+            // was the bug (#265), so an unset provider still answers with a sane default
+            // instead of staying silent.
+            if (code == "10" || code == "11")
+            {
+                if (data == "?")
+                {
+                    TermColor color = code == "10"
+                        ? (DefaultForeground ?? TermColor.FromRgb(0xC0, 0xC0, 0xC0))
+                        : (DefaultBackground ?? TermColor.FromRgb(0x00, 0x00, 0x00));
+                    OnResponse?.Invoke(FormatOscColorResponse(code, color));
+                }
+                // Non-query forms (e.g. "OSC 10;#ff0000" / "OSC 11;rgb:1234/5678/9abc" to
+                // *set* the color) are not supported for runtime palette changes; ignore
+                // them safely rather than attempting to parse/apply an unsupported request.
+                return;
+            }
+
             // OSC 133: shell integration markers.
             // Common terminals/shell integrations emit:
             //   OSC 133;A     -> prompt ready
@@ -1621,6 +1654,16 @@ namespace NovaTerminal.VT
                     _buffer.CurrentHyperlink = _hyperlinks.Resolve(parameters, uri);
                 }
             }
+        }
+
+        // xterm's "rgb:RRRR/GGGG/BBBB" dynamic-color-response format: each 8-bit channel is
+        // widened to 16 bits by replicating the byte (0xRR -> 0xRRRR, i.e. value * 0x101).
+        private static string FormatOscColorResponse(string code, TermColor color)
+        {
+            int r = color.R * 0x101;
+            int g = color.G * 0x101;
+            int b = color.B * 0x101;
+            return $"\x1b]{code};rgb:{r:x4}/{g:x4}/{b:x4}\x1b\\";
         }
 
         private static bool TryExtractPathFromOsc7(string data, out string path)

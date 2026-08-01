@@ -142,6 +142,7 @@ It is designed to be:
 |---|---|---:|---|---|---|
 | OSC 0/2 | Set title | ⚠ Partial | Manual/Unit | App/UI | |
 | OSC 7 | CWD reporting | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+App | |
+| OSC 10/11 | Foreground/background color query | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+App | Query form (`?`) only; set form is ignored safely, no runtime palette change. Colors sourced from `AnsiParser.DefaultForeground`/`DefaultBackground`, wired from the active theme at parser creation and on `TerminalPane.ApplySettings`; falls back to fg C0C0C0 / bg 000000 when unset |
 | OSC 52 | Clipboard | ❌ Not supported | — | App/UI | |
 | OSC 8 | Hyperlinks | ✅ Supported | Unit: `tests/NovaTerminal.App.Tests/OscUxTests.cs` | Parser+Renderer+UI | Ctrl-click open path is app-level |
 | OSC 133 | Shell integration lifecycle | ⚠ Partial | Unit: `tests/NovaTerminal.App.Tests/OscShellIntegrationTests.cs` | Parser+Command Assist | Supports A/B/C/D markers; broader semantic prompt extensions not audited |

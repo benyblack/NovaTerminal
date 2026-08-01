@@ -1607,6 +1607,15 @@ namespace NovaTerminal.Controls
 
             Parser = new AnsiParser(Buffer);
 
+            // OSC 10/11 (fg/bg color query) answers come from the active theme; without this,
+            // a freshly-created parser would fall back to AnsiParser's hardcoded defaults until
+            // the next ApplySettings call (#265).
+            if (_settings != null)
+            {
+                Parser.DefaultForeground = _settings.ActiveTheme.Foreground;
+                Parser.DefaultBackground = _settings.ActiveTheme.Background;
+            }
+
             Parser.OnBell += () =>
             {
                 Dispatcher.UIThread.Post(() =>
@@ -1943,6 +1952,11 @@ namespace NovaTerminal.Controls
                 float ch = TermView.Metrics.CellHeight;
                 if (cw > 0) Parser.CellWidth = cw;
                 if (ch > 0) Parser.CellHeight = ch;
+
+                // Keep OSC 10/11 (fg/bg color query) responses in sync with the active theme,
+                // including profile-specific theme overrides (see effectiveSettings above).
+                Parser.DefaultForeground = effectiveSettings.ActiveTheme.Foreground;
+                Parser.DefaultBackground = effectiveSettings.ActiveTheme.Background;
             }
 
             // Font family/size and shaping toggles just moved with the settings.
