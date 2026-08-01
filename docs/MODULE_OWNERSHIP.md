@@ -168,7 +168,11 @@ invariant changes.
 
 **Namespace:** `NovaTerminal.CommandAssist` (+ `.Application`, `.Domain`, `.Models`, `.Storage`, `.ShellIntegration`, `.ViewModels`)
 **Depends on:** *(leaf — only BCL)*
-**Public surface:** `CommandAssistController`, `CommandAssistAnchorCalculator` (+ `AssistRect`/`AssistPoint`/`AssistSize`), `AssistKey`/`AssistModifiers`, `CommandAssistModeRouter`, `CommandAssistInsertionPlanner`, `CommandAssistResultBuilder`, `RecognizedCommandParser`, the `I*Store` / `I*Provider` / `ISuggestionEngine` / `ISecretsFilter` domain contracts and their local implementations, `IShellIntegrationProvider` + the four shell providers and bootstrap builders, `ShellIntegrationRegistry`, `ShellLifecycleTracker`, `JsonHistoryStore`, `JsonSnippetStore`, `CommandAssistJsonContext`, and the assist view-models
+**Public surface:** `CommandAssistController`, `CommandAssistAnchorCalculator` (+ `AssistRect`/`AssistPoint`/`AssistSize`), `AssistKey`/`AssistModifiers`, `CommandAssistModeRouter`, `CommandAssistKeyRouter`, `CommandAssistInsertionPlanner`, `CommandAssistResultBuilder`, `RecognizedCommandParser`, the `I*Store` / `I*Provider` / `ISuggestionEngine` / `ISecretsFilter` domain contracts and their local implementations, `IShellIntegrationProvider` + the four shell providers and bootstrap builders, `ShellIntegrationRegistry`, `ShellLifecycleTracker`, `JsonHistoryStore`, `JsonSnippetStore`, `CommandAssistJsonContext`, and the assist view-models
+**Internals exposed to:** `NovaTerminal.App.Tests` only. The App is deliberately not granted
+`InternalsVisibleTo`: the two helpers `TerminalPane` needs (`CommandAssistKeyRouter`,
+`CommandAssistInsertionPlanner`) are public pure-static functions over public types, so the App
+consumes this assembly through its published surface.
 
 **Owns**
 - Assist domain: suggestion ranking, path suggestions, secrets redaction, local docs/recipes, heuristic error insight
