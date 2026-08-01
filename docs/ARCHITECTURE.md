@@ -44,7 +44,8 @@ Concretely, from the `.csproj` graph:
 | `NovaTerminal.Rendering` | VT, SkiaSharp | Skia glyph atlas/cache, pixel grid, sixel decoder |
 | `NovaTerminal.Pty` | Replay | PTY transport: rust-PTY adapter, session contracts. **Does not depend on VT** — see arch test `Pty_must_not_depend_on_Vt` |
 | `NovaTerminal.Platform` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
-| `NovaTerminal.App` | Platform, VT, Rendering, Pty, Replay | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist |
+| `NovaTerminal.CommandAssist` | (leaf) | Command Assist domain, models, storage, shell integration, view-models and application core. **No Avalonia** — see arch test `CommandAssist_must_not_depend_on_Avalonia_or_the_App` |
+| `NovaTerminal.App` | Platform, VT, Rendering, Pty, Replay, CommandAssist | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist views |
 | `NovaTerminal.Cli` | App | Headless CLI shim (`vt-report` etc.) |
 | `NovaTerminal.Conformance` | (standalone Exe) | VT conformance matrix tool used by tests and CI |
 
@@ -224,17 +225,20 @@ Allowed differences: window chrome, hotkeys, blur/transparency, credential stora
 - `Replay_only_depends_on_Vt`
 - `Rendering_only_depends_on_Vt_and_Skia`
 - `Pty_must_not_depend_on_Vt`
+- `CommandAssist_must_not_depend_on_Avalonia_or_the_App`
 - `No_production_assembly_references_test_assemblies`
 
 **`NamespaceAlignmentTests`**
-- `Leaf_assembly_types_reside_in_its_own_namespace` (Theory: VT, Replay, Rendering, Pty, Platform)
+- `Leaf_assembly_types_reside_in_its_own_namespace` (Theory: VT, Replay, Rendering, Pty, Platform, AgentHost.Contracts, CommandAssist)
 - `No_two_assemblies_share_a_namespace_prefix`
+- `App_may_only_use_the_CommandAssist_prefix_for_Views`
 
 **`ProjectFileLayeringTests`**
 - `Pty_csproj_must_not_reference_Vt`
 - `Replay_csproj_only_references_Vt`
 - `Rendering_csproj_only_references_Vt`
 - `Vt_csproj_must_have_no_project_references`
+- `CommandAssist_csproj_must_have_no_project_or_avalonia_references`
 
 Adding a new layering invariant means adding a new fact. Reverting one of these accidentally fails CI.
 

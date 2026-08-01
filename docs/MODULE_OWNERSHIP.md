@@ -164,6 +164,53 @@ invariant changes.
 
 ---
 
+## NovaTerminal.CommandAssist (`src/NovaTerminal.CommandAssist/`)
+
+**Namespace:** `NovaTerminal.CommandAssist` (+ `.Application`, `.Domain`, `.Models`, `.Storage`, `.ShellIntegration`, `.ViewModels`)
+**Depends on:** *(leaf — only BCL)*
+**Public surface:** `CommandAssistController`, `CommandAssistAnchorCalculator` (+ `AssistRect`/`AssistPoint`/`AssistSize`), `AssistKey`/`AssistModifiers`, `CommandAssistModeRouter`, `CommandAssistInsertionPlanner`, `CommandAssistResultBuilder`, `RecognizedCommandParser`, the `I*Store` / `I*Provider` / `ISuggestionEngine` / `ISecretsFilter` domain contracts and their local implementations, `IShellIntegrationProvider` + the four shell providers and bootstrap builders, `ShellIntegrationRegistry`, `ShellLifecycleTracker`, `JsonHistoryStore`, `JsonSnippetStore`, `CommandAssistJsonContext`, and the assist view-models
+
+**Owns**
+- Assist domain: suggestion ranking, path suggestions, secrets redaction, local docs/recipes, heuristic error insight
+- Assist models: suggestions, query/context snapshots, history entries, snippets, failure context
+- Assist storage: `history.json` / `snippets.json` persistence and its source-generated JSON context
+- Shell integration: the `OSC 133` contract, the bash/zsh/fish/PowerShell bootstrap builders and providers, provider registry, lifecycle tracking, ordered async event dispatch
+- Assist view-models (`INotifyPropertyChanged` only — no toolkit types)
+- Application core: controller, mode router, insertion planner, result builder, key router, anchor calculator
+
+**Non-responsibilities**
+- Rendering the assist surfaces. The Avalonia `UserControl`s stay in the App at
+  `src/NovaTerminal.App/CommandAssist/Views/` under `NovaTerminal.CommandAssist.Views` — the one
+  namespace prefix deliberately shared between two assemblies.
+- Resolving application state. Storage paths (`AppPaths`) and settings (`TerminalSettings`) are
+  App concerns; they are passed in. `Shell/CommandAssistInfrastructure.cs` in the App is the
+  composition root that does the wiring.
+
+**Invariants**
+- **No Avalonia (or Skia) in the dependency closure** — enforced twice: at IL level by
+  `CommandAssist_must_not_depend_on_Avalonia_or_the_App` (`LayeringTests.cs`) and at project level by
+  `CommandAssist_csproj_must_have_no_project_or_avalonia_references` (`ProjectFileLayeringTests.cs`).
+  UI vocabulary crosses the boundary through App-side mappers only: `Avalonia.Input.Key`/
+  `KeyModifiers` → `AssistKey`/`AssistModifiers` via `Controls/AssistKeyMapper.cs`, and
+  `Avalonia.Rect` → `AssistRect` by construction inside the calculator.
+- Leaf assembly — no project references at all, so it stays cheap to reference and cannot drift
+  into the UI layer through a transitive edge.
+- All types in `NovaTerminal.CommandAssist.*` (`Leaf_assembly_types_reside_in_its_own_namespace`);
+  the App may only use that prefix for Views
+  (`App_may_only_use_the_CommandAssist_prefix_for_Views`).
+
+**Test authority**
+- `tests/NovaTerminal.App.Tests/CommandAssist/` (kept there for now — the suite exercises the assist
+  assembly and the App's `TerminalPane` wiring together)
+- Architecture invariants: `tests/NovaTerminal.Architecture.Tests/`
+
+> **Note:** extracted from the App in #114 as Phase 0 of the Command Assist V2 rebuild
+> (`docs/plans/2026-08-01-command-assist-v2-plan.md`). Remaining Phase 0 work — replacing the static
+> `CommandAssistInfrastructure` locator, splitting `CommandAssistController`, and the storage
+> rewrite — lands in follow-ups.
+
+---
+
 ## NovaTerminal.McpServer (`src/NovaTerminal.McpServer/`)
 
 **Namespace:** `NovaTerminal.McpServer` (+ `.Tools`)
@@ -194,7 +241,7 @@ invariant changes.
 ## NovaTerminal.App (`src/NovaTerminal.App/`)
 
 **Namespace:** `NovaTerminal` (NOT `NovaTerminal.App` — see test-root-namespace note in `NovaTerminal.App.Tests`)
-**Depends on:** Platform, VT, Rendering, Pty, Replay, AgentHost.Contracts, Avalonia 12.0.4, SkiaSharp 3.119.4
+**Depends on:** Platform, VT, Rendering, Pty, Replay, AgentHost.Contracts, CommandAssist, Avalonia 12.0.4, SkiaSharp 3.119.4
 **Public surface:** `App`, `MainWindow`, `TerminalPane`, settings window, theme manager, command palette, command-assist controller, profile importers, startup orchestrator
 
 **Owns**
@@ -203,7 +250,9 @@ invariant changes.
 - Theme management and bundled fonts
 - Profile import/export (Alacritty, iTerm2, Windows Terminal)
 - Command palette and shortcuts
-- CommandAssist (full sub-architecture under `CommandAssist/{Application,Domain,Models,Storage,ShellIntegration,ViewModels,Views}`)
+- The Command Assist *presentation* layer only: `CommandAssist/Views/` (Avalonia `UserControl`s),
+  the `TerminalPane` wiring, and `Shell/CommandAssistInfrastructure.cs` as the composition root.
+  Everything else moved to `NovaTerminal.CommandAssist` in #114.
 - Startup orchestration (seven `Startup*.cs` files in `Shell/`)
 - Workspace and session lifecycle
 - SSH UI: connection manager, transfer center, remote files sidebar, vault, sftp service, ssh-askpass
