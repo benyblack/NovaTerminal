@@ -1443,7 +1443,10 @@ namespace NovaTerminal.Controls
 
             CommandAssistController? controller = _commandAssistController;
             bool isAssistVisible = controller?.ViewModel.IsVisible == true;
-            if (!CommandAssistKeyRouter.IsAssistOwnedKey(isAssistVisible, key, modifiers))
+            if (!CommandAssistKeyRouter.IsAssistOwnedKey(
+                    isAssistVisible,
+                    AssistKeyMapper.ToAssistKey(key),
+                    AssistKeyMapper.ToAssistModifiers(modifiers)))
             {
                 return false;
             }
