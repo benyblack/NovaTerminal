@@ -1554,16 +1554,7 @@ namespace NovaTerminal.VT
             // instead of staying silent.
             if (code == "10" || code == "11")
             {
-                if (data == "?")
-                {
-                    TermColor color = code == "10"
-                        ? (DefaultForeground ?? TermColor.FromRgb(0xC0, 0xC0, 0xC0))
-                        : (DefaultBackground ?? TermColor.FromRgb(0x00, 0x00, 0x00));
-                    OnResponse?.Invoke(FormatOscColorResponse(code, color));
-                }
-                // Non-query forms (e.g. "OSC 10;#ff0000" / "OSC 11;rgb:1234/5678/9abc" to
-                // *set* the color) are not supported for runtime palette changes; ignore
-                // them safely rather than attempting to parse/apply an unsupported request.
+                HandleOscColorQuery(int.Parse(code, System.Globalization.CultureInfo.InvariantCulture), data);
                 return;
             }
 
@@ -1658,6 +1649,43 @@ namespace NovaTerminal.VT
 
         // xterm's "rgb:RRRR/GGGG/BBBB" dynamic-color-response format: each 8-bit channel is
         // widened to 16 bits by replicating the byte (0xRR -> 0xRRRR, i.e. value * 0x101).
+        // xterm's dynamic-color OSC accepts multiple values chained in one sequence, each
+        // advancing to the next color slot: "OSC 10;?;?" queries fg (slot 10) then bg
+        // (slot 11), and xterm sends two separate replies for it. A trailing ';' is also
+        // legal (e.g. "OSC 11;?;") and simply yields one extra, ignored slot. Treating the
+        // whole payload as a single "is it exactly \"?\"" check — as the original code did —
+        // means either of those legal, in-the-wild spellings produces silence: the same
+        // stall #265 fixed, just for a different query shape. Splitting on ';' and walking
+        // an incrementing slot code answers every "?" we understand (10, 11) and silently
+        // skips slots we don't (e.g. 12, the cursor color) instead of dropping the request.
+        private void HandleOscColorQuery(int startCode, string data)
+        {
+            string[] slots = data.Split(';');
+            int slotCode = startCode;
+            foreach (string slot in slots)
+            {
+                if (slot == "?")
+                {
+                    TermColor? color = slotCode switch
+                    {
+                        10 => DefaultForeground ?? TermColor.FromRgb(0xC0, 0xC0, 0xC0),
+                        11 => DefaultBackground ?? TermColor.FromRgb(0x00, 0x00, 0x00),
+                        _ => null
+                    };
+
+                    if (color != null)
+                    {
+                        OnResponse?.Invoke(FormatOscColorResponse(slotCode.ToString(System.Globalization.CultureInfo.InvariantCulture), color.Value));
+                    }
+                }
+                // Non-"?" slots (e.g. "#ff0000" to *set* a color, or an empty slot from a
+                // trailing ';') are not supported for runtime palette changes; ignore them
+                // safely rather than attempting to parse/apply an unsupported request.
+
+                slotCode++;
+            }
+        }
+
         private static string FormatOscColorResponse(string code, TermColor color)
         {
             int r = color.R * 0x101;

@@ -1,6 +1,8 @@
 using System;
+using System.IO;
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Controls;
+using NovaTerminal.Shell;
 using NovaTerminal.VT;
 using Xunit;
 
@@ -94,5 +96,78 @@ public class PaneParserWiringTests
 
         Assert.Equal(1, HandlerCount(superseded!.OnBell));
         Assert.False(ReferenceEquals(superseded, pane.Parser));
+    }
+
+    /// <summary>
+    /// Regression test for the PR #275 review finding: <c>CreateAndWireParser</c> used to seed
+    /// the parser's OSC 10/11 answer colors from the global <c>_settings.ActiveTheme</c> instead
+    /// of the profile-merged theme that <see cref="TerminalPane.ApplySettings"/> resolves (via
+    /// <c>Profile?.ThemeName ?? settings.ThemeName</c>). Because <c>CreateAndWireParser</c> runs
+    /// after <c>ApplySettings</c> on pane construction, and again on every session
+    /// (re)initialization, a pane whose profile overrides the theme would silently answer color
+    /// queries with the global theme's colors until the next settings apply.
+    /// </summary>
+    [AvaloniaFact]
+    public void CreateAndWireParser_UsesProfileThemeOverride_NotGlobalTheme()
+    {
+        string tempRoot = CreateTempAppRoot();
+        string? previousRoot = Environment.GetEnvironmentVariable("NOVATERM_APPDATA_ROOT");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", tempRoot);
+
+            var globalTheme = new TerminalTheme
+            {
+                Name = "PaneWiringGlobalTheme",
+                Foreground = TermColor.FromRgb(10, 20, 30),
+                Background = TermColor.FromRgb(40, 50, 60),
+            };
+            var profileTheme = new TerminalTheme
+            {
+                Name = "PaneWiringProfileTheme",
+                Foreground = TermColor.FromRgb(200, 210, 220),
+                Background = TermColor.FromRgb(5, 6, 7),
+            };
+
+            var themeManager = new ThemeManager();
+            themeManager.SaveTheme(globalTheme);
+            themeManager.SaveTheme(profileTheme);
+
+            var settings = new TerminalSettings { ThemeName = globalTheme.Name };
+            var profile = new TerminalProfile { ThemeName = profileTheme.Name };
+
+            // The constructor's SetupCommon path already called ApplySettings(settings) with
+            // this profile attached, exactly like MainWindow does before a pane is attached
+            // and its session starts.
+            using var pane = new TerminalPane(profile, settings);
+
+            // Simulates session init (InitializeSession -> CreateAndWireParser). This is the
+            // call that used to clobber the profile override with _settings.ActiveTheme.
+            pane.CreateAndWireParser();
+
+            Assert.NotNull(pane.Parser);
+            Assert.Equal(profileTheme.Foreground, pane.Parser!.DefaultForeground);
+            Assert.Equal(profileTheme.Background, pane.Parser!.DefaultBackground);
+
+            // Simulate a Reconnect(), which calls CreateAndWireParser again with no
+            // intervening ApplySettings. The profile override must still win every time.
+            pane.CreateAndWireParser();
+
+            Assert.Equal(profileTheme.Foreground, pane.Parser!.DefaultForeground);
+            Assert.Equal(profileTheme.Background, pane.Parser!.DefaultBackground);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    private static string CreateTempAppRoot()
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"nova_pane_wiring_test_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(path);
+        return path;
     }
 }

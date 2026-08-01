@@ -1609,11 +1609,16 @@ namespace NovaTerminal.Controls
 
             // OSC 10/11 (fg/bg color query) answers come from the active theme; without this,
             // a freshly-created parser would fall back to AnsiParser's hardcoded defaults until
-            // the next ApplySettings call (#265).
+            // the next ApplySettings call (#265). Must use the same profile-merged theme
+            // resolution as ApplySettings (via BuildEffectiveSettings) — using the global
+            // _settings.ActiveTheme directly would clobber a per-profile theme override,
+            // since this method runs after ApplySettings on pane init and on every
+            // Reconnect().
             if (_settings != null)
             {
-                Parser.DefaultForeground = _settings.ActiveTheme.Foreground;
-                Parser.DefaultBackground = _settings.ActiveTheme.Background;
+                var effectiveTheme = BuildEffectiveSettings(_settings).ActiveTheme;
+                Parser.DefaultForeground = effectiveTheme.Foreground;
+                Parser.DefaultBackground = effectiveTheme.Background;
             }
 
             Parser.OnBell += () =>
@@ -1903,13 +1908,18 @@ namespace NovaTerminal.Controls
 
 
 
-        public void ApplySettings(TerminalSettings settings)
+        /// <summary>
+        /// Merges global settings with this pane's profile overrides (font, theme, cursor).
+        /// Shared by <see cref="ApplySettings"/> (which needs every merged field for
+        /// <see cref="TermView"/>) and <see cref="CreateAndWireParser"/> (which only needs
+        /// the resulting <see cref="TerminalSettings.ActiveTheme"/> colors for OSC 10/11
+        /// answers), so the two call sites can never resolve the profile-effective theme
+        /// differently — see the #265 wiring-bug follow-up.
+        /// </summary>
+        private TerminalSettings BuildEffectiveSettings(TerminalSettings settings)
         {
-            _settings = settings;
-
-            // Merge global settings with profile overrides
             // We create a "copy" for the view to use, but we only override specific visual fields
-            var effectiveSettings = new TerminalSettings
+            return new TerminalSettings
             {
                 FontSize = Profile?.FontSize ?? settings.FontSize,
                 FontFamily = Profile?.FontFamily ?? settings.FontFamily,
@@ -1937,6 +1947,14 @@ namespace NovaTerminal.Controls
                 Profiles = settings.Profiles,
                 DefaultProfileId = settings.DefaultProfileId
             };
+        }
+
+        public void ApplySettings(TerminalSettings settings)
+        {
+            _settings = settings;
+
+            // Merge global settings with profile overrides
+            var effectiveSettings = BuildEffectiveSettings(settings);
 
             TermView.ApplySettings(effectiveSettings);
             if (_commandAssistController != null || !IsCommandAssistFeatureEnabled())
