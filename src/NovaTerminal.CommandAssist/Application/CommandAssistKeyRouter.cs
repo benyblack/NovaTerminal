@@ -1,8 +1,17 @@
 namespace NovaTerminal.CommandAssist.Application;
 
-internal static class CommandAssistKeyRouter
+/// <summary>
+/// Decides whether a keystroke belongs to Command Assist or should fall through to the terminal.
+/// </summary>
+/// <remarks>
+/// Public because the App's <c>TerminalPane</c> consults it on every key press. It is a pure
+/// static predicate over public types (<see cref="AssistKey"/>, <see cref="AssistModifiers"/>),
+/// so exposing it costs nothing and lets this assembly avoid granting the App
+/// <c>InternalsVisibleTo</c>.
+/// </remarks>
+public static class CommandAssistKeyRouter
 {
-    internal static bool IsAssistOwnedKey(bool isAssistVisible, AssistKey key, AssistModifiers modifiers)
+    public static bool IsAssistOwnedKey(bool isAssistVisible, AssistKey key, AssistModifiers modifiers)
     {
         if (!isAssistVisible)
         {

@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using NetArchTest.Rules;
 
 namespace NovaTerminal.Architecture.Tests;
@@ -83,12 +84,20 @@ public class NamespaceAlignmentTests
     /// the assist assembly must stay UI-toolkit-free. Anything else the App puts under that prefix
     /// is code that failed to move and should have.
     /// </summary>
+    /// <remarks>
+    /// Deliberately not filtered to public types. The archetypal leftover from an extraction is an
+    /// <em>internal</em> helper the mechanical move missed, so a visibility filter here would let
+    /// through exactly what this rule exists to catch. Compiler-generated types (XAML codegen,
+    /// closure and iterator classes) are excluded instead: they are emitted under their declaring
+    /// type's namespace, so flagging them would only restate the verdict on the type that owns
+    /// them, and they are not code anyone can "move".
+    /// </remarks>
     [Fact]
     public void App_may_only_use_the_CommandAssist_prefix_for_Views()
     {
         var result = Types.InAssembly(LoadByName("NovaTerminal"))
-            .That().ArePublic()
-            .And().DoNotResideInNamespace("NovaTerminal.CommandAssist.Views")
+            .That().DoNotResideInNamespace("NovaTerminal.CommandAssist.Views")
+            .And().DoNotHaveCustomAttribute(typeof(CompilerGeneratedAttribute))
             .Should()
             .NotResideInNamespaceStartingWith("NovaTerminal.CommandAssist")
             .GetResult();

@@ -14,7 +14,7 @@ public sealed class ZshShellIntegrationProviderTests
     [InlineData("ZSH", "/usr/local/bin/zsh")]
     public void CanIntegrate_ForZshShells_ReturnsTrue(string shellKind, string command)
     {
-        var provider = new ZshShellIntegrationProvider(AppPaths.CommandAssistDirectory);
+        var provider = new ZshShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
 
         Assert.True(provider.CanIntegrate(shellKind, command));
     }
@@ -25,7 +25,7 @@ public sealed class ZshShellIntegrationProviderTests
     [InlineData("fish", "/usr/local/bin/fish")]
     public void CanIntegrate_ForOtherShells_ReturnsFalse(string shellKind, string command)
     {
-        var provider = new ZshShellIntegrationProvider(AppPaths.CommandAssistDirectory);
+        var provider = new ZshShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
 
         Assert.False(provider.CanIntegrate(shellKind, command));
     }
@@ -33,7 +33,7 @@ public sealed class ZshShellIntegrationProviderTests
     [Fact]
     public void CreateLaunchPlan_ForVanillaZsh_InjectsBootstrapViaZdotdirEnvOverride()
     {
-        var provider = new ZshShellIntegrationProvider(AppPaths.CommandAssistDirectory);
+        var provider = new ZshShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
 
         ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan("/bin/zsh", shellArguments: null, workingDirectory: null);
 
@@ -51,7 +51,7 @@ public sealed class ZshShellIntegrationProviderTests
     [Fact]
     public void CreateLaunchPlan_WithExistingUserArguments_PreservesThem()
     {
-        var provider = new ZshShellIntegrationProvider(AppPaths.CommandAssistDirectory);
+        var provider = new ZshShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
 
         ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan("/bin/zsh", "--login", null);
 
@@ -64,7 +64,7 @@ public sealed class ZshShellIntegrationProviderTests
     [InlineData("--no-rcs")]
     public void CreateLaunchPlan_WhenUserForcesIncompatibleStartupMode_DisablesIntegration(string userArgs)
     {
-        var provider = new ZshShellIntegrationProvider(AppPaths.CommandAssistDirectory);
+        var provider = new ZshShellIntegrationProvider(() => AppPaths.CommandAssistDirectory);
 
         ShellIntegrationLaunchPlan plan = provider.CreateLaunchPlan("/bin/zsh", userArgs, null);
 

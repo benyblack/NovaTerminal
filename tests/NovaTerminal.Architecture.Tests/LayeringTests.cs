@@ -122,7 +122,11 @@ public class LayeringTests
                 "NovaTerminal.Controls",
                 "NovaTerminal.Rendering",
                 "NovaTerminal.Replay",
-                "NovaTerminal.Pty")
+                "NovaTerminal.Pty",
+                // CommandAssist references neither today; naming them keeps the allowlist
+                // complete so a future "just grab the parser" shortcut fails here first.
+                "NovaTerminal.VT",
+                "NovaTerminal.Platform")
             .GetResult();
 
         Assert.True(result.IsSuccessful,

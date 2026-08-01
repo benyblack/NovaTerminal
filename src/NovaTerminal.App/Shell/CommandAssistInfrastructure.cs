@@ -30,12 +30,17 @@ public static class CommandAssistInfrastructure
     private static int _historyMaxEntries = -1;
     private static readonly ISecretsFilter SecretsFilterInstance = new SecretsFilter();
     private static readonly ISuggestionEngine SuggestionEngineInstance = new CommandAssistSuggestionEngine();
+    // The bootstrap directory is passed as a factory, not a resolved string: AppPaths reads
+    // environment state, so it must be evaluated inside CreateLaunchPlan (where the caller's
+    // try/catch can swallow a failure and fall back to a non-integrated launch) rather than in
+    // this static initializer, where a throw would become a TypeInitializationException at the
+    // GetShellIntegrationRegistry() call site and poison the whole type.
     private static readonly ShellIntegrationRegistry ShellIntegrationRegistryInstance = new(new IShellIntegrationProvider[]
     {
-        new PowerShellShellIntegrationProvider(AppPaths.CommandAssistDirectory),
-        new BashShellIntegrationProvider(AppPaths.CommandAssistDirectory),
-        new ZshShellIntegrationProvider(AppPaths.CommandAssistDirectory),
-        new FishShellIntegrationProvider(AppPaths.CommandAssistDirectory)
+        new PowerShellShellIntegrationProvider(static () => AppPaths.CommandAssistDirectory),
+        new BashShellIntegrationProvider(static () => AppPaths.CommandAssistDirectory),
+        new ZshShellIntegrationProvider(static () => AppPaths.CommandAssistDirectory),
+        new FishShellIntegrationProvider(static () => AppPaths.CommandAssistDirectory)
     });
 
     public static IHistoryStore GetHistoryStore(TerminalSettings settings)

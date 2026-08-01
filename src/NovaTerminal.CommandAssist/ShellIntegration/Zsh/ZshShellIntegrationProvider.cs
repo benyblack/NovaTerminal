@@ -7,13 +7,16 @@ namespace NovaTerminal.CommandAssist.ShellIntegration.Zsh;
 
 public sealed class ZshShellIntegrationProvider : IShellIntegrationProvider
 {
-    private readonly string _bootstrapDirectory;
+    private readonly Func<string> _bootstrapDirectory;
 
     /// <param name="bootstrapDirectory">
-    /// Directory the generated bootstrap script is written to. Supplied by the App
-    /// (<c>AppPaths.CommandAssistDirectory</c>).
+    /// Resolves the directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>() =&gt; AppPaths.CommandAssistDirectory</c>). Deliberately a factory, not a string: the
+    /// path is resolved per <see cref="CreateLaunchPlan"/> call so it tracks app-state changes and
+    /// so a resolution failure surfaces inside the caller's try/catch rather than at construction
+    /// time.
     /// </param>
-    public ZshShellIntegrationProvider(string bootstrapDirectory)
+    public ZshShellIntegrationProvider(Func<string> bootstrapDirectory)
     {
         _bootstrapDirectory = bootstrapDirectory;
     }
@@ -40,7 +43,7 @@ public sealed class ZshShellIntegrationProvider : IShellIntegrationProvider
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = ZshBootstrapBuilder.WriteScript(_bootstrapDirectory);
+        string bootstrapScriptPath = ZshBootstrapBuilder.WriteScript(_bootstrapDirectory());
         string? zdotdir = Path.GetDirectoryName(bootstrapScriptPath);
         if (string.IsNullOrEmpty(zdotdir))
         {

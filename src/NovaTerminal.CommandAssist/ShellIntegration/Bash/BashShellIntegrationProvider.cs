@@ -5,14 +5,16 @@ namespace NovaTerminal.CommandAssist.ShellIntegration.Bash;
 
 public sealed class BashShellIntegrationProvider : IShellIntegrationProvider
 {
-    private readonly string _bootstrapDirectory;
+    private readonly Func<string> _bootstrapDirectory;
 
     /// <param name="bootstrapDirectory">
-    /// Directory the generated bootstrap script is written to. Supplied by the App
-    /// (<c>AppPaths.CommandAssistDirectory</c>) so this assembly does not need to know where the
-    /// application stores its data.
+    /// Resolves the directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>() =&gt; AppPaths.CommandAssistDirectory</c>) so this assembly does not need to know
+    /// where the application stores its data. Deliberately a factory, not a string: the path is
+    /// resolved per <see cref="CreateLaunchPlan"/> call so it tracks app-state changes and so a
+    /// resolution failure surfaces inside the caller's try/catch rather than at construction time.
     /// </param>
-    public BashShellIntegrationProvider(string bootstrapDirectory)
+    public BashShellIntegrationProvider(Func<string> bootstrapDirectory)
     {
         _bootstrapDirectory = bootstrapDirectory;
     }
@@ -39,7 +41,7 @@ public sealed class BashShellIntegrationProvider : IShellIntegrationProvider
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = BashBootstrapBuilder.WriteScript(_bootstrapDirectory);
+        string bootstrapScriptPath = BashBootstrapBuilder.WriteScript(_bootstrapDirectory());
         string mergedArguments = BuildBashArguments(shellArguments, bootstrapScriptPath);
         return new ShellIntegrationLaunchPlan(
             IsIntegrated: true,

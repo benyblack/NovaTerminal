@@ -7,13 +7,16 @@ namespace NovaTerminal.CommandAssist.ShellIntegration.Fish;
 
 public sealed class FishShellIntegrationProvider : IShellIntegrationProvider
 {
-    private readonly string _bootstrapDirectory;
+    private readonly Func<string> _bootstrapDirectory;
 
     /// <param name="bootstrapDirectory">
-    /// Directory the generated bootstrap script is written to. Supplied by the App
-    /// (<c>AppPaths.CommandAssistDirectory</c>).
+    /// Resolves the directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>() =&gt; AppPaths.CommandAssistDirectory</c>). Deliberately a factory, not a string: the
+    /// path is resolved per <see cref="CreateLaunchPlan"/> call so it tracks app-state changes and
+    /// so a resolution failure surfaces inside the caller's try/catch rather than at construction
+    /// time.
     /// </param>
-    public FishShellIntegrationProvider(string bootstrapDirectory)
+    public FishShellIntegrationProvider(Func<string> bootstrapDirectory)
     {
         _bootstrapDirectory = bootstrapDirectory;
     }
@@ -40,7 +43,7 @@ public sealed class FishShellIntegrationProvider : IShellIntegrationProvider
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = FishBootstrapBuilder.WriteScript(_bootstrapDirectory);
+        string bootstrapScriptPath = FishBootstrapBuilder.WriteScript(_bootstrapDirectory());
         // XDG_CONFIG_HOME must be the parent of the "fish" directory that
         // contains config.fish, not the fish directory itself.
         string? fishDir = Path.GetDirectoryName(bootstrapScriptPath);

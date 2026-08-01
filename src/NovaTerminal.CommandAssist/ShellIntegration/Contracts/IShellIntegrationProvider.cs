@@ -1,4 +1,3 @@
-
 namespace NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 
 public interface IShellIntegrationProvider

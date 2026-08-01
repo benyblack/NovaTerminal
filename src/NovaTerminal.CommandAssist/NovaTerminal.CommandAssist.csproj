@@ -1,9 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <!-- TerminalPane calls the internal CommandAssistKeyRouter; the App assembly is named
-         "NovaTerminal", not "NovaTerminal.App". -->
-    <InternalsVisibleTo Include="NovaTerminal" />
+    <!-- Tests only, matching the convention every other src project follows. The App is
+         deliberately NOT granted: the two types it needs (CommandAssistKeyRouter,
+         CommandAssistInsertionPlanner) are public pure-static helpers, so the App consumes this
+         assembly through its public surface and gets no visibility into anything else. -->
     <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
   </ItemGroup>
 
