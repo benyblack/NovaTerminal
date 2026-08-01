@@ -693,6 +693,9 @@ namespace NovaTerminal.VT
                         }
                         break;
                     case 'r': // DECSTBM - Set Scrolling Region
+                              // Ignore leader-prefixed "...r" sequences, e.g. CSI ? Pm r (XTRESTORE -
+                              // restore DEC private mode values). They are NOT DECSTBM.
+                        if (leader == '\0' && intermediates.Length == 0)
                         {
                             int regionTop = (argCount > 0 && validArgs[0] > 0 ? validArgs[0] : 1) - 1;
                             int regionBottom = (argCount > 1 && validArgs[1] > 0 ? validArgs[1] : _buffer.Rows) - 1;
@@ -860,10 +863,22 @@ namespace NovaTerminal.VT
                         _buffer.DeleteLines(linesToDelete);
                         break;
                     case 's': // Save Cursor (ANSI.SYS / SCO)
-                        _buffer.SaveCursor();
+                              // Ignore leader-prefixed "...s" sequences, e.g. CSI ? Pm s (XTSAVE -
+                              // save DEC private mode values). They are NOT SCO save-cursor.
+                        if (leader == '\0' && intermediates.Length == 0)
+                        {
+                            _buffer.SaveCursor();
+                        }
                         break;
                     case 'u': // Restore Cursor (ANSI.SYS / SCO)
-                        _buffer.RestoreCursor();
+                              // Ignore leader-prefixed "...u" sequences, e.g. CSI ? u (kitty keyboard
+                              // protocol query), CSI > Pm u (kitty keyboard push), CSI < Pm u (kitty
+                              // keyboard pop), CSI = Pm u (kitty keyboard set). They are NOT SCO
+                              // restore-cursor. The kitty keyboard protocol itself is issue #266.
+                        if (leader == '\0' && intermediates.Length == 0)
+                        {
+                            _buffer.RestoreCursor();
+                        }
                         break;
                     case 'm': // SGR (Select Graphic Rendition)
                               // Ignore non-standard leader-prefixed "...m" control sequences, e.g.
