@@ -69,6 +69,16 @@ namespace NovaTerminal.VT
 
         public float CellWidth { get; set; } = 10.0f;  // Default fallback
         public float CellHeight { get; set; } = 20.0f; // Default fallback
+
+        /// <summary>
+        /// Colors reported in response to OSC 10/11 (foreground/background) queries. The host
+        /// (NovaTerminal.App) sets these from the active theme; when unset, <see cref="HandleOsc"/>
+        /// falls back to a sane default rather than staying silent (#265: silence made OpenCode and
+        /// vim/nvim's startup theme probes stall for their ~1s timeout on every launch).
+        /// </summary>
+        public TermColor? DefaultForeground { get; set; }
+        public TermColor? DefaultBackground { get; set; }
+
         public Action<string>? OnResponse { get; set; }
         public Action? OnBell { get; set; }
         public Action<string>? OnWorkingDirectoryChanged { get; set; }
@@ -1534,6 +1544,20 @@ namespace NovaTerminal.VT
                 return;
             }
 
+            // OSC 10/11: dynamic foreground/background color queries.
+            // Query form is "10;?" / "11;?" (BEL and ST termination are both already
+            // normalized away by the caller before HandleOsc ever sees this string).
+            // xterm answers with "OSC 1x ; rgb:RRRR/GGGG/BBBB ST", 16 bits per channel
+            // (8-bit channel replicated: value * 0x101). OpenCode and vim/nvim send this
+            // at startup with a ~1s timeout to detect a dark/light theme; never responding
+            // was the bug (#265), so an unset provider still answers with a sane default
+            // instead of staying silent.
+            if (code == "10" || code == "11")
+            {
+                HandleOscColorQuery(int.Parse(code, System.Globalization.CultureInfo.InvariantCulture), data);
+                return;
+            }
+
             // OSC 133: shell integration markers.
             // Common terminals/shell integrations emit:
             //   OSC 133;A     -> prompt ready
@@ -1621,6 +1645,53 @@ namespace NovaTerminal.VT
                     _buffer.CurrentHyperlink = _hyperlinks.Resolve(parameters, uri);
                 }
             }
+        }
+
+        // xterm's "rgb:RRRR/GGGG/BBBB" dynamic-color-response format: each 8-bit channel is
+        // widened to 16 bits by replicating the byte (0xRR -> 0xRRRR, i.e. value * 0x101).
+        // xterm's dynamic-color OSC accepts multiple values chained in one sequence, each
+        // advancing to the next color slot: "OSC 10;?;?" queries fg (slot 10) then bg
+        // (slot 11), and xterm sends two separate replies for it. A trailing ';' is also
+        // legal (e.g. "OSC 11;?;") and simply yields one extra, ignored slot. Treating the
+        // whole payload as a single "is it exactly \"?\"" check — as the original code did —
+        // means either of those legal, in-the-wild spellings produces silence: the same
+        // stall #265 fixed, just for a different query shape. Splitting on ';' and walking
+        // an incrementing slot code answers every "?" we understand (10, 11) and silently
+        // skips slots we don't (e.g. 12, the cursor color) instead of dropping the request.
+        private void HandleOscColorQuery(int startCode, string data)
+        {
+            string[] slots = data.Split(';');
+            int slotCode = startCode;
+            foreach (string slot in slots)
+            {
+                if (slot == "?")
+                {
+                    TermColor? color = slotCode switch
+                    {
+                        10 => DefaultForeground ?? TermColor.FromRgb(0xC0, 0xC0, 0xC0),
+                        11 => DefaultBackground ?? TermColor.FromRgb(0x00, 0x00, 0x00),
+                        _ => null
+                    };
+
+                    if (color != null)
+                    {
+                        OnResponse?.Invoke(FormatOscColorResponse(slotCode.ToString(System.Globalization.CultureInfo.InvariantCulture), color.Value));
+                    }
+                }
+                // Non-"?" slots (e.g. "#ff0000" to *set* a color, or an empty slot from a
+                // trailing ';') are not supported for runtime palette changes; ignore them
+                // safely rather than attempting to parse/apply an unsupported request.
+
+                slotCode++;
+            }
+        }
+
+        private static string FormatOscColorResponse(string code, TermColor color)
+        {
+            int r = color.R * 0x101;
+            int g = color.G * 0x101;
+            int b = color.B * 0x101;
+            return $"\x1b]{code};rgb:{r:x4}/{g:x4}/{b:x4}\x1b\\";
         }
 
         private static bool TryExtractPathFromOsc7(string data, out string path)

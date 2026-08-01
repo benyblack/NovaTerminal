@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "bbfc633258d80584c48d47b42ea5d05ff76a1547a7efab8f7dd19fedb86d6de6",
+  "matrixSha256": "b273bce43d24b7746cd76f06be25e0273abfee40e75df163c72bc2281af0ce67",
   "summary": {
-    "totalRows": 55,
-    "supportedCount": 16,
+    "totalRows": 56,
+    "supportedCount": 17,
     "partialCount": 32,
     "experimentalCount": 1,
     "notSupportedCount": 5,
     "wontSupportCount": 1,
-    "rowsWithLinkedEvidence": 29,
-    "supportedRowsWithLinkedEvidence": 16,
+    "rowsWithLinkedEvidence": 30,
+    "supportedRowsWithLinkedEvidence": 17,
     "errorCount": 0,
     "warningCount": 0
   },
@@ -68,35 +68,35 @@
       "order": 7,
       "title": "8) OSC sequences",
       "startLine": 141,
-      "endLine": 149,
-      "rowCount": 7
+      "endLine": 150,
+      "rowCount": 8
     },
     {
       "order": 8,
       "title": "9) Kitty graphics / APC",
-      "startLine": 155,
-      "endLine": 158,
+      "startLine": 156,
+      "endLine": 159,
       "rowCount": 2
     },
     {
       "order": 9,
       "title": "10) SIXEL",
-      "startLine": 164,
-      "endLine": 167,
+      "startLine": 165,
+      "endLine": 168,
       "rowCount": 2
     },
     {
       "order": 10,
       "title": "11) Clipboard, selection, and hyperlinking",
-      "startLine": 173,
-      "endLine": 177,
+      "startLine": 174,
+      "endLine": 178,
       "rowCount": 3
     },
     {
       "order": 11,
       "title": "12) Unicode width, graphemes, and font behavior",
-      "startLine": 183,
-      "endLine": 187,
+      "startLine": 184,
+      "endLine": 188,
       "rowCount": 3
     }
   ],
@@ -882,6 +882,27 @@
     },
     {
       "section": "8) OSC sequences",
+      "feature": "OSC 10/11",
+      "status": "\u2705 Supported",
+      "specOrNotes": "",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
+          "exists": true
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BApp",
+      "knownDeviations": "Query form (\u0060?\u0060) only; set form is ignored safely, no runtime palette change. Colors sourced from \u0060AnsiParser.DefaultForeground\u0060/\u0060DefaultBackground\u0060, wired from the active theme at parser creation and on \u0060TerminalPane.ApplySettings\u0060; falls back to fg C0C0C0 / bg 000000 when unset",
+      "sourceLine": 145
+    },
+    {
+      "section": "8) OSC sequences",
       "feature": "OSC 52",
       "status": "\u274C Not supported",
       "specOrNotes": "",
@@ -892,7 +913,7 @@
       "hasLinkedEvidence": false,
       "ownership": "App/UI",
       "knownDeviations": "",
-      "sourceLine": 145
+      "sourceLine": 146
     },
     {
       "section": "8) OSC sequences",
@@ -913,7 +934,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BRenderer\u002BUI",
       "knownDeviations": "Ctrl-click open path is app-level",
-      "sourceLine": 146
+      "sourceLine": 147
     },
     {
       "section": "8) OSC sequences",
@@ -934,7 +955,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BCommand Assist",
       "knownDeviations": "Supports A/B/C/D markers; broader semantic prompt extensions not audited",
-      "sourceLine": 147
+      "sourceLine": 148
     },
     {
       "section": "8) OSC sequences",
@@ -955,7 +976,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BRenderer",
       "knownDeviations": "Parser support exists, but targeted automated replay/unit coverage for OSC 1337 is still missing",
-      "sourceLine": 148
+      "sourceLine": 149
     },
     {
       "section": "8) OSC sequences",
@@ -971,7 +992,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Parser\u002BWin",
       "knownDeviations": "",
-      "sourceLine": 149
+      "sourceLine": 150
     },
     {
       "section": "9) Kitty graphics / APC",
@@ -996,7 +1017,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BRenderer",
       "knownDeviations": "",
-      "sourceLine": 157
+      "sourceLine": 158
     },
     {
       "section": "9) Kitty graphics / APC",
@@ -1012,7 +1033,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "",
-      "sourceLine": 158
+      "sourceLine": 159
     },
     {
       "section": "10) SIXEL",
@@ -1028,7 +1049,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Decoder\u002BRenderer",
       "knownDeviations": "",
-      "sourceLine": 166
+      "sourceLine": 167
     },
     {
       "section": "10) SIXEL",
@@ -1042,7 +1063,7 @@
       "hasLinkedEvidence": false,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "",
-      "sourceLine": 167
+      "sourceLine": 168
     },
     {
       "section": "11) Clipboard, selection, and hyperlinking",
@@ -1058,7 +1079,7 @@
       "hasLinkedEvidence": false,
       "ownership": "UI",
       "knownDeviations": "",
-      "sourceLine": 175
+      "sourceLine": 176
     },
     {
       "section": "11) Clipboard, selection, and hyperlinking",
@@ -1072,7 +1093,7 @@
       "hasLinkedEvidence": false,
       "ownership": "UI",
       "knownDeviations": "",
-      "sourceLine": 176
+      "sourceLine": 177
     },
     {
       "section": "11) Clipboard, selection, and hyperlinking",
@@ -1093,7 +1114,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BUI",
       "knownDeviations": "Ctrl-click open path is app-level",
-      "sourceLine": 177
+      "sourceLine": 178
     },
     {
       "section": "12) Unicode width, graphemes, and font behavior",
@@ -1123,7 +1144,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "Deterministic 0/1/2-cell model for combining marks, emoji modifiers, ZWJ emoji, variation selectors, and regional-indicator flags. No Unicode-version pin or full UAX #11 conformance table is documented yet.",
-      "sourceLine": 185
+      "sourceLine": 186
     },
     {
       "section": "12) Unicode width, graphemes, and font behavior",
@@ -1156,7 +1177,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "Combining/variation attachment is covered for common terminal cases, including pending-wrap boundaries. Full extended-grapheme-cluster conformance is not claimed.",
-      "sourceLine": 186
+      "sourceLine": 187
     },
     {
       "section": "12) Unicode width, graphemes, and font behavior",
@@ -1185,7 +1206,7 @@
       "hasLinkedEvidence": true,
       "ownership": "Buffer\u002BRenderer",
       "knownDeviations": "Chunked ZWJ families, emoji modifiers, VS15/VS16, and chunked regional-indicator flag pairs are covered. Remaining gaps: cursor-addressing CSI remains cell-oriented, and width-changing selectors that arrive after a base glyph already placed at the last column are not guaranteed to retroactively reflow.",
-      "sourceLine": 187
+      "sourceLine": 188
     }
   ],
   "errors": [],
