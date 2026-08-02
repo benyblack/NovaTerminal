@@ -1,0 +1,369 @@
+using System.Text.Json;
+using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.Storage;
+
+namespace NovaTerminal.Tests.CommandAssist;
+
+public sealed class JsonlHistoryStoreTests : IDisposable
+{
+    private readonly string _tempRoot;
+    private readonly string _historyPath;
+    private readonly string _legacyPath;
+
+    public JsonlHistoryStoreTests()
+    {
+        _tempRoot = Path.Combine(Path.GetTempPath(), $"nova_command_assist_history_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(_tempRoot);
+        _historyPath = Path.Combine(_tempRoot, "history.jsonl");
+        _legacyPath = Path.Combine(_tempRoot, "history.json");
+    }
+
+    private JsonlHistoryStore CreateStore(int maxEntries = 50)
+        => new(_historyPath, maxEntries, _legacyPath);
+
+    [Fact]
+    public async Task AppendAsync_PersistsEntriesAcrossStoreInstances()
+    {
+        JsonlHistoryStore store = CreateStore();
+
+        await store.AppendAsync(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+
+        Assert.Single(entries);
+        Assert.Equal("git status", entries[0].CommandText);
+    }
+
+    [Fact]
+    public async Task AppendAsync_WritesOneLinePerRecord()
+    {
+        JsonlHistoryStore store = CreateStore();
+
+        await store.AppendAsync(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        await store.AppendAsync(CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
+
+        string[] lines = await File.ReadAllLinesAsync(_historyPath);
+
+        Assert.Equal(2, lines.Length);
+        Assert.All(lines, line => Assert.NotNull(
+            JsonSerializer.Deserialize(line, CommandAssistJsonLinesContext.Default.CommandHistoryEntry)));
+    }
+
+    /// <summary>
+    /// Appends must not rewrite the file. Asserted structurally: the first record's bytes are still
+    /// the first bytes on disk after later appends.
+    /// </summary>
+    [Fact]
+    public async Task AppendAsync_LeavesEarlierLinesUntouched()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        string firstLine = (await File.ReadAllLinesAsync(_historyPath))[0];
+
+        await store.AppendAsync(CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
+
+        Assert.Equal(firstLine, (await File.ReadAllLinesAsync(_historyPath))[0]);
+    }
+
+    [Fact]
+    public async Task AppendAsync_EnforcesRetentionLimitByKeepingMostRecentEntries()
+    {
+        JsonlHistoryStore store = CreateStore(maxEntries: 2);
+
+        await store.AppendAsync(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        await store.AppendAsync(CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
+        await store.AppendAsync(CreateEntry("npm run build", executedAt: DateTimeOffset.Parse("2026-03-01T10:02:00+00:00")));
+
+        // The cap is applied when the file is (re)read: an append-only log is allowed to hold more
+        // lines than the cap until compaction reclaims them, so assert through a fresh instance.
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore(maxEntries: 2).GetRecentAsync(10);
+
+        Assert.Equal(2, entries.Count);
+        Assert.DoesNotContain(entries, entry => entry.CommandText == "git status");
+        Assert.Equal("npm run build", entries[0].CommandText);
+        Assert.Equal("dotnet test", entries[1].CommandText);
+    }
+
+    [Fact]
+    public async Task ClearAsync_RemovesPersistedHistory()
+    {
+        JsonlHistoryStore store = CreateStore();
+
+        await store.AppendAsync(CreateEntry("git status"));
+        await store.ClearAsync();
+
+        Assert.Empty(await store.GetRecentAsync(10));
+        Assert.Empty(await CreateStore().GetRecentAsync(10));
+    }
+
+    [Fact]
+    public async Task GetRecentAsync_WhenLineIsCorrupt_SkipsItAndKeepsTheRest()
+    {
+        await File.WriteAllLinesAsync(_historyPath, new[]
+        {
+            Serialize(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"))),
+            "{ this is not valid json",
+            Serialize(CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")))
+        });
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+
+        Assert.Equal(2, entries.Count);
+        Assert.Equal("dotnet test", entries[0].CommandText);
+        Assert.Equal("git status", entries[1].CommandText);
+    }
+
+    /// <summary>A crash mid-append truncates the last line; that costs one command, not the file.</summary>
+    [Fact]
+    public async Task GetRecentAsync_WhenFinalLineIsTruncated_KeepsPrecedingEntries()
+    {
+        string good = Serialize(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        string truncated = Serialize(CreateEntry("dotnet test"))[..20];
+        await File.WriteAllTextAsync(_historyPath, good + Environment.NewLine + truncated);
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+
+        Assert.Single(entries);
+        Assert.Equal("git status", entries[0].CommandText);
+    }
+
+    [Fact]
+    public async Task SearchAsync_ReturnsSubsequenceCandidatesMostRecentFirst()
+    {
+        JsonlHistoryStore store = CreateStore();
+
+        await store.AppendAsync(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        await store.AppendAsync(CreateEntry("git stash pop", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
+        await store.AppendAsync(CreateEntry("docker ps", executedAt: DateTimeOffset.Parse("2026-03-01T10:02:00+00:00")));
+
+        IReadOnlyList<CommandHistoryEntry> entries = await store.SearchAsync("git sta", maxCandidates: 5);
+
+        // Recall gate, not a ranking: both git rows qualify, "docker ps" does not, and the order is
+        // recency because that is all a candidate cap can honestly promise.
+        Assert.Equal(2, entries.Count);
+        Assert.Equal("git stash pop", entries[0].CommandText);
+        Assert.Equal("git status", entries[1].CommandText);
+    }
+
+    /// <summary>
+    /// The gate admits exactly what <c>CommandAssistSuggestionEngine.ScoreText</c> would score above
+    /// zero, which includes non-contiguous subsequence matches.
+    /// </summary>
+    [Fact]
+    public async Task SearchAsync_AdmitsSubsequenceMatchesTheEngineWouldScore()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("dotnet test"));
+
+        Assert.Single(await store.SearchAsync("dtt", maxCandidates: 5));
+        Assert.Empty(await store.SearchAsync("zzz", maxCandidates: 5));
+    }
+
+    [Fact]
+    public async Task SearchAsync_WhenQueryIsEmpty_ReturnsEveryEntry()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("git status"));
+        await store.AppendAsync(CreateEntry("dotnet test"));
+
+        Assert.Equal(2, (await store.SearchAsync("  ", maxCandidates: 10)).Count);
+    }
+
+    [Fact]
+    public async Task TryUpdateExecutionResultAsync_AppendsSupersedingRecordResolvedOnReload()
+    {
+        JsonlHistoryStore store = CreateStore();
+        CommandHistoryEntry entry = CreateEntry(
+            "git status",
+            executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"),
+            exitCode: null);
+        await store.AppendAsync(entry);
+
+        bool updated = await store.TryUpdateExecutionResultAsync(entry.Id, 0, 2500);
+
+        // Two physical lines, one live entry: the update is a superseding record, not a rewrite.
+        Assert.Equal(2, (await File.ReadAllLinesAsync(_historyPath)).Length);
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+
+        Assert.True(updated);
+        Assert.Single(entries);
+        Assert.Equal(0, entries[0].ExitCode);
+        Assert.Equal(2500, entries[0].DurationMs);
+    }
+
+    [Fact]
+    public async Task TryUpdateExecutionResultAsync_WhenEntryIsUnknown_ReturnsFalseWithoutWriting()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("git status"));
+
+        bool updated = await store.TryUpdateExecutionResultAsync("no-such-id", 1, 10);
+
+        Assert.False(updated);
+        Assert.Single(await File.ReadAllLinesAsync(_historyPath));
+    }
+
+    /// <summary>
+    /// Later records win regardless of the entries' timestamps: resolution is by file position.
+    /// </summary>
+    [Fact]
+    public async Task GetRecentAsync_WhenIdAppearsTwice_KeepsTheLastRecord()
+    {
+        CommandHistoryEntry original = CreateEntry("git status", exitCode: null);
+        await File.WriteAllLinesAsync(_historyPath, new[]
+        {
+            Serialize(original),
+            Serialize(original with { ExitCode = 42, CommandText = "git status --short" })
+        });
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+
+        Assert.Single(entries);
+        Assert.Equal(42, entries[0].ExitCode);
+        Assert.Equal("git status --short", entries[0].CommandText);
+    }
+
+    [Fact]
+    public async Task AppendAsync_WhenDeadRecordsDominate_CompactsTheFile()
+    {
+        JsonlHistoryStore store = CreateStore();
+        CommandHistoryEntry entry = CreateEntry("git status", exitCode: null);
+        await store.AppendAsync(entry);
+
+        // Every update supersedes the same entry, so all but one line is dead. Past the minimum
+        // line count the dead-ratio rule fires and the log collapses back to the live set.
+        int updates = JsonlHistoryStore.CompactionMinimumLines + 4;
+        for (int i = 0; i < updates; i++)
+        {
+            await store.TryUpdateExecutionResultAsync(entry.Id, i, i);
+        }
+
+        string[] lines = await File.ReadAllLinesAsync(_historyPath);
+
+        Assert.True(
+            lines.Length < JsonlHistoryStore.CompactionMinimumLines,
+            $"Expected compaction to collapse the log, but {lines.Length} lines remain.");
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+        Assert.Single(entries);
+        Assert.Equal(updates - 1, entries[0].ExitCode);
+    }
+
+    [Fact]
+    public async Task GetRecentAsync_WhenFileExceedsCap_CompactsToTheCapOnLoad()
+    {
+        var lines = new List<string>();
+        for (int i = 0; i < 40; i++)
+        {
+            lines.Add(Serialize(CreateEntry(
+                $"command-{i}",
+                executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00").AddMinutes(i))));
+        }
+
+        await File.WriteAllLinesAsync(_historyPath, lines);
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore(maxEntries: 5).GetRecentAsync(50);
+
+        Assert.Equal(5, entries.Count);
+        Assert.Equal("command-39", entries[0].CommandText);
+        Assert.Equal(5, (await File.ReadAllLinesAsync(_historyPath)).Length);
+    }
+
+    [Fact]
+    public async Task Load_WhenLegacyJsonExists_MigratesItAndBacksItUp()
+    {
+        var legacyEntries = new List<CommandHistoryEntry>
+        {
+            CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00"))
+        };
+        await File.WriteAllTextAsync(
+            _legacyPath,
+            JsonSerializer.Serialize(legacyEntries, CommandAssistJsonContext.Default.ListCommandHistoryEntry));
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+
+        Assert.Equal(2, entries.Count);
+        Assert.Equal("dotnet test", entries[0].CommandText);
+        Assert.True(File.Exists(_historyPath));
+        Assert.Equal(2, (await File.ReadAllLinesAsync(_historyPath)).Length);
+
+        // User data is renamed, never deleted.
+        Assert.False(File.Exists(_legacyPath));
+        Assert.True(File.Exists(_legacyPath + ".bak"));
+    }
+
+    [Fact]
+    public async Task Load_WhenLegacyJsonExceedsCap_MigratesOnlyTheMostRecentEntries()
+    {
+        List<CommandHistoryEntry> legacyEntries = Enumerable.Range(0, 10)
+            .Select(i => CreateEntry(
+                $"command-{i}",
+                executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00").AddMinutes(i)))
+            .ToList();
+        await File.WriteAllTextAsync(
+            _legacyPath,
+            JsonSerializer.Serialize(legacyEntries, CommandAssistJsonContext.Default.ListCommandHistoryEntry));
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore(maxEntries: 3).GetRecentAsync(10);
+
+        Assert.Equal(3, entries.Count);
+        Assert.Equal("command-9", entries[0].CommandText);
+    }
+
+    [Fact]
+    public async Task Load_WhenJsonlAlreadyExists_LeavesLegacyFileAlone()
+    {
+        await File.WriteAllTextAsync(_legacyPath, "[]");
+        await File.WriteAllLinesAsync(_historyPath, new[] { Serialize(CreateEntry("git status")) });
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+
+        Assert.Single(entries);
+        Assert.True(File.Exists(_legacyPath));
+        Assert.False(File.Exists(_legacyPath + ".bak"));
+    }
+
+    [Fact]
+    public async Task Load_WhenLegacyJsonIsCorrupt_StartsCleanAndStillBacksItUp()
+    {
+        await File.WriteAllTextAsync(_legacyPath, "{ this is not valid json");
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+
+        Assert.Empty(entries);
+        Assert.False(File.Exists(_legacyPath));
+        Assert.True(File.Exists(_legacyPath + ".bak"));
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(_tempRoot))
+        {
+            Directory.Delete(_tempRoot, recursive: true);
+        }
+    }
+
+    private static string Serialize(CommandHistoryEntry entry)
+        => JsonSerializer.Serialize(entry, CommandAssistJsonLinesContext.Default.CommandHistoryEntry);
+
+    private static CommandHistoryEntry CreateEntry(
+        string commandText,
+        DateTimeOffset? executedAt = null,
+        int? exitCode = 0)
+    {
+        return new CommandHistoryEntry(
+            Id: Guid.NewGuid().ToString("N"),
+            CommandText: commandText,
+            ExecutedAt: executedAt ?? DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"),
+            ShellKind: "pwsh",
+            WorkingDirectory: @"C:\repo",
+            ProfileId: "profile-1",
+            SessionId: "session-1",
+            HostId: null,
+            ExitCode: exitCode,
+            IsRemote: false,
+            IsRedacted: false,
+            Source: CommandCaptureSource.Heuristic,
+            DurationMs: null);
+    }
+}
