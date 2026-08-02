@@ -1,6 +1,7 @@
 using System.Reflection;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using NovaTerminal.AgentHost;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.Controls;
@@ -176,8 +177,10 @@ public class PaneMarklessCaptureTests
     {
         using var fixture = await Fixture.IntegratedAsync("git status --short");
 
-        // Everything the accumulator would have said is wrong or absent.
-        fixture.Type("nonsense");
+        // Everything the accumulator would have said is wrong or absent. Deliberately unechoed:
+        // the point is that the grid's answer is taken without the accumulator being consulted at
+        // all, so what is painted must stay exactly what IntegratedAsync painted.
+        fixture.Type("nonsense", echo: false);
         fixture.PressKey(Key.Left);
 
         fixture.PressEnter();
@@ -234,6 +237,204 @@ public class PaneMarklessCaptureTests
         Assert.True(await fixture.NothingWasCapturedAsync());
     }
 
+    /// <summary>
+    /// The security case, and the reason the echo gate exists at all.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>TerminalView.OnTextInput</c> fires for every keystroke unconditionally — it cannot know
+    /// whether the shell is echoing. So inside one markless session, `ssh host` submits and resets
+    /// the accumulator, and then at the hidden `password:` prompt every character of the password
+    /// is appended to a perfectly clean, unpoisoned accumulator, with no grid snapshot to outrank
+    /// it. Without the gate, the password is written to `history.jsonl` verbatim:
+    /// <c>SecretsFilter</c> is pattern-based, and a bare secret has no pattern.
+    /// </para>
+    /// <para>
+    /// The distinguishing fact is on the screen. A visible markless prompt has the typed command
+    /// painted on it — only the <c>OSC 133;B</c> mark is missing — and a no-echo prompt does not.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task InAMarklessSession_TextTheShellNeverEchoedIsNotCaptured()
+    {
+        using var fixture = await Fixture.MarklessAsync();
+
+        // The command that opens the no-echo prompt is an ordinary, echoed, captured line.
+        fixture.Type("ssh host");
+        fixture.PressEnter();
+        CommandHistoryEntry entry = await fixture.WaitForSingleEntryAsync();
+        Assert.Equal("ssh host", entry.CommandText);
+
+        // Then the prompt itself, and a password that never appears on the grid.
+        fixture.Echo("\r\nhost's password: ");
+        fixture.Type("hunter2", echo: false);
+        fixture.PressEnter();
+
+        Assert.True(await fixture.OnlyTheFirstEntryWasCapturedAsync("ssh host"));
+    }
+
+    /// <summary>
+    /// Half an echo is not an echo. A shell that painted some of what was typed — a slow remote, a
+    /// prompt that reprinted, a line the accumulator and the screen simply disagree about — is a
+    /// case where the honest answer is "I do not know what was submitted".
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InAMarklessSession_APartiallyEchoedLineIsNotCaptured()
+    {
+        using var fixture = await Fixture.MarklessAsync();
+
+        fixture.Type("git checkout ma", echo: false);
+        fixture.Echo("git checkout m");
+        fixture.PressEnter();
+
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    /// <summary>
+    /// The gate compares against what is at the <em>cursor</em>, not anywhere on the row: text that
+    /// happens to be on screen because it scrolled past earlier is not evidence that this line was
+    /// echoed.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InAMarklessSession_TextEchoedSomewhereElseOnTheRowIsNotCaptured()
+    {
+        using var fixture = await Fixture.MarklessAsync();
+
+        fixture.Echo("whoami and then some");
+        fixture.Type("whoami", echo: false);
+        fixture.PressEnter();
+
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    /// <summary>
+    /// `AltGr` on a non-US layout. Windows Avalonia reports it as `Control|Alt`, and the composed
+    /// character arrives afterwards as an ordinary text-input event; treating the key press as an
+    /// unowned `Ctrl` chord would poison the line, which on a German, French, Nordic, Turkish or
+    /// Polish layout means losing the capture of any command containing `@`, `{`, `[`, `\`, `|` or
+    /// `~` — i.e. most of them.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InAMarklessSession_AnAltGrComposedCharacterIsCaptured()
+    {
+        using var fixture = await Fixture.MarklessAsync();
+
+        fixture.Type("ssh user");
+
+        // AltGr+Q on a German layout: the key press, then the WM_CHAR it composes.
+        fixture.PressKey(Key.Q, KeyModifiers.Control | KeyModifiers.Alt);
+        fixture.Pane.NotifyTypedTextObserved("@");
+        fixture.Echo("@");
+
+        fixture.Type("example.com");
+        fixture.PressEnter();
+
+        CommandHistoryEntry entry = await fixture.WaitForSingleEntryAsync();
+        Assert.Equal("ssh user@example.com", entry.CommandText);
+    }
+
+    /// <summary>
+    /// The other half of the `AltGr` carve-out: `Ctrl+Alt` plus a key that produces no text does
+    /// reach the shell as a control byte, so it still poisons.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(Key.Back)]
+    [InlineData(Key.Enter)]
+    [InlineData(Key.Tab)]
+    [InlineData(Key.Escape)]
+    public async Task InAMarklessSession_CtrlAltPlusANonTextKeyStopsTheLineBeingCaptured(Key key)
+    {
+        using var fixture = await Fixture.MarklessAsync();
+
+        fixture.Type("git status");
+        fixture.PressKey(key, KeyModifiers.Control | KeyModifiers.Alt);
+        fixture.PressEnter();
+
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    /// <summary>
+    /// `Ctrl+Backspace` and `Shift+Enter` are not the plain keys with a harmless modifier riding
+    /// along. Under the kitty keyboard protocol's disambiguate tier `TerminalView` encodes them as
+    /// CSI u and returns early, so `BackspaceObserved` / `EnterObserved` never fire and the
+    /// accumulator keeps characters a kitty-aware editor has already deleted. The classifier
+    /// refuses the modifier instead, at the cost of one capture.
+    /// </summary>
+    [AvaloniaTheory]
+    [InlineData(Key.Back, KeyModifiers.Control)]
+    [InlineData(Key.Back, KeyModifiers.Shift)]
+    [InlineData(Key.Enter, KeyModifiers.Shift)]
+    public async Task InAMarklessSession_AModifiedEnterOrBackspaceStopsTheLineBeingCaptured(
+        Key key, KeyModifiers modifiers)
+    {
+        using var fixture = await Fixture.MarklessAsync();
+
+        fixture.Type("git status");
+        fixture.PressKey(key, modifiers);
+        fixture.PressEnter();
+
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    /// <summary>
+    /// A device reply — DA1 here, but a DSR cursor report or an answerback the same way — is text
+    /// on the PTY that the keyboard never produced. If it arrives while a line editor is reading,
+    /// it lands in the line exactly as a paste would.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InAMarklessSession_AParserDeviceReplyStopsTheLineBeingCaptured()
+    {
+        using var fixture = await Fixture.MarklessAsync();
+
+        fixture.Type("echo hi");
+        fixture.Echo("\x1b[c"); // a primary device attributes query; the parser answers it
+        fixture.PressEnter();
+
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    /// <summary>
+    /// The agent host's act surface reaches the pane through
+    /// <c>AgentSessionRegistration.InputInjected</c>, which is set in <c>SetupCommon</c>. Driven
+    /// through the registry rather than by calling the pane method directly, so the wiring itself
+    /// is what is asserted: an agent typing for the user is text the keyboard path never saw.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InAMarklessSession_AgentInjectedInputStopsTheLineBeingCaptured()
+    {
+        using var fixture = await Fixture.MarklessAsync();
+
+        Assert.True(AgentSessionRegistry.Instance.TryGet(fixture.Pane.PaneId, out AgentSessionRegistration registration));
+
+        fixture.Type("echo ");
+        Assert.NotNull(registration.InputInjected);
+        registration.InputInjected!.Invoke();
+        fixture.PressEnter();
+
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    /// <summary>
+    /// Grid truth wins even when it is empty. "The line is empty" and "I cannot read the line" are
+    /// different answers, and only the second falls through to the accumulator — otherwise an
+    /// instrumented session with a stale accumulator would capture the accumulator's leftovers
+    /// every time the user pressed Enter at a bare prompt.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InAnIntegratedSession_AnEmptyGridBeatsACleanAccumulator()
+    {
+        // The dangerous shape, built deliberately: the text is painted *before* the B mark, so the
+        // grid reads the command line as empty while the echo gate — which only asks whether the
+        // accumulated text is on screen at the cursor — would happily wave it through. Only the
+        // "grid truth wins, including when it is empty" rule stops this capture.
+        using var fixture = await Fixture.IntegratedAsync(string.Empty, prompt: "$ rm -rf /");
+
+        fixture.Type("rm -rf /", echo: false);
+        fixture.PressEnter();
+
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly string _directory;
@@ -256,13 +457,17 @@ public class PaneMarklessCaptureTests
             return fixture;
         }
 
-        /// <summary>An instrumented prompt with <paramref name="commandLine"/> painted at it.</summary>
-        public static async Task<Fixture> IntegratedAsync(string commandLine)
+        /// <summary>
+        /// An instrumented prompt with <paramref name="commandLine"/> painted at it.
+        /// <paramref name="prompt"/> is what is painted <em>before</em> the <c>B</c> mark, so a
+        /// caller can place text on the row that the mark deliberately excludes.
+        /// </summary>
+        public static async Task<Fixture> IntegratedAsync(string commandLine, string prompt = "$ ")
         {
             Fixture fixture = await CreateAsync();
             fixture.Pane.ArmShellIntegrationTracker();
             fixture.Pane.CreateAndWireParser();
-            fixture.Pane.Parser!.Process(PromptStart + "$ " + PromptEnd + commandLine);
+            fixture.Pane.Parser!.Process(PromptStart + prompt + PromptEnd + commandLine);
 
             // The shell-integration dispatcher is serialized and asynchronous; B opens the
             // lifecycle gate on the far side of it.
@@ -270,23 +475,45 @@ public class PaneMarklessCaptureTests
             return fixture;
         }
 
-        public void Type(string text)
+        /// <summary>
+        /// Types <paramref name="text"/> and, unless <paramref name="echo"/> says otherwise, has
+        /// the shell paint it back.
+        /// </summary>
+        /// <remarks>
+        /// The echo is not decoration. Since the echo gate landed, the pane will not use the
+        /// accumulator's answer unless that text is on the grid at the cursor — which is what an
+        /// ordinary visible prompt produces and what a password prompt does not. Passing
+        /// <c>echo: false</c> is how these tests spell "the shell did not show this".
+        /// </remarks>
+        public void Type(string text, bool echo = true)
         {
             foreach (char c in text)
             {
                 // One key press then one text-input event, in the order Avalonia raises them.
                 PressKey(KeyForCharacter(c));
                 Pane.NotifyTypedTextObserved(c.ToString());
+                if (echo)
+                {
+                    Echo(c.ToString());
+                }
             }
         }
+
+        /// <summary>Bytes arriving from the shell, painted into the grid.</summary>
+        public void Echo(string text) => Pane.Parser!.Process(text);
 
         public void PressKey(Key key, KeyModifiers modifiers = KeyModifiers.None) =>
             Pane.TryHandleCommandAssistKey(key, modifiers);
 
-        public void PressBackspace()
+        public void PressBackspace(bool echo = true)
         {
             PressKey(Key.Back);
             Pane.NotifyBackspaceObserved();
+            if (echo)
+            {
+                // What every line editor sends to rub out one character.
+                Echo("\b \b");
+            }
         }
 
         public void PressEnter()
@@ -338,6 +565,18 @@ public class PaneMarklessCaptureTests
             await Task.Delay(150);
             IReadOnlyList<CommandHistoryEntry> entries = await _historyStore.GetRecentAsync(10);
             return entries.Count == 0;
+        }
+
+        /// <summary>
+        /// The store holds exactly one entry and it is <paramref name="expected"/> — for the tests
+        /// where an earlier command legitimately was captured and the claim is that a later one
+        /// was not.
+        /// </summary>
+        public async Task<bool> OnlyTheFirstEntryWasCapturedAsync(string expected)
+        {
+            await Task.Delay(150);
+            IReadOnlyList<CommandHistoryEntry> entries = await _historyStore.GetRecentAsync(10);
+            return entries.Count == 1 && entries[0].CommandText == expected;
         }
 
         public void Dispose()
