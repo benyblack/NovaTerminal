@@ -136,6 +136,12 @@ namespace NovaTerminal.Controls
         private IReadOnlyDictionary<string, string>? _shellIntegrationEnvOverrides;
         private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
         private readonly CommandAssistAnchorCalculator _commandAssistAnchorCalculator = new();
+
+        // Newest OSC 133;B mark, written from the PTY read thread and read from the UI thread.
+        // A ShellIntegrationMark is five fields wide, so a plain nullable field could be torn
+        // across the two; the gate costs one uncontended lock per prompt.
+        private readonly object _commandStartMarkGate = new();
+        private ShellIntegrationMark? _latestCommandStartMark;
         private string? _lastRelevantCommandText;
         private CommandAssistBarViewModel? _boundCommandAssistViewModel;
         private string? _lastCommandAssistAnchorDiagnosticSignature;
@@ -1757,6 +1763,14 @@ namespace NovaTerminal.Controls
             {
                 // OSC 133;B == prompt end / start of user input. The mark position is the
                 // anchor Command Assist uses to read the live command line out of the grid.
+                // B rides inside the prompt string, so it is re-emitted on every repaint
+                // (resize, clear, zle reset-prompt) with fresh coordinates: keep the newest
+                // one rather than the first.
+                lock (_commandStartMarkGate)
+                {
+                    _latestCommandStartMark = mark;
+                }
+
                 _shellLifecycleTracker?.HandleCommandStarted(new ShellMarkPosition(
                     Row: mark.Row,
                     Column: mark.Column,
@@ -1780,6 +1794,23 @@ namespace NovaTerminal.Controls
             };
             Parser.OnCommandFinishedDetailed += (exitCode, durationMs) =>
             {
+                // OSC 133;D == the command finished, so the B mark that anchored its input line
+                // no longer points at an input line: everything from it down is command output.
+                // Dropping it here closes the window in which the grid reader would happily
+                // return output as "the live command line" -- until the next prompt re-emits B,
+                // there is nothing truthful to read, and "no mark" is the honest answer.
+                //
+                // D rather than C (CommandExecuted) deliberately: in one B -> C -> D cycle, C
+                // fires the instant the user submits, while the input line is still on screen and
+                // still exactly what the mark describes. Clearing on C would blind the reader for
+                // the whole run of the command, including the submission edge that Phase 1c reads
+                // the final command text on. GridQueryReader.MaxSpanRows stays as a backstop for
+                // shells that emit B without a matching D, but it is no longer the only guard.
+                lock (_commandStartMarkGate)
+                {
+                    _latestCommandStartMark = null;
+                }
+
                 _shellLifecycleTracker?.HandleCommandFinished(exitCode, durationMs);
 
                 // Long-command completion (A2 PR4): the pane only applies the
@@ -1804,6 +1835,10 @@ namespace NovaTerminal.Controls
             _shellLifecycleTracker = null;
             _isShellIntegrationActive = false;
             _shellIntegrationEnvOverrides = null;
+            lock (_commandStartMarkGate)
+            {
+                _latestCommandStartMark = null;
+            }
 
             // Update SFTP Menu Visibility
             // If it's not an SSH session, detach the context menu entirely to avoid "tiny empty box" artifacts
@@ -2958,14 +2993,60 @@ namespace NovaTerminal.Controls
             // onto the serialized dispatcher, ahead of events that do something. The
             // "shell integration is live" flag the controller would set from it is already
             // set by the PromptReady (OSC 133;A) that precedes every B.
-            // Phase 1b, when the mark position starts feeding the grid reader, has to remove
-            // this early-out.
+            // The grid reader (Phase 1b) does not need this path either: it takes the mark
+            // straight off the parser callback via _latestCommandStartMark. Phase 1c, when the
+            // orchestrator starts pulling grid truth on the event, has to remove this early-out.
             if (shellEvent.Type == ShellIntegrationEventType.CommandStarted)
             {
                 return;
             }
 
             _ = _shellIntegrationEventDispatcher.EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent));
+        }
+
+        /// <summary>
+        /// Reads the live command line out of the terminal grid: the cells between the newest
+        /// <c>OSC 133;B</c> mark and the cursor.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The Phase 1b seam. Combines the three things the reader needs and the pane is the
+        /// only place that has all of: the newest mark, the buffer, and the buffer's read lock
+        /// (taken by <see cref="GridQueryReader"/> itself).
+        /// </para>
+        /// <para>
+        /// <b>Lifecycle.</b> The mark is dropped on <c>OSC 133;D</c> (command finished), so
+        /// between one command's end and the next prompt's <c>B</c> this returns <c>false</c>
+        /// rather than serving that command's output as a command line. It is deliberately kept
+        /// across <c>OSC 133;C</c>: C fires the instant the user submits, while the input line is
+        /// still on screen and still exactly what the mark describes.
+        /// <see cref="GridQueryReader.MaxSpanRows"/> remains as a backstop for shells that emit
+        /// <c>B</c> without a matching <c>D</c>.
+        /// </para>
+        /// <para>
+        /// <b>Nothing consumes this yet.</b> Phase 1c wires it into the suggestion orchestrator
+        /// and deletes the keystroke shadow buffer.
+        /// </para>
+        /// </remarks>
+        /// <returns><c>false</c> when there is no live mark or the grid cannot be read.</returns>
+        internal bool TryGetGridCommandLine(out GridCommandLine line)
+        {
+            line = default;
+
+            var buffer = Buffer;
+            if (buffer == null)
+            {
+                return false;
+            }
+
+            ShellIntegrationMark? mark;
+            lock (_commandStartMarkGate)
+            {
+                mark = _latestCommandStartMark;
+            }
+
+            return mark is ShellIntegrationMark live
+                && GridQueryReader.TryReadCommandLine(buffer, live, out line);
         }
 
         internal async Task HandleCommandAssistCompletionAsync(int? exitCode)
