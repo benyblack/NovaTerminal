@@ -877,6 +877,7 @@ namespace NovaTerminal.Shell
                         if (cols > 0 && rows > 0 && (cols != _buffer.Cols || rows != _buffer.Rows))
                         {
                             _buffer.Resize(cols, rows);
+                            ResetMouseMotionTracking(); // Issue #269: grid reflowed, cell coords are stale.
                             OnResize?.Invoke(cols, rows);
                         }
                     }
@@ -1038,6 +1039,10 @@ namespace NovaTerminal.Shell
                 _buffer.OnInvalidate += InvalidateBuffer;
                 _buffer.OnScreenSwitched += OnScreenSwitched;
             }
+
+            // Issue #269: a newly attached buffer has no notion of "the cell we last
+            // reported motion for" - avoid suppressing its first hover/drag report.
+            ResetMouseMotionTracking();
 
             MeasureCharSize();
             InvalidateVisual();
@@ -1515,6 +1520,7 @@ namespace NovaTerminal.Shell
                         {
                             _isReady = true;
                             if (_buffer != null) _buffer.Resize(cols, rows);
+                            ResetMouseMotionTracking(); // Issue #269: grid reflowed, cell coords are stale.
                             Ready?.Invoke(cols, rows);
 
                             // Also trigger initial PTY resize to sync with layout
@@ -1575,6 +1581,7 @@ namespace NovaTerminal.Shell
                     // THEN notify PTY (triggers SIGWINCH, new output uses new size)
                     // This prevents race where PTY sends data for new dimensions while buffer is mid-reflow
                     _buffer.Resize(_pendingCols, _pendingRows);
+                    ResetMouseMotionTracking(); // Issue #269: grid reflowed, cell coords are stale.
                     _rowCache.MaxEntries = Math.Max(_pendingRows * 3, 50);
                     _rowCache.RequestClear();
                     OnResize?.Invoke(_pendingCols, _pendingRows);
@@ -1942,12 +1949,7 @@ namespace NovaTerminal.Shell
                 var point = e.GetCurrentPoint(this);
                 TerminalMouseButton button = GetPressedMouseButton(point.Properties);
                 var (row, col) = ScreenToTerminal(point.Position);
-                SendMouseEvent(new TerminalMouseEvent(
-                    TerminalMouseEventKind.Move,
-                    button,
-                    col + 1,
-                    row + 1,
-                    e.KeyModifiers));
+                HandleMouseMoveCore(button, col + 1, row + 1, e.KeyModifiers);
 
                 e.Handled = true;
                 return;
@@ -2136,6 +2138,86 @@ namespace NovaTerminal.Shell
             base.OnPointerExited(e);
             _hoverScanRow = -1;
             ClearHoveredLink();
+
+            // Issue #269: leaving the view means the next OnPointerMoved is a fresh
+            // re-entry, not a continuation of whatever cell we last reported. Forget it so
+            // re-entry into the same cell reports again instead of being coalesced away.
+            ResetMouseMotionTracking();
+        }
+
+        // Issue #269: last (row, column) reported for `?1002`/`?1003` motion tracking, used
+        // to coalesce to at most one report per cell change instead of flooding the PTY with
+        // a report per raw PointerMoved event. Coordinates are 1-based terminal coordinates
+        // (matching TerminalMouseEvent), null means "no cell reported yet / tracking reset".
+        private (int Row, int Column)? _lastReportedMouseMotionCell;
+        private bool _lastMouseMotionAnyEvent;
+        private bool _lastMouseMotionButtonEvent;
+
+        /// <summary>
+        /// Clears the motion-reporting coalescing state (issue #269) so the next qualifying
+        /// pointer move re-reports the current cell rather than being suppressed as a
+        /// duplicate of whatever was last sent. Called whenever the "current cell" concept
+        /// goes stale: a new buffer is attached, the cell grid is resized/reflowed, or the
+        /// pointer leaves the view. Internal (rather than private) so tests can drive the
+        /// reset paths directly, since constructing real Avalonia pointer-exited/resize events
+        /// headlessly is not practical - see <see cref="HandleMouseMoveCore"/>'s doc comment.
+        /// </summary>
+        internal void ResetMouseMotionTracking()
+        {
+            _lastReportedMouseMotionCell = null;
+        }
+
+        /// <summary>
+        /// Core motion-reporting logic for <see cref="OnPointerMoved"/> (issue #269), factored
+        /// out so it can be exercised directly in tests without a real Avalonia pointer event.
+        /// <paramref name="column"/> and <paramref name="row"/> are 1-based terminal
+        /// coordinates, matching <see cref="TerminalMouseEvent"/>.
+        ///
+        /// Under `?1003` (any-event tracking), motion is reported with no buttons held so
+        /// hover-driven TUIs (ratatui/bubbletea) can highlight under the cursor; under `?1002`
+        /// (button-event tracking) motion is only reported while a button is held, unchanged
+        /// from prior behavior. Either way, reports are coalesced to at most one per distinct
+        /// cell: Avalonia can raise many PointerMoved events while the cursor sits over a
+        /// single terminal cell, and forwarding every one of them would flood the PTY.
+        ///
+        /// A change in which mode is active (1002 vs 1003, either turning on/off) also resets
+        /// the tracked cell, so toggling the mode re-reports the current cell instead of
+        /// leaving it suppressed because it happens to match whatever was last sent under the
+        /// old mode.
+        /// </summary>
+        internal void HandleMouseMoveCore(TerminalMouseButton button, int column, int row, KeyModifiers modifiers)
+        {
+            if (_buffer == null) return;
+
+            ModeState modes = _buffer.Modes;
+            bool anyEvent = modes.MouseModeAnyEvent;
+            bool buttonEvent = modes.MouseModeButtonEvent;
+
+            if (anyEvent != _lastMouseMotionAnyEvent || buttonEvent != _lastMouseMotionButtonEvent)
+            {
+                _lastMouseMotionAnyEvent = anyEvent;
+                _lastMouseMotionButtonEvent = buttonEvent;
+                _lastReportedMouseMotionCell = null;
+            }
+
+            bool buttonHeld = button != TerminalMouseButton.None;
+            bool wantsReport = anyEvent || (buttonEvent && buttonHeld);
+            if (!wantsReport)
+            {
+                // Neither tracking mode wants this motion. Don't leave a stale cell behind,
+                // so re-enabling reporting later doesn't spuriously suppress its first report.
+                _lastReportedMouseMotionCell = null;
+                return;
+            }
+
+            var cell = (row, column);
+            if (_lastReportedMouseMotionCell == cell)
+            {
+                return;
+            }
+
+            _lastReportedMouseMotionCell = cell;
+            SendMouseEvent(new TerminalMouseEvent(TerminalMouseEventKind.Move, button, column, row, modifiers));
         }
 
         private void SendMouseEvent(TerminalMouseEvent mouseEvent)
