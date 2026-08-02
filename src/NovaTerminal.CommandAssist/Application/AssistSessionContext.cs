@@ -72,6 +72,37 @@ internal sealed class AssistSessionContext
     public bool IsStructuredCaptureActive =>
         IsShellIntegrationEnabled && HasObservedStructuredCommandCaptureMarker;
 
+    /// <summary>
+    /// Whether the shell is currently sitting in its line editor waiting for the user: opened by
+    /// <c>OSC 133;B</c> (prompt end), closed again by <c>OSC 133;C</c> (the line was submitted).
+    /// This is the lifecycle gate on grid-truth query reading.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The grid reader cannot gate itself. Between the mark and the cursor there are cells; whether
+    /// those cells are a command line the user is editing or the first lines of that command's
+    /// output is a fact about the shell's lifecycle, not about the buffer, and only the OSC 133
+    /// stream carries it. So the gate lives here, on the consumer side, and the reader's answer is
+    /// consulted only while it is open.
+    /// </para>
+    /// <para>
+    /// It is deliberately <em>not</em> conditioned on <see cref="IsShellIntegrationEnabled"/>. That
+    /// flag records whether <em>we</em> injected a bootstrap; a shell that emits <c>B</c> is
+    /// instrumented whether we did it or the user did, and Phase 2's instrumented-remote story
+    /// depends on believing the marks rather than the injection. What closes the gate is evidence
+    /// that the window ended - <c>C</c>, <c>D</c>, an alt-screen switch - never the absence of
+    /// configuration.
+    /// </para>
+    /// <para>
+    /// <c>D</c> closes it as well as <c>C</c> because a shell can reach <c>D</c> without an
+    /// intervening <c>C</c>, and leaving the gate open for a command's whole run is exactly the
+    /// failure it exists to prevent. The pane drops its mark on <c>D</c> too, so that case is
+    /// double-covered on purpose: two independent facts have to be wrong before output can be
+    /// served as a command line.
+    /// </para>
+    /// </remarks>
+    public bool IsAcceptingCommandInput { get; private set; }
+
     /// <summary>Replaces the host-reported session facts.</summary>
     /// <remarks>
     /// Observed markers survive only while shell integration stays configured: a session that
@@ -108,8 +139,30 @@ internal sealed class AssistSessionContext
         }
     }
 
-    /// <summary>Records an alt-screen switch.</summary>
-    public void SetAltScreenActive(bool isActive) => IsAltScreenActive = isActive;
+    /// <summary>
+    /// Records an alt-screen switch. Going into the alt screen closes the command-input window:
+    /// the prompt that emitted <c>B</c> is not on the screen the user is looking at any more, and
+    /// leaving it open would let a refresh read the TUI's own grid as a command line.
+    /// </summary>
+    /// <remarks>
+    /// Coming back out does not reopen it. The shell repaints its prompt when the alt screen is
+    /// torn down, and that repaint re-emits <c>B</c>, so the gate reopens on evidence rather than
+    /// on assumption.
+    /// </remarks>
+    public void SetAltScreenActive(bool isActive)
+    {
+        IsAltScreenActive = isActive;
+        if (isActive)
+        {
+            IsAcceptingCommandInput = false;
+        }
+    }
+
+    /// <summary><c>OSC 133;B</c>: the prompt finished printing and the line editor is the user's.</summary>
+    public void OpenCommandInputWindow() => IsAcceptingCommandInput = true;
+
+    /// <summary><c>OSC 133;C</c> / <c>OSC 133;D</c>: the line editor is closed.</summary>
+    public void CloseCommandInputWindow() => IsAcceptingCommandInput = false;
 
     /// <summary>Records a working-directory change reported by a shell-integration event.</summary>
     public void SetWorkingDirectory(string workingDirectory) => WorkingDirectory = workingDirectory;

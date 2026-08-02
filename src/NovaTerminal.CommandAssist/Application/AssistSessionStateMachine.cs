@@ -36,12 +36,21 @@ internal sealed class AssistSessionStateMachine
     /// may act on it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Kept beside the enum rather than inside it on purpose: a paste can land in any state, so
     /// folding it in would double the state count while carrying no information about what the
     /// surface is showing. It is still only reachable through named transitions
     /// (<see cref="ObservePastedText"/> sets it; <see cref="ObserveTypedInput"/> and
-    /// <see cref="CompleteSubmission"/> clear it), never through a setter. Phase 1 deletes the
-    /// shadow query buffer this exists to protect, and should delete this with it.
+    /// <see cref="CompleteSubmission"/> clear it), never through a setter.
+    /// </para>
+    /// <para>
+    /// Phase 1c deleted the shadow query buffer and an earlier draft of this comment expected this
+    /// flag to go with it. It does not, and the reason is worth stating: this is not a query fact.
+    /// The grid reads pasted text as faithfully as typed text - what it cannot see is provenance,
+    /// and provenance is the whole question. A pasted line must not be written to history as though
+    /// the user composed it here, and must not have a suggestion spliced into it. Both of those
+    /// survive the deletion, so this does too.
+    /// </para>
     /// </remarks>
     public bool IsCurrentSubmissionSuppressed { get; private set; }
 
