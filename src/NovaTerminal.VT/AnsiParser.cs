@@ -989,6 +989,20 @@ namespace NovaTerminal.VT
                             ApplyCursorStyle(argCount > 0 ? validArgs[0] : 0);
                         }
                         break;
+                    case 'p':
+                        // DECRQM - Request Mode (Issue #267): CSI Ps $ p (ANSI) or
+                        // CSI ? Ps $ p (DEC private) -> DECRPM reply CSI [?] Ps ; Pm $ y.
+                        // Key on the '$' intermediate exactly - CSI ! p (DECSTR, not yet
+                        // implemented) and bare CSI p must NOT be captured here, the same way
+                        // PR #273 guards CSI s/u/r against leader-prefixed variants. Only the
+                        // bare and '?' leader forms are defined for DECRQM; '<', '=', '>'
+                        // leaders (used by other CSI...p extensions) are left unhandled.
+                        if (intermediates.Length == 1 && intermediates[0] == '$' &&
+                            (leader == '\0' || leader == '?'))
+                        {
+                            HandleDecrqm(isPrivate, arg0);
+                        }
+                        break;
                     default:
                         TerminalLogger.Log($"[ANSI_PARSER] Unhandled CSI: {finalByte} (private={isPrivate}), params={new string(parameters)}");
                         break;
@@ -1092,6 +1106,69 @@ namespace NovaTerminal.VT
             }
 
             return args[index] == 0 ? 1 : args[index];
+        }
+
+        /// <summary>
+        /// DECRQM (Issue #267): reports the live state of a mode back to the application via
+        /// DECRPM (<c>CSI [?] Ps ; Pm $ y</c>). Pm is 1 (set), 2 (reset), or 0 (not recognized -
+        /// we don't track/implement that mode at all). Apps use this to detect support for
+        /// features like synchronized output (?2026) before relying on them, instead of
+        /// guessing from terminal-name heuristics.
+        /// </summary>
+        private void HandleDecrqm(bool isPrivate, int mode)
+        {
+            int pm = isPrivate ? QueryPrivateModeState(mode) : QueryAnsiModeState(mode);
+            string leaderText = isPrivate ? "?" : string.Empty;
+            OnResponse?.Invoke($"\x1b[{leaderText}{mode};{pm}$y");
+        }
+
+        /// <summary>
+        /// Live state for DEC private modes (CSI ? Ps h/l) tracked in <see cref="ModeState"/> or
+        /// <see cref="TerminalBuffer"/>. Mirrors the set of modes <see cref="HandleDECPrivateMode"/>
+        /// actually implements; add a case here whenever a new one gains real state.
+        ///
+        /// 9001 (ConPTY Passthrough Mode) is intentionally excluded: <see cref="HandleDECPrivateMode"/>
+        /// accepts it but stores no flag, so there is no live state to report - reporting 1/2
+        /// would be a lie, so it falls through to "not recognized" (0) like any other mode we
+        /// don't track.
+        /// </summary>
+        private int QueryPrivateModeState(int mode)
+        {
+            switch (mode)
+            {
+                case 1: return _buffer.Modes.IsApplicationCursorKeys ? 1 : 2;    // DECCKM
+                case 6: return _buffer.Modes.IsOriginMode ? 1 : 2;               // DECOM
+                case 7: return _buffer.Modes.IsAutoWrapMode ? 1 : 2;             // DECAWM
+                case 25: return _buffer.Modes.IsCursorVisible ? 1 : 2;           // DECTCEM
+                case 47: return _buffer.IsAltScreenActive ? 1 : 2;               // Alt screen (legacy)
+                case 1000: return _buffer.Modes.MouseModeX10 ? 1 : 2;
+                case 1002: return _buffer.Modes.MouseModeButtonEvent ? 1 : 2;
+                case 1003: return _buffer.Modes.MouseModeAnyEvent ? 1 : 2;
+                case 1004: return _buffer.Modes.IsFocusEventReporting ? 1 : 2;
+                case 1006: return _buffer.Modes.MouseModeSGR ? 1 : 2;
+                case 1047: return _buffer.IsAltScreenActive ? 1 : 2;             // Alt screen
+                case 1049: return _buffer.IsAltScreenActive ? 1 : 2;             // Alt screen + save cursor
+                case 2004: return _buffer.Modes.IsBracketedPasteMode ? 1 : 2;
+                case 2026: return _buffer.IsSynchronizedOutput ? 1 : 2;          // Synchronized Output
+                default: return 0; // Not recognized
+            }
+        }
+
+        /// <summary>
+        /// Live state for ANSI (non-private) modes (CSI Ps h/l) tracked in <see cref="ModeState"/>.
+        /// </summary>
+        private int QueryAnsiModeState(int mode)
+        {
+            switch (mode)
+            {
+                case 4: return _buffer.Modes.IsInsertMode ? 1 : 2;              // IRM
+                // SRM: "set" (h) turns local echo OFF, "reset" (l) turns it ON. IsEchoEnabled
+                // tracks the echo interpretation, so it is inverted here to report the MODE
+                // flag DECRQM asks about, not the echo state directly.
+                case 12: return _buffer.Modes.IsEchoEnabled ? 2 : 1;            // SRM
+                case 20: return _buffer.Modes.IsLineFeedNewLineMode ? 1 : 2;     // LNM
+                default: return 0; // Not recognized
+            }
         }
 
         /// <summary>
