@@ -1460,13 +1460,68 @@ namespace NovaTerminal.Controls
             // CapturePipeline reads as "nothing to persist".
             string? submitted = snapshot is { } grid
                 ? grid.Text
-                : _marklessSubmission.TryReadSubmission();
+                : ReadEchoedMarklessSubmission();
 
             // After the read, before the await: Enter is both the capture point and the start of
             // the next line.
             _marklessSubmission.Reset();
 
             _ = HandleCommandAssistEnterObservedAsync(submitted);
+        }
+
+        /// <summary>
+        /// The accumulator's answer, but only when the screen agrees with it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This gate exists to keep passwords out of history.</b> The accumulator is fed from
+        /// <c>TerminalView.OnTextInput</c>, which fires for every keystroke unconditionally — it
+        /// has no idea whether the shell is echoing. So in a markless session (`cmd.exe`, an
+        /// un-instrumented SSH host), the sequence `ssh host` / Enter / `hunter2` / Enter leaves the
+        /// accumulator holding a clean, unpoisoned `hunter2` at the hidden `password:` prompt, with
+        /// no grid snapshot to override it — and it would be written to `history.jsonl` verbatim.
+        /// <c>SecretsFilter</c> cannot save us there: it is pattern-based and a bare secret has no
+        /// pattern.
+        /// </para>
+        /// <para>
+        /// The check is the one thing that distinguishes the two cases. In any <em>visible</em>
+        /// markless prompt the typed command is on the screen — only the <c>OSC 133;B</c> mark is
+        /// missing, not the text — so requiring the accumulated string to be painted on the grid
+        /// ending at the cursor costs a correct capture nothing. At a no-echo prompt the grid holds
+        /// the prompt and nothing else, and the strings do not match.
+        /// </para>
+        /// <para>
+        /// Conservative in every direction: no buffer, an alt screen, a cursor the reader will not
+        /// resolve, an echo that has not landed yet, a shell that reprinted the line differently —
+        /// all of them fall out as "no capture". Comparison is on text rather than columns, so a
+        /// double-width character counts once (see
+        /// <see cref="GridQueryReader.TryReadTextEndingAtCursor"/>).
+        /// </para>
+        /// </remarks>
+        private string? ReadEchoedMarklessSubmission()
+        {
+            string? typed = _marklessSubmission.TryReadSubmission();
+            if (string.IsNullOrEmpty(typed))
+            {
+                // Poisoned, or an empty line: either way there is nothing to prove.
+                return typed;
+            }
+
+            TerminalBuffer? buffer = Buffer;
+            if (buffer == null)
+            {
+                return null;
+            }
+
+            if (!GridQueryReader.TryReadTextEndingAtCursor(buffer, typed.Length, out string onScreen))
+            {
+                return null;
+            }
+
+            // Exactly typed.Length characters were requested, so equality is "the accumulated text
+            // is painted on the grid and ends at the cursor". A short read (the row does not hold
+            // that much) fails the same way a wrong read does.
+            return string.Equals(onScreen, typed, StringComparison.Ordinal) ? typed : null;
         }
 
         /// <summary>
@@ -1507,8 +1562,16 @@ namespace NovaTerminal.Controls
         /// written to history as something the user typed. Either alone stops the paste being
         /// captured in a markless session; only suppression stops it in an instrumented one.
         /// </remarks>
+        /// <param name="text">
+        /// Ignored. The pasted text is deliberately not read: neither mechanism below wants it —
+        /// the accumulator's answer to "what is on the line now" is "I cannot say", not "the line
+        /// plus this", and suppression is a provenance flag with no payload. The parameter stays
+        /// because it is the <c>TerminalView.PasteObserved</c> signature and a future consumer
+        /// (length-based heuristics, say) would want it.
+        /// </param>
         internal void NotifyPasteObserved(string text)
         {
+            _ = text;
             _marklessSubmission.Poison();
             if (EnsureCommandAssistInitialized())
             {
@@ -1842,6 +1905,16 @@ namespace NovaTerminal.Controls
 
             Parser = new AnsiParser(Buffer);
 
+            // A device reply is text on the PTY that the keyboard path never produced: DA1, a DSR
+            // cursor report, an answerback. Nothing here can promise the shell's line editor was
+            // not reading when the query arrived, and a reply that lands in a line editor is
+            // literal input in exactly the way a paste is - so the accumulator can no longer
+            // describe the line. Poison rather than reset, for the same reason
+            // NotifyExternalInputSent poisons: the writer cannot say whether what it sent ended the
+            // line. Subscribed here rather than beside the SendInput handler in
+            // InitializeSessionCore so it exists whenever a parser does, session or not.
+            Parser.OnResponse += _ => _marklessSubmission.Poison();
+
             // OSC 10/11 (fg/bg color query) answers come from the active theme; without this,
             // a freshly-created parser would fall back to AnsiParser's hardcoded defaults until
             // the next ApplySettings call (#265). Must use the same profile-merged theme
@@ -2159,7 +2232,8 @@ namespace NovaTerminal.Controls
                 });
             };
 
-            // Wire up Parser responses (e.g. DA1)
+            // Wire up Parser responses (e.g. DA1). The accumulator invalidation for these lives in
+            // CreateAndWireParser, next to the parser's other observers.
             Parser.OnResponse += response =>
             {
                 Session.SendInput(response);
