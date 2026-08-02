@@ -78,6 +78,55 @@ namespace NovaTerminal.Tests.Input
         }
 
         [Fact]
+        public void EncodeMouseEvent_LegacyAtMaxCoordinate_EncodesInOneByteEach()
+        {
+            // 223 IS representable in the legacy X10 encoding: the byte sent is value+32 and
+            // 32+223 = 255, the largest byte. Left press -> button code 0 -> char 32 (space).
+            var modes = new ModeState { MouseModeX10 = true };
+
+            string? sequence = TerminalInputModeEncoder.EncodeMouseEvent(
+                modes,
+                new TerminalMouseEvent(TerminalMouseEventKind.Press, TerminalMouseButton.Left, 223, 223, KeyModifiers.None));
+
+            // Built from char codes rather than a literal so this file stays pure ASCII.
+            string expected = "\x1b[M\x20" + (char)255 + (char)255;
+            Assert.Equal(expected, sequence);
+        }
+
+        [Fact]
+        public void EncodeMouseEvent_LegacyBeyondMaxCoordinate_ClampsAndNeverEmitsSgr()
+        {
+            // Regression: coordinates past 223 used to fall back to the SGR form even when the
+            // application never enabled ?1006 - unparseable for a legacy-mode app, which would
+            // render it as text or desync. xterm clamps out-of-range coordinates instead of
+            // switching protocols.
+            var modes = new ModeState { MouseModeX10 = true };
+
+            string? sequence = TerminalInputModeEncoder.EncodeMouseEvent(
+                modes,
+                new TerminalMouseEvent(TerminalMouseEventKind.Press, TerminalMouseButton.Left, 400, 500, KeyModifiers.None));
+
+            Assert.NotNull(sequence);
+            Assert.DoesNotContain("\x1b[<", sequence);
+            string expected = "\x1b[M\x20" + (char)255 + (char)255;
+            Assert.Equal(expected, sequence);
+        }
+
+        [Fact]
+        public void EncodeMouseEvent_SgrBeyondLegacyMaxCoordinate_IsNotClamped()
+        {
+            // The 223 ceiling is a property of the legacy one-byte-per-coordinate encoding only;
+            // ?1006 sends decimal parameters and must carry the real coordinates.
+            var modes = new ModeState { MouseModeX10 = true, MouseModeSGR = true };
+
+            string? sequence = TerminalInputModeEncoder.EncodeMouseEvent(
+                modes,
+                new TerminalMouseEvent(TerminalMouseEventKind.Press, TerminalMouseButton.Left, 400, 500, KeyModifiers.None));
+
+            Assert.Equal("\x1b[<0;400;500M", sequence);
+        }
+
+        [Fact]
         public void EncodeAltKey_AltLetter_EmitsEscapePrefixedLowercase()
         {
             // xterm "metaSendsEscape": Alt+<letter> sends ESC followed by the character.
