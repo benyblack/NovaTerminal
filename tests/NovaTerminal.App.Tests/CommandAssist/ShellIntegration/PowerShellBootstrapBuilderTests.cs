@@ -19,8 +19,37 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
 
         Assert.Contains("]7;", script);
         Assert.Contains("]133;A", script);
+        Assert.Contains("]133;B", script);
         Assert.Contains("]133;C;", script);
         Assert.Contains("]133;D;", script);
+    }
+
+    [Fact]
+    public void BuildScript_AppendsCommandStartMarkToTheReturnedPromptString()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        // Anything the prompt function *writes* lands before the prompt text,
+        // because the host prints the returned string afterwards. A is written
+        // (prompt start); B has to be appended to the returned string so it
+        // lands on the first cell of the user's input.
+        Assert.Contains("return \"$novaPromptText$([char]27)]133;B$([char]7)\"", script);
+
+        int promptReadyIndex = script.IndexOf("    Write-NovaPromptReady", StringComparison.Ordinal);
+        int markIndex = script.IndexOf("]133;B", StringComparison.Ordinal);
+        Assert.True(promptReadyIndex > 0 && markIndex > promptReadyIndex,
+            "the B mark must be produced after the A mark within the prompt function");
+    }
+
+    [Fact]
+    public void BuildScript_KeepsUserPromptOutputWhenAppendingCommandStartMark()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        // The wrapped original prompt still supplies the prompt text; we only
+        // concatenate the zero-width mark onto whatever it produced.
+        Assert.Contains("$novaPromptText = if ($script:NovaOriginalPrompt -ne $null) {", script);
+        Assert.Contains("(& $script:NovaOriginalPrompt) -join ''", script);
     }
 
     [Fact]

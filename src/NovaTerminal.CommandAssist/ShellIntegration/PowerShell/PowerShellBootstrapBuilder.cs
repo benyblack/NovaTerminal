@@ -60,10 +60,19 @@ public static class PowerShellBootstrapBuilder
         builder.Append("    $lastExit = $global:LASTEXITCODE").Append(nl);
         builder.Append("    Write-NovaCompletion $lastSuccess $lastExit").Append(nl);
         builder.Append("    Write-NovaPromptReady").Append(nl);
-        builder.Append("    if ($script:NovaOriginalPrompt -ne $null) {").Append(nl);
-        builder.Append("        return & $script:NovaOriginalPrompt").Append(nl);
+        // OSC 133;B marks the END of the prompt -- the cell where the user's
+        // input begins. Anything this function *writes* lands before the
+        // prompt text (the host prints the returned string afterwards), so B
+        // must be appended to the returned string instead. -join '' flattens
+        // the rare prompt that emits several objects; a single-string prompt
+        // (the overwhelming case, including oh-my-posh/starship) round-trips
+        // unchanged.
+        builder.Append("    $novaPromptText = if ($script:NovaOriginalPrompt -ne $null) {").Append(nl);
+        builder.Append("        (& $script:NovaOriginalPrompt) -join ''").Append(nl);
+        builder.Append("    } else {").Append(nl);
+        builder.Append("        [string]::Concat('PS ', (Get-Location), '> ')").Append(nl);
         builder.Append("    }").Append(nl);
-        builder.Append("    return [string]::Concat('PS ', (Get-Location), '> ')").Append(nl);
+        builder.Append("    return \"$novaPromptText$([char]27)]133;B$([char]7)\"").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
         // Capture the accepted command text at the shell boundary by wrapping

@@ -67,7 +67,30 @@ public static class BashBootstrapBuilder
         // runs LAST in PROMPT_COMMAND) is responsible for clearing it.
         b.Append("}").Append(nl);
         b.Append(nl);
+        // OSC 133;B marks the END of the prompt, i.e. the cell where the
+        // user's input begins. Bash prints PS1 *after* PROMPT_COMMAND has
+        // run, so unlike A (emitted from __nova_precmd) B cannot be written
+        // from a hook -- it has to ride along at the tail of PS1 itself.
+        // \[ \] wrap it as non-printing so bash's prompt-width arithmetic
+        // (and therefore readline's line wrapping) is unaffected.
+        b.Append("__nova_ps1_mark='\\[\\e]133;B\\a\\]'").Append(nl);
+        // Re-applied every prompt cycle rather than once at startup: themes
+        // like starship/oh-my-posh rewrite PS1 from inside PROMPT_COMMAND,
+        // which would drop a one-shot suffix. The containment check keeps
+        // repeated application idempotent for the ordinary static-PS1 case.
+        b.Append("__nova_apply_ps1_mark() {").Append(nl);
+        b.Append("    case \"$PS1\" in").Append(nl);
+        b.Append("        *\"$__nova_ps1_mark\"*) ;;").Append(nl);
+        b.Append("        *) PS1=\"$PS1$__nova_ps1_mark\" ;;").Append(nl);
+        b.Append("    esac").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
         b.Append("__nova_arm() {").Append(nl);
+        // Runs LAST in PROMPT_COMMAND, which is also the only point where the
+        // user's own PROMPT_COMMAND has finished rewriting PS1 -- so the mark
+        // is (re)appended here rather than as a separate chain entry, keeping
+        // the "arm last" invariant and the chain string itself unchanged.
+        b.Append("    __nova_apply_ps1_mark").Append(nl);
         b.Append("    __nova_command_active=0").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
@@ -111,6 +134,10 @@ public static class BashBootstrapBuilder
         b.Append("    PROMPT_COMMAND='__nova_precmd; __nova_arm'").Append(nl);
         b.Append("fi").Append(nl);
         b.Append(nl);
+        // Belt and braces for the very first prompt: PROMPT_COMMAND does run
+        // before it, but if the user's PROMPT_COMMAND aborts early the mark
+        // would otherwise be missing until the next cycle.
+        b.Append("__nova_apply_ps1_mark").Append(nl);
         b.Append("__nova_emit_prompt_ready").Append(nl);
         return b.ToString();
     }

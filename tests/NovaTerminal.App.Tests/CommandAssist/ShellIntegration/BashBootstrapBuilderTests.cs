@@ -19,8 +19,47 @@ public sealed class BashBootstrapBuilderTests : IDisposable
 
         Assert.Contains("]7;", script);
         Assert.Contains("]133;A", script);
+        Assert.Contains("]133;B", script);
         Assert.Contains("]133;C;", script);
         Assert.Contains("]133;D;", script);
+    }
+
+    [Fact]
+    public void BuildScript_EmitsCommandStartMarkAtTheEndOfPs1()
+    {
+        string script = BashBootstrapBuilder.BuildScript();
+
+        // A is printed from PROMPT_COMMAND, which bash runs *before* it
+        // expands and prints PS1. B marks the opposite edge -- the first cell
+        // of the user's input -- so it can only ride at the tail of PS1, and
+        // must be wrapped in \[ \] so bash does not count it as prompt width.
+        Assert.Contains("__nova_ps1_mark='\\[\\e]133;B\\a\\]'", script);
+        Assert.Contains("PS1=\"$PS1$__nova_ps1_mark\"", script);
+
+        // Appended, never assigned from a template: the only PS1 assignment
+        // in the script is the append form above.
+        Assert.Equal(1, script.Split("PS1=", StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
+    public void BuildScript_ReAppliesPs1MarkAfterUserPromptCommandRuns()
+    {
+        string script = BashBootstrapBuilder.BuildScript();
+
+        // Themes like starship/oh-my-posh rewrite PS1 from inside
+        // PROMPT_COMMAND, which would drop a one-shot suffix. __nova_arm is
+        // the last entry in the PROMPT_COMMAND chain, so re-applying from
+        // there gets the final word without changing the chain string (and
+        // therefore without disturbing the DEBUG-trap arm/disarm ordering).
+        int armIndex = script.IndexOf("__nova_arm() {", StringComparison.Ordinal);
+        int applyIndex = script.IndexOf("    __nova_apply_ps1_mark", armIndex, StringComparison.Ordinal);
+        int clearIndex = script.IndexOf("    __nova_command_active=0", armIndex, StringComparison.Ordinal);
+
+        Assert.True(applyIndex > armIndex, "__nova_arm must re-apply the PS1 mark");
+        Assert.True(clearIndex > applyIndex, "the active flag must still be cleared last");
+
+        // Idempotent: a static PS1 must not accumulate one marker per prompt.
+        Assert.Contains("*\"$__nova_ps1_mark\"*) ;;", script);
     }
 
     [Fact]

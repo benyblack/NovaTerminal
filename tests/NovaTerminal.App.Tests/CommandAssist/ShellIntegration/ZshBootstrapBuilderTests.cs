@@ -19,6 +19,7 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
 
         Assert.Contains("]7;", script);
         Assert.Contains("]133;A", script);
+        Assert.Contains("]133;B", script);
         Assert.Contains("]133;C;", script);
         Assert.Contains("]133;D;", script);
     }
@@ -39,8 +40,41 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
 
         // The bootstrap must not overwrite PROMPT/PS1 with our own template;
         // it can only emit OSC markers around the user's existing prompt.
-        Assert.DoesNotContain("PROMPT=", script);
+        // The single permitted PROMPT assignment is the zero-width OSC 133;B
+        // suffix, which appends to whatever the user's prompt already is.
         Assert.DoesNotContain("PS1=", script);
+        Assert.Equal(
+            1,
+            script.Split("PROMPT=", StringSplitOptions.None).Length - 1);
+        Assert.Contains("PROMPT=\"$PROMPT$__nova_prompt_mark\"", script);
+    }
+
+    [Fact]
+    public void BuildScript_EmitsCommandStartMarkAtTheEndOfThePrompt()
+    {
+        string script = ZshBootstrapBuilder.BuildScript();
+
+        // A is printed from precmd, i.e. before PROMPT is expanded; B has to
+        // land after the last prompt cell, so it rides at the tail of PROMPT
+        // wrapped in %{...%} (zero display width).
+        Assert.Contains("__nova_prompt_mark=$'%{\\e]133;B\\a%}'", script);
+        Assert.Contains("PROMPT=\"$PROMPT$__nova_prompt_mark\"", script);
+
+        // ...and it is (re)applied from precmd so prompt frameworks that
+        // reassign PROMPT every cycle cannot drop it.
+        int precmdIndex = script.IndexOf("__nova_precmd() {", StringComparison.Ordinal);
+        int applyIndex = script.IndexOf("    __nova_apply_prompt_mark", precmdIndex, StringComparison.Ordinal);
+        Assert.True(applyIndex > precmdIndex, "precmd must re-apply the prompt mark");
+    }
+
+    [Fact]
+    public void BuildScript_AppliesPromptMarkIdempotently()
+    {
+        string script = ZshBootstrapBuilder.BuildScript();
+
+        // Called once per prompt: without the containment guard a static
+        // PROMPT would grow one marker per prompt cycle, forever.
+        Assert.Contains("if [[ \"$PROMPT\" != *\"$__nova_prompt_mark\"* ]]; then", script);
     }
 
     [Fact]

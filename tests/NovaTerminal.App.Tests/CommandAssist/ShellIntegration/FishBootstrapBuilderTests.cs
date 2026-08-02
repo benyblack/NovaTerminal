@@ -19,8 +19,40 @@ public sealed class FishBootstrapBuilderTests : IDisposable
 
         Assert.Contains("]7;", script);
         Assert.Contains("]133;A", script);
+        Assert.Contains("]133;B", script);
         Assert.Contains("]133;C;", script);
         Assert.Contains("]133;D;", script);
+    }
+
+    [Fact]
+    public void BuildScript_EmitsCommandStartMarkAfterTheUserPromptRenders()
+    {
+        string script = FishBootstrapBuilder.BuildScript();
+
+        // The fish_prompt EVENT fires before the prompt function runs, so it
+        // can only carry A. fish has no post-prompt event, so B is emitted by
+        // re-defining fish_prompt as "copy of the user's prompt, then B" --
+        // the copy keeps the user's prompt output byte-for-byte.
+        Assert.Contains("functions --copy fish_prompt __nova_user_fish_prompt", script);
+
+        int redefIndex = script.IndexOf("function fish_prompt\n", StringComparison.Ordinal);
+        Assert.True(redefIndex > 0, "fish_prompt must be re-defined around the copied original");
+
+        int originalCallIndex = script.IndexOf("    __nova_user_fish_prompt", redefIndex, StringComparison.Ordinal);
+        int markIndex = script.IndexOf("133;B", redefIndex, StringComparison.Ordinal);
+        Assert.True(originalCallIndex > redefIndex, "the copied user prompt must run first");
+        Assert.True(markIndex > originalCallIndex, "B must be emitted after the user's prompt output");
+    }
+
+    [Fact]
+    public void BuildScript_SkipsPromptWrappingWhenFishPromptIsUnavailable()
+    {
+        string script = FishBootstrapBuilder.BuildScript();
+
+        // Degradation guard, mirroring the PSReadLine probe in the PowerShell
+        // bootstrap: if fish_prompt cannot be resolved we emit A only rather
+        // than replacing the user's prompt with a synthesized one.
+        Assert.Contains("if functions -q fish_prompt", script);
     }
 
     [Fact]

@@ -68,6 +68,25 @@ public static class FishBootstrapBuilder
         b.Append("    __nova_emit_prompt_ready").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
+        // The fish_prompt EVENT fires before the prompt function runs, so it
+        // can only carry A. OSC 133;B has to land after the last prompt cell,
+        // and fish has no post-prompt event -- so we copy the user's
+        // fish_prompt aside and re-define fish_prompt as "original, then B".
+        // The copy keeps the user's prompt output byte-for-byte; we only
+        // append to it.
+        //
+        // Bail out entirely if fish_prompt cannot be resolved (functions -q
+        // triggers autoloading, so this only fails in a genuinely broken
+        // config). Degrading to A-only beats replacing the user's prompt
+        // with a synthesized one.
+        b.Append("if functions -q fish_prompt").Append(nl);
+        b.Append("    functions --copy fish_prompt __nova_user_fish_prompt").Append(nl);
+        b.Append("    function fish_prompt").Append(nl);
+        b.Append("        __nova_user_fish_prompt").Append(nl);
+        b.Append("        printf '\\033]133;B\\a'").Append(nl);
+        b.Append("    end").Append(nl);
+        b.Append("end").Append(nl);
+        b.Append(nl);
         b.Append("__nova_emit_prompt_ready").Append(nl);
         return b.ToString();
     }
