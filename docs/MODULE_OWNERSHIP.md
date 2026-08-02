@@ -24,6 +24,10 @@ invariant changes.
 - Scrollback (`Buffer/ScrollbackPages.cs`) and lossless reflow (`TerminalBuffer.ReflowEngine.cs`)
 - Cell/row semantics, grapheme cluster handling, Unicode width
 - Buffer threading contract (`TerminalBuffer.Lock`, `ReaderWriterLockSlim`)
+- Resolution of `OSC 133` marks against the buffer: `GridQueryReader` (mark → live command-line
+  text) and `ShellMarkAnchorResolver` (mark → viewport row, for Command Assist's overlay anchor).
+  Both live here rather than in `NovaTerminal.CommandAssist` because they are buffer arithmetic
+  over VT types, which the layering tests forbid that assembly from referencing
 
 **Invariants** (enforced by architecture tests and `tests/NovaTerminal.VT.Tests/`)
 - Deterministic parsing — same byte stream produces the same semantic ops

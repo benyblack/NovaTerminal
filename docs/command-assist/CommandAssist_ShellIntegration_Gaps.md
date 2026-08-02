@@ -288,9 +288,46 @@ also says so: the bubble is labelled **`History - recent`** rather than `History
 be read, because an identical-looking filter box that silently cannot filter reads as a bug the
 first time a keystroke fails to narrow it.
 
+### Overlay anchoring after Phase 2a
+
+A second thing the marks buy, beyond the query: the overlay knows where the prompt *is*. Phase 2a
+makes the `133;B` mark the anchor source when one is live and on screen, and demotes the geometric
+`CommandAssistPromptHint` heuristic — cursor row plus band ratios — to the markless fallback.
+
+`133;A` was the design doc's nominal choice and is not the one shipped: `A` reaches the App as a
+bare `OnPromptReady` notification with no position, while `B` is already stamped with a full
+`ShellIntegrationMark` (row, column, eviction-stable `AbsoluteRow`, generation, alt-screen flag) for
+the grid reader. `B` is also the semantically better row — it is where the user's *input* starts,
+which is what the bubble sits next to — and it re-fires on every prompt repaint. `A` would need a
+mark of its own to be usable at all.
+
+What the mark path skips, and why each one was a hedge against not knowing the row:
+
+- the anchor-reliability guess (`SSH ⇒ untrusted`): an instrumented remote emits the same marks a
+  local shell does, so the session type stops being the question;
+- the band ratios in `CommandAssistAnchorCalculator` (0.45 / 0.55 / 0.60 / 0.70), including the
+  0.55 whose 0.005-wide margin produced #232's font-dependent flakiness;
+- the short-pane suppression that hid the overlay entirely on remote panes;
+- the render-priority placement-correction passes and the opacity flicker they cost.
+
+What it keeps: the size clamps, the compact bubble/popup thresholds, and the popup flip/side rules.
+Those are pane-geometry facts, not prompt-position guesses.
+
+None of that stack is deleted, because markless sessions are not gone — an un-instrumented remote is
+still the common SSH case until Phase 2 task 3 ships the remote snippets. Everything above is
+*gated* on the anchor source and stays reachable for sessions without marks.
+
+Limits of the mark anchor: it is only usable while the marked row is on screen, so scrolling the
+prompt out of the viewport, a scrollback reset (generation bump), eviction, or the alt screen all
+drop back to the heuristic mid-session. The conversion is re-derived on every placement pass rather
+than cached, because the scroll offset is an input to it.
+
 ## Current Limitations
 - shell integration is local-only; SSH launch plans skip provider injection
-  because env-var overrides do not propagate across SSH
+  because env-var overrides do not propagate across SSH; **as of Phase 2a a remote that emits
+  OSC 133 by other means (manual instrumentation today, the Phase 2 task 3 snippets later) gets
+  trusted overlay anchoring automatically** — nothing about anchoring is keyed off the session type
+  any more, only off whether a mark is live
 - providers bail out (`IsIntegrated: false`) when the user forces an
   incompatible startup mode (PowerShell `-File`; bash `-c`/`--rcfile`/`--init-file`;
   zsh `-c`/`--no-rcs`/`-f`; fish `-c`/`--no-config`/`-N`); those sessions fall
