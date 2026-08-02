@@ -1830,9 +1830,25 @@ namespace NovaTerminal.Controls
         /// change would demote an instrumented remote back to markless.
         /// </para>
         /// </remarks>
+        /// <summary>
+        /// Whether Nova participates in the OSC 133 contract at all for this pane: the same switch
+        /// <see cref="ApplyShellIntegrationLaunchPlan"/> and
+        /// <see cref="ArmRemoteShellIntegrationTracker"/> honour, read the same way (a pane with no
+        /// settings object yet is treated as enabled, which is what the arming paths do).
+        /// </summary>
+        /// <remarks>
+        /// Consulted by the two consumption paths that hang off the raw parser callbacks rather than
+        /// off the tracker - the integrated-session latch and the <c>133;C</c> payload - because
+        /// those callbacks are wired unconditionally and would otherwise keep consuming remote marks
+        /// with the setting off. The callbacks themselves stay wired: they also feed the agent status
+        /// machine and the overlay anchor, neither of which this switch governs.
+        /// </remarks>
+        private bool IsShellIntegrationConsumptionEnabled =>
+            _settings?.CommandAssistShellIntegrationEnabled ?? true;
+
         private void NoteShellIntegrationMarkObserved()
         {
-            if (_hasObservedShellIntegrationMark)
+            if (_hasObservedShellIntegrationMark || !IsShellIntegrationConsumptionEnabled)
             {
                 return;
             }
@@ -2241,7 +2257,12 @@ namespace NovaTerminal.Controls
                 // what several third-party remote snippets emit) arrives with null, and clearing
                 // here would throw away the command the grid/heuristic path already read at Enter -
                 // which on those shells is the only source Fix mode has.
-                if (!string.IsNullOrWhiteSpace(commandText))
+                //
+                // Gated on the setting for the same reason the latch above is: with shell
+                // integration off, a C payload written by the far end of an SSH connection (or by a
+                // local `cat` of a crafted file) must not become the command Fix mode and the
+                // long-command notification talk about.
+                if (!string.IsNullOrWhiteSpace(commandText) && IsShellIntegrationConsumptionEnabled)
                 {
                     _lastRelevantCommandText = commandText.Trim();
                 }
@@ -3012,6 +3033,25 @@ namespace NovaTerminal.Controls
         /// is what the settings-gate test asserts against instead.
         /// </summary>
         internal int ClipboardWriteAttemptsForTest => _clipboardWriteAttemptsForTest;
+
+        /// <summary>
+        /// Whether the pane has latched "this session emits OSC 133" - i.e. what
+        /// <see cref="UpdateCommandAssistContext"/> would publish as <c>isShellIntegrated</c>.
+        /// </summary>
+        /// <remarks>
+        /// A seam rather than an observation of the published context, because the publish is posted
+        /// to the UI thread and the thing under test (the setting gate on
+        /// <see cref="NoteShellIntegrationMarkObserved"/>) decides whether it is posted at all. A
+        /// test asserting "nothing was published" against an async post would be asserting a
+        /// timeout.
+        /// </remarks>
+        internal bool HasObservedShellIntegrationMarkForTest => _hasObservedShellIntegrationMark;
+
+        /// <summary>
+        /// The command text the pane would hand to Fix mode and the long-command notification. Read
+        /// by the tests that pin what a <c>133;C</c> payload is and is not allowed to overwrite.
+        /// </summary>
+        internal string? LastRelevantCommandTextForTest => _lastRelevantCommandText;
 
         internal bool IsRemoteFilesSidebarVisibleForTest()
         {

