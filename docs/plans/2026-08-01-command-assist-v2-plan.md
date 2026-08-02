@@ -35,12 +35,12 @@ segment before it can be claimed as supported.
 
 ## Phase 1 — Truthful query state
 
-**Status: tasks 1 and 2 shipped (Phase 1a).**
+**Status: tasks 1 and 2 shipped (Phase 1a); task 3 shipped (Phase 1b).**
 
 Tasks:
 1. **[done — Phase 1a]** Emit `OSC 133;B` from all four bootstrap builders; extend the four `*BootstrapBuilderTests` and the shell-harness integration tests. Preserve bail-out conditions and bash DEBUG-trap guard semantics.
 2. **[done — Phase 1a]** Parser/tracker: wire `133;B` through `AnsiParser` → `ShellLifecycleTracker.HandleCommandStarted` (currently dead) with mark position (row/col).
-3. `GridQueryReader` in the new assembly: extract command text between last `B` mark and cursor from the buffer, handling wrapped logical lines and scrolled viewports. Exhaustive buffer-level unit tests first (wrap, resize/reflow, multiline continuation, prompt redraw, cleared screen).
+3. **[done — Phase 1b]** `GridQueryReader`: extract command text between last `B` mark and cursor from the buffer, handling wrapped logical lines and scrolled viewports. Exhaustive buffer-level unit tests first (wrap, resize/reflow, multiline continuation, prompt redraw, cleared screen). *Landed in `NovaTerminal.VT`, not the CommandAssist assembly as sketched here* — the extraction is pure buffer walking and `LayeringTests` forbids CommandAssist from referencing VT; Command Assist consumes it at the App boundary via `TerminalPane.TryGetGridCommandLine`.
 4. `SuggestionOrchestrator` consumes `GridQueryReader` when marks are live; delete the shadow buffer (`TextInputObserved`/`BackspaceObserved` mirroring). Heuristic Enter-capture stays for history in non-integrated sessions.
 5. Degraded mode: no marks → path suggestions + explicit `Ctrl+R` history search only; prefix-dependent features off.
 6. `CommandAssistInsertionPlanner` computes against grid truth; add tests for post-`Ctrl+U`, post-history-recall, post-Tab-completion insertion (the desync cases that broke V1).
@@ -67,8 +67,29 @@ Phase 1a notes (for the task-3 `GridQueryReader` author):
   (including post-resize and post-clear) re-emits it with fresh coordinates. The reader should
   treat the newest mark as truth rather than caching one.
 - The controller still ignores `CommandStarted`; nothing consumes the position yet. The pane
-  short-circuits `CommandStarted` before the Command Assist dispatcher for that reason — Phase
-  1b has to remove that early-out (`TerminalPane.OnShellIntegrationEventObserved`).
+  short-circuits `CommandStarted` before the Command Assist dispatcher for that reason. That
+  early-out survived Phase 1b (the reader takes the mark straight off the parser callback, not
+  off the dispatcher); **Phase 1c has to remove it** when the orchestrator starts pulling grid
+  truth on the event (`TerminalPane.OnShellIntegrationEventObserved`).
+
+Phase 1b notes (for the task-4 orchestrator author):
+- `GridQueryReader.TryReadCommandLine(buffer, mark, out GridCommandLine)` lives in
+  `NovaTerminal.VT`; the App-side seam is `TerminalPane.TryGetGridCommandLine(out …)`, which
+  pairs it with the newest mark (`_latestCommandStartMark`, kept under a gate because the
+  parser callback runs on the PTY read thread). Nothing calls the seam yet.
+- `GridCommandLine` carries `Text`, `CursorOffset` (always a valid index into `Text` — the
+  cursor is routinely mid-line), `IsMultiline`, `RightPromptTrimmed`, `StartRow`, `EndRow`.
+- **The result is only meaningful between `B` and the following `C`.** The reader cannot tell
+  "still typing" from "the command ran and this is its output"; lifecycle gating is the
+  consumer's job. A `MaxSpanRows` cap (512) bounds the damage if that gate is missed.
+- **Multiline is decision (b): raw text, hard breaks as `'\n'`, `IsMultiline` set.** Nothing
+  identifies continuation-prompt cells (`PS2`/`PROMPT2`) as prompt rather than input, so they
+  are *in* the text. Treat multiline text as opaque — history/display only, never a typed
+  prefix. One documented gap: if the cursor sits on an earlier logical line of a continuation
+  entry, the span stops at the end of that line and `IsMultiline` stays clear.
+- **RPROMPT** is excluded from the final row only, and only when all three hold: content ends
+  within 2 columns of the right edge, a ≥2-blank gap precedes it, and that gap starts at or
+  after the cursor. Nothing left of the cursor is ever discarded.
 
 ## Phase 2 — Marks-based anchoring + SSH parity
 
