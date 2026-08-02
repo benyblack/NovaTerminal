@@ -14,14 +14,14 @@ Design: `2026-08-01-command-assist-v2-design.md`
 
 Closes #114. Pure restructuring; every existing test must pass unmodified (namespace updates aside).
 
-**Status: task 4 outstanding; everything else has shipped.** Tasks 1, 2 and 7 landed in PR #276
-(Phase 0a); tasks 3, 5 and 6 in PR #279 (Phase 0b).
+**Status: complete.** Tasks 1, 2 and 7 landed in PR #276 (Phase 0a); tasks 3, 5 and 6 in PR #279
+(Phase 0b); task 4 in Phase 0c.
 
 Tasks:
 1. **[done — #276]** Create `src/NovaTerminal.CommandAssist/` project (Avalonia-free). Move Domain, Models, Storage, ShellIntegration, ViewModels, Application core.
 2. **[done — #276]** Introduce `AssistKey`/`AssistModifiers` abstraction for `CommandAssistKeyRouter`; map from `Avalonia.Input` in `TerminalPane`. Introduce plain geometry records (`AssistPoint/AssistRect/AssistSize`) for `CommandAssistAnchorCalculator`; convert at the App boundary.
 3. **[done — #279]** Replace static `CommandAssistInfrastructure` with `CommandAssistServices` composed at the App root and injected into `TerminalPane`. (Injected at the single `MainWindow.WirePane` funnel, so session-restored panes get it too.)
-4. Split `CommandAssistController` (854 L): `AssistSessionStateMachine` (enum state: Hidden / PassiveBubble / PopupBrowse / Search / Help / Fix — replaces the 7 bools), `CapturePipeline`, `SuggestionOrchestrator` (debounce + `CancellationToken` refresh, replacing `_refreshVersion`).
+4. **[done — Phase 0c]** Split `CommandAssistController`: `AssistSessionStateMachine` (enum state: Hidden / PassiveBubble / PassivePopup / ExplicitBubble / ExplicitPopup / HistorySearch / Help / FixHint / FixPopup — the sketched six split further because explicitness has to survive a popup round trip and Fix has two popup variants), `AssistSessionContext` (the environment facts that are not session state), `CapturePipeline`, `SuggestionOrchestrator` (`CancellationToken` refresh replacing `_refreshVersion`; the debounce is deliberately deferred to Phase 3, where it is a policy decision rather than a mechanism swap).
 5. **[done — #279]** Single ranking: delete `JsonHistoryStore.Score` (stores return candidates), delete dead `HistorySuggestionEngine`, `CommandAssistBarView`, unused ctors, `TryUpdateExitCodeAsync`, `CanExecuteDirectly`.
 6. **[done — #279]** Storage: JSONL append + in-memory index + compaction; one-time `history.json` migration; keep `AppJsonContext` source-gen. (One store instance per process: the cap is mutable, never an instance swap.)
 7. **[done — #276]** Update `NamespaceAlignmentTests` / architecture tests and `docs/MODULE_OWNERSHIP.md` for the new assembly.

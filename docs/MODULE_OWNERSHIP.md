@@ -168,11 +168,17 @@ invariant changes.
 
 **Namespace:** `NovaTerminal.CommandAssist` (+ `.Application`, `.Domain`, `.Models`, `.Storage`, `.ShellIntegration`, `.ViewModels`)
 **Depends on:** *(leaf — only BCL)*
-**Public surface:** `CommandAssistController`, `CommandAssistAnchorCalculator` (+ `AssistRect`/`AssistPoint`/`AssistSize`), `AssistKey`/`AssistModifiers`, `CommandAssistModeRouter`, `CommandAssistKeyRouter`, `CommandAssistInsertionPlanner`, `CommandAssistResultBuilder`, `RecognizedCommandParser`, the `I*Store` / `I*Provider` / `ISuggestionEngine` / `ISecretsFilter` domain contracts and their local implementations, `IShellIntegrationProvider` + the four shell providers and bootstrap builders, `ShellIntegrationRegistry`, `ShellLifecycleTracker`, `JsonlHistoryStore`, `JsonSnippetStore`, `CommandAssistJsonContext` / `CommandAssistJsonLinesContext`, and the assist view-models
+**Public surface:** `CommandAssistController`, `AssistSessionState`, `CommandAssistAnchorCalculator` (+ `AssistRect`/`AssistPoint`/`AssistSize`), `AssistKey`/`AssistModifiers`, `CommandAssistModeRouter`, `CommandAssistKeyRouter`, `CommandAssistInsertionPlanner`, `CommandAssistResultBuilder`, `RecognizedCommandParser`, the `I*Store` / `I*Provider` / `ISuggestionEngine` / `ISecretsFilter` domain contracts and their local implementations, `IShellIntegrationProvider` + the four shell providers and bootstrap builders, `ShellIntegrationRegistry`, `ShellLifecycleTracker`, `JsonlHistoryStore`, `JsonSnippetStore`, `CommandAssistJsonContext` / `CommandAssistJsonLinesContext`, and the assist view-models
 **Internals exposed to:** `NovaTerminal.App.Tests` only. The App is deliberately not granted
 `InternalsVisibleTo`: the two helpers `TerminalPane` needs (`CommandAssistKeyRouter`,
 `CommandAssistInsertionPlanner`) are public pure-static functions over public types, so the App
-consumes this assembly through its published surface.
+consumes this assembly through its published surface. The controller's three collaborators
+(`AssistSessionStateMachine`, `AssistSessionContext`, `CapturePipeline`, `SuggestionOrchestrator` +
+`SuggestionRefreshOutcome`) and the controller's own `SessionState` accessor are `internal`: only
+`CommandAssistController` constructs them, and the only outside readers are the unit tests. The
+`AssistSessionState` enum is the one exception that stays public - no public member exposes it, but
+the state machine's transition-table tests drive it through `[Theory]` parameters, and xUnit
+requires public test classes.
 
 **Owns**
 - Assist domain: suggestion ranking, path suggestions, secrets redaction, local docs/recipes, heuristic error insight
@@ -182,7 +188,9 @@ consumes this assembly through its published surface.
   plus their source-generated JSON contexts
 - Shell integration: the `OSC 133` contract, the bash/zsh/fish/PowerShell bootstrap builders and providers, provider registry, lifecycle tracking, ordered async event dispatch
 - Assist view-models (`INotifyPropertyChanged` only — no toolkit types)
-- Application core: controller, mode router, insertion planner, result builder, key router, anchor calculator
+- Application core: controller (a facade over the session state machine, the capture pipeline and
+  the suggestion orchestrator, with `AssistSessionContext` carrying the environment they share),
+  mode router, insertion planner, result builder, key router, anchor calculator
 
 **Non-responsibilities**
 - Rendering the assist surfaces. The Avalonia `UserControl`s stay in the App at
@@ -213,9 +221,9 @@ consumes this assembly through its published surface.
 > **Note:** extracted from the App in #114 as Phase 0 of the Command Assist V2 rebuild
 > (`docs/plans/2026-08-01-command-assist-v2-plan.md`). Phase 0b then replaced the static
 > `CommandAssistInfrastructure` locator with the injected `CommandAssistServices`, unified ranking on
-> `CommandAssistSuggestionEngine`, and swapped the history store for JSONL. The remaining Phase 0
-> item — splitting `CommandAssistController` into a state machine, capture pipeline, and suggestion
-> orchestrator (plan task 4) — lands in a follow-up.
+> `CommandAssistSuggestionEngine`, and swapped the history store for JSONL. Phase 0c split
+> `CommandAssistController` into `AssistSessionStateMachine`, `CapturePipeline` and
+> `SuggestionOrchestrator` (plan task 4), completing Phase 0.
 
 ---
 
