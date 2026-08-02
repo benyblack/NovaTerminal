@@ -187,6 +187,26 @@ public sealed class FishBootstrapBuilderTests : IDisposable
         Assert.Contains("date +%s", script);
     }
 
+    /// <summary>
+    /// fish's <c>math</c> defaults to scale 6, so the nanosecond division printed
+    /// <c>1780000000123.456787</c> and every duration reached the wire as a fractional value.
+    /// <c>AnsiParser</c> reads that field with <c>long.TryParse</c>, so a fraction is not a rounded
+    /// duration - it is no duration at all, and fish sessions recorded none.
+    /// </summary>
+    [Fact]
+    public void BuildScript_ForcesIntegerMathSoDurationsParse()
+    {
+        string script = FishBootstrapBuilder.BuildScript();
+
+        Assert.Contains("math -s0 \"$raw / 1000000\"", script);
+        Assert.Contains("math -s0 (date +%s) \"* 1000\"", script);
+        Assert.Contains("math -s0 $now_ms - $__nova_command_start_ms", script);
+
+        // No unqualified `math` call anywhere: every one of them feeds an integer field.
+        Assert.DoesNotContain("(math $", script);
+        Assert.DoesNotContain("math \"$raw", script);
+    }
+
     [Fact]
     public void WriteScript_WritesConfigFishInsideFishConfigSubdirectory()
     {

@@ -88,6 +88,57 @@ public sealed class BashBootstrapBuilderTests : IDisposable
         Assert.Contains("__nova_precmd; $PROMPT_COMMAND; __nova_arm", script);
     }
 
+    /// <summary>
+    /// ...and <c>__nova_precmd</c> raises it again at the top of every cycle. bash runs
+    /// PROMPT_COMMAND after an EMPTY Enter too, and on that path no user command ran, so nothing
+    /// else raised the flag - leaving the first entry of the user's own PROMPT_COMMAND chain to be
+    /// captured as a phantom accepted command.
+    /// </summary>
+    [Fact]
+    public void BuildScript_RaisesTheActiveFlagAtTheTopOfPrecmd()
+    {
+        string script = BashBootstrapBuilder.BuildScript();
+
+        int precmdIndex = script.IndexOf("__nova_precmd() {", StringComparison.Ordinal);
+        int raiseIndex = script.IndexOf("    __nova_command_active=1", precmdIndex, StringComparison.Ordinal);
+        int completionIndex = script.IndexOf("__nova_emit_completion", precmdIndex, StringComparison.Ordinal);
+
+        Assert.True(raiseIndex > precmdIndex, "__nova_precmd must raise the active flag");
+        Assert.True(raiseIndex < completionIndex, "it must be raised before anything else in the chain runs");
+    }
+
+    /// <summary>
+    /// <c>$BASH_COMMAND</c> in a DEBUG trap is the first SIMPLE COMMAND of the line, not the line:
+    /// <c>true &amp;&amp; false</c> was recorded as <c>true</c>, i.e. the wrong text beside the
+    /// other branch's exit code. The line is read back out of history instead (bash-preexec's
+    /// approach), with <c>$BASH_COMMAND</c> kept only as the fallback for a shell whose history is
+    /// off.
+    /// </summary>
+    [Fact]
+    public void BuildScript_ReadsTheAcceptedLineFromHistoryRatherThanBashCommand()
+    {
+        string script = BashBootstrapBuilder.BuildScript();
+
+        Assert.Contains("HISTTIMEFORMAT='' builtin history 1", script);
+        Assert.Contains("cmd=$(__nova_history_line)", script);
+        Assert.Contains("[ -n \"$cmd\" ] || cmd=\"$BASH_COMMAND\"", script);
+    }
+
+    /// <summary>
+    /// The DEBUG-trap name filter used to skip anything starting with <c>trap</c> or
+    /// <c>PROMPT_COMMAND</c>, which silently dropped real user commands beginning with either word.
+    /// The busy-flag invariant is what keeps our own hooks out; the name patterns were unnecessary.
+    /// </summary>
+    [Fact]
+    public void BuildScript_OnlyFiltersItsOwnHookNamesFromTheDebugTrap()
+    {
+        string script = BashBootstrapBuilder.BuildScript();
+
+        Assert.Contains("__nova_*) return ;;", script);
+        Assert.DoesNotContain("trap*|", script);
+        Assert.DoesNotContain("PROMPT_COMMAND*) return", script);
+    }
+
     [Fact]
     public void BuildScript_SourcesUserBashrcIfPresent()
     {

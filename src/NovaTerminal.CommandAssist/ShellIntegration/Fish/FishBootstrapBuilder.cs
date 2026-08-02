@@ -26,12 +26,17 @@ public static class FishBootstrapBuilder
         // `date` leaves a literal "%N", which would break the `math` call.
         // Detect at runtime: if the output is digits-only, treat as
         // nanoseconds; otherwise fall back to second precision.
+        //
+        // -s0 on every `math` call. fish's default scale is 6, so the division
+        // prints "1780000000123.456787" and the OSC 133;D duration stops being
+        // an integer -- AnsiParser parses that field with long.TryParse, so a
+        // fractional value is not a rounded duration, it is NO duration.
         b.Append("function __nova_now_ms").Append(nl);
         b.Append("    set -l raw (date +%s%N 2>/dev/null)").Append(nl);
         b.Append("    if string match -qr '^[0-9]+$' -- $raw").Append(nl);
-        b.Append("        math \"$raw / 1000000\"").Append(nl);
+        b.Append("        math -s0 \"$raw / 1000000\"").Append(nl);
         b.Append("    else").Append(nl);
-        b.Append("        math (date +%s) \"* 1000\"").Append(nl);
+        b.Append("        math -s0 (date +%s) \"* 1000\"").Append(nl);
         b.Append("    end").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
@@ -54,7 +59,7 @@ public static class FishBootstrapBuilder
         b.Append("    set -l exit $status").Append(nl);
         b.Append("    if test -n \"$__nova_command_start_ms\"").Append(nl);
         b.Append("        set -l now_ms (__nova_now_ms)").Append(nl);
-        b.Append("        set -l duration_ms (math $now_ms - $__nova_command_start_ms)").Append(nl);
+        b.Append("        set -l duration_ms (math -s0 $now_ms - $__nova_command_start_ms)").Append(nl);
         b.Append("        printf '\\033]133;D;%s;%s\\a' $exit $duration_ms").Append(nl);
         b.Append("        set -g __nova_command_start_ms \"\"").Append(nl);
         b.Append("    end").Append(nl);

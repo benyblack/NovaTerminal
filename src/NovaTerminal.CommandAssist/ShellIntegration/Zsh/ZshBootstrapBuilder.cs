@@ -22,7 +22,14 @@ public static class ZshBootstrapBuilder
         // Load zsh's native datetime module so $EPOCHREALTIME is available
         // for portable millisecond timing. `date +%s%N` is GNU-only and
         // leaves a literal "%N" on macOS/BSD, breaking arithmetic.
-        b.Append("zmodload -F zsh/datetime +b:EPOCHREALTIME 2>/dev/null || true").Append(nl);
+        //
+        // +p: because EPOCHREALTIME is a PARAMETER. `zmodload -F` with an
+        // unknown feature name fails, and with the error swallowed the module
+        // never loads at all: $EPOCHREALTIME stays unset, __nova_now_ms falls
+        // back to `date +%s`, and every duration is reported as a whole number
+        // of seconds. (+b: is the builtin namespace, which has no
+        // EPOCHREALTIME in it.)
+        b.Append("zmodload -F zsh/datetime +p:EPOCHREALTIME 2>/dev/null || true").Append(nl);
         b.Append(nl);
         b.Append("__nova_now_ms() {").Append(nl);
         b.Append("    if (( ${+EPOCHREALTIME} )); then").Append(nl);
@@ -76,8 +83,22 @@ public static class ZshBootstrapBuilder
         b.Append("    __nova_command_start_ms=$(__nova_now_ms)").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
+        // Two precmd hooks at opposite ends of precmd_functions, because the
+        // two jobs want opposite positions. $? inside a precmd hook is the
+        // status of whatever ran immediately before it, and for an APPENDED
+        // hook that is the previous precmd hook rather than the user's
+        // command -- so on any setup with another precmd registered (oh-my-zsh,
+        // powerlevel10k, a vcs_info hook) the reported exit code was that
+        // hook's, i.e. almost always 0. Snapshotting $? has to happen in a hook
+        // that runs FIRST. Re-applying the prompt mark has to happen in a hook
+        // that runs LAST, after any theme has finished rewriting PROMPT.
+        b.Append("typeset -g __nova_last_status=0").Append(nl);
+        b.Append("__nova_status_snapshot() {").Append(nl);
+        b.Append("    __nova_last_status=$?").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
         b.Append("__nova_precmd() {").Append(nl);
-        b.Append("    local exit=$?").Append(nl);
+        b.Append("    local exit=$__nova_last_status").Append(nl);
         b.Append("    if [ -n \"$__nova_command_start_ms\" ]; then").Append(nl);
         b.Append("        local now_ms duration_ms").Append(nl);
         b.Append("        now_ms=$(__nova_now_ms)").Append(nl);
@@ -90,6 +111,8 @@ public static class ZshBootstrapBuilder
         b.Append("}").Append(nl);
         b.Append(nl);
         b.Append("typeset -ag precmd_functions preexec_functions").Append(nl);
+        // Prepended, not appended: see __nova_status_snapshot above.
+        b.Append("precmd_functions=(__nova_status_snapshot \"${precmd_functions[@]}\")").Append(nl);
         b.Append("precmd_functions+=(__nova_precmd)").Append(nl);
         b.Append("preexec_functions+=(__nova_preexec)").Append(nl);
         b.Append(nl);
