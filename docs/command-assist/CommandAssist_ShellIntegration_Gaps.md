@@ -148,8 +148,23 @@ refresh pass, on the worker the pass already runs on, not on the keystroke that 
 keystroke is a trigger carrying no text; the pass resolves its own query. Passes supersede each
 other through the existing per-pass `CancellationTokenSource`, so a burst of keystrokes applies one
 read, the last one. That is coalescing by supersession, not by timing: there is no debounce, which
-is a Phase 3 policy decision. The window that remains is a pass whose read beats the shell's echo
-of the final character, which ranks a one-character-stale query until the next trigger.
+is a Phase 3 policy decision.
+
+The window that remains is a read that beats the shell's echo of the character just typed, and it is
+worth restating because an earlier revision of this document understated it as "ranks a
+one-character-stale query". For *ranking*, that is the whole of it. For *insertion* it was a
+corruption bug. The stale read is internally perfect — `git st` with the cursor at offset 6, every
+planner guard satisfied — while the PTY already holds `git sta`; and because the stale text is always
+a strict **prefix** of the true line, no `StartsWith`-style check can ever catch it. `Ctrl+Enter` on a
+row ranked from `git st` would append `atus` to a line that already reads `git sta`, and the line
+becomes `git staatus`. Guarded now: `TerminalPane` tracks `_hasUnechoedInput` — set by
+`TextInputObserved` / `BackspaceObserved`, cleared once session bytes have been parsed into the
+grid — and `TryInsertSelectedCommandAssistSuggestion` refuses while it is set, which is the same
+refusal-on-doubt rule the planner's four conditions follow. Ranking is deliberately left unguarded: a
+marginally worse row for one keystroke does not justify going quiet, and the next trigger corrects it.
+The clear is approximate in one direction only — unrelated session output can clear the flag early,
+leaving the original window open — but never the other, because output that has been parsed is
+output that is in the grid.
 
 **3. Insertion refuses rather than guesses.** `CommandAssistInsertionPlanner` keeps the V1 rule that
 insertion is additive — send only the characters the suggestion adds, never delete, never move the
@@ -194,9 +209,27 @@ costs, concretely:
   (which is strictly better than the mirror ever was, since the grid survives all of those edits),
   and every command after it comes from the `133;C` payload.
 
+  **This is a hole, not a resting state, and it is tracked as Phase 1 task 7 in
+  `docs/plans/2026-08-01-command-assist-v2-plan.md` — required before the flag flip.** The affected
+  population is not marginal: `cmd.exe`, every shell whose bootstrap bailed out, and *every* SSH
+  session, since SSH launch plans skip provider injection. For those, history never fills, so
+  `Ctrl+R` is an empty box rather than a browse-only one. The replacement is deliberately not the
+  mirror: it is a **poisoned** capture-only accumulator confined to `TerminalPane`
+  (`TextInputObserved` appends, `BackspaceObserved` chops, any key the pane does not model — arrows,
+  `Home`/`End`, `Delete`, `Tab`, page keys, F-keys, unowned chords — poisons it, paste poisons it,
+  `Enter` and `Ctrl+C` reset it), consulted at Enter only when the grid has nothing, and never used
+  as the query. The distinction from V1 is the whole argument: V1's mirror answered "what is on the
+  line" with a guess and failed *silently and wrongly*; a poisoned accumulator turns itself off the
+  moment it stops knowing, so its outcomes are "exactly what was typed" or "nothing". That is the
+  same bar the grid reader is held to, reached by a different mechanism, and it is deletable once
+  Phase 2 gives instrumented remotes real marks.
+
 **`Ctrl+R` in a degraded session** still opens and still helps, because history is per user rather
 than per session: with no query to filter on, Search shows the recency list, which includes
-everything captured in instrumented sessions. It is browse-only — see the insertion rule above.
+everything captured in instrumented sessions. It is browse-only — see the insertion rule above. It
+also says so: the bubble is labelled **`History - recent`** rather than `History` when no query can
+be read, because an identical-looking filter box that silently cannot filter reads as a bug the
+first time a keystroke fails to narrow it.
 
 ## Current Limitations
 - shell integration is local-only; SSH launch plans skip provider injection
