@@ -35,6 +35,16 @@ namespace NovaTerminal.Shell
         // trade-off or any other unforeseen encoding issue - flip this off instead of having
         // to fight the TUI that turned the protocol on.
         public bool EnableKittyKeyboardProtocol { get; set; } = true;
+        // Settings gate for OSC 52 clipboard-write support (issue #268). Default on for
+        // local sessions: AnsiParser.OnClipboardWrite always fires (VT stays policy-free),
+        // and this flag is what TerminalPane checks before actually touching the system
+        // clipboard. Read (answering an OSC 52 query with real clipboard contents) is never
+        // implemented regardless of this setting - it only ever gates the write path.
+        // Single global setting for now, no per-profile override: an SSH session forwarding
+        // OSC 52 from a remote TUI is indistinguishable from a local one at this layer, so a
+        // profile-scoped opt-in (e.g. disabling for untrusted SSH hosts specifically) is
+        // future work rather than a v1 requirement.
+        public bool AllowOsc52ClipboardWrite { get; set; } = true;
         // Scroll units forwarded per wheel notch. For own-buffer scrolling this is lines
         // per notch; for a mouse-reporting TUI it is wheel clicks per notch. Higher =
         // smoother/finer (more steps per notch), lower = coarser. Matters most for

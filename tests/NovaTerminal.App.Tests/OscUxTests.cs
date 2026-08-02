@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Text;
 using NovaTerminal.Shell;
 using NovaTerminal.Platform;
 using NovaTerminal.VT;
@@ -176,6 +178,162 @@ namespace NovaTerminal.Tests
 
             var response = Assert.Single(responses);
             Assert.Equal("\u001b]11;rgb:1111/2222/3333\u001b\\", response);
+        }
+
+        // Issue #268: OSC 52 clipboard write (write-only, settings-gated at the App layer;
+        // the parser itself stays policy-free and always raises OnClipboardWrite / always
+        // answers queries with a denial - see AnsiParser.HandleOscClipboard). ESC is written
+        // as a hex escape in this block, unlike the rest of this file; every occurrence here
+        // is immediately followed by a non-hex-digit character (']', '?', etc.) so there is
+        // no hex-ambiguous extra-digit hazard.
+
+        [Fact]
+        public void Osc52_ValidWrite_RaisesEventOnceWithDecodedBytesAndTarget_BelTerminated()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+            var writes = new List<(string Target, byte[] Data)>();
+            parser.OnClipboardWrite = (target, data) => writes.Add((target, data));
+
+            string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes("hello clipboard"));
+            parser.Process("\x1b]52;c;" + base64 + "\a");
+
+            var write = Assert.Single(writes);
+            Assert.Equal("c", write.Target);
+            Assert.Equal("hello clipboard", Encoding.UTF8.GetString(write.Data));
+        }
+
+        [Fact]
+        public void Osc52_ValidWrite_RaisesEventOnceWithDecodedBytesAndTarget_StTerminated()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+            var writes = new List<(string Target, byte[] Data)>();
+            parser.OnClipboardWrite = (target, data) => writes.Add((target, data));
+
+            string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes("hello clipboard"));
+            parser.Process("\x1b]52;c;" + base64 + "\x1b\\");
+
+            var write = Assert.Single(writes);
+            Assert.Equal("c", write.Target);
+            Assert.Equal("hello clipboard", Encoding.UTF8.GetString(write.Data));
+        }
+
+        [Fact]
+        public void Osc52_EmptyTargets_DefaultsToClipboard()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+            var writes = new List<(string Target, byte[] Data)>();
+            parser.OnClipboardWrite = (target, data) => writes.Add((target, data));
+
+            string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes("x"));
+            parser.Process("\x1b]52;;" + base64 + "\a");
+
+            var write = Assert.Single(writes);
+            Assert.Equal("c", write.Target);
+        }
+
+        [Fact]
+        public void Osc52_PrimaryTarget_AlsoMapsToClipboard()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+            var writes = new List<(string Target, byte[] Data)>();
+            parser.OnClipboardWrite = (target, data) => writes.Add((target, data));
+
+            string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes("x"));
+            parser.Process("\x1b]52;p;" + base64 + "\a");
+
+            var write = Assert.Single(writes);
+            Assert.Equal("p", write.Target);
+        }
+
+        [Fact]
+        public void Osc52_UnsupportedTarget_IsIgnored()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+            var writes = new List<(string Target, byte[] Data)>();
+            var responses = new List<string>();
+            parser.OnClipboardWrite = (target, data) => writes.Add((target, data));
+            parser.OnResponse = r => responses.Add(r);
+
+            string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes("x"));
+            // "s" (a cut buffer, not clipboard/primary) is not a target we act on.
+            parser.Process("\x1b]52;s;" + base64 + "\a");
+            parser.Process("\x1b]52;s;?\a");
+
+            Assert.Empty(writes);
+            Assert.Empty(responses);
+        }
+
+        [Fact]
+        public void Osc52_OversizedPayload_NoEventRaised()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+            var writes = new List<(string Target, byte[] Data)>();
+            parser.OnClipboardWrite = (target, data) => writes.Add((target, data));
+
+            // 1 MiB + 1 byte, post-decode - over the cap and must be dropped silently.
+            byte[] oversized = new byte[1024 * 1024 + 1];
+            string base64 = Convert.ToBase64String(oversized);
+            parser.Process("\x1b]52;c;" + base64 + "\a");
+
+            Assert.Empty(writes);
+        }
+
+        [Fact]
+        public void Osc52_InvalidBase64_NoEvent_ParserContinuesWorking()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+            var writes = new List<(string Target, byte[] Data)>();
+            parser.OnClipboardWrite = (target, data) => writes.Add((target, data));
+
+            // '!' is not a valid base64 character.
+            parser.Process("\x1b]52;c;not-valid-base64!!\a");
+
+            Assert.Empty(writes);
+
+            // Parser state must not be corrupted: a subsequent valid write still works.
+            string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes("still works"));
+            parser.Process("\x1b]52;c;" + base64 + "\a");
+
+            var write = Assert.Single(writes);
+            Assert.Equal("still works", Encoding.UTF8.GetString(write.Data));
+        }
+
+        [Fact]
+        public void Osc52_Query_RespondsWithEmptyDenial_NotClipboardContents_BelTerminated()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+            var writes = new List<(string Target, byte[] Data)>();
+            var responses = new List<string>();
+            parser.OnClipboardWrite = (target, data) => writes.Add((target, data));
+            parser.OnResponse = r => responses.Add(r);
+
+            parser.Process("\x1b]52;c;?\a");
+
+            var response = Assert.Single(responses);
+            Assert.Equal("\x1b]52;c;\x1b\\", response);
+            Assert.Empty(writes);
+        }
+
+        [Fact]
+        public void Osc52_Query_RespondsWithEmptyDenial_StTerminated()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer);
+            var responses = new List<string>();
+            parser.OnResponse = r => responses.Add(r);
+
+            parser.Process("\x1b]52;c;?\x1b\\");
+
+            var response = Assert.Single(responses);
+            Assert.Equal("\x1b]52;c;\x1b\\", response);
         }
     }
 }

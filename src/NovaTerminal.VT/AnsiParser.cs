@@ -80,6 +80,14 @@ namespace NovaTerminal.VT
         public TermColor? DefaultBackground { get; set; }
 
         /// <summary>
+        /// Post-decode size cap for OSC 52 clipboard-write payloads (issue #268): 1 MiB.
+        /// Oversized payloads are dropped silently (logged via <see cref="TerminalLogger"/>)
+        /// rather than raising <see cref="OnClipboardWrite"/>, so a runaway or malicious
+        /// payload can't push an arbitrarily large blob onto the system clipboard.
+        /// </summary>
+        private const int Osc52MaxDecodedBytes = 1024 * 1024;
+
+        /// <summary>
         /// Host-settable kill switch for the kitty keyboard protocol (issue #266 / PR #277
         /// review, Blocker 2), wired the same way <see cref="DefaultForeground"/> was in
         /// PR #275: the App layer sets this from <c>TerminalSettings.EnableKittyKeyboardProtocol</c>
@@ -98,6 +106,22 @@ namespace NovaTerminal.VT
         public Action? OnBell { get; set; }
         public Action<string>? OnWorkingDirectoryChanged { get; set; }
         public Action<string>? OnTitleChanged { get; set; }
+
+        /// <summary>
+        /// Raised when an OSC 52 clipboard-write sequence (issue #268) decodes successfully:
+        /// <c>target</c> is the raw targets string from the sequence (already defaulted to
+        /// "c" if the sequence omitted it) and <c>data</c> is the base64-decoded payload,
+        /// size-capped at <see cref="Osc52MaxDecodedBytes"/>. Decoding, target defaulting,
+        /// the size cap, and the query-denial reply are all handled in this parser (see
+        /// <see cref="HandleOscClipboard"/>) - NovaTerminal.VT does not know about settings
+        /// or the system clipboard by design. The App layer decides whether to honor this
+        /// event (its own settings gate) and how to reach the clipboard.
+        ///
+        /// Clipboard READ (answering a query with real clipboard contents) is never
+        /// implemented; queries always get the empty-payload denial reply via
+        /// <see cref="OnResponse"/>, never this event.
+        /// </summary>
+        public Action<string, byte[]>? OnClipboardWrite { get; set; }
         public Action? OnPromptReady { get; set; }
         public Action<string>? OnCommandAccepted { get; set; }
         public Action? OnCommandStarted { get; set; }
@@ -1696,6 +1720,14 @@ namespace NovaTerminal.VT
                 return;
             }
 
+            // OSC 52: clipboard write (issue #268). See HandleOscClipboard for the format
+            // and the security posture (write-only, size-capped, read-denial-only).
+            if (code == "52")
+            {
+                HandleOscClipboard(data);
+                return;
+            }
+
             // OSC 133: shell integration markers.
             // Common terminals/shell integrations emit:
             //   OSC 133;A     -> prompt ready
@@ -1822,6 +1854,77 @@ namespace NovaTerminal.VT
 
                 slotCode++;
             }
+        }
+
+        // OSC 52 clipboard write (issue #268). Format: "OSC 52 ; <targets> ; <payload> ST/BEL"
+        // (BEL and ST termination are both already normalized away by the caller before
+        // HandleOsc ever sees this string, same as OSC 10/11 above).
+        //
+        // <targets> selects one or more selection buffers (c = clipboard, p = primary,
+        // q/s/0-7 = other X11 selections/cut buffers). This terminal has no primary-selection
+        // concept of its own, so both 'c' and 'p' are mapped to the single system clipboard;
+        // any other/unsupported target character is ignored rather than acted on, matching
+        // how other terminals no-op on selections they don't back. An empty targets string
+        // defaults to "c" per xterm.
+        //
+        // <payload> of "?" is a read query. Clipboard READ is never implemented here (security -
+        // see issue #268): terminals that deny OSC 52 reads reply with an empty payload rather
+        // than staying silent (silence would leave a TUI's read timeout to expire, the same
+        // failure mode #265 fixed for OSC 10/11), so an empty-payload denial is sent via
+        // OnResponse instead. Any other payload is treated as base64; invalid base64 is
+        // dropped silently, and a successfully decoded payload over Osc52MaxDecodedBytes is
+        // also dropped (logged) rather than raised. Decoding happens here in the parser so
+        // the App layer only ever sees raw bytes - the settings gate and clipboard access are
+        // host policy and live entirely outside NovaTerminal.VT.
+        private void HandleOscClipboard(string data)
+        {
+            int split = data.IndexOf(';');
+            string targets = split >= 0 ? data.Substring(0, split) : data;
+            string payload = split >= 0 ? data.Substring(split + 1) : string.Empty;
+
+            if (string.IsNullOrEmpty(targets))
+            {
+                targets = "c";
+            }
+
+            bool targetsClipboard = false;
+            foreach (char t in targets)
+            {
+                if (t == 'c' || t == 'p')
+                {
+                    targetsClipboard = true;
+                    break;
+                }
+            }
+
+            if (!targetsClipboard) return;
+
+            if (payload == "?")
+            {
+                // Denial reply: empty payload, always ST-terminated (matches the OSC 10/11
+                // reply convention above) regardless of how the query itself was terminated.
+                OnResponse?.Invoke($"\x1b]52;{targets};\x1b\\");
+                return;
+            }
+
+            byte[] decoded;
+            try
+            {
+                decoded = Convert.FromBase64String(payload);
+            }
+            catch (FormatException)
+            {
+                // Invalid base64: drop silently (issue #268); the parser continues normally.
+                return;
+            }
+
+            if (decoded.Length > Osc52MaxDecodedBytes)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] OSC 52 clipboard write dropped: decoded payload {decoded.Length} bytes exceeds {Osc52MaxDecodedBytes} byte cap");
+                return;
+            }
+
+            OnClipboardWrite?.Invoke(targets, decoded);
         }
 
         private static string FormatOscColorResponse(string code, TermColor color)

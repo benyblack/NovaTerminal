@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "aabe0a375c225308967b4100d129479dddde84295e2bf9dd64d83dbafda3a5a6",
+  "matrixSha256": "1f7faadd0b15ca1440e38e2be118e0382d621093812d5d006a26daeafd127929",
   "summary": {
     "totalRows": 58,
     "supportedCount": 18,
-    "partialCount": 33,
+    "partialCount": 34,
     "experimentalCount": 1,
-    "notSupportedCount": 5,
+    "notSupportedCount": 4,
     "wontSupportCount": 1,
-    "rowsWithLinkedEvidence": 32,
+    "rowsWithLinkedEvidence": 33,
     "supportedRowsWithLinkedEvidence": 18,
     "errorCount": 0,
     "warningCount": 0
@@ -958,15 +958,26 @@
     {
       "section": "8) OSC sequences",
       "feature": "OSC 52",
-      "status": "\u274C Not supported",
+      "status": "\u26A0 Partial",
       "specOrNotes": "",
-      "evidenceText": "\u2014",
-      "evidenceKinds": [],
-      "evidenceLinks": [],
-      "hasAutomatedEvidenceSignal": false,
-      "hasLinkedEvidence": false,
-      "ownership": "App/UI",
-      "knownDeviations": "",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Controls/PaneParserWiringTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.App.Tests/Controls/PaneParserWiringTests.cs",
+          "exists": true
+        },
+        {
+          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
+          "exists": true
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BApp",
+      "knownDeviations": "Write-only (issue #268): valid base64 decodes and raises \u0060AnsiParser.OnClipboardWrite\u0060, capped at 1 MiB post-decode; invalid base64 dropped silently. Targets \u0060c\u0060/\u0060p\u0060 both map to the system clipboard, other selection chars ignored. Query (\u0060?\u0060) always gets an empty-payload denial reply, never real clipboard contents \u2014 clipboard READ is unsupported by design (security). Gated by \u0060TerminalSettings.AllowOsc52ClipboardWrite\u0060 (default true, single global setting; per-profile/SSH-scoped opt-in is future work)",
       "sourceLine": 148
     },
     {
