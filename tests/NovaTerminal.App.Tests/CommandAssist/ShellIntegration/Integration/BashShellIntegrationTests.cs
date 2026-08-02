@@ -71,6 +71,37 @@ public sealed class BashShellIntegrationTests : IDisposable
     }
 
     [Fact]
+    public void Bootstrap_EmitsCommandStartMarkPastThePromptText()
+    {
+        // The B mark rides at the tail of PS1, so by the time the parser sees
+        // it the prompt has already been painted: the mark must land at a
+        // non-zero column (i.e. after the prompt cells), not at the start of
+        // the line where A was emitted.
+        HarnessResult result = RunBash("exit 0\n", extraInitLine: "PS1='nova-test$ '");
+
+        var marks = result.Events.Where(e => e.Kind == "B").ToList();
+        Assert.NotEmpty(marks);
+        Assert.Contains(marks, m => m.MarkPosition is { column: > 0 });
+    }
+
+    [Fact]
+    public void Bootstrap_DoesNotAccumulatePromptMarksAcrossPromptCycles()
+    {
+        // __nova_apply_ps1_mark is called once per prompt; without its
+        // containment guard PS1 would grow one marker per cycle and the
+        // parser would see an ever-increasing burst of B marks.
+        HarnessResult result = RunBash("true\ntrue\nexit 0\n", extraInitLine: "PS1='nova-test$ '");
+
+        int prompts = result.Events.Count(e => e.Kind == "A");
+        int marks = result.Events.Count(e => e.Kind == "B");
+
+        // One B per painted prompt, give or take repaints; the failure mode
+        // this guards is quadratic growth, so a generous bound still catches it.
+        Assert.True(marks <= prompts * 2,
+            $"expected at most one B per prompt repaint, got {marks} B for {prompts} A");
+    }
+
+    [Fact]
     public void Bootstrap_ReportsNonZeroExitCode_ForFailingCommand()
     {
         HarnessResult result = RunBash("false\nexit 0\n");

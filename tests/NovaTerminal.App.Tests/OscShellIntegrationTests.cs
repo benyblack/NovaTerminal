@@ -13,12 +13,16 @@ public sealed class OscShellIntegrationTests
     {
         var buffer = new TerminalBuffer(80, 24);
         var parser = new AnsiParser(buffer);
-        bool started = false;
+        ShellIntegrationMark? mark = null;
 
-        parser.OnCommandStarted += () => started = true;
+        parser.OnCommandStarted += m => mark = m;
+        parser.Process("$ ");
         parser.Process("\x1b]133;B\x07");
 
-        Assert.True(started);
+        Assert.NotNull(mark);
+        // The mark carries where the user's input starts; see
+        // NovaTerminal.VT.Tests/Osc133CommandStartMarkTests for the full contract.
+        Assert.Equal(2, mark!.Value.Column);
     }
 
     [Fact]

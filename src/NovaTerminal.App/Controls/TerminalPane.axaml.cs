@@ -1735,15 +1735,16 @@ namespace NovaTerminal.Controls
             {
                 _lastRelevantCommandText = commandText?.Trim();
                 _shellLifecycleTracker?.HandleCommandAccepted(commandText);
-                _agentRegistration?.StatusMachine.NotifyCommandAccepted(commandText);
-            };
-            Parser.OnCommandStarted += () =>
-            {
-                _shellLifecycleTracker?.HandleCommandStarted();
+                // OSC 133;C is the execution-start edge: the line editor is closed and the
+                // shell is about to run the command. (OSC 133;B, below, only says the prompt
+                // finished printing -- the shell is idle waiting for input at that point, so
+                // driving "running" off B would report every idle prompt as a busy session.)
+                //
                 // Status machine is notified synchronously on the parser path so
                 // command-lifecycle signals keep their emission order relative to
-                // OnCommandAccepted/OnPromptReady (the UI post below would let a
+                // OnCommandStarted/OnPromptReady (the UI post below would let a
                 // snapshot briefly see AwaitingInput with CurrentCommand set).
+                _agentRegistration?.StatusMachine.NotifyCommandAccepted(commandText);
                 _agentRegistration?.StatusMachine.NotifyCommandStarted();
                 _lastCommandStartedAtUtc = DateTimeOffset.UtcNow;
                 Dispatcher.UIThread.Post(() =>
@@ -1751,6 +1752,16 @@ namespace NovaTerminal.Controls
                     LastExitCode = null;
                     CommandStarted?.Invoke(this);
                 });
+            };
+            Parser.OnCommandStarted += mark =>
+            {
+                // OSC 133;B == prompt end / start of user input. The mark position is the
+                // anchor Command Assist uses to read the live command line out of the grid.
+                _shellLifecycleTracker?.HandleCommandStarted(new ShellMarkPosition(
+                    Row: mark.Row,
+                    Column: mark.Column,
+                    AbsoluteRow: mark.AbsoluteRow,
+                    IsAltScreen: mark.IsAltScreen));
             };
             Parser.OnCommandFinished += exitCode =>
             {

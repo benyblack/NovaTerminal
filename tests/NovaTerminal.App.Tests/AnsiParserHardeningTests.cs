@@ -120,7 +120,7 @@ public sealed class AnsiParserHardeningTests
         var buffer = new TerminalBuffer(80, 24);
         var parser = new AnsiParser(buffer);
         int startedCount = 0;
-        parser.OnCommandStarted = () => startedCount++;
+        parser.OnCommandStarted = _ => startedCount++;
 
         parser.Process("\x1b]0;bad-title\x1b]133;B\x07X");
 

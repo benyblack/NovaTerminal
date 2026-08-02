@@ -165,7 +165,17 @@ namespace NovaTerminal.VT
         public Action<string, byte[]>? OnClipboardWrite { get; set; }
         public Action? OnPromptReady { get; set; }
         public Action<string>? OnCommandAccepted { get; set; }
-        public Action? OnCommandStarted { get; set; }
+        /// <summary>
+        /// OSC 133;B — prompt end / start of the user's input line. The argument carries where
+        /// the mark landed in the buffer (see <see cref="ShellIntegrationMark"/>), which is the
+        /// anchor for reading the live command line out of the grid.
+        /// </summary>
+        /// <remarks>
+        /// B is <b>not</b> "the command began executing" — that edge is OSC 133;C
+        /// (<see cref="OnCommandAccepted"/>). B fires once per prompt, including on every
+        /// prompt repaint, and the shell is idle waiting for input when it does.
+        /// </remarks>
+        public Action<ShellIntegrationMark>? OnCommandStarted { get; set; }
         public Action<int?>? OnCommandFinished { get; set; }
         public Action<int?, long?>? OnCommandFinishedDetailed { get; set; }
 
@@ -1696,6 +1706,29 @@ namespace NovaTerminal.VT
             }
         }
 
+        /// <summary>
+        /// Snapshots the cursor as a <see cref="ShellIntegrationMark"/>. Called synchronously
+        /// while the OSC is being dispatched, so the cursor is still exactly where the shell
+        /// left it when it wrote the mark — for OSC 133;B that is the first cell of the user's
+        /// input, immediately after the last prompt cell.
+        /// </summary>
+        private ShellIntegrationMark CaptureCursorMark()
+        {
+            bool isAltScreen = _buffer.IsAltScreenActive;
+
+            // The alt screen has no scrollback: rows are addressed by viewport row alone and
+            // there is no eviction counter to anchor against.
+            int scrollbackRows = isAltScreen ? 0 : _buffer.Scrollback.Count;
+            long evictedRows = isAltScreen ? 0 : _buffer.Scrollback.TotalRowsEvicted;
+
+            int row = scrollbackRows + _buffer.CursorRow;
+            return new ShellIntegrationMark(
+                Row: row,
+                Column: _buffer.CursorCol,
+                AbsoluteRow: evictedRows + row,
+                IsAltScreen: isAltScreen);
+        }
+
         private void HandleOsc(string osc)
         {
             if (string.IsNullOrEmpty(osc)) return;
@@ -1771,10 +1804,15 @@ namespace NovaTerminal.VT
 
             // OSC 133: shell integration markers.
             // Common terminals/shell integrations emit:
-            //   OSC 133;A     -> prompt ready
-            //   OSC 133;B   -> command started
+            //   OSC 133;A     -> prompt start (prompt ready)
+            //   OSC 133;B     -> prompt end / start of user input; reported with the cursor
+            //                    position at parse time, which is where the command line begins
             //   OSC 133;C;X -> command accepted with base64-encoded command X
             //   OSC 133;D;N[;M] -> command finished with exit code N and optional duration M
+            //
+            // Any parameters after the marker letter are tolerated and ignored (FinalTerm
+            // allows key=value attributes on these marks, e.g. "133;B;aid=7"), so a payload
+            // we don't understand still produces the mark rather than being dropped.
             if (code == "133")
             {
                 if (string.IsNullOrWhiteSpace(data)) return;
@@ -1791,7 +1829,7 @@ namespace NovaTerminal.VT
                 }
                 else if (string.Equals(marker, "B", StringComparison.Ordinal))
                 {
-                    OnCommandStarted?.Invoke();
+                    OnCommandStarted?.Invoke(CaptureCursorMark());
                 }
                 else if (string.Equals(marker, "C", StringComparison.Ordinal))
                 {

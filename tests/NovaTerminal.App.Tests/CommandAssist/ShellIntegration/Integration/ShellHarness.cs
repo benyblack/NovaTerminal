@@ -24,6 +24,19 @@ internal sealed record OscEvent(string Kind, string? Payload)
         }
     }
 
+    /// <summary>Row/column carried by an OSC 133;B mark, or null for other kinds.</summary>
+    public (int row, int column)? MarkPosition
+    {
+        get
+        {
+            if (Kind != "B" || Payload is null) return null;
+            string[] parts = Payload.Split(',');
+            if (parts.Length != 2) return null;
+            if (!int.TryParse(parts[0], out int row) || !int.TryParse(parts[1], out int column)) return null;
+            return (row, column);
+        }
+    }
+
     public (int? exitCode, long? durationMs) DecodedFinish
     {
         get
@@ -129,6 +142,13 @@ internal static class ShellHarness
         parser.OnPromptReady = () =>
         {
             lock (sync) events.Add(new OscEvent("A", null));
+        };
+        parser.OnCommandStarted = mark =>
+        {
+            // OSC 133;B carries the buffer position of the prompt/input boundary;
+            // record it as "row,col" so tests can assert the mark landed past the
+            // prompt text rather than at column 0.
+            lock (sync) events.Add(new OscEvent("B", $"{mark.Row},{mark.Column}"));
         };
         parser.OnCommandAccepted = text =>
         {

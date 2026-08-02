@@ -71,6 +71,20 @@ public sealed class ZshShellIntegrationTests : IDisposable
     }
 
     [Fact]
+    public void Bootstrap_EmitsCommandStartMarkPastThePromptText()
+    {
+        // The B mark is appended to PROMPT as a %{...%} zero-width sequence,
+        // so it is parsed after the prompt cells are painted: a non-zero
+        // column proves it landed at the start of the input, not at the
+        // prompt-start position where A was emitted.
+        HarnessResult result = RunZsh("exit 0\n");
+
+        var marks = result.Events.Where(e => e.Kind == "B").ToList();
+        Assert.NotEmpty(marks);
+        Assert.Contains(marks, m => m.MarkPosition is { column: > 0 });
+    }
+
+    [Fact]
     public void Bootstrap_ReportsNonZeroExitCode_ForFailingCommand()
     {
         HarnessResult result = RunZsh("false\nexit 0\n");

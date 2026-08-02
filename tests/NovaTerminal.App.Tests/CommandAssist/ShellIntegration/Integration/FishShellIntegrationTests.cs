@@ -63,6 +63,19 @@ public sealed class FishShellIntegrationTests : IDisposable
     }
 
     [Fact]
+    public void Bootstrap_EmitsCommandStartMarkPastThePromptText()
+    {
+        // fish_prompt is copied aside and re-defined as "original, then B",
+        // so the mark is parsed once the user's prompt has been painted: a
+        // non-zero column proves it landed at the start of the input.
+        HarnessResult result = RunFish("exit 0\n");
+
+        var marks = result.Events.Where(e => e.Kind == "B").ToList();
+        Assert.NotEmpty(marks);
+        Assert.Contains(marks, m => m.MarkPosition is { column: > 0 });
+    }
+
+    [Fact]
     public void Bootstrap_ReportsNonZeroExitCode_ForFailingCommand()
     {
         HarnessResult result = RunFish("false\nexit 0\n");
