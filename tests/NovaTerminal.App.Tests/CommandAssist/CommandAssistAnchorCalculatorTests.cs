@@ -430,6 +430,252 @@ public sealed class CommandAssistAnchorCalculatorTests
         Assert.True(layout.UseCompactBubbleLayout);
     }
 
+    // ------------------------------------------------------------------ mark anchor (V2 Phase 2a)
+    //
+    // The mark anchor is a known prompt row rather than a guessed one, so these cases assert two
+    // things at once: that the row is honoured exactly, and that none of the band ratios that hedge
+    // the guess get a say. Several are written as a mark/no-mark pair against otherwise identical
+    // inputs, because "the mark changed the answer" is the property, and a single-layout assertion
+    // can be satisfied by the heuristic happening to agree.
+
+    [Fact]
+    public void Calculate_WhenMarkAnchorIsMidViewport_AnchorsPromptToTheMarkRow()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        const int markRow = 12;
+        const double cellHeight = 18;
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 960,
+            PaneHeight: 540,
+            CellHeight: cellHeight,
+            CursorVisualRow: 3,
+            VisibleRows: 30,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasMarkAnchor: true,
+            MarkVisualRow: markRow));
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.True(layout.UsesPromptAnchor);
+        Assert.Equal(markRow * cellHeight, layout.PromptRect.Top, precision: 1);
+        Assert.True(layout.BubbleRect.Bottom <= layout.PromptRect.Top,
+            $"Expected mark-anchored bubble bottom {layout.BubbleRect.Bottom} to clear mark row top {layout.PromptRect.Top}.");
+        Assert.Equal(4, layout.PromptRect.Top - layout.BubbleRect.Bottom, precision: 1);
+    }
+
+    [Fact]
+    public void Calculate_WhenMarkAnchorIsSet_IgnoresTheCursorRowEntirely()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorRequest WithCursorRow(int cursorRow) => new(
+            PaneWidth: 960,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: cursorRow,
+            VisibleRows: 30,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasMarkAnchor: true,
+            MarkVisualRow: 12);
+
+        CommandAssistAnchorLayout high = calculator.Calculate(WithCursorRow(0));
+        CommandAssistAnchorLayout low = calculator.Calculate(WithCursorRow(29));
+
+        Assert.Equal(high.PromptRect, low.PromptRect);
+        Assert.Equal(high.BubbleRect, low.BubbleRect);
+        Assert.Equal(high.PopupRect, low.PopupRect);
+    }
+
+    [Fact]
+    public void Calculate_WhenMarkAnchorIsOnTopVisibleRow_PlacesBubbleBelowWithInputRowClearance()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 960,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: 0,
+            VisibleRows: 30,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasMarkAnchor: true,
+            MarkVisualRow: 0));
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.True(layout.BubbleRect.Top >= layout.PromptRect.Bottom,
+            $"Expected bubble top {layout.BubbleRect.Top} to sit below mark row bottom {layout.PromptRect.Bottom} when nothing fits above.");
+        // One input row of clearance: the mark points at the first row of the input, which wraps.
+        Assert.Equal(layout.PromptRect.Height + 4, layout.BubbleRect.Top - layout.PromptRect.Bottom, precision: 1);
+    }
+
+    [Fact]
+    public void Calculate_WhenMarkAnchorIsOnLastVisibleRow_FlipsBubbleAboveTheMark()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 960,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: 29,
+            VisibleRows: 30,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasMarkAnchor: true,
+            MarkVisualRow: 29));
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.True(layout.BubbleRect.Bottom <= layout.PromptRect.Top,
+            $"Expected the bubble to flip above the bottom-row mark, but bubble bottom {layout.BubbleRect.Bottom} was past prompt top {layout.PromptRect.Top}.");
+        AssertRectWithin(layout.BubbleRect, 960, 540);
+        AssertRectWithin(layout.PopupRect, 960, 540);
+    }
+
+    [Fact]
+    public void Calculate_WhenMarkAnchorIsInTheShortPaneUpperBand_PlacesAboveWhereTheHeuristicWouldPlaceBelow()
+    {
+        // The short-pane upper band (0.60 of pane height) exists to keep the overlay off login
+        // banners when the prompt row is a guess. A mark says the row is a prompt, so the only
+        // question left is whether the bubble fits above it - and here it does.
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorRequest Request(bool hasMarkAnchor) => new(
+            PaneWidth: 900,
+            PaneHeight: 220,
+            CellHeight: 18,
+            CursorVisualRow: 5,
+            VisibleRows: 12,
+            BubbleWidth: 360,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasMarkAnchor: hasMarkAnchor,
+            MarkVisualRow: hasMarkAnchor ? 5 : -1);
+
+        CommandAssistAnchorLayout marked = calculator.Calculate(Request(hasMarkAnchor: true));
+        CommandAssistAnchorLayout heuristic = calculator.Calculate(Request(hasMarkAnchor: false));
+
+        Assert.True(marked.UsesMarkAnchor);
+        Assert.False(heuristic.UsesMarkAnchor);
+        Assert.Equal(marked.PromptRect.Top, heuristic.PromptRect.Top, precision: 1);
+        Assert.True(marked.BubbleRect.Bottom <= marked.PromptRect.Top,
+            $"Expected the mark-anchored bubble above the prompt, but bubble bottom was {marked.BubbleRect.Bottom} against prompt top {marked.PromptRect.Top}.");
+        Assert.True(heuristic.BubbleRect.Top >= heuristic.PromptRect.Bottom,
+            $"Expected the heuristic band to push the bubble below the prompt, but bubble top was {heuristic.BubbleRect.Top}.");
+    }
+
+    [Fact]
+    public void Calculate_WhenPaneIsShortButWideAndMarkAnchored_StillUsesSideFloatingPopup()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 960,
+            PaneHeight: 220,
+            CellHeight: 18,
+            CursorVisualRow: 8,
+            VisibleRows: 12,
+            BubbleWidth: 320,
+            BubbleHeight: 36,
+            PopupWidth: 360,
+            PopupHeight: 180,
+            HasMarkAnchor: true,
+            MarkVisualRow: 8));
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.Equal(CommandAssistPopupDirection.RightSide, layout.PopupDirection);
+        Assert.True(layout.PopupRect.Left >= layout.BubbleRect.Right);
+    }
+
+    [Fact]
+    public void Calculate_WhenPaneIsNarrowAndMarkAnchored_KeepsCompactBubbleLayoutAndClamps()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 420,
+            PaneHeight: 420,
+            CellHeight: 18,
+            CursorVisualRow: 12,
+            VisibleRows: 20,
+            BubbleWidth: 420,
+            BubbleHeight: 36,
+            PopupWidth: 520,
+            PopupHeight: 180,
+            HasMarkAnchor: true,
+            MarkVisualRow: 12));
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.True(layout.UseCompactBubbleLayout);
+        AssertRectWithin(layout.BubbleRect, 420, 420);
+        AssertRectWithin(layout.PopupRect, 420, 420);
+        AssertRectWithin(layout.PromptRect, 420, 420);
+    }
+
+    /// <summary>
+    /// A mark that scrolled out of the viewport, aged out of history, or came from a dead
+    /// coordinate generation reaches the calculator the same way: as no mark at all. The App layer
+    /// resolves those cases (see <c>ShellMarkAnchorResolverTests</c>); the contract here is only
+    /// that their absence restores the heuristic rather than leaving the overlay unplaced.
+    /// </summary>
+    [Fact]
+    public void Calculate_WhenMarkAnchorIsAbsent_FallsBackToTheCursorHeuristic()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 900,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: 18,
+            VisibleRows: 24,
+            BubbleWidth: 380,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasReliablePromptAnchor: false,
+            HasMarkAnchor: false,
+            MarkVisualRow: -1));
+
+        Assert.False(layout.UsesMarkAnchor);
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.Equal(18 * 18.0, layout.PromptRect.Top, precision: 1);
+    }
+
+    [Fact]
+    public void Calculate_WhenMarkRowIsNegative_FallsBackToTheCursorHeuristic()
+    {
+        var calculator = new CommandAssistAnchorCalculator();
+
+        CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
+            PaneWidth: 900,
+            PaneHeight: 540,
+            CellHeight: 18,
+            CursorVisualRow: 6,
+            VisibleRows: 24,
+            BubbleWidth: 380,
+            BubbleHeight: 36,
+            PopupWidth: 460,
+            PopupHeight: 180,
+            HasMarkAnchor: true,
+            MarkVisualRow: -1));
+
+        Assert.False(layout.UsesMarkAnchor);
+        Assert.True(layout.UsesPromptAnchor);
+        Assert.Equal(6 * 18.0, layout.PromptRect.Top, precision: 1);
+    }
+
     private static void AssertRectWithin(AssistRect rect, double paneWidth, double paneHeight)
     {
         Assert.True(rect.X >= 0, $"Expected rect.X >= 0 but was {rect.X}.");

@@ -2,6 +2,32 @@ using System;
 
 namespace NovaTerminal.CommandAssist.Application;
 
+/// <summary>
+/// Turns "where is the prompt" into bubble/popup rectangles.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Two anchor sources, in priority order.</b>
+/// </para>
+/// <list type="number">
+/// <item><description>
+/// <b>Mark anchor</b> (<see cref="CommandAssistAnchorRequest.HasMarkAnchor"/>): an
+/// <c>OSC 133;B</c> mark resolved to a viewport row by the App layer. The row is a fact, so the
+/// band ratios below do not apply to it — they exist to hedge a guess. Placement is a plain
+/// geometric fit: above the prompt when the bubble fits there, flipped below when it does not.
+/// </description></item>
+/// <item><description>
+/// <b>Cursor heuristic</b> (<see cref="CommandAssistAnchorRequest.CursorVisualRow"/> plus
+/// <see cref="CommandAssistAnchorRequest.HasReliablePromptAnchor"/>): the pre-V2 behaviour, kept
+/// verbatim for un-instrumented sessions. The cursor row is only *probably* the prompt row, so
+/// the band ratios keep the overlay off startup banners and prompt-redraw noise.
+/// </description></item>
+/// </list>
+/// <para>
+/// Everything downstream of the anchor row — size clamps, the compact-layout thresholds, and the
+/// popup flip/side rules — is shared by both sources.
+/// </para>
+/// </remarks>
 public sealed class CommandAssistAnchorCalculator
 {
     private const double PanePadding = 12;
@@ -11,6 +37,10 @@ public sealed class CommandAssistAnchorCalculator
     private const double MinimumPromptWidth = 120;
     private const double CompactBubbleWidthThreshold = 320;
     private const double CompactPaneWidthThreshold = 560;
+    // Band ratios. Every one of these is a hedge against not knowing where the prompt is; a
+    // mark-anchored request bypasses all of them (see the class remarks). They survive because
+    // markless sessions still exist -- an un-instrumented remote, a shell with integration
+    // disabled -- not because the mark path needs a threshold anywhere.
     private const double UnreliableCursorBandStartRatio = 0.55;
     private const int UnreliableCursorBandMinVisibleRows = 8;
     private const double PromptUpperBandRatio = 0.45;
@@ -34,18 +64,30 @@ public sealed class CommandAssistAnchorCalculator
         bool useCompactBubbleLayout = paneWidth <= CompactPaneWidthThreshold ||
                                       request.BubbleWidth > availableWidth ||
                                       bubbleWidth <= CompactBubbleWidthThreshold;
-        bool usesPromptAnchor = request.HasReliablePromptAnchor &&
-                                request.VisibleRows > 0 &&
-                                request.CursorVisualRow >= 0 &&
-                                request.CellHeight > 0;
+        bool usesMarkAnchor = request.HasMarkAnchor &&
+                              request.VisibleRows > 0 &&
+                              request.MarkVisualRow >= 0 &&
+                              request.CellHeight > 0;
+        bool usesPromptAnchor = usesMarkAnchor ||
+                                (request.HasReliablePromptAnchor &&
+                                 request.VisibleRows > 0 &&
+                                 request.CursorVisualRow >= 0 &&
+                                 request.CellHeight > 0);
 
         AssistRect promptRect = usesPromptAnchor
-            ? CreatePromptRect(request, paneWidth, paneHeight, promptHeight)
+            ? CreatePromptRect(
+                request,
+                usesMarkAnchor ? request.MarkVisualRow : request.CursorVisualRow,
+                paneWidth,
+                paneHeight,
+                promptHeight)
             : CreateFallbackPromptRect(request, paneWidth, paneHeight, promptHeight);
 
-        AssistRect bubbleRect = usesPromptAnchor
-            ? CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight)
-            : CreateFallbackBubbleRect(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight);
+        AssistRect bubbleRect = usesMarkAnchor
+            ? CreateBubbleAdjacentToMark(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight)
+            : usesPromptAnchor
+                ? CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight)
+                : CreateFallbackBubbleRect(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight);
 
         double spaceAbove = Math.Max(0, bubbleRect.Top - BubblePopupGap - PanePadding);
         double spaceBelow = Math.Max(0, paneHeight - PanePadding - (bubbleRect.Bottom + BubblePopupGap));
@@ -117,19 +159,77 @@ public sealed class CommandAssistAnchorCalculator
             paneWidth,
             paneHeight);
 
-        return new CommandAssistAnchorLayout(promptRect, bubbleRect, popupRect, popupDirection, usesPromptAnchor, useCompactBubbleLayout);
+        return new CommandAssistAnchorLayout(
+            promptRect,
+            bubbleRect,
+            popupRect,
+            popupDirection,
+            usesPromptAnchor,
+            useCompactBubbleLayout,
+            usesMarkAnchor);
     }
 
     private static AssistRect CreatePromptRect(
         CommandAssistAnchorRequest request,
+        int anchorVisualRow,
         double paneWidth,
         double paneHeight,
         double promptHeight)
     {
         double promptWidth = Math.Min(Math.Max(MinimumPromptWidth, request.BubbleWidth * 0.5), paneWidth - (PanePadding * 2));
-        double promptY = PromptVerticalOffset + (request.CursorVisualRow * request.CellHeight);
+        double promptY = PromptVerticalOffset + (anchorVisualRow * request.CellHeight);
         AssistRect promptRect = new(PanePadding, promptY, promptWidth, promptHeight);
         return ClampRect(promptRect, paneWidth, paneHeight);
+    }
+
+    /// <summary>
+    /// Bubble placement for a known prompt row: above it when the bubble fits above, flipped
+    /// below when it does not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// No band ratio is consulted. The upper-band rule on the heuristic path exists because a
+    /// cursor near the top of the pane might be a login banner still printing rather than a
+    /// prompt; a mark says which it is, so the only question left is whether the bubble fits.
+    /// </para>
+    /// <para>
+    /// Above is preferred because it never covers the row the user is typing on and never covers
+    /// the rows the shell is about to print into. The one-row clearance below is kept for the
+    /// flipped case: the mark points at the <i>first</i> row of the input, which can wrap onto the
+    /// next one.
+    /// </para>
+    /// </remarks>
+    private static AssistRect CreateBubbleAdjacentToMark(
+        AssistRect promptRect,
+        double bubbleWidth,
+        double bubbleHeight,
+        double paneWidth,
+        double paneHeight)
+    {
+        double desiredAboveY = promptRect.Top - PromptBubbleGap - bubbleHeight;
+        double belowPromptY = promptRect.Bottom + PromptBubbleGap;
+        double guardedBelowPromptY = belowPromptY + (promptRect.Height * StartupBandInputRowClearanceRows);
+        double bubbleY;
+
+        if (desiredAboveY >= PanePadding)
+        {
+            bubbleY = desiredAboveY;
+        }
+        else if (guardedBelowPromptY + bubbleHeight <= paneHeight - PanePadding)
+        {
+            bubbleY = guardedBelowPromptY;
+        }
+        else if (belowPromptY + bubbleHeight <= paneHeight - PanePadding)
+        {
+            bubbleY = belowPromptY;
+        }
+        else
+        {
+            // Neither side fits outright (a very short pane): stay above and let the clamp decide.
+            bubbleY = Math.Max(PanePadding, desiredAboveY);
+        }
+
+        return ClampRect(new AssistRect(promptRect.X, bubbleY, bubbleWidth, bubbleHeight), paneWidth, paneHeight);
     }
 
     private static AssistRect CreateFallbackPromptRect(
@@ -274,6 +374,18 @@ public sealed class CommandAssistAnchorCalculator
     }
 }
 
+/// <param name="CursorVisualRow">
+/// Viewport row of the cursor. The heuristic anchor source; ignored when
+/// <paramref name="HasMarkAnchor"/> is set.
+/// </param>
+/// <param name="HasReliablePromptAnchor">
+/// Whether the cursor row may be treated as the prompt row. Only consulted on the heuristic path.
+/// </param>
+/// <param name="HasMarkAnchor">
+/// True when an <c>OSC 133;B</c> mark resolved to a row inside the viewport. Takes priority over
+/// the cursor heuristic and bypasses every band threshold.
+/// </param>
+/// <param name="MarkVisualRow">Viewport row of that mark; the first row of the user's input.</param>
 public sealed record CommandAssistAnchorRequest(
     double PaneWidth,
     double PaneHeight,
@@ -284,15 +396,27 @@ public sealed record CommandAssistAnchorRequest(
     double BubbleHeight,
     double PopupWidth,
     double PopupHeight,
-    bool HasReliablePromptAnchor = true);
+    bool HasReliablePromptAnchor = true,
+    bool HasMarkAnchor = false,
+    int MarkVisualRow = -1);
 
+/// <param name="UsesPromptAnchor">
+/// True when the layout is anchored to a prompt row at all — from either source. A mark anchor
+/// always sets this; see <paramref name="UsesMarkAnchor"/> to tell the two apart.
+/// </param>
+/// <param name="UsesMarkAnchor">
+/// True when the anchor row came from an <c>OSC 133;B</c> mark. The App layer keys its
+/// SSH-conservative behaviour off this: a mark-anchored layout runs no suppression check, no
+/// placement-correction passes, and no opacity games.
+/// </param>
 public sealed record CommandAssistAnchorLayout(
     AssistRect PromptRect,
     AssistRect BubbleRect,
     AssistRect PopupRect,
     CommandAssistPopupDirection PopupDirection,
     bool UsesPromptAnchor,
-    bool UseCompactBubbleLayout);
+    bool UseCompactBubbleLayout,
+    bool UsesMarkAnchor = false);
 
 public enum CommandAssistPopupDirection
 {
