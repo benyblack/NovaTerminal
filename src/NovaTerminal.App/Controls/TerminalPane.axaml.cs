@@ -147,6 +147,11 @@ namespace NovaTerminal.Controls
         // us bytes we have parsed into the grid". See NoteInputAwaitingEcho for why insertion
         // refuses while it is set. Written from the UI thread, cleared from the PTY read thread.
         private volatile bool _hasUnechoedInput;
+
+        // Enter-time history capture for sessions with no OSC 133 marks (V2 Phase 1, task 7).
+        // Never the query - see MarklessSubmissionAccumulator for why this is not the shadow
+        // buffer coming back, and OnCommandAssistEnterObserved for how it composes with grid truth.
+        private readonly MarklessSubmissionAccumulator _marklessSubmission = new();
         private string? _lastRelevantCommandText;
         private CommandAssistBarViewModel? _boundCommandAssistViewModel;
         private string? _lastCommandAssistAnchorDiagnosticSignature;
@@ -457,6 +462,8 @@ namespace NovaTerminal.Controls
                 Profile?.Type == ConnectionType.SSH ? "ssh" : "local",
                 IsActivePane,
                 profileId: Profile?.Id);
+            // A3 act: an agent typing into this pane is text the keyboard path never saw.
+            _agentRegistration.InputInjected = NotifyExternalInputSent;
             NovaTerminal.AgentHost.AgentSessionRegistry.Instance.Register(_agentRegistration);
             TitleChanged += (_, _) => UpdateAgentSessionSnapshot();
             WorkingDirectoryChanged += (_, _) => UpdateAgentSessionSnapshot();
@@ -539,36 +546,18 @@ namespace NovaTerminal.Controls
             TermView.MetricsChanged += _onTermViewMetricsLayout;
             TermView.CommandAssistAnchorHintChanged += () => UpdateCommandAssistOverlayPlacement();
             SizeChanged += (_, _) => UpdateCommandAssistOverlayPlacement();
-            // Keystrokes are triggers, not content (V2 Phase 1c). The text and the fact that a
-            // character was deleted are both discarded here: Command Assist re-reads the command
-            // line out of the grid on the refresh these queue, which is the only source that also
-            // knows about the arrow keys, Ctrl+U, history recall and shell-side Tab completion.
-            // The TermView events themselves stay - they are the cheapest available signal that
-            // the prompt is being edited.
-            TermView.TextInputObserved += _ =>
-            {
-                NoteInputAwaitingEcho();
-                if (EnsureCommandAssistInitialized())
-                {
-                    _commandAssistController?.NotifyInputActivity();
-                }
-            };
-            TermView.BackspaceObserved += () =>
-            {
-                NoteInputAwaitingEcho();
-                if (EnsureCommandAssistInitialized())
-                {
-                    _commandAssistController?.NotifyInputActivity();
-                }
-            };
+            // Keystrokes are triggers, not content, for the *query* (V2 Phase 1c): Command Assist
+            // re-reads the command line out of the grid on the refresh these queue, which is the
+            // only source that also knows about the arrow keys, Ctrl+U, history recall and
+            // shell-side Tab completion.
+            //
+            // They are content for one narrow purpose, added in V2 Phase 1 task 7: the markless
+            // submission accumulator, which supplies Enter-time history capture for the sessions
+            // the grid cannot serve. See NotifyTypedTextObserved and friends.
+            TermView.TextInputObserved += NotifyTypedTextObserved;
+            TermView.BackspaceObserved += NotifyBackspaceObserved;
             TermView.EnterObserved += OnCommandAssistEnterObserved;
-            TermView.PasteObserved += _ =>
-            {
-                if (EnsureCommandAssistInitialized())
-                {
-                    _commandAssistController?.NotifyPastedInput();
-                }
-            };
+            TermView.PasteObserved += NotifyPasteObserved;
 
             if (Buffer != null)
             {
@@ -626,6 +615,7 @@ namespace NovaTerminal.Controls
                 ToastPanel.IsVisible = false;
                 if (!string.IsNullOrEmpty(_pendingEscapedPath) && Session != null)
                 {
+                    NotifyExternalInputSent();
                     Session.SendInput(_pendingEscapedPath);
                     _pendingPasteFilePath = null;
                     _pendingEscapedPath = null;
@@ -640,6 +630,7 @@ namespace NovaTerminal.Controls
                     try
                     {
                         string content = await System.IO.File.ReadAllTextAsync(_pendingPasteFilePath);
+                        NotifyExternalInputSent();
                         NovaTerminal.Platform.Input.TerminalInputSender.SendBracketedPaste(Session, content);
                     }
                     catch (Exception ex)
@@ -1431,6 +1422,12 @@ namespace NovaTerminal.Controls
 
         private void HandleAltScreenChanged(bool isAltScreen)
         {
+            // A full-screen app owns the keyboard, and the keys it eats are not line edits. Drop
+            // whatever half-line was pending on the way in so a TUI session cannot leave text
+            // behind that a later Enter captures, and drop it again on the way out because the
+            // prompt underneath was redrawn by something the accumulator never saw.
+            _marklessSubmission.Reset();
+
             _agentRegistration?.StatusMachine.NotifyAltScreenChanged(isAltScreen);
             _commandAssistController?.HandleAltScreenChanged(isAltScreen);
             UpdateRemoteFilesSidebarVisibility();
@@ -1444,16 +1441,155 @@ namespace NovaTerminal.Controls
         /// widens the window in which the shell has begun repainting over it. This is as close to
         /// the keypress as the pane can get.
         /// </remarks>
-        private void OnCommandAssistEnterObserved()
+        internal void OnCommandAssistEnterObserved()
         {
+            // The reset is owed even when Command Assist is off or uninitialized: the accumulator
+            // is fed from TermView events that fire regardless, and a line left in it would be
+            // carried into the next one.
             if (!EnsureCommandAssistInitialized())
             {
+                _marklessSubmission.Reset();
                 return;
             }
 
-            AssistQuerySnapshot? submitted = _commandAssistController.TryReadQuerySnapshot();
-            _ = HandleCommandAssistEnterObservedAsync(submitted?.Text);
+            AssistQuerySnapshot? snapshot = _commandAssistController.TryReadQuerySnapshot();
+
+            // Grid truth always wins where it exists, including when it says the line was empty:
+            // "observed empty" and "unknown" are different answers, and only the second one falls
+            // through to the accumulator. A poisoned accumulator answers null, which
+            // CapturePipeline reads as "nothing to persist".
+            string? submitted = snapshot is { } grid
+                ? grid.Text
+                : ReadEchoedMarklessSubmission();
+
+            // After the read, before the await: Enter is both the capture point and the start of
+            // the next line.
+            _marklessSubmission.Reset();
+
+            _ = HandleCommandAssistEnterObservedAsync(submitted);
         }
+
+        /// <summary>
+        /// The accumulator's answer, but only when the screen agrees with it.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>This gate exists to keep passwords out of history.</b> The accumulator is fed from
+        /// <c>TerminalView.OnTextInput</c>, which fires for every keystroke unconditionally — it
+        /// has no idea whether the shell is echoing. So in a markless session (`cmd.exe`, an
+        /// un-instrumented SSH host), the sequence `ssh host` / Enter / `hunter2` / Enter leaves the
+        /// accumulator holding a clean, unpoisoned `hunter2` at the hidden `password:` prompt, with
+        /// no grid snapshot to override it — and it would be written to `history.jsonl` verbatim.
+        /// <c>SecretsFilter</c> cannot save us there: it is pattern-based and a bare secret has no
+        /// pattern.
+        /// </para>
+        /// <para>
+        /// The check is the one thing that distinguishes the two cases. In any <em>visible</em>
+        /// markless prompt the typed command is on the screen — only the <c>OSC 133;B</c> mark is
+        /// missing, not the text — so requiring the accumulated string to be painted on the grid
+        /// ending at the cursor costs a correct capture nothing. At a no-echo prompt the grid holds
+        /// the prompt and nothing else, and the strings do not match.
+        /// </para>
+        /// <para>
+        /// Conservative in every direction: no buffer, an alt screen, a cursor the reader will not
+        /// resolve, an echo that has not landed yet, a shell that reprinted the line differently —
+        /// all of them fall out as "no capture". Comparison is on text rather than columns, so a
+        /// double-width character counts once (see
+        /// <see cref="GridQueryReader.TryReadTextEndingAtCursor"/>).
+        /// </para>
+        /// </remarks>
+        private string? ReadEchoedMarklessSubmission()
+        {
+            string? typed = _marklessSubmission.TryReadSubmission();
+            if (string.IsNullOrEmpty(typed))
+            {
+                // Poisoned, or an empty line: either way there is nothing to prove.
+                return typed;
+            }
+
+            TerminalBuffer? buffer = Buffer;
+            if (buffer == null)
+            {
+                return null;
+            }
+
+            if (!GridQueryReader.TryReadTextEndingAtCursor(buffer, typed.Length, out string onScreen))
+            {
+                return null;
+            }
+
+            // Exactly typed.Length characters were requested, so equality is "the accumulated text
+            // is painted on the grid and ends at the cursor". A short read (the row does not hold
+            // that much) fails the same way a wrong read does.
+            return string.Equals(onScreen, typed, StringComparison.Ordinal) ? typed : null;
+        }
+
+        /// <summary>
+        /// The user typed printable text into the terminal. Feeds the markless accumulator and
+        /// triggers a suggestion refresh; the text itself is content only for the accumulator.
+        /// </summary>
+        internal void NotifyTypedTextObserved(string text)
+        {
+            _marklessSubmission.AppendTypedText(text);
+            NoteInputAwaitingEcho();
+            if (EnsureCommandAssistInitialized())
+            {
+                _commandAssistController?.NotifyInputActivity();
+            }
+        }
+
+        /// <summary>The user pressed Backspace; the accumulator drops its last character.</summary>
+        internal void NotifyBackspaceObserved()
+        {
+            _marklessSubmission.ObserveBackspace();
+            NoteInputAwaitingEcho();
+            if (EnsureCommandAssistInitialized())
+            {
+                _commandAssistController?.NotifyInputActivity();
+            }
+        }
+
+        /// <summary>
+        /// Text arrived on the command line from somewhere other than the keyboard (a drag-and-drop
+        /// or a clipboard paste).
+        /// </summary>
+        /// <remarks>
+        /// Two mechanisms fire here and they are not the same one. The accumulator is
+        /// <em>poisoned</em>, because it did not see the characters and can no longer describe the
+        /// line. Command Assist is told the submission is <em>suppressed</em>, which is a
+        /// provenance claim — the text on the line was not composed here — and that one applies to
+        /// the grid path as well, where the line is perfectly readable and still should not be
+        /// written to history as something the user typed. Either alone stops the paste being
+        /// captured in a markless session; only suppression stops it in an instrumented one.
+        /// </remarks>
+        /// <param name="text">
+        /// Ignored. The pasted text is deliberately not read: neither mechanism below wants it —
+        /// the accumulator's answer to "what is on the line now" is "I cannot say", not "the line
+        /// plus this", and suppression is a provenance flag with no payload. The parameter stays
+        /// because it is the <c>TerminalView.PasteObserved</c> signature and a future consumer
+        /// (length-based heuristics, say) would want it.
+        /// </param>
+        internal void NotifyPasteObserved(string text)
+        {
+            _ = text;
+            _marklessSubmission.Poison();
+            if (EnsureCommandAssistInitialized())
+            {
+                _commandAssistController?.NotifyPastedInput();
+            }
+        }
+
+        /// <summary>
+        /// Bytes reached this pane's PTY from somewhere other than its own keyboard handling: a
+        /// broadcast from a sibling pane, the drag-and-drop path toast, a clipboard image path, the
+        /// agent host's act surface. The accumulator can no longer describe the command line.
+        /// </summary>
+        /// <remarks>
+        /// A poison rather than a reset, because none of these callers can say whether what they
+        /// sent ended in a newline: unlike Enter, they leave the line in a state only the shell
+        /// knows. Poison recovers at the next Enter, which costs at most one capture.
+        /// </remarks>
+        internal void NotifyExternalInputSent() => _marklessSubmission.Poison();
 
         private async Task HandleCommandAssistEnterObservedAsync(string? submittedText)
         {
@@ -1507,7 +1643,24 @@ namespace NovaTerminal.Controls
             }
         }
 
+        /// <summary>
+        /// <c>TerminalView.KeyDownInterceptor</c>. Routes the key to Command Assist if it owns it,
+        /// and observes every key either way for the markless submission accumulator.
+        /// </summary>
+        /// <remarks>
+        /// The observation is strictly a side effect: this returns exactly what
+        /// <see cref="TryRouteCommandAssistKey"/> returns, so input routing is unchanged. It has to
+        /// run <em>after</em> the routing decision, because "Command Assist consumed this key" is
+        /// the same fact as "the shell never saw it".
+        /// </remarks>
         internal bool TryHandleCommandAssistKey(Key key, KeyModifiers modifiers)
+        {
+            bool handledByAssist = TryRouteCommandAssistKey(key, modifiers);
+            _marklessSubmission.ApplyKey(key, modifiers, handledByAssist);
+            return handledByAssist;
+        }
+
+        private bool TryRouteCommandAssistKey(Key key, KeyModifiers modifiers)
         {
             if (!IsCommandAssistFeatureEnabled())
             {
@@ -1568,7 +1721,10 @@ namespace NovaTerminal.Controls
 
         public bool TryToggleCommandAssistPinShortcut()
         {
-            return TryHandleCommandAssistKey(Key.P, KeyModifiers.Control | KeyModifiers.Shift);
+            // Routes without observing: this arrives from the window's shortcut handler, which sees
+            // the key before TerminalView does, so nothing was ever sent to the shell whether the
+            // pin toggles or not.
+            return TryRouteCommandAssistKey(Key.P, KeyModifiers.Control | KeyModifiers.Shift);
         }
 
         /// <summary>
@@ -1651,6 +1807,12 @@ namespace NovaTerminal.Controls
             }
 
             _lastRelevantCommandText = insertionText;
+
+            // Text on the command line the user did not type. Insertion is only reachable when the
+            // grid can be read, so the accumulator is not the capture source here anyway - but it
+            // is still holding a line it can no longer describe, and Ctrl+Enter is the one key the
+            // interceptor deliberately does not poison on (Command Assist owns it).
+            _marklessSubmission.Poison();
             Session.SendInput(textToSend);
             return true;
         }
@@ -1742,6 +1904,16 @@ namespace NovaTerminal.Controls
             if (Buffer == null) return;
 
             Parser = new AnsiParser(Buffer);
+
+            // A device reply is text on the PTY that the keyboard path never produced: DA1, a DSR
+            // cursor report, an answerback. Nothing here can promise the shell's line editor was
+            // not reading when the query arrived, and a reply that lands in a line editor is
+            // literal input in exactly the way a paste is - so the accumulator can no longer
+            // describe the line. Poison rather than reset, for the same reason
+            // NotifyExternalInputSent poisons: the writer cannot say whether what it sent ended the
+            // line. Subscribed here rather than beside the SendInput handler in
+            // InitializeSessionCore so it exists whenever a parser does, session or not.
+            Parser.OnResponse += _ => _marklessSubmission.Poison();
 
             // OSC 10/11 (fg/bg color query) answers come from the active theme; without this,
             // a freshly-created parser would fall back to AnsiParser's hardcoded defaults until
@@ -1925,6 +2097,9 @@ namespace NovaTerminal.Controls
             _shellLifecycleTracker = null;
             _isShellIntegrationActive = false;
             _shellIntegrationEnvOverrides = null;
+            // A restart or a profile switch reaches here; the pending line belonged to the shell
+            // that is going away.
+            _marklessSubmission.Reset();
             lock (_commandStartMarkGate)
             {
                 _latestCommandStartMark = null;
@@ -2057,7 +2232,8 @@ namespace NovaTerminal.Controls
                 });
             };
 
-            // Wire up Parser responses (e.g. DA1)
+            // Wire up Parser responses (e.g. DA1). The accumulator invalidation for these lives in
+            // CreateAndWireParser, next to the parser's other observers.
             Parser.OnResponse += response =>
             {
                 Session.SendInput(response);
@@ -2356,6 +2532,11 @@ namespace NovaTerminal.Controls
 
         public void NotifyCommandAssistPaste(string text)
         {
+            // Poisons before the feature gate: the accumulator is fed unconditionally, so it must
+            // be invalidated unconditionally. See NotifyPasteObserved for how poison and
+            // suppression divide the work.
+            _marklessSubmission.Poison();
+
             if (!EnsureCommandAssistInitialized())
             {
                 return;

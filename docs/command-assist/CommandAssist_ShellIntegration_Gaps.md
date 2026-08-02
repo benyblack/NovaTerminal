@@ -190,8 +190,9 @@ boundary as a nullable snapshot rather than a string.
 A session with no OSC 133 marks — a non-integrated local shell, a shell whose bootstrap bailed out,
 an un-instrumented SSH host — has no query at all. Not an empty query it might act on: no query.
 The shadow keystroke buffer is deleted, not kept as a fallback, because a fallback that desyncs is
-worse than no fallback (it was the fallback that made V1's history and insertions wrong). What that
-costs, concretely:
+worse than no fallback (it was the fallback that made V1's history and insertions wrong). History
+capture got a replacement in Phase 1d, but a capture-only one that refuses rather than guesses; it
+is never consulted as a query. What degraded mode costs, concretely:
 
 - **no passive suggestions.** With no query the path provider has no command token and no
   path-shaped fragment to work from, so it returns nothing. Degraded passive suggestions are empty
@@ -201,28 +202,84 @@ costs, concretely:
   for, and Fix still works, because it analyses the command that failed rather than the one being
   typed.
 - **no insertion.** Rows can be browsed; nothing may be spliced into a command line nobody can see.
-- **no Enter-time history capture.** This is the one that is worth arguing about. V1's heuristic
-  capture read the shadow buffer, so for any line the user had edited with keys the mirror could
-  not observe — `Ctrl+U`, arrows, history recall, tab completion — it wrote a command the user
-  never ran into persistent history. Recording nothing is recoverable; recording something false is
-  not. Instrumented sessions are unaffected: the first command is captured from the grid at Enter
-  (which is strictly better than the mirror ever was, since the grid survives all of those edits),
-  and every command after it comes from the `133;C` payload.
+- **Enter-time history capture, but only for a straight-through-typed line.** This is the one that
+  was worth arguing about. V1's heuristic capture read the shadow buffer, so for any line the user
+  had edited with keys the mirror could not observe — `Ctrl+U`, arrows, history recall, tab
+  completion — it wrote a command the user never ran into persistent history. Recording nothing is
+  recoverable; recording something false is not. Instrumented sessions were never affected: the
+  first command is captured from the grid at Enter (which is strictly better than the mirror ever
+  was, since the grid survives all of those edits), and every command after it comes from the
+  `133;C` payload.
 
-  **This is a hole, not a resting state, and it is tracked as Phase 1 task 7 in
-  `docs/plans/2026-08-01-command-assist-v2-plan.md` — required before the flag flip.** The affected
-  population is not marginal: `cmd.exe`, every shell whose bootstrap bailed out, and *every* SSH
-  session, since SSH launch plans skip provider injection. For those, history never fills, so
-  `Ctrl+R` is an empty box rather than a browse-only one. The replacement is deliberately not the
-  mirror: it is a **poisoned** capture-only accumulator confined to `TerminalPane`
-  (`TextInputObserved` appends, `BackspaceObserved` chops, any key the pane does not model — arrows,
-  `Home`/`End`, `Delete`, `Tab`, page keys, F-keys, unowned chords — poisons it, paste poisons it,
-  `Enter` and `Ctrl+C` reset it), consulted at Enter only when the grid has nothing, and never used
-  as the query. The distinction from V1 is the whole argument: V1's mirror answered "what is on the
-  line" with a guess and failed *silently and wrongly*; a poisoned accumulator turns itself off the
-  moment it stops knowing, so its outcomes are "exactly what was typed" or "nothing". That is the
-  same bar the grid reader is held to, reached by a different mechanism, and it is deletable once
-  Phase 2 gives instrumented remotes real marks.
+  Phase 1c shipped with markless sessions capturing nothing at all, which was a hole rather than a
+  resting state — `cmd.exe`, every shell whose bootstrap bailed out, and *every* SSH session, since
+  SSH launch plans skip provider injection. **Shipped in Phase 1d (ii-strict), Phase 1 task 7.**
+  The contract in one line: **in a session with no marks, a command typed straight through with no
+  editing is captured verbatim; anything else is captured not at all.**
+
+  The mechanism is deliberately not the mirror. `MarklessSubmissionAccumulator` is **poisoned** by
+  everything it cannot model, and it is consulted at Enter *only* when the grid has nothing — never
+  as the query. `TextInputObserved` appends, `BackspaceObserved` chops one character. The key
+  classification is an allow-list, so an unrecognised key poisons. What leaves it alone:
+
+  - modifier keys on their own;
+  - `Enter` and `Backspace` **with no modifiers at all**. Not merely "without `Alt`": with the kitty
+    keyboard protocol's disambiguate tier active, `TerminalView` encodes a *modified* Enter or
+    Backspace as CSI u (`Ctrl+Backspace` → `CSI 127;5u`, `Shift+Enter` → `CSI 13;2u`) and returns
+    early, so `EnterObserved` / `BackspaceObserved` never fire — the accumulator would keep every
+    character while a kitty-aware editor deleted a word. The modifier is not visible downstream, so
+    the classifier refuses it up front. Cost: one lost capture per `Ctrl+Backspace`;
+  - `Ctrl+C`, which resets rather than poisons;
+  - keys Command Assist consumed (see the `Ctrl+Shift+P` note below);
+  - printable keys with no `Ctrl`/`Alt`/`Meta` — **and the `AltGr` exception**: on Windows, Avalonia
+    reports `AltGr` as `Control|Alt`, so a literal reading of that rule poisons every `@`, `{`, `[`,
+    `\`, `|` and `~` typed on a German, French, Nordic, Turkish or Polish layout, i.e. captures
+    nothing at all for those users. `Ctrl`+`Alt` plus a *text-producing* key is therefore allowed.
+    That stays fail-closed because `TerminalView` sends **nothing** to the PTY for that combination
+    — `EncodeKittyKey` returns null on the `Control|Alt` pair, `EncodeAltKey` returns null for it,
+    and the legacy `Ctrl` branch requires `!Alt` — so the only route to the shell is the composed
+    `WM_CHAR`, which arrives as `OnTextInput` and is appended. `Ctrl`+`Alt` plus a *non*-text key
+    (`Enter`, `Backspace`, `Tab`, `Escape`, arrows) still poisons: those do reach the shell.
+
+  Arrows, `Home`, `End`, `Delete`, `Tab`, page keys, `Insert`, `Escape`, F-keys and every other
+  unowned chord poison it, as does any text that reaches the PTY without going through key handling:
+  both paste paths, `Ctrl+Enter` insertion, the drop toast, sibling-pane broadcast, the
+  clipboard-image path, the agent host's act surface, and parser device replies (`OnResponse`: DA1,
+  DSR, answerback). It resets on `Enter` (after the capture read), `Ctrl+C`, any alt-screen
+  transition, and session start / restart / profile switch.
+
+  `Ctrl+Shift+P` is only *conditionally* assist-consumed: the window's shortcut handler calls
+  `TerminalPane.TryToggleCommandAssistPinShortcut`, which routes without observing, and if no
+  selection can be pinned the route returns false and the key continues on to `TerminalView`, where
+  the accumulator sees it as an unowned `Ctrl` chord and poisons. That is the safe direction — a
+  keypress that may or may not have reached the shell is treated as if it did — and it costs at most
+  one capture.
+
+  **The echo gate.** The accumulator alone is not enough, for a reason that is a security bug rather
+  than a correctness one. `TerminalView.OnTextInput` fires per keystroke unconditionally: it does not
+  know whether the shell is echoing. So `ssh host` / Enter / `hunter2` / Enter, all inside one
+  markless session, leaves a clean unpoisoned `hunter2` in the accumulator at the hidden `password:`
+  prompt with no grid snapshot to outrank it — and `SecretsFilter` is pattern-based, so a bare secret
+  sails through it into `history.jsonl`. Before the accumulator's answer is used, the pane therefore
+  requires that exact text to be **visible on the grid, ending at the cursor**
+  (`GridQueryReader.TryReadTextEndingAtCursor`, reading the cursor row and its soft-wrapped
+  predecessors under the buffer read lock, comparing text rather than columns so wide characters
+  count once). In any visible markless prompt the typed command *is* on screen — only the `B` mark is
+  missing — so a correct capture pays nothing; at a no-echo prompt the strings do not match and
+  nothing is captured. Every doubt resolves the same way: no buffer, an alt screen, an unresolvable
+  cursor, an echo that has not landed, a partially echoed line — no capture.
+
+  Its outcomes are therefore "exactly the characters the user typed, in order, and visibly on
+  screen" or "nothing" — the same bar the grid reader is held to, reached by a different mechanism —
+  and it is deletable in one commit once Phase 2 gives instrumented remotes real marks.
+
+  **It composes with suppression rather than replacing it.** Poison is an accumulator fact ("I
+  cannot describe this line"); `AssistSessionStateMachine.IsCurrentSubmissionSuppressed` is a
+  provenance fact ("this text was not composed here") that `CapturePipeline` applies to both capture
+  sources. A paste in a markless session is stopped twice over; a paste in an *instrumented* session,
+  where the grid reads it perfectly well, is stopped only by suppression. And grid truth always wins
+  where it exists, including when it reads the line as empty: "observed empty" and "unknown" are
+  different answers and only the second falls through to the accumulator.
 
 **`Ctrl+R` in a degraded session** still opens and still helps, because history is per user rather
 than per session: with no query to filter on, Search shows the recency list, which includes
@@ -237,7 +294,8 @@ first time a keystroke fails to narrow it.
 - providers bail out (`IsIntegrated: false`) when the user forces an
   incompatible startup mode (PowerShell `-File`; bash `-c`/`--rcfile`/`--init-file`;
   zsh `-c`/`--no-rcs`/`-f`; fish `-c`/`--no-config`/`-N`); those sessions fall
-  back to heuristic capture
+  back to the markless capture-only accumulator, which records a
+  straight-through-typed command and nothing else
 - `BashBootstrapBuilder` uses a one-shot guard around the DEBUG trap to filter
   out internal hook calls, but commands run inside `PROMPT_COMMAND` itself can
   still race the guard in pathological user configurations

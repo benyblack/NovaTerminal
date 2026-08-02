@@ -16,10 +16,15 @@ namespace NovaTerminal.CommandAssist.Application;
 /// There are two capture paths because there are two moments a command becomes known. The
 /// structured path is the shell telling us, through <c>OSC 133;C</c>, the text it accepted; that is
 /// authoritative and survives multi-line input, history recall and line editing. The Enter-time
-/// path is the host telling us what it could see on the command line when the user pressed Enter -
-/// since Phase 1c that is the terminal grid read between the newest <c>OSC 133;B</c> mark and the
-/// cursor, and nothing else. There is no keystroke mirror behind it any more, so in a session with
-/// no marks the host has nothing to pass and this path captures nothing at all.
+/// path is the host telling us what it could see on the command line when the user pressed Enter.
+/// Since Phase 1c its first source is the terminal grid, read between the newest <c>OSC 133;B</c>
+/// mark and the cursor. Since Phase 1d it has a second, strictly narrower source for the sessions
+/// that have no marks at all (`cmd.exe`, a bailed-out bootstrap, an un-instrumented SSH host): the
+/// host's <c>MarklessSubmissionAccumulator</c>, which offers a line only when the user typed it
+/// straight through with no editing <em>and</em> that exact text is painted on the grid at the
+/// cursor. It is not the V1 keystroke mirror returning - the mirror guessed, and its wrong guesses
+/// went to permanent history; this one answers "nothing" for everything it cannot model, so what
+/// reaches here is either the typed line verbatim or an empty string.
 /// </para>
 /// <para>
 /// The paths overlap for exactly one command. Structured capture only stands down the heuristic once
@@ -58,11 +63,14 @@ internal sealed class CapturePipeline
     /// went to the shell.
     /// </summary>
     /// <param name="submission">
-    /// The command line as the host read it out of the terminal grid at the instant Enter was
-    /// observed. An empty string means the host had nothing truthful to offer - a markless session,
-    /// a closed lifecycle gate, an unreadable mark - and nothing is persisted, which is the whole
-    /// point: the alternative source (a keystroke mirror) was deleted in Phase 1c because it wrote
-    /// commands the user never ran into permanent history.
+    /// The command line as the host could see it at the instant Enter was observed: read out of the
+    /// terminal grid where there is a live <c>OSC 133;B</c> mark, and otherwise the markless
+    /// accumulator's straight-through-typed line, gated on that text being echoed on screen. An
+    /// empty string means the host had nothing truthful to offer - a closed lifecycle gate, an
+    /// unreadable mark, an accumulator poisoned by an edit it could not model, or a prompt that did
+    /// not echo - and nothing is persisted. That asymmetry is the whole point: the source deleted in
+    /// Phase 1c (a keystroke mirror with no such gates) wrote commands the user never ran into
+    /// permanent history.
     /// </param>
     /// <param name="isSubmissionSuppressed">
     /// Whether the session marked this submission untrustworthy (pasted rather than typed).

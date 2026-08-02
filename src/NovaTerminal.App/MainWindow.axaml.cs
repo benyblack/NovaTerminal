@@ -1894,6 +1894,9 @@ namespace NovaTerminal
             foreach (var pane in EnumeratePanes(tabItem.Content as Control))
             {
                 if (pane == _currentPane) continue;
+                // Broadcast bytes never went through the receiving pane's key handling, so its
+                // markless submission accumulator cannot model them.
+                pane.NotifyExternalInputSent();
                 pane.Session?.SendInput(sequence);
             }
         }
@@ -1909,6 +1912,7 @@ namespace NovaTerminal
             foreach (var pane in EnumeratePanes(tabItem.Content as Control))
             {
                 if (pane == _currentPane) continue;
+                pane.NotifyExternalInputSent();
                 pane.Session?.SendInput(text);
             }
         }
@@ -4177,6 +4181,7 @@ namespace NovaTerminal
                         string sendPath = isWsl
                             ? NovaTerminal.Platform.Input.ClipboardImage.ToWslMountPath(path)
                             : path;
+                        _currentPane.NotifyExternalInputSent();
                         _currentPane.Session.SendInput(NovaTerminal.Platform.Input.ClipboardImage.QuotePathForInput(sendPath));
                     }
                     finally

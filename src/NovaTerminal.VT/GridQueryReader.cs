@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace NovaTerminal.VT
@@ -303,6 +304,175 @@ namespace NovaTerminal.VT
                 StartRow: startRow,
                 EndRow: endRow);
             return true;
+        }
+
+        /// <summary>
+        /// Reads the last <paramref name="maxChars"/> characters of grid text that sit immediately
+        /// behind the cursor, following soft-wrapped predecessor rows backwards as far as needed.
+        /// </summary>
+        /// <param name="buffer">The buffer to read.</param>
+        /// <param name="maxChars">How many characters to read back from the cursor.</param>
+        /// <param name="text">
+        /// The text ending at the cursor. Shorter than <paramref name="maxChars"/> when the grid
+        /// does not hold that much behind the cursor, which is itself an answer.
+        /// </param>
+        /// <returns>
+        /// <c>false</c> when there is no readable grid at all (no buffer, an active alt screen, a
+        /// cursor outside the buffer). Never throws.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// This exists for one caller and one question: <b>did the shell echo what the user
+        /// typed?</b> In a markless session the host has no <c>OSC 133;B</c> mark to read from, so
+        /// it cannot say where the command line starts — but it can still ask whether a candidate
+        /// string is painted on the screen ending at the cursor, which is what an echoing line
+        /// editor produces and what a hidden password prompt does not. See
+        /// <c>TerminalPane.WasAccumulatedTextEchoedAtCursor</c>.
+        /// </para>
+        /// <para>
+        /// It deliberately does <i>not</i> try to identify the command line. It reads a fixed
+        /// number of characters backwards and hands them over; deciding whether they match is the
+        /// caller's job, and a mismatch means "do not capture" rather than "capture something
+        /// else".
+        /// </para>
+        /// <para>
+        /// Wide characters are compared as text, not columns: the trailing half of a double-width
+        /// cell is skipped exactly as <see cref="TryReadCommandLine"/> skips it, so one CJK
+        /// character is one character here too. Lock discipline matches
+        /// <see cref="TryReadCommandLine"/>.
+        /// </para>
+        /// </remarks>
+        public static bool TryReadTextEndingAtCursor(
+            TerminalBuffer buffer,
+            int maxChars,
+            out string text)
+        {
+            text = string.Empty;
+            if (buffer is null || maxChars < 0)
+            {
+                return false;
+            }
+
+            bool lockTaken = false;
+            if (!buffer.Lock.IsReadLockHeld &&
+                !buffer.Lock.IsWriteLockHeld &&
+                !buffer.Lock.IsUpgradeableReadLockHeld)
+            {
+                buffer.Lock.EnterReadLock();
+                lockTaken = true;
+            }
+
+            try
+            {
+                return TryReadTextEndingAtCursorLocked(buffer, maxChars, out text);
+            }
+            finally
+            {
+                if (lockTaken)
+                {
+                    buffer.Lock.ExitReadLock();
+                }
+            }
+        }
+
+        private static bool TryReadTextEndingAtCursorLocked(
+            TerminalBuffer buffer,
+            int maxChars,
+            out string text)
+        {
+            text = string.Empty;
+
+            // A full-screen application owns the grid; there is no echoing line editor to check.
+            if (buffer.IsAltScreenActive)
+            {
+                return false;
+            }
+
+            int cols = buffer.Cols;
+            if (cols <= 0)
+            {
+                return false;
+            }
+
+            int totalRows = buffer.InternalTotalLines;
+            int cursorRow = buffer.Scrollback.Count + buffer.InternalCursorRow;
+            if (cursorRow < 0 || cursorRow >= totalRows)
+            {
+                return false;
+            }
+
+            // Deferred autowrap: after a character lands on the last column the cursor stays
+            // parked there with the wrap pending, so its *text* position is one past it.
+            int cursorTextCol = buffer.IsPendingWrap
+                ? Math.Min(buffer.InternalCursorCol + 1, cols)
+                : buffer.InternalCursorCol;
+            if (cursorTextCol < 0)
+            {
+                return false;
+            }
+
+            cursorTextCol = Math.Min(cursorTextCol, cols);
+
+            if (maxChars == 0)
+            {
+                return true;
+            }
+
+            var rows = new List<string>();
+            int collected = 0;
+            int row = cursorRow;
+            int rowsRead = 0;
+
+            while (true)
+            {
+                int endCol = row == cursorRow
+                    ? cursorTextCol
+                    : SoftWrappedRowEnd(buffer, row, cols);
+
+                string rowText = ReadRowText(buffer, row, endCol);
+                rows.Add(rowText);
+                collected += rowText.Length;
+                rowsRead++;
+
+                if (collected >= maxChars ||
+                    row <= 0 ||
+                    rowsRead >= MaxSpanRows ||
+                    !buffer.IsRowWrappedAbsolute(row - 1))
+                {
+                    break;
+                }
+
+                row--;
+            }
+
+            rows.Reverse();
+            string joined = string.Concat(rows);
+            text = joined.Length > maxChars
+                ? joined.Substring(joined.Length - maxChars)
+                : joined;
+            return true;
+        }
+
+        /// <summary>
+        /// The text of one row's cells in <c>[0, endCol)</c>, with the same cell-to-character
+        /// rules <see cref="TryReadCommandLineLocked"/> uses: wide continuations are skipped,
+        /// and an unset cell reads as a space.
+        /// </summary>
+        private static string ReadRowText(TerminalBuffer buffer, int row, int endCol)
+        {
+            var text = new StringBuilder();
+            for (int col = 0; col < endCol; col++)
+            {
+                if (buffer.GetCellAbsolute(col, row).IsWideContinuation)
+                {
+                    continue;
+                }
+
+                string grapheme = buffer.GetGraphemeAbsolute(col, row);
+                text.Append(string.IsNullOrEmpty(grapheme) || grapheme == "\0" ? " " : grapheme);
+            }
+
+            return text.ToString();
         }
 
         /// <summary>

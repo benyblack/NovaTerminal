@@ -894,4 +894,140 @@ public class GridQueryReaderTests
         Assert.False(s.TryRead(out _));
         Assert.False(s.Buffer.Lock.IsReadLockHeld);
     }
+
+    // ------------------------------------------------- text ending at the cursor (echo check)
+
+    /// <remarks>
+    /// <c>TryReadTextEndingAtCursor</c> answers a different question from the rest of this file:
+    /// not "where does the command line start" — it has no mark to work from — but "is this exact
+    /// string painted on the screen behind the cursor". Its one caller is the markless capture
+    /// path's echo gate, which uses it to refuse to write a password nobody echoed into history.
+    /// </remarks>
+    private static string ReadBack(Session s, int count)
+    {
+        Assert.True(GridQueryReader.TryReadTextEndingAtCursor(s.Buffer, count, out string text));
+        return text;
+    }
+
+    [Fact]
+    public void TextEndingAtTheCursor_IsTheTailOfWhatWasPainted()
+    {
+        var s = new Session().Write("$ git status");
+
+        Assert.Equal("git status", ReadBack(s, 10));
+        Assert.Equal("$ git status", ReadBack(s, 12));
+    }
+
+    /// <summary>
+    /// A short read is an answer, not a failure: the caller compares for equality, so "the grid
+    /// does not hold that many characters" comes back as a shorter string and fails the match.
+    /// </summary>
+    [Fact]
+    public void AskingForMoreThanTheRowHolds_ReturnsWhatThereIs()
+    {
+        var s = new Session().Write("ls");
+
+        Assert.Equal("ls", ReadBack(s, 50));
+    }
+
+    /// <summary>
+    /// Nothing after the cursor is readable, which is the property the echo gate rests on: text
+    /// that is on screen somewhere else is not evidence that this line was echoed.
+    /// </summary>
+    [Fact]
+    public void TextAfterTheCursor_IsNotRead()
+    {
+        var s = new Session().Write("whoami and more").Write("\x1b[1;7H"); // cursor back to col 6
+
+        Assert.Equal("whoami", ReadBack(s, 6));
+        Assert.Equal("whoami", ReadBack(s, 15));
+    }
+
+    [Fact]
+    public void ASoftWrappedLine_IsFollowedBackwardsThroughItsPredecessorRows()
+    {
+        var s = new Session(cols: 10).Write("abcdefghijklmno");
+
+        Assert.Equal("abcdefghijklmno", ReadBack(s, 15));
+        Assert.Equal("klmno", ReadBack(s, 5));
+    }
+
+    /// <summary>
+    /// The walk stops at a row that is not soft-wrapped into the cursor's: an earlier command's
+    /// output is not part of what was typed here.
+    /// </summary>
+    [Fact]
+    public void AHardLineBreakStopsTheWalk()
+    {
+        var s = new Session().Write("older output\r\n$ ls");
+
+        Assert.Equal("$ ls", ReadBack(s, 20));
+    }
+
+    /// <summary>
+    /// Wide characters are one character each, so a caller comparing against typed text does not
+    /// have to know anything about columns.
+    /// </summary>
+    [Fact]
+    public void WideCharacters_CountAsOneCharacterEach()
+    {
+        var s = new Session().Write("echo " + Cjk);
+
+        Assert.Equal(Cjk, ReadBack(s, 2));
+        Assert.Equal("echo " + Cjk, ReadBack(s, 7));
+    }
+
+    /// <summary>Deferred autowrap: the cursor parks on the last column with the wrap pending.</summary>
+    [Fact]
+    public void WithAPendingWrap_TheLastCharacterIsIncluded()
+    {
+        var s = new Session(cols: 5).Write("abcde");
+
+        Assert.True(s.Buffer.IsPendingWrap);
+        Assert.Equal("abcde", ReadBack(s, 5));
+    }
+
+    /// <summary>
+    /// A full-screen application owns the grid; there is no echoing line editor to check against,
+    /// so the honest answer is "cannot read" rather than whatever the TUI happens to have painted.
+    /// </summary>
+    [Fact]
+    public void OnTheAltScreen_TheReadFails()
+    {
+        var s = new Session().Write("\x1b[?1049h").Write("tui content");
+
+        Assert.False(GridQueryReader.TryReadTextEndingAtCursor(s.Buffer, 5, out string text));
+        Assert.Equal(string.Empty, text);
+    }
+
+    [Fact]
+    public void AZeroLengthReadSucceedsAndIsEmpty()
+    {
+        var s = new Session().Write("$ ls");
+
+        Assert.True(GridQueryReader.TryReadTextEndingAtCursor(s.Buffer, 0, out string text));
+        Assert.Equal(string.Empty, text);
+    }
+
+    [Fact]
+    public void TheEchoReadObeysTheSameLockDiscipline()
+    {
+        var s = new Session().Write("$ ls");
+
+        s.Buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.True(GridQueryReader.TryReadTextEndingAtCursor(s.Buffer, 2, out string text));
+            Assert.Equal("ls", text);
+        }
+        finally
+        {
+            s.Buffer.Lock.ExitReadLock();
+        }
+
+        Assert.False(s.Buffer.Lock.IsReadLockHeld);
+
+        Assert.True(GridQueryReader.TryReadTextEndingAtCursor(s.Buffer, 2, out _));
+        Assert.False(s.Buffer.Lock.IsReadLockHeld);
+    }
 }

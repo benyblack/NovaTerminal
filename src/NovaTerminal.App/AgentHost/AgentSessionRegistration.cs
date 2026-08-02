@@ -262,6 +262,13 @@ namespace NovaTerminal.AgentHost
         }
 
         /// <summary>
+        /// Raised after <see cref="TrySendInput"/> has put bytes on the wire. The owning pane uses
+        /// it to invalidate anything that models the command line from keystrokes alone: an agent
+        /// typing for the user is text the keyboard path never saw.
+        /// </summary>
+        public Action? InputInjected { get; set; }
+
+        /// <summary>
         /// Injects <paramref name="text"/> into the live session (A3). Returns
         /// false when no session is published or its process has already exited.
         /// Goes through <see cref="NovaTerminal.Pty.ITerminalIO.SendInput"/> —
@@ -275,6 +282,7 @@ namespace NovaTerminal.AgentHost
             {
                 if (!session.IsProcessRunning) return false;
                 session.SendInput(text);
+                InputInjected?.Invoke();
                 return true;
             }
             catch
