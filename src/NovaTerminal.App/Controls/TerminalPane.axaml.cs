@@ -142,6 +142,11 @@ namespace NovaTerminal.Controls
         // across the two; the gate costs one uncontended lock per prompt.
         private readonly object _commandStartMarkGate = new();
         private ShellIntegrationMark? _latestCommandStartMark;
+
+        // True between "the user pressed a key that edits the command line" and "the session sent
+        // us bytes we have parsed into the grid". See NoteInputAwaitingEcho for why insertion
+        // refuses while it is set. Written from the UI thread, cleared from the PTY read thread.
+        private volatile bool _hasUnechoedInput;
         private string? _lastRelevantCommandText;
         private CommandAssistBarViewModel? _boundCommandAssistViewModel;
         private string? _lastCommandAssistAnchorDiagnosticSignature;
@@ -542,6 +547,7 @@ namespace NovaTerminal.Controls
             // the prompt is being edited.
             TermView.TextInputObserved += _ =>
             {
+                NoteInputAwaitingEcho();
                 if (EnsureCommandAssistInitialized())
                 {
                     _commandAssistController?.NotifyInputActivity();
@@ -549,6 +555,7 @@ namespace NovaTerminal.Controls
             };
             TermView.BackspaceObserved += () =>
             {
+                NoteInputAwaitingEcho();
                 if (EnsureCommandAssistInitialized())
                 {
                     _commandAssistController?.NotifyInputActivity();
@@ -1564,9 +1571,52 @@ namespace NovaTerminal.Controls
             return TryHandleCommandAssistKey(Key.P, KeyModifiers.Control | KeyModifiers.Shift);
         }
 
+        /// <summary>
+        /// The user pressed a key that edits the command line, and the PTY has been sent the bytes
+        /// for it. Until the shell echoes them back and the parser paints them, the grid is a
+        /// prefix of the real command line.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the one desync the grid cannot self-report. Every other stale read looks wrong -
+        /// a half-erased line, a mark that went dark - but an unechoed keystroke leaves a read that
+        /// is internally perfect: <c>"git st"</c> with the cursor at offset 6, every planner guard
+        /// satisfied, while the shell already holds <c>"git sta"</c>. Because the stale text is
+        /// always a strict <em>prefix</em> of the true line, no prefix check can detect it: the
+        /// planner would compute <c>"atus"</c> against <c>"git st"</c> and the line would become
+        /// <c>"git staatus"</c>.
+        /// </para>
+        /// <para>
+        /// So insertion refuses while this is set, consistent with the planner's other rules -
+        /// refusal on doubt, never a guess. Ranking is deliberately left alone: a one-character-
+        /// stale query ranks slightly worse rows and the next trigger fixes it, which is a cost
+        /// worth paying to keep suggestions live while typing.
+        /// </para>
+        /// <para>
+        /// The clear is approximate in one direction only. Any session output clears the flag, so
+        /// unrelated output (a background job printing) can clear it before the echo lands, leaving
+        /// the original window open. It cannot go the other way: output that has been parsed is
+        /// output that is in the grid.
+        /// </para>
+        /// </remarks>
+        internal void NoteInputAwaitingEcho() => _hasUnechoedInput = true;
+
+        /// <summary>Session bytes have been parsed into the grid, so the grid has caught up.</summary>
+        internal void NoteSessionOutputApplied() => _hasUnechoedInput = false;
+
+        /// <summary>Whether an edit keystroke is still waiting for the shell's echo.</summary>
+        internal bool HasUnechoedInput => _hasUnechoedInput;
+
         private bool TryInsertSelectedCommandAssistSuggestion()
         {
             if (_commandAssistController == null || Session == null)
+            {
+                return false;
+            }
+
+            // The echo race: a fresh read taken now can be a self-consistent snapshot of a command
+            // line the shell has already moved past. See NoteInputAwaitingEcho.
+            if (_hasUnechoedInput)
             {
                 return false;
             }
@@ -1577,13 +1627,25 @@ namespace NovaTerminal.Controls
             // prefix-dependent and degraded mode does not offer prefix-dependent features.
             AssistQuerySnapshot? existingQuery = _commandAssistController.TryReadQuerySnapshot();
 
-            if (!_commandAssistController.TryAcceptSelection(out string? insertionText) || insertionText == null)
+            // Everything above and below this line is non-mutating, and that ordering is the point.
+            // TryAcceptSelection accepts *and* dismisses; calling it first meant that every refusal
+            // after it - a degraded session, a cursor mid-line, a multiline entry - tore the list
+            // down and sent nothing, so Ctrl+Enter read as "the feature is broken" rather than as
+            // "not here". The plan is computed first and the surface is only touched once there is
+            // text to send.
+            if (!_commandAssistController.TryGetInsertionText(out string? insertionText) ||
+                string.IsNullOrWhiteSpace(insertionText))
             {
                 return false;
             }
 
             if (!CommandAssistInsertionPlanner.TryCreateInsertion(existingQuery, insertionText, out string? textToSend) ||
                 string.IsNullOrEmpty(textToSend))
+            {
+                return false;
+            }
+
+            if (!_commandAssistController.TryAcceptSelection(out _))
             {
                 return false;
             }
@@ -1984,6 +2046,10 @@ namespace NovaTerminal.Controls
             Session.OnOutputReceived += text =>
             {
                 Parser.Process(text);
+
+                // After Parse, not before: the flag's contract is "the grid may be behind the
+                // keyboard", so it may only be cleared once these bytes are actually painted.
+                NoteSessionOutputApplied();
                 Dispatcher.UIThread.Post(() =>
                 {
                     UpdateScrollUI();
