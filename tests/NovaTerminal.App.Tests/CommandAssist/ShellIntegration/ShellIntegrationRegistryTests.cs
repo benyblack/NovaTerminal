@@ -64,7 +64,7 @@ public sealed class ShellIntegrationRegistryTests
     [Fact]
     public void GetProvider_ForBashProfile_ReturnsBashProvider()
     {
-        ShellIntegrationRegistry registry = CommandAssistInfrastructure.GetShellIntegrationRegistry();
+        ShellIntegrationRegistry registry = CommandAssistServices.CreateDefault().ShellIntegrationRegistry;
 
         IShellIntegrationProvider? provider = registry.GetProvider(
             shellKind: "bash",
@@ -76,7 +76,7 @@ public sealed class ShellIntegrationRegistryTests
     [Fact]
     public void GetProvider_ForZshProfile_ReturnsZshProvider()
     {
-        ShellIntegrationRegistry registry = CommandAssistInfrastructure.GetShellIntegrationRegistry();
+        ShellIntegrationRegistry registry = CommandAssistServices.CreateDefault().ShellIntegrationRegistry;
 
         IShellIntegrationProvider? provider = registry.GetProvider(
             shellKind: "zsh",
@@ -88,7 +88,7 @@ public sealed class ShellIntegrationRegistryTests
     [Fact]
     public void GetProvider_ForFishProfile_ReturnsFishProvider()
     {
-        ShellIntegrationRegistry registry = CommandAssistInfrastructure.GetShellIntegrationRegistry();
+        ShellIntegrationRegistry registry = CommandAssistServices.CreateDefault().ShellIntegrationRegistry;
 
         IShellIntegrationProvider? provider = registry.GetProvider(
             shellKind: "fish",

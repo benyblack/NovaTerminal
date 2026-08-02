@@ -94,6 +94,12 @@ namespace NovaTerminal
         private Dictionary<string, CommandPaletteUsageEntry> _commandPaletteUsage = new(StringComparer.OrdinalIgnoreCase);
         private readonly StartupOrchestrator _startup;
 
+        /// <summary>
+        /// The one Command Assist dependency graph, built at the App composition root and handed to
+        /// every pane this window creates. Replaces the static <c>CommandAssistInfrastructure</c>.
+        /// </summary>
+        private readonly CommandAssistServices _commandAssistServices;
+
         private sealed class PaneZoomState
         {
             public required Control OriginalRoot { get; init; }
@@ -1950,6 +1956,7 @@ namespace NovaTerminal
         {
             ArgumentNullException.ThrowIfNull(services);
             _startup = services.Startup;
+            _commandAssistServices = services.CommandAssist;
             InitializeComponent();
             _startup.Checkpoint("MainWindow.AfterInitializeComponent");
             _settings = TerminalSettings.Load();
@@ -3737,6 +3744,7 @@ namespace NovaTerminal
                 : _settings.Profiles.Find(p => p.Id == profile.Id) ?? profile;
             var paneToReplace = _currentPane;
             var replacementPane = new TerminalPane(resolvedProfile, diagnosticsLevel);
+            replacementPane.CommandAssistServices = _commandAssistServices;
             replacementPane.ApplySettings(_settings);
             WirePane(replacementPane);
 
@@ -3863,6 +3871,7 @@ namespace NovaTerminal
             }
 
             var pane = new TerminalPane(profile, sshDiagnostics);
+            pane.CommandAssistServices = _commandAssistServices;
             WirePane(pane);
 
             pane.ApplySettings(_settings);
@@ -4024,6 +4033,7 @@ namespace NovaTerminal
                 newPane = new TerminalPane(originalPane.ShellCommand);
             }
 
+            newPane.CommandAssistServices = _commandAssistServices;
             newPane.ApplySettings(_settings);
             WirePane(newPane);
             if (TryGetSelectedTab(out var splitOwnerTab))

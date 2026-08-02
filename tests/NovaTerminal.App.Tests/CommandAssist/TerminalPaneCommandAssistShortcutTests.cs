@@ -15,6 +15,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
     public void ApplySettings_WhenAssistEnabled_DoesNotEagerlyInitializeController()
     {
         using var pane = new TerminalPane();
+        pane.CommandAssistServices = TestCommandAssistServices.Instance;
         var settings = new TerminalSettings(); // constructed, not Load() - see #232
         settings.CommandAssistEnabled = true;
         settings.CommandAssistHistoryEnabled = true;
@@ -176,6 +177,9 @@ public sealed class TerminalPaneCommandAssistShortcutTests
 
     private static void ConfigureCommandAssist(TerminalPane pane)
     {
+        // Phase 0b: the pane no longer reaches for a static locator, so the services instance is
+        // injected the same way MainWindow injects it in production.
+        pane.CommandAssistServices = TestCommandAssistServices.Instance;
         var settings = new TerminalSettings(); // constructed, not Load() - see #232
         settings.CommandAssistEnabled = true;
         settings.CommandAssistHistoryEnabled = true;
