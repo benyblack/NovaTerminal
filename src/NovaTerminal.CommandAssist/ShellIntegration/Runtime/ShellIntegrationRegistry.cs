@@ -1,9 +1,6 @@
-using NovaTerminal.Shell;
 using System.Collections.Generic;
 using System.Linq;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 
@@ -16,8 +13,8 @@ public sealed class ShellIntegrationRegistry
         _providers = providers.ToList();
     }
 
-    public IShellIntegrationProvider? GetProvider(string? shellKind, TerminalProfile? profile)
+    public IShellIntegrationProvider? GetProvider(string? shellKind, string? shellCommand)
     {
-        return _providers.FirstOrDefault(provider => provider.CanIntegrate(shellKind, profile));
+        return _providers.FirstOrDefault(provider => provider.CanIntegrate(shellKind, shellCommand));
     }
 }

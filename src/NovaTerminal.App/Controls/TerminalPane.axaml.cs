@@ -1444,7 +1444,10 @@ namespace NovaTerminal.Controls
 
             CommandAssistController? controller = _commandAssistController;
             bool isAssistVisible = controller?.ViewModel.IsVisible == true;
-            if (!CommandAssistKeyRouter.IsAssistOwnedKey(isAssistVisible, key, modifiers))
+            if (!CommandAssistKeyRouter.IsAssistOwnedKey(
+                    isAssistVisible,
+                    AssistKeyMapper.ToAssistKey(key),
+                    AssistKeyMapper.ToAssistModifiers(modifiers)))
             {
                 return false;
             }
@@ -2858,7 +2861,7 @@ namespace NovaTerminal.Controls
 
             string shellKind = DetermineShellKind(effectiveShell);
             var registry = CommandAssistInfrastructure.GetShellIntegrationRegistry();
-            IShellIntegrationProvider? provider = registry.GetProvider(shellKind, profile);
+            IShellIntegrationProvider? provider = registry.GetProvider(shellKind, profile?.Command);
             if (provider == null)
             {
                 return;

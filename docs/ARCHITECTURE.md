@@ -44,7 +44,8 @@ Concretely, from the `.csproj` graph:
 | `NovaTerminal.Rendering` | VT, SkiaSharp | Skia glyph atlas/cache, pixel grid, sixel decoder |
 | `NovaTerminal.Pty` | Replay | PTY transport: rust-PTY adapter, session contracts. **Does not depend on VT** — see arch test `Pty_must_not_depend_on_Vt` |
 | `NovaTerminal.Platform` | Pty | Platform-utilities: input routing, path mapping, SSH transport/sessions, credential vault |
-| `NovaTerminal.App` | Platform, VT, Rendering, Pty, Replay | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist |
+| `NovaTerminal.CommandAssist` | (leaf) | Command Assist domain, models, storage, shell integration, view-models and application core. **No Avalonia** — see arch test `CommandAssist_must_not_depend_on_Avalonia_or_the_App` |
+| `NovaTerminal.App` | Platform, VT, Rendering, Pty, Replay, CommandAssist | Avalonia UI shell: windows, controls, command palette, settings, themes, command-assist views |
 | `NovaTerminal.Cli` | App | Headless CLI shim (`vt-report` etc.) |
 | `NovaTerminal.Conformance` | (standalone Exe) | VT conformance matrix tool used by tests and CI |
 
@@ -224,17 +225,20 @@ Allowed differences: window chrome, hotkeys, blur/transparency, credential stora
 - `Replay_only_depends_on_Vt`
 - `Rendering_only_depends_on_Vt_and_Skia`
 - `Pty_must_not_depend_on_Vt`
+- `CommandAssist_must_not_depend_on_Avalonia_or_the_App`
 - `No_production_assembly_references_test_assemblies`
 
 **`NamespaceAlignmentTests`**
-- `Leaf_assembly_types_reside_in_its_own_namespace` (Theory: VT, Replay, Rendering, Pty, Platform)
+- `Leaf_assembly_types_reside_in_its_own_namespace` (Theory: VT, Replay, Rendering, Pty, Platform, AgentHost.Contracts, CommandAssist)
 - `No_two_assemblies_share_a_namespace_prefix`
+- `App_may_only_use_the_CommandAssist_prefix_for_Views`
 
 **`ProjectFileLayeringTests`**
 - `Pty_csproj_must_not_reference_Vt`
 - `Replay_csproj_only_references_Vt`
 - `Rendering_csproj_only_references_Vt`
 - `Vt_csproj_must_have_no_project_references`
+- `CommandAssist_csproj_must_have_no_project_or_avalonia_references`
 
 Adding a new layering invariant means adding a new fact. Reverting one of these accidentally fails CI.
 
@@ -262,7 +266,7 @@ These are tracked in follow-up plans under `docs/plans/`:
 
 - **Renderer composition still lives in App.** `src/NovaTerminal.App/Shell/TerminalView.cs` (1,912 LOC) and `TerminalDrawOperation.cs` (2,723 LOC) implement the Skia-backed Avalonia renderer. They belong in `NovaTerminal.Rendering` behind a thin Avalonia binding shell. Planned extraction: `2026-MM-DD-renderer-composition-extraction-plan.md`.
 - **SSH is fragmented across Platform and App.** `Platform/Ssh/` holds the transport, while `App/Services/Ssh/`, `App/ViewModels/Ssh/`, `App/Views/Ssh/`, and `App/Shell/{SftpService,VaultService,SshAskPassCommand}.cs` hold the user-facing surface. A `NovaTerminal.Ssh` (or `.Remote`) assembly would consolidate the non-UI portion.
-- **CommandAssist** has its own Application/Domain/Storage layering inside `App/CommandAssist/`. Candidate for `NovaTerminal.CommandAssist` extraction.
+- **CommandAssist Phase 0 is only half done.** The assembly extraction landed (#114), but three items from `docs/plans/2026-08-01-command-assist-v2-plan.md` Phase 0 remain: (a) `App/Shell/CommandAssistInfrastructure.cs` is still a *static* service locator and should become a `CommandAssistServices` instance composed at the App root and injected into `TerminalPane` (task 3); (b) `CommandAssistController` is 854 LOC doing state, capture, and suggestion orchestration at once — it splits into `AssistSessionStateMachine` / `CapturePipeline` / `SuggestionOrchestrator` (task 4); (c) `JsonHistoryStore` / `JsonSnippetStore` rewrite the whole file on every append, which wants JSONL + an in-memory index + compaction, plus a one-time `history.json` migration (task 6). Task 5 (single ranking; delete `HistorySuggestionEngine`, `CommandAssistBarView`, and the other dead paths) is also outstanding.
 - **CLI ↔ App reference direction.** `Cli` currently references `App` and is built via a nested MSBuild target (`BuildCliShim` in `App.csproj`). A `NovaTerminal.Bootstrap` library should mediate so `Cli → Bootstrap ← App` replaces `Cli → App`.
 - **Byte vs string at the PTY boundary.** `ITerminalIO.SendInput(string)` and `OnOutputReceived(Action<string>)` lose information at the byte-vs-codepoint boundary (UTF-8 split across reads, embedded NULs, lone surrogates). Migrating to `ReadOnlySpan<byte>` / `Action<ReadOnlyMemory<byte>>` is the planned follow-up to Phase 5.
 - **Buffer-snapshot recording.** Phase 5 removed `ITerminalSession.AttachBuffer` / `TakeSnapshot`. The byte-stream is still recorded; buffer snapshots at recording start/stop are gone. Re-introducing them as an orchestration helper (likely in `Replay` or `Platform`) is a small follow-up.

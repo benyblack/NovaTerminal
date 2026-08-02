@@ -11,6 +11,7 @@ public class LayeringTests
     private static Assembly Pty => typeof(global::NovaTerminal.Pty.ITerminalSession).Assembly;
     private static Assembly Platform => typeof(global::NovaTerminal.Platform.Input.TerminalInputSender).Assembly;
     private static Assembly AgentHostContracts => typeof(global::NovaTerminal.AgentHost.Contracts.AgentHostProtocol).Assembly;
+    private static Assembly CommandAssist => typeof(global::NovaTerminal.CommandAssist.Application.CommandAssistAnchorCalculator).Assembly;
 
     [Fact]
     public void Vt_must_be_a_leaf_assembly()
@@ -99,10 +100,43 @@ public class LayeringTests
             $"production layer. Offenders: {Join(result.FailingTypeNames)}");
     }
 
+    /// <summary>
+    /// Command Assist was extracted from the App in #114 precisely so its suggestion, capture,
+    /// storage and shell-integration logic could be reasoned about (and tested) without a UI
+    /// toolkit. An <c>Avalonia</c> reference creeping back in silently undoes that: the App-side
+    /// seams (<c>AssistKeyMapper</c>, <c>AssistRect</c>) only stay meaningful while this holds.
+    /// The Views (<c>CommandAssist/Views/*.axaml</c>) deliberately remain in the App.
+    /// </summary>
+    [Fact]
+    public void CommandAssist_must_not_depend_on_Avalonia_or_the_App()
+    {
+        var result = Types.InAssembly(CommandAssist)
+            .Should()
+            .NotHaveDependencyOnAny(
+                "Avalonia",
+                "SkiaSharp",
+                // The App assembly is named "NovaTerminal" and its types live under the bare root,
+                // so it cannot be named by assembly name here without matching CommandAssist itself.
+                // Its two real buckets are enough to catch a reach back into the UI project.
+                "NovaTerminal.Shell",
+                "NovaTerminal.Controls",
+                "NovaTerminal.Rendering",
+                "NovaTerminal.Replay",
+                "NovaTerminal.Pty",
+                // CommandAssist references neither today; naming them keeps the allowlist
+                // complete so a future "just grab the parser" shortcut fails here first.
+                "NovaTerminal.VT",
+                "NovaTerminal.Platform")
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            $"CommandAssist must stay UI-toolkit-free. Offenders: {Join(result.FailingTypeNames)}");
+    }
+
     [Fact]
     public void No_production_assembly_references_test_assemblies()
     {
-        foreach (var asm in new[] { Vt, Replay, Rendering, Pty, Platform, AgentHostContracts })
+        foreach (var asm in new[] { Vt, Replay, Rendering, Pty, Platform, AgentHostContracts, CommandAssist })
         {
             var result = Types.InAssembly(asm)
                 .Should()

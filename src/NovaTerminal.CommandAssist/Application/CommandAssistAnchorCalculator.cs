@@ -1,5 +1,4 @@
 using System;
-using Avalonia;
 
 namespace NovaTerminal.CommandAssist.Application;
 
@@ -40,11 +39,11 @@ public sealed class CommandAssistAnchorCalculator
                                 request.CursorVisualRow >= 0 &&
                                 request.CellHeight > 0;
 
-        Rect promptRect = usesPromptAnchor
+        AssistRect promptRect = usesPromptAnchor
             ? CreatePromptRect(request, paneWidth, paneHeight, promptHeight)
             : CreateFallbackPromptRect(request, paneWidth, paneHeight, promptHeight);
 
-        Rect bubbleRect = usesPromptAnchor
+        AssistRect bubbleRect = usesPromptAnchor
             ? CreateBubbleAdjacentToPrompt(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight)
             : CreateFallbackBubbleRect(promptRect, bubbleWidth, bubbleHeight, paneWidth, paneHeight);
 
@@ -108,7 +107,7 @@ public sealed class CommandAssistAnchorCalculator
                 : downwardTop;
         }
 
-        Rect popupRect = CreatePopupRect(
+        AssistRect popupRect = CreatePopupRect(
             popupDirection,
             popupX,
             popupY,
@@ -121,7 +120,7 @@ public sealed class CommandAssistAnchorCalculator
         return new CommandAssistAnchorLayout(promptRect, bubbleRect, popupRect, popupDirection, usesPromptAnchor, useCompactBubbleLayout);
     }
 
-    private static Rect CreatePromptRect(
+    private static AssistRect CreatePromptRect(
         CommandAssistAnchorRequest request,
         double paneWidth,
         double paneHeight,
@@ -129,11 +128,11 @@ public sealed class CommandAssistAnchorCalculator
     {
         double promptWidth = Math.Min(Math.Max(MinimumPromptWidth, request.BubbleWidth * 0.5), paneWidth - (PanePadding * 2));
         double promptY = PromptVerticalOffset + (request.CursorVisualRow * request.CellHeight);
-        Rect promptRect = new(PanePadding, promptY, promptWidth, promptHeight);
+        AssistRect promptRect = new(PanePadding, promptY, promptWidth, promptHeight);
         return ClampRect(promptRect, paneWidth, paneHeight);
     }
 
-    private static Rect CreateFallbackPromptRect(
+    private static AssistRect CreateFallbackPromptRect(
         CommandAssistAnchorRequest request,
         double paneWidth,
         double paneHeight,
@@ -143,11 +142,11 @@ public sealed class CommandAssistAnchorCalculator
         double promptY = ShouldUseUnreliableCursorBandFallback(request)
             ? PromptVerticalOffset + (request.CursorVisualRow * request.CellHeight)
             : paneHeight - PanePadding - promptHeight;
-        return ClampRect(new Rect(PanePadding, promptY, promptWidth, promptHeight), paneWidth, paneHeight);
+        return ClampRect(new AssistRect(PanePadding, promptY, promptWidth, promptHeight), paneWidth, paneHeight);
     }
 
-    private static Rect CreateBubbleAdjacentToPrompt(
-        Rect promptRect,
+    private static AssistRect CreateBubbleAdjacentToPrompt(
+        AssistRect promptRect,
         double bubbleWidth,
         double bubbleHeight,
         double paneWidth,
@@ -166,8 +165,8 @@ public sealed class CommandAssistAnchorCalculator
             reserveInputRowClearance: true);
     }
 
-    private static Rect CreateBubbleAdjacentToPrompt(
-        Rect promptRect,
+    private static AssistRect CreateBubbleAdjacentToPrompt(
+        AssistRect promptRect,
         double bubbleWidth,
         double bubbleHeight,
         double paneWidth,
@@ -198,11 +197,11 @@ public sealed class CommandAssistAnchorCalculator
             bubbleY = clampedAboveY;
         }
 
-        return ClampRect(new Rect(bubbleX, bubbleY, bubbleWidth, bubbleHeight), paneWidth, paneHeight);
+        return ClampRect(new AssistRect(bubbleX, bubbleY, bubbleWidth, bubbleHeight), paneWidth, paneHeight);
     }
 
-    private static Rect CreateFallbackBubbleRect(
-        Rect promptRect,
+    private static AssistRect CreateFallbackBubbleRect(
+        AssistRect promptRect,
         double bubbleWidth,
         double bubbleHeight,
         double paneWidth,
@@ -223,13 +222,13 @@ public sealed class CommandAssistAnchorCalculator
             reserveInputRowClearance: false);
     }
 
-    private static Rect CreatePopupRect(
+    private static AssistRect CreatePopupRect(
         CommandAssistPopupDirection popupDirection,
         double popupX,
         double popupY,
         double popupWidth,
         double popupHeight,
-        Rect bubbleRect,
+        AssistRect bubbleRect,
         double paneWidth,
         double paneHeight)
     {
@@ -238,7 +237,7 @@ public sealed class CommandAssistAnchorCalculator
             double minTop = bubbleRect.Bottom + BubblePopupGap;
             double maxBottom = paneHeight - PanePadding;
             double height = Math.Max(1, Math.Min(popupHeight, maxBottom - minTop));
-            return ClampRect(new Rect(popupX, minTop, popupWidth, height), paneWidth, paneHeight);
+            return ClampRect(new AssistRect(popupX, minTop, popupWidth, height), paneWidth, paneHeight);
         }
 
         if (popupDirection == CommandAssistPopupDirection.Upward)
@@ -246,13 +245,13 @@ public sealed class CommandAssistAnchorCalculator
             double maxBottom = bubbleRect.Top - BubblePopupGap;
             double top = Math.Max(PanePadding, maxBottom - popupHeight);
             double height = Math.Max(1, maxBottom - top);
-            return ClampRect(new Rect(popupX, top, popupWidth, height), paneWidth, paneHeight);
+            return ClampRect(new AssistRect(popupX, top, popupWidth, height), paneWidth, paneHeight);
         }
 
-        return ClampRect(new Rect(popupX, popupY, popupWidth, popupHeight), paneWidth, paneHeight);
+        return ClampRect(new AssistRect(popupX, popupY, popupWidth, popupHeight), paneWidth, paneHeight);
     }
 
-    private static Rect ClampRect(Rect rect, double paneWidth, double paneHeight)
+    private static AssistRect ClampRect(AssistRect rect, double paneWidth, double paneHeight)
     {
         double maxWidth = Math.Max(1, paneWidth - (PanePadding * 2));
         double maxHeight = Math.Max(1, paneHeight - (PanePadding * 2));
@@ -260,7 +259,7 @@ public sealed class CommandAssistAnchorCalculator
         double height = Math.Min(rect.Height, maxHeight);
         double x = Math.Clamp(rect.X, PanePadding, Math.Max(PanePadding, paneWidth - PanePadding - width));
         double y = Math.Clamp(rect.Y, PanePadding, Math.Max(PanePadding, paneHeight - PanePadding - height));
-        return new Rect(x, y, width, height);
+        return new AssistRect(x, y, width, height);
     }
 
     private static bool ShouldUseUnreliableCursorBandFallback(CommandAssistAnchorRequest request)
@@ -288,9 +287,9 @@ public sealed record CommandAssistAnchorRequest(
     bool HasReliablePromptAnchor = true);
 
 public sealed record CommandAssistAnchorLayout(
-    Rect PromptRect,
-    Rect BubbleRect,
-    Rect PopupRect,
+    AssistRect PromptRect,
+    AssistRect BubbleRect,
+    AssistRect PopupRect,
     CommandAssistPopupDirection PopupDirection,
     bool UsesPromptAnchor,
     bool UseCompactBubbleLayout);

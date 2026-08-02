@@ -49,6 +49,15 @@ public class ProjectFileLayeringTests
             .ToArray();
     }
 
+    private static string[] PackageReferences(string csprojRelativePath)
+    {
+        var path = Path.Combine(RepoRoot(), csprojRelativePath);
+        var doc = XDocument.Load(path);
+        return doc.Descendants("PackageReference")
+            .Select(e => (string?)e.Attribute("Include") ?? string.Empty)
+            .ToArray();
+    }
+
     [Fact]
     public void Pty_csproj_must_not_reference_Vt()
     {
@@ -75,6 +84,22 @@ public class ProjectFileLayeringTests
     {
         var refs = ProjectReferences("src/NovaTerminal.VT/NovaTerminal.VT.csproj");
         Assert.Empty(refs);
+    }
+
+    /// <summary>
+    /// The IL-level sibling (<c>CommandAssist_must_not_depend_on_Avalonia_or_the_App</c>) only sees
+    /// dependencies the compiler emitted. A <c>ProjectReference</c> or Avalonia
+    /// <c>PackageReference</c> that nothing uses yet would pass there and still hand the next
+    /// change a legal path back into the UI toolkit, so assert the project edge too.
+    /// </summary>
+    [Fact]
+    public void CommandAssist_csproj_must_have_no_project_or_avalonia_references()
+    {
+        var refs = ProjectReferences("src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj");
+        Assert.Empty(refs);
+
+        var packages = PackageReferences("src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj");
+        Assert.DoesNotContain(packages, p => p.StartsWith("Avalonia", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

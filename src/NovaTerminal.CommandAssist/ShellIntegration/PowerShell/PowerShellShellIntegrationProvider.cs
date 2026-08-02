@@ -1,22 +1,33 @@
-using NovaTerminal.Shell;
 using System;
 using System.Linq;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 
 public sealed class PowerShellShellIntegrationProvider : IShellIntegrationProvider
 {
-    public bool CanIntegrate(string? shellKind, TerminalProfile? profile)
+    private readonly Func<string> _bootstrapDirectory;
+
+    /// <param name="bootstrapDirectory">
+    /// Resolves the directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>() =&gt; AppPaths.CommandAssistDirectory</c>). Deliberately a factory, not a string: the
+    /// path is resolved per <see cref="CreateLaunchPlan"/> call so it tracks app-state changes and
+    /// so a resolution failure surfaces inside the caller's try/catch rather than at construction
+    /// time.
+    /// </param>
+    public PowerShellShellIntegrationProvider(Func<string> bootstrapDirectory)
+    {
+        _bootstrapDirectory = bootstrapDirectory;
+    }
+
+    public bool CanIntegrate(string? shellKind, string? shellCommand)
     {
         if (string.Equals(shellKind, "pwsh", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        string command = profile?.Command ?? string.Empty;
+        string command = shellCommand ?? string.Empty;
         return command.Contains("pwsh", StringComparison.OrdinalIgnoreCase) ||
                command.Contains("powershell", StringComparison.OrdinalIgnoreCase);
     }
@@ -32,7 +43,7 @@ public sealed class PowerShellShellIntegrationProvider : IShellIntegrationProvid
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = PowerShellBootstrapBuilder.WriteScript(AppPaths.CommandAssistDirectory);
+        string bootstrapScriptPath = PowerShellBootstrapBuilder.WriteScript(_bootstrapDirectory());
         string mergedArguments = BuildPowerShellArguments(shellArguments, bootstrapScriptPath);
         return new ShellIntegrationLaunchPlan(
             IsIntegrated: true,

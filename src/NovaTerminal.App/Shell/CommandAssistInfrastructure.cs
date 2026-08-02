@@ -1,4 +1,3 @@
-using NovaTerminal.Shell;
 using System;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.ShellIntegration.Bash;
@@ -8,11 +7,18 @@ using NovaTerminal.CommandAssist.ShellIntegration.PowerShell;
 using NovaTerminal.CommandAssist.ShellIntegration.Runtime;
 using NovaTerminal.CommandAssist.ShellIntegration.Zsh;
 using NovaTerminal.CommandAssist.Storage;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
-namespace NovaTerminal.CommandAssist.Application;
+namespace NovaTerminal.Shell;
 
+/// <summary>
+/// App-side composition root for Command Assist services.
+/// </summary>
+/// <remarks>
+/// Lives in the App (not in <c>NovaTerminal.CommandAssist</c>) because it is where the assist
+/// assembly's dependencies are resolved from application state: <see cref="AppPaths"/> for storage
+/// locations and <see cref="TerminalSettings"/> for limits. Phase 0 task 3 of the Command Assist V2
+/// plan replaces this static locator with an injected <c>CommandAssistServices</c>.
+/// </remarks>
 public static class CommandAssistInfrastructure
 {
     private static readonly object Sync = new();
@@ -24,12 +30,17 @@ public static class CommandAssistInfrastructure
     private static int _historyMaxEntries = -1;
     private static readonly ISecretsFilter SecretsFilterInstance = new SecretsFilter();
     private static readonly ISuggestionEngine SuggestionEngineInstance = new CommandAssistSuggestionEngine();
+    // The bootstrap directory is passed as a factory, not a resolved string: AppPaths reads
+    // environment state, so it must be evaluated inside CreateLaunchPlan (where the caller's
+    // try/catch can swallow a failure and fall back to a non-integrated launch) rather than in
+    // this static initializer, where a throw would become a TypeInitializationException at the
+    // GetShellIntegrationRegistry() call site and poison the whole type.
     private static readonly ShellIntegrationRegistry ShellIntegrationRegistryInstance = new(new IShellIntegrationProvider[]
     {
-        new PowerShellShellIntegrationProvider(),
-        new BashShellIntegrationProvider(),
-        new ZshShellIntegrationProvider(),
-        new FishShellIntegrationProvider()
+        new PowerShellShellIntegrationProvider(static () => AppPaths.CommandAssistDirectory),
+        new BashShellIntegrationProvider(static () => AppPaths.CommandAssistDirectory),
+        new ZshShellIntegrationProvider(static () => AppPaths.CommandAssistDirectory),
+        new FishShellIntegrationProvider(static () => AppPaths.CommandAssistDirectory)
     });
 
     public static IHistoryStore GetHistoryStore(TerminalSettings settings)

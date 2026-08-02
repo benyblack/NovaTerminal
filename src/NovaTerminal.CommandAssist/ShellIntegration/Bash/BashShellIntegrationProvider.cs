@@ -1,21 +1,32 @@
 using System;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Shell;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Bash;
 
 public sealed class BashShellIntegrationProvider : IShellIntegrationProvider
 {
-    public bool CanIntegrate(string? shellKind, TerminalProfile? profile)
+    private readonly Func<string> _bootstrapDirectory;
+
+    /// <param name="bootstrapDirectory">
+    /// Resolves the directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>() =&gt; AppPaths.CommandAssistDirectory</c>) so this assembly does not need to know
+    /// where the application stores its data. Deliberately a factory, not a string: the path is
+    /// resolved per <see cref="CreateLaunchPlan"/> call so it tracks app-state changes and so a
+    /// resolution failure surfaces inside the caller's try/catch rather than at construction time.
+    /// </param>
+    public BashShellIntegrationProvider(Func<string> bootstrapDirectory)
+    {
+        _bootstrapDirectory = bootstrapDirectory;
+    }
+
+    public bool CanIntegrate(string? shellKind, string? shellCommand)
     {
         if (string.Equals(shellKind, "bash", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        string command = profile?.Command ?? string.Empty;
+        string command = shellCommand ?? string.Empty;
         return command.Contains("bash", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -30,7 +41,7 @@ public sealed class BashShellIntegrationProvider : IShellIntegrationProvider
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = BashBootstrapBuilder.WriteScript(AppPaths.CommandAssistDirectory);
+        string bootstrapScriptPath = BashBootstrapBuilder.WriteScript(_bootstrapDirectory());
         string mergedArguments = BuildBashArguments(shellArguments, bootstrapScriptPath);
         return new ShellIntegrationLaunchPlan(
             IsIntegrated: true,

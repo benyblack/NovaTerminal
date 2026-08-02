@@ -1,8 +1,17 @@
 namespace NovaTerminal.CommandAssist.Application;
 
-internal static class CommandAssistInsertionPlanner
+/// <summary>
+/// Works out the delta the terminal must be sent to turn the text already typed at the prompt into
+/// the selected suggestion.
+/// </summary>
+/// <remarks>
+/// Public for the same reason as <see cref="CommandAssistKeyRouter"/>: the App's
+/// <c>TerminalPane</c> calls it when accepting a suggestion, and it is a pure static function over
+/// strings, so exposing it lets this assembly avoid granting the App <c>InternalsVisibleTo</c>.
+/// </remarks>
+public static class CommandAssistInsertionPlanner
 {
-    internal static bool TryCreateInsertion(string? existingQuery, string? selectedCommand, out string? textToSend)
+    public static bool TryCreateInsertion(string? existingQuery, string? selectedCommand, out string? textToSend)
     {
         textToSend = null;
 

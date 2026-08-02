@@ -1,4 +1,3 @@
-using Avalonia;
 using NovaTerminal.CommandAssist.Application;
 
 namespace NovaTerminal.Tests.CommandAssist;
@@ -431,7 +430,7 @@ public sealed class CommandAssistAnchorCalculatorTests
         Assert.True(layout.UseCompactBubbleLayout);
     }
 
-    private static void AssertRectWithin(Rect rect, double paneWidth, double paneHeight)
+    private static void AssertRectWithin(AssistRect rect, double paneWidth, double paneHeight)
     {
         Assert.True(rect.X >= 0, $"Expected rect.X >= 0 but was {rect.X}.");
         Assert.True(rect.Y >= 0, $"Expected rect.Y >= 0 but was {rect.Y}.");

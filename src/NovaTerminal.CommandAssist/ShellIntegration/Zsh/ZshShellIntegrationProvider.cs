@@ -1,23 +1,34 @@
-using NovaTerminal.Shell;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Zsh;
 
 public sealed class ZshShellIntegrationProvider : IShellIntegrationProvider
 {
-    public bool CanIntegrate(string? shellKind, TerminalProfile? profile)
+    private readonly Func<string> _bootstrapDirectory;
+
+    /// <param name="bootstrapDirectory">
+    /// Resolves the directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>() =&gt; AppPaths.CommandAssistDirectory</c>). Deliberately a factory, not a string: the
+    /// path is resolved per <see cref="CreateLaunchPlan"/> call so it tracks app-state changes and
+    /// so a resolution failure surfaces inside the caller's try/catch rather than at construction
+    /// time.
+    /// </param>
+    public ZshShellIntegrationProvider(Func<string> bootstrapDirectory)
+    {
+        _bootstrapDirectory = bootstrapDirectory;
+    }
+
+    public bool CanIntegrate(string? shellKind, string? shellCommand)
     {
         if (string.Equals(shellKind, "zsh", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        string command = profile?.Command ?? string.Empty;
+        string command = shellCommand ?? string.Empty;
         return command.Contains("zsh", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -32,7 +43,7 @@ public sealed class ZshShellIntegrationProvider : IShellIntegrationProvider
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = ZshBootstrapBuilder.WriteScript(AppPaths.CommandAssistDirectory);
+        string bootstrapScriptPath = ZshBootstrapBuilder.WriteScript(_bootstrapDirectory());
         string? zdotdir = Path.GetDirectoryName(bootstrapScriptPath);
         if (string.IsNullOrEmpty(zdotdir))
         {

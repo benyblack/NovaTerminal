@@ -1,23 +1,34 @@
-using NovaTerminal.Shell;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
-using NovaTerminal.Platform;
-using NovaTerminal.VT;
 
 namespace NovaTerminal.CommandAssist.ShellIntegration.Fish;
 
 public sealed class FishShellIntegrationProvider : IShellIntegrationProvider
 {
-    public bool CanIntegrate(string? shellKind, TerminalProfile? profile)
+    private readonly Func<string> _bootstrapDirectory;
+
+    /// <param name="bootstrapDirectory">
+    /// Resolves the directory the generated bootstrap script is written to. Supplied by the App
+    /// (<c>() =&gt; AppPaths.CommandAssistDirectory</c>). Deliberately a factory, not a string: the
+    /// path is resolved per <see cref="CreateLaunchPlan"/> call so it tracks app-state changes and
+    /// so a resolution failure surfaces inside the caller's try/catch rather than at construction
+    /// time.
+    /// </param>
+    public FishShellIntegrationProvider(Func<string> bootstrapDirectory)
+    {
+        _bootstrapDirectory = bootstrapDirectory;
+    }
+
+    public bool CanIntegrate(string? shellKind, string? shellCommand)
     {
         if (string.Equals(shellKind, "fish", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }
 
-        string command = profile?.Command ?? string.Empty;
+        string command = shellCommand ?? string.Empty;
         return command.Contains("fish", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -32,7 +43,7 @@ public sealed class FishShellIntegrationProvider : IShellIntegrationProvider
                 BootstrapScriptPath: null);
         }
 
-        string bootstrapScriptPath = FishBootstrapBuilder.WriteScript(AppPaths.CommandAssistDirectory);
+        string bootstrapScriptPath = FishBootstrapBuilder.WriteScript(_bootstrapDirectory());
         // XDG_CONFIG_HOME must be the parent of the "fish" directory that
         // contains config.fish, not the fish directory itself.
         string? fishDir = Path.GetDirectoryName(bootstrapScriptPath);
