@@ -35,17 +35,18 @@ segment before it can be claimed as supported.
 
 ## Phase 1 — Truthful query state
 
-**Status: tasks 1 and 2 shipped (Phase 1a); task 3 shipped (Phase 1b).**
+**Status: complete.** Tasks 1 and 2 shipped in Phase 1a; task 3 in Phase 1b; tasks 4, 5 and 6 in
+Phase 1c.
 
 Tasks:
 1. **[done — Phase 1a]** Emit `OSC 133;B` from all four bootstrap builders; extend the four `*BootstrapBuilderTests` and the shell-harness integration tests. Preserve bail-out conditions and bash DEBUG-trap guard semantics.
 2. **[done — Phase 1a]** Parser/tracker: wire `133;B` through `AnsiParser` → `ShellLifecycleTracker.HandleCommandStarted` (currently dead) with mark position (row/col).
 3. **[done — Phase 1b]** `GridQueryReader`: extract command text between last `B` mark and cursor from the buffer, handling wrapped logical lines and scrolled viewports. Exhaustive buffer-level unit tests first (wrap, resize/reflow, multiline continuation, prompt redraw, cleared screen). *Landed in `NovaTerminal.VT`, not the CommandAssist assembly as sketched here* — the extraction is pure buffer walking and `LayeringTests` forbids CommandAssist from referencing VT; Command Assist consumes it at the App boundary via `TerminalPane.TryGetGridCommandLine`.
-4. `SuggestionOrchestrator` consumes `GridQueryReader` when marks are live; delete the shadow buffer (`TextInputObserved`/`BackspaceObserved` mirroring). Heuristic Enter-capture stays for history in non-integrated sessions.
-5. Degraded mode: no marks → path suggestions + explicit `Ctrl+R` history search only; prefix-dependent features off.
-6. `CommandAssistInsertionPlanner` computes against grid truth; add tests for post-`Ctrl+U`, post-history-recall, post-Tab-completion insertion (the desync cases that broke V1).
+4. **[done — Phase 1c]** `SuggestionOrchestrator` consumes `GridQueryReader` when marks are live; delete the shadow buffer (`TextInputObserved`/`BackspaceObserved` mirroring). Heuristic Enter-capture stays for history in non-integrated sessions. *Amended:* the pass resolves its own query (callers no longer hand one in) and reads on its worker rather than on the keystroke, per the PR #285 review's settled-boundary point. Enter-capture stays but its source is now the grid, so it works for an instrumented session's first command and captures **nothing** in a markless one — see the Phase 1c notes below.
+5. **[done — Phase 1c]** Degraded mode: no marks → path suggestions + explicit `Ctrl+R` history search only; prefix-dependent features off. *Amended:* with no query the path provider returns nothing, so degraded passive suggestions are empty in practice; `Ctrl+R` shows the recency list and is browse-only.
+6. **[done — Phase 1c]** `CommandAssistInsertionPlanner` computes against grid truth; add tests for post-`Ctrl+U`, post-history-recall, post-Tab-completion insertion (the desync cases that broke V1). *Amended:* the planner also gained four refusal rules (no snapshot, cursor off the end, multiline, right prompt trimmed).
 
-Exit criteria: desync test matrix green on all four shells; shadow buffer code deleted; smoke scenarios 1–8 re-validated.
+Exit criteria: desync test matrix green on all four shells; shadow buffer code deleted; smoke scenarios 1–8 re-validated. *Status: the desync matrix is green at three levels (reader, controller seam, real pane driven by escape sequences) and the shadow buffer is deleted. Smoke scenarios 1–8 are re-validated at the flag-flip phase, since the feature is still default-off and the M4.2 scenario doc still describes V1 behavior.*
 
 Phase 1a notes (for the task-3 `GridQueryReader` author):
 - The B mark is carried as `ShellIntegrationEvent.MarkPosition` (`ShellMarkPosition`: `Row`,
@@ -98,6 +99,27 @@ Phase 1b notes (for the task-4 orchestrator author):
   last two are what stop a double space inside typed input that reaches the right edge from
   eating the tail of the line when the cursor is at Home. Unrecognised right prompts are returned
   as extra text; that direction is recoverable, deleting typed input is not.
+
+Phase 1c notes (for the Phase 2 author, and for anyone reading the deleted surface later):
+- The consumption contract — lifecycle gate, settled reads, insertion refusals — is written up in
+  `docs/command-assist/CommandAssist_ShellIntegration_Gaps.md` under "Added In V2 Phase 1c".
+- The query crosses into the CommandAssist assembly as `AssistQuerySnapshot?` through a
+  `Func<AssistQuerySnapshot?>` the controller is constructed with. `TerminalPane` supplies it and
+  maps `GridCommandLine` to it, because `LayeringTests` forbids CommandAssist from referencing VT.
+  Null means "unknown", not "empty", and that distinction is load-bearing in the planner.
+- **Deleted:** `CommandAssistController.HandleTextInput(string)`, `HandleBackspace()`,
+  `HandlePastedText(string)`; the `ViewModel.QueryText` writes in `TryAcceptSelection` and in the
+  typing/paste handlers; the `query` parameter on `SuggestionOrchestrator.Refresh`; the
+  `CommandStarted` early-out in `TerminalPane.OnShellIntegrationEventObserved`. **Kept:**
+  `AssistSessionStateMachine.IsCurrentSubmissionSuppressed`, because paste suppression is a
+  provenance fact the grid cannot reconstruct, not a query fact.
+- `TerminalPane.ArmShellIntegrationTracker()` was extracted out of `ApplyShellIntegrationLaunchPlan`
+  and is the hook Phase 2 task 3 needs: arming the tracker on *observed* marks (rather than only on
+  a launch plan we created) is what makes a user-instrumented remote deliver events at all. Doing
+  that also makes the bare-`133;C` edge in the gaps doc reachable, so close it in the same change.
+- The `CommandStarted` event now costs one dispatcher hop per prompt repaint. If that ever shows up
+  in the Phase 3 benchmark, the fix is to make the gate idempotent at the pane rather than to
+  restore the early-out.
 
 ## Phase 2 — Marks-based anchoring + SSH parity
 
