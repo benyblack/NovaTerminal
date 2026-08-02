@@ -10,41 +10,25 @@ using NovaTerminal.CommandAssist.ViewModels;
 
 namespace NovaTerminal.CommandAssist.Application;
 
+/// <summary>
+/// The facade the terminal pane talks to. It owns the assist view-model and the selected-row list,
+/// and delegates everything else to three collaborators:
+/// <see cref="AssistSessionStateMachine"/> (what the session is doing),
+/// <see cref="CapturePipeline"/> (turning commands into history) and
+/// <see cref="SuggestionOrchestrator"/> (producing ranked rows).
+/// </summary>
+/// <remarks>
+/// <see cref="AssistSessionContext"/> carries the environment all three share. The controller keeps
+/// the view-model writes because presentation is the facade's job: the state machine says the
+/// session is in an explicit Suggest session, the controller decides that means the bubble is up and
+/// the popup is not.
+/// </remarks>
 public sealed class CommandAssistController
 {
-    /// <summary>Rows the popup/bubble shows. M4.2's hard-coded cap; Phase 3 replaces it with scrolling.</summary>
-    private const int MaxDisplayedSuggestions = 5;
-
-    /// <summary>
-    /// How many history candidates the ranking engine gets to choose from for a text query.
-    /// </summary>
-    /// <remarks>
-    /// Wider than <see cref="MaxDisplayedSuggestions"/> on purpose. The store used to pre-rank with
-    /// its own scoring function and hand back its own top five, so the engine only ever re-ordered
-    /// a set the store had already picked. Now the store is a recall gate that truncates by
-    /// recency, so it has to hand over enough rows for the engine's cwd / shell / profile / exit-code
-    /// signals to matter - otherwise a relevant-but-older command could never reach the list.
-    /// Empty-query recall stays at the display cap: with no text to score, "most recent five" is
-    /// already the answer, and widening it would let the frequency signal outrank recency.
-    /// </remarks>
-    private const int HistoryCandidatePoolSize = 50;
-
-    private bool _isAltScreenActive;
-    private string? _workingDirectory;
-    private string? _shellKind;
-    private string? _profileId;
-    private string? _sessionId;
-    private string? _hostId;
-    private bool _isRemote;
-    private bool _isShellIntegrationEnabled;
-    private bool _hasObservedShellIntegrationMarker;
-    private bool _hasObservedStructuredCommandCaptureMarker;
-    private bool _ignoreCurrentSubmission;
-    private bool _isExplicitAssistSession;
-    private int _refreshVersion;
-    private string? _pendingHistoryEntryId;
-    private string? _pendingHistoryCommandText;
-    private CommandAssistMode _currentMode = CommandAssistMode.Suggest;
+    private readonly AssistSessionStateMachine _state = new();
+    private readonly AssistSessionContext _context = new();
+    private readonly CapturePipeline _capturePipeline;
+    private readonly SuggestionOrchestrator _suggestionOrchestrator;
     private readonly List<AssistSuggestion> _suggestions = new();
     private readonly Action<Action> _dispatch;
     private readonly ICommandDocsProvider _commandDocsProvider;
@@ -76,6 +60,14 @@ public sealed class CommandAssistController
         _resultBuilder = resultBuilder ?? new CommandAssistResultBuilder();
         ViewModel = new CommandAssistBarViewModel();
         _dispatch = dispatch ?? (action => action());
+        _capturePipeline = new CapturePipeline(historyStore, secretsFilter, _context);
+        _suggestionOrchestrator = new SuggestionOrchestrator(
+            historyStore,
+            snippetStore,
+            suggestionEngine,
+            _context,
+            _dispatch,
+            ApplyRefreshOutcome);
     }
 
     public IHistoryStore HistoryStore { get; }
@@ -85,19 +77,20 @@ public sealed class CommandAssistController
     public CommandAssistBarViewModel ViewModel { get; }
     public IReadOnlyList<AssistSuggestion> Suggestions => _suggestions;
 
+    /// <summary>What the session is doing right now. Exposed for diagnostics and tests.</summary>
+    public AssistSessionState SessionState => _state.State;
+
     public void ToggleAssist()
     {
-        if (_isAltScreenActive)
+        if (_context.IsAltScreenActive)
         {
             ViewModel.IsVisible = false;
             return;
         }
 
-        _currentMode = CommandAssistMode.Suggest;
+        bool nextVisible = _state.ToggleSession(ViewModel.IsVisible) != AssistSessionState.Hidden;
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
-        bool nextVisible = !ViewModel.IsVisible;
-        _isExplicitAssistSession = nextVisible;
         ViewModel.IsVisible = nextVisible;
         if (nextVisible)
         {
@@ -107,14 +100,13 @@ public sealed class CommandAssistController
 
     public bool OpenHistorySearch()
     {
-        if (_isAltScreenActive)
+        if (_context.IsAltScreenActive)
         {
             ViewModel.IsVisible = false;
             return false;
         }
 
-        _isExplicitAssistSession = true;
-        _currentMode = CommandAssistMode.Search;
+        _state.OpenSearch();
         ViewModel.ModeLabel = "History";
         ViewModel.IsPopupOpen = true;
         ViewModel.IsVisible = true;
@@ -124,7 +116,7 @@ public sealed class CommandAssistController
 
     public bool OpenHelp()
     {
-        if (_isAltScreenActive)
+        if (_context.IsAltScreenActive)
         {
             ViewModel.IsVisible = false;
             return false;
@@ -136,13 +128,12 @@ public sealed class CommandAssistController
 
     public void HandleTextInput(string text)
     {
-        if (_isAltScreenActive || string.IsNullOrEmpty(text))
+        if (_context.IsAltScreenActive || string.IsNullOrEmpty(text))
         {
             return;
         }
 
-        _ignoreCurrentSubmission = false;
-        _currentMode = CommandAssistMode.Suggest;
+        _state.ObserveTypedInput();
         ViewModel.QueryText += text;
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
@@ -152,7 +143,7 @@ public sealed class CommandAssistController
 
     public void HandleBackspace()
     {
-        if (_isAltScreenActive || string.IsNullOrEmpty(ViewModel.QueryText))
+        if (_context.IsAltScreenActive || string.IsNullOrEmpty(ViewModel.QueryText))
         {
             return;
         }
@@ -163,13 +154,11 @@ public sealed class CommandAssistController
 
     public void HandlePastedText(string text)
     {
-        _ignoreCurrentSubmission = true;
-        _isExplicitAssistSession = false;
-        _currentMode = CommandAssistMode.Suggest;
+        _state.ObservePastedText();
         ViewModel.QueryText = text ?? string.Empty;
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
-        ViewModel.IsVisible = !_isAltScreenActive && ViewModel.HasSuggestions;
+        ViewModel.IsVisible = !_context.IsAltScreenActive && ViewModel.HasSuggestions;
         QueueRefreshSuggestions();
     }
 
@@ -177,40 +166,9 @@ public sealed class CommandAssistController
     {
         try
         {
-            string submission = ViewModel.QueryText.Trim();
-            bool shouldPersist = !_isAltScreenActive &&
-                                 !IsStructuredShellIntegrationActive() &&
-                                 !_ignoreCurrentSubmission &&
-                                 !string.IsNullOrWhiteSpace(submission) &&
-                                 !submission.Contains('\n') &&
-                                 !submission.Contains('\r');
-
-            if (shouldPersist)
-            {
-                RedactionResult redaction = SecretsFilter.Redact(submission);
-                var entry = new CommandHistoryEntry(
-                    Id: Guid.NewGuid().ToString("N"),
-                    CommandText: redaction.RedactedText,
-                    ExecutedAt: DateTimeOffset.UtcNow,
-                    ShellKind: _shellKind ?? "unknown",
-                    WorkingDirectory: _workingDirectory,
-                    ProfileId: _profileId,
-                    SessionId: _sessionId,
-                    HostId: _hostId,
-                    ExitCode: null,
-                    IsRemote: _isRemote,
-                    IsRedacted: redaction.WasRedacted,
-                    Source: CommandCaptureSource.Heuristic,
-                    DurationMs: null);
-
-                await HistoryStore.AppendAsync(entry);
-                _pendingHistoryEntryId = entry.Id;
-                _pendingHistoryCommandText = NormalizeCommandText(submission);
-            }
-        }
-        catch
-        {
-            // Assist capture is best-effort; Enter should still reach the shell path even if persistence fails.
+            await _capturePipeline.CaptureSubmissionAsync(
+                ViewModel.QueryText,
+                _state.IsCurrentSubmissionSuppressed);
         }
         finally
         {
@@ -227,44 +185,28 @@ public sealed class CommandAssistController
         bool isRemote,
         bool isShellIntegrated = false)
     {
-        _shellKind = shellKind;
-        _workingDirectory = workingDirectory;
-        _profileId = profileId;
-        _sessionId = sessionId;
-        _hostId = hostId;
-        _isRemote = isRemote;
-        _isShellIntegrationEnabled = isShellIntegrated;
-        _hasObservedShellIntegrationMarker = _hasObservedShellIntegrationMarker && isShellIntegrated;
-        _hasObservedStructuredCommandCaptureMarker = _hasObservedStructuredCommandCaptureMarker && isShellIntegrated;
+        _context.UpdateSession(
+            shellKind,
+            workingDirectory,
+            profileId,
+            sessionId,
+            hostId,
+            isRemote,
+            isShellIntegrated);
     }
 
     public void SetShellIntegrationEnabled(bool isEnabled)
     {
-        _isShellIntegrationEnabled = isEnabled;
-        if (!isEnabled)
-        {
-            _hasObservedShellIntegrationMarker = false;
-            _hasObservedStructuredCommandCaptureMarker = false;
-        }
+        _context.SetShellIntegrationEnabled(isEnabled);
     }
 
     public void Dismiss()
     {
-        CancelPendingRefreshes();
-        _isExplicitAssistSession = false;
-        _currentMode = CommandAssistMode.Suggest;
+        _suggestionOrchestrator.CancelPending();
+        _state.Dismiss();
         ViewModel.IsVisible = false;
         ViewModel.IsPopupOpen = false;
-        ViewModel.TopSuggestionText = string.Empty;
-        ViewModel.SelectedIndex = -1;
-        ViewModel.SelectedBadgesText = string.Empty;
-        ViewModel.SelectedMetadataText = string.Empty;
-        ViewModel.SelectedDescriptionText = string.Empty;
-        ViewModel.EmptyStateText = string.Empty;
-        ViewModel.ShowEmptyState = false;
-        ViewModel.HasSuggestions = false;
-        ViewModel.Suggestions.Clear();
-        _suggestions.Clear();
+        ClearSuggestionSurface();
     }
 
     public bool HandleEscape()
@@ -309,7 +251,7 @@ public sealed class CommandAssistController
     public bool TryGetInsertionText(out string? insertionText)
     {
         AssistSuggestion? selected = GetSelectedSuggestion();
-        if (selected == null || _ignoreCurrentSubmission || _isAltScreenActive)
+        if (selected == null || _state.IsCurrentSubmissionSuppressed || _context.IsAltScreenActive)
         {
             insertionText = null;
             return false;
@@ -327,8 +269,7 @@ public sealed class CommandAssistController
         }
 
         ViewModel.QueryText = insertionText;
-        _isExplicitAssistSession = false;
-        _currentMode = CommandAssistMode.Suggest;
+        _state.AcceptSelection();
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
         Dismiss();
@@ -345,32 +286,20 @@ public sealed class CommandAssistController
 
     public async Task HandleCommandFinishedAsync(int? exitCode)
     {
-        string? pendingEntryId = _pendingHistoryEntryId;
-        _pendingHistoryEntryId = null;
-        if (string.IsNullOrWhiteSpace(pendingEntryId))
-        {
-            return;
-        }
-
-        try
-        {
-            await HistoryStore.TryUpdateExecutionResultAsync(pendingEntryId, exitCode, durationMs: null);
-        }
-        catch
-        {
-            // History metadata enrichment is best-effort only.
-        }
+        await _capturePipeline.CompleteSubmissionAsync(exitCode);
     }
 
     public async Task<bool> OpenHelpAsync(string? queryText = null, string? selectedText = null)
     {
-        if (_isAltScreenActive)
+        if (_context.IsAltScreenActive)
         {
             ViewModel.IsVisible = false;
             return false;
         }
 
-        CommandAssistContextSnapshot snapshot = CreateContextSnapshot(queryText, selectedText);
+        CommandAssistContextSnapshot snapshot = _context.CreateSnapshot(
+            queryText ?? ViewModel.QueryText,
+            selectedText);
         var helpQuery = new CommandHelpQuery(
             RawInput: snapshot.QueryText,
             CommandToken: snapshot.RecognizedCommand,
@@ -409,7 +338,7 @@ public sealed class CommandAssistController
 
     public async Task<bool> HandleCommandFailureAsync(CommandFailureContext context)
     {
-        if (_isAltScreenActive)
+        if (_context.IsAltScreenActive)
         {
             ViewModel.IsVisible = false;
             return false;
@@ -447,39 +376,7 @@ public sealed class CommandAssistController
 
     public async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
     {
-        if (shellEvent.WorkingDirectory != null)
-        {
-            _workingDirectory = shellEvent.WorkingDirectory;
-        }
-
-        if (shellEvent.Type is ShellIntegrationEventType.PromptReady or
-            ShellIntegrationEventType.CommandAccepted or
-            ShellIntegrationEventType.CommandStarted or
-            ShellIntegrationEventType.CommandFinished)
-        {
-            _hasObservedShellIntegrationMarker = true;
-        }
-
-        if (shellEvent.Type is ShellIntegrationEventType.CommandAccepted)
-        {
-            _hasObservedStructuredCommandCaptureMarker = true;
-        }
-
-        switch (shellEvent.Type)
-        {
-            case ShellIntegrationEventType.WorkingDirectoryChanged:
-            case ShellIntegrationEventType.PromptReady:
-            case ShellIntegrationEventType.CommandStarted:
-                return;
-
-            case ShellIntegrationEventType.CommandAccepted:
-                await HandleShellIntegratedCommandAcceptedAsync(shellEvent);
-                return;
-
-            case ShellIntegrationEventType.CommandFinished:
-                await HandleShellIntegratedCommandFinishedAsync(shellEvent);
-                return;
-        }
+        await _capturePipeline.HandleShellIntegrationEventAsync(shellEvent);
     }
 
     public async Task<bool> TogglePinSelectionAsync()
@@ -502,7 +399,7 @@ public sealed class CommandAssistController
             CommandSnippet? existing = snippets.FirstOrDefault(x => x.Id == selected.Id) ??
                                        snippets.FirstOrDefault(x =>
                                            string.Equals(x.CommandText, selected.InsertText, StringComparison.OrdinalIgnoreCase) &&
-                                           string.Equals(x.ShellKind ?? string.Empty, _shellKind ?? string.Empty, StringComparison.OrdinalIgnoreCase));
+                                           string.Equals(x.ShellKind ?? string.Empty, _context.ShellKind ?? string.Empty, StringComparison.OrdinalIgnoreCase));
 
             if (existing != null)
             {
@@ -519,8 +416,8 @@ public sealed class CommandAssistController
                     Name: selected.DisplayText,
                     CommandText: selected.InsertText,
                     Description: selected.Description,
-                    ShellKind: _shellKind,
-                    WorkingDirectory: _workingDirectory,
+                    ShellKind: _context.ShellKind,
+                    WorkingDirectory: _context.WorkingDirectory,
                     IsPinned: true,
                     CreatedAt: DateTimeOffset.UtcNow,
                     LastUsedAt: selected.LastUsedAt);
@@ -539,137 +436,78 @@ public sealed class CommandAssistController
 
     public void HandleAltScreenChanged(bool isAltScreenActive)
     {
-        _isAltScreenActive = isAltScreenActive;
-        if (isAltScreenActive)
-        {
-            CancelPendingRefreshes();
-            _isExplicitAssistSession = false;
-            _currentMode = CommandAssistMode.Suggest;
-            ViewModel.IsVisible = false;
-            ViewModel.IsPopupOpen = false;
-            ViewModel.TopSuggestionText = string.Empty;
-            ViewModel.SelectedIndex = -1;
-            ViewModel.SelectedBadgesText = string.Empty;
-            ViewModel.SelectedMetadataText = string.Empty;
-            ViewModel.SelectedDescriptionText = string.Empty;
-            ViewModel.EmptyStateText = string.Empty;
-            ViewModel.ShowEmptyState = false;
-            ViewModel.HasSuggestions = false;
-            ViewModel.Suggestions.Clear();
-            _suggestions.Clear();
-        }
-    }
-
-    private void QueueRefreshSuggestions()
-    {
-        if (_currentMode is not (CommandAssistMode.Suggest or CommandAssistMode.Search))
+        _context.SetAltScreenActive(isAltScreenActive);
+        if (!isAltScreenActive)
         {
             return;
         }
 
-        int refreshVersion = Interlocked.Increment(ref _refreshVersion);
-        CommandAssistMode requestedMode = _currentMode;
-        string query = ViewModel.QueryText;
-        SuggestionScope scope = ResolveSuggestionScope(requestedMode);
-        var context = new CommandAssistQueryContext(
-            query,
-            _workingDirectory,
-            _shellKind,
-            _profileId,
-            _isRemote,
-            IncludeHistorySuggestions: scope.IncludeHistory,
-            IncludeSnippetSuggestions: scope.IncludeSnippets,
-            IncludePathSuggestions: scope.IncludePaths);
-        _ = RefreshSuggestionsAsync(query, context, refreshVersion, requestedMode);
+        _suggestionOrchestrator.CancelPending();
+        _state.HideForAltScreen();
+        ViewModel.IsVisible = false;
+        ViewModel.IsPopupOpen = false;
+        ClearSuggestionSurface();
     }
 
-    private async Task RefreshSuggestionsAsync(
-        string query,
-        CommandAssistQueryContext context,
-        int refreshVersion,
-        CommandAssistMode requestedMode)
+    private void QueueRefreshSuggestions()
     {
-        try
+        if (!_state.AllowsSuggestionRefresh)
         {
-            IReadOnlyList<AssistSuggestion> suggestions = await Task.Run(async () =>
-            {
-                IReadOnlyList<CommandHistoryEntry> history = Array.Empty<CommandHistoryEntry>();
-                if (context.IncludeHistorySuggestions)
-                {
-                    history = string.IsNullOrWhiteSpace(query)
-                        ? await HistoryStore.GetRecentAsync(MaxDisplayedSuggestions).ConfigureAwait(false)
-                        : await HistoryStore.SearchAsync(query, HistoryCandidatePoolSize).ConfigureAwait(false);
-                }
-
-                IReadOnlyList<CommandSnippet> snippets = Array.Empty<CommandSnippet>();
-                if (context.IncludeSnippetSuggestions && SnippetStore != null)
-                {
-                    snippets = await SnippetStore.GetAllAsync().ConfigureAwait(false);
-                }
-
-                return SuggestionEngine.GetSuggestions(history, snippets, context, MaxDisplayedSuggestions);
-            }).ConfigureAwait(false);
-
-            _dispatch(() =>
-            {
-                if (refreshVersion != _refreshVersion || _currentMode != requestedMode)
-                {
-                    return;
-                }
-
-                _suggestions.Clear();
-                _suggestions.AddRange(suggestions);
-                ViewModel.SelectedIndex = suggestions.Count > 0 ? 0 : -1;
-                ViewModel.EmptyStateText = string.Empty;
-                ViewModel.ShowEmptyState = false;
-                SyncSuggestionViewModel();
-                if (requestedMode == CommandAssistMode.Suggest)
-                {
-                    ViewModel.IsPopupOpen = false;
-                    ViewModel.IsVisible = _isExplicitAssistSession || suggestions.Count > 0;
-                }
-            });
+            return;
         }
-        catch
-        {
-            _dispatch(() =>
-            {
-                if (refreshVersion != _refreshVersion || _currentMode != requestedMode)
-                {
-                    return;
-                }
 
-                _suggestions.Clear();
-                ViewModel.TopSuggestionText = string.Empty;
-                ViewModel.SelectedIndex = -1;
-                ViewModel.SelectedBadgesText = string.Empty;
-                ViewModel.SelectedMetadataText = string.Empty;
-                ViewModel.SelectedDescriptionText = string.Empty;
-                ViewModel.EmptyStateText = string.Empty;
-                ViewModel.ShowEmptyState = false;
-                ViewModel.HasSuggestions = false;
-                ViewModel.Suggestions.Clear();
-                if (requestedMode == CommandAssistMode.Suggest)
-                {
-                    ViewModel.IsPopupOpen = false;
-                    ViewModel.IsVisible = _isExplicitAssistSession;
-                }
-            });
-        }
+        _suggestionOrchestrator.Refresh(_state.Mode, _state.IsExplicitSession, ViewModel.QueryText);
     }
 
-    private void CancelPendingRefreshes()
+    /// <summary>
+    /// Applies a ranking pass on the dispatcher thread. Outcomes for a mode the session has already
+    /// left are dropped: the orchestrator's cancellation covers superseded queries, this covers a
+    /// pass that was in flight when Help or Fix took the surface over.
+    /// </summary>
+    private void ApplyRefreshOutcome(SuggestionRefreshOutcome outcome)
     {
-        Interlocked.Increment(ref _refreshVersion);
+        if (_state.Mode != outcome.RequestedMode)
+        {
+            return;
+        }
+
+        if (outcome.Faulted)
+        {
+            ClearSuggestionSurface();
+        }
+        else
+        {
+            _suggestions.Clear();
+            _suggestions.AddRange(outcome.Suggestions);
+            ViewModel.SelectedIndex = _suggestions.Count > 0 ? 0 : -1;
+            ViewModel.EmptyStateText = string.Empty;
+            ViewModel.ShowEmptyState = false;
+            SyncSuggestionViewModel();
+        }
+
+        if (outcome.RequestedMode != CommandAssistMode.Suggest)
+        {
+            return;
+        }
+
+        _state.ClosePopupAfterRefresh();
+        ViewModel.IsPopupOpen = false;
+        ViewModel.IsVisible = _state.IsExplicitSession || _suggestions.Count > 0;
     }
 
     private void ResetSubmissionState()
     {
-        CancelPendingRefreshes();
-        _ignoreCurrentSubmission = false;
-        _isExplicitAssistSession = false;
+        _suggestionOrchestrator.CancelPending();
+        _state.CompleteSubmission();
         ViewModel.QueryText = string.Empty;
         ViewModel.IsPopupOpen = false;
+        ClearSuggestionSurface();
+        ViewModel.IsVisible = false;
+    }
+
+    /// <summary>Empties every row-derived view-model field and the backing suggestion list.</summary>
+    private void ClearSuggestionSurface()
+    {
         ViewModel.TopSuggestionText = string.Empty;
         ViewModel.SelectedIndex = -1;
         ViewModel.SelectedBadgesText = string.Empty;
@@ -679,7 +517,6 @@ public sealed class CommandAssistController
         ViewModel.ShowEmptyState = false;
         ViewModel.HasSuggestions = false;
         ViewModel.Suggestions.Clear();
-        ViewModel.IsVisible = false;
         _suggestions.Clear();
     }
 
@@ -693,6 +530,7 @@ public sealed class CommandAssistController
         ViewModel.SelectedIndex = index;
         if (!ViewModel.IsPopupOpen)
         {
+            _state.OpenPopupForSelection();
             ViewModel.IsPopupOpen = true;
         }
 
@@ -752,23 +590,6 @@ public sealed class CommandAssistController
         return string.Join("  |  ", parts);
     }
 
-    private CommandAssistContextSnapshot CreateContextSnapshot(string? queryText, string? selectedText)
-    {
-        string effectiveQuery = queryText ?? ViewModel.QueryText;
-        string recognizedSource = string.IsNullOrWhiteSpace(effectiveQuery) ? selectedText ?? string.Empty : effectiveQuery;
-
-        return new CommandAssistContextSnapshot(
-            QueryText: effectiveQuery,
-            RecognizedCommand: RecognizedCommandParser.ParsePrimaryCommand(recognizedSource),
-            ShellKind: _shellKind,
-            WorkingDirectory: _workingDirectory,
-            ProfileId: _profileId,
-            SessionId: _sessionId,
-            HostId: _hostId,
-            IsRemote: _isRemote,
-            SelectedText: selectedText);
-    }
-
     private void ApplyHelperSuggestions(
         CommandAssistMode mode,
         string? queryText,
@@ -776,9 +597,8 @@ public sealed class CommandAssistController
         string emptyStateText,
         bool openPopup)
     {
-        CancelPendingRefreshes();
-        _isExplicitAssistSession = false;
-        _currentMode = mode;
+        _suggestionOrchestrator.CancelPending();
+        _state.EnterHelperMode(mode, openPopup);
         ViewModel.ModeLabel = mode.ToString();
         ViewModel.QueryText = queryText ?? string.Empty;
         ViewModel.IsPopupOpen = openPopup;
@@ -791,125 +611,6 @@ public sealed class CommandAssistController
         ViewModel.SelectedIndex = suggestions.Count > 0 ? 0 : -1;
         SyncSuggestionViewModel();
     }
-
-    private async Task HandleShellIntegratedCommandAcceptedAsync(ShellIntegrationEvent shellEvent)
-    {
-        if (!_isShellIntegrationEnabled || _isAltScreenActive)
-        {
-            return;
-        }
-
-        string commandText = shellEvent.CommandText?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(commandText))
-        {
-            return;
-        }
-
-        string normalizedCommandText = NormalizeCommandText(commandText);
-        if (!string.IsNullOrWhiteSpace(_pendingHistoryEntryId) &&
-            string.Equals(_pendingHistoryCommandText, normalizedCommandText, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        try
-        {
-            RedactionResult redaction = SecretsFilter.Redact(commandText);
-            var entry = new CommandHistoryEntry(
-                Id: Guid.NewGuid().ToString("N"),
-                CommandText: redaction.RedactedText,
-                ExecutedAt: shellEvent.Timestamp,
-                ShellKind: _shellKind ?? "unknown",
-                WorkingDirectory: shellEvent.WorkingDirectory ?? _workingDirectory,
-                ProfileId: _profileId,
-                SessionId: _sessionId,
-                HostId: _hostId,
-                ExitCode: null,
-                IsRemote: _isRemote,
-                IsRedacted: redaction.WasRedacted,
-                Source: CommandCaptureSource.ShellIntegration,
-                DurationMs: null);
-
-            await HistoryStore.AppendAsync(entry);
-            _pendingHistoryEntryId = entry.Id;
-            _pendingHistoryCommandText = normalizedCommandText;
-        }
-        catch
-        {
-            // Structured capture is best-effort and must not affect shell execution.
-        }
-    }
-
-    private async Task HandleShellIntegratedCommandFinishedAsync(ShellIntegrationEvent shellEvent)
-    {
-        string? pendingEntryId = _pendingHistoryEntryId;
-        if (string.IsNullOrWhiteSpace(pendingEntryId))
-        {
-            return;
-        }
-
-        long? durationMs = shellEvent.Duration.HasValue
-            ? (long)Math.Round(shellEvent.Duration.Value.TotalMilliseconds)
-            : null;
-
-        try
-        {
-            await HistoryStore.TryUpdateExecutionResultAsync(pendingEntryId, shellEvent.ExitCode, durationMs);
-            _pendingHistoryEntryId = null;
-            _pendingHistoryCommandText = null;
-        }
-        catch
-        {
-            // Structured metadata updates are best-effort only.
-        }
-    }
-
-    private bool IsStructuredShellIntegrationActive()
-    {
-        return _isShellIntegrationEnabled && _hasObservedStructuredCommandCaptureMarker;
-    }
-
-    private SuggestionScope ResolveSuggestionScope(CommandAssistMode requestedMode)
-    {
-        if (requestedMode == CommandAssistMode.Search)
-        {
-            return new SuggestionScope(
-                IncludeHistory: true,
-                IncludeSnippets: false,
-                IncludePaths: false);
-        }
-
-        if (requestedMode == CommandAssistMode.Suggest && _isExplicitAssistSession)
-        {
-            return new SuggestionScope(
-                IncludeHistory: true,
-                IncludeSnippets: true,
-                IncludePaths: true);
-        }
-
-        if (requestedMode == CommandAssistMode.Suggest)
-        {
-            return new SuggestionScope(
-                IncludeHistory: false,
-                IncludeSnippets: false,
-                IncludePaths: true);
-        }
-
-        return new SuggestionScope(
-            IncludeHistory: false,
-            IncludeSnippets: false,
-            IncludePaths: false);
-    }
-
-    private static string NormalizeCommandText(string commandText)
-    {
-        return commandText.Trim();
-    }
-
-    private readonly record struct SuggestionScope(
-        bool IncludeHistory,
-        bool IncludeSnippets,
-        bool IncludePaths);
 
     private sealed class EmptyCommandDocsProvider : ICommandDocsProvider
     {
