@@ -159,6 +159,7 @@ namespace NovaTerminal.Controls
         private string? _lastCommandAssistAnchorCorrectionSignature;
         private bool _suppressSshAssistOverlayUntilSettled;
         private int _sshAssistCorrectionPassCount;
+        private int _commandAssistPlacementCorrectionPasses;
         private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
         private readonly CommandAssistPopupViewModel _hiddenCommandAssistPopupViewModel = new(new ObservableCollection<CommandAssistSuggestionItemViewModel>()) { IsVisible = false };
         private IRemoteDirectoryBrowserService _remoteDirectoryBrowserService = new RemoteDirectoryBrowserService();
@@ -1110,28 +1111,40 @@ namespace NovaTerminal.Controls
             }
 
             CommandAssistPromptHint? promptHint = TermView.GetCommandAssistPromptHint();
+            CommandAssistMarkAnchorHint? markHint = TryGetCommandAssistMarkAnchorHint();
+            bool hasMarkAnchor = markHint.HasValue;
             float fallbackCellHeight = TermView.Metrics.CellHeight > 0 ? TermView.Metrics.CellHeight : 18;
             int fallbackVisibleRows = TermView.Rows > 0 ? TermView.Rows : 1;
             CommandAssistSurfaceSizing sizing = CalculateCommandAssistSurfaceSizing(paneWidth, paneHeight);
-            bool hasReliablePromptAnchor = IsCommandAssistPromptAnchorReliable(promptHint);
-            float anchorCellHeight = promptHint?.CellHeight ?? fallbackCellHeight;
+            bool hasReliablePromptAnchor = IsCommandAssistPromptAnchorReliable(promptHint, hasMarkAnchor);
+            float anchorCellHeight = markHint?.CellHeight ?? promptHint?.CellHeight ?? fallbackCellHeight;
             int hintCursorRow = promptHint?.VisibleCursorVisualRow ?? 0;
-            int hintVisibleRows = promptHint?.VisibleRows ?? fallbackVisibleRows;
+            int hintVisibleRows = markHint?.VisibleRows ?? promptHint?.VisibleRows ?? fallbackVisibleRows;
             int paneEstimatedVisibleRows = anchorCellHeight > 0
                 ? Math.Max(1, (int)Math.Floor(paneHeight / anchorCellHeight))
                 : hintVisibleRows;
+            // Pane-estimated rows are a startup-jitter workaround for the heuristic path only: the
+            // hint's row count lags the pane's real height for a few frames over SSH. A mark hint
+            // reports the row count its own row was resolved against, so overriding it would move
+            // the mark relative to a viewport it was never measured in.
             bool shouldUsePaneEstimatedRows = Profile?.Type == ConnectionType.SSH &&
+                                              !hasMarkAnchor &&
                                               !hasReliablePromptAnchor &&
                                               paneEstimatedVisibleRows > hintVisibleRows;
             int anchorVisibleRows = shouldUsePaneEstimatedRows ? paneEstimatedVisibleRows : hintVisibleRows;
             int anchorCursorRow = Math.Clamp(hintCursorRow, 0, Math.Max(0, anchorVisibleRows - 1));
-            bool shouldSuppress = ShouldSuppressConservativeRemoteAssist(promptHint, hasReliablePromptAnchor, paneHeight);
+            int anchorMarkRow = hasMarkAnchor
+                ? Math.Clamp(markHint!.Value.VisibleMarkVisualRow, 0, Math.Max(0, anchorVisibleRows - 1))
+                : -1;
+            bool shouldSuppress = ShouldSuppressConservativeRemoteAssist(promptHint, hasReliablePromptAnchor, hasMarkAnchor, paneHeight);
             if (shouldSuppress)
             {
                 LogCommandAssistAnchorDiagnostics(
                     paneWidth,
                     paneHeight,
                     hasReliablePromptAnchor,
+                    hasMarkAnchor,
+                    anchorMarkRow,
                     promptHint,
                     anchorCellHeight,
                     anchorCursorRow,
@@ -1151,11 +1164,15 @@ namespace NovaTerminal.Controls
                 BubbleHeight: sizing.BubbleHeight,
                 PopupWidth: sizing.PopupWidth,
                 PopupHeight: sizing.PopupHeight,
-                HasReliablePromptAnchor: hasReliablePromptAnchor));
+                HasReliablePromptAnchor: hasReliablePromptAnchor,
+                HasMarkAnchor: hasMarkAnchor,
+                MarkVisualRow: anchorMarkRow));
             LogCommandAssistAnchorDiagnostics(
                 paneWidth,
                 paneHeight,
                 hasReliablePromptAnchor,
+                hasMarkAnchor,
+                anchorMarkRow,
                 promptHint,
                 anchorCellHeight,
                 anchorCursorRow,
@@ -1165,10 +1182,34 @@ namespace NovaTerminal.Controls
             return layout;
         }
 
+        /// <summary>
+        /// The newest <c>OSC 133;B</c> mark resolved to a viewport row, or <c>null</c> when there is
+        /// no live mark or it is not on screen.
+        /// </summary>
+        /// <remarks>
+        /// Re-read on every placement pass rather than cached: the answer changes with the scroll
+        /// offset (<see cref="TerminalView.CommandAssistAnchorHintChanged"/> fires on scroll), and the
+        /// mark itself is replaced on every prompt repaint and dropped on <c>OSC 133;D</c>.
+        /// </remarks>
+        private CommandAssistMarkAnchorHint? TryGetCommandAssistMarkAnchorHint()
+        {
+            ShellIntegrationMark? mark;
+            lock (_commandStartMarkGate)
+            {
+                mark = _latestCommandStartMark;
+            }
+
+            return mark is ShellIntegrationMark live
+                ? TermView.GetCommandAssistMarkAnchorHint(live)
+                : null;
+        }
+
         private void LogCommandAssistAnchorDiagnostics(
             double paneWidth,
             double paneHeight,
             bool hasReliablePromptAnchor,
+            bool hasMarkAnchor,
+            int anchorMarkRow,
             CommandAssistPromptHint? promptHint,
             float anchorCellHeight,
             int anchorCursorRow,
@@ -1185,9 +1226,9 @@ namespace NovaTerminal.Controls
             int hintVisibleRows = promptHint?.VisibleRows ?? -1;
             string layoutState = layout == null
                 ? "none"
-                : $"bubbleY={layout.BubbleRect.Y:F0},bubbleBottom={layout.BubbleRect.Bottom:F0},promptY={layout.PromptRect.Y:F0},usesPrompt={layout.UsesPromptAnchor}";
+                : $"bubbleY={layout.BubbleRect.Y:F0},bubbleBottom={layout.BubbleRect.Bottom:F0},promptY={layout.PromptRect.Y:F0},usesPrompt={layout.UsesPromptAnchor},usesMark={layout.UsesMarkAnchor}";
             string signature =
-                $"pw={paneWidth:F0},ph={paneHeight:F0},tw={TermView.Bounds.Width:F0},th={TermView.Bounds.Height:F0},rel={hasReliablePromptAnchor},sup={shouldSuppress},hintRow={hintCursorRow},hintRows={hintVisibleRows},cell={anchorCellHeight:F1},anchorRow={anchorCursorRow},anchorRows={anchorVisibleRows},vmVis={_boundCommandAssistViewModel?.IsVisible == true},{layoutState}";
+                $"pw={paneWidth:F0},ph={paneHeight:F0},tw={TermView.Bounds.Width:F0},th={TermView.Bounds.Height:F0},rel={hasReliablePromptAnchor},mark={hasMarkAnchor},markRow={anchorMarkRow},sup={shouldSuppress},hintRow={hintCursorRow},hintRows={hintVisibleRows},cell={anchorCellHeight:F1},anchorRow={anchorCursorRow},anchorRows={anchorVisibleRows},vmVis={_boundCommandAssistViewModel?.IsVisible == true},{layoutState}";
             if (string.Equals(signature, _lastCommandAssistAnchorDiagnosticSignature, StringComparison.Ordinal))
             {
                 return;
@@ -1197,11 +1238,28 @@ namespace NovaTerminal.Controls
             TerminalLogger.Log($"[AssistAnchor][SSH] {signature}");
         }
 
+        /// <summary>
+        /// Hides the overlay entirely on short SSH panes whose prompt is still high in the pane —
+        /// the "it might be a login banner" case.
+        /// </summary>
+        /// <remarks>
+        /// V2 Phase 2a: this is a hedge against not knowing where the prompt is, so a mark-anchored
+        /// pane never reaches it. The <paramref name="hasMarkAnchor"/> early-out is redundant with
+        /// <paramref name="hasReliablePromptAnchor"/> (a mark makes the anchor reliable by
+        /// definition) and deliberately so: the property under test is "marks bypass suppression",
+        /// and it should not depend on a second flag staying in sync.
+        /// </remarks>
         private bool ShouldSuppressConservativeRemoteAssist(
             CommandAssistPromptHint? promptHint,
             bool hasReliablePromptAnchor,
+            bool hasMarkAnchor,
             double paneHeight)
         {
+            if (hasMarkAnchor)
+            {
+                return false;
+            }
+
             if (Profile?.Type != ConnectionType.SSH || hasReliablePromptAnchor || paneHeight > ConservativeRemoteShortPaneHeightThreshold)
             {
                 return false;
@@ -1221,14 +1279,29 @@ namespace NovaTerminal.Controls
             return normalizedCursorRow < ConservativeRemotePromptBandStartRatio;
         }
 
-        private bool IsCommandAssistPromptAnchorReliable(CommandAssistPromptHint? promptHint)
+        /// <summary>
+        /// Whether the anchor row may be trusted for prompt-adjacent placement.
+        /// </summary>
+        /// <remarks>
+        /// V2 Phase 2a changed this from a per-session-type guess to a per-prompt fact where one is
+        /// available: a live <c>OSC 133;B</c> mark in the viewport says where the prompt <i>is</i>,
+        /// and that is equally true over SSH — an instrumented remote emits the same marks a local
+        /// shell does. Only markless sessions fall through to the old rule, which is why the SSH
+        /// clause below survives rather than being deleted.
+        /// </remarks>
+        private bool IsCommandAssistPromptAnchorReliable(CommandAssistPromptHint? promptHint, bool hasMarkAnchor)
         {
+            if (hasMarkAnchor)
+            {
+                return true;
+            }
+
             if (!promptHint.HasValue)
             {
                 return false;
             }
 
-            // SSH sessions currently stay on the heuristic path, so cursor-row hints are not
+            // Markless SSH sessions stay on the heuristic path, so cursor-row hints are not
             // trustworthy enough for prompt-adjacent anchoring.
             if (Profile?.Type == ConnectionType.SSH)
             {
@@ -1255,8 +1328,11 @@ namespace NovaTerminal.Controls
         {
             CommandAssistAnchorLayout? layout = TryCalculateCommandAssistAnchorLayout();
             bool shouldShowOverlayHost = layout != null && (_boundCommandAssistViewModel?.IsVisible == true);
-            if (!shouldShowOverlayHost)
+            if (!shouldShowOverlayHost || layout?.UsesMarkAnchor == true)
             {
+                // Mark-anchored placement never hides the overlay while it settles: there is nothing
+                // to settle. Clearing here also unwinds any suppression left over from a markless
+                // frame earlier in the same session.
                 _suppressSshAssistOverlayUntilSettled = false;
                 _sshAssistCorrectionPassCount = 0;
             }
@@ -1334,12 +1410,63 @@ namespace NovaTerminal.Controls
             TerminalLogger.Log($"[AssistAnchor][SSH][Applied] {signature}");
         }
 
+        /// <summary>
+        /// Total placement-correction passes this pane has scheduled, ever. A test seam for the
+        /// V2 Phase 2a property "a mark-anchored pane runs zero correction passes" — the production
+        /// evidence for the same thing is the absence of <c>[AssistAnchor][SSH][Corrected]</c> lines
+        /// in the log, which a test cannot read.
+        /// </summary>
+        internal int CommandAssistPlacementCorrectionPassesForTest => _commandAssistPlacementCorrectionPasses;
+
+        /// <summary>
+        /// Whether a computed layout warrants a placement-correction pass.
+        /// </summary>
+        /// <remarks>
+        /// Split out of <see cref="ScheduleCommandAssistPlacementCorrection"/> so the V2 Phase 2a
+        /// rule — "a mark anchor runs no corrections, whatever the session type" — is assertable
+        /// without a visible assist view model and a live render pass driving it.
+        /// </remarks>
+        private bool ShouldCorrectCommandAssistPlacement(CommandAssistAnchorLayout layout, bool assistIsVisible)
+        {
+            if (layout.UsesMarkAnchor)
+            {
+                return false;
+            }
+
+            return Profile?.Type == ConnectionType.SSH && assistIsVisible;
+        }
+
+        internal bool ShouldCorrectCommandAssistPlacementForTest(CommandAssistAnchorLayout layout, bool assistIsVisible)
+        {
+            return ShouldCorrectCommandAssistPlacement(layout, assistIsVisible);
+        }
+
+        /// <summary>
+        /// Re-applies the computed margins on the next render pass when the rendered position drifted
+        /// from the computed one, hiding the overlay until it agrees.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the SSH jitter mitigation from the 2026-03-11 firefight: the heuristic anchor moved
+        /// between frames during remote startup, so the overlay was chasing a row that had already
+        /// changed, visibly.
+        /// </para>
+        /// <para>
+        /// V2 Phase 2a gates it off for mark-anchored layouts rather than deleting it. A mark row does
+        /// not jitter — it is re-derived from the buffer on every pass and is either on screen or
+        /// absent — so there is nothing for a correction pass to correct, and the opacity flicker it
+        /// costs is pure loss. The stack stays for markless SSH, which is still a supported session
+        /// type; it goes away with that, not with this change.
+        /// </para>
+        /// </remarks>
         private void ScheduleCommandAssistPlacementCorrection(CommandAssistAnchorLayout layout)
         {
-            if (Profile?.Type != ConnectionType.SSH || _boundCommandAssistViewModel?.IsVisible != true)
+            if (!ShouldCorrectCommandAssistPlacement(layout, _boundCommandAssistViewModel?.IsVisible == true))
             {
                 return;
             }
+
+            _commandAssistPlacementCorrectionPasses++;
 
             void CorrectPlacement()
             {

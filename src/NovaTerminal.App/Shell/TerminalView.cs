@@ -38,6 +38,20 @@ namespace NovaTerminal.Shell
         float CellWidth,
         float CellHeight);
 
+    /// <summary>
+    /// Where an <c>OSC 133;B</c> mark currently sits on screen. The trusted counterpart to
+    /// <see cref="CommandAssistPromptHint"/>: that one reports where the cursor is and lets the
+    /// consumer guess the prompt row, this one reports the prompt row itself.
+    /// </summary>
+    /// <param name="VisibleMarkVisualRow">
+    /// Zero-based row inside the viewport holding the first cell of the user's input.
+    /// </param>
+    public readonly record struct CommandAssistMarkAnchorHint(
+        int VisibleMarkVisualRow,
+        int VisibleRows,
+        float CellWidth,
+        float CellHeight);
+
     public class TerminalView : Control
     {
         private readonly RowImageCache _rowCache = new();
@@ -778,6 +792,38 @@ namespace NovaTerminal.Shell
 
             return new CommandAssistPromptHint(
                 VisibleCursorVisualRow: visualCursorRow,
+                VisibleRows: visibleRows,
+                CellWidth: _metrics.CellWidth,
+                CellHeight: _metrics.CellHeight);
+        }
+
+        /// <summary>
+        /// Resolves <paramref name="mark"/> against the buffer and the current scroll position.
+        /// </summary>
+        /// <remarks>
+        /// Returns <c>null</c> whenever the marked row is not on screen — scrolled away, aged out
+        /// of history, from a dead coordinate generation, or on the alt screen — and whenever there
+        /// is no viewport to be on screen in (no buffer, no metrics, zero rows). "In the viewport"
+        /// is the whole contract: a caller that gets a row back may place against it unconditionally.
+        /// Because the answer depends on <see cref="ScrollOffset"/>, it must be re-asked on every
+        /// placement pass; <see cref="CommandAssistAnchorHintChanged"/> fires on scroll for exactly
+        /// that reason.
+        /// </remarks>
+        internal CommandAssistMarkAnchorHint? GetCommandAssistMarkAnchorHint(ShellIntegrationMark mark)
+        {
+            if (_buffer == null || _metrics.CellHeight <= 0 || Rows <= 0)
+            {
+                return null;
+            }
+
+            int visibleRows = Rows;
+            if (!ShellMarkAnchorResolver.TryResolveVisualRow(_buffer, mark, _scrollOffset, visibleRows, out int visualRow))
+            {
+                return null;
+            }
+
+            return new CommandAssistMarkAnchorHint(
+                VisibleMarkVisualRow: visualRow,
                 VisibleRows: visibleRows,
                 CellWidth: _metrics.CellWidth,
                 CellHeight: _metrics.CellHeight);

@@ -439,6 +439,180 @@ public sealed class CommandAssistLayoutTests
             $"Expected conservative fallback to stay in lower safe zone when prompt hint rows lag pane height, but bottom was {layout.BubbleRect.Bottom}.");
     }
 
+    // ------------------------------------------------------------ mark anchoring (V2 Phase 2a)
+    //
+    // These are the SSH counterparts to the conservative-fallback tests above. The difference is
+    // one OSC 133;B: with a mark the remote prompt row is known, so the whole conservative stack -
+    // the unreliable-anchor fallback, the short-pane suppression band, the placement-correction
+    // passes - has to step aside. Without one, every assertion above still holds.
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenRemoteShellEmitsMarks_AnchorsToTheMarkRow()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        // Metrics before layout, not after (#232) - see the note on the conservative tests above.
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        MarkPromptAt(pane, row: 10);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.True(layout.UsesPromptAnchor,
+            "A mark-anchored SSH pane is prompt-anchored: the row is a fact, not a per-session-type guess.");
+        Assert.Equal(180, layout.PromptRect.Top, precision: 1);
+        Assert.True(layout.BubbleRect.Bottom <= layout.PromptRect.Top,
+            $"Expected bubble bottom {layout.BubbleRect.Bottom} to clear the marked prompt row top {layout.PromptRect.Top}.");
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenRemoteShellEmitsMarksInUpperBandOnShortPane_DoesNotSuppressTheOverlay()
+    {
+        // Same geometry as TerminalPane_WhenRemotePromptIsInUpperBandOnShortPane_SuppressesConservativeAssistLayout,
+        // which returns null. The only difference is the mark, and it is the whole difference.
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 220
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 220));
+        pane.Arrange(new Rect(0, 0, 900, 220));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 220));
+        termView.Arrange(new Rect(0, 0, 900, 220));
+        MarkPromptAt(pane, row: 1);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.Equal(18, layout.PromptRect.Top, precision: 1);
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenTheMarkComesFromADeadCoordinateGeneration_FallsBackToTheHeuristic()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        MarkPromptAt(pane, row: 10);
+        Assert.True(Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest()).UsesMarkAnchor);
+
+        // CSI 3J - what clear(1) sends - resets the buffer's row counters, so the mark's
+        // AbsoluteRow now names an unrelated row. The generation epoch is what notices.
+        pane.Parser!.Process("\x1b[3J");
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.False(layout.UsesMarkAnchor);
+        Assert.False(layout.UsesPromptAnchor);
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenLayoutIsMarkAnchored_RunsNoPlacementCorrectionPasses()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        MarkPromptAt(pane, row: 10);
+
+        CommandAssistAnchorLayout marked = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+        Assert.True(marked.UsesMarkAnchor);
+
+        // The gate, asked directly: with the assist visible on an SSH pane - the exact conditions
+        // the correction stack was written for - a mark-anchored layout still declines it, while
+        // the markless layout for the same pane still wants it.
+        Assert.False(pane.ShouldCorrectCommandAssistPlacementForTest(marked, assistIsVisible: true));
+        Assert.True(pane.ShouldCorrectCommandAssistPlacementForTest(marked with { UsesMarkAnchor = false }, assistIsVisible: true));
+        Assert.Equal(0, pane.CommandAssistPlacementCorrectionPassesForTest);
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenLayoutIsMarkAnchoredOnALocalPane_AlsoRunsNoPlacementCorrectionPasses()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        MarkPromptAt(pane, row: 4);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.False(pane.ShouldCorrectCommandAssistPlacementForTest(layout, assistIsVisible: true));
+        Assert.Equal(0, pane.CommandAssistPlacementCorrectionPassesForTest);
+    }
+
     [AvaloniaFact]
     public async Task TerminalPane_WhenPopupIsVisible_AnchorsPopupTopToCalculatedRect()
     {
@@ -647,6 +821,23 @@ public sealed class CommandAssistLayoutTests
         Assert.NotNull(hint);
         Assert.Equal(expectedVisibleRows, hint!.Value.VisibleRows);
         Assert.Equal(expectedCursorRow, hint.Value.VisibleCursorVisualRow);
+    }
+
+    /// <summary>
+    /// Emits an <c>OSC 133;B</c> mark on viewport row <paramref name="row"/>.
+    /// </summary>
+    /// <remarks>
+    /// The mark records wherever the cursor is when B is dispatched, so positioning the cursor is
+    /// how a test chooses the marked row. Nothing is written after it: the anchor is the row, not
+    /// the text on it, and a test that types would only be testing the write path again.
+    /// </remarks>
+    private static void MarkPromptAt(TerminalPane pane, int row)
+    {
+        pane.CreateAndWireParser();
+        Assert.NotNull(pane.Buffer);
+        Assert.True(row < pane.Buffer!.Rows, $"Row {row} is outside the {pane.Buffer.Rows}-row buffer this pane was arranged to.");
+        pane.Buffer.SetCursorPosition(0, row);
+        pane.Parser!.Process("\x1b]133;B\x07");
     }
 
     /// <summary>
