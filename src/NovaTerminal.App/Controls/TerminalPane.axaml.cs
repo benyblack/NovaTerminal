@@ -132,7 +132,28 @@ namespace NovaTerminal.Controls
         private CommandAssistController? _commandAssistController;
         private CommandAssistServices? _commandAssistServices;
         private ShellLifecycleTracker? _shellLifecycleTracker;
+
+        /// <summary>
+        /// True when <em>we</em> injected a bootstrap into this shell. Never true for SSH: the
+        /// injection mechanisms (an <c>--rcfile</c> path, a <c>ZDOTDIR</c>/<c>XDG_CONFIG_HOME</c>
+        /// override, a <c>-File</c> argument) all die at the SSH boundary.
+        /// </summary>
         private bool _isShellIntegrationActive;
+
+        /// <summary>
+        /// True once this session has emitted any OSC 133 mark, whoever installed the thing that
+        /// emits it. The runtime half of V2 Phase 2b's remote story: a remote host that sources the
+        /// shipped snippet proves itself here rather than through
+        /// <see cref="_isShellIntegrationActive"/>, which it can never set.
+        /// </summary>
+        /// <remarks>
+        /// Written from the PTY read thread (the parser callbacks) and read from the UI thread
+        /// (<see cref="UpdateCommandAssistContext"/>); <c>volatile</c> and bool-sized, so a reader
+        /// sees either the old value or the new one. Latching - it is only ever set - so the
+        /// double-set a concurrent first mark could produce is harmless, and the redundant context
+        /// update it posts is idempotent.
+        /// </remarks>
+        private volatile bool _hasObservedShellIntegrationMark;
         private IReadOnlyDictionary<string, string>? _shellIntegrationEnvOverrides;
         private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
         private readonly CommandAssistAnchorCalculator _commandAssistAnchorCalculator = new();
@@ -1787,6 +1808,39 @@ namespace NovaTerminal.Controls
             }
         }
 
+        /// <summary>
+        /// Records that this session emitted an OSC 133 mark, and - the first time only - republishes
+        /// the session context so Command Assist learns the session is instrumented.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Called from the four parser mark callbacks, i.e. on the PTY read thread. The context
+        /// update itself has to happen on the UI thread (it reads <see cref="Session"/> and
+        /// <c>CurrentWorkingDirectory</c> and pokes the controller), so it is posted rather than
+        /// called.
+        /// </para>
+        /// <para>
+        /// The posted update is not the only thing that closes the loop, and must not be: it lands
+        /// asynchronously, so a shell whose <c>A</c>, <c>B</c> and <c>C</c> all arrive in one parse
+        /// chunk could reach the capture pipeline before it. <c>AssistSessionContext</c> makes the
+        /// same deduction independently from the event stream
+        /// (<c>AssistSessionContext.IsShellIntegrationLive</c>). What the post is <em>necessary</em>
+        /// for is durability: <c>UpdateSession</c> forgets observed markers whenever it is told
+        /// integration is off, so without feeding the observation back, the next ordinary directory
+        /// change would demote an instrumented remote back to markless.
+        /// </para>
+        /// </remarks>
+        private void NoteShellIntegrationMarkObserved()
+        {
+            if (_hasObservedShellIntegrationMark)
+            {
+                return;
+            }
+
+            _hasObservedShellIntegrationMark = true;
+            Dispatcher.UIThread.Post(UpdateCommandAssistContext);
+        }
+
         private void UpdateCommandAssistContext()
         {
             _commandAssistController?.UpdateSessionContext(
@@ -1796,7 +1850,12 @@ namespace NovaTerminal.Controls
                 sessionId: Session?.Id.ToString(),
                 hostId: Profile?.Type == ConnectionType.SSH ? Profile.SshHost : null,
                 isRemote: Profile?.Type == ConnectionType.SSH,
-                isShellIntegrated: _isShellIntegrationActive);
+
+                // Two ways to be integrated, and remote sessions can only ever be the second one.
+                // "We injected a bootstrap" is unreachable over SSH; "the shell is emitting marks"
+                // is what the V2 Phase 2b snippets buy, and it is equally good evidence - the parser
+                // has never cared who installed the thing writing OSC 133.
+                isShellIntegrated: _isShellIntegrationActive || _hasObservedShellIntegrationMark);
         }
 
         private void UpdatePaneContextMenuState()
@@ -2170,12 +2229,23 @@ namespace NovaTerminal.Controls
             };
             Parser.OnPromptReady += () =>
             {
+                NoteShellIntegrationMarkObserved();
                 _shellLifecycleTracker?.HandlePromptReady();
                 _agentRegistration?.StatusMachine.NotifyPromptReady();
             };
             Parser.OnCommandAccepted += commandText =>
             {
-                _lastRelevantCommandText = commandText?.Trim();
+                NoteShellIntegrationMarkObserved();
+
+                // Only overwritten when the mark carried text. A bare `133;C` (legal FinalTerm, and
+                // what several third-party remote snippets emit) arrives with null, and clearing
+                // here would throw away the command the grid/heuristic path already read at Enter -
+                // which on those shells is the only source Fix mode has.
+                if (!string.IsNullOrWhiteSpace(commandText))
+                {
+                    _lastRelevantCommandText = commandText.Trim();
+                }
+
                 _shellLifecycleTracker?.HandleCommandAccepted(commandText);
                 // OSC 133;C is the execution-start edge: the line editor is closed and the
                 // shell is about to run the command. (OSC 133;B, below, only says the prompt
@@ -2202,6 +2272,7 @@ namespace NovaTerminal.Controls
                 // B rides inside the prompt string, so it is re-emitted on every repaint
                 // (resize, clear, zle reset-prompt) with fresh coordinates: keep the newest
                 // one rather than the first.
+                NoteShellIntegrationMarkObserved();
                 lock (_commandStartMarkGate)
                 {
                     _latestCommandStartMark = mark;
@@ -2242,6 +2313,7 @@ namespace NovaTerminal.Controls
                 // the whole run of the command, including the submission edge that Phase 1c reads
                 // the final command text on. GridQueryReader.MaxSpanRows stays as a backstop for
                 // shells that emit B without a matching D, but it is no longer the only guard.
+                NoteShellIntegrationMarkObserved();
                 lock (_commandStartMarkGate)
                 {
                     _latestCommandStartMark = null;
@@ -2270,6 +2342,7 @@ namespace NovaTerminal.Controls
         {
             _shellLifecycleTracker = null;
             _isShellIntegrationActive = false;
+            _hasObservedShellIntegrationMark = false;
             _shellIntegrationEnvOverrides = null;
             // A restart or a profile switch reaches here; the pending line belonged to the shell
             // that is going away.
@@ -2312,6 +2385,10 @@ namespace NovaTerminal.Controls
                     ApplyShellIntegrationLaunchPlan(profile, ref effectiveShell, ref args, startingDir);
                     ShellCommand = effectiveShell;
                     ShellArgs = args;
+                }
+                else
+                {
+                    ArmRemoteShellIntegrationTracker(profile);
                 }
 
                 if (profile != null && profile.Type == ConnectionType.SSH)
@@ -3436,17 +3513,72 @@ namespace NovaTerminal.Controls
         /// <see cref="ShellIntegrationEvent"/> stream Command Assist consumes.
         /// </summary>
         /// <remarks>
-        /// Deliberately separate from <c>_isShellIntegrationActive</c>, which the caller above sets
-        /// and which means something narrower: that <em>we</em> injected a bootstrap into this
-        /// shell. Arming the translator only says the events will be delivered if they arrive.
-        /// (Phase 2's remote-integration work is where a session we did not instrument gets to arm
-        /// it too.) Internal so a headless test can drive the real parser to tracker to dispatcher
-        /// to controller path without spawning a shell.
+        /// Deliberately separate from <c>_isShellIntegrationActive</c>, which the injection caller
+        /// sets and which means something narrower: that <em>we</em> injected a bootstrap into this
+        /// shell. Arming the translator only says the events will be delivered if they arrive - it
+        /// is inert on a shell that emits no marks, since every tracker entry point is reached only
+        /// from a parser mark callback. V2 Phase 2b is where a session we did not instrument arms it
+        /// too; see <see cref="ArmRemoteShellIntegrationTracker"/>. Internal so a headless test can
+        /// drive the real parser to tracker to dispatcher to controller path without spawning a
+        /// shell.
         /// </remarks>
         internal void ArmShellIntegrationTracker()
         {
             _shellLifecycleTracker = new ShellLifecycleTracker();
             _shellLifecycleTracker.EventObserved += OnShellIntegrationEventObserved;
+        }
+
+        /// <summary>
+        /// Arms the OSC 133 translator for an SSH session, so that a remote shell the user has
+        /// instrumented themselves (see <c>docs/command-assist/RemoteShellIntegration.md</c>) gets
+        /// the same Command Assist treatment a local integrated shell does.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why unconditionally, before any mark has been seen.</b> The alternative - arm lazily on
+        /// the first observed mark - loses that mark. <c>133;A</c> and the first <c>133;B</c> arrive
+        /// with the very first remote prompt, and the <c>B</c> is what opens the command-input window
+        /// the grid reader is gated on; a tracker armed after it would leave the first command line
+        /// unreadable for no gain. Arming costs one object and one event subscription on a session
+        /// that may never emit a mark, and produces no events until one does.
+        /// </para>
+        /// <para>
+        /// <b>Why it cannot regress markless SSH.</b> Every path into
+        /// <see cref="ShellLifecycleTracker"/> is a parser mark callback. A remote host with no
+        /// snippet installed emits no OSC 133, so no event is ever dispatched, no
+        /// <c>HasObservedShellIntegrationMarker</c> is set, and the heuristic Enter-time capture and
+        /// the conservative markless anchoring stack behave exactly as they did before. The
+        /// agent-status machinery is not affected either way: it hangs off the parser callbacks
+        /// directly, never off the tracker.
+        /// </para>
+        /// <para>
+        /// <b>Gated on the shell-integration setting</b>, which is the same switch that decides
+        /// whether we inject locally. It is the user's "do not participate in the OSC 133 contract"
+        /// control, and a remote host is exactly where they cannot simply uninstall the emitter.
+        /// (Mark-based overlay <em>anchoring</em> is deliberately not gated on it - that path reads
+        /// the parser's mark directly and predates this switch's remote meaning.)
+        /// </para>
+        /// <param name="profile">
+        /// The profile being connected. Passed explicitly because
+        /// <see cref="InitializeSessionCore"/> runs before <see cref="Profile"/> has necessarily
+        /// caught up with the session being built; falls back to <see cref="Profile"/> for callers
+        /// (and tests) that have already published it.
+        /// </param>
+        /// </remarks>
+        internal void ArmRemoteShellIntegrationTracker(TerminalProfile? profile = null)
+        {
+            profile ??= Profile;
+            if (profile?.Type != ConnectionType.SSH)
+            {
+                return;
+            }
+
+            if (_settings != null && !_settings.CommandAssistShellIntegrationEnabled)
+            {
+                return;
+            }
+
+            ArmShellIntegrationTracker();
         }
 
         private void OnShellIntegrationEventObserved(ShellIntegrationEvent shellEvent)
@@ -3550,6 +3682,23 @@ namespace NovaTerminal.Controls
                 : null;
         }
 
+        /// <summary>
+        /// The query as Command Assist actually sees it: the grid read with the lifecycle gate
+        /// applied.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately distinct from <see cref="TryReadAssistQuerySnapshot"/>, which is the raw
+        /// seam and is ungated on purpose. The <c>133;B</c> mark survives <c>133;C</c> (it is only
+        /// dropped on <c>D</c>), so the seam keeps answering while a command runs, and the thing
+        /// that says its answer must not be believed is
+        /// <c>AssistSessionContext.IsAcceptingCommandInput</c>, applied inside
+        /// <c>SuggestionOrchestrator</c>. A test asserting "the gate closed" has to ask on this side
+        /// of it; asking the seam would assert the mark lifecycle instead and pass for the wrong
+        /// reason.
+        /// </remarks>
+        internal AssistQuerySnapshot? TryReadGatedAssistQuerySnapshotForTest() =>
+            _commandAssistController?.TryReadQuerySnapshot();
+
         internal async Task HandleCommandAssistCompletionAsync(int? exitCode)
         {
             if (!EnsureCommandAssistInitialized())
@@ -3557,7 +3706,15 @@ namespace NovaTerminal.Controls
                 return;
             }
 
-            if (!_isShellIntegrationActive)
+            // Only when nothing else will patch the entry. An armed tracker turns this same OSC 133;D
+            // into a CommandFinished event that patches the exit code *and* the duration, and it is
+            // the better of the two; running both means the first one clears the pending entry and
+            // the second silently does nothing, which loses the duration.
+            //
+            // Keyed on the tracker rather than on _isShellIntegrationActive since V2 Phase 2b: for a
+            // remote session the latter is false while the tracker is armed, and the old condition
+            // would have raced the structured patch on every SSH command.
+            if (_shellLifecycleTracker == null)
             {
                 await _commandAssistController.HandleCommandFinishedAsync(exitCode);
             }
