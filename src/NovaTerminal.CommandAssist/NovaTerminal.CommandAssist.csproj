@@ -8,4 +8,19 @@
     <InternalsVisibleTo Include="NovaTerminal.App.Tests" />
   </ItemGroup>
 
+  <!-- Remote shell-integration snippets (V2 Phase 2b). Authored as plain files under
+       assets/shell-integration/ so they are reviewable and diffable as the shell scripts they are,
+       and embedded here because the only consumer is a clipboard copy from Settings and the app
+       publishes AOT/single-file, where a resource stream is the one form guaranteed to survive.
+       LogicalName is pinned rather than derived: the default would encode the ".." path walk.
+       See ShellIntegration/Remote/RemoteShellIntegrationSnippets.cs. -->
+  <ItemGroup>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\nova-shell-integration.sh"
+                      LogicalName="NovaTerminal.CommandAssist.ShellIntegration.Remote.nova-shell-integration.sh" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\nova-shell-integration.fish"
+                      LogicalName="NovaTerminal.CommandAssist.ShellIntegration.Remote.nova-shell-integration.fish" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\nova-shell-integration.ps1"
+                      LogicalName="NovaTerminal.CommandAssist.ShellIntegration.Remote.nova-shell-integration.ps1" />
+  </ItemGroup>
+
 </Project>
