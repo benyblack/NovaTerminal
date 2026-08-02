@@ -148,14 +148,31 @@ public sealed class CapturePipelineTests
         Assert.Equal(@"C:\from-event", entry.WorkingDirectory);
     }
 
+    /// <summary>
+    /// V2 Phase 2b inverted this case. It used to assert "integration disabled means no structured
+    /// capture", where "disabled" meant only "we did not inject a bootstrap" - which is permanently
+    /// true of every SSH session, and would have made the remote snippets useless.
+    /// </summary>
+    /// <remarks>
+    /// The event is its own evidence. An accepted-command event can only reach here from an armed
+    /// <c>ShellLifecycleTracker</c>, and a tracker only ever fires from a parser mark callback: if
+    /// this method is running, a shell emitted <c>OSC 133;C</c>. Who installed the thing that emitted
+    /// it is not a fact the capture path needs.
+    /// </remarks>
     [Fact]
-    public async Task CommandAccepted_WhenShellIntegrationIsDisabled_CapturesNothing()
+    public async Task CommandAccepted_FromAShellWeDidNotInstrument_IsStillCaptured()
     {
-        (CapturePipeline pipeline, InMemoryHistoryStore store, _) = CreatePipeline();
+        (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
+        context.UpdateSession("bash", "/home/u", "p", "s", "remote-host", isRemote: true, isShellIntegrated: false);
 
         await pipeline.HandleShellIntegrationEventAsync(Accepted("git status"));
 
-        Assert.Empty(store.Entries);
+        CommandHistoryEntry entry = Assert.Single(store.Entries);
+        Assert.Equal("git status", entry.CommandText);
+        Assert.Equal(CommandCaptureSource.ShellIntegration, entry.Source);
+        Assert.True(entry.IsRemote);
+        Assert.Equal("remote-host", entry.HostId);
+        Assert.True(context.IsShellIntegrationLive);
     }
 
     [Fact]
@@ -170,15 +187,88 @@ public sealed class CapturePipelineTests
         Assert.Empty(store.Entries);
     }
 
-    [Fact]
-    public async Task CommandAccepted_WithNoCommandText_CapturesNothing()
+    // ---- the textless C (V2 Phase 2b) ---------------------------------------------------------
+    //
+    // A `133;C` with no payload is legal FinalTerm and is what iTerm2's and VS Code's snippets
+    // send. Phase 2b made the parser raise CommandAccepted for it with null text, so these four
+    // tests are the contract for what the capture pipeline does with a lifecycle edge that carries
+    // no command: everything except write an entry.
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CommandAccepted_WithNoCommandText_CapturesNothing(string? commandText)
     {
         (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
         context.SetShellIntegrationEnabled(true);
 
-        await pipeline.HandleShellIntegrationEventAsync(Accepted("   "));
+        await pipeline.HandleShellIntegrationEventAsync(Accepted(commandText));
 
         Assert.Empty(store.Entries);
+    }
+
+    /// <summary>
+    /// It still proves the session is instrumented - that is the whole reason the parser raises it -
+    /// but it must not prove the shell <em>reports command text</em>.
+    /// </summary>
+    /// <remarks>
+    /// The distinction is the difference between a working session and a silent one. Standing the
+    /// heuristic path down is what <c>HasObservedStructuredCommandCaptureMarker</c> does, and a shell
+    /// that emits a bare C forever would then have the heuristic path off and the structured path
+    /// producing nothing: no history at all, from a session that looks fully integrated.
+    /// </remarks>
+    [Fact]
+    public async Task CommandAccepted_WithNoCommandText_ProvesInstrumentationButNotStructuredCapture()
+    {
+        (CapturePipeline pipeline, _, AssistSessionContext context) = CreatePipeline();
+
+        await pipeline.HandleShellIntegrationEventAsync(Accepted(null));
+
+        Assert.True(context.HasObservedShellIntegrationMarker);
+        Assert.True(context.IsShellIntegrationLive);
+        Assert.False(context.HasObservedStructuredCommandCaptureMarker);
+        Assert.False(context.IsStructuredCaptureActive);
+    }
+
+    /// <summary>The consequence of the flag above: Enter-time capture keeps working.</summary>
+    [Fact]
+    public async Task CommandAccepted_WithNoCommandText_LeavesTheHeuristicPathRunning()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
+        context.SetShellIntegrationEnabled(true);
+        await pipeline.HandleShellIntegrationEventAsync(Accepted(null));
+
+        await pipeline.CaptureSubmissionAsync("git status", isSubmissionSuppressed: false);
+
+        Assert.Equal(CommandCaptureSource.Heuristic, Assert.Single(store.Entries).Source);
+    }
+
+    /// <summary>
+    /// The full bare-C cycle in order, which is the shape a third-party remote integration produces:
+    /// the grid/heuristic path writes the entry at Enter, C arrives with nothing to add, and D
+    /// patches the exit code and duration onto the entry that already exists.
+    /// </summary>
+    /// <remarks>
+    /// The load-bearing part is that the textless C returns <em>before</em> touching the pending
+    /// entry. Clearing it, or writing a second entry beside it, would leave D with nothing to patch
+    /// and the command permanently recorded as still running.
+    /// </remarks>
+    [Fact]
+    public async Task BareCCycle_CapturesOnceAndStillGetsItsExitCode()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
+        context.SetShellIntegrationEnabled(true);
+
+        await pipeline.CaptureSubmissionAsync("dotnet test", isSubmissionSuppressed: false);
+        await pipeline.HandleShellIntegrationEventAsync(Accepted(null));
+        await pipeline.HandleShellIntegrationEventAsync(Finished(exitCode: 3, duration: TimeSpan.FromSeconds(2)));
+
+        CommandHistoryEntry entry = Assert.Single(store.Entries);
+        Assert.Equal("dotnet test", entry.CommandText);
+        Assert.Equal(CommandCaptureSource.Heuristic, entry.Source);
+        Assert.Equal(3, entry.ExitCode);
+        Assert.Equal(2000, entry.DurationMs);
     }
 
     /// <summary>

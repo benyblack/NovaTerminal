@@ -160,7 +160,13 @@ internal sealed class CapturePipeline
             _context.ObserveShellIntegrationMarker();
         }
 
-        if (shellEvent.Type is ShellIntegrationEventType.CommandAccepted)
+        // Deliberately conditioned on the text rather than on the event type. A C mark with no
+        // payload is a lifecycle edge and nothing more; treating it as proof that the shell reports
+        // command text would stand the heuristic path down in favour of a structured path that
+        // never writes an entry, and the session would capture nothing at all. See
+        // AssistSessionContext.HasObservedStructuredCommandCaptureMarker.
+        if (shellEvent.Type is ShellIntegrationEventType.CommandAccepted &&
+            !string.IsNullOrWhiteSpace(shellEvent.CommandText))
         {
             _context.ObserveStructuredCommandCaptureMarker();
         }
@@ -184,11 +190,19 @@ internal sealed class CapturePipeline
 
     private async Task CaptureAcceptedCommandAsync(ShellIntegrationEvent shellEvent)
     {
-        if (!_context.IsShellIntegrationEnabled || _context.IsAltScreenActive)
+        // IsShellIntegrationLive rather than IsShellIntegrationEnabled: an accepted-command event
+        // only reaches here from an armed ShellLifecycleTracker, and since Phase 2b a tracker is
+        // armed for remote sessions we could not inject a bootstrap into. The mark is the evidence.
+        if (!_context.IsShellIntegrationLive || _context.IsAltScreenActive)
         {
             return;
         }
 
+        // A textless C (see AnsiParser.DecodeAcceptedCommandPayload) has already done its work:
+        // the marker observation above, and the gate close the controller applied before calling
+        // us. There is nothing to persist and nothing to dedup against, and crucially the pending
+        // entry the heuristic path wrote for this same command is left intact so CommandFinished
+        // can still patch its exit code and duration.
         string commandText = shellEvent.CommandText?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(commandText))
         {
