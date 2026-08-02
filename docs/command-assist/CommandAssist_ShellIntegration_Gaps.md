@@ -74,13 +74,40 @@ the input line.
 right prompt all paint right-aligned text on the input's own row, and a naive "mark column to
 last non-blank cell" read swallows it. Stopping at the cursor is not an option because the cursor
 is mid-line whenever the user has pressed an arrow key. Trailing cells are excluded only on the
-final row of the span, only when the cursor is on that row, and only when all three of the
-following hold: the trailing content ends within 2 columns of the right edge (right-aligned text
-does; typed input generally does not, and `ZLE_RPROMPT_INDENT` defaults to 1), it is separated
-from the rest of the row by a run of at least 2 blank cells, and that run starts at or after the
-cursor. The third condition means nothing left of the cursor is ever discarded, so a double space
-inside typed input cannot be mistaken for the separator. The rule is deliberately conservative:
-a gap followed by content that stops well short of the right edge is kept.
+final row of the span, only when the cursor is on that row, and only when all five of the
+following hold. The row is read as `[input][gap][badge]`:
+
+1. the trailing content ends within 2 columns of the right edge (right-aligned text does; typed
+   input generally does not, and `ZLE_RPROMPT_INDENT` defaults to 1);
+2. the gap starts at or after the cursor, so nothing left of the cursor is ever discarded;
+3. the gap is the *widest* run of blank cells in that region — the row's dominant slack, which is
+   what a right-aligned paint produces;
+4. the gap is at least 2 cells wide **and strictly wider than the badge it separates**;
+5. the badge is at most `Cols / 3` columns wide.
+
+Conditions 4 and 5 are load-bearing, and an earlier revision of this document was wrong about
+why. Condition 2 does *not* on its own make a double space inside typed input safe: it protects
+only what is left of the cursor. With the cursor at the start of the line (Home) and input that
+happens to reach the right edge — `echo aaaa...aa  bbbb` — every interior gap is at or after the
+cursor, and the `bbbb` was silently deleted. Condition 4 is what stops that: two blanks in front
+of four characters is a typo, not a right prompt.
+
+Condition 3 also fixes multi-segment right prompts. Taking the rightmost qualifying run cut
+`12:34  ok` at its own internal gap, keeping the wide blank run and `12:34` — worse than not
+trimming at all. Taking the widest run trims the whole right-aligned group.
+
+The failure mode is deliberately asymmetric. An unrecognised right prompt comes back as extra
+text, which a consumer can survive; a mis-recognised one deletes what the user typed. So a gap
+followed by content that stops well short of the right edge is kept, a badge wider than the gap
+in front of it is kept, and a badge wider than a third of the row is kept.
+
+**Mark lifecycle at the App seam.** `TerminalPane` drops `_latestCommandStartMark` on `OSC 133;D`
+(command finished), so between one command's end and the next prompt's `B` the seam returns
+`false` instead of serving command output as a command line. It is deliberately *not* dropped on
+`OSC 133;C`: C fires the instant the user submits, while the input line is still on screen and
+still exactly what the mark describes, and Phase 1c reads the final command text on that edge.
+`GridQueryReader.MaxSpanRows` stays as a backstop for shells that emit `B` without a matching `D`,
+rather than being the only guard.
 
 ## Current Limitations
 - shell integration is local-only; SSH launch plans skip provider injection

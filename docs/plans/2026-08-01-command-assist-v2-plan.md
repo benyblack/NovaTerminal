@@ -81,15 +81,23 @@ Phase 1b notes (for the task-4 orchestrator author):
   cursor is routinely mid-line), `IsMultiline`, `RightPromptTrimmed`, `StartRow`, `EndRow`.
 - **The result is only meaningful between `B` and the following `C`.** The reader cannot tell
   "still typing" from "the command ran and this is its output"; lifecycle gating is the
-  consumer's job. A `MaxSpanRows` cap (512) bounds the damage if that gate is missed.
+  consumer's job. Two backstops: the pane drops `_latestCommandStartMark` on `133;D`, so the seam
+  goes dark between a command finishing and the next prompt (it is deliberately *kept* across
+  `133;C`, when the input line is still on screen and still what the mark describes), and a
+  `MaxSpanRows` cap (512) bounds the damage for shells that emit `B` without a matching `D`.
 - **Multiline is decision (b): raw text, hard breaks as `'\n'`, `IsMultiline` set.** Nothing
   identifies continuation-prompt cells (`PS2`/`PROMPT2`) as prompt rather than input, so they
   are *in* the text. Treat multiline text as opaque — history/display only, never a typed
   prefix. One documented gap: if the cursor sits on an earlier logical line of a continuation
   entry, the span stops at the end of that line and `IsMultiline` stays clear.
-- **RPROMPT** is excluded from the final row only, and only when all three hold: content ends
-  within 2 columns of the right edge, a ≥2-blank gap precedes it, and that gap starts at or
-  after the cursor. Nothing left of the cursor is ever discarded.
+- **RPROMPT** is excluded from the final row only, and only when all five hold: content ends
+  within 2 columns of the right edge; the gap starts at or after the cursor (nothing left of the
+  cursor is ever discarded); the gap is the *widest* blank run in that region, so a multi-segment
+  right prompt is trimmed whole rather than cut at its own internal gap; the gap is >= 2 cells
+  and strictly wider than the badge it separates; and the badge is at most `Cols / 3` wide. The
+  last two are what stop a double space inside typed input that reaches the right edge from
+  eating the tail of the line when the cursor is at Home. Unrecognised right prompts are returned
+  as extra text; that direction is recoverable, deleting typed input is not.
 
 ## Phase 2 — Marks-based anchoring + SSH parity
 
@@ -104,7 +112,7 @@ Exit criteria: SSH + instrumented remote passes smoke scenarios with zero `[Corr
 ## Phase 3 — Visible usefulness
 
 Tasks:
-1. Auto-open policy v2: passive bubble with top-1 merged suggestion after ≥2 chars, ~75 ms debounce; Escape suppresses for current command; popup still intent-only. Policy behind `CommandAssistPassiveBubbleEnabled` (default true when master flag on); M4.3-quiet behavior as fallback.
+1. Auto-open policy v2: passive bubble with top-1 merged suggestion after >=2 chars, ~75 ms debounce; Escape suppresses for current command; popup still intent-only. Policy behind `CommandAssistPassiveBubbleEnabled` (default true when master flag on); M4.3-quiet behavior as fallback.
 2. Bind `ShortcutHintText` in `CommandAssistBubbleView`; verify content reflects rebound shortcuts.
 3. Popup interactivity: rows become selectable (mouse hover + click-to-accept), `ScrollViewer` + scroll-into-view, remove hard-coded `maxResults: 5` in favor of scrolling cap.
 4. Shortcuts: move pin off `Ctrl+Shift+P` to a new catalogued binding; add `Esc`/`Up`/`Down`/`Ctrl+Enter` to catalog under `ShortcutScope.CommandAssist`; migration for existing shortcut config.
@@ -119,7 +127,7 @@ Exit criteria: type-two-chars-see-value demo works on all four shells; benchmark
 Tasks:
 1. Stderr capture: buffer the `133;C`→`133;D` output region (bounded: last 40 lines / 8 KB), redact via `SecretsFilter`, populate `CommandFailureContext.ErrorOutput` (removes the hard-coded `null` at the TerminalPane call site).
 2. Expand `HeuristicErrorInsightService`: per-shell command-not-found patterns, permission-denied, `./` hint (now reachable), git/docker/npm/dotnet failure signatures. Target: useful suggestion for top-10 failure classes.
-3. `CommandKnowledgeService` with ordered sources: (a) build-time tldr-pages-derived catalogue (≥200 commands, <2 MB, CC-BY attribution in About), (b) local probing (`man -w`, `Get-Help`, `--help`) for "open full help" actions. Replaces `LocalCommandDocsProvider` + `SeedRecipeProvider`; closes #250.
+3. `CommandKnowledgeService` with ordered sources: (a) build-time tldr-pages-derived catalogue (>=200 commands, <2 MB, CC-BY attribution in About), (b) local probing (`man -w`, `Get-Help`, `--help`) for "open full help" actions. Replaces `LocalCommandDocsProvider` + `SeedRecipeProvider`; closes #250.
 4. Snippet management UI in Settings (list/edit/delete; `ISnippetStore.RemoveAsync` gets a caller).
 
 Exit criteria: Fix mode demo across failure classes; Help useful for arbitrary common commands; catalogue size + attribution verified.
