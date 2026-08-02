@@ -134,6 +134,28 @@ internal sealed class AssistSessionStateMachine
     /// The user typed into the shell. Returns to Suggest mode with the popup closed, preserving
     /// whether this is an explicit session - typing on after a history search stays explicit.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Known weakness, accepted rather than fixed:</strong> one keystroke after a paste
+    /// clears <see cref="IsCurrentSubmissionSuppressed"/>, so "paste a command, add a character,
+    /// press Enter" writes the pasted text to history as though the user had composed it. That was
+    /// harmless in V1 because the shadow buffer only held the characters it had watched go by; it is
+    /// not harmless now, because the grid reproduces pasted text perfectly and this flag is the only
+    /// thing standing between a paste and the history file.
+    /// </para>
+    /// <para>
+    /// The tightening - suppression survives until the submission resets it - was considered and
+    /// deliberately not taken here. It is a behavior change, not a bug fix: paste-then-edit-then-run
+    /// capturing is V1 behavior that
+    /// <c>AssistSessionStateMachineTests.ObserveTypedInput_ClearsSubmissionSuppression</c> and
+    /// <c>SubmissionSuppression_SurvivesEverythingExceptTypingAndSubmitting</c> both pin by name, and
+    /// flipping it silently inside a phase whose subject is query truth would bury a policy decision
+    /// about what belongs in history inside a refactor. It belongs with the Phase 3 capture-policy
+    /// work, where the "paste a snippet and tweak it" case can be weighed against the "paste a
+    /// credential-bearing one-liner" case in the open. Until then the loss is bounded by
+    /// <c>ISecretsFilter</c> redaction and stated here rather than left to be rediscovered.
+    /// </para>
+    /// </remarks>
     public void ObserveTypedInput()
     {
         IsCurrentSubmissionSuppressed = false;
