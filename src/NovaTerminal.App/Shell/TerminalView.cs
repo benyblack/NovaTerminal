@@ -2202,6 +2202,31 @@ namespace NovaTerminal.Shell
         }
 
         /// <summary>
+        /// Sets the system clipboard to the given text, sharing the <see cref="TopLevel"/>
+        /// clipboard access path with <see cref="CopySelectionToClipboard"/>. Used by OSC 52
+        /// clipboard-write handling (issue #268); the caller (TerminalPane) is responsible for
+        /// the settings gate and base64 decoding, this method only performs the actual write.
+        /// </summary>
+        public async Task<bool> SetClipboardTextAsync(string text)
+        {
+            try
+            {
+                var topLevel = TopLevel.GetTopLevel(this);
+                if (topLevel?.Clipboard != null)
+                {
+                    await topLevel.Clipboard.SetTextAsync(text);
+                    return true;
+                }
+            }
+            catch
+            {
+                // Clipboard operations can fail
+            }
+
+            return false;
+        }
+
+        /// <summary>
         /// Returns selected text without copying to clipboard.
         /// </summary>
         public string? GetSelectedText()

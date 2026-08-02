@@ -11,13 +11,13 @@ namespace NovaTerminal.Tests.Controls;
 /// <summary>
 /// Pins the invariant that makes #102's headline finding a non-issue.
 ///
-/// <c>CreateAndWireParser</c> attaches 8 handlers to <see cref="AnsiParser"/> and never removes
+/// <c>CreateAndWireParser</c> attaches 9 handlers to <see cref="AnsiParser"/> and never removes
 /// them, which #102 read as an accumulation bug on session restart. It is safe for exactly one
 /// reason: the method assigns a <b>fresh</b> parser first, so every session starts from empty
 /// handler lists and the previous parser is garbage along with its handlers.
 ///
 /// One line holds that up. Hoisting the parser out to reuse it across sessions — a
-/// reasonable-looking change — would silently double all 8 on every <c>Reconnect()</c>, producing
+/// reasonable-looking change — would silently double all 9 on every <c>Reconnect()</c>, producing
 /// exactly the duplicate bell/title symptom #102 describes, with no <c>-=</c> anywhere to fall back
 /// on.
 ///
@@ -32,6 +32,7 @@ public class PaneParserWiringTests
     private static (string Name, int Count)[] HookCounts(AnsiParser parser) =>
     [
         (nameof(parser.OnBell), HandlerCount(parser.OnBell)),
+        (nameof(parser.OnClipboardWrite), HandlerCount(parser.OnClipboardWrite)),
         (nameof(parser.OnWorkingDirectoryChanged), HandlerCount(parser.OnWorkingDirectoryChanged)),
         (nameof(parser.OnTitleChanged), HandlerCount(parser.OnTitleChanged)),
         (nameof(parser.OnPromptReady), HandlerCount(parser.OnPromptReady)),
@@ -56,7 +57,7 @@ public class PaneParserWiringTests
 
         Assert.False(
             ReferenceEquals(first, second),
-            "Session setup reused the AnsiParser. Its 8 handler subscriptions are only safe because "
+            "Session setup reused the AnsiParser. Its 9 handler subscriptions are only safe because "
             + "a fresh parser starts with empty handler lists - reusing one duplicates every handler "
             + "per reconnect (#102). Either restore the fresh parser, or add a matching -= for each.");
     }
@@ -169,5 +170,74 @@ public class PaneParserWiringTests
         string path = Path.Combine(Path.GetTempPath(), $"nova_pane_wiring_test_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    /// <summary>
+    /// Issue #268: <c>TerminalSettings.AllowOsc52ClipboardWrite</c> gates OSC 52 clipboard
+    /// writes at the App layer (AnsiParser itself stays policy-free and always raises
+    /// <c>OnClipboardWrite</c>). The real write path continues on through
+    /// <c>Dispatcher.UIThread.Post</c> into <c>TermView.SetClipboardTextAsync</c>, which needs a
+    /// live UI-thread <c>TopLevel</c>/<c>Clipboard</c> a headless test does not provide - so this
+    /// asserts the gate itself via <see cref="TerminalPane.ClipboardWriteAttemptsForTest"/>, the
+    /// synchronous counter bumped only once a payload has passed the gate and would otherwise
+    /// reach the clipboard.
+    /// </summary>
+    [AvaloniaFact]
+    public void ClipboardWrite_SettingOff_DoesNotReachClipboardWritePath()
+    {
+        using var pane = new TerminalPane();
+        pane.ApplySettings(new TerminalSettings { AllowOsc52ClipboardWrite = false });
+        pane.CreateAndWireParser();
+
+        Assert.NotNull(pane.Parser);
+        pane.Parser!.OnClipboardWrite?.Invoke("c", System.Text.Encoding.UTF8.GetBytes("hello"));
+
+        Assert.Equal(0, pane.ClipboardWriteAttemptsForTest);
+    }
+
+    [AvaloniaFact]
+    public void ClipboardWrite_SettingOn_ReachesClipboardWritePath()
+    {
+        using var pane = new TerminalPane();
+        pane.ApplySettings(new TerminalSettings { AllowOsc52ClipboardWrite = true });
+        pane.CreateAndWireParser();
+
+        Assert.NotNull(pane.Parser);
+        pane.Parser!.OnClipboardWrite?.Invoke("c", System.Text.Encoding.UTF8.GetBytes("hello"));
+
+        Assert.Equal(1, pane.ClipboardWriteAttemptsForTest);
+    }
+
+    /// <summary>
+    /// PR #280 review, test gap: the two gate tests above both call <c>ApplySettings</c> *before*
+    /// <c>CreateAndWireParser</c>, so they would still pass if the handler captured the bool at
+    /// wire time. The design rests on the gate being read at *invocation* time, so that a live
+    /// settings change takes effect on an already-running session without re-wiring the parser.
+    /// This wires first and toggles after, which is the only ordering that actually pins that.
+    /// </summary>
+    [AvaloniaFact]
+    public void ClipboardWrite_SettingToggledAfterWiring_TakesEffectWithoutRewiring()
+    {
+        using var pane = new TerminalPane();
+        pane.ApplySettings(new TerminalSettings { AllowOsc52ClipboardWrite = true });
+        pane.CreateAndWireParser();
+
+        Assert.NotNull(pane.Parser);
+        AnsiParser parser = pane.Parser!;
+
+        parser.OnClipboardWrite?.Invoke("c", System.Text.Encoding.UTF8.GetBytes("first"));
+        Assert.Equal(1, pane.ClipboardWriteAttemptsForTest);
+
+        // Toggle off on the *same* parser instance - no CreateAndWireParser in between.
+        pane.ApplySettings(new TerminalSettings { AllowOsc52ClipboardWrite = false });
+        Assert.Same(parser, pane.Parser);
+
+        parser.OnClipboardWrite?.Invoke("c", System.Text.Encoding.UTF8.GetBytes("second"));
+        Assert.Equal(1, pane.ClipboardWriteAttemptsForTest);
+
+        // And back on again, so this cannot pass by the gate simply latching off.
+        pane.ApplySettings(new TerminalSettings { AllowOsc52ClipboardWrite = true });
+        parser.OnClipboardWrite?.Invoke("c", System.Text.Encoding.UTF8.GetBytes("third"));
+        Assert.Equal(2, pane.ClipboardWriteAttemptsForTest);
     }
 }

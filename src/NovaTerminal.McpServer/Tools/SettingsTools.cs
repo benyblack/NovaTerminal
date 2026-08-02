@@ -49,6 +49,7 @@ public static class SettingsTools
         | `SmoothScrolling` | bool | Default true. |
         | `EnableLinkDetection` | bool | Default true. |
         | `EnableKittyKeyboardProtocol` | bool | Default true. Kill switch for the kitty keyboard protocol's disambiguate-escape-codes tier (issue #266). When false, key encoding always falls back to legacy sequences and the `CSI ? u` query always reports flags 0, even if a TUI pushed a flag onto the stack. |
+        | `AllowOsc52ClipboardWrite` | bool | Default true. Settings gate for OSC 52 clipboard **write** (issue #268). When false, a decoded OSC 52 write is not applied to the system clipboard. OSC 52 **read** (answering a query with real clipboard contents) is never implemented regardless of this setting — queries always get an empty-payload denial reply. |
         | `WheelLinesPerNotch` | number | > 0 (≤ 0 falls back to 3.0). Default 3.0. |
         | `PaneClosePolicy` | string (enum-like) | e.g. "Confirm", "Force". Type-checked only. |
         | `QuakeModeEnabled` | bool | Default true. |
@@ -106,6 +107,7 @@ public static class SettingsTools
           "SmoothScrolling": true,
           "EnableLinkDetection": true,
           "EnableKittyKeyboardProtocol": true,
+          "AllowOsc52ClipboardWrite": true,
           "WheelLinesPerNotch": 3.0,
           "PaneClosePolicy": "Confirm",
           "Keybindings": { "Ctrl+Shift+C": "copy" },
@@ -139,6 +141,7 @@ public static class SettingsTools
     {
         "EnableLigatures", "EnableComplexShaping", "CursorBlink", "BellAudioEnabled",
         "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection", "EnableKittyKeyboardProtocol",
+        "AllowOsc52ClipboardWrite",
         "QuakeModeEnabled",
         "CommandAssistEnabled", "CommandAssistHistoryEnabled", "CommandAssistAutoHideInAltScreen",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
@@ -161,7 +164,7 @@ public static class SettingsTools
         "FontSize", "MaxHistory", "FontFamily", "ThemeName", "WindowOpacity", "BlurEffect",
         "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink",
         "BellAudioEnabled", "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection",
-        "EnableKittyKeyboardProtocol",
+        "EnableKittyKeyboardProtocol", "AllowOsc52ClipboardWrite",
         "WheelLinesPerNotch", "PaneClosePolicy", "Keybindings", "TabTemplateRules",
         "BackgroundImagePath", "BackgroundImageOpacity", "BackgroundImageStretch",
         "QuakeModeEnabled", "GlobalHotkey", "CommandAssistEnabled", "CommandAssistHistoryEnabled",

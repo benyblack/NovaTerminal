@@ -80,6 +80,39 @@ namespace NovaTerminal.VT
         public TermColor? DefaultBackground { get; set; }
 
         /// <summary>
+        /// Size cap for OSC 52 clipboard-write payloads (issue #268): 1 MiB decoded.
+        /// Oversized payloads are dropped silently (logged via <see cref="TerminalLogger"/>)
+        /// rather than raising <see cref="OnClipboardWrite"/>, so a runaway or malicious
+        /// payload can't push an arbitrarily large blob onto the system clipboard.
+        ///
+        /// Enforced twice: once on the *encoded* length before <c>Convert.FromBase64String</c>,
+        /// so an oversized payload never gets allocated at all (the 16 Mi-char OSC accumulator
+        /// cap alone would allow a ~12.6 MB LOH allocation per sequence, decoded then thrown
+        /// away), and again on the decoded length as defense in depth.
+        /// </summary>
+        private const int Osc52MaxDecodedBytes = 1024 * 1024;
+
+        /// <summary>
+        /// The legal xterm OSC 52 selection alphabet: c = clipboard, p = primary, q = secondary,
+        /// s = select, 0-7 = cut buffers. Used to sanitize the targets string before it is echoed
+        /// back in a query-denial reply - see <see cref="SanitizeEchoParameter"/>.
+        /// </summary>
+        private const string Osc52SelectionChars = "cpqs01234567";
+
+        /// <summary>
+        /// Length cap on the echoed OSC 52 targets string. The full legal alphabet is 12 chars and
+        /// real-world values are one or two, so 8 is generous; the point is that the echoed value
+        /// can never be used to amplify a single sequence into a large write to the child's stdin.
+        /// </summary>
+        private const int Osc52MaxEchoedTargetChars = 8;
+
+        /// <summary>
+        /// Length cap on the echoed kitty graphics image id. Ids are unsigned 32-bit, so 10 digits
+        /// covers every legal value.
+        /// </summary>
+        private const int KittyMaxEchoedIdChars = 10;
+
+        /// <summary>
         /// Host-settable kill switch for the kitty keyboard protocol (issue #266 / PR #277
         /// review, Blocker 2), wired the same way <see cref="DefaultForeground"/> was in
         /// PR #275: the App layer sets this from <c>TerminalSettings.EnableKittyKeyboardProtocol</c>
@@ -94,10 +127,42 @@ namespace NovaTerminal.VT
         /// </summary>
         public bool KittyKeyboardEnabled { get; set; } = true;
 
+        /// <summary>
+        /// Terminal-to-host replies (DA, DSR, DECRPM, OSC color answers, ...).
+        ///
+        /// SECURITY: whatever is passed here is written verbatim to the child process's stdin -
+        /// the App layer wires this straight to <c>Session.SendInput</c>, i.e. the pty / ssh
+        /// channel, with no sanitization in between. A reply therefore MUST NEVER contain
+        /// untrusted bytes, and above all never CR (0x0D) or LF (0x0A): at a shell prompt those
+        /// submit the line, so an echoed parameter becomes command execution by anything that
+        /// can write to the terminal (a <c>cat</c> of a hostile file, a compromised remote host,
+        /// a crafted log line or git branch name in a prompt). The OSC/APC accumulators only
+        /// treat BEL / 0x9C / ESC as terminators, so CR and LF do reach sequence parameters.
+        ///
+        /// Any reply that interpolates a value taken from the incoming stream must run it
+        /// through <see cref="SanitizeEchoParameter"/> first. Fixed-format and numeric replies
+        /// are inherently safe and need nothing.
+        /// </summary>
         public Action<string>? OnResponse { get; set; }
         public Action? OnBell { get; set; }
         public Action<string>? OnWorkingDirectoryChanged { get; set; }
         public Action<string>? OnTitleChanged { get; set; }
+
+        /// <summary>
+        /// Raised when an OSC 52 clipboard-write sequence (issue #268) decodes successfully:
+        /// <c>target</c> is the raw targets string from the sequence (already defaulted to
+        /// "c" if the sequence omitted it) and <c>data</c> is the base64-decoded payload,
+        /// size-capped at <see cref="Osc52MaxDecodedBytes"/>. Decoding, target defaulting,
+        /// the size cap, and the query-denial reply are all handled in this parser (see
+        /// <see cref="HandleOscClipboard"/>) - NovaTerminal.VT does not know about settings
+        /// or the system clipboard by design. The App layer decides whether to honor this
+        /// event (its own settings gate) and how to reach the clipboard.
+        ///
+        /// Clipboard READ (answering a query with real clipboard contents) is never
+        /// implemented; queries always get the empty-payload denial reply via
+        /// <see cref="OnResponse"/>, never this event.
+        /// </summary>
+        public Action<string, byte[]>? OnClipboardWrite { get; set; }
         public Action? OnPromptReady { get; set; }
         public Action<string>? OnCommandAccepted { get; set; }
         public Action? OnCommandStarted { get; set; }
@@ -1696,6 +1761,14 @@ namespace NovaTerminal.VT
                 return;
             }
 
+            // OSC 52: clipboard write (issue #268). See HandleOscClipboard for the format
+            // and the security posture (write-only, size-capped, read-denial-only).
+            if (code == "52")
+            {
+                HandleOscClipboard(data);
+                return;
+            }
+
             // OSC 133: shell integration markers.
             // Common terminals/shell integrations emit:
             //   OSC 133;A     -> prompt ready
@@ -1824,6 +1897,144 @@ namespace NovaTerminal.VT
             }
         }
 
+        // OSC 52 clipboard write (issue #268). Format: "OSC 52 ; <targets> ; <payload> ST/BEL"
+        // (BEL and ST termination are both already normalized away by the caller before
+        // HandleOsc ever sees this string, same as OSC 10/11 above).
+        //
+        // <targets> selects one or more selection buffers (c = clipboard, p = primary,
+        // q/s/0-7 = other X11 selections/cut buffers). This terminal has no primary-selection
+        // concept of its own, so both 'c' and 'p' are mapped to the single system clipboard;
+        // any other/unsupported target character is ignored rather than acted on, matching
+        // how other terminals no-op on selections they don't back. An empty targets string
+        // defaults to "c" per xterm.
+        //
+        // <payload> of "?" is a read query. Clipboard READ is never implemented here (security -
+        // see issue #268): terminals that deny OSC 52 reads reply with an empty payload rather
+        // than staying silent (silence would leave a TUI's read timeout to expire, the same
+        // failure mode #265 fixed for OSC 10/11), so an empty-payload denial is sent via
+        // OnResponse instead - with the echoed targets string sanitized first, since OnResponse
+        // output reaches the child's stdin (see the SECURITY notes on OnResponse and in the query
+        // branch below). A sequence with no ';' at all is malformed and ignored entirely.
+        // Any other payload is treated as base64; invalid base64 is
+        // dropped silently, and a successfully decoded payload over Osc52MaxDecodedBytes is
+        // also dropped (logged) rather than raised. Decoding happens here in the parser so
+        // the App layer only ever sees raw bytes - the settings gate and clipboard access are
+        // host policy and live entirely outside NovaTerminal.VT.
+        private void HandleOscClipboard(string data)
+        {
+            int split = data.IndexOf(';');
+
+            // No payload separator at all ("OSC 52 ; c BEL", "OSC 52 ; BEL"): not a write and
+            // not a query, so do nothing. xterm clears the selection on an *explicitly* empty
+            // payload ("OSC 52 ; c ; BEL", handled below as a zero-length decode), but a
+            // sequence that never had a separator is simply malformed - clearing the user's
+            // clipboard on it would be a gratuitous data loss (PR #280 review).
+            if (split < 0) return;
+
+            string targets = data.Substring(0, split);
+            string payload = data.Substring(split + 1);
+
+            if (string.IsNullOrEmpty(targets))
+            {
+                targets = "c";
+            }
+
+            bool targetsClipboard = false;
+            foreach (char t in targets)
+            {
+                if (t == 'c' || t == 'p')
+                {
+                    targetsClipboard = true;
+                    break;
+                }
+            }
+
+            if (!targetsClipboard) return;
+
+            if (payload == "?")
+            {
+                // Denial reply: empty payload, always ST-terminated (matches the OSC 10/11
+                // reply convention above) regardless of how the query itself was terminated.
+                //
+                // SECURITY (PR #280 review, BLOCKER): this reply goes straight to the child's
+                // stdin (see OnResponse), and `targets` is attacker-controlled - the OSC
+                // accumulator passes CR/LF through untouched, so echoing it raw turned
+                // `printf '\x1b]52;c\rid\r;?\a'` into `id` being executed at a shell prompt.
+                // It is also unbounded up to MaxStringSequenceChars (16 Mi chars), i.e. a
+                // ~16 MB stdin flood. And because this branch is parser-side and
+                // unconditional, the App's AllowOsc52ClipboardWrite kill switch did not
+                // mitigate it. So: whitelist the xterm selection alphabet, cap the length,
+                // and fall back to "c" (the xterm default target) if nothing legal is left,
+                // rather than dropping the reply - staying silent would leave a querying
+                // TUI's read timeout to expire, the same failure mode #265 fixed for OSC
+                // 10/11, and the denial reply exists precisely to avoid that.
+                string echoTargets = SanitizeEchoParameter(targets, Osc52SelectionChars, Osc52MaxEchoedTargetChars, "c");
+                OnResponse?.Invoke($"\x1b]52;{echoTargets};\x1b\\");
+                return;
+            }
+
+            // Reject on *encoded* length before decoding. Convert.FromBase64String would
+            // otherwise allocate up to ~12.6 MB (the 16 Mi-char OSC cap, decoded) on the LOH
+            // for a payload that the decoded-size check below then throws away, once per
+            // sequence. ceil(n/3)*4 is the encoded length of n bytes, so this admits exactly
+            // a full Osc52MaxDecodedBytes payload and nothing larger; the decoded cap stays
+            // as defense in depth (padding, and whitespace that FromBase64String skips).
+            if (payload.Length > ((Osc52MaxDecodedBytes / 3) + 1) * 4)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] OSC 52 clipboard write dropped: encoded payload {payload.Length} chars exceeds the {Osc52MaxDecodedBytes} byte decoded cap");
+                return;
+            }
+
+            byte[] decoded;
+            try
+            {
+                decoded = Convert.FromBase64String(payload);
+            }
+            catch (FormatException)
+            {
+                // Invalid base64: drop silently (issue #268); the parser continues normally.
+                return;
+            }
+
+            if (decoded.Length > Osc52MaxDecodedBytes)
+            {
+                TerminalLogger.Log($"[ANSI_PARSER] OSC 52 clipboard write dropped: decoded payload {decoded.Length} bytes exceeds {Osc52MaxDecodedBytes} byte cap");
+                return;
+            }
+
+            OnClipboardWrite?.Invoke(targets, decoded);
+        }
+
+        /// <summary>
+        /// Makes a sequence parameter safe to interpolate into an <see cref="OnResponse"/> reply.
+        ///
+        /// Replies are written verbatim to the child process's stdin, so echoing a parameter that
+        /// came off the wire is a response-injection primitive: CR/LF survive the OSC/APC
+        /// accumulators, and at a shell prompt CR submits the line (PR #280 review, BLOCKER 1).
+        /// An unbounded parameter is also a write-amplification primitive - one sequence can carry
+        /// up to <see cref="MaxStringSequenceChars"/> characters.
+        ///
+        /// This is a whitelist, not an escape: every character outside <paramref name="allowed"/>
+        /// is dropped, the result is truncated to <paramref name="maxLength"/>, and if nothing
+        /// legal survives, <paramref name="fallback"/> is returned so the caller can still emit a
+        /// well-formed reply instead of going silent (silence makes a querying TUI wait out its
+        /// read timeout - see #265). <paramref name="fallback"/> must itself be a literal.
+        /// </summary>
+        private static string SanitizeEchoParameter(string value, string allowed, int maxLength, string fallback)
+        {
+            if (string.IsNullOrEmpty(value)) return fallback;
+
+            var sb = new StringBuilder(Math.Min(value.Length, maxLength));
+            foreach (char c in value)
+            {
+                if (allowed.IndexOf(c) < 0) continue;
+                sb.Append(c);
+                if (sb.Length >= maxLength) break;
+            }
+
+            return sb.Length == 0 ? fallback : sb.ToString();
+        }
+
         private static string FormatOscColorResponse(string code, TermColor color)
         {
             int r = color.R * 0x101;
@@ -1934,7 +2145,17 @@ namespace NovaTerminal.VT
                     TerminalLogger.Log($"[ANSI_PARSER] Kitty: Handling query (a=q)");
                     // If we are likely under ConPTY and this is non-tunneled Kitty APC, advertise
                     // unsupported so clients can choose Sixel or other fallback.
-                    string id = _kittyPendingParams.TryGetValue("i", out var idVal) ? idVal : "31";
+                    // SECURITY (PR #280 review): the kitty `i=` param is attacker-controlled and
+                    // was echoed raw, which is the same response-injection / write-amplification
+                    // bug as the OSC 52 denial reply above - the APC accumulator passes CR/LF
+                    // through, and this reply lands on the child's stdin. Image ids are numeric,
+                    // so whitelist digits and cap the length, falling back to the same "31"
+                    // default used when the param is absent.
+                    string id = SanitizeEchoParameter(
+                        _kittyPendingParams.TryGetValue("i", out var idVal) ? idVal : "31",
+                        "0123456789",
+                        KittyMaxEchoedIdChars,
+                        "31");
                     string status = (_isConPtyFilteringLikely && !isTunneled) ? "ERR" : "OK";
                     OnResponse?.Invoke($"\x1b_Gi={id};{status}\x1b\\");
                     ClearKittyState();

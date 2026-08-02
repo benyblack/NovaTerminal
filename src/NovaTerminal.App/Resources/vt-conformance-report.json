@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "aabe0a375c225308967b4100d129479dddde84295e2bf9dd64d83dbafda3a5a6",
+  "matrixSha256": "476384dc2f5eaacbfc963a8b1e2ffbdd4003b2dd193889fc9a72702681e6583b",
   "summary": {
     "totalRows": 58,
     "supportedCount": 18,
-    "partialCount": 33,
+    "partialCount": 34,
     "experimentalCount": 1,
-    "notSupportedCount": 5,
+    "notSupportedCount": 4,
     "wontSupportCount": 1,
-    "rowsWithLinkedEvidence": 32,
+    "rowsWithLinkedEvidence": 33,
     "supportedRowsWithLinkedEvidence": 18,
     "errorCount": 0,
     "warningCount": 0
@@ -958,15 +958,26 @@
     {
       "section": "8) OSC sequences",
       "feature": "OSC 52",
-      "status": "\u274C Not supported",
+      "status": "\u26A0 Partial",
       "specOrNotes": "",
-      "evidenceText": "\u2014",
-      "evidenceKinds": [],
-      "evidenceLinks": [],
-      "hasAutomatedEvidenceSignal": false,
-      "hasLinkedEvidence": false,
-      "ownership": "App/UI",
-      "knownDeviations": "",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/OscUxTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Controls/PaneParserWiringTests.cs\u0060",
+      "evidenceKinds": [
+        "unit"
+      ],
+      "evidenceLinks": [
+        {
+          "path": "tests/NovaTerminal.App.Tests/Controls/PaneParserWiringTests.cs",
+          "exists": true
+        },
+        {
+          "path": "tests/NovaTerminal.App.Tests/OscUxTests.cs",
+          "exists": true
+        }
+      ],
+      "hasAutomatedEvidenceSignal": true,
+      "hasLinkedEvidence": true,
+      "ownership": "Parser\u002BApp",
+      "knownDeviations": "Write-only (issue #268): valid base64 decodes and raises \u0060AnsiParser.OnClipboardWrite\u0060, capped at 1 MiB decoded (rejected on encoded length before decoding, re-checked after); invalid base64 dropped silently; a sequence with no payload separator at all is ignored rather than clearing the clipboard. Targets \u0060c\u0060/\u0060p\u0060 both map to the system clipboard, other selection chars ignored. Query (\u0060?\u0060) always gets an empty-payload denial reply, never real clipboard contents \u2014 clipboard READ is unsupported by design (security). The echoed selection parameter is whitelisted to \u0060c p q s 0-7\u0060 and length-capped first: responses go to the child process\u0027s stdin, so an unsanitized echo was a command-injection primitive (PR #280 review). Gated by \u0060TerminalSettings.AllowOsc52ClipboardWrite\u0060 (default true, single global setting; per-profile/SSH-scoped opt-in is future work)",
       "sourceLine": 148
     },
     {

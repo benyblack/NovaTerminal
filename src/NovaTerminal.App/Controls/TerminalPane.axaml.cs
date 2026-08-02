@@ -149,6 +149,7 @@ namespace NovaTerminal.Controls
         private RemoteFilesSidebar? _remoteFilesSidebarHost;
         private bool _isRemoteFilesSidebarTestServiceConfigured;
         private string? _currentRecordingFilePath;
+        private int _clipboardWriteAttemptsForTest;
         private const double CommandAssistBubbleWidth = 420;
         private const double CommandAssistBubbleHeight = 36;
         private const double CommandAssistPopupWidth = 520;
@@ -1634,6 +1635,42 @@ namespace NovaTerminal.Controls
                     BellReceived?.Invoke(this);
                 });
             };
+            // OSC 52 clipboard write (issue #268). AnsiParser always raises this event
+            // (VT stays policy-free); the settings gate lives here, checked at invocation
+            // time so a live ApplySettings toggle takes effect immediately without needing
+            // to re-wire the parser. Read (query) is handled entirely inside the parser via
+            // an OnResponse denial reply and never reaches this handler.
+            Parser.OnClipboardWrite += (target, data) =>
+            {
+                // Resolved through BuildEffectiveSettings rather than off raw _settings, matching
+                // the #277 precedent below in ApplySettings: BuildEffectiveSettings copies this
+                // bool straight through today, so the two are equivalent, but the moment a
+                // per-profile / SSH-scoped override lands, reading the global would silently gate
+                // on the wrong value (PR #280 review). Still read at invocation time so a live
+                // ApplySettings toggle takes effect without re-wiring.
+                // A null _settings means "not configured yet" and defaults to allow, consistent
+                // with TerminalSettings.AllowOsc52ClipboardWrite's own default.
+                bool allowed = _settings == null || BuildEffectiveSettings(_settings).AllowOsc52ClipboardWrite;
+                if (!allowed) return;
+
+                // Lossy by design: invalid UTF-8 in the payload becomes U+FFFD rather than being
+                // rejected, matching how other terminals treat OSC 52 as text. GetString does not
+                // throw for malformed input, so there is nothing to catch here - if this should
+                // ever reject non-UTF-8 instead, it needs a throwing decoder, not a try/catch.
+                string text = System.Text.Encoding.UTF8.GetString(data);
+
+                // Bumped only once the gate above has passed, i.e. exactly when this handler is
+                // actually about to reach the clipboard. Gives PaneParserWiringTests a synchronous
+                // seam to assert "setting off -> clipboard not touched" without needing a real
+                // UI-thread TopLevel/Clipboard in tests. Deliberately a plain non-atomic increment
+                // on the PTY thread: it is a single-writer test seam, not a metric, so don't read
+                // it as one.
+                _clipboardWriteAttemptsForTest++;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    _ = TermView.SetClipboardTextAsync(text);
+                });
+            };
             Parser.OnWorkingDirectoryChanged += cwd =>
             {
                 _shellLifecycleTracker?.HandleWorkingDirectoryChanged(cwd);
@@ -1944,6 +1981,7 @@ namespace NovaTerminal.Controls
                 SmoothScrolling = settings.SmoothScrolling,
                 EnableLinkDetection = settings.EnableLinkDetection,
                 EnableKittyKeyboardProtocol = settings.EnableKittyKeyboardProtocol,
+                AllowOsc52ClipboardWrite = settings.AllowOsc52ClipboardWrite,
                 CommandAssistEnabled = settings.CommandAssistEnabled,
                 CommandAssistHistoryEnabled = settings.CommandAssistHistoryEnabled,
                 CommandAssistMaxHistoryEntries = settings.CommandAssistMaxHistoryEntries,
@@ -2347,6 +2385,17 @@ namespace NovaTerminal.Controls
         {
             HandleWorkingDirectoryChanged(cwd);
         }
+
+        /// <summary>
+        /// Count of OSC 52 clipboard-write payloads that made it past the
+        /// <see cref="TerminalSettings.AllowOsc52ClipboardWrite"/> gate and decoding in
+        /// <see cref="CreateAndWireParser"/>'s <c>Parser.OnClipboardWrite</c> handler (issue #268).
+        /// A synchronous seam for tests: the real path continues on to
+        /// <c>Dispatcher.UIThread.Post</c> + <c>TermView.SetClipboardTextAsync</c>, which needs a
+        /// live UI-thread TopLevel/Clipboard that headless tests do not provide, so this counter
+        /// is what the settings-gate test asserts against instead.
+        /// </summary>
+        internal int ClipboardWriteAttemptsForTest => _clipboardWriteAttemptsForTest;
 
         internal bool IsRemoteFilesSidebarVisibleForTest()
         {

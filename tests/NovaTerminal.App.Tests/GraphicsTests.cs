@@ -5,6 +5,7 @@ using NovaTerminal.VT;
 using NovaTerminal.Rendering;
 using SkiaSharp;
 using System;
+using System.Collections.Generic;
 
 namespace NovaTerminal.Tests
 {
@@ -106,6 +107,65 @@ namespace NovaTerminal.Tests
 
             Assert.NotNull(response);
             Assert.Contains(";OK", response!, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// SECURITY regression test (PR #280 review): the kitty graphics query reply echoed the
+        /// unvalidated <c>i=</c> image id, and OnResponse is wired straight to Session.SendInput -
+        /// the child process's stdin. The APC accumulator only treats BEL / 0x9C / ESC as
+        /// terminators, so CR (0x0D) and LF (0x0A) reach the param verbatim, and at a shell prompt
+        /// CR submits the line. Same bug class as the OSC 52 denial reply (see OscUxTests): ids are
+        /// numeric, so digits are whitelisted and the length is capped.
+        /// </summary>
+        [Fact]
+        public void KittyQuery_ImageIdWithInjectedControlBytes_ReplyCarriesNoControlBytes()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            // ConPTY filtering forced off so the status field is "OK" on every platform - this
+            // test is about the id, not about the ConPTY fallback.
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: false);
+            var responses = new List<string>();
+            parser.OnResponse = r => responses.Add(r);
+
+            parser.Process("\x1b_Ga=q,i=7\rid\r\x1b\\");
+
+            var response = Assert.Single(responses);
+            Assert.False(response.Contains('\r'), "kitty query reply carried CR into the child's stdin");
+            Assert.False(response.Contains('\n'), "kitty query reply carried LF into the child's stdin");
+            Assert.DoesNotContain("id", response, StringComparison.Ordinal);
+            Assert.Equal("\x1b_Gi=7;OK\x1b\\", response);
+        }
+
+        [Fact]
+        public void KittyQuery_OversizedImageId_ReplyIsLengthBounded()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: false);
+            var responses = new List<string>();
+            parser.OnResponse = r => responses.Add(r);
+
+            // Digits only, so the length cap is what has to hold - without it a single sequence
+            // could push up to MaxStringSequenceChars (16 Mi chars) into the child's stdin.
+            parser.Process("\x1b_Ga=q,i=" + new string('9', 5000) + "\x1b\\");
+
+            var response = Assert.Single(responses);
+            Assert.Equal("\x1b_Gi=" + new string('9', 10) + ";OK\x1b\\", response);
+            Assert.True(response.Length < 32, $"kitty query reply was not length-bounded: {response.Length} chars");
+        }
+
+        [Fact]
+        public void KittyQuery_NormalImageId_IsEchoedIntact()
+        {
+            var buffer = new TerminalBuffer(80, 24);
+            var parser = new AnsiParser(buffer, forceConPtyFiltering: false);
+            var responses = new List<string>();
+            parser.OnResponse = r => responses.Add(r);
+
+            // Sanitization must not be over-broad: a legal numeric id round-trips as-is.
+            parser.Process("\x1b_Ga=q,i=1234567890\x1b\\");
+
+            var response = Assert.Single(responses);
+            Assert.Equal("\x1b_Gi=1234567890;OK\x1b\\", response);
         }
     }
 }
