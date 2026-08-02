@@ -120,6 +120,71 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
     }
 
     [Fact]
+    public void BuildScript_CapturesTheOriginalPromptAtMostOnce()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        // Running the bootstrap a second time in a session it already initialized
+        // (a second -File pass, a user dot-source, `exec pwsh`) must not capture
+        // OUR wrapper as "the original prompt" -- the wrapper would then invoke
+        // itself forever. Two guards, because a second -File pass gets a fresh
+        // script scope in which the first guard alone cannot see the earlier capture.
+        Assert.Contains(
+            "if (-not (Get-Variable -Name 'NovaOriginalPrompt' -Scope Script -ErrorAction SilentlyContinue)) {",
+            script);
+        Assert.Contains("if ($null -eq $script:NovaOriginalPrompt -and", script);
+        Assert.Contains("-notlike '*__nova_prompt_wrapper*'", script);
+
+        // The sentinel the second guard looks for must actually be inside the
+        // wrapper body, or the check silently never fires.
+        int promptIndex = script.IndexOf("function Global:prompt {", StringComparison.Ordinal);
+        int sentinelIndex = script.IndexOf("    # __nova_prompt_wrapper", StringComparison.Ordinal);
+        Assert.True(promptIndex >= 0 && sentinelIndex > promptIndex,
+            "the wrapper sentinel must live inside the Global:prompt body");
+
+        // The pre-fix shape: an unconditional reset followed by an unconditional
+        // capture. Its presence would re-enable the recursion.
+        Assert.DoesNotContain(
+            "$script:NovaOriginalPrompt = $null\n$script:NovaPromptCommand = Get-Command prompt",
+            script);
+    }
+
+    [Fact]
+    public void BuildScript_DoesNotAccumulatePromptMarks_AcrossPromptCycles()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        // The pwsh analogue of the bash accumulation test. PowerShell cannot grow a
+        // marker per cycle the way a PS1/PROMPT *string* can: the mark is concatenated
+        // onto the value the wrapper RETURNS, and the wrapper composes that value fresh
+        // from $script:NovaOriginalPrompt on every call. So the invariants to pin are
+        // (a) exactly one place emits B, in the return expression, and (b) the wrapper
+        // never mutates the stored original.
+        Assert.Equal(1, CountOccurrences(script, "]133;B"));
+        Assert.Contains("return \"$novaPromptText$([char]27)]133;B$([char]7)\"", script);
+
+        // The only assignment to the captured original is the guarded capture above --
+        // nothing inside the prompt function writes to it.
+        int promptIndex = script.IndexOf("function Global:prompt {", StringComparison.Ordinal);
+        Assert.True(promptIndex > 0);
+        Assert.DoesNotContain(
+            "$script:NovaOriginalPrompt =",
+            script[promptIndex..]);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        int count = 0;
+        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal);
+             i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+        return count;
+    }
+
+    [Fact]
     public void BuildScript_OnlyEmitsCompletionWhenAcceptedCommandIsActive()
     {
         string script = PowerShellBootstrapBuilder.BuildScript();

@@ -56,6 +56,104 @@ public sealed class FishBootstrapBuilderTests : IDisposable
     }
 
     [Fact]
+    public void BuildScript_GuardsThePromptWrapAgainstBeingReSourced()
+    {
+        string script = FishBootstrapBuilder.BuildScript();
+
+        // This file IS $__fish_config_dir/config.fish for the session, so it is
+        // re-entered by anything that re-sources fish's config (fish's own
+        // `source $__fish_config_dir/config.fish`, `exec fish`, a user alias).
+        // Without the second half of this condition the re-run would copy the
+        // CURRENT fish_prompt -- by then our own wrapper -- into
+        // __nova_user_fish_prompt, and the redefinition would call itself
+        // forever.
+        Assert.Contains(
+            "if functions -q fish_prompt; and not functions -q __nova_user_fish_prompt",
+            script);
+    }
+
+    [Fact]
+    public void BuildScript_DoubleSourcing_CannotWrapTheWrapper()
+    {
+        // The structural argument, executed: fish is not runnable on Windows CI,
+        // so model the two statements the guarded block performs against a tiny
+        // function table and run the whole bootstrap body twice, exactly as a
+        // re-source would.
+        var functions = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["fish_prompt"] = "user prompt body",
+        };
+
+        // Mirrors the emitted script: guard, copy, redefine.
+        void RunBootstrapPromptSection()
+        {
+            if (!functions.ContainsKey("fish_prompt")) return;
+            if (functions.ContainsKey("__nova_user_fish_prompt")) return; // the fix
+            functions["__nova_user_fish_prompt"] = functions["fish_prompt"];
+            functions["fish_prompt"] = "call __nova_user_fish_prompt; print 133;B";
+        }
+
+        RunBootstrapPromptSection();
+        RunBootstrapPromptSection();
+        RunBootstrapPromptSection();
+
+        // The copied "original" is still the user's function, never the wrapper --
+        // which is precisely what makes the wrapper's self-call terminate.
+        Assert.Equal("user prompt body", functions["__nova_user_fish_prompt"]);
+        Assert.DoesNotContain("133;B", functions["__nova_user_fish_prompt"]);
+
+        // And the guard is really the thing doing the work: drop it and the same
+        // three passes produce a self-referential copy.
+        var unguarded = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["fish_prompt"] = "user prompt body",
+        };
+        for (int i = 0; i < 2; i++)
+        {
+            unguarded["__nova_user_fish_prompt"] = unguarded["fish_prompt"];
+            unguarded["fish_prompt"] = "call __nova_user_fish_prompt; print 133;B";
+        }
+        Assert.Contains("__nova_user_fish_prompt", unguarded["__nova_user_fish_prompt"]);
+    }
+
+    [Fact]
+    public void BuildScript_DoesNotAccumulatePromptMarks_AcrossPromptCycles()
+    {
+        string script = FishBootstrapBuilder.BuildScript();
+
+        // Builder-level stand-in for bash's real-shell accumulation test (fish is
+        // not installed on Windows CI). fish cannot grow a marker per cycle the way
+        // a PS1/PROMPT string can, because the mark is a `printf` *statement* in a
+        // function body rather than text appended to a variable: the wrap happens
+        // exactly once at bootstrap, guarded against re-entry, and each prompt cycle
+        // simply calls it. Pin both halves of that.
+        Assert.Contains(
+            "if functions -q fish_prompt; and not functions -q __nova_user_fish_prompt",
+            script);
+
+        // Exactly one B emission site, and it is inside the redefined fish_prompt.
+        Assert.Equal(1, CountOccurrences(script, "133;B"));
+        int redefIndex = script.IndexOf("function fish_prompt\n", StringComparison.Ordinal);
+        Assert.True(script.IndexOf("133;B", StringComparison.Ordinal) > redefIndex);
+
+        // The mark is never appended to a variable the way bash/zsh do it, so there
+        // is no accumulating string to guard.
+        Assert.DoesNotContain("fish_prompt=", script);
+    }
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        int count = 0;
+        for (int i = haystack.IndexOf(needle, StringComparison.Ordinal);
+             i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+        return count;
+    }
+
+    [Fact]
     public void BuildScript_UsesNativeFishEventHandlers()
     {
         string script = FishBootstrapBuilder.BuildScript();

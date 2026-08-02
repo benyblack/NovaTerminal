@@ -46,7 +46,7 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
         Assert.Equal(
             1,
             script.Split("PROMPT=", StringSplitOptions.None).Length - 1);
-        Assert.Contains("PROMPT=\"$PROMPT$__nova_prompt_mark\"", script);
+        Assert.Contains("PROMPT=\"${PROMPT%$__nova_prompt_mark}$__nova_prompt_mark\"", script);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
         // land after the last prompt cell, so it rides at the tail of PROMPT
         // wrapped in %{...%} (zero display width).
         Assert.Contains("__nova_prompt_mark=$'%{\\e]133;B\\a%}'", script);
-        Assert.Contains("PROMPT=\"$PROMPT$__nova_prompt_mark\"", script);
+        Assert.Contains("PROMPT=\"${PROMPT%$__nova_prompt_mark}$__nova_prompt_mark\"", script);
 
         // ...and it is (re)applied from precmd so prompt frameworks that
         // reassign PROMPT every cycle cannot drop it.
@@ -72,9 +72,47 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
     {
         string script = ZshBootstrapBuilder.BuildScript();
 
-        // Called once per prompt: without the containment guard a static
-        // PROMPT would grow one marker per prompt cycle, forever.
-        Assert.Contains("if [[ \"$PROMPT\" != *\"$__nova_prompt_mark\"* ]]; then", script);
+        // Called once per prompt, so it must not grow PROMPT by a marker per
+        // cycle. Strip-then-append rather than skip-if-present: a "contains?"
+        // guard is idempotent but not self-correcting -- unlike bash, zsh gives
+        // us no way to be the last precmd hook, so a hook registered after ours
+        // can append to PROMPT and strand our mark mid-prompt, where it would
+        // report the input cell several columns early. ${PROMPT%pattern} trims
+        // only a *trailing* match and is a no-op when absent, so the mark is
+        // re-seated at the true tail every cycle.
+        Assert.Contains("PROMPT=\"${PROMPT%$__nova_prompt_mark}$__nova_prompt_mark\"", script);
+        Assert.DoesNotContain("if [[ \"$PROMPT\" != *\"$__nova_prompt_mark\"* ]]; then", script);
+    }
+
+    [Fact]
+    public void BuildScript_DoesNotAccumulatePromptMarks_AcrossSimulatedPromptCycles()
+    {
+        // Builder-level stand-in for the real-shell accumulation test bash has
+        // (zsh is not installed on Windows CI). Models what
+        // __nova_apply_prompt_mark does to PROMPT over repeated precmd cycles,
+        // including the "a later hook appended something" case that the old
+        // containment guard could not repair.
+        const string mark = "%{]133;B%}";
+        static string Apply(string prompt, string m) =>
+            (prompt.EndsWith(m, StringComparison.Ordinal) ? prompt[..^m.Length] : prompt) + m;
+
+        string prompt = "user@host %# ";
+        for (int i = 0; i < 10; i++)
+        {
+            prompt = Apply(prompt, mark);
+        }
+
+        Assert.Equal("user@host %# " + mark, prompt);
+        Assert.Equal(1, prompt.Split(mark).Length - 1);
+
+        // A prompt framework appends after us. The next cycle must put a mark back
+        // at the true tail; the containment guard would have seen "already present"
+        // and left the only mark buried several columns early. (An orphaned earlier
+        // mark is harmless -- B is re-emitted per prompt and the parser hands the
+        // consumer the newest one.)
+        prompt += "$ ";
+        prompt = Apply(prompt, mark);
+        Assert.EndsWith(mark, prompt, StringComparison.Ordinal);
     }
 
     [Fact]

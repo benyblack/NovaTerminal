@@ -73,15 +73,21 @@ public sealed class BashShellIntegrationTests : IDisposable
     [Fact]
     public void Bootstrap_EmitsCommandStartMarkPastThePromptText()
     {
-        // The B mark rides at the tail of PS1, so by the time the parser sees
-        // it the prompt has already been painted: the mark must land at a
-        // non-zero column (i.e. after the prompt cells), not at the start of
-        // the line where A was emitted.
-        HarnessResult result = RunBash("exit 0\n", extraInitLine: "PS1='nova-test$ '");
+        // The B mark rides at the tail of PS1, so by the time the parser sees it the
+        // prompt has already been painted and the cursor sits on the first cell of the
+        // user's input -- i.e. at exactly the prompt's display width.
+        //
+        // The exact column is the assertion that matters. "> 0" would also pass if the
+        // \[ \] non-printing brackets were dropped (readline would then miscount the
+        // prompt width), if the mark were emitted mid-prompt, or if a stray cell were
+        // painted after it -- all of which put the anchor on the wrong cell and would
+        // make a Phase 1b grid read return the wrong command text.
+        const string prompt = "nova-test$ ";
+        HarnessResult result = RunBash("exit 0\n", extraInitLine: $"PS1='{prompt}'");
 
         var marks = result.Events.Where(e => e.Kind == "B").ToList();
         Assert.NotEmpty(marks);
-        Assert.Contains(marks, m => m.MarkPosition is { column: > 0 });
+        Assert.Contains(marks, m => m.MarkPosition is { } p && p.column == prompt.Length);
     }
 
     [Fact]

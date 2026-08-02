@@ -14,9 +14,17 @@ public class Osc133CommandStartMarkTests
 
     private static (AnsiParser Parser, TerminalBuffer Buffer, List<ShellIntegrationMark> Marks) Make(
         int cols = 40,
-        int rows = 5)
+        int rows = 5,
+        int? maxHistory = null)
     {
         var buffer = new TerminalBuffer(cols, rows);
+        if (maxHistory is int history)
+        {
+            // The byte budget is derived from MaxHistory; eviction works in whole
+            // 64-row pages, so a budget of two pages is the smallest one that both
+            // retains rows and actually evicts.
+            buffer.MaxHistory = history;
+        }
         var parser = new AnsiParser(buffer);
         var marks = new List<ShellIntegrationMark>();
         parser.OnCommandStarted = mark => marks.Add(mark);
@@ -79,11 +87,102 @@ public class Osc133CommandStartMarkTests
             Assert.True(marks[i].AbsoluteRow > marks[i - 1].AbsoluteRow);
         }
 
-        // The last mark still resolves to a live row: current row =
-        // AbsoluteRow - TotalRowsEvicted, which is what a later consumer computes.
-        long evicted = buffer.Scrollback.TotalRowsEvicted;
-        Assert.Equal(marks[^1].Row, (int)(marks[^1].AbsoluteRow - evicted));
+        // Plain scrolling does not disturb the coordinate space, so every mark carries the
+        // same generation and each one still resolves inside the buffer.
+        Assert.All(marks, m => Assert.Equal(buffer.Scrollback.Generation, m.Generation));
         Assert.InRange(marks[^1].Row, 0, buffer.TotalLines - 1);
+    }
+
+    [Fact]
+    public void AbsoluteRow_SurvivesEviction_AndStillResolvesToTheSameContentRow()
+    {
+        // The point of AbsoluteRow: once the scrollback budget starts dropping the oldest
+        // pages, Row is wrong by exactly TotalRowsEvicted, and the stored identity has to
+        // still land on the marked line's own text. MaxHistory sizes the byte budget and
+        // eviction works in whole 64-row pages, so 128 rows is the smallest budget that
+        // both retains history and actually evicts.
+        var (parser, buffer, marks) = Make(cols: 40, rows: 3, maxHistory: 128);
+
+        for (int i = 0; i < 100; i++) parser.Process($"before {i}\r\n");
+        parser.Process("needle-prompt$ ");
+        parser.Process(PromptEnd);
+        parser.Process("\r\n");
+        for (int i = 0; i < 80; i++) parser.Process($"after {i}\r\n");
+
+        long evicted = buffer.Scrollback.TotalRowsEvicted;
+        Assert.True(evicted > 0, $"the budget must actually evict rows; TotalRowsEvicted={evicted}");
+
+        var mark = Assert.Single(marks);
+        // No Clear() happened, so the coordinate space is intact and the id is still usable.
+        Assert.Equal(buffer.Scrollback.Generation, mark.Generation);
+
+        long liveRow = mark.AbsoluteRow - evicted;
+        Assert.True(liveRow >= 0, $"marked line was evicted (abs={mark.AbsoluteRow}, evicted={evicted})");
+        Assert.NotEqual(mark.Row, (int)liveRow); // eviction really did shift the coordinate
+        Assert.StartsWith("needle-prompt$", RowText(buffer, (int)liveRow).TrimEnd());
+    }
+
+    [Fact]
+    public void Generation_ChangesWhenTheScrollbackIsCleared_SoAStaleMarkIsDetectable()
+    {
+        // CSI 3J ("erase saved lines" -- what clear(1) sends when the terminfo E3
+        // capability is present, so a routine event) resets BOTH row counters to zero.
+        // A pre-clear AbsoluteRow therefore resolves to a large *positive* row holding
+        // unrelated content: "negative means aged out" cannot catch it, and Generation
+        // is the only signal that the coordinate space was reset.
+        var (parser, buffer, marks) = Make(cols: 40, rows: 3);
+
+        for (int i = 0; i < 20; i++) parser.Process($"line {i}\r\n");
+        parser.Process("$ ");
+        parser.Process(PromptEnd);
+
+        var mark = Assert.Single(marks);
+        Assert.Equal(buffer.Scrollback.Generation, mark.Generation);
+        Assert.True(mark.AbsoluteRow > 0);
+
+        parser.Process("\x1b[3J");
+
+        Assert.Equal(0L, buffer.Scrollback.TotalRowsEvicted);
+        Assert.NotEqual(mark.Generation, buffer.Scrollback.Generation);
+
+        // The trap the generation exists to close: the naive re-derivation still yields a
+        // plausible in-range row, so a consumer that only checked for a negative result
+        // would happily read the wrong line.
+        long naiveRow = mark.AbsoluteRow - buffer.Scrollback.TotalRowsEvicted;
+        Assert.True(naiveRow >= 0);
+    }
+
+    [Fact]
+    public void Generation_ChangesOnFullReset()
+    {
+        // RIS and the user's clear-buffer action both go through TerminalBuffer.Clear().
+        var (parser, buffer, marks) = Make(cols: 40, rows: 3);
+
+        for (int i = 0; i < 10; i++) parser.Process($"line {i}\r\n");
+        parser.Process("$ ");
+        parser.Process(PromptEnd);
+        var mark = Assert.Single(marks);
+
+        buffer.Clear();
+
+        Assert.NotEqual(mark.Generation, buffer.Scrollback.Generation);
+    }
+
+    [Fact]
+    public void Generation_IsStableAcrossOrdinaryOutput()
+    {
+        // Negative control for the two tests above: nothing but scrolling must ever
+        // invalidate a mark, or a Phase 1b consumer would throw away every anchor.
+        var (parser, buffer, marks) = Make(cols: 40, rows: 3, maxHistory: 128);
+
+        parser.Process("$ ");
+        parser.Process(PromptEnd);
+        long generationAtMark = Assert.Single(marks).Generation;
+
+        for (int i = 0; i < 200; i++) parser.Process($"line {i}\r\n");
+
+        Assert.True(buffer.Scrollback.TotalRowsEvicted > 0);
+        Assert.Equal(generationAtMark, buffer.Scrollback.Generation);
     }
 
     [Fact]

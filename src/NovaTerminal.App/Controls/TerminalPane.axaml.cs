@@ -1761,7 +1761,8 @@ namespace NovaTerminal.Controls
                     Row: mark.Row,
                     Column: mark.Column,
                     AbsoluteRow: mark.AbsoluteRow,
-                    IsAltScreen: mark.IsAltScreen));
+                    IsAltScreen: mark.IsAltScreen,
+                    Generation: mark.Generation));
             };
             Parser.OnCommandFinished += exitCode =>
             {
@@ -2949,6 +2950,19 @@ namespace NovaTerminal.Controls
                 !string.IsNullOrWhiteSpace(shellEvent.CommandText))
             {
                 _lastRelevantCommandText = shellEvent.CommandText.Trim();
+            }
+
+            // OSC 133;B (CommandStarted) is dropped unconditionally by
+            // CommandAssistController.HandleShellIntegrationEventAsync, and B fires once per
+            // prompt AND once per prompt repaint -- so forwarding it only queues no-op work
+            // onto the serialized dispatcher, ahead of events that do something. The
+            // "shell integration is live" flag the controller would set from it is already
+            // set by the PromptReady (OSC 133;A) that precedes every B.
+            // Phase 1b, when the mark position starts feeding the grid reader, has to remove
+            // this early-out.
+            if (shellEvent.Type == ShellIntegrationEventType.CommandStarted)
+            {
+                return;
             }
 
             _ = _shellIntegrationEventDispatcher.EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent));

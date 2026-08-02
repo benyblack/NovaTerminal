@@ -15,10 +15,24 @@ public static class PowerShellBootstrapBuilder
         builder.Append("$bel = [char]7").Append(nl);
         builder.Append("$script:NovaCommandStart = $null").Append(nl);
         builder.Append("$script:NovaAcceptedCommandText = $null").Append(nl);
-        builder.Append("$script:NovaOriginalPrompt = $null").Append(nl);
-        builder.Append("$script:NovaPromptCommand = Get-Command prompt -ErrorAction SilentlyContinue").Append(nl);
-        builder.Append("if ($script:NovaPromptCommand -and $script:NovaPromptCommand.ScriptBlock) {").Append(nl);
-        builder.Append("    $script:NovaOriginalPrompt = $script:NovaPromptCommand.ScriptBlock").Append(nl);
+        // Capture the user's `prompt` exactly once. Re-running the bootstrap in a
+        // session it has already initialized (a second -File pass, a user dot-source,
+        // `exec pwsh` into the same profile) would otherwise capture OUR wrapper as
+        // "the original" and the wrapper would call itself forever. Two guards, because
+        // a second -File pass gets a fresh script scope where the first guard alone
+        // cannot see the earlier capture:
+        //   1. don't overwrite an already-captured original in this scope;
+        //   2. never capture a `prompt` whose body carries our wrapper sentinel.
+        // Worst case (fresh scope + already-wrapped prompt) the bootstrap degrades to
+        // the synthesized default prompt; it never recurses.
+        builder.Append("if (-not (Get-Variable -Name 'NovaOriginalPrompt' -Scope Script -ErrorAction SilentlyContinue)) {").Append(nl);
+        builder.Append("    $script:NovaOriginalPrompt = $null").Append(nl);
+        builder.Append("}").Append(nl);
+        builder.Append("$novaPromptCommand = Get-Command prompt -ErrorAction SilentlyContinue").Append(nl);
+        builder.Append("if ($null -eq $script:NovaOriginalPrompt -and").Append(nl);
+        builder.Append("    $novaPromptCommand -and $novaPromptCommand.ScriptBlock -and").Append(nl);
+        builder.Append("    $novaPromptCommand.ScriptBlock.ToString() -notlike '*__nova_prompt_wrapper*') {").Append(nl);
+        builder.Append("    $script:NovaOriginalPrompt = $novaPromptCommand.ScriptBlock").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
         builder.Append("function Write-NovaSequence([string]$sequence) {").Append(nl);
@@ -54,6 +68,9 @@ public static class PowerShellBootstrapBuilder
         builder.Append("}").Append(nl);
         builder.Append(nl);
         builder.Append("function Global:prompt {").Append(nl);
+        // Sentinel the capture guard above greps for. Must stay inside the function
+        // body so it survives into ScriptBlock.ToString().
+        builder.Append("    # __nova_prompt_wrapper").Append(nl);
         // Snapshot $? / $LASTEXITCODE on the first line so subsequent statements
         // don't clobber them before Write-NovaCompletion reads the values.
         builder.Append("    $lastSuccess = $?").Append(nl);
@@ -67,6 +84,14 @@ public static class PowerShellBootstrapBuilder
         // the rare prompt that emits several objects; a single-string prompt
         // (the overwhelming case, including oh-my-posh/starship) round-trips
         // unchanged.
+        //
+        // Deliberate divergence: for a multi-object prompt the host itself
+        // stringifies with the $OFS separator (a space by default), so it would
+        // render "a b c" where we render "abc". Joining with '' is the choice
+        // that keeps the far more common single-string and
+        // array-of-adjacent-fragments prompts byte-identical; the alternative
+        // would insert phantom spaces into every prompt built by emitting
+        // fragments. Prompts that genuinely want separators emit them.
         builder.Append("    $novaPromptText = if ($script:NovaOriginalPrompt -ne $null) {").Append(nl);
         builder.Append("        (& $script:NovaOriginalPrompt) -join ''").Append(nl);
         builder.Append("    } else {").Append(nl);

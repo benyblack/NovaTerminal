@@ -1726,7 +1726,11 @@ namespace NovaTerminal.VT
                 Row: row,
                 Column: _buffer.CursorCol,
                 AbsoluteRow: evictedRows + row,
-                IsAltScreen: isAltScreen);
+                IsAltScreen: isAltScreen,
+                // Recorded even for alt-screen marks: the alt screen has no scrollback of its
+                // own, so the main-screen epoch is the only coordinate space that can be reset
+                // underneath a consumer holding this mark.
+                Generation: _buffer.Scrollback.Generation);
         }
 
         private void HandleOsc(string osc)

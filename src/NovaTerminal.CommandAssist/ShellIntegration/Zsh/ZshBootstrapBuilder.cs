@@ -53,12 +53,16 @@ public static class ZshBootstrapBuilder
         // Re-applied every precmd rather than once at startup because prompt
         // frameworks (powerlevel10k, starship, oh-my-zsh themes) reassign
         // PROMPT from their own precmd hooks; ours is appended to
-        // precmd_functions last, so we get the final word. The containment
-        // check keeps it idempotent for static prompts.
+        // precmd_functions last, so we get the final word.
+        //
+        // Strip-then-append rather than skip-if-present: zsh has no "arm last"
+        // invariant like bash's __nova_arm, so a precmd hook registered after
+        // ours can append to PROMPT and leave our mark buried mid-prompt, where
+        // it would report the input cell several columns early. Removing the
+        // existing suffix (a no-op when absent, since ${var%pattern} only trims
+        // a trailing match) and re-appending is idempotent AND self-correcting.
         b.Append("__nova_apply_prompt_mark() {").Append(nl);
-        b.Append("    if [[ \"$PROMPT\" != *\"$__nova_prompt_mark\"* ]]; then").Append(nl);
-        b.Append("        PROMPT=\"$PROMPT$__nova_prompt_mark\"").Append(nl);
-        b.Append("    fi").Append(nl);
+        b.Append("    PROMPT=\"${PROMPT%$__nova_prompt_mark}$__nova_prompt_mark\"").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
         // zsh has native preexec/precmd hooks via the function-array convention.

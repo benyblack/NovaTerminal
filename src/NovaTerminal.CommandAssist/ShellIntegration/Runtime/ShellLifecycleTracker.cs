@@ -43,11 +43,19 @@ public sealed class ShellLifecycleTracker
     /// the first cell of the command line.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Fires once per prompt (and again on every prompt repaint), not once per command.
+    /// </para>
+    /// <para>
+    /// Deliberately does not touch <c>_commandStartedAt</c>. B is the moment the prompt
+    /// finished printing, so a duration measured from it would bill the user's typing time
+    /// to the command. Every path that can reach a D marker passes through
+    /// <see cref="HandleCommandAccepted"/> (OSC 133;C) first, which is the real
+    /// execution-start edge and sets the fallback clock there.
+    /// </para>
     /// </remarks>
     public void HandleCommandStarted(ShellMarkPosition? markPosition = null)
     {
-        _commandStartedAt = _nowProvider();
         Emit(
             ShellIntegrationEventType.CommandStarted,
             commandText: null,
