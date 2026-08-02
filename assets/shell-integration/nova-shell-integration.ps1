@@ -23,13 +23,27 @@
 #   - Your `prompt` function is wrapped, never replaced. If you have none, the
 #     PowerShell default is synthesized.
 #   - Dot-sourcing this file twice does not wrap the wrapper.
-#   - PSReadLine is optional: without it you still get A / B / D and lose only
-#     the C command text.
+#   - An existing PSReadLine Enter binding is delegated to rather than dropped,
+#     as long as it is a NAMED PSReadLine function (AcceptLine,
+#     AcceptOrInsertNewline, ValidateAndAcceptLine, ...). A custom SCRIPTBLOCK
+#     bound to Enter cannot be read back out of PSReadLine by any public API,
+#     so it is replaced; if you have one, re-bind it after this file.
+#
+# WHAT YOU LOSE WITHOUT PSReadLine
+#   PSReadLine is where both the C mark and the command clock come from, so a
+#   host without it gets OSC 7, A and B only: no `133;C` command text AND no
+#   `133;D`, because there is no accepted command to time. Nova falls back to
+#   reading the command line off the grid between B and the cursor, which is
+#   what an un-instrumented shell already does for text; it has no fallback for
+#   exit codes or durations.
 #
 # Docs: docs/command-assist/RemoteShellIntegration.md
 
-$esc = [char]27
-$bel = [char]7
+# Nova-scoped names throughout. This file is dot-sourced into the user's own
+# $PROFILE, so a bare `$esc` / `$bel` would land in their session and quietly
+# shadow (or be shadowed by) anything else that picked the same obvious name.
+$script:NovaEsc = [char]27
+$script:NovaBel = [char]7
 $script:NovaCommandStart = $null
 $script:NovaAcceptedCommandText = $null
 
@@ -53,12 +67,19 @@ if ($null -eq $script:NovaOriginalPrompt -and
 }
 
 function Write-NovaSequence([string]$sequence) {
-    [Console]::Out.Write("$esc$sequence$bel")
+    [Console]::Out.Write("$($script:NovaEsc)$sequence$($script:NovaBel)")
 }
 
 function Write-NovaPwd() {
-    $cwd = [Uri]::EscapeUriString((Get-Location).Path)
-    Write-NovaSequence "]7;file://$([System.Net.Dns]::GetHostName())/$cwd"
+    # The path part of a file:// URI is rooted, so it needs exactly one leading
+    # slash. On Linux/macOS pwsh the path ALREADY starts with one, and a blind
+    # "host" + "/" + path produced `file://host//home/you` - two slashes, which
+    # is a different URI and not the one the user is in. On Windows the drive
+    # letter has no leading slash and does need one added, and the separators
+    # have to be flipped before they are escaped as %5C.
+    $novaPath = (Get-Location).Path -replace '\\', '/'
+    if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }
+    Write-NovaSequence "]7;file://$([System.Net.Dns]::GetHostName())$([Uri]::EscapeUriString($novaPath))"
 }
 
 function Write-NovaPromptReady() {
@@ -117,7 +138,31 @@ function Global:prompt {
 # if absent: A / B / D still work, and Nova falls back to reading the command
 # line out of the grid between the B and C marks.
 if (Get-Command Set-PSReadLineKeyHandler -ErrorAction SilentlyContinue) {
-    Set-PSReadLineKeyHandler -Chord 'Enter' -ScriptBlock {
+    # Whatever Enter already did, keep doing it. `AcceptOrInsertNewline` (the
+    # pwsh default in recent PSReadLine versions) and `ValidateAndAcceptLine`
+    # are both common, and hard-coding AcceptLine would break multi-line editing
+    # for anyone on them. Only a NAMED PSReadLine function can be recovered -
+    # Get-PSReadLineKeyHandler reports a scriptblock binding as a description
+    # string with no way back to the block - so a custom scriptblock is
+    # documented as clobbered in the header rather than silently half-handled.
+    #
+    # The name is validated against [A-Za-z]+ before it is turned into a
+    # scriptblock: it comes from PSReadLine, but building executable text out of
+    # a string is not something to do on trust alone.
+    if (-not (Get-Variable -Name 'NovaEnterFallback' -Scope Script -ErrorAction SilentlyContinue)) {
+        $novaExistingEnter = Get-PSReadLineKeyHandler -Chord 'Enter' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        $novaEnterFunction = 'AcceptLine'
+        if ($novaExistingEnter -and
+            $novaExistingEnter.Function -match '^[A-Za-z]+$' -and
+            $novaExistingEnter.Description -notlike '*Nova*') {
+            $novaEnterFunction = $novaExistingEnter.Function
+        }
+        $script:NovaEnterFallback = [scriptblock]::Create(
+            "[Microsoft.PowerShell.PSConsoleReadLine]::$novaEnterFunction()")
+    }
+
+    Set-PSReadLineKeyHandler -Chord 'Enter' -Description 'Nova shell integration: OSC 133;C then accept' -ScriptBlock {
         $line = $null
         $cursor = $null
         [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
@@ -127,7 +172,11 @@ if (Get-Command Set-PSReadLineKeyHandler -ErrorAction SilentlyContinue) {
             $script:NovaAcceptedCommandText = $line
             $script:NovaCommandStart = [DateTimeOffset]::UtcNow
         }
-        [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+        if ($script:NovaEnterFallback) {
+            & $script:NovaEnterFallback
+        } else {
+            [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+        }
     }
 }
 

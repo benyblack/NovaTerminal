@@ -356,9 +356,15 @@ public sealed class RemoteShellIntegrationSnippetTests
     }
 
     /// <summary>
-    /// bash's DEBUG-trap preexec needs the one-shot arm/disarm flag or every statement in the
-    /// user's own <c>PROMPT_COMMAND</c> is captured as the accepted command.
+    /// bash's DEBUG-trap preexec needs the arm/disarm flag or every statement in the user's own
+    /// <c>PROMPT_COMMAND</c> is captured as the accepted command.
     /// </summary>
+    /// <remarks>
+    /// Only <c>__nova_*</c> is filtered by name. <c>trap*</c> and <c>PROMPT_COMMAND*</c> used to be
+    /// filtered too, which silently dropped any user command starting with either word - and was
+    /// never what kept our own hooks out anyway. The behaviour that does is asserted for real in
+    /// <c>RemoteBashSnippetIntegrationTests</c>.
+    /// </remarks>
     [Fact]
     public void ShSnippet_KeepsTheBashDebugTrapArmDisarmGuard()
     {
@@ -367,6 +373,151 @@ public sealed class RemoteShellIntegrationSnippetTests
         Assert.Contains("trap '__nova_preexec' DEBUG", content, StringComparison.Ordinal);
         Assert.Contains("__nova_command_active=1", content, StringComparison.Ordinal);
         Assert.Contains("__nova_command_active=0", content, StringComparison.Ordinal);
-        Assert.Contains("__nova_*|trap*|PROMPT_COMMAND*) return ;;", content, StringComparison.Ordinal);
+        Assert.Contains("__nova_*) return ;;", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("trap*|", content, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>__nova_precmd</c> raises the busy flag as its first act, which is what keeps an empty
+    /// Enter - where no user command ran, so nothing else raised it - from capturing the first
+    /// entry of the user's own <c>PROMPT_COMMAND</c> chain as a phantom accepted command.
+    /// </summary>
+    [Fact]
+    public void ShSnippet_RaisesTheBusyFlagAtTheTopOfPrecmd()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
+
+        int precmdIndex = content.IndexOf("__nova_precmd() {", StringComparison.Ordinal);
+        Assert.True(precmdIndex > 0, "bash precmd hook must exist");
+
+        int raiseIndex = content.IndexOf("__nova_command_active=1", precmdIndex, StringComparison.Ordinal);
+        int completionIndex = content.IndexOf("__nova_emit_completion", precmdIndex, StringComparison.Ordinal);
+
+        Assert.True(raiseIndex > precmdIndex, "__nova_precmd must raise the busy flag");
+        Assert.True(raiseIndex < completionIndex, "the busy flag must be raised before anything else runs");
+    }
+
+    /// <summary>
+    /// <c>$BASH_COMMAND</c> is the first simple command of the line, not the line, so the accepted
+    /// command is read back out of history instead - bash-preexec's approach.
+    /// </summary>
+    [Fact]
+    public void ShSnippet_ReadsTheAcceptedLineFromHistoryRatherThanBashCommand()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
+
+        Assert.Contains("HISTTIMEFORMAT='' builtin history 1", content, StringComparison.Ordinal);
+        // ...with BASH_COMMAND kept only as the fallback for a shell with history off.
+        Assert.Contains("|| __nova_line=\"$BASH_COMMAND\"", content, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <c>EPOCHREALTIME</c> is a zsh <em>parameter</em>, so the module feature prefix is <c>+p:</c>.
+    /// <c>zmodload -F</c> with an unknown feature name fails, and with the error swallowed the
+    /// module never loads: durations silently degrade from milliseconds to whole seconds, which is
+    /// exactly the kind of failure a static assertion is good at pinning.
+    /// </summary>
+    [Fact]
+    public void ShSnippet_LoadsEpochRealtimeAsAParameterNotABuiltin()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
+
+        Assert.Contains("zmodload -F zsh/datetime +p:EPOCHREALTIME", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("+b:EPOCHREALTIME", content, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// zsh's exit-code snapshot has to run FIRST. <c>$?</c> inside a precmd hook is the status of
+    /// whatever ran immediately before it, and for an appended hook that is the previous precmd
+    /// hook rather than the user's command - so on any setup with another precmd registered
+    /// (oh-my-zsh, powerlevel10k, vcs_info) the reported exit code was that hook's. The prompt-mark
+    /// hook still has to run last, hence two hooks at opposite ends of the array.
+    /// </summary>
+    [Fact]
+    public void ShSnippet_SnapshotsTheZshExitCodeFromAPrependedHook()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.BashOrZsh);
+
+        Assert.Contains(
+            "precmd_functions=(__nova_zsh_status_snapshot \"${precmd_functions[@]}\")",
+            content,
+            StringComparison.Ordinal);
+        Assert.Contains("__nova_emit_completion \"$__nova_last_status\"", content, StringComparison.Ordinal);
+        Assert.Contains("precmd_functions+=(__nova_zsh_precmd)", content, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// fish's <c>math</c> defaults to scale 6, so an unqualified division prints
+    /// <c>1780000000123.456787</c> - and <c>AnsiParser</c> parses the OSC 133;D duration field with
+    /// <c>long.TryParse</c>, so a fractional value is not a rounded duration, it is no duration.
+    /// </summary>
+    [Fact]
+    public void FishSnippet_ForcesIntegerMath()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish);
+
+        Assert.DoesNotContain("math \"$raw", content, StringComparison.Ordinal);
+        Assert.Contains("math -s0 \"$raw / 1000000\"", content, StringComparison.Ordinal);
+        Assert.Contains("math -s0 $now_ms - $__nova_command_start_ms", content, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The path part of a <c>file://</c> URI needs exactly one leading slash. On Linux/macOS pwsh
+    /// the path already has one, and <c>"host" + "/" + path</c> produced <c>file://host//home/you</c>.
+    /// </summary>
+    [Fact]
+    public void PowerShellSnippet_NormalizesTheOsc7Path()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
+
+        Assert.Contains("if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("file://$([System.Net.Dns]::GetHostName())/$cwd", content, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Binding Enter unconditionally to <c>AcceptLine</c> clobbers whatever the user had there -
+    /// <c>AcceptOrInsertNewline</c> is the pwsh default in recent PSReadLine versions, and
+    /// hard-coding over it breaks multi-line editing. A named PSReadLine function is delegated to;
+    /// a custom scriptblock cannot be recovered from PSReadLine at all and is documented instead.
+    /// </summary>
+    [Fact]
+    public void PowerShellSnippet_DelegatesToTheExistingEnterHandler()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
+
+        Assert.Contains("Get-PSReadLineKeyHandler -Chord 'Enter'", content, StringComparison.Ordinal);
+        Assert.Contains("$script:NovaEnterFallback", content, StringComparison.Ordinal);
+        Assert.Contains("-match '^[A-Za-z]+$'", content, StringComparison.Ordinal);
+        Assert.Contains("SCRIPTBLOCK", content, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Every variable the snippet leaves behind is Nova-scoped. It is dot-sourced into the user's
+    /// own <c>$PROFILE</c>, so a bare <c>$esc</c> / <c>$bel</c> lands in their session.
+    /// </summary>
+    [Fact]
+    public void PowerShellSnippet_ScopesItsVariableNames()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
+
+        Assert.DoesNotContain("$esc = ", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("$bel = ", content, StringComparison.Ordinal);
+        Assert.Contains("$script:NovaEsc = [char]27", content, StringComparison.Ordinal);
+        Assert.Contains("$script:NovaBel = [char]7", content, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The header used to claim PSReadLine costs you only the C text. It costs D as well: the Enter
+    /// chord is where the clock starts, so without PSReadLine there is no accepted command to time
+    /// and no completion mark at all.
+    /// </summary>
+    [Fact]
+    public void PowerShellSnippet_TellsTheTruthAboutWhatMissingPsReadLineCosts()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
+
+        Assert.DoesNotContain("you still get A / B / D", content, StringComparison.Ordinal);
+        Assert.Contains("WHAT YOU LOSE WITHOUT PSReadLine", content, StringComparison.Ordinal);
+        Assert.Contains("no `133;C` command text AND no", content, StringComparison.Ordinal);
     }
 }

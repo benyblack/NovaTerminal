@@ -124,23 +124,59 @@ if [ -n "${BASH_VERSION:-}" ]; then
         __nova_command_active=0
     }
 
+    # $BASH_COMMAND is the first SIMPLE COMMAND of the line, not the line:
+    # `true && false` sets it to `true`, and reporting that as the accepted
+    # command records the wrong text with the wrong exit code. bash-preexec's
+    # answer is the only one that works - read the line back out of history,
+    # where readline has already stored it verbatim, and strip the history
+    # number. The BASH_COMMAND fallback covers a shell with history disabled
+    # (`set +o history`) and a leading-space command swallowed by
+    # HISTCONTROL=ignorespace; in both cases the first simple command is still
+    # better than nothing.
+    __nova_history_line() {
+        __nova_hist=$(HISTTIMEFORMAT='' builtin history 1 2>/dev/null)
+        # "  512  true && false" -> "true && false", using only POSIX
+        # parameter expansion so the same idiom reads the same in both shells.
+        __nova_hist="${__nova_hist#"${__nova_hist%%[![:space:]]*}"}"
+        __nova_hist="${__nova_hist#*[[:space:]]}"
+        __nova_hist="${__nova_hist#"${__nova_hist%%[![:space:]]*}"}"
+        printf '%s' "$__nova_hist"
+    }
+
     # bash has no native preexec. The DEBUG trap fires before every simple
-    # command - including from inside PROMPT_COMMAND - so a one-shot flag armed
-    # in PROMPT_COMMAND and disarmed on the first DEBUG fire after it isolates
-    # the user-entered line.
+    # command - including from inside PROMPT_COMMAND - so a one-shot flag held
+    # busy for the whole prompt cycle and released only at the very end of it
+    # isolates the user-entered line.
+    #
+    # Only __nova_* is filtered here. `trap*` and `PROMPT_COMMAND*` used to be
+    # filtered too, which silently dropped any command the user typed that
+    # began with either word; the busy-for-the-whole-chain invariant
+    # (__nova_precmd raises the flag, __nova_arm lowers it) is what actually
+    # keeps our own hooks out, so the name patterns were both unnecessary and
+    # harmful.
     __nova_preexec() {
         if [ "$__nova_command_active" = "1" ]; then
             return
         fi
         case "$BASH_COMMAND" in
-            __nova_*|trap*|PROMPT_COMMAND*) return ;;
+            __nova_*) return ;;
         esac
-        __nova_emit_accepted "$BASH_COMMAND"
         __nova_command_active=1
+        __nova_line=$(__nova_history_line)
+        [ -n "$__nova_line" ] || __nova_line="$BASH_COMMAND"
+        __nova_emit_accepted "$__nova_line"
     }
 
     __nova_precmd() {
-        __nova_emit_completion "$?"
+        # FIRST statement, before $? is read for anything else: this is what
+        # restores the busy-for-the-whole-chain invariant. bash runs
+        # PROMPT_COMMAND after an EMPTY Enter too, and on that path no user
+        # command ran, so nothing raised the flag - leaving the first entry of
+        # the user's own PROMPT_COMMAND chain to be captured as a phantom
+        # accepted command. __nova_arm lowers it again at the end of the chain.
+        __nova_status=$?
+        __nova_command_active=1
+        __nova_emit_completion "$__nova_status"
         __nova_emit_prompt_ready
     }
 
@@ -182,7 +218,11 @@ if [ -n "${BASH_VERSION:-}" ]; then
 elif [ -n "${ZSH_VERSION:-}" ]; then
 
     # zsh's native datetime module, for $EPOCHREALTIME in __nova_now_ms.
-    zmodload -F zsh/datetime +b:EPOCHREALTIME 2>/dev/null || true
+    # +p: because EPOCHREALTIME is a PARAMETER. `zmodload -F` with an unknown
+    # feature name fails, and with the error swallowed the module never loads:
+    # $EPOCHREALTIME stays unset, __nova_now_ms silently falls back to `date
+    # +%s`, and every duration is reported as a whole number of seconds.
+    zmodload -F zsh/datetime +p:EPOCHREALTIME 2>/dev/null || true
 
     # OSC 133;B has to be the last thing in PROMPT: precmd runs before PROMPT is
     # expanded, so B cannot be printed from a hook the way A is. %{...%} tells
@@ -205,13 +245,30 @@ elif [ -n "${ZSH_VERSION:-}" ]; then
         __nova_emit_accepted "$1"
     }
 
+    # Two precmd hooks rather than one, at opposite ends of the array, because
+    # the two jobs want opposite positions. $? in a precmd hook is the status of
+    # whatever ran immediately before it, which for an APPENDED hook is the
+    # previous precmd hook - not the user's command - so the exit code has to be
+    # snapshotted by a hook that runs FIRST. The prompt mark, conversely, has to
+    # be re-applied by a hook that runs LAST, after any theme has finished
+    # rewriting PROMPT.
+    __nova_last_status=0
+
+    __nova_zsh_status_snapshot() {
+        __nova_last_status=$?
+    }
+
     __nova_zsh_precmd() {
-        __nova_emit_completion "$?"
+        __nova_emit_completion "$__nova_last_status"
         __nova_emit_prompt_ready
         __nova_apply_prompt_mark
     }
 
     typeset -ag precmd_functions preexec_functions
+    case " ${precmd_functions[*]} " in
+        *" __nova_zsh_status_snapshot "*) ;;
+        *) precmd_functions=(__nova_zsh_status_snapshot "${precmd_functions[@]}") ;;
+    esac
     case " ${precmd_functions[*]} " in
         *" __nova_zsh_precmd "*) ;;
         *) precmd_functions+=(__nova_zsh_precmd) ;;

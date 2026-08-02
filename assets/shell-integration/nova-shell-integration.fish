@@ -42,12 +42,17 @@ if status is-interactive; and not set -q __nova_shell_integration_loaded
     # Portable millisecond clock. `date +%s%N` is GNU-only; macOS/BSD `date`
     # leaves a literal "%N", which would break `math`. Detect at runtime:
     # digits-only output is nanoseconds, anything else falls back to seconds.
+    #
+    # -s0 on every `math` call, because fish's default scale is 6: without it
+    # the division prints "1780000000123.456787" and the OSC 133;D payload
+    # stops being an integer, which is exactly what Nova's parser needs it to
+    # be (long.TryParse) - so durations would be dropped entirely.
     function __nova_now_ms
         set -l raw (date +%s%N 2>/dev/null)
         if string match -qr '^[0-9]+$' -- $raw
-            math "$raw / 1000000"
+            math -s0 "$raw / 1000000"
         else
-            math (date +%s) "* 1000"
+            math -s0 (date +%s) "* 1000"
         end
     end
 
@@ -68,7 +73,7 @@ if status is-interactive; and not set -q __nova_shell_integration_loaded
         set -l exit_code $status
         if test -n "$__nova_command_start_ms"
             set -l now_ms (__nova_now_ms)
-            printf '\033]133;D;%s;%s\a' $exit_code (math $now_ms - $__nova_command_start_ms)
+            printf '\033]133;D;%s;%s\a' $exit_code (math -s0 $now_ms - $__nova_command_start_ms)
             set -g __nova_command_start_ms ""
         end
     end
