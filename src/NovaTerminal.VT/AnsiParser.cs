@@ -164,7 +164,31 @@ namespace NovaTerminal.VT
         /// </summary>
         public Action<string, byte[]>? OnClipboardWrite { get; set; }
         public Action? OnPromptReady { get; set; }
-        public Action<string>? OnCommandAccepted { get; set; }
+
+        /// <summary>
+        /// OSC 133;C — the shell accepted the line and is about to run it. The argument is the
+        /// command text when the mark carried a payload we could make sense of, and
+        /// <see langword="null"/> when it did not.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Raised for <em>every</em> C mark, payload or not. Nova's own bootstraps always send
+        /// <c>133;C;&lt;base64&gt;</c>, but FinalTerm does not require a payload and the
+        /// third-party snippets this event now has to consume — iTerm2's, VS Code's, and hand-rolled
+        /// ones — routinely emit a bare <c>133;C</c> or a bare <c>133;C;</c>. Dropping those was
+        /// survivable while the only armed sessions were ones we had instrumented ourselves
+        /// (V2 Phase 2b changed that): C is the edge that closes Command Assist's command-input
+        /// window, so a swallowed C leaves the grid reader serving a running command's output as a
+        /// command line until D arrives.
+        /// </para>
+        /// <para>
+        /// A <see langword="null"/> argument therefore means "the line was submitted, and I cannot
+        /// tell you what it was" — a lifecycle fact with no text attached. Consumers must treat it
+        /// as the lifecycle edge and must not treat it as proof that the shell reports command
+        /// text (which is what stands the heuristic capture path down).
+        /// </para>
+        /// </remarks>
+        public Action<string?>? OnCommandAccepted { get; set; }
         /// <summary>
         /// OSC 133;B — prompt end / start of the user's input line. The argument carries where
         /// the mark landed in the buffer (see <see cref="ShellIntegrationMark"/>), which is the
@@ -1733,6 +1757,171 @@ namespace NovaTerminal.VT
                 Generation: _buffer.Scrollback.Generation);
         }
 
+        /// <summary>
+        /// The command text an <c>OSC 133;C</c> mark carries, or <see langword="null"/> when it
+        /// carries none we can trust.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Three shapes are in the wild and they are not distinguishable by declaration, only by
+        /// inspection:
+        /// </para>
+        /// <list type="number">
+        /// <item><description>
+        /// <c>133;C;&lt;base64&gt;</c> — what all four Nova bootstraps emit, and the only shape that
+        /// survives a command containing <c>;</c> or a newline. Tried first, and accepted only if the
+        /// bytes decode to plausible text: <c>make</c>, <c>date</c> and <c>true</c> are all valid
+        /// base64 by shape, so "it decoded" is not evidence on its own. Byte sequences that are not
+        /// UTF-8 come back peppered with U+FFFD, which is the tell.
+        /// </description></item>
+        /// <item><description>
+        /// no payload at all (<c>133;C</c> or <c>133;C;</c>) — iTerm2's and VS Code's snippets, and
+        /// most hand-rolled ones. The lifecycle edge with no text.
+        /// </description></item>
+        /// <item><description>
+        /// plain text (<c>133;C;git status</c>) — some third-party integrations. Passed through as
+        /// written, which is lossy for a command containing <c>;</c> (the parameter split already
+        /// happened) but strictly better than discarding it.
+        /// </description></item>
+        /// </list>
+        /// <para>
+        /// FinalTerm attribute payloads (<c>133;C;aid=7</c>) are the trap in shape 3: they are
+        /// printable, so a bare "printable means command text" rule would write <c>aid=7</c> into the
+        /// user's permanent history. Anything matching an identifier followed by <c>=</c> that did not
+        /// already decode as base64 is treated as an attribute and yields <see langword="null"/>.
+        /// </para>
+        /// <para>
+        /// Every branch that cannot answer yields <see langword="null"/> rather than a guess, on the
+        /// same rule the rest of the capture path follows: a missing history entry is recoverable, an
+        /// invented one is not.
+        /// </para>
+        /// <para>
+        /// <b>Known residual.</b> An <em>unpadded</em> base64 payload that decodes to non-text is
+        /// indistinguishable from a short plain-text command - <c>date</c> and <c>AQID</c> are the
+        /// same four characters as far as anything here can tell - so it falls through to the
+        /// plain-text reading and is returned as written. Padding is checked because it is the one
+        /// piece of self-description base64 has; there is no equivalent signal without it, and
+        /// guessing "this four-character word is really a blob" would cost every
+        /// <c>date</c>/<c>make</c>/<c>htop</c> on a plain-text integration to protect against a
+        /// payload shape nothing in the wild emits.
+        /// </para>
+        /// </remarks>
+        private static string? DecodeAcceptedCommandPayload(string[] parts)
+        {
+            if (parts.Length <= 1)
+            {
+                return null;
+            }
+
+            string payload = parts[1];
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                return null;
+            }
+
+            try
+            {
+                byte[] bytes = Convert.FromBase64String(payload);
+                string decoded = Encoding.UTF8.GetString(bytes);
+                if (!string.IsNullOrWhiteSpace(decoded) && IsPlausibleCommandText(decoded))
+                {
+                    return decoded;
+                }
+
+                // The decode produced something that is not text. Padding is the one piece of
+                // self-description base64 has, so a padded payload that decodes to non-text is
+                // definitively a broken base64 payload and yields null rather than being handed on
+                // as literal text - nobody's command line is "//79/A==".
+                if (payload.EndsWith('='))
+                {
+                    return null;
+                }
+            }
+            catch (FormatException)
+            {
+                // Not base64. Fall through to the plain-text reading.
+            }
+
+            if (LooksLikeFinalTermAttribute(payload) || !IsPlausibleCommandText(payload))
+            {
+                return null;
+            }
+
+            return payload;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="text"/> could be something a user typed at a prompt: no control
+        /// characters other than tab/CR/LF, and no U+FFFD (which is what UTF-8 decoding leaves behind
+        /// when the bytes were never text).
+        /// </summary>
+        private static bool IsPlausibleCommandText(string text)
+        {
+            // U+FFFD, written numerically so the source stays ASCII.
+            const char ReplacementChar = (char)0xFFFD;
+
+            foreach (char c in text)
+            {
+                if (c == '\t' || c == '\r' || c == '\n')
+                {
+                    continue;
+                }
+
+                if (c == ReplacementChar || char.IsControl(c))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="payload"/> reads as a FinalTerm <c>key=value</c> mark attribute
+        /// (<c>aid=7</c>, <c>cl=m</c>) rather than as command text. Only consulted after base64
+        /// decoding has already failed, so base64 padding (<c>bHM=</c>) never reaches it.
+        /// </summary>
+        /// <remarks>
+        /// Three conditions, and the whitespace one is what keeps <c>FOO=bar make</c> a command:
+        /// an attribute is a single token, so anything with a space in it is a command line that
+        /// happens to open with an environment assignment. A payload of exactly <c>FOO=bar</c> with
+        /// nothing after it is genuinely ambiguous and is read as an attribute - that is the safe
+        /// direction, since the cost is one missing history entry rather than <c>aid=7</c> appearing
+        /// in the user's command history.
+        /// </remarks>
+        private static bool LooksLikeFinalTermAttribute(string payload)
+        {
+            int equals = payload.IndexOf('=');
+            if (equals <= 0)
+            {
+                return false;
+            }
+
+            if (!char.IsLetter(payload[0]) && payload[0] != '_')
+            {
+                return false;
+            }
+
+            for (int i = 1; i < equals; i++)
+            {
+                char c = payload[i];
+                if (!char.IsLetterOrDigit(c) && c != '_' && c != '-')
+                {
+                    return false;
+                }
+            }
+
+            foreach (char c in payload)
+            {
+                if (char.IsWhiteSpace(c))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private void HandleOsc(string osc)
         {
             if (string.IsNullOrEmpty(osc)) return;
@@ -1811,7 +2000,9 @@ namespace NovaTerminal.VT
             //   OSC 133;A     -> prompt start (prompt ready)
             //   OSC 133;B     -> prompt end / start of user input; reported with the cursor
             //                    position at parse time, which is where the command line begins
-            //   OSC 133;C;X -> command accepted with base64-encoded command X
+            //   OSC 133;C[;X] -> command accepted; X, when present, is usually the base64-encoded
+            //                    command text but is not required to be (see
+            //                    DecodeAcceptedCommandPayload)
             //   OSC 133;D;N[;M] -> command finished with exit code N and optional duration M
             //
             // Any parameters after the marker letter are tolerated and ignored (FinalTerm
@@ -1837,22 +2028,7 @@ namespace NovaTerminal.VT
                 }
                 else if (string.Equals(marker, "C", StringComparison.Ordinal))
                 {
-                    if (parts.Length > 1 && !string.IsNullOrWhiteSpace(parts[1]))
-                    {
-                        try
-                        {
-                            byte[] bytes = Convert.FromBase64String(parts[1]);
-                            string commandText = Encoding.UTF8.GetString(bytes);
-                            if (!string.IsNullOrWhiteSpace(commandText))
-                            {
-                                OnCommandAccepted?.Invoke(commandText);
-                            }
-                        }
-                        catch
-                        {
-                            // Ignore malformed command payloads and preserve terminal behavior.
-                        }
-                    }
+                    OnCommandAccepted?.Invoke(DecodeAcceptedCommandPayload(parts));
                 }
                 else if (string.Equals(marker, "D", StringComparison.Ordinal))
                 {
