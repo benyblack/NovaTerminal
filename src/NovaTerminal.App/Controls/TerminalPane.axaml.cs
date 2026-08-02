@@ -1642,22 +1642,29 @@ namespace NovaTerminal.Controls
             // an OnResponse denial reply and never reaches this handler.
             Parser.OnClipboardWrite += (target, data) =>
             {
-                if (!(_settings?.AllowOsc52ClipboardWrite ?? true)) return;
+                // Resolved through BuildEffectiveSettings rather than off raw _settings, matching
+                // the #277 precedent below in ApplySettings: BuildEffectiveSettings copies this
+                // bool straight through today, so the two are equivalent, but the moment a
+                // per-profile / SSH-scoped override lands, reading the global would silently gate
+                // on the wrong value (PR #280 review). Still read at invocation time so a live
+                // ApplySettings toggle takes effect without re-wiring.
+                // A null _settings means "not configured yet" and defaults to allow, consistent
+                // with TerminalSettings.AllowOsc52ClipboardWrite's own default.
+                bool allowed = _settings == null || BuildEffectiveSettings(_settings).AllowOsc52ClipboardWrite;
+                if (!allowed) return;
 
-                string text;
-                try
-                {
-                    text = System.Text.Encoding.UTF8.GetString(data);
-                }
-                catch
-                {
-                    return;
-                }
+                // Lossy by design: invalid UTF-8 in the payload becomes U+FFFD rather than being
+                // rejected, matching how other terminals treat OSC 52 as text. GetString does not
+                // throw for malformed input, so there is nothing to catch here - if this should
+                // ever reject non-UTF-8 instead, it needs a throwing decoder, not a try/catch.
+                string text = System.Text.Encoding.UTF8.GetString(data);
 
-                // Bumped only once the gate above has passed and decoding succeeded, i.e.
-                // exactly when this handler is actually about to reach the clipboard. Gives
-                // PaneParserWiringTests a synchronous seam to assert "setting off -> clipboard
-                // not touched" without needing a real UI-thread TopLevel/Clipboard in tests.
+                // Bumped only once the gate above has passed, i.e. exactly when this handler is
+                // actually about to reach the clipboard. Gives PaneParserWiringTests a synchronous
+                // seam to assert "setting off -> clipboard not touched" without needing a real
+                // UI-thread TopLevel/Clipboard in tests. Deliberately a plain non-atomic increment
+                // on the PTY thread: it is a single-writer test seam, not a metric, so don't read
+                // it as one.
                 _clipboardWriteAttemptsForTest++;
                 Dispatcher.UIThread.Post(() =>
                 {

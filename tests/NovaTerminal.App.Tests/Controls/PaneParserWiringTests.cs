@@ -57,7 +57,7 @@ public class PaneParserWiringTests
 
         Assert.False(
             ReferenceEquals(first, second),
-            "Session setup reused the AnsiParser. Its 8 handler subscriptions are only safe because "
+            "Session setup reused the AnsiParser. Its 9 handler subscriptions are only safe because "
             + "a fresh parser starts with empty handler lists - reusing one duplicates every handler "
             + "per reconnect (#102). Either restore the fresh parser, or add a matching -= for each.");
     }
@@ -206,5 +206,38 @@ public class PaneParserWiringTests
         pane.Parser!.OnClipboardWrite?.Invoke("c", System.Text.Encoding.UTF8.GetBytes("hello"));
 
         Assert.Equal(1, pane.ClipboardWriteAttemptsForTest);
+    }
+
+    /// <summary>
+    /// PR #280 review, test gap: the two gate tests above both call <c>ApplySettings</c> *before*
+    /// <c>CreateAndWireParser</c>, so they would still pass if the handler captured the bool at
+    /// wire time. The design rests on the gate being read at *invocation* time, so that a live
+    /// settings change takes effect on an already-running session without re-wiring the parser.
+    /// This wires first and toggles after, which is the only ordering that actually pins that.
+    /// </summary>
+    [AvaloniaFact]
+    public void ClipboardWrite_SettingToggledAfterWiring_TakesEffectWithoutRewiring()
+    {
+        using var pane = new TerminalPane();
+        pane.ApplySettings(new TerminalSettings { AllowOsc52ClipboardWrite = true });
+        pane.CreateAndWireParser();
+
+        Assert.NotNull(pane.Parser);
+        AnsiParser parser = pane.Parser!;
+
+        parser.OnClipboardWrite?.Invoke("c", System.Text.Encoding.UTF8.GetBytes("first"));
+        Assert.Equal(1, pane.ClipboardWriteAttemptsForTest);
+
+        // Toggle off on the *same* parser instance - no CreateAndWireParser in between.
+        pane.ApplySettings(new TerminalSettings { AllowOsc52ClipboardWrite = false });
+        Assert.Same(parser, pane.Parser);
+
+        parser.OnClipboardWrite?.Invoke("c", System.Text.Encoding.UTF8.GetBytes("second"));
+        Assert.Equal(1, pane.ClipboardWriteAttemptsForTest);
+
+        // And back on again, so this cannot pass by the gate simply latching off.
+        pane.ApplySettings(new TerminalSettings { AllowOsc52ClipboardWrite = true });
+        parser.OnClipboardWrite?.Invoke("c", System.Text.Encoding.UTF8.GetBytes("third"));
+        Assert.Equal(2, pane.ClipboardWriteAttemptsForTest);
     }
 }
