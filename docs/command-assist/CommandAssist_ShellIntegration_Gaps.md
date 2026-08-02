@@ -220,18 +220,58 @@ is never consulted as a query. What degraded mode costs, concretely:
   The mechanism is deliberately not the mirror. `MarklessSubmissionAccumulator` is **poisoned** by
   everything it cannot model, and it is consulted at Enter *only* when the grid has nothing — never
   as the query. `TextInputObserved` appends, `BackspaceObserved` chops one character. The key
-  classification is an allow-list, so an unrecognised key poisons: only modifier keys, `Enter`,
-  `Backspace` (both without `Alt`), `Ctrl+C` (which resets), keys Command Assist consumed, and
-  printable keys with no `Ctrl`/`Alt`/`Meta` leave it alone. Arrows, `Home`, `End`, `Delete`, `Tab`,
-  page keys, `Insert`, `Escape`, F-keys and every unowned chord poison it, as does any text that
-  reaches the PTY without going through key handling: both paste paths, `Ctrl+Enter` insertion, the
-  drop toast, sibling-pane broadcast, the clipboard-image path, the agent host's act surface. It
-  resets on `Enter` (after the capture read), `Ctrl+C`, any alt-screen transition, and session
-  start / restart / profile switch.
+  classification is an allow-list, so an unrecognised key poisons. What leaves it alone:
 
-  Its outcomes are therefore "exactly the characters the user typed, in order" or "nothing" — the
-  same bar the grid reader is held to, reached by a different mechanism — and it is deletable in one
-  commit once Phase 2 gives instrumented remotes real marks.
+  - modifier keys on their own;
+  - `Enter` and `Backspace` **with no modifiers at all**. Not merely "without `Alt`": with the kitty
+    keyboard protocol's disambiguate tier active, `TerminalView` encodes a *modified* Enter or
+    Backspace as CSI u (`Ctrl+Backspace` → `CSI 127;5u`, `Shift+Enter` → `CSI 13;2u`) and returns
+    early, so `EnterObserved` / `BackspaceObserved` never fire — the accumulator would keep every
+    character while a kitty-aware editor deleted a word. The modifier is not visible downstream, so
+    the classifier refuses it up front. Cost: one lost capture per `Ctrl+Backspace`;
+  - `Ctrl+C`, which resets rather than poisons;
+  - keys Command Assist consumed (see the `Ctrl+Shift+P` note below);
+  - printable keys with no `Ctrl`/`Alt`/`Meta` — **and the `AltGr` exception**: on Windows, Avalonia
+    reports `AltGr` as `Control|Alt`, so a literal reading of that rule poisons every `@`, `{`, `[`,
+    `\`, `|` and `~` typed on a German, French, Nordic, Turkish or Polish layout, i.e. captures
+    nothing at all for those users. `Ctrl`+`Alt` plus a *text-producing* key is therefore allowed.
+    That stays fail-closed because `TerminalView` sends **nothing** to the PTY for that combination
+    — `EncodeKittyKey` returns null on the `Control|Alt` pair, `EncodeAltKey` returns null for it,
+    and the legacy `Ctrl` branch requires `!Alt` — so the only route to the shell is the composed
+    `WM_CHAR`, which arrives as `OnTextInput` and is appended. `Ctrl`+`Alt` plus a *non*-text key
+    (`Enter`, `Backspace`, `Tab`, `Escape`, arrows) still poisons: those do reach the shell.
+
+  Arrows, `Home`, `End`, `Delete`, `Tab`, page keys, `Insert`, `Escape`, F-keys and every other
+  unowned chord poison it, as does any text that reaches the PTY without going through key handling:
+  both paste paths, `Ctrl+Enter` insertion, the drop toast, sibling-pane broadcast, the
+  clipboard-image path, the agent host's act surface, and parser device replies (`OnResponse`: DA1,
+  DSR, answerback). It resets on `Enter` (after the capture read), `Ctrl+C`, any alt-screen
+  transition, and session start / restart / profile switch.
+
+  `Ctrl+Shift+P` is only *conditionally* assist-consumed: the window's shortcut handler calls
+  `TerminalPane.TryToggleCommandAssistPinShortcut`, which routes without observing, and if no
+  selection can be pinned the route returns false and the key continues on to `TerminalView`, where
+  the accumulator sees it as an unowned `Ctrl` chord and poisons. That is the safe direction — a
+  keypress that may or may not have reached the shell is treated as if it did — and it costs at most
+  one capture.
+
+  **The echo gate.** The accumulator alone is not enough, for a reason that is a security bug rather
+  than a correctness one. `TerminalView.OnTextInput` fires per keystroke unconditionally: it does not
+  know whether the shell is echoing. So `ssh host` / Enter / `hunter2` / Enter, all inside one
+  markless session, leaves a clean unpoisoned `hunter2` in the accumulator at the hidden `password:`
+  prompt with no grid snapshot to outrank it — and `SecretsFilter` is pattern-based, so a bare secret
+  sails through it into `history.jsonl`. Before the accumulator's answer is used, the pane therefore
+  requires that exact text to be **visible on the grid, ending at the cursor**
+  (`GridQueryReader.TryReadTextEndingAtCursor`, reading the cursor row and its soft-wrapped
+  predecessors under the buffer read lock, comparing text rather than columns so wide characters
+  count once). In any visible markless prompt the typed command *is* on screen — only the `B` mark is
+  missing — so a correct capture pays nothing; at a no-echo prompt the strings do not match and
+  nothing is captured. Every doubt resolves the same way: no buffer, an alt screen, an unresolvable
+  cursor, an echo that has not landed, a partially echoed line — no capture.
+
+  Its outcomes are therefore "exactly the characters the user typed, in order, and visibly on
+  screen" or "nothing" — the same bar the grid reader is held to, reached by a different mechanism —
+  and it is deletable in one commit once Phase 2 gives instrumented remotes real marks.
 
   **It composes with suppression rather than replacing it.** Poison is an accumulator fact ("I
   cannot describe this line"); `AssistSessionStateMachine.IsCurrentSubmissionSuppressed` is a

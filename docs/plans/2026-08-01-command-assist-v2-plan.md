@@ -175,18 +175,51 @@ Zero changes inside `NovaTerminal.CommandAssist`, as designed: the assist assemb
 - **The poison classification is an allow-list, not the deny-list the design sketched.** The
   interceptor is handed `(Key, KeyModifiers)`, and a deny-list of "arrows, Home, End, Delete, Tab,
   page keys, F-keys, unowned chords" fails *open* on anything nobody thought of. Inverted, it fails
-  closed: a key press leaves the buffer alone only if it is a modifier key, `Enter`, `Backspace`
-  (both without `Alt`), `Ctrl+C` (which resets), a key Command Assist consumed, or a printable key
-  with no `Ctrl`/`Alt`/`Meta`. Everything else poisons. An allow-list missing a harmless key costs
-  one capture; a deny-list missing a line-editing key writes a false command to history.
+  closed: a key press leaves the buffer alone only if it is a modifier key, `Enter` or `Backspace`
+  **with no modifiers at all**, `Ctrl+C` (which resets), a key Command Assist consumed, or a
+  printable key with no `Ctrl`/`Alt`/`Meta` **or with `Ctrl+Alt`, which on Windows is how Avalonia
+  reports `AltGr`**. Everything else poisons. An allow-list missing a harmless key costs one
+  capture; a deny-list missing a line-editing key writes a false command to history.
+- **Two modifier rules changed in review, both for reasons that live outside this class.**
+  - *`Enter`/`Backspace` require `KeyModifiers.None`, not merely "no `Alt`".* With the kitty
+    keyboard protocol's disambiguate tier active, `TerminalView` encodes a modified Enter or
+    Backspace as CSI u (`Ctrl+Backspace` → `CSI 127;5u`, `Shift+Enter` → `CSI 13;2u`) and returns
+    early, so `EnterObserved` / `BackspaceObserved` never fire: the accumulator would keep every
+    character while a kitty-aware editor deleted a word. Fail-closed at the cost of one capture per
+    `Ctrl+Backspace`; gating on live kitty state instead would make the classification depend on
+    terminal state that can change mid-line.
+  - *`Ctrl+Alt` plus a **text-producing** key does not poison.* Avalonia reports `AltGr` as
+    `Control|Alt`, so the literal rule cost German, French, Nordic, Turkish and Polish users every
+    `@`, `{`, `[`, `\`, `|` and `~` — i.e. essentially every capture. It stays fail-closed because
+    `TerminalView` sends *nothing* to the PTY for that combination (`EncodeKittyKey` and
+    `EncodeAltKey` both return null on the `Control|Alt` pair; the legacy `Ctrl` branch requires
+    `!Alt`), so the only route to the shell is the composed `WM_CHAR`, which arrives as
+    `OnTextInput` and is appended. `Ctrl+Alt` plus a non-text key still poisons.
+- **The echo gate (review blocker).** `TerminalView.OnTextInput` fires per keystroke
+  unconditionally, so at a hidden `password:` prompt inside a markless session the accumulator ends
+  up clean and holding the password, with no grid snapshot to outrank it — and `SecretsFilter` is
+  pattern-based, so a bare secret would reach `history.jsonl`. `TerminalPane` therefore requires the
+  accumulated text to be **painted on the grid ending at the cursor** before it is used
+  (`GridQueryReader.TryReadTextEndingAtCursor`: cursor row plus soft-wrapped predecessors, under the
+  buffer read lock, compared as text so wide characters count once). A visible markless prompt
+  always satisfies this — only the `B` mark is missing, not the text — so correct captures pay
+  nothing, and every doubt (no buffer, alt screen, unresolved cursor, unlanded or partial echo)
+  resolves to no capture.
+- **`Ctrl+Shift+P` is only conditionally assist-consumed.** The window's shortcut handler calls
+  `TryToggleCommandAssistPinShortcut`, which routes without observing; when nothing can be pinned
+  the route returns false and the key travels on to `TerminalView`, where the accumulator sees an
+  unowned `Ctrl` chord and poisons. Safe direction, one capture.
 - **`TryHandleCommandAssistKey` was split** into the routing decision (`TryRouteCommandAssistKey`,
   unchanged behavior) and the observation, which runs after it and returns nothing. "Command Assist
   consumed this key" and "the shell never saw it" are the same fact, so the routing result is the
   input to the classification.
 - **Text that reaches the PTY without going through key handling poisons at its own call site**:
   `Ctrl+Enter` insertion (the one key Command Assist owns that *sends*), both paste paths, the
-  drag-and-drop path toast, sibling-pane broadcast, the clipboard-image path, and the agent host's
-  A3 act surface (`AgentSessionRegistration.InputInjected`, added for this).
+  drag-and-drop path toast, sibling-pane broadcast, the clipboard-image path, the agent host's
+  A3 act surface (`AgentSessionRegistration.InputInjected`, added for this), and parser device
+  replies (`AnsiParser.OnResponse` — DA1, DSR, answerback; a reply that lands in a line editor is
+  literal input the same way a paste is). The accumulator's poison flag is `volatile`, because
+  `InputInjected` fires on whatever thread the agent-host IPC endpoint is serving.
 - **Resets**: `Enter` (after the capture read), `Ctrl+C`, any alt-screen transition in either
   direction, and session start / restart / profile switch (`InitializeSessionCore`).
 - **Backspace refuses rather than guesses** when the last character is a surrogate or a combining
@@ -196,9 +229,13 @@ Zero changes inside `NovaTerminal.CommandAssist`, as designed: the assist assemb
   fact ("I cannot describe this line"); `IsCurrentSubmissionSuppressed` is a provenance fact ("this
   text was not composed here") that `CapturePipeline` applies to *both* sources, which is why a
   paste is still not captured in an instrumented session where the grid reads it perfectly.
-- Tests: `PaneMarklessCaptureTests` (pane level, 26) and `MarklessSubmissionAccumulatorTests` (unit,
-  27). Mutation-checked: un-poisoning arrows fails the poison theory; letting the accumulator win
-  over the grid fails the grid-wins test.
+- Tests: `PaneMarklessCaptureTests` (pane level, 40), `MarklessSubmissionAccumulatorTests` (unit,
+  42) and the `TryReadTextEndingAtCursor` block in `GridQueryReaderTests` (VT, 10).
+  Mutation-checked: un-poisoning arrows fails the poison theory; letting the accumulator win over
+  the grid fails the grid-wins test; **removing the echo gate fails the password test** (plus the
+  partial-echo and echoed-elsewhere tests); loosening `Enter`/`Backspace` back to "no `Alt`" fails
+  the modified-Enter/Backspace tests; dropping the `AltGr` carve-out fails the AltGr theory and the
+  end-to-end AltGr capture.
 
 ## Phase 2 — Marks-based anchoring + SSH parity
 
