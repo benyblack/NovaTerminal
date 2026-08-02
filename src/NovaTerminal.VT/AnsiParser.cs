@@ -1758,6 +1758,12 @@ namespace NovaTerminal.VT
         }
 
         /// <summary>
+        /// The largest <c>OSC 133;C</c> payload that will be looked at, in characters of the
+        /// on-the-wire (still encoded) text. See <see cref="DecodeAcceptedCommandPayload"/>.
+        /// </summary>
+        internal const int MaxAcceptedCommandPayloadChars = 8 * 1024;
+
+        /// <summary>
         /// The command text an <c>OSC 133;C</c> mark carries, or <see langword="null"/> when it
         /// carries none we can trust.
         /// </summary>
@@ -1803,7 +1809,17 @@ namespace NovaTerminal.VT
         /// piece of self-description base64 has; there is no equivalent signal without it, and
         /// guessing "this four-character word is really a blob" would cost every
         /// <c>date</c>/<c>make</c>/<c>htop</c> on a plain-text integration to protect against a
-        /// payload shape nothing in the wild emits.
+        /// payload shape nothing in the wild emits. The residual runs the other way too: a short
+        /// real command drawn entirely from the base64 alphabet can decode to printable garbage and
+        /// be returned as that garbage rather than as itself.
+        /// </para>
+        /// <para>
+        /// <b>Bound.</b> Anything over <see cref="MaxAcceptedCommandPayloadChars"/> is rejected
+        /// before the decode. Whoever is on the other end of an SSH connection chooses this payload
+        /// and it reaches permanent, cross-session history, so the size of a single entry should not
+        /// be theirs to pick; 8 KiB is an order of magnitude past the longest command line anyone
+        /// types and two orders past every one Nova's own snippets emit. Checked on the encoded
+        /// text, before <c>Convert.FromBase64String</c> allocates anything.
         /// </para>
         /// </remarks>
         private static string? DecodeAcceptedCommandPayload(string[] parts)
@@ -1814,7 +1830,7 @@ namespace NovaTerminal.VT
             }
 
             string payload = parts[1];
-            if (string.IsNullOrWhiteSpace(payload))
+            if (string.IsNullOrWhiteSpace(payload) || payload.Length > MaxAcceptedCommandPayloadChars)
             {
                 return null;
             }

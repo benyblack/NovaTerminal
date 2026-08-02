@@ -224,6 +224,91 @@ public class Osc133AcceptedPayloadTests
         Assert.Equal("ls", Assert.Single(Accept("\x1b]133;C;bHM=\x07")));
     }
 
+    // ---- unicode --------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The plausibility check rejects U+FFFD because that is what UTF-8 decoding leaves behind when
+    /// the bytes were never text. It must not reject text that is merely not ASCII: a command line
+    /// with an accented path, CJK, or an emoji in a commit message is ordinary input, and Nova's own
+    /// snippets base64-encode UTF-8 precisely so it survives.
+    /// </summary>
+    [Theory]
+    [InlineData("git commit -m \"café naïve\"")]
+    [InlineData("cd /srv/データ && ls")]
+    [InlineData("echo \"\U0001F680 ship it\"")]
+    [InlineData("grep -r 'Übergröße' .")]
+    public void Base64PayloadOfNonAsciiText_IsDecoded(string command)
+    {
+        string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(command));
+
+        Assert.Equal(command, Assert.Single(Accept($"\x1b]133;C;{encoded}\x07")));
+    }
+
+    /// <summary>
+    /// Non-ASCII in the <em>plain-text</em> reading too, which is a different code path: it never
+    /// decodes, so it reaches <c>IsPlausibleCommandText</c> as-is.
+    /// </summary>
+    [Fact]
+    public void PlainTextPayloadWithNonAsciiText_IsPassedThrough()
+    {
+        Assert.Equal(
+            "ls /srv/データ",
+            Assert.Single(Accept("\x1b]133;C;ls /srv/データ\x07")));
+    }
+
+    // ---- the bound ------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The size bound. Whoever is on the other end of an SSH connection chooses this payload and it
+    /// reaches permanent, cross-session history, so the size of one entry is not theirs to pick.
+    /// Rejected on the encoded length, before <c>Convert.FromBase64String</c> allocates anything.
+    /// </summary>
+    /// <remarks>
+    /// The event still fires - <c>C</c> is the lifecycle edge that closes the command-input window
+    /// whatever it carries, and swallowing it for an oversized payload would hand a remote host a
+    /// way to jam the grid reader open instead.
+    /// </remarks>
+    [Fact]
+    public void OversizePayload_FiresWithNullTextRatherThanBeingDecoded()
+    {
+        string command = new string('a', AnsiParser.MaxAcceptedCommandPayloadChars);
+        string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(command));
+        Assert.True(encoded.Length > AnsiParser.MaxAcceptedCommandPayloadChars);
+
+        List<string?> accepted = Accept($"\x1b]133;C;{encoded}\x07");
+
+        Assert.Single(accepted);
+        Assert.Null(accepted[0]);
+    }
+
+    /// <summary>
+    /// An oversized <em>plain-text</em> payload is bounded on the same check, before the
+    /// attribute/plausibility reading it would otherwise sail through.
+    /// </summary>
+    [Fact]
+    public void OversizePlainTextPayload_IsNotTreatedAsCommandText()
+    {
+        string payload = "echo " + new string('x', AnsiParser.MaxAcceptedCommandPayloadChars);
+
+        Assert.Null(Assert.Single(Accept($"\x1b]133;C;{payload}\x07")));
+    }
+
+    /// <summary>
+    /// The boundary is not so tight that a long-but-real command line is lost. A payload right at
+    /// the cap still decodes.
+    /// </summary>
+    [Fact]
+    public void PayloadAtExactlyTheCap_IsStillDecoded()
+    {
+        // Pick a command length whose base64 encoding lands exactly on the cap.
+        int rawBytes = (AnsiParser.MaxAcceptedCommandPayloadChars / 4) * 3;
+        string command = "echo " + new string('a', rawBytes - 5);
+        string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(command));
+        Assert.Equal(AnsiParser.MaxAcceptedCommandPayloadChars, encoded.Length);
+
+        Assert.Equal(command, Assert.Single(Accept($"\x1b]133;C;{encoded}\x07")));
+    }
+
     /// <summary>
     /// Extra FinalTerm parameters after the payload are ignored rather than making the mark
     /// undecodable.

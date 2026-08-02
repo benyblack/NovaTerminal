@@ -48,6 +48,32 @@ internal sealed class CapturePipeline
     private string? _pendingEntryId;
     private string? _pendingCommandText;
 
+    /// <summary>
+    /// Whether the current prompt cycle has already contributed a structured history entry.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A volume bound, and the reason it exists is that the writer of an <c>OSC 133;C</c> is not
+    /// necessarily a shell. Over SSH the marks come from whatever is on the other end of the
+    /// connection, and any process that can write to the pane's stdout can write a <c>C</c>: a
+    /// <c>cat</c> of a crafted file does it locally too. Entries land in the global, cross-session
+    /// history, so an unbounded emitter is an unbounded writer of other sessions' suggestions.
+    /// </para>
+    /// <para>
+    /// One per cycle rather than a rate limit because it is the bound the real integrations already
+    /// satisfy: a prompt cycle is by construction one accepted command, and all four of Nova's own
+    /// emitters - plus iTerm2's, VS Code's and starship's - emit exactly one <c>C</c> between the
+    /// <c>B</c> that opened the input line and the <c>D</c> that closed it. Nothing legitimate is
+    /// being clipped; a flood is.
+    /// </para>
+    /// <para>
+    /// Reset by every edge that starts a new cycle - <c>A</c>, <c>B</c> and <c>D</c> - rather than
+    /// by <c>D</c> alone, because a shell that omits <c>D</c> (or whose command was interrupted)
+    /// must not be locked out of capture for the rest of the session.
+    /// </para>
+    /// </remarks>
+    private bool _structuredEntryWrittenThisCycle;
+
     public CapturePipeline(
         IHistoryStore historyStore,
         ISecretsFilter secretsFilter,
@@ -171,6 +197,13 @@ internal sealed class CapturePipeline
             _context.ObserveStructuredCommandCaptureMarker();
         }
 
+        if (shellEvent.Type is ShellIntegrationEventType.PromptReady or
+            ShellIntegrationEventType.CommandStarted or
+            ShellIntegrationEventType.CommandFinished)
+        {
+            _structuredEntryWrittenThisCycle = false;
+        }
+
         switch (shellEvent.Type)
         {
             case ShellIntegrationEventType.WorkingDirectoryChanged:
@@ -209,12 +242,21 @@ internal sealed class CapturePipeline
             return;
         }
 
+        // The volume bound (see _structuredEntryWrittenThisCycle). Checked after the marker
+        // observations above, which are lifecycle facts and stay true however many C marks arrive,
+        // and before any history write.
+        if (_structuredEntryWrittenThisCycle)
+        {
+            return;
+        }
+
         // The first-command double-capture guard: the heuristic path already wrote this exact command
         // moments ago, so let its entry stand and let CommandFinished patch that one.
         string normalizedCommandText = NormalizeCommandText(commandText);
         if (!string.IsNullOrWhiteSpace(_pendingEntryId) &&
             string.Equals(_pendingCommandText, normalizedCommandText, StringComparison.Ordinal))
         {
+            _structuredEntryWrittenThisCycle = true;
             return;
         }
 
@@ -239,6 +281,7 @@ internal sealed class CapturePipeline
             await _historyStore.AppendAsync(entry);
             _pendingEntryId = entry.Id;
             _pendingCommandText = normalizedCommandText;
+            _structuredEntryWrittenThisCycle = true;
         }
         catch
         {
