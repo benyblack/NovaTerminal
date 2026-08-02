@@ -117,6 +117,91 @@ public class MarklessSubmissionAccumulatorTests
             MarklessSubmissionAccumulator.ClassifyKey(key, modifiers, wasHandledByAssist: false));
     }
 
+    /// <summary>
+    /// `Enter` and `Backspace` are modeled only completely unmodified, and the reason is the kitty
+    /// keyboard protocol rather than the legacy encoder. With the disambiguate tier active,
+    /// `TerminalView` encodes a modified Enter or Backspace as CSI u — `Ctrl+Backspace` becomes
+    /// `CSI 127;5u`, `Shift+Enter` becomes `CSI 13;2u` — and takes the early return, so
+    /// `BackspaceObserved` / `EnterObserved` never fire. A kitty-aware line editor deletes a whole
+    /// word on that sequence while the accumulator, having been told nothing, keeps every
+    /// character. The modifier is invisible by the time the observation events arrive, so the
+    /// refusal has to happen here.
+    /// </summary>
+    [Theory]
+    [InlineData(Key.Back, KeyModifiers.Control)]
+    [InlineData(Key.Back, KeyModifiers.Shift)]
+    [InlineData(Key.Enter, KeyModifiers.Control)]
+    [InlineData(Key.Enter, KeyModifiers.Shift)]
+    public void ModifiedEnterAndBackspace_Poison(Key key, KeyModifiers modifiers)
+    {
+        Assert.Equal(
+            AccumulatorKeyEffect.Poison,
+            MarklessSubmissionAccumulator.ClassifyKey(key, modifiers, wasHandledByAssist: false));
+    }
+
+    /// <summary>
+    /// The <c>AltGr</c> carve-out. Windows Avalonia reports <c>AltGr</c> as <c>Control|Alt</c>, so
+    /// without this a German, French, Nordic, Turkish or Polish user poisons the line on every
+    /// <c>@</c>, <c>{</c>, <c>[</c>, <c>\</c>, <c>|</c> and <c>~</c> — which is to say, captures
+    /// nothing.
+    /// </summary>
+    /// <remarks>
+    /// It stays fail-closed because <c>TerminalView</c> sends nothing to the PTY for
+    /// <c>Ctrl+Alt</c> plus a text-producing key: <c>EncodeKittyKey</c> returns null on the
+    /// <c>Control|Alt</c> pair, <c>EncodeAltKey</c> returns null for it, and the legacy <c>Ctrl</c>
+    /// branch requires <c>!Alt</c>. The only path to the shell is the composed <c>WM_CHAR</c>,
+    /// which arrives as <c>OnTextInput</c> and is appended — so the accumulator sees every change
+    /// this keypress makes to the line.
+    /// </remarks>
+    [Theory]
+    [InlineData(Key.Q)]        // AltGr+Q -> '@' on a German layout
+    [InlineData(Key.D2)]       // AltGr+2 -> '@' on many layouts
+    [InlineData(Key.Oem5)]     // AltGr+<key> -> '\' or '|' depending on layout
+    [InlineData(Key.Oem102)]
+    [InlineData(Key.NumPad7)]
+    public void AltGrPlusATextProducingKey_LeavesTheBufferAlone(Key key)
+    {
+        Assert.Equal(
+            AccumulatorKeyEffect.None,
+            MarklessSubmissionAccumulator.ClassifyKey(
+                key, KeyModifiers.Control | KeyModifiers.Alt, wasHandledByAssist: false));
+    }
+
+    /// <summary>
+    /// The other half of the carve-out: <c>Ctrl+Alt</c> plus a key that does <em>not</em> produce
+    /// text still poisons, because those <em>do</em> reach the shell as control bytes and the
+    /// accumulator never learns what the line editor did with them.
+    /// </summary>
+    [Theory]
+    [InlineData(Key.Enter)]
+    [InlineData(Key.Back)]
+    [InlineData(Key.Tab)]
+    [InlineData(Key.Escape)]
+    [InlineData(Key.Left)]
+    [InlineData(Key.Delete)]
+    public void AltGrPlusANonTextKey_StillPoisons(Key key)
+    {
+        Assert.Equal(
+            AccumulatorKeyEffect.Poison,
+            MarklessSubmissionAccumulator.ClassifyKey(
+                key, KeyModifiers.Control | KeyModifiers.Alt, wasHandledByAssist: false));
+    }
+
+    /// <summary>
+    /// The carve-out is for <c>AltGr</c>, not for "any pile of modifiers". Adding <c>Meta</c> makes
+    /// it an application chord again on every platform that has one.
+    /// </summary>
+    [Fact]
+    public void CtrlAltMetaPlusATextProducingKey_Poisons()
+    {
+        Assert.Equal(
+            AccumulatorKeyEffect.Poison,
+            MarklessSubmissionAccumulator.ClassifyKey(
+                Key.Q,
+                KeyModifiers.Control | KeyModifiers.Alt | KeyModifiers.Meta,
+                wasHandledByAssist: false));
+    }
+
     [Theory]
     [InlineData(Key.A, KeyModifiers.None)]
     [InlineData(Key.A, KeyModifiers.Shift)]
@@ -127,7 +212,6 @@ public class MarklessSubmissionAccumulatorTests
     [InlineData(Key.Divide, KeyModifiers.None)]
     [InlineData(Key.Enter, KeyModifiers.None)]
     [InlineData(Key.Back, KeyModifiers.None)]
-    [InlineData(Key.Back, KeyModifiers.Control)]
     [InlineData(Key.LeftShift, KeyModifiers.None)]
     public void ModeledAndPrintableKeys_LeaveTheBufferAlone(Key key, KeyModifiers modifiers)
     {

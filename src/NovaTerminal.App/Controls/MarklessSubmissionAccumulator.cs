@@ -27,6 +27,12 @@ namespace NovaTerminal.Controls
     /// mechanism. Recording nothing is recoverable; recording a command the user never ran is not.
     /// </para>
     /// <para>
+    /// <b>It is not the last gate either.</b> Knowing what the user typed is not the same as knowing
+    /// the shell was listening: at a no-echo prompt (`ssh` asking for a password) every keystroke
+    /// still arrives here. <c>TerminalPane.ReadEchoedMarklessSubmission</c> therefore requires this
+    /// class's answer to be painted on the grid at the cursor before it is used.
+    /// </para>
+    /// <para>
     /// Deletable in one commit once every session has real `OSC 133` marks.
     /// </para>
     /// </remarks>
@@ -40,7 +46,17 @@ namespace NovaTerminal.Controls
         internal const int MaxTrackedLength = 8192;
 
         private readonly StringBuilder _buffer = new();
-        private bool _poisoned;
+
+        /// <remarks>
+        /// <c>volatile</c> because <see cref="Poison"/> is reachable off the UI thread:
+        /// <c>AgentSessionRegistration.InputInjected</c> fires on whatever thread the agent-host
+        /// IPC endpoint is serving, and <c>TerminalPane.NotifyExternalInputSent</c> calls straight
+        /// through. Every other member runs on the UI thread, so this one write is the whole of the
+        /// cross-thread surface — and a poison that the UI thread never observes is a command the
+        /// user never typed written to permanent history. Same reasoning, and the same fix, as the
+        /// pane's <c>_hasUnechoedInput</c>.
+        /// </remarks>
+        private volatile bool _poisoned;
 
         internal bool IsPoisoned => _poisoned;
 
@@ -156,18 +172,41 @@ namespace NovaTerminal.Controls
                 return AccumulatorKeyEffect.Reset;
             }
 
-            // Enter submits. The reset happens on the Enter path (after the capture read), not
-            // here, so this is only saying "do not poison". Alt+Enter is not a submit: TerminalView's
-            // Alt-sends-ESC branch runs first and it becomes an escape-prefixed chord.
-            if (key == Key.Enter && !isAlt)
+            // Enter submits and Backspace chops, and both are modeled — but only completely
+            // unmodified. Any modifier at all poisons, for a reason that is not obvious from the
+            // legacy encoder: with the kitty keyboard protocol's disambiguate tier active,
+            // TerminalView encodes a *modified* Enter or Backspace as a CSI u sequence
+            // (`Ctrl+Backspace` -> `CSI 127;5u`, `Shift+Enter` -> `CSI 13;2u`) and takes the early
+            // return, so `EnterObserved` / `BackspaceObserved` never fire. The accumulator would
+            // then keep every character while a kitty-aware line editor deleted a whole word, or
+            // keep collecting on a line the shell has already broken. The modifier is not visible
+            // in the events this class is fed, so the classifier has to refuse it up front.
+            //
+            // Cost: one lost capture per `Ctrl+Backspace` or `Shift+Enter`. That is the fail-closed
+            // direction, and gating on "is kitty active right now" instead would make the
+            // classification depend on mutable terminal state that can change mid-line.
+            if ((key == Key.Enter || key == Key.Back) && modifiers == KeyModifiers.None)
             {
                 return AccumulatorKeyEffect.None;
             }
 
-            // Backspace is modeled; BackspaceObserved does the chop. TerminalView ignores Ctrl on
-            // Key.Back (it sends a plain DEL either way), so Ctrl+Backspace is modeled too. Alt is
-            // again intercepted upstream and is a chord.
-            if (key == Key.Back && !isAlt)
+            // AltGr. On Windows, Avalonia reports it as Control|Alt — there is no separate
+            // KeyModifiers.AltGr — so without this carve-out every accented or symbol character
+            // that needs AltGr on a German, French, Nordic, Turkish or Polish layout would poison
+            // the line it appears in. That is `@`, `{`, `[`, `\`, `|`, `~` and more: on those
+            // layouts the accumulator would capture essentially nothing.
+            //
+            // This is fail-closed, not a hole, and the proof is in TerminalView: for Ctrl+Alt plus
+            // a text-producing key it sends *nothing* to the PTY. `EncodeKittyKey` returns null on
+            // the Control|Alt pair (TerminalInputModeEncoder.cs), `EncodeAltKey` returns null for
+            // the same pair, and the legacy Ctrl branch requires `!Alt`. So the only way those
+            // bytes reach the shell is the composed WM_CHAR that arrives as `OnTextInput` — which
+            // is exactly the event this class observes and appends. The keypress changes the line
+            // only through a path the accumulator can see.
+            //
+            // Non-text-producing Ctrl+Alt chords (Enter, Backspace, Tab, Escape, arrows) fall
+            // through to the poison below, because those *do* reach the shell as control bytes.
+            if (isCtrl && isAlt && !isMeta && IsTextProducing(key))
             {
                 return AccumulatorKeyEffect.None;
             }
