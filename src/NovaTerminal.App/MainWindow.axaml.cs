@@ -2601,8 +2601,23 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// The single funnel every pane in this window passes through, and therefore the only
+        /// correct place to inject per-pane window state.
+        /// </summary>
+        /// <remarks>
+        /// The three creation sites in this file call it directly; panes rebuilt by
+        /// <see cref="SessionManager"/> during session restore reach it via
+        /// <c>InitializeRestoredTabs</c> -> <c>WireControlTree</c>. Assigning
+        /// <c>CommandAssistServices</c> at the creation sites instead missed the restore path
+        /// entirely, and a restored pane without the graph throws out of
+        /// <c>ApplyShellIntegrationLaunchPlan</c> on the PTY spawn path - which the spawn's catch
+        /// turns into "[ERROR] Failed to spawn process" and no session at all. Injecting here
+        /// makes "the window wired this pane" and "the pane has its dependencies" the same fact.
+        /// </remarks>
         private void WirePane(TerminalPane pane)
         {
+            pane.CommandAssistServices = _commandAssistServices;
             pane.SshInteractionHandler = _sshInteractionService;
             pane.RequestRemoteFilesSidebarTransfer -= OnPaneRequestRemoteFilesSidebarTransfer;
             pane.WorkingDirectoryChanged -= OnPaneWorkingDirectoryChanged;
@@ -3744,9 +3759,8 @@ namespace NovaTerminal
                 : _settings.Profiles.Find(p => p.Id == profile.Id) ?? profile;
             var paneToReplace = _currentPane;
             var replacementPane = new TerminalPane(resolvedProfile, diagnosticsLevel);
-            replacementPane.CommandAssistServices = _commandAssistServices;
-            replacementPane.ApplySettings(_settings);
             WirePane(replacementPane);
+            replacementPane.ApplySettings(_settings);
 
             if (!ReplacePaneInVisualTree(paneToReplace, replacementPane))
             {
@@ -3871,7 +3885,6 @@ namespace NovaTerminal
             }
 
             var pane = new TerminalPane(profile, sshDiagnostics);
-            pane.CommandAssistServices = _commandAssistServices;
             WirePane(pane);
 
             pane.ApplySettings(_settings);
@@ -4033,9 +4046,8 @@ namespace NovaTerminal
                 newPane = new TerminalPane(originalPane.ShellCommand);
             }
 
-            newPane.CommandAssistServices = _commandAssistServices;
-            newPane.ApplySettings(_settings);
             WirePane(newPane);
+            newPane.ApplySettings(_settings);
             if (TryGetSelectedTab(out var splitOwnerTab))
             {
                 AgentHost.AgentSessionRegistry.Instance.SetTabAssociation(newPane.PaneId, GetPersistentTabId(splitOwnerTab));

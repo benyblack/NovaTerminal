@@ -164,13 +164,16 @@ namespace NovaTerminal.Controls
         internal CommandAssistBarViewModel? CommandAssistViewModel => _commandAssistController?.ViewModel;
 
         /// <summary>
-        /// The Command Assist dependency graph this pane uses. Assigned by <c>MainWindow</c> right
-        /// after construction, from the single instance built at the App composition root.
+        /// The Command Assist dependency graph this pane uses. Assigned by <c>MainWindow.WirePane</c>,
+        /// from the single instance built at the App composition root.
         /// </summary>
         /// <remarks>
-        /// A property rather than a constructor parameter because Avalonia instantiates
-        /// <see cref="TerminalPane"/> from XAML and through three different constructors; property
-        /// injection at pane-creation time keeps all of them working. Not defaulted: a pane that
+        /// A property rather than a constructor parameter because this control has four public
+        /// constructors plus two internal settings-carrying overloads, and panes are built from
+        /// three different places (new tab, split, session restore); property injection at the one
+        /// wiring funnel keeps all of them working without threading the graph through every
+        /// signature. (It is not about XAML: <c>TerminalPane.axaml</c> only declares
+        /// <c>x:Class</c> - no markup anywhere instantiates the type.) Not defaulted: a pane that
         /// reaches Command Assist initialization without one throws (see
         /// <c>RequireCommandAssistServices</c>) instead of quietly building a second graph, which is
         /// exactly the failure mode the removed static locator made invisible.
@@ -992,8 +995,8 @@ namespace NovaTerminal.Controls
         {
             return _commandAssistServices ?? throw new InvalidOperationException(
                 "TerminalPane.CommandAssistServices was not assigned before Command Assist " +
-                "initialized. MainWindow injects the instance built by AppServices at the App " +
-                "composition root; a pane created outside that path must set it explicitly.");
+                "initialized. MainWindow.WirePane injects the instance built by AppServices at the " +
+                "App composition root; a pane created outside that path must set it explicitly.");
         }
 
         private void BindCommandAssistViews(CommandAssistBarViewModel? viewModel)
