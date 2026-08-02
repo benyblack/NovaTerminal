@@ -121,6 +121,17 @@ public sealed class CommandAssistController
         }
     }
 
+    /// <summary>
+    /// Opens explicit history search (<c>Ctrl+R</c>).
+    /// </summary>
+    /// <remarks>
+    /// The label distinguishes the two things this surface can be. With a readable command line the
+    /// rows are filtered by it, and "History" says so. Without one - a markless session, a closed
+    /// lifecycle gate - there is no query and there will never be one, so the rows are the recency
+    /// list and typing will not narrow them. Calling that "History" too presents a filter box that
+    /// cannot filter, and the user reads the first keystroke that changes nothing as a bug rather
+    /// than as the documented degraded behavior.
+    /// </remarks>
     public bool OpenHistorySearch()
     {
         if (_context.IsAltScreenActive)
@@ -130,7 +141,7 @@ public sealed class CommandAssistController
         }
 
         _state.OpenSearch();
-        ViewModel.ModeLabel = "History";
+        ViewModel.ModeLabel = TryReadQuerySnapshot() == null ? "History - recent" : "History";
         ViewModel.IsPopupOpen = true;
         ViewModel.IsVisible = true;
         QueueRefreshSuggestions();

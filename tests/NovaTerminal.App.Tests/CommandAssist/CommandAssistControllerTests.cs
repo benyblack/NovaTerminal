@@ -222,7 +222,10 @@ public sealed class CommandAssistControllerTests
 
         Assert.True(opened);
         Assert.True(controller.ViewModel.IsVisible);
-        Assert.Equal("History", controller.ViewModel.ModeLabel);
+
+        // No grid provider on the default harness, so this is a degraded session and the label says
+        // so - see CommandAssistGridTruthTests for the pair of cases side by side.
+        Assert.Equal("History - recent", controller.ViewModel.ModeLabel);
     }
 
     [Fact]

@@ -146,6 +146,69 @@ public sealed class CommandAssistGridTruthTests
         Assert.Null(harness.Controller.TryReadQuerySnapshot());
     }
 
+    /// <summary>
+    /// <c>B</c> rides inside the prompt string, so a prompt framework that repaints mid-edit
+    /// re-emits it with the window already open. That has to be a no-op: treating a second
+    /// <c>B</c> as a toggle, or as evidence that a new command line started, would blank the query
+    /// under the user's hands. The newest mark wins and nothing else changes.
+    /// </summary>
+    [Fact]
+    public async Task ASecondPromptMarkInsideTheWindow_ChangesNothing()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("git st");
+        Assert.Equal("git st", harness.Controller.TryReadQuerySnapshot()?.Text);
+
+        await harness.PromptReadyAsync();
+
+        Assert.Equal("git st", harness.Controller.TryReadQuerySnapshot()?.Text);
+    }
+
+    /// <summary>
+    /// <c>Ctrl+C</c> at a prompt. Nothing ran, so the shell emits no <c>C</c> and no <c>D</c> - it
+    /// prints <c>^C</c> and a fresh prompt, which re-emits <c>B</c>. The gate legitimately stays
+    /// open across the whole thing; the only state that moves is which mark is newest. This is the
+    /// one common interrupt path that reaches neither closer, so it is pinned rather than inferred.
+    /// </summary>
+    [Fact]
+    public async Task CtrlCAtAPrompt_LeavesTheGateOpenAndTheNextMarkTakesOver()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("git stat");
+
+        // The interrupt, then the shell's new prompt. No submission event of any kind.
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine(string.Empty);
+
+        AssistQuerySnapshot? snapshot = harness.Controller.TryReadQuerySnapshot();
+        Assert.True(snapshot.HasValue);
+        Assert.Equal(string.Empty, snapshot!.Value.Text);
+    }
+
+    /// <summary>
+    /// A full-screen TUI may emit its own <c>OSC 133;B</c> - a program that draws a prompt is
+    /// entitled to. The gate must refuse to open, so that "never open while the alt screen is up"
+    /// is a property of the flag itself and not just of every consumer remembering to check both.
+    /// </summary>
+    [Fact]
+    public async Task WhileTheAltScreenIsUp_APromptMarkDoesNotOpenTheGate()
+    {
+        var harness = Harness.Create();
+        harness.Controller.HandleAltScreenChanged(true);
+
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("git status");
+
+        Assert.Null(harness.Controller.TryReadQuerySnapshot());
+
+        // Leaving the alt screen does not reopen it either: the shell's own prompt repaint does.
+        harness.Controller.HandleAltScreenChanged(false);
+
+        Assert.Null(harness.Controller.TryReadQuerySnapshot());
+    }
+
     // ---- desync immunity (the V1 failure matrix) -----------------------------------------
 
     /// <summary>
@@ -266,10 +329,28 @@ public sealed class CommandAssistGridTruthTests
         await harness.WaitForConditionAsync(() => harness.Controller.Suggestions.Count > 0);
 
         Assert.True(opened);
-        Assert.Equal("History", harness.Controller.ViewModel.ModeLabel);
+
+        // The label is the honest one: there is no query, there will not be one, and typing will
+        // not narrow these rows. "History" on its own presents a filter box that cannot filter.
+        Assert.Equal("History - recent", harness.Controller.ViewModel.ModeLabel);
         Assert.Equal(string.Empty, harness.Controller.ViewModel.QueryText);
         Assert.Contains(harness.Controller.Suggestions, s => s.InsertText == "git status");
         Assert.Contains(harness.Controller.Suggestions, s => s.InsertText == "dotnet build");
+    }
+
+    /// <summary>The other side of the label decision: a readable command line does filter.</summary>
+    [Fact]
+    public async Task Integrated_ExplicitHistorySearchIsLabelledAsAFilter()
+    {
+        var harness = Harness.Create(seed: new[] { "dotnet build", "git status" });
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("git");
+
+        harness.Controller.OpenHistorySearch();
+        await harness.WaitForConditionAsync(() => harness.Controller.Suggestions.Count > 0);
+
+        Assert.Equal("History", harness.Controller.ViewModel.ModeLabel);
+        Assert.Equal("git", harness.Controller.ViewModel.QueryText);
     }
 
     /// <summary>
