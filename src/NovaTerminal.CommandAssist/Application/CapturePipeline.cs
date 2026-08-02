@@ -48,6 +48,32 @@ internal sealed class CapturePipeline
     private string? _pendingEntryId;
     private string? _pendingCommandText;
 
+    /// <summary>
+    /// Whether the current prompt cycle has already contributed a structured history entry.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A volume bound, and the reason it exists is that the writer of an <c>OSC 133;C</c> is not
+    /// necessarily a shell. Over SSH the marks come from whatever is on the other end of the
+    /// connection, and any process that can write to the pane's stdout can write a <c>C</c>: a
+    /// <c>cat</c> of a crafted file does it locally too. Entries land in the global, cross-session
+    /// history, so an unbounded emitter is an unbounded writer of other sessions' suggestions.
+    /// </para>
+    /// <para>
+    /// One per cycle rather than a rate limit because it is the bound the real integrations already
+    /// satisfy: a prompt cycle is by construction one accepted command, and all four of Nova's own
+    /// emitters - plus iTerm2's, VS Code's and starship's - emit exactly one <c>C</c> between the
+    /// <c>B</c> that opened the input line and the <c>D</c> that closed it. Nothing legitimate is
+    /// being clipped; a flood is.
+    /// </para>
+    /// <para>
+    /// Reset by every edge that starts a new cycle - <c>A</c>, <c>B</c> and <c>D</c> - rather than
+    /// by <c>D</c> alone, because a shell that omits <c>D</c> (or whose command was interrupted)
+    /// must not be locked out of capture for the rest of the session.
+    /// </para>
+    /// </remarks>
+    private bool _structuredEntryWrittenThisCycle;
+
     public CapturePipeline(
         IHistoryStore historyStore,
         ISecretsFilter secretsFilter,
@@ -160,9 +186,22 @@ internal sealed class CapturePipeline
             _context.ObserveShellIntegrationMarker();
         }
 
-        if (shellEvent.Type is ShellIntegrationEventType.CommandAccepted)
+        // Deliberately conditioned on the text rather than on the event type. A C mark with no
+        // payload is a lifecycle edge and nothing more; treating it as proof that the shell reports
+        // command text would stand the heuristic path down in favour of a structured path that
+        // never writes an entry, and the session would capture nothing at all. See
+        // AssistSessionContext.HasObservedStructuredCommandCaptureMarker.
+        if (shellEvent.Type is ShellIntegrationEventType.CommandAccepted &&
+            !string.IsNullOrWhiteSpace(shellEvent.CommandText))
         {
             _context.ObserveStructuredCommandCaptureMarker();
+        }
+
+        if (shellEvent.Type is ShellIntegrationEventType.PromptReady or
+            ShellIntegrationEventType.CommandStarted or
+            ShellIntegrationEventType.CommandFinished)
+        {
+            _structuredEntryWrittenThisCycle = false;
         }
 
         switch (shellEvent.Type)
@@ -184,13 +223,29 @@ internal sealed class CapturePipeline
 
     private async Task CaptureAcceptedCommandAsync(ShellIntegrationEvent shellEvent)
     {
-        if (!_context.IsShellIntegrationEnabled || _context.IsAltScreenActive)
+        // IsShellIntegrationLive rather than IsShellIntegrationEnabled: an accepted-command event
+        // only reaches here from an armed ShellLifecycleTracker, and since Phase 2b a tracker is
+        // armed for remote sessions we could not inject a bootstrap into. The mark is the evidence.
+        if (!_context.IsShellIntegrationLive || _context.IsAltScreenActive)
         {
             return;
         }
 
+        // A textless C (see AnsiParser.DecodeAcceptedCommandPayload) has already done its work:
+        // the marker observation above, and the gate close the controller applied before calling
+        // us. There is nothing to persist and nothing to dedup against, and crucially the pending
+        // entry the heuristic path wrote for this same command is left intact so CommandFinished
+        // can still patch its exit code and duration.
         string commandText = shellEvent.CommandText?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(commandText))
+        {
+            return;
+        }
+
+        // The volume bound (see _structuredEntryWrittenThisCycle). Checked after the marker
+        // observations above, which are lifecycle facts and stay true however many C marks arrive,
+        // and before any history write.
+        if (_structuredEntryWrittenThisCycle)
         {
             return;
         }
@@ -201,6 +256,7 @@ internal sealed class CapturePipeline
         if (!string.IsNullOrWhiteSpace(_pendingEntryId) &&
             string.Equals(_pendingCommandText, normalizedCommandText, StringComparison.Ordinal))
         {
+            _structuredEntryWrittenThisCycle = true;
             return;
         }
 
@@ -225,6 +281,7 @@ internal sealed class CapturePipeline
             await _historyStore.AppendAsync(entry);
             _pendingEntryId = entry.Id;
             _pendingCommandText = normalizedCommandText;
+            _structuredEntryWrittenThisCycle = true;
         }
         catch
         {

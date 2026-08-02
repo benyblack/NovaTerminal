@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using NovaTerminal.Shell;
 using NovaTerminal.Platform;
@@ -13,6 +14,7 @@ using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia.Controls.Shapes;
 using Avalonia.Styling;
+using NovaTerminal.CommandAssist.ShellIntegration.Remote;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Shell.Shortcuts;
 
@@ -391,6 +393,8 @@ namespace NovaTerminal
                     }
                 };
             }
+
+            WireRemoteShellIntegrationRow();
 
             if (btnSetDefault != null)
             {
@@ -1381,6 +1385,80 @@ namespace NovaTerminal
             validationMessage.IsVisible = false;
         }
 
+
+        /// <summary>
+        /// The "Remote shell integration" row (V2 Phase 2b): pick a remote shell, put that snippet on
+        /// the clipboard, and show what to do with it.
+        /// </summary>
+        /// <remarks>
+        /// No setting is read or written here - this row is an action, not a preference. Whether Nova
+        /// consumes remote marks at all is governed by the existing shell-integration setting, and
+        /// whether the remote host emits them is governed by whether the user installed the snippet.
+        /// Neither is something this row can toggle.
+        /// </remarks>
+        private void WireRemoteShellIntegrationRow()
+        {
+            var shellList = this.FindControl<ComboBox>("RemoteShellIntegrationShellList");
+            var copyButton = this.FindControl<Button>("BtnCopyRemoteShellIntegration");
+            var status = this.FindControl<TextBlock>("RemoteShellIntegrationStatus");
+            if (shellList == null || copyButton == null)
+            {
+                return;
+            }
+
+            shellList.ItemsSource = RemoteShellIntegrationSnippets.All
+                .Select(RemoteShellIntegrationSnippets.GetDisplayName)
+                .ToList();
+            shellList.SelectedIndex = 0;
+
+            copyButton.Click += async (_, _) =>
+            {
+                int index = Math.Clamp(
+                    shellList.SelectedIndex,
+                    0,
+                    RemoteShellIntegrationSnippets.All.Count - 1);
+                await CopyRemoteShellIntegrationSnippetAsync(
+                    RemoteShellIntegrationSnippets.All[index],
+                    status);
+            };
+        }
+
+        private async System.Threading.Tasks.Task CopyRemoteShellIntegrationSnippetAsync(
+            RemoteShellIntegrationShell shell,
+            TextBlock? status)
+        {
+            try
+            {
+                var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                if (clipboard == null)
+                {
+                    ShowRemoteShellIntegrationStatus(status, "Clipboard is not available.");
+                    return;
+                }
+
+                await clipboard.SetTextAsync(RemoteShellIntegrationSnippets.Read(shell));
+                ShowRemoteShellIntegrationStatus(
+                    status,
+                    RemoteShellIntegrationSnippets.BuildInstallInstructions(shell));
+            }
+            catch (Exception ex)
+            {
+                // Reported in the row rather than swallowed: the whole point of the affordance is
+                // that the user now has the snippet, and silently not having it looks identical.
+                ShowRemoteShellIntegrationStatus(status, $"Could not copy the snippet: {ex.Message}");
+            }
+        }
+
+        private static void ShowRemoteShellIntegrationStatus(TextBlock? status, string message)
+        {
+            if (status == null)
+            {
+                return;
+            }
+
+            status.Text = message;
+            status.IsVisible = true;
+        }
 
         private void LoadCurrentSettings()
         {

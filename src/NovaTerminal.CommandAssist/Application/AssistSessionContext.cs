@@ -86,25 +86,58 @@ internal sealed class AssistSessionContext
     public bool IsShellIntegrationEnabled { get; private set; }
 
     /// <summary>
-    /// Whether any OSC 133 marker has been seen on this session. Reserved for the Phase 2 work that
-    /// lifts the SSH restrictions once a remote shell proves it is instrumented; nothing reads it
-    /// yet, and it is kept only so that the observation is not lost.
+    /// Whether any OSC 133 marker has been seen on this session.
     /// </summary>
+    /// <remarks>
+    /// V2 Phase 2b gave this a consumer. It is the runtime half of
+    /// <see cref="IsShellIntegrationLive"/>: an SSH session cannot be handed an injected bootstrap,
+    /// so the only evidence that the remote shell speaks OSC 133 is that it has spoken it.
+    /// </remarks>
     public bool HasObservedShellIntegrationMarker { get; private set; }
 
     /// <summary>
-    /// Whether a <c>CommandAccepted</c> (OSC 133;C) marker has been seen. This is the one that
-    /// matters for capture: until the shell proves it reports command text, the heuristic Enter-time
-    /// capture has to stand in for it.
+    /// Whether a <c>CommandAccepted</c> (OSC 133;C) marker <em>carrying command text</em> has been
+    /// seen. This is the one that matters for capture: until the shell proves it reports command
+    /// text, the heuristic Enter-time capture has to stand in for it.
     /// </summary>
+    /// <remarks>
+    /// The "carrying command text" qualifier is load-bearing since Phase 2b. A third-party remote
+    /// snippet may emit a bare <c>133;C</c> forever - it is a legal FinalTerm mark and iTerm2's and
+    /// VS Code's snippets send exactly that. Setting this flag on a textless C would stand the
+    /// heuristic path down in exchange for a structured path that never produces an entry, and the
+    /// session would silently capture nothing at all.
+    /// </remarks>
     public bool HasObservedStructuredCommandCaptureMarker { get; private set; }
+
+    /// <summary>
+    /// Whether this session is instrumented at all: either we injected a bootstrap
+    /// (<see cref="IsShellIntegrationEnabled"/>) or the shell has proved it emits OSC 133 without our
+    /// help (<see cref="HasObservedShellIntegrationMarker"/>).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The second disjunct is what makes an instrumented SSH host a first-class integrated session.
+    /// Injection cannot cross SSH - env-var overrides and <c>--rcfile</c> do not survive the hop - so
+    /// a remote that sources the shipped snippet has <see cref="IsShellIntegrationEnabled"/> false
+    /// forever while emitting a perfectly good mark stream.
+    /// </para>
+    /// <para>
+    /// The pane feeds the observation back through <see cref="UpdateSession"/> as well, and that is
+    /// not redundant: <see cref="UpdateSession"/> forgets observed markers when integration is
+    /// reported off, so without the feedback an ordinary directory change would wipe the
+    /// remote session's hard-won instrumented status. This disjunct covers the other direction - the
+    /// first <c>C</c> can reach the capture pipeline before the pane's update has been pumped
+    /// through the dispatcher, and the event itself is the better evidence.
+    /// </para>
+    /// </remarks>
+    public bool IsShellIntegrationLive => IsShellIntegrationEnabled || HasObservedShellIntegrationMarker;
 
     /// <summary>
     /// True when structured capture can be trusted to record this session's commands, which is what
     /// tells the heuristic Enter-time path to stand down.
     /// </summary>
     public bool IsStructuredCaptureActive =>
-        IsShellIntegrationEnabled && HasObservedStructuredCommandCaptureMarker;
+        IsShellIntegrationLive && HasObservedStructuredCommandCaptureMarker;
 
     /// <summary>
     /// Whether the shell is currently sitting in its line editor waiting for the user: opened by
@@ -229,6 +262,11 @@ internal sealed class AssistSessionContext
     public void ObserveShellIntegrationMarker() => HasObservedShellIntegrationMarker = true;
 
     /// <summary>Records that the shell emitted a command-accepted marker carrying command text.</summary>
+    /// <remarks>
+    /// Only ever called for a <c>133;C</c> that actually carried text - see the remarks on
+    /// <see cref="HasObservedStructuredCommandCaptureMarker"/> for why a bare <c>C</c> must not
+    /// reach here.
+    /// </remarks>
     public void ObserveStructuredCommandCaptureMarker() => HasObservedStructuredCommandCaptureMarker = true;
 
     /// <summary>Builds the immutable snapshot the help/fix providers are queried with.</summary>

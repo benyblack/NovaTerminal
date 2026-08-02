@@ -195,6 +195,58 @@ public sealed class BashShellIntegrationTests : IDisposable
         Assert.NotNull(userCommand);
     }
 
+    /// <summary>
+    /// The empty-Enter phantom (found reviewing PR #289; the bug predates it). bash runs
+    /// PROMPT_COMMAND after an empty Enter too, and on that path no user command ran - so nothing
+    /// had raised the DEBUG-trap busy flag, and the first entry of the user's own PROMPT_COMMAND
+    /// chain was captured as the accepted command. Anyone with a prompt framework installed got its
+    /// hook name written to permanent history every time they pressed Enter at an empty prompt.
+    /// </summary>
+    [Fact]
+    public void Bootstrap_OnEmptyEnter_CapturesNothing()
+    {
+        HarnessResult result = RunBash(
+            "\nexit 0\n",
+            extraInitLine: "__user_hook() { :; }\nPROMPT_COMMAND='__user_hook'");
+
+        var captured = result.Events.Where(e => e.Kind == "C").Select(e => e.DecodedCommand).ToList();
+
+        Assert.DoesNotContain(captured, t => t is not null && t.Contains("__user_hook", StringComparison.Ordinal));
+        Assert.Equal(new string?[] { "exit 0" }, captured);
+    }
+
+    /// <summary>
+    /// <c>$BASH_COMMAND</c> is the first SIMPLE COMMAND of the line, not the line: the bootstrap
+    /// recorded <c>true</c> for <c>true &amp;&amp; false</c>, i.e. the wrong text beside the other
+    /// branch's exit code. Reading the line back out of <c>history 1</c> is the fix.
+    /// </summary>
+    [Theory]
+    [InlineData("true && false", 1)]
+    [InlineData("false || true", 0)]
+    [InlineData("echo one | cat | cat", 0)]
+    public void Bootstrap_CapturesTheWholeLine_NotTheFirstSimpleCommand(string line, int expectedExit)
+    {
+        HarnessResult result = RunBash(line + "\nexit 0\n");
+
+        Assert.Contains(result.Events, e => e.Kind == "C" && e.DecodedCommand == line);
+        Assert.Contains(result.Events, e => e.Kind == "D" && e.DecodedFinish.exitCode == expectedExit);
+    }
+
+    /// <summary>
+    /// The DEBUG-trap filter used to skip anything beginning with <c>trap</c> or
+    /// <c>PROMPT_COMMAND</c>, silently dropping real user commands. Only <c>__nova_*</c> remains;
+    /// the busy-flag invariant is what actually keeps our own hooks out.
+    /// </summary>
+    [Fact]
+    public void Bootstrap_CapturesACommandBeginningWithTrap()
+    {
+        HarnessResult result = RunBash("trap-something --help 2>/dev/null\nexit 0\n");
+
+        Assert.Contains(
+            result.Events,
+            e => e.Kind == "C" && e.DecodedCommand == "trap-something --help 2>/dev/null");
+    }
+
     [Fact]
     public void Bootstrap_DoesNotCapturePromptHelperAsAcceptedCommand()
     {

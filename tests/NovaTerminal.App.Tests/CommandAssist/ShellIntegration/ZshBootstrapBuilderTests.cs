@@ -137,6 +137,45 @@ public sealed class ZshBootstrapBuilderTests : IDisposable
         Assert.DoesNotContain("date +%s%N", script);
     }
 
+    /// <summary>
+    /// EPOCHREALTIME is a zsh <em>parameter</em>, so the feature prefix is <c>+p:</c>. With
+    /// <c>+b:</c> (the builtin namespace, which has no EPOCHREALTIME in it) <c>zmodload -F</c>
+    /// fails, the error is swallowed by the <c>2&gt;/dev/null || true</c>, the module never loads,
+    /// and every duration silently degrades to a whole number of seconds. Nothing else in the
+    /// script would look wrong.
+    /// </summary>
+    [Fact]
+    public void BuildScript_LoadsEpochRealtimeAsAParameterNotABuiltin()
+    {
+        string script = ZshBootstrapBuilder.BuildScript();
+
+        Assert.Contains("zmodload -F zsh/datetime +p:EPOCHREALTIME", script);
+        Assert.DoesNotContain("+b:EPOCHREALTIME", script);
+    }
+
+    /// <summary>
+    /// The exit code reported on <c>133;D</c> has to come from a hook that runs FIRST. <c>$?</c>
+    /// inside a precmd hook is the status of whatever ran immediately before it, and our hook is
+    /// appended - so on any configuration with another precmd registered (oh-my-zsh,
+    /// powerlevel10k, a vcs_info hook) <c>$?</c> was that hook's status, i.e. almost always 0, and
+    /// every failing command was reported as a success. The prompt-mark hook still has to run last,
+    /// so the two jobs are split across two hooks at opposite ends of the array.
+    /// </summary>
+    [Fact]
+    public void BuildScript_SnapshotsTheExitCodeFromAPrependedHook()
+    {
+        string script = ZshBootstrapBuilder.BuildScript();
+
+        Assert.Contains("precmd_functions=(__nova_status_snapshot \"${precmd_functions[@]}\")", script);
+        Assert.Contains("__nova_last_status=$?", script);
+        Assert.Contains("local exit=$__nova_last_status", script);
+
+        // ...and the mark-applying hook is still the appended one.
+        int prependIndex = script.IndexOf("precmd_functions=(__nova_status_snapshot", StringComparison.Ordinal);
+        int appendIndex = script.IndexOf("precmd_functions+=(__nova_precmd)", StringComparison.Ordinal);
+        Assert.True(prependIndex > 0 && appendIndex > prependIndex);
+    }
+
     [Fact]
     public void WriteScript_WritesBootstrapAsZshrcInsideZshSubdirectory()
     {

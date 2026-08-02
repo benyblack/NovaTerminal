@@ -94,28 +94,60 @@ public static class BashBootstrapBuilder
         b.Append("    __nova_command_active=0").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
+        // $BASH_COMMAND is the first SIMPLE COMMAND of the line, not the line:
+        // `true && false` sets it to `true`, so reporting it as the accepted
+        // command records the wrong text alongside the other branch's exit
+        // code. bash-preexec's answer is the only one available - read the
+        // line back out of history, where readline stored it verbatim before
+        // execution, and strip the leading history number. The BASH_COMMAND
+        // fallback covers `set +o history` and a leading-space command
+        // swallowed by HISTCONTROL=ignorespace.
+        b.Append("__nova_history_line() {").Append(nl);
+        b.Append("    local line").Append(nl);
+        b.Append("    line=$(HISTTIMEFORMAT='' builtin history 1 2>/dev/null)").Append(nl);
+        b.Append("    line=\"${line#\"${line%%[![:space:]]*}\"}\"").Append(nl);
+        b.Append("    line=\"${line#*[[:space:]]}\"").Append(nl);
+        b.Append("    line=\"${line#\"${line%%[![:space:]]*}\"}\"").Append(nl);
+        b.Append("    printf '%s' \"$line\"").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
         // Bash has no native preexec. We approximate it via the DEBUG trap,
         // which fires before every simple command -- including from inside
-        // PROMPT_COMMAND. To capture only the user-entered command line, we
-        // arm a one-shot flag in PROMPT_COMMAND and disarm it on the first
-        // DEBUG fire that follows.
+        // PROMPT_COMMAND. To capture only the user-entered command line, the
+        // flag is held busy for the whole prompt cycle (__nova_precmd raises
+        // it, __nova_arm lowers it) and the first DEBUG fire after that is the
+        // user's line.
+        //
+        // Only __nova_* is filtered by name. `trap*` and `PROMPT_COMMAND*`
+        // were filtered too and silently dropped any user command starting
+        // with either word; the busy-for-the-whole-chain invariant is what
+        // actually keeps our own hooks out, so the name patterns were both
+        // unnecessary and harmful.
         b.Append("__nova_preexec() {").Append(nl);
         b.Append("    if [ \"$__nova_command_active\" = \"1\" ]; then").Append(nl);
         b.Append("        return").Append(nl);
         b.Append("    fi").Append(nl);
-        b.Append("    local cmd=\"$BASH_COMMAND\"").Append(nl);
-        b.Append("    case \"$cmd\" in").Append(nl);
-        b.Append("        __nova_*|trap*|PROMPT_COMMAND*) return ;;").Append(nl);
+        b.Append("    case \"$BASH_COMMAND\" in").Append(nl);
+        b.Append("        __nova_*) return ;;").Append(nl);
         b.Append("    esac").Append(nl);
-        b.Append("    local b64").Append(nl);
+        b.Append("    __nova_command_active=1").Append(nl);
+        b.Append("    local cmd b64").Append(nl);
+        b.Append("    cmd=$(__nova_history_line)").Append(nl);
+        b.Append("    [ -n \"$cmd\" ] || cmd=\"$BASH_COMMAND\"").Append(nl);
         b.Append("    b64=$(printf '%s' \"$cmd\" | base64 | tr -d '\\n')").Append(nl);
         b.Append("    printf '\\033]133;C;%s\\a' \"$b64\"").Append(nl);
         b.Append("    __nova_command_start_ms=$(__nova_now_ms)").Append(nl);
-        b.Append("    __nova_command_active=1").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
         b.Append("__nova_precmd() {").Append(nl);
         b.Append("    local exit=$?").Append(nl);
+        // FIRST statement after the status snapshot, and that ordering is the
+        // whole point: bash runs PROMPT_COMMAND after an EMPTY Enter too, and
+        // on that path no user command ran, so nothing raised the flag --
+        // leaving the first entry of the user's own PROMPT_COMMAND chain to be
+        // captured as a phantom accepted command. Raising it here restores the
+        // busy-for-the-whole-chain invariant; __nova_arm lowers it at the end.
+        b.Append("    __nova_command_active=1").Append(nl);
         b.Append("    __nova_emit_completion \"$exit\"").Append(nl);
         b.Append("    __nova_emit_prompt_ready").Append(nl);
         b.Append("}").Append(nl);

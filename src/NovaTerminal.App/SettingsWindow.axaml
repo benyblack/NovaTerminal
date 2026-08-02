@@ -574,6 +574,19 @@
 
                             <Grid ColumnDefinitions="*,360">
                                 <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Remote shell integration"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Nova cannot install shell integration over SSH. Copy the snippet for the remote shell, paste it on the host, and the command assistant works there too: history, suggestions read from the prompt line, exit codes and prompt-anchored placement. Filesystem path suggestions stay off for remote sessions - they would list the local disk."/>
+                                    <TextBlock Name="RemoteShellIntegrationStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
+                                    <ComboBox Name="RemoteShellIntegrationShellList" MinWidth="150"/>
+                                    <Button Name="BtnCopyRemoteShellIntegration" Classes="Pill" Content="Copy snippet"/>
+                                </StackPanel>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Classes="RowLabel" Text="Agent access (observe)"/>
                                     <TextBlock Classes="RowDesc" Text="Allow AI agents on this machine to read terminal sessions (screen and scrollback). Read-only: agents cannot type or open sessions. Screen content may include sensitive output."/>
                                 </StackPanel>
