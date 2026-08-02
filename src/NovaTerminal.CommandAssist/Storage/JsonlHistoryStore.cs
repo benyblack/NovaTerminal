@@ -36,7 +36,16 @@ namespace NovaTerminal.CommandAssist.Storage;
 /// </para>
 /// <para>
 /// <b>Corruption tolerance:</b> an unparseable line is skipped, not fatal. A truncated final line
-/// (a write interrupted by a crash) therefore costs one command, not the file.
+/// (a write interrupted by a crash) therefore costs one command, not the file. A failure to read
+/// the <i>file</i> is a different thing entirely and is handled differently - see
+/// <see cref="ReadFileUnsafeAsync"/>.
+/// </para>
+/// <para>
+/// <b>One instance per file, for the process lifetime.</b> This store is stateful (the index and
+/// the physical line count are cached), so two live instances over one file would each compact
+/// from their own partial view and clobber the other's appends. The retention cap is therefore
+/// mutable via <see cref="SetMaxEntries"/> rather than baked in at construction: a settings change
+/// must not become an instance swap.
 /// </para>
 /// </remarks>
 public sealed class JsonlHistoryStore : IHistoryStore
@@ -49,14 +58,29 @@ public sealed class JsonlHistoryStore : IHistoryStore
 
     private readonly string _filePath;
     private readonly string? _legacyFilePath;
-    private readonly int _maxEntries;
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    /// <summary>
+    /// Retention cap. Volatile because <see cref="SetMaxEntries"/> publishes from whatever thread
+    /// applied the setting, without taking <see cref="_gate"/> (which an in-flight load may hold).
+    /// </summary>
+    private volatile int _maxEntries;
+
+    /// <summary>Set by <see cref="SetMaxEntries"/>; consumed by the next gated operation.</summary>
+    private volatile bool _capChangePendingCompaction;
 
     /// <summary>Live entries keyed by id, most recent write wins. Null until the first load.</summary>
     private Dictionary<string, CommandHistoryEntry>? _index;
 
     /// <summary>Physical lines currently in the file, including superseded ones.</summary>
     private int _lineCount;
+
+    /// <summary>
+    /// True when the last load could not read the file to the end. The in-memory view is then a
+    /// prefix of the truth, and compaction - which rewrites the file from that view - would turn
+    /// the partial read into permanent data loss.
+    /// </summary>
+    private bool _loadIncomplete;
 
     public JsonlHistoryStore(string filePath, int maxEntries, string? legacyJsonFilePath = null)
     {
@@ -65,14 +89,38 @@ public sealed class JsonlHistoryStore : IHistoryStore
         _maxEntries = Math.Max(1, maxEntries);
     }
 
+    /// <summary>
+    /// Changes the retention cap on the live store. Takes effect on the next gated operation, which
+    /// compacts if the new cap is already exceeded.
+    /// </summary>
+    /// <remarks>
+    /// Exists so that a <c>CommandAssistMaxHistoryEntries</c> change never has to be expressed as a
+    /// new store instance. See the type remarks for why two instances over one file is a
+    /// data-losing arrangement.
+    /// </remarks>
+    public void SetMaxEntries(int maxEntries)
+    {
+        int clamped = Math.Max(1, maxEntries);
+        if (_maxEntries == clamped)
+        {
+            return;
+        }
+
+        _maxEntries = clamped;
+        _capChangePendingCompaction = true;
+    }
+
     public async Task AppendAsync(CommandHistoryEntry entry, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
         try
         {
             Dictionary<string, CommandHistoryEntry> index = await EnsureLoadedUnsafeAsync(cancellationToken);
-            index[entry.Id] = entry;
+
+            // Disk first, then the index: a failed write must not leave a phantom entry that the
+            // next compaction would materialize into the file as though it had been committed.
             await AppendLineUnsafeAsync(entry, cancellationToken);
+            index[entry.Id] = entry;
             await CompactIfNeededUnsafeAsync(cancellationToken);
         }
         finally
@@ -93,6 +141,11 @@ public sealed class JsonlHistoryStore : IHistoryStore
     /// subsequence match, which subsumes prefix, token-prefix and containment - and ordering is
     /// left to the engine. Recency is the only ordering applied here, and only because truncating
     /// to <paramref name="maxCandidates"/> requires picking which candidates to drop.
+    /// <para>
+    /// The retention cap is applied before candidacy, not after: an append-only log holds more
+    /// lines than the cap until compaction reclaims them, and "history keeps N entries" has to
+    /// mean the same thing to a reader whether or not compaction has run yet.
+    /// </para>
     /// </remarks>
     public async Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxCandidates, CancellationToken cancellationToken = default)
     {
@@ -103,8 +156,9 @@ public sealed class JsonlHistoryStore : IHistoryStore
             string normalized = query.Trim();
 
             return index.Values
-                .Where(entry => IsCandidate(entry.CommandText, normalized))
                 .OrderByDescending(entry => entry.ExecutedAt)
+                .Take(_maxEntries)
+                .Where(entry => IsCandidate(entry.CommandText, normalized))
                 .Take(Math.Max(0, maxCandidates))
                 .ToList();
         }
@@ -114,6 +168,8 @@ public sealed class JsonlHistoryStore : IHistoryStore
         }
     }
 
+    /// <remarks>Capped by the retention limit as well as <paramref name="maxResults"/>; see
+    /// <see cref="SearchAsync"/> for why.</remarks>
     public async Task<IReadOnlyList<CommandHistoryEntry>> GetRecentAsync(int maxResults, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -122,7 +178,7 @@ public sealed class JsonlHistoryStore : IHistoryStore
             Dictionary<string, CommandHistoryEntry> index = await EnsureLoadedUnsafeAsync(cancellationToken);
             return index.Values
                 .OrderByDescending(entry => entry.ExecutedAt)
-                .Take(Math.Max(0, maxResults))
+                .Take(Math.Min(Math.Max(0, maxResults), _maxEntries))
                 .ToList();
         }
         finally
@@ -137,6 +193,8 @@ public sealed class JsonlHistoryStore : IHistoryStore
         try
         {
             _index = new Dictionary<string, CommandHistoryEntry>(StringComparer.Ordinal);
+            _loadIncomplete = false;
+            _capChangePendingCompaction = false;
             await WriteAllUnsafeAsync(Array.Empty<CommandHistoryEntry>(), cancellationToken);
         }
         finally
@@ -162,8 +220,9 @@ public sealed class JsonlHistoryStore : IHistoryStore
                 DurationMs = durationMs ?? existing.DurationMs
             };
 
-            index[entryId] = updated;
+            // Disk first, then the index, for the same reason as AppendAsync.
             await AppendLineUnsafeAsync(updated, cancellationToken);
+            index[entryId] = updated;
             await CompactIfNeededUnsafeAsync(cancellationToken);
             return true;
         }
@@ -209,25 +268,40 @@ public sealed class JsonlHistoryStore : IHistoryStore
 
     private async Task<Dictionary<string, CommandHistoryEntry>> EnsureLoadedUnsafeAsync(CancellationToken cancellationToken)
     {
-        if (_index != null)
+        // A partial view is never cached as the truth: re-read until the file comes back whole, so
+        // a transient lock (antivirus, a backup agent) heals itself on the next operation.
+        if (_index != null && !_loadIncomplete)
         {
-            return _index;
+            if (_capChangePendingCompaction)
+            {
+                _capChangePendingCompaction = false;
+                await CompactUnsafeAsync(cancellationToken);
+            }
+
+            return _index!;
         }
 
         bool migrated = await TryMigrateLegacyFileUnsafeAsync(cancellationToken);
-        (Dictionary<string, CommandHistoryEntry> index, int lineCount, bool sawCorruptLine) = await ReadFileUnsafeAsync(cancellationToken);
+        (Dictionary<string, CommandHistoryEntry> index, int lineCount, bool sawCorruptLine, bool readFailed) =
+            await ReadFileUnsafeAsync(cancellationToken);
 
         _index = index;
         _lineCount = lineCount;
+        _loadIncomplete = readFailed;
+
+        // A fresh read already honors whatever the cap is now.
+        _capChangePendingCompaction = false;
 
         // A migration writes a clean file already; a corrupted or over-cap file is worth rewriting
-        // once at startup so the damage does not accumulate across sessions.
-        if (!migrated && (sawCorruptLine || index.Count > _maxEntries || IsCompactionDue(lineCount, index.Count)))
+        // once at startup so the damage does not accumulate across sessions. A file that could not
+        // be read to the end is worth rewriting never - see ReadFileUnsafeAsync.
+        if (!migrated && !readFailed &&
+            (sawCorruptLine || index.Count > _maxEntries || IsCompactionDue(lineCount, index.Count)))
         {
             await CompactUnsafeAsync(cancellationToken);
         }
 
-        return _index;
+        return _index!;
     }
 
     /// <summary>
@@ -283,7 +357,24 @@ public sealed class JsonlHistoryStore : IHistoryStore
         }
     }
 
-    private async Task<(Dictionary<string, CommandHistoryEntry> Index, int LineCount, bool SawCorruptLine)> ReadFileUnsafeAsync(
+    /// <summary>
+    /// Reads the log into an index, separating the two failure kinds that must not be conflated.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>SawCorruptLine</b> - one line did not parse. The rest of the file was read, so the
+    /// in-memory view is complete and compacting it is a repair: the bad line is dropped once
+    /// instead of being re-skipped every launch.
+    /// </para>
+    /// <para>
+    /// <b>ReadFailed</b> - the file itself could not be read to the end. The in-memory view is a
+    /// prefix of the truth. Compacting <i>that</i> would rewrite the file to the prefix and destroy
+    /// everything past the failure point, so the caller must not, and must not cache the view as
+    /// authoritative either. The partial index is still returned, because a partially readable
+    /// history beats no history for the reads that happen before the next retry.
+    /// </para>
+    /// </remarks>
+    private async Task<(Dictionary<string, CommandHistoryEntry> Index, int LineCount, bool SawCorruptLine, bool ReadFailed)> ReadFileUnsafeAsync(
         CancellationToken cancellationToken)
     {
         var index = new Dictionary<string, CommandHistoryEntry>(StringComparer.Ordinal);
@@ -292,7 +383,7 @@ public sealed class JsonlHistoryStore : IHistoryStore
 
         if (!File.Exists(_filePath))
         {
-            return (index, lineCount, sawCorruptLine);
+            return (index, lineCount, sawCorruptLine, false);
         }
 
         try
@@ -329,11 +420,13 @@ public sealed class JsonlHistoryStore : IHistoryStore
         }
         catch (IOException)
         {
-            // Keep whatever was read; a partially readable file still beats an empty history.
-            sawCorruptLine = true;
+            // Keep whatever was read; a partially readable file still beats an empty history. But
+            // report it as a failed read, never as a corrupt line: the difference is whether the
+            // caller is allowed to rewrite the file from this view.
+            return (index, lineCount, sawCorruptLine, true);
         }
 
-        return (index, lineCount, sawCorruptLine);
+        return (index, lineCount, sawCorruptLine, false);
     }
 
     private async Task AppendLineUnsafeAsync(CommandHistoryEntry entry, CancellationToken cancellationToken)
@@ -354,6 +447,13 @@ public sealed class JsonlHistoryStore : IHistoryStore
 
     private bool IsCompactionDue(int lineCount, int liveCount)
     {
+        // Rewriting the file from a prefix of it is how a transient read error becomes permanent
+        // data loss. Let the log grow instead; the next clean load compacts it.
+        if (_loadIncomplete)
+        {
+            return false;
+        }
+
         if (lineCount < CompactionMinimumLines)
         {
             return false;

@@ -42,7 +42,13 @@ public sealed class CommandAssistServices
     private readonly string? _legacyHistoryFilePath;
     private readonly string _snippetsFilePath;
 
-    private IHistoryStore? _historyStore;
+    /// <summary>
+    /// Concretely typed, not <c>IHistoryStore</c>: the retention cap is mutated in place on the one
+    /// live instance (see <see cref="ApplyHistoryRetentionLimit"/>), which is not an
+    /// <c>IHistoryStore</c> concern.
+    /// </summary>
+    private JsonlHistoryStore? _historyStore;
+
     private int _historyMaxEntries;
     private ISnippetStore? _snippetStore;
     private ICommandDocsProvider? _commandDocsProvider;
@@ -157,16 +163,23 @@ public sealed class CommandAssistServices
     }
 
     /// <summary>
-    /// Applies <see cref="TerminalSettings.CommandAssistMaxHistoryEntries"/>, replacing the history
-    /// store when the cap actually changed.
+    /// Applies <see cref="TerminalSettings.CommandAssistMaxHistoryEntries"/> to the one live history
+    /// store, without ever replacing it.
     /// </summary>
     /// <remarks>
-    /// The retention cap is baked into the store at construction, so changing it means building a
-    /// new one. The static locator did this as a side effect of its <c>GetHistoryStore(settings)</c>
-    /// getter, which made "read a property" and "swap a store out from under existing panes" the
-    /// same call. Here it is an explicit step the caller opts into. Controllers already holding the
-    /// previous instance keep it, exactly as before: the cap only governs writes, and both stores
-    /// point at the same file.
+    /// <para>
+    /// The static locator re-created the store whenever the cap differed, as a side effect of its
+    /// <c>GetHistoryStore(settings)</c> getter - so "read a property" and "swap a store out from
+    /// under existing panes" were the same call. That was survivable only because
+    /// <c>JsonHistoryStore</c> was stateless per operation.
+    /// </para>
+    /// <para>
+    /// <see cref="JsonlHistoryStore"/> is not: it caches an index and a physical line count, and
+    /// compaction rewrites the whole file from that cache. Two live instances over one file would
+    /// each rewrite from their own stale view - the older instance resurrecting entries the newer
+    /// one's cap deleted, and either one dropping the other's appends. So the cap is pushed into
+    /// the existing instance instead, and no code path in this class ever nulls the field.
+    /// </para>
     /// </remarks>
     public void ApplyHistoryRetentionLimit(int maxHistoryEntries)
     {
@@ -174,13 +187,12 @@ public sealed class CommandAssistServices
 
         lock (_sync)
         {
-            if (_historyMaxEntries == clamped && _historyStore != null)
-            {
-                return;
-            }
-
             _historyMaxEntries = clamped;
-            _historyStore = null;
+
+            // Null only when nothing has read HistoryStore yet, in which case the constructor
+            // below will pick the new cap up. Creating it here just to set a field it does not
+            // have yet would defeat the lazy-construction contract in the type remarks.
+            _historyStore?.SetMaxEntries(clamped);
         }
     }
 }
