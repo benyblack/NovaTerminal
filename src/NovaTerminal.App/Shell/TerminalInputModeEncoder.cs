@@ -279,6 +279,12 @@ namespace NovaTerminal.Shell
             return isFocused ? "\x1b[I" : "\x1b[O";
         }
 
+        /// <summary>
+        /// Highest coordinate the legacy X10 mouse encoding can carry: the byte sent is
+        /// value+32 and the largest byte is 255, so 255-32 = 223.
+        /// </summary>
+        private const int MaxLegacyCoordinate = 223;
+
         public static string? EncodeMouseEvent(ModeState modes, TerminalMouseEvent mouseEvent)
         {
             if (!ShouldReportMouseEvent(modes, mouseEvent))
@@ -301,20 +307,21 @@ namespace NovaTerminal.Shell
                 return $"\x1b[<{buttonCode};{x};{y}{finalChar}";
             }
 
-            if (x >= 223 || y >= 223)
-            {
-                char finalChar = mouseEvent.Kind == TerminalMouseEventKind.Release ? 'm' : 'M';
-                return $"\x1b[<{buttonCode};{x};{y}{finalChar}";
-            }
-
             if (mouseEvent.Kind == TerminalMouseEventKind.Release)
             {
                 buttonCode = 3 + GetModifierBits(mouseEvent.Modifiers);
             }
 
+            // Legacy X10 coordinate encoding (`CSI M Cb Cx Cy`) transmits each coordinate as a
+            // single byte holding value+32, so the largest representable coordinate is 223
+            // (32+223 = 255, the highest byte value). Coordinates past that are CLAMPED to 223
+            // rather than promoted to the SGR (`?1006`) form: an application that never enabled
+            // `?1006` has no parser for `ESC [ <` and would render it as text or desync, so
+            // xterm clamps (or drops) out-of-range coordinates instead of silently switching
+            // protocols. Applications that need coordinates beyond 223 must enable `?1006`.
             char buttonChar = (char)(32 + buttonCode);
-            char xChar = (char)(32 + Math.Clamp(x, 1, 223));
-            char yChar = (char)(32 + Math.Clamp(y, 1, 223));
+            char xChar = (char)(32 + Math.Clamp(x, 1, MaxLegacyCoordinate));
+            char yChar = (char)(32 + Math.Clamp(y, 1, MaxLegacyCoordinate));
             return $"\x1b[M{buttonChar}{xChar}{yChar}";
         }
 
