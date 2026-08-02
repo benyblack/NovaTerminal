@@ -137,6 +137,21 @@ namespace NovaTerminal.Shell
             // Logic copied from MainWindow
             bool isCtrl = (keyModifiers & KeyModifiers.Control) != 0;
 
+            // Kitty keyboard protocol (disambiguate tier). Must run before every legacy path
+            // below - including Alt-sends-ESC - because the protocol replaces those encodings
+            // for the keys it claims. When the protocol is off (flags = 0) the encoder returns
+            // null for every key and the legacy behavior below is byte-identical to before.
+            //
+            // _enableKittyKeyboardProtocol is the user-facing kill switch (Blocker 2,
+            // TerminalSettings.EnableKittyKeyboardProtocol). When false, this call is skipped
+            // entirely so every key falls through to the legacy path below unconditionally,
+            // even if a TUI already pushed flag 1 onto the buffer's ModeState.
+            if (_enableKittyKeyboardProtocol && TryEncodeKittyKey(key, keyModifiers, out string? kittySequence))
+            {
+                _session.SendInput(kittySequence!);
+                return true;
+            }
+
             // Alt/Meta-sends-ESC must run BEFORE the unconditional Enter/Back/Tab/Escape cases
             // below, which would otherwise swallow Alt+<those> and send the bare control byte.
             if ((keyModifiers & KeyModifiers.Alt) != 0)
@@ -235,6 +250,34 @@ namespace NovaTerminal.Shell
             return false;
         }
 
+        /// <summary>
+        /// Applies the two NovaTerminal-local carve-outs that must win over the kitty keyboard
+        /// protocol, then defers to <see cref="TerminalInputModeEncoder.EncodeKittyKey"/>.
+        ///
+        /// 1. Enter on a dead session still has to bubble up to TerminalPane's
+        ///    "[Press Enter to reconnect]" handler instead of being swallowed into a dead PTY.
+        /// 2. Ctrl+C with an active selection is copy-to-clipboard, matching the behavior users
+        ///    already have; without a selection it is a real Ctrl+C and the protocol encodes it
+        ///    as CSI 99;5u (the spec explicitly notes Ctrl+C stops raising SIGINT in this mode).
+        /// </summary>
+        private bool TryEncodeKittyKey(Key key, KeyModifiers keyModifiers, out string? sequence)
+        {
+            sequence = null;
+
+            if (key == Key.Enter && _session?.IsProcessRunning != true)
+            {
+                return false;
+            }
+
+            if (key == Key.C && (keyModifiers & KeyModifiers.Control) != 0 && HasSelection())
+            {
+                return false;
+            }
+
+            sequence = TerminalInputModeEncoder.EncodeKittyKey(key, keyModifiers, _buffer?.Modes);
+            return sequence != null;
+        }
+
         private TerminalBuffer? _buffer;
         public TerminalBuffer? Buffer => _buffer;
 
@@ -252,6 +295,11 @@ namespace NovaTerminal.Shell
         private bool _bellVisualEnabled = true;
         private bool _isBellFlashActive;
         private bool _enableSmoothScrolling = true;
+        // Kill switch for the kitty keyboard protocol's disambiguate tier (Blocker 2, #277
+        // review). Defaults true so behavior is unchanged until ApplySettings runs; a fresh
+        // TerminalView created outside the settings pipeline (as several tests do) still gets
+        // the protocol, matching pre-kill-switch behavior.
+        private bool _enableKittyKeyboardProtocol = true;
         private int _targetScrollOffset;
         // Carry fractional high-resolution wheel deltas so precision touchpads / hi-res
         // wheels (which emit sub-notch micro-events) produce one step per notch instead
@@ -735,6 +783,18 @@ namespace NovaTerminal.Shell
                 CellHeight: _metrics.CellHeight);
         }
 
+        /// <summary>
+        /// Test-only seam for exercising the Ctrl+C-with-selection carve-out (both the legacy
+        /// path and its interaction with the kitty keyboard protocol) without driving real
+        /// pointer events to build a selection.
+        /// </summary>
+        internal void SetSelectionForTest(int startRow, int startCol, int endRow, int endCol)
+        {
+            _selection.Start = (startRow, startCol);
+            _selection.End = (endRow, endCol);
+            _selection.IsActive = true;
+        }
+
         internal void SetMetricsForTest(float cellWidth, float cellHeight)
         {
             _metrics.CellWidth = cellWidth;
@@ -764,6 +824,7 @@ namespace NovaTerminal.Shell
                 _bellVisualEnabled = settings.BellVisualEnabled;
                 _enableSmoothScrolling = settings.SmoothScrolling;
                 _enableLinkDetection = settings.EnableLinkDetection;
+                _enableKittyKeyboardProtocol = settings.EnableKittyKeyboardProtocol;
                 // Fall back to the default for non-positive/NaN values; clamp the upper
                 // bound so a wild settings value can't drive runaway scroll steps.
                 double wheelLinesPerNotch = settings.WheelLinesPerNotch;

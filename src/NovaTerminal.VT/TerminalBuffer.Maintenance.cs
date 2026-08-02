@@ -230,6 +230,11 @@ namespace NovaTerminal.VT
 
                 _restoreMainCursorOnAltExit = false;
                 SwitchToMainScreen(restoreSavedCursorIfArmed: false);
+
+                // Kitty keyboard protocol: RIS clears both per-screen flag stacks so the
+                // terminal comes back up in legacy key encoding.
+                Modes.KittyKeyboard.Reset();
+
                 ResetTabStopsToDefaultsNoLock();
             }
             finally

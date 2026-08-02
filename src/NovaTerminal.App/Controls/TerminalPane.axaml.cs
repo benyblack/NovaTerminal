@@ -1621,6 +1621,11 @@ namespace NovaTerminal.Controls
                 Parser.DefaultBackground = effectiveTheme.Background;
             }
 
+            // Kill switch (Blocker 2, #277 review): a freshly-created parser must start with
+            // the query-reply gate in the same state TerminalView's encoder gate will be in,
+            // same reasoning as the DefaultForeground wiring above.
+            Parser.KittyKeyboardEnabled = _settings?.EnableKittyKeyboardProtocol ?? true;
+
             Parser.OnBell += () =>
             {
                 Dispatcher.UIThread.Post(() =>
@@ -1938,6 +1943,7 @@ namespace NovaTerminal.Controls
                 BellVisualEnabled = settings.BellVisualEnabled,
                 SmoothScrolling = settings.SmoothScrolling,
                 EnableLinkDetection = settings.EnableLinkDetection,
+                EnableKittyKeyboardProtocol = settings.EnableKittyKeyboardProtocol,
                 CommandAssistEnabled = settings.CommandAssistEnabled,
                 CommandAssistHistoryEnabled = settings.CommandAssistHistoryEnabled,
                 CommandAssistMaxHistoryEntries = settings.CommandAssistMaxHistoryEntries,
@@ -1975,6 +1981,10 @@ namespace NovaTerminal.Controls
                 // including profile-specific theme overrides (see effectiveSettings above).
                 Parser.DefaultForeground = effectiveSettings.ActiveTheme.Foreground;
                 Parser.DefaultBackground = effectiveSettings.ActiveTheme.Background;
+
+                // Kill switch (Blocker 2, #277 review): keep the query-reply gate in sync with
+                // the setting on every settings change, not just at parser creation.
+                Parser.KittyKeyboardEnabled = effectiveSettings.EnableKittyKeyboardProtocol;
             }
 
             // Font family/size and shaping toggles just moved with the settings.

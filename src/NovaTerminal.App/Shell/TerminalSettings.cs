@@ -25,6 +25,16 @@ namespace NovaTerminal.Shell
         public bool BellVisualEnabled { get; set; } = true;
         public bool SmoothScrolling { get; set; } = true;
         public bool EnableLinkDetection { get; set; } = true;
+        // Kill switch for the kitty keyboard protocol's disambiguate-escape-codes tier
+        // (issue #266 / PR #277 review, Blocker 2). Default on. When false: TerminalView
+        // never calls TryEncodeKittyKey (so every key falls through to the legacy encoding
+        // path unconditionally, even if a TUI pushed flag 1), and AnsiParser answers the
+        // CSI ? u query with flags 0 regardless of the actual pushed stack state, so a TUI
+        // that queries capabilities does not believe the protocol is active. This is the
+        // user's escape hatch if a keyboard layout hits the AltGr carve-out's accepted
+        // trade-off or any other unforeseen encoding issue - flip this off instead of having
+        // to fight the TUI that turned the protocol on.
+        public bool EnableKittyKeyboardProtocol { get; set; } = true;
         // Scroll units forwarded per wheel notch. For own-buffer scrolling this is lines
         // per notch; for a mouse-reporting TUI it is wheel clicks per notch. Higher =
         // smoother/finer (more steps per notch), lower = coarser. Matters most for

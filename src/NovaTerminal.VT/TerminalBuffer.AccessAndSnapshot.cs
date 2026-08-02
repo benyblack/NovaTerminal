@@ -617,6 +617,11 @@ namespace NovaTerminal.VT
                 _isAltScreen = true;
                 _viewport = _altScreen;    // Switch to alt screen
 
+                // Kitty keyboard protocol: main and alternate screens own independent
+                // progressive-enhancement flag stacks, so entering the alt screen swaps
+                // which stack the key encoder consults.
+                Modes.KittyKeyboard.SetActiveScreen(true);
+
                 if (clearAlt)
                 {
                     ClearAltScreenNoLock();
@@ -655,6 +660,9 @@ namespace NovaTerminal.VT
                 SaveActiveScreenStateNoLock();
                 _altScreen = _viewport;    // Save current viewport as alt screen
                 _isAltScreen = false;
+
+                // Kitty keyboard protocol: swap back to the main screen's flag stack.
+                Modes.KittyKeyboard.SetActiveScreen(false);
 
                 if (_mainScreen.Length != Rows || (_mainScreen.Length > 0 && _mainScreen[0].Cells.Length != Cols))
                 {

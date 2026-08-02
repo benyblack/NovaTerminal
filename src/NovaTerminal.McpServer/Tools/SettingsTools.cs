@@ -48,6 +48,7 @@ public static class SettingsTools
         | `BellVisualEnabled` | bool | Default true. |
         | `SmoothScrolling` | bool | Default true. |
         | `EnableLinkDetection` | bool | Default true. |
+        | `EnableKittyKeyboardProtocol` | bool | Default true. Kill switch for the kitty keyboard protocol's disambiguate-escape-codes tier (issue #266). When false, key encoding always falls back to legacy sequences and the `CSI ? u` query always reports flags 0, even if a TUI pushed a flag onto the stack. |
         | `WheelLinesPerNotch` | number | > 0 (≤ 0 falls back to 3.0). Default 3.0. |
         | `PaneClosePolicy` | string (enum-like) | e.g. "Confirm", "Force". Type-checked only. |
         | `QuakeModeEnabled` | bool | Default true. |
@@ -104,6 +105,7 @@ public static class SettingsTools
           "BellVisualEnabled": true,
           "SmoothScrolling": true,
           "EnableLinkDetection": true,
+          "EnableKittyKeyboardProtocol": true,
           "WheelLinesPerNotch": 3.0,
           "PaneClosePolicy": "Confirm",
           "Keybindings": { "Ctrl+Shift+C": "copy" },
@@ -136,7 +138,8 @@ public static class SettingsTools
     private static readonly string[] BoolFields =
     {
         "EnableLigatures", "EnableComplexShaping", "CursorBlink", "BellAudioEnabled",
-        "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection", "QuakeModeEnabled",
+        "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection", "EnableKittyKeyboardProtocol",
+        "QuakeModeEnabled",
         "CommandAssistEnabled", "CommandAssistHistoryEnabled", "CommandAssistAutoHideInAltScreen",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
@@ -158,6 +161,7 @@ public static class SettingsTools
         "FontSize", "MaxHistory", "FontFamily", "ThemeName", "WindowOpacity", "BlurEffect",
         "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink",
         "BellAudioEnabled", "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection",
+        "EnableKittyKeyboardProtocol",
         "WheelLinesPerNotch", "PaneClosePolicy", "Keybindings", "TabTemplateRules",
         "BackgroundImagePath", "BackgroundImageOpacity", "BackgroundImageStretch",
         "QuakeModeEnabled", "GlobalHotkey", "CommandAssistEnabled", "CommandAssistHistoryEnabled",

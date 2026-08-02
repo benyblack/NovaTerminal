@@ -133,13 +133,16 @@ public sealed class AnsiParserHardeningTests
     [InlineData("\x1b[>1u")]
     [InlineData("\x1b[<u")]
     [InlineData("\x1b[=1u")]
-    public void PrefixedRestoreCursor_IsIgnored_DoesNotMoveCursor(string sequence)
+    public void PrefixedU_IsKittyKeyboardProtocol_DoesNotMoveCursor(string sequence)
     {
         var buffer = new TerminalBuffer(80, 24);
         var parser = new AnsiParser(buffer);
 
         // Save cursor at (0,0), then move elsewhere before the prefixed "u" under test.
-        // A kitty keyboard query/push/pop/set must NOT be treated as SCO restore-cursor.
+        // These are kitty keyboard protocol query/push/pop/set sequences (#266); they mutate
+        // the keyboard flag stacks and must NOT be treated as SCO restore-cursor. The flag
+        // semantics themselves are covered by
+        // tests/NovaTerminal.VT.Tests/KittyKeyboardProtocolTests.cs.
         parser.Process("\x1b[s");
         parser.Process("\x1b[10;20H");
 
