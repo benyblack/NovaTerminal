@@ -54,6 +54,35 @@ namespace NovaTerminal.VT
             return _viewport[viewportRow];
         }
 
+        /// <summary>
+        /// True when the row at an absolute index ends because it auto-wrapped rather than
+        /// because of an explicit newline — i.e. the next row continues the same logical line.
+        /// Requires the read lock.
+        /// </summary>
+        /// <remarks>
+        /// Unlike <see cref="GetRowAbsolute"/> this answers for scrollback rows too, reading the
+        /// per-row wrap bit the pages carry. Out-of-range indices answer <c>false</c> rather
+        /// than throwing, so callers walking a span can stop at the buffer edge naturally.
+        /// </remarks>
+        public bool IsRowWrappedAbsolute(int absRow)
+        {
+            AssertLockHeld();
+            if (absRow < 0) return false;
+
+            if (_isAltScreen)
+            {
+                return absRow < Rows && _viewport[absRow].IsWrapped;
+            }
+
+            if (absRow < _scrollback.Count)
+            {
+                return _scrollback.IsRowWrapped(absRow);
+            }
+
+            int viewportRow = absRow - _scrollback.Count;
+            return viewportRow >= 0 && viewportRow < Rows && _viewport[viewportRow].IsWrapped;
+        }
+
         public TerminalCell GetCellAbsolute(int col, int absRow)
         {
             AssertLockHeld();
