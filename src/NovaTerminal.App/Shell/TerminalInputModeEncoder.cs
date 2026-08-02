@@ -106,6 +106,29 @@ namespace NovaTerminal.Shell
                 return null;
             }
 
+            // AltGr carve-out: on Windows, Avalonia reports AltGr as Control|Alt (there is no
+            // separate "AltGr" modifier in KeyModifiers). On German/French/Spanish/Polish/
+            // Nordic/Turkish and other non-US layouts, AltGr+<key> composes real text (e.g.
+            // AltGr+Q -> '@' on a German layout) that arrives via OnTextInput/WM_CHAR - but only
+            // if KeyDown is left unhandled. If we encode this here, HandleKeyDownCore returns
+            // true, OnKeyDown sets e.Handled = true, and the Win32 backend then suppresses the
+            // following WM_CHAR, so the composed character is silently lost rather than sent
+            // twice. Mirrors the identical guard in EncodeAltKey below. Per spec, "all key
+            // events that do NOT generate text" get the CSI u form - an AltGr keypress that
+            // produces text does not qualify, so returning null here (falling through to the
+            // legacy/text path) is spec-correct, not just a workaround.
+            //
+            // Trade-off (matches EncodeAltKey, same accepted status quo): on US layouts, a user
+            // who deliberately holds literal Ctrl+Alt+<key> as a shortcut also loses kitty
+            // encoding for that combination, because there is no way to distinguish "AltGr on a
+            // non-US layout" from "Ctrl+Alt held together on a US layout" at this layer without
+            // consulting the OS keyboard layout tables. That combination was never encodable by
+            // this protocol path before AltGr support existed, so nothing regresses for it.
+            if ((modifiers & (KeyModifiers.Control | KeyModifiers.Alt)) == (KeyModifiers.Control | KeyModifiers.Alt))
+            {
+                return null;
+            }
+
             int modifierBits = GetKittyModifierBits(modifiers);
 
             switch (key)

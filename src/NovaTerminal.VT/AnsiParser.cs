@@ -79,6 +79,21 @@ namespace NovaTerminal.VT
         public TermColor? DefaultForeground { get; set; }
         public TermColor? DefaultBackground { get; set; }
 
+        /// <summary>
+        /// Host-settable kill switch for the kitty keyboard protocol (issue #266 / PR #277
+        /// review, Blocker 2), wired the same way <see cref="DefaultForeground"/> was in
+        /// PR #275: the App layer sets this from <c>TerminalSettings.EnableKittyKeyboardProtocol</c>
+        /// at parser creation and on every <c>ApplySettings</c>. Defaults to true (protocol on).
+        ///
+        /// When false, push/pop/set are still parsed and update <see cref="ModeState.KittyKeyboard"/>
+        /// normally - this only gates the <c>CSI ? u</c> query reply, which always reports flags 0
+        /// while disabled so a TUI that queries capabilities does not believe the protocol is
+        /// active. The App-side encoder is gated separately (TerminalView never calls
+        /// TryEncodeKittyKey while its own copy of the setting is off), so the two together give
+        /// full protocol-off behavior even though the underlying stack state is untouched.
+        /// </summary>
+        public bool KittyKeyboardEnabled { get; set; } = true;
+
         public Action<string>? OnResponse { get; set; }
         public Action? OnBell { get; set; }
         public Action<string>? OnWorkingDirectoryChanged { get; set; }
@@ -1181,13 +1196,18 @@ namespace NovaTerminal.VT
             switch (leader)
             {
                 case '?':
-                    OnResponse?.Invoke(kitty.FormatQueryResponse());
+                    // Kill switch (Blocker 2): report flags 0 while disabled regardless of the
+                    // actual stack state, so a TUI probing capabilities via query never believes
+                    // the protocol is active when the host has turned it off.
+                    OnResponse?.Invoke(KittyKeyboardEnabled ? kitty.FormatQueryResponse() : "\x1b[?0u");
                     break;
                 case '>':
                     kitty.Push(args.Length > 0 ? args[0] : 0);
                     break;
                 case '<':
-                    kitty.Pop(args.Length > 0 && args[0] > 0 ? args[0] : 1);
+                    // Only an *omitted* parameter defaults to 1; an explicit "CSI < 0 u" is a
+                    // distinct, valid no-op (see KittyKeyboardState.Pop's doc comment).
+                    kitty.Pop(args.Length > 0 ? args[0] : 1);
                     break;
                 case '=':
                     kitty.Set(

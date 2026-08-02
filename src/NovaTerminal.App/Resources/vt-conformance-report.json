@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "ba90c73231081715838ad12ae697f849bea9766a73614a057bb1516abeaeb6b9",
+  "matrixSha256": "b1f6c9dbd31a6d4204ce35dcc71d033e07f8607614ba82a8ed2ba3963447623b",
   "summary": {
     "totalRows": 57,
-    "supportedCount": 18,
-    "partialCount": 32,
+    "supportedCount": 17,
+    "partialCount": 33,
     "experimentalCount": 1,
     "notSupportedCount": 5,
     "wontSupportCount": 1,
     "rowsWithLinkedEvidence": 31,
-    "supportedRowsWithLinkedEvidence": 18,
+    "supportedRowsWithLinkedEvidence": 17,
     "errorCount": 0,
     "warningCount": 0
   },
@@ -719,15 +719,19 @@
     {
       "section": "5) Screen buffers \u0026 modes (DEC private modes)",
       "feature": "Kitty keyboard protocol",
-      "status": "\u2705 Supported",
+      "status": "\u26A0 Partial",
       "specOrNotes": "Progressive-enhancement flags: query, push, pop, set. Per-screen-buffer flag stacks (depth 32, oldest evicted on overflow); RIS clears both",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.VT.Tests/KittyKeyboardProtocolTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Input/KittyKeyboardEncodingTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.VT.Tests/KittyKeyboardProtocolTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Input/KittyKeyboardEncodingTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
       "evidenceLinks": [
         {
           "path": "tests/NovaTerminal.App.Tests/AnsiParserHardeningTests.cs",
+          "exists": true
+        },
+        {
+          "path": "tests/NovaTerminal.App.Tests/CommandAssist/TerminalViewKeyHandlingTests.cs",
           "exists": true
         },
         {
@@ -742,7 +746,7 @@
       "hasAutomatedEvidenceSignal": true,
       "hasLinkedEvidence": true,
       "ownership": "Parser\u002BInput",
-      "knownDeviations": "Scope: disambiguate-escape-codes tier (\u00600b1\u0060) only. Bits \u00600b10\u0060/\u00600b100\u0060/\u00600b1000\u0060/\u00600b10000\u0060 (event types, alternate keys, all-keys, associated text) are accepted but masked out on push/set, so the \u0060CSI ? u\u0060 reply only advertises flags actually honored. Key encoding covers Esc, modified Enter/Tab/Backspace, and ctrl/alt/super combinations on the spec\u0027s legacy-text keys; keypad and functional keys keep their legacy encodings",
+      "knownDeviations": "Scope: disambiguate-escape-codes tier (\u00600b1\u0060) only. Bits \u00600b10\u0060/\u00600b100\u0060/\u00600b1000\u0060/\u00600b10000\u0060 (event types, alternate keys, all-keys, associated text) are accepted but masked out on push/set, so the \u0060CSI ? u\u0060 reply only advertises flags actually honored. Key encoding covers Esc, modified Enter/Tab/Backspace, and ctrl/alt/super combinations on the spec\u0027s legacy-text keys; keypad and functional keys keep their legacy encodings (including modified arrows/Home/End/PgUp/PgDn - the spec\u0027s \u0060CSI 1;mod \u003Cletter\u003E\u0060 form is not emitted, so e.g. Ctrl\u002BLeft stays an unmodified \u0060CSI D\u0060). AltGr on Windows non-US layouts is reported as Control\u002BAlt; the encoder carves that combination out (falls through to legacy/text) so composed characters are not swallowed - the accepted trade-off is that literal Ctrl\u002BAlt\u002B\u0026lt;key\u0026gt; shortcuts on US layouts also lose kitty encoding, same as the pre-existing Alt-sends-ESC carve-out. Gated end-to-end by \u0060TerminalSettings.EnableKittyKeyboardProtocol\u0060 (default on): when off, the App-side encoder is skipped unconditionally and the \u0060CSI ? u\u0060 reply always reports flags 0 regardless of the pushed stack state. The tab-broadcast path in \u0060MainWindow\u0060 builds its own input independently of this encoder and always sends legacy encoding to broadcast targets regardless of their own flag state.",
       "sourceLine": 115
     },
     {

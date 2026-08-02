@@ -90,10 +90,21 @@ namespace NovaTerminal.VT
             }
         }
 
-        /// <summary>CSI &lt; n u - pop n entries (default 1). Popping past the bottom clears all flags.</summary>
+        /// <summary>
+        /// CSI &lt; n u - pop n entries. Popping past the bottom clears all flags.
+        ///
+        /// Per spec ("CSI &lt; number u # to pop number entries, defaulting to 1 if
+        /// unspecified"), the default of 1 applies only when the parameter is *omitted* from
+        /// the escape code - the caller (<see cref="AnsiParser"/>) is responsible for supplying
+        /// 1 in that case. An explicitly-specified <c>0</c> (<c>CSI &lt; 0 u</c>) is therefore a
+        /// distinct, valid value and must be a no-op, not coerced up to 1 - matching kitty's own
+        /// reading of its spec. Negative values (which the parser should never produce, since
+        /// CSI parameters are unsigned digit sequences) are defensively clamped to 0/no-op
+        /// rather than silently popping anything.
+        /// </summary>
         public void Pop(int count)
         {
-            if (count <= 0) count = 1;
+            if (count < 0) count = 0;
 
             lock (_gate)
             {

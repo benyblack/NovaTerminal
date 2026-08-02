@@ -31,6 +31,24 @@ public class KittyKeyboardProtocolTests
     }
 
     [Fact]
+    public void Query_WithKillSwitchDisabled_ReportsZeroFlags_EvenWithFlagsPushed()
+    {
+        // Blocker 2 (#277 review): AnsiParser.KittyKeyboardEnabled is the App-settable kill
+        // switch (TerminalSettings.EnableKittyKeyboardProtocol), wired the same way
+        // DefaultForeground was in PR #275. Push/pop/set still parse and mutate the stack
+        // normally while disabled (nothing here breaks parsing safety) - only the CSI ? u
+        // reply is gated, so a TUI that queries capabilities never believes the protocol is
+        // active while the host has turned it off.
+        var (buffer, parser, responses) = CreateTerminal();
+        parser.KittyKeyboardEnabled = false;
+
+        parser.Process("\x1b[>1u");
+
+        Assert.True(buffer.Modes.KittyKeyboard.DisambiguateEscapeCodes);
+        Assert.Equal("\x1b[?0u", Query(parser, responses));
+    }
+
+    [Fact]
     public void Push_SetsDisambiguateFlag_AndQueryReportsIt()
     {
         var (buffer, parser, responses) = CreateTerminal();
@@ -98,6 +116,25 @@ public class KittyKeyboardProtocolTests
         parser.Process("\x1b[>1u");
         parser.Process("\x1b[<u");
 
+        Assert.Equal(1, buffer.Modes.KittyKeyboard.StackDepth);
+    }
+
+    [Fact]
+    public void Pop_WithExplicitZeroParameter_IsANoOp_UnlikeOmittedWhichDefaultsToOne()
+    {
+        // Non-blocking note (#277 review): the spec says "pop number entries, defaulting to 1
+        // if unspecified" - the default only applies when the parameter is *omitted*. An
+        // explicit "CSI < 0 u" is a distinct, valid value and must not pop anything.
+        var (buffer, parser, _) = CreateTerminal();
+
+        parser.Process("\x1b[>1u");
+        parser.Process("\x1b[>2u");
+        Assert.Equal(2, buffer.Modes.KittyKeyboard.StackDepth);
+
+        parser.Process("\x1b[<0u");
+        Assert.Equal(2, buffer.Modes.KittyKeyboard.StackDepth);
+
+        parser.Process("\x1b[<u"); // omitted still defaults to 1
         Assert.Equal(1, buffer.Modes.KittyKeyboard.StackDepth);
     }
 

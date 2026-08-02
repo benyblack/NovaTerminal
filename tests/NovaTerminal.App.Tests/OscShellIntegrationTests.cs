@@ -160,6 +160,25 @@ public sealed class OscShellIntegrationTests
     }
 
     [Fact]
+    public void Osc133A_PromptReady_ClearsLeakedKittyKeyboardStacks()
+    {
+        // Non-blocking review note (#277): a TUI that turns on the kitty keyboard
+        // disambiguate tier and then exits uncleanly must not leave it on at the shell
+        // prompt - otherwise Ctrl+C sends "\x1b[99;5u" instead of raising SIGINT.
+        // Consistent with the identical policy already applied to mouse tracking above.
+        var buffer = new TerminalBuffer(80, 24);
+        var parser = new AnsiParser(buffer);
+
+        parser.Process("\x1b[>1u");
+        Assert.True(buffer.Modes.KittyKeyboard.DisambiguateEscapeCodes);
+
+        parser.Process("\x1b]133;A\x07");
+
+        Assert.False(buffer.Modes.KittyKeyboard.DisambiguateEscapeCodes);
+        Assert.Equal(0, buffer.Modes.KittyKeyboard.StackDepth);
+    }
+
+    [Fact]
     public void Osc133A_PromptReady_ClearsLeakedFocusEventReporting()
     {
         var buffer = new TerminalBuffer(80, 24);

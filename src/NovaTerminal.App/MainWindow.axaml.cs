@@ -1829,6 +1829,21 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// Encodes a key for broadcast to sibling panes in the tab.
+        /// </summary>
+        /// <remarks>
+        /// Non-blocking review note (#277): this builds its own legacy-only encoding
+        /// independent of <see cref="TerminalInputModeEncoder.EncodeKittyKey"/> and
+        /// <see cref="TerminalView.HandleKeyDownCore"/>. Broadcast targets therefore always
+        /// receive legacy sequences (e.g. bare "\r" for Enter, never "\x1b[13;2u" for
+        /// Shift+Enter) regardless of whether a broadcast target's own <c>ModeState.KittyKeyboard</c>
+        /// has the disambiguate tier pushed. This is deliberate scoping, not an oversight: the
+        /// broadcast path only ever needs to reach TUIs that also work with plain legacy input,
+        /// and duplicating the kitty-aware ordering here would put the same AltGr/kill-switch
+        /// hazards behind a second, harder-to-audit code path. See the scope note in
+        /// docs/vt_coverage_matrix.md for the matching matrix entry.
+        /// </remarks>
         private bool TryMapBroadcastKey(KeyEventArgs e, TerminalBuffer? buffer, out string? sequence)
         {
             sequence = null;

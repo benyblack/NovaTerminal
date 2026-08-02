@@ -72,14 +72,18 @@ namespace NovaTerminal.Tests.Input
         [InlineData(Key.A, KeyModifiers.Control | KeyModifiers.Shift, "\x1b[97;6u")]
         [InlineData(Key.D3, KeyModifiers.Control | KeyModifiers.Shift, "\x1b[51;6u")]
 
-        // Alt combinations lose their ESC prefix for keys the protocol claims.
+        // Alt combinations lose their ESC prefix for keys the protocol claims. Ctrl+Alt is
+        // deliberately excluded here - see AltGr_* tests below - because it is AltGr on
+        // Windows non-US layouts and must fall through to legacy/text, not CSI u.
         [InlineData(Key.V, KeyModifiers.Alt, "\x1b[118;3u")]
         [InlineData(Key.V, KeyModifiers.Alt | KeyModifiers.Shift, "\x1b[118;4u")]
-        [InlineData(Key.V, KeyModifiers.Alt | KeyModifiers.Control, "\x1b[118;7u")]
 
-        // Modifier bit field: shift=1 alt=2 ctrl=4 super=8, transmitted as 1 + bits.
+        // Modifier bit field: shift=1 alt=2 ctrl=4 super=8, transmitted as 1 + bits. This
+        // combines shift+ctrl+super (not alt, since Ctrl+Alt together hits the AltGr carve-out
+        // above and is covered separately by the AltGr_* tests) to prove all the non-Alt bits
+        // still sum correctly together.
         [InlineData(Key.A, KeyModifiers.Meta, "\x1b[97;9u")]
-        [InlineData(Key.A, KeyModifiers.Meta | KeyModifiers.Control | KeyModifiers.Alt | KeyModifiers.Shift, "\x1b[97;16u")]
+        [InlineData(Key.A, KeyModifiers.Meta | KeyModifiers.Control | KeyModifiers.Shift, "\x1b[97;14u")]
 
         // Punctuation and space resolve to their unshifted US-layout codepoints.
         [InlineData(Key.Space, KeyModifiers.Control, "\x1b[32;5u")]
@@ -115,6 +119,23 @@ namespace NovaTerminal.Tests.Input
         [InlineData(Key.Delete, KeyModifiers.Control)]
         [InlineData(Key.NumPad5, KeyModifiers.Control)]
         public void Disambiguate_LeavesLegacyEncodingsAlone(Key key, KeyModifiers modifiers)
+        {
+            Assert.Null(TerminalInputModeEncoder.EncodeKittyKey(key, modifiers, DisambiguateModes()));
+        }
+
+        [Theory]
+        // Blocker 1 regression (PR #277 review): on Windows, AltGr is reported as
+        // Control|Alt. With disambiguate on, these combinations must fall through to the
+        // legacy/text path (null from EncodeKittyKey) instead of encoding CSI u and losing
+        // the composed AltGr character (Codex/crossterm/neovim/helix all push flag 1).
+        [InlineData(Key.Q, KeyModifiers.Alt | KeyModifiers.Control)]                    // AltGr+Q -> '@' (German)
+        [InlineData(Key.E, KeyModifiers.Alt | KeyModifiers.Control)]                    // AltGr+E -> Euro sign
+        [InlineData(Key.D8, KeyModifiers.Alt | KeyModifiers.Control)]                   // AltGr+8 -> '[' (German)
+        [InlineData(Key.V, KeyModifiers.Alt | KeyModifiers.Control)]
+        [InlineData(Key.V, KeyModifiers.Alt | KeyModifiers.Control | KeyModifiers.Shift)]
+        [InlineData(Key.Escape, KeyModifiers.Alt | KeyModifiers.Control)]
+        [InlineData(Key.Enter, KeyModifiers.Alt | KeyModifiers.Control)]
+        public void AltGr_ControlAltCombinations_FallThroughToLegacyEncoding(Key key, KeyModifiers modifiers)
         {
             Assert.Null(TerminalInputModeEncoder.EncodeKittyKey(key, modifiers, DisambiguateModes()));
         }

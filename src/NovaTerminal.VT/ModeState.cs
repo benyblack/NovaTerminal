@@ -33,11 +33,19 @@ namespace NovaTerminal.VT
 
         /// <summary>
         /// Clears the input-reporting modes a full-screen application turns on for itself
-        /// (mouse tracking and focus reporting). Called when the shell signals a fresh prompt
-        /// so a TUI that exited uncleanly — Ctrl+C, crash, or output dropped during PTY
-        /// teardown — can't leave mouse reporting on and flood the prompt with ESC[&lt;..M
-        /// reports on every pointer move. Shell-owned modes (bracketed paste, application
-        /// cursor keys, auto-wrap) are intentionally left untouched.
+        /// (mouse tracking, focus reporting, and the kitty keyboard protocol). Called when the
+        /// shell signals a fresh prompt so a TUI that exited uncleanly — Ctrl+C, crash, or
+        /// output dropped during PTY teardown — can't leave mouse reporting on and flood the
+        /// prompt with ESC[&lt;..M reports on every pointer move. Shell-owned modes (bracketed
+        /// paste, application cursor keys, auto-wrap) are intentionally left untouched.
+        ///
+        /// Non-blocking review note (#277): kitty itself does not reset its keyboard stacks on
+        /// this kind of transient signal, and doing so is a policy call, not a spec requirement.
+        /// But this method already makes the opposite policy call for mouse mode with exactly
+        /// the same justification ("a TUI that exited uncleanly can't leave X reporting on") -
+        /// leaving disambiguate on would have the shell prompt's Ctrl+C send
+        /// <c>CSI 99;5u</c> instead of raising SIGINT, and readline would print garbage instead
+        /// of interrupting. Consistency with the mouse-mode policy wins here.
         /// </summary>
         public void ResetTransientInputReporting()
         {
@@ -46,6 +54,7 @@ namespace NovaTerminal.VT
             MouseModeAnyEvent = false;
             MouseModeSGR = false;
             IsFocusEventReporting = false;
+            KittyKeyboard.Reset();
         }
 
         public ModeState Clone()
