@@ -16,7 +16,7 @@ namespace NovaTerminal.CommandAssist.Application;
 /// True when the candidate fetch or the ranking threw. The surface is cleared rather than left
 /// showing rows from a previous query.
 /// </param>
-public readonly record struct SuggestionRefreshOutcome(
+internal readonly record struct SuggestionRefreshOutcome(
     CommandAssistMode RequestedMode,
     IReadOnlyList<AssistSuggestion> Suggestions,
     bool Faulted);

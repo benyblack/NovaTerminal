@@ -26,7 +26,7 @@ namespace NovaTerminal.CommandAssist.Application;
 /// There is no debounce here. Phase 3 owns that policy decision.
 /// </para>
 /// </remarks>
-public sealed class SuggestionOrchestrator
+internal sealed class SuggestionOrchestrator
 {
     /// <summary>Rows the popup/bubble shows. M4.2's hard-coded cap; Phase 3 replaces it with scrolling.</summary>
     public const int MaxDisplayedSuggestions = 5;
@@ -111,17 +111,11 @@ public sealed class SuggestionOrchestrator
 
     private static void Cancel(CancellationTokenSource? source)
     {
-        if (source == null)
-        {
-            return;
-        }
-
-        source.Cancel();
-
-        // Safe to dispose while an in-flight pass still holds the token: reading
-        // CancellationToken.IsCancellationRequested does not throw after the source is disposed, and
-        // nothing here registers callbacks or touches the wait handle.
-        source.Dispose();
+        // Deliberately not disposed. These sources never register a callback, never link to another
+        // token and never arm a timer, so the only thing Dispose would reclaim is managed memory the
+        // GC handles anyway - and skipping it removes any question about a pass still holding the
+        // token when the source goes away.
+        source?.Cancel();
     }
 
     private async Task RunPassAsync(

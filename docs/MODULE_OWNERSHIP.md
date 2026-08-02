@@ -168,11 +168,17 @@ invariant changes.
 
 **Namespace:** `NovaTerminal.CommandAssist` (+ `.Application`, `.Domain`, `.Models`, `.Storage`, `.ShellIntegration`, `.ViewModels`)
 **Depends on:** *(leaf — only BCL)*
-**Public surface:** `CommandAssistController` and its three collaborators (`AssistSessionStateMachine` + `AssistSessionState`, `AssistSessionContext`, `CapturePipeline`, `SuggestionOrchestrator` + `SuggestionRefreshOutcome`), `CommandAssistAnchorCalculator` (+ `AssistRect`/`AssistPoint`/`AssistSize`), `AssistKey`/`AssistModifiers`, `CommandAssistModeRouter`, `CommandAssistKeyRouter`, `CommandAssistInsertionPlanner`, `CommandAssistResultBuilder`, `RecognizedCommandParser`, the `I*Store` / `I*Provider` / `ISuggestionEngine` / `ISecretsFilter` domain contracts and their local implementations, `IShellIntegrationProvider` + the four shell providers and bootstrap builders, `ShellIntegrationRegistry`, `ShellLifecycleTracker`, `JsonlHistoryStore`, `JsonSnippetStore`, `CommandAssistJsonContext` / `CommandAssistJsonLinesContext`, and the assist view-models
+**Public surface:** `CommandAssistController`, `AssistSessionState`, `CommandAssistAnchorCalculator` (+ `AssistRect`/`AssistPoint`/`AssistSize`), `AssistKey`/`AssistModifiers`, `CommandAssistModeRouter`, `CommandAssistKeyRouter`, `CommandAssistInsertionPlanner`, `CommandAssistResultBuilder`, `RecognizedCommandParser`, the `I*Store` / `I*Provider` / `ISuggestionEngine` / `ISecretsFilter` domain contracts and their local implementations, `IShellIntegrationProvider` + the four shell providers and bootstrap builders, `ShellIntegrationRegistry`, `ShellLifecycleTracker`, `JsonlHistoryStore`, `JsonSnippetStore`, `CommandAssistJsonContext` / `CommandAssistJsonLinesContext`, and the assist view-models
 **Internals exposed to:** `NovaTerminal.App.Tests` only. The App is deliberately not granted
 `InternalsVisibleTo`: the two helpers `TerminalPane` needs (`CommandAssistKeyRouter`,
 `CommandAssistInsertionPlanner`) are public pure-static functions over public types, so the App
-consumes this assembly through its published surface.
+consumes this assembly through its published surface. The controller's three collaborators
+(`AssistSessionStateMachine`, `AssistSessionContext`, `CapturePipeline`, `SuggestionOrchestrator` +
+`SuggestionRefreshOutcome`) and the controller's own `SessionState` accessor are `internal`: only
+`CommandAssistController` constructs them, and the only outside readers are the unit tests. The
+`AssistSessionState` enum is the one exception that stays public - no public member exposes it, but
+the state machine's transition-table tests drive it through `[Theory]` parameters, and xUnit
+requires public test classes.
 
 **Owns**
 - Assist domain: suggestion ranking, path suggestions, secrets redaction, local docs/recipes, heuristic error insight

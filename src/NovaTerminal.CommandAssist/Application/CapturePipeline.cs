@@ -32,7 +32,7 @@ namespace NovaTerminal.CommandAssist.Application;
 /// down the keystroke that triggered it.
 /// </para>
 /// </remarks>
-public sealed class CapturePipeline
+internal sealed class CapturePipeline
 {
     private readonly IHistoryStore _historyStore;
     private readonly ISecretsFilter _secretsFilter;
@@ -50,9 +50,6 @@ public sealed class CapturePipeline
         _secretsFilter = secretsFilter;
         _context = context;
     }
-
-    /// <summary>The entry awaiting an exit code, if a capture is currently in flight.</summary>
-    internal string? PendingEntryId => _pendingEntryId;
 
     /// <summary>
     /// Heuristic capture: the user pressed Enter and we believe <paramref name="submission"/> is what

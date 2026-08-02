@@ -17,7 +17,6 @@ public sealed class AssistSessionStateMachineTests
         Assert.Equal(AssistSessionState.Hidden, machine.State);
         Assert.False(machine.IsCurrentSubmissionSuppressed);
         Assert.False(machine.IsExplicitSession);
-        Assert.False(machine.IsPopupOpen);
         Assert.Equal(CommandAssistMode.Suggest, machine.Mode);
     }
 
@@ -65,21 +64,6 @@ public sealed class AssistSessionStateMachineTests
     public void IsExplicitSession_IsDerivedFromState(AssistSessionState state, bool expected)
     {
         Assert.Equal(expected, CreateInState(state).IsExplicitSession);
-    }
-
-    [Theory]
-    [InlineData(AssistSessionState.Hidden, false)]
-    [InlineData(AssistSessionState.PassiveBubble, false)]
-    [InlineData(AssistSessionState.PassivePopup, true)]
-    [InlineData(AssistSessionState.ExplicitBubble, false)]
-    [InlineData(AssistSessionState.ExplicitPopup, true)]
-    [InlineData(AssistSessionState.HistorySearch, true)]
-    [InlineData(AssistSessionState.Help, true)]
-    [InlineData(AssistSessionState.FixHint, false)]
-    [InlineData(AssistSessionState.FixPopup, true)]
-    public void IsPopupOpen_IsDerivedFromState(AssistSessionState state, bool expected)
-    {
-        Assert.Equal(expected, CreateInState(state).IsPopupOpen);
     }
 
     [Theory]
@@ -151,7 +135,6 @@ public sealed class AssistSessionStateMachineTests
 
         Assert.Equal(AssistSessionState.HistorySearch, machine.State);
         Assert.True(machine.IsExplicitSession);
-        Assert.True(machine.IsPopupOpen);
     }
 
     [Theory]

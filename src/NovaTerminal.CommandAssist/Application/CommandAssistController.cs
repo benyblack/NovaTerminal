@@ -78,7 +78,7 @@ public sealed class CommandAssistController
     public IReadOnlyList<AssistSuggestion> Suggestions => _suggestions;
 
     /// <summary>What the session is doing right now. Exposed for diagnostics and tests.</summary>
-    public AssistSessionState SessionState => _state.State;
+    internal AssistSessionState SessionState => _state.State;
 
     public void ToggleAssist()
     {
@@ -169,6 +169,11 @@ public sealed class CommandAssistController
             await _capturePipeline.CaptureSubmissionAsync(
                 ViewModel.QueryText,
                 _state.IsCurrentSubmissionSuppressed);
+        }
+        catch
+        {
+            // Capture is best-effort and Enter must reach the shell regardless. CapturePipeline
+            // already swallows its own failures, so this only backstops a future change to it.
         }
         finally
         {

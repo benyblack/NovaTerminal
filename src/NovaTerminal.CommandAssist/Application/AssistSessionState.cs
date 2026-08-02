@@ -18,6 +18,23 @@ namespace NovaTerminal.CommandAssist.Application;
 /// session runs in, not what the session is doing; they live in
 /// <see cref="AssistSessionContext"/> and gate transitions from the outside.
 /// </para>
+/// <para>
+/// <strong>Popup-openness is not read off this enum.</strong> The state names say which states
+/// <em>intend</em> the popup to be up, but the authority every code path actually consults is
+/// <see cref="ViewModels.CommandAssistBarViewModel.IsPopupOpen"/> - the controller writes it, and
+/// <c>SetSelectedIndex</c> / <c>ApplyRefreshOutcome</c> branch on it. The two can disagree (a
+/// pre-existing latent bug: nothing keeps them in sync), so deriving a second predicate here would
+/// only offer a plausible-looking answer that production does not use. Resolve the view-model sync
+/// first; until then, treat the popup axis of these names as documentation, not as a source.
+/// </para>
+/// <para>
+/// <strong>Public only for the transition table.</strong> Every member that traffics in this enum -
+/// <see cref="AssistSessionStateMachine"/> and <c>CommandAssistController.SessionState</c> - is
+/// <c>internal</c>, so nothing outside this assembly can reach a value of it in production. It stays
+/// public because <c>AssistSessionStateMachineTests</c> drives the whole transition table through
+/// <c>[Theory]</c> parameters of this type, and xUnit requires public test classes (xUnit1000),
+/// which in turn requires their parameter types to be at least as accessible.
+/// </para>
 /// </remarks>
 public enum AssistSessionState
 {

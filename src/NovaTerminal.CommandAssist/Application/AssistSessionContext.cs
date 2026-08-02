@@ -22,7 +22,7 @@ namespace NovaTerminal.CommandAssist.Application;
 /// through named methods.
 /// </para>
 /// </remarks>
-public sealed class AssistSessionContext
+internal sealed class AssistSessionContext
 {
     /// <summary>Shell kind reported by the host ("pwsh", "bash", ...), or null when unknown.</summary>
     public string? ShellKind { get; private set; }

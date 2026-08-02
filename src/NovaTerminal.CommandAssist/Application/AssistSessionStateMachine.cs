@@ -25,7 +25,7 @@ namespace NovaTerminal.CommandAssist.Application;
 /// them in the enum would multiply it by every combination of terminal condition.
 /// </para>
 /// </remarks>
-public sealed class AssistSessionStateMachine
+internal sealed class AssistSessionStateMachine
 {
     /// <summary>The current session state. Only the transitions below can change it.</summary>
     public AssistSessionState State { get; private set; } = AssistSessionState.Hidden;
@@ -62,14 +62,6 @@ public sealed class AssistSessionStateMachine
         AssistSessionState.ExplicitBubble or
         AssistSessionState.ExplicitPopup or
         AssistSessionState.HistorySearch;
-
-    /// <summary>Whether the session intends the popup to be open over the bubble.</summary>
-    public bool IsPopupOpen => State is
-        AssistSessionState.PassivePopup or
-        AssistSessionState.ExplicitPopup or
-        AssistSessionState.HistorySearch or
-        AssistSessionState.Help or
-        AssistSessionState.FixPopup;
 
     /// <summary>
     /// Whether the state ranks suggestions at all. Help and Fix render content produced elsewhere,

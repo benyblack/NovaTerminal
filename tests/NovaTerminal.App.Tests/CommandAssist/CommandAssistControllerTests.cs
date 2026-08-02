@@ -362,6 +362,91 @@ public sealed class CommandAssistControllerTests
         Assert.Empty(historyStore.Entries);
     }
 
+    /// <summary>
+    /// Paste suppression end to end: a single-line paste is rejected by the suppression flag alone,
+    /// with none of the other capture guards (multi-line, empty, structured capture) in play.
+    /// </summary>
+    [Fact]
+    public async Task HandleEnterAsync_WhenSubmissionWasPasted_PersistsNothing()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+        controller.HandlePastedText("git status");
+
+        await controller.HandleEnterAsync();
+
+        Assert.Empty(historyStore.Entries);
+    }
+
+    /// <summary>
+    /// The other half of paste suppression: rows may still be on screen and a row may still be
+    /// selected, but nothing may be inserted back into a line the user did not compose here.
+    /// </summary>
+    [Fact]
+    public async Task TryGetInsertionText_WhenSubmissionWasPasted_IsInert()
+    {
+        var suggestionEngine = new DelayedSuggestionEngine(
+            delay: TimeSpan.Zero,
+            suggestions: new[]
+            {
+                new AssistSuggestion(
+                    Id: "history-1",
+                    Type: AssistSuggestionType.History,
+                    DisplayText: "git status",
+                    InsertText: "git status",
+                    Description: null,
+                    Badges: ["Worked"],
+                    Score: 100,
+                    WorkingDirectory: @"C:\repo",
+                    LastUsedAt: null,
+                    ExitCode: 0)
+            });
+        var controller = CreateController(
+            historyStore: new InMemoryHistoryStore(),
+            suggestionEngine: suggestionEngine);
+
+        controller.HandlePastedText("git stat");
+        await WaitForConditionAsync(() => controller.Suggestions.Count > 0);
+
+        // A row is selected, so a false return can only come from the suppression flag.
+        Assert.Equal(0, controller.ViewModel.SelectedIndex);
+        Assert.False(controller.TryGetInsertionText(out string? insertionText));
+        Assert.Null(insertionText);
+        Assert.False(controller.TryAcceptSelection(out string? acceptedText));
+        Assert.Null(acceptedText);
+    }
+
+    /// <summary>
+    /// Submitting normalizes the session back to a passive Suggest bubble, including the mode: the
+    /// controller this replaced left the mode field reading <c>Search</c> after a Ctrl+R submission.
+    /// That was unobservable - every reachable follow-up reset the mode before reading it - and the
+    /// normalized behavior is the correct one, so this pins it rather than restoring the stale value.
+    /// </summary>
+    [Fact]
+    public async Task HandleEnterAsync_AfterHistorySearch_LeavesTheSessionInPassiveSuggestScope()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        var controller = CreateController(historyStore);
+
+        controller.OpenHistorySearch();
+        await historyStore.WaitForSearchSettledAsync();
+
+        await controller.HandleEnterAsync();
+        int searchesAfterSubmission = historyStore.SearchCount;
+
+        // Follow-up interactions that refresh with a non-empty buffer. Search or explicit-Suggest
+        // scope would reach for history; the passive path-only scope this submission normalized
+        // back to must not.
+        controller.HandleTextInput("git st");
+        controller.HandleBackspace();
+        await historyStore.WaitForSearchSettledAsync();
+
+        Assert.Equal(searchesAfterSubmission, historyStore.SearchCount);
+        Assert.Empty(controller.Suggestions);
+        Assert.False(controller.ViewModel.IsVisible);
+    }
+
     [Fact]
     public async Task HandleEnterAsync_WhenHistoryStoreThrows_DoesNotPropagate()
     {
@@ -947,7 +1032,16 @@ public sealed class CommandAssistControllerTests
     private sealed class InMemoryHistoryStore : IHistoryStore
     {
         private readonly List<CommandHistoryEntry> _entries = new();
+        private int _searchCount;
+
         public IReadOnlyList<CommandHistoryEntry> Entries => _entries;
+
+        /// <summary>
+        /// How many times the recall gate was queried. Lets a test assert that a refresh never
+        /// reached for history at all, which is the observable difference between the history-backed
+        /// scopes and the passive path-only one.
+        /// </summary>
+        public int SearchCount => Volatile.Read(ref _searchCount);
 
         public Task AppendAsync(CommandHistoryEntry entry, CancellationToken cancellationToken = default)
         {
@@ -982,6 +1076,7 @@ public sealed class CommandAssistControllerTests
         /// </remarks>
         public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxCandidates, CancellationToken cancellationToken = default)
         {
+            Interlocked.Increment(ref _searchCount);
             string normalized = query.Trim();
             IReadOnlyList<CommandHistoryEntry> results = _entries
                 .Where(x => IsCandidate(x.CommandText, normalized))
