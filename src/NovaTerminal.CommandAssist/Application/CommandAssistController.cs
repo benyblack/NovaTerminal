@@ -12,6 +12,23 @@ namespace NovaTerminal.CommandAssist.Application;
 
 public sealed class CommandAssistController
 {
+    /// <summary>Rows the popup/bubble shows. M4.2's hard-coded cap; Phase 3 replaces it with scrolling.</summary>
+    private const int MaxDisplayedSuggestions = 5;
+
+    /// <summary>
+    /// How many history candidates the ranking engine gets to choose from for a text query.
+    /// </summary>
+    /// <remarks>
+    /// Wider than <see cref="MaxDisplayedSuggestions"/> on purpose. The store used to pre-rank with
+    /// its own scoring function and hand back its own top five, so the engine only ever re-ordered
+    /// a set the store had already picked. Now the store is a recall gate that truncates by
+    /// recency, so it has to hand over enough rows for the engine's cwd / shell / profile / exit-code
+    /// signals to matter - otherwise a relevant-but-older command could never reach the list.
+    /// Empty-query recall stays at the display cap: with no text to score, "most recent five" is
+    /// already the answer, and widening it would let the frequency signal outrank recency.
+    /// </remarks>
+    private const int HistoryCandidatePoolSize = 50;
+
     private bool _isAltScreenActive;
     private string? _workingDirectory;
     private string? _shellKind;
@@ -35,45 +52,6 @@ public sealed class CommandAssistController
     private readonly IErrorInsightService _errorInsightService;
     private readonly CommandAssistModeRouter _modeRouter;
     private readonly CommandAssistResultBuilder _resultBuilder;
-
-    public CommandAssistController(
-        IHistoryStore historyStore,
-        ISecretsFilter secretsFilter,
-        ISuggestionEngine suggestionEngine,
-        Action<Action>? dispatch = null)
-        : this(
-            historyStore,
-            secretsFilter,
-            suggestionEngine,
-            snippetStore: null,
-            commandDocsProvider: null,
-            recipeProvider: null,
-            errorInsightService: null,
-            modeRouter: null,
-            resultBuilder: null,
-            dispatch)
-    {
-    }
-
-    public CommandAssistController(
-        IHistoryStore historyStore,
-        ISecretsFilter secretsFilter,
-        ISuggestionEngine suggestionEngine,
-        ISnippetStore? snippetStore,
-        Action<Action>? dispatch = null)
-        : this(
-            historyStore,
-            secretsFilter,
-            suggestionEngine,
-            snippetStore,
-            commandDocsProvider: null,
-            recipeProvider: null,
-            errorInsightService: null,
-            modeRouter: null,
-            resultBuilder: null,
-            dispatch)
-    {
-    }
 
     public CommandAssistController(
         IHistoryStore historyStore,
@@ -619,8 +597,8 @@ public sealed class CommandAssistController
                 if (context.IncludeHistorySuggestions)
                 {
                     history = string.IsNullOrWhiteSpace(query)
-                        ? await HistoryStore.GetRecentAsync(5).ConfigureAwait(false)
-                        : await HistoryStore.SearchAsync(query, 5).ConfigureAwait(false);
+                        ? await HistoryStore.GetRecentAsync(MaxDisplayedSuggestions).ConfigureAwait(false)
+                        : await HistoryStore.SearchAsync(query, HistoryCandidatePoolSize).ConfigureAwait(false);
                 }
 
                 IReadOnlyList<CommandSnippet> snippets = Array.Empty<CommandSnippet>();
@@ -629,7 +607,7 @@ public sealed class CommandAssistController
                     snippets = await SnippetStore.GetAllAsync().ConfigureAwait(false);
                 }
 
-                return SuggestionEngine.GetSuggestions(history, snippets, context, 5);
+                return SuggestionEngine.GetSuggestions(history, snippets, context, MaxDisplayedSuggestions);
             }).ConfigureAwait(false);
 
             _dispatch(() =>

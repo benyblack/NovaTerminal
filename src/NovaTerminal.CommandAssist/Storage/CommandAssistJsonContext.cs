@@ -25,3 +25,18 @@ namespace NovaTerminal.CommandAssist.Storage;
 public partial class CommandAssistJsonContext : JsonSerializerContext
 {
 }
+
+/// <summary>
+/// Source-generated context for the JSON-Lines history file.
+/// </summary>
+/// <remarks>
+/// Identical to <see cref="CommandAssistJsonContext"/> except for <c>WriteIndented = false</c>: a
+/// JSONL record has to be exactly one line, and options are baked into a source-generated context,
+/// so the two formats need two contexts. Reflection-based options are not an option here - the app
+/// publishes with <c>PublishAot</c>.
+/// </remarks>
+[JsonSerializable(typeof(CommandHistoryEntry))]
+[JsonSourceGenerationOptions(WriteIndented = false)]
+public partial class CommandAssistJsonLinesContext : JsonSerializerContext
+{
+}

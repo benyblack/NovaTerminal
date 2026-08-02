@@ -49,6 +49,15 @@ public sealed class CommandAssistLayoutTests
         Assert.False(vm.Popup.IsVisible);
     }
 
+    /// <summary>
+    /// The assist surfaces are overlays in row 0, not a footer bar that steals a terminal row.
+    /// </summary>
+    /// <remarks>
+    /// This used to also assert <c>FindControl&lt;CommandAssistBarView&gt;("CommandAssistBar")</c>
+    /// returned null - a guard against the pre-M4.2 footer bar coming back. Phase 0b deleted
+    /// <c>CommandAssistBarView</c> outright, so the guard is now enforced by the compiler: the type
+    /// does not exist to be hosted.
+    /// </remarks>
     [AvaloniaFact]
     public void TerminalPane_HostsBubbleAndPopupAsOverlayViews()
     {
@@ -56,11 +65,9 @@ public sealed class CommandAssistLayoutTests
         ConfigureCommandAssist(pane);
         var bubbleView = pane.FindControl<CommandAssistBubbleView>("CommandAssistBubble");
         var popupView = pane.FindControl<CommandAssistPopupView>("CommandAssistPopup");
-        var commandAssistBar = pane.FindControl<CommandAssistBarView>("CommandAssistBar");
 
         Assert.NotNull(bubbleView);
         Assert.NotNull(popupView);
-        Assert.Null(commandAssistBar);
         Assert.Equal(0, Grid.GetRow(bubbleView));
         Assert.Equal(0, Grid.GetRow(popupView));
     }
@@ -644,6 +651,10 @@ public sealed class CommandAssistLayoutTests
 
     private static void ConfigureCommandAssist(TerminalPane pane)
     {
+        // Phase 0b: the pane no longer reaches for a static locator, so the services instance is
+        // injected the same way MainWindow injects it in production.
+        pane.CommandAssistServices = TestCommandAssistServices.Instance;
+
         // Constructed, not TerminalSettings.Load() (#232). Load() reads the *developer's* settings
         // file, so the font family and size a test runs against were whatever this machine happened to
         // have configured - 18pt here, 14pt on a CI runner with no settings file at all. That is the

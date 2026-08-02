@@ -47,7 +47,16 @@ namespace NovaTerminal.Shell
         public static string RecordingsDirectory => Path.Combine(RootDirectory, "recordings");
         public static string CommandPaletteUsageFilePath => Path.Combine(RootDirectory, "command-palette-usage.json");
         public static string CommandAssistDirectory => Path.Combine(RootDirectory, "command-assist");
-        public static string CommandHistoryFilePath => Path.Combine(CommandAssistDirectory, "history.json");
+
+        /// <summary>Append-only JSON-Lines command history written by <c>JsonlHistoryStore</c>.</summary>
+        public static string CommandHistoryFilePath => Path.Combine(CommandAssistDirectory, "history.jsonl");
+
+        /// <summary>
+        /// Pre-JSONL whole-file history. Kept only as the one-time migration source; the store
+        /// renames it to <c>history.json.bak</c> once it has been converted.
+        /// </summary>
+        public static string LegacyCommandHistoryFilePath => Path.Combine(CommandAssistDirectory, "history.json");
+
         public static string CommandSnippetsFilePath => Path.Combine(CommandAssistDirectory, "snippets.json");
         public static string SshDirectory => Path.Combine(RootDirectory, "ssh");
         public static string NativeKnownHostsFilePath => Path.Combine(SshDirectory, "native_known_hosts.json");

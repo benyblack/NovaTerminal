@@ -13,7 +13,7 @@ public static class AppServices
 
         var coordinator = new StartupRestoreCoordinator(schedule);
         var orchestrator = new StartupOrchestrator(tracker, coordinator);
-        return new AppServiceBundle(orchestrator);
+        return new AppServiceBundle(orchestrator, CommandAssistServices.CreateDefault());
     }
 
     public static AppServiceBundle BuildForDesigner()
@@ -27,6 +27,6 @@ public static class AppServices
         var tracker = StartupPerformanceTracker.Current ?? new StartupPerformanceTracker();
         var coordinator = new StartupRestoreCoordinator(action => action());
         var orchestrator = new StartupOrchestrator(tracker, coordinator);
-        return new AppServiceBundle(orchestrator);
+        return new AppServiceBundle(orchestrator, CommandAssistServices.CreateDefault());
     }
 }

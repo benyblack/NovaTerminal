@@ -130,6 +130,7 @@ namespace NovaTerminal.Controls
         private string? _pendingPasteFilePath;
         private string? _pendingEscapedPath;
         private CommandAssistController? _commandAssistController;
+        private CommandAssistServices? _commandAssistServices;
         private ShellLifecycleTracker? _shellLifecycleTracker;
         private bool _isShellIntegrationActive;
         private IReadOnlyDictionary<string, string>? _shellIntegrationEnvOverrides;
@@ -161,6 +162,27 @@ namespace NovaTerminal.Controls
         private const double ConservativeRemoteShortPaneHeightThreshold = 300;
         private const int MaxSshAssistCorrectionPasses = 6;
         internal CommandAssistBarViewModel? CommandAssistViewModel => _commandAssistController?.ViewModel;
+
+        /// <summary>
+        /// The Command Assist dependency graph this pane uses. Assigned by <c>MainWindow.WirePane</c>,
+        /// from the single instance built at the App composition root.
+        /// </summary>
+        /// <remarks>
+        /// A property rather than a constructor parameter because this control has four public
+        /// constructors plus two internal settings-carrying overloads, and panes are built from
+        /// three different places (new tab, split, session restore); property injection at the one
+        /// wiring funnel keeps all of them working without threading the graph through every
+        /// signature. (It is not about XAML: <c>TerminalPane.axaml</c> only declares
+        /// <c>x:Class</c> - no markup anywhere instantiates the type.) Not defaulted: a pane that
+        /// reaches Command Assist initialization without one throws (see
+        /// <c>RequireCommandAssistServices</c>) instead of quietly building a second graph, which is
+        /// exactly the failure mode the removed static locator made invisible.
+        /// </remarks>
+        internal CommandAssistServices? CommandAssistServices
+        {
+            get => _commandAssistServices;
+            set => _commandAssistServices = value;
+        }
 
         public bool IsRecording => Session?.IsRecording ?? false;
         public string? CurrentWorkingDirectory { get; private set; }
@@ -935,14 +957,16 @@ namespace NovaTerminal.Controls
             }
 
             TerminalSettings settings = _settings!;
+            CommandAssistServices services = RequireCommandAssistServices();
+            services.ApplyHistoryRetentionLimit(settings.CommandAssistMaxHistoryEntries);
             _commandAssistController = new CommandAssistController(
-                CommandAssistInfrastructure.GetHistoryStore(settings),
-                CommandAssistInfrastructure.GetSecretsFilter(),
-                CommandAssistInfrastructure.GetSuggestionEngine(),
-                CommandAssistInfrastructure.GetSnippetStore(),
-                CommandAssistInfrastructure.GetCommandDocsProvider(),
-                CommandAssistInfrastructure.GetRecipeProvider(),
-                CommandAssistInfrastructure.GetErrorInsightService(),
+                services.HistoryStore,
+                services.SecretsFilter,
+                services.SuggestionEngine,
+                services.SnippetStore,
+                services.CommandDocsProvider,
+                services.RecipeProvider,
+                services.ErrorInsightService,
                 modeRouter: null,
                 resultBuilder: null,
                 action =>
@@ -961,6 +985,18 @@ namespace NovaTerminal.Controls
 
             _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
             UpdateCommandAssistContext();
+        }
+
+        /// <summary>
+        /// Returns the injected Command Assist graph, or throws describing who was supposed to
+        /// supply it.
+        /// </summary>
+        private CommandAssistServices RequireCommandAssistServices()
+        {
+            return _commandAssistServices ?? throw new InvalidOperationException(
+                "TerminalPane.CommandAssistServices was not assigned before Command Assist " +
+                "initialized. MainWindow.WirePane injects the instance built by AppServices at the " +
+                "App composition root; a pane created outside that path must set it explicitly.");
         }
 
         private void BindCommandAssistViews(CommandAssistBarViewModel? viewModel)
@@ -2860,7 +2896,7 @@ namespace NovaTerminal.Controls
             }
 
             string shellKind = DetermineShellKind(effectiveShell);
-            var registry = CommandAssistInfrastructure.GetShellIntegrationRegistry();
+            ShellIntegrationRegistry registry = RequireCommandAssistServices().ShellIntegrationRegistry;
             IShellIntegrationProvider? provider = registry.GetProvider(shellKind, profile?.Command);
             if (provider == null)
             {

@@ -280,8 +280,7 @@ public sealed record AssistSuggestion(
     double Score,
     string? WorkingDirectory,
     DateTimeOffset? LastUsedAt,
-    int? ExitCode,
-    bool CanExecuteDirectly
+    int? ExitCode
 );
 ```
 
