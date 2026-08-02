@@ -1,0 +1,538 @@
+using NovaTerminal.CommandAssist.Application;
+using NovaTerminal.CommandAssist.Domain;
+using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
+
+namespace NovaTerminal.Tests.CommandAssist;
+
+/// <summary>
+/// Phase 1c: the query is read out of the terminal grid, and the shadow keystroke buffer is gone.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Three things are pinned here, and they are the three the design rests on.
+/// </para>
+/// <para>
+/// <strong>The lifecycle gate.</strong> The grid reader cannot tell "the user is typing" from
+/// "this is the command's output"; only the OSC 133 stream can. So consumption is gated on the
+/// window between <c>B</c> and <c>C</c>, and a grid that is perfectly readable outside that window
+/// is still not a query.
+/// </para>
+/// <para>
+/// <strong>Desync immunity.</strong> The V1 shadow buffer mirrored TextInput, Backspace, Enter and
+/// Paste. Arrow keys, <c>Ctrl+U</c>, <c>Ctrl+W</c>, shell history recall and shell-side Tab
+/// completion all edit the line without producing any of those four, so V1's query drifted from
+/// reality and never came back. Here the shell rewrites the line behind the controller's back and
+/// the next refresh simply agrees with it.
+/// </para>
+/// <para>
+/// <strong>Degraded mode.</strong> No marks means no query - not an empty query it might act on,
+/// and not a keystroke mirror kept as a fallback. Prefix-dependent features go quiet; explicit
+/// history search still opens and shows recency.
+/// </para>
+/// </remarks>
+public sealed class CommandAssistGridTruthTests
+{
+    // ---- lifecycle gate ------------------------------------------------------------------
+
+    [Fact]
+    public async Task BeforeAnyPromptMark_TheGridIsNotConsulted()
+    {
+        var harness = Harness.Create();
+        harness.Grid.SetLine("git status");
+
+        harness.Controller.NotifyInputActivity();
+        await harness.SettleAsync();
+
+        Assert.Null(harness.Controller.TryReadQuerySnapshot());
+        Assert.Equal(string.Empty, harness.Controller.ViewModel.QueryText);
+    }
+
+    [Fact]
+    public async Task AfterThePromptMark_TheGridIsTheQuery()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("git status");
+
+        harness.Controller.NotifyInputActivity();
+        await harness.SettleAsync();
+
+        Assert.Equal("git status", harness.Controller.TryReadQuerySnapshot()?.Text);
+        Assert.Equal("git status", harness.Controller.ViewModel.QueryText);
+    }
+
+    /// <summary>
+    /// The gate's whole reason for existing. After <c>OSC 133;C</c> the command is running and the
+    /// cells below the mark are its output - but the mark is deliberately kept across C (the input
+    /// line is still on screen at that instant), so the reader would happily return something. Only
+    /// the lifecycle gate stops it.
+    /// </summary>
+    [Fact]
+    public async Task BetweenCommands_AReadableGridIsStillNotAQuery()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("git status");
+
+        await harness.CommandAcceptedAsync("git status");
+
+        // The provider is still perfectly happy to answer - nothing about the buffer changed.
+        Assert.Equal("git status", harness.Grid.Read()?.Text);
+
+        harness.Controller.NotifyInputActivity();
+        await harness.SettleAsync();
+
+        Assert.Null(harness.Controller.TryReadQuerySnapshot());
+        Assert.Equal(string.Empty, harness.Controller.ViewModel.QueryText);
+    }
+
+    [Fact]
+    public async Task AfterCommandFinished_TheGateIsClosed()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("on branch main");
+
+        await harness.CommandFinishedAsync(exitCode: 0);
+
+        Assert.Null(harness.Controller.TryReadQuerySnapshot());
+    }
+
+    /// <summary>
+    /// A prompt repaint re-emits <c>B</c>, so the window reopens on evidence. This is the path back
+    /// from every closer: next command, alt screen teardown, resize.
+    /// </summary>
+    [Fact]
+    public async Task TheNextPromptReopensTheGate()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+        await harness.CommandAcceptedAsync("git status");
+        await harness.CommandFinishedAsync(exitCode: 0);
+
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("ls");
+
+        Assert.Equal("ls", harness.Controller.TryReadQuerySnapshot()?.Text);
+    }
+
+    [Fact]
+    public async Task WhileTheAltScreenIsUp_TheGridIsNotConsulted()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("vim notes.txt");
+
+        harness.Controller.HandleAltScreenChanged(true);
+
+        Assert.Null(harness.Controller.TryReadQuerySnapshot());
+    }
+
+    /// <summary>
+    /// Both halves are necessary. The gate can be open while the mark has aged out of scrollback or
+    /// its coordinate generation has been reset, and then there is no truth to read either.
+    /// </summary>
+    [Fact]
+    public async Task WhenTheMarkGoesDarkWithTheGateOpen_ThereIsNoQuery()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("git status");
+        Assert.NotNull(harness.Controller.TryReadQuerySnapshot());
+
+        harness.Grid.GoDark();
+
+        Assert.Null(harness.Controller.TryReadQuerySnapshot());
+    }
+
+    // ---- desync immunity (the V1 failure matrix) -----------------------------------------
+
+    /// <summary>
+    /// <c>Ctrl+U</c> clears the line. V1's mirror never saw it, so its query stayed at whatever had
+    /// been typed and every subsequent ranking and insertion was computed against text that was no
+    /// longer on screen.
+    /// </summary>
+    [Fact]
+    public async Task AfterCtrlU_TheQueryFollowsTheEmptiedLine()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+
+        harness.Grid.SetLine("git st");
+        harness.Controller.NotifyInputActivity();
+        await harness.WaitForQueryAsync("git st");
+
+        // Ctrl+U reaches the shell, the shell erases the line, and nothing tells Command Assist.
+        // The next trigger - any trigger - reads the truth.
+        harness.Grid.SetLine(string.Empty);
+        harness.Controller.NotifyInputActivity();
+        await harness.WaitForQueryAsync(string.Empty);
+
+        Assert.Equal(string.Empty, harness.Controller.ViewModel.QueryText);
+    }
+
+    /// <summary>
+    /// Up-arrow history recall replaces the line with a command the user typed no character of.
+    /// V1 ranked against the empty mirror and offered nothing; the grid ranks against the recalled
+    /// command.
+    /// </summary>
+    [Fact]
+    public async Task AfterHistoryRecall_TheQueryIsTheRecalledCommand()
+    {
+        var harness = Harness.Create(seed: new[] { "git status --short", "dotnet test" });
+        await harness.PromptReadyAsync();
+        harness.Controller.ToggleAssist();
+
+        harness.Grid.SetLine("git status");
+        harness.Controller.NotifyInputActivity();
+
+        await harness.WaitForQueryAsync("git status");
+        await harness.WaitForConditionAsync(() => harness.Controller.ViewModel.TopSuggestionText == "git status --short");
+
+        Assert.Equal("git status --short", harness.Controller.ViewModel.TopSuggestionText);
+    }
+
+    /// <summary>
+    /// Shell-side Tab completion. Command Assist deliberately does not own Tab (the shell does), so
+    /// the completion arrives as a line rewrite with no key event attached - the purest form of the
+    /// V1 desync.
+    /// </summary>
+    [Fact]
+    public async Task AfterShellTabCompletion_TheQueryIsTheCompletedWord()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+
+        harness.Grid.SetLine("cd src/NovaTerm");
+        harness.Controller.NotifyInputActivity();
+        await harness.WaitForQueryAsync("cd src/NovaTerm");
+
+        harness.Grid.SetLine("cd src/NovaTerminal.CommandAssist/");
+        harness.Controller.NotifyInputActivity();
+        await harness.WaitForQueryAsync("cd src/NovaTerminal.CommandAssist/");
+    }
+
+    /// <summary>
+    /// The whole point, in one assertion: a trigger with no text argument still moves the query,
+    /// because the text was never the trigger's to carry.
+    /// </summary>
+    [Fact]
+    public async Task ATriggerCarriesNoText_AndTheQueryStillFollowsTheGrid()
+    {
+        var harness = Harness.Create();
+        await harness.PromptReadyAsync();
+
+        harness.Grid.SetLine("kubectl get pods");
+        harness.Controller.NotifyInputActivity();
+        await harness.WaitForQueryAsync("kubectl get pods");
+
+        // A backspace, as far as Command Assist is concerned, is the same event as a keypress.
+        harness.Grid.SetLine("kubectl get pod");
+        harness.Controller.NotifyInputActivity();
+        await harness.WaitForQueryAsync("kubectl get pod");
+    }
+
+    // ---- degraded mode -------------------------------------------------------------------
+
+    /// <summary>
+    /// No marks at all: a non-integrated local shell, or an un-instrumented SSH session. Typing
+    /// produces no query, so passive suggestions have nothing to rank.
+    /// </summary>
+    [Fact]
+    public async Task Degraded_TypingProducesNoQueryAndNoPassiveSuggestions()
+    {
+        var harness = Harness.CreateDegraded(seed: new[] { "git status" });
+
+        harness.Controller.NotifyInputActivity();
+        await harness.SettleAsync();
+
+        Assert.Equal(string.Empty, harness.Controller.ViewModel.QueryText);
+        Assert.Empty(harness.Controller.Suggestions);
+        Assert.False(harness.Controller.ViewModel.IsVisible);
+    }
+
+    /// <summary>
+    /// The degraded-mode Search decision: <c>Ctrl+R</c> still opens, and with no query to filter on
+    /// it lists what was run most recently. History is per user, not per session, so a degraded
+    /// session can still browse commands captured in instrumented ones.
+    /// </summary>
+    [Fact]
+    public async Task Degraded_ExplicitHistorySearchShowsTheRecencyList()
+    {
+        var harness = Harness.CreateDegraded(seed: new[] { "dotnet build", "git status" });
+
+        bool opened = harness.Controller.OpenHistorySearch();
+        await harness.WaitForConditionAsync(() => harness.Controller.Suggestions.Count > 0);
+
+        Assert.True(opened);
+        Assert.Equal("History", harness.Controller.ViewModel.ModeLabel);
+        Assert.Equal(string.Empty, harness.Controller.ViewModel.QueryText);
+        Assert.Contains(harness.Controller.Suggestions, s => s.InsertText == "git status");
+        Assert.Contains(harness.Controller.Suggestions, s => s.InsertText == "dotnet build");
+    }
+
+    /// <summary>
+    /// The other half of the degraded-Search decision: you can browse the rows, but nothing may be
+    /// spliced into a command line nobody can see. The planner is what refuses; this pins that the
+    /// controller hands it a null snapshot rather than an empty-string stand-in.
+    /// </summary>
+    [Fact]
+    public async Task Degraded_SelectingAHistoryRowYieldsNoInsertionPlan()
+    {
+        var harness = Harness.CreateDegraded(seed: new[] { "git status" });
+
+        harness.Controller.OpenHistorySearch();
+        await harness.WaitForConditionAsync(() => harness.Controller.Suggestions.Count > 0);
+
+        Assert.True(harness.Controller.TryGetInsertionText(out string? selected));
+        Assert.Equal("git status", selected);
+
+        Assert.Null(harness.Controller.TryReadQuerySnapshot());
+        Assert.False(CommandAssistInsertionPlanner.TryCreateInsertion(
+            harness.Controller.TryReadQuerySnapshot(),
+            selected,
+            out string? textToSend));
+        Assert.Null(textToSend);
+    }
+
+    /// <summary>
+    /// Help in a degraded session gets no command token from a query it does not have - but an
+    /// explicit selection still works, which is the escape hatch that keeps Explain useful there.
+    /// </summary>
+    [Fact]
+    public async Task Degraded_HelpTakesNoTokenFromTheQueryButStillHonoursASelection()
+    {
+        var docsProvider = new RecordingDocsProvider();
+        var harness = Harness.CreateDegraded(docsProvider: docsProvider);
+
+        await harness.Controller.OpenHelpAsync();
+        Assert.Equal(string.Empty, docsProvider.LastQuery?.RawInput);
+        Assert.Null(docsProvider.LastQuery?.CommandToken);
+
+        await harness.Controller.ExplainSelectionAsync("fatal: not a git repository");
+        Assert.Equal("fatal: not a git repository", docsProvider.LastQuery?.SelectedText);
+    }
+
+    /// <summary>
+    /// An instrumented session gets its help token from the grid, not from a view-model field that
+    /// the last ranking pass happened to write.
+    /// </summary>
+    [Fact]
+    public async Task Integrated_HelpTakesItsTokenFromTheGrid()
+    {
+        var docsProvider = new RecordingDocsProvider();
+        var harness = Harness.Create(docsProvider: docsProvider);
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("docker compose up");
+
+        await harness.Controller.OpenHelpAsync();
+
+        Assert.Equal("docker compose up", docsProvider.LastQuery?.RawInput);
+        Assert.Equal("docker", docsProvider.LastQuery?.CommandToken);
+    }
+
+    // ---- harness -------------------------------------------------------------------------
+
+    private sealed class Harness
+    {
+        private Harness(CommandAssistController controller, FakeGrid grid, InMemoryHistoryStore history)
+        {
+            Controller = controller;
+            Grid = grid;
+            History = history;
+        }
+
+        public CommandAssistController Controller { get; }
+
+        public FakeGrid Grid { get; }
+
+        public InMemoryHistoryStore History { get; }
+
+        public static Harness Create(string[]? seed = null, ICommandDocsProvider? docsProvider = null)
+            => Build(new FakeGrid(), seed, docsProvider);
+
+        /// <summary>A session with no OSC 133 marks: the provider never returns anything.</summary>
+        public static Harness CreateDegraded(string[]? seed = null, ICommandDocsProvider? docsProvider = null)
+            => Build(grid: null, seed, docsProvider);
+
+        private static Harness Build(FakeGrid? grid, string[]? seed, ICommandDocsProvider? docsProvider)
+        {
+            var history = new InMemoryHistoryStore();
+            if (seed != null)
+            {
+                history.Seed(seed);
+            }
+
+            var controller = new CommandAssistController(
+                history,
+                new SecretsFilter(),
+                new CommandAssistSuggestionEngine(new NoPathSuggestionProvider()),
+                snippetStore: null,
+                commandDocsProvider: docsProvider,
+                recipeProvider: null,
+                errorInsightService: null,
+                modeRouter: null,
+                resultBuilder: null,
+                queryProvider: grid == null ? null : grid.Read);
+
+            return new Harness(controller, grid ?? new FakeGrid(), history);
+        }
+
+        public Task PromptReadyAsync() => EmitAsync(ShellIntegrationEventType.CommandStarted, null, null);
+
+        public Task CommandAcceptedAsync(string commandText)
+            => EmitAsync(ShellIntegrationEventType.CommandAccepted, commandText, null);
+
+        public Task CommandFinishedAsync(int exitCode)
+            => EmitAsync(ShellIntegrationEventType.CommandFinished, null, exitCode);
+
+        private Task EmitAsync(ShellIntegrationEventType type, string? commandText, int? exitCode)
+        {
+            return Controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+                Type: type,
+                Timestamp: DateTimeOffset.UtcNow,
+                CommandText: commandText,
+                WorkingDirectory: null,
+                ExitCode: exitCode,
+                Duration: null));
+        }
+
+        public Task SettleAsync() => Task.Delay(60);
+
+        public Task WaitForQueryAsync(string expected)
+            => WaitForConditionAsync(() => Controller.ViewModel.QueryText == expected);
+
+        public async Task WaitForConditionAsync(Func<bool> predicate, int timeoutMs = 2000)
+        {
+            int elapsed = 0;
+            while (!predicate())
+            {
+                if (elapsed >= timeoutMs)
+                {
+                    throw new TimeoutException(
+                        $"Timed out waiting for test condition. QueryText='{Controller.ViewModel.QueryText}', " +
+                        $"rows={Controller.Suggestions.Count}, top='{Controller.ViewModel.TopSuggestionText}'.");
+                }
+
+                await Task.Delay(10);
+                elapsed += 10;
+            }
+        }
+    }
+
+    /// <summary>
+    /// The provider seam's stand-in. Locked rather than volatile because the real provider is read
+    /// from the refresh pass's worker thread, not from the thread that set the line.
+    /// </summary>
+    private sealed class FakeGrid
+    {
+        private readonly object _gate = new();
+        private AssistQuerySnapshot? _snapshot;
+
+        public AssistQuerySnapshot? Read()
+        {
+            lock (_gate)
+            {
+                return _snapshot;
+            }
+        }
+
+        public void SetLine(string text, int? cursorOffset = null)
+        {
+            lock (_gate)
+            {
+                _snapshot = new AssistQuerySnapshot(text, cursorOffset ?? text.Length, false, false);
+            }
+        }
+
+        public void GoDark()
+        {
+            lock (_gate)
+            {
+                _snapshot = null;
+            }
+        }
+    }
+
+    private sealed class NoPathSuggestionProvider : IPathSuggestionProvider
+    {
+        public IReadOnlyList<AssistSuggestion> GetSuggestions(CommandAssistQueryContext context, int maxResults)
+            => Array.Empty<AssistSuggestion>();
+    }
+
+    private sealed class RecordingDocsProvider : ICommandDocsProvider
+    {
+        public CommandHelpQuery? LastQuery { get; private set; }
+
+        public Task<IReadOnlyList<CommandHelpItem>> GetHelpAsync(
+            CommandHelpQuery query,
+            CancellationToken cancellationToken = default)
+        {
+            LastQuery = query;
+            return Task.FromResult<IReadOnlyList<CommandHelpItem>>(Array.Empty<CommandHelpItem>());
+        }
+    }
+
+    private sealed class InMemoryHistoryStore : IHistoryStore
+    {
+        private readonly List<CommandHistoryEntry> _entries = new();
+
+        public Task AppendAsync(CommandHistoryEntry entry, CancellationToken cancellationToken = default)
+        {
+            _entries.Add(entry);
+            return Task.CompletedTask;
+        }
+
+        public Task ClearAsync(CancellationToken cancellationToken = default)
+        {
+            _entries.Clear();
+            return Task.CompletedTask;
+        }
+
+        public Task<IReadOnlyList<CommandHistoryEntry>> GetRecentAsync(int maxResults, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<CommandHistoryEntry> results = _entries
+                .OrderByDescending(x => x.ExecutedAt)
+                .Take(maxResults)
+                .ToList();
+            return Task.FromResult(results);
+        }
+
+        public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxCandidates, CancellationToken cancellationToken = default)
+        {
+            IReadOnlyList<CommandHistoryEntry> results = _entries
+                .Where(x => x.CommandText.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.ExecutedAt)
+                .Take(Math.Max(0, maxCandidates))
+                .ToList();
+            return Task.FromResult(results);
+        }
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public void Seed(params string[] commandTexts)
+        {
+            DateTimeOffset at = DateTimeOffset.Parse("2026-03-01T10:00:00+00:00");
+            foreach (string commandText in commandTexts)
+            {
+                _entries.Add(new CommandHistoryEntry(
+                    Id: Guid.NewGuid().ToString("N"),
+                    CommandText: commandText,
+                    ExecutedAt: at,
+                    ShellKind: "pwsh",
+                    WorkingDirectory: @"C:\repo",
+                    ProfileId: "profile-1",
+                    SessionId: "session-1",
+                    HostId: null,
+                    ExitCode: 0,
+                    IsRemote: false,
+                    IsRedacted: false,
+                    Source: CommandCaptureSource.Heuristic,
+                    DurationMs: null));
+                at = at.AddSeconds(-1);
+            }
+        }
+    }
+}
