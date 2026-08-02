@@ -1,4 +1,4 @@
-﻿namespace NovaTerminal.VT.Tests;
+namespace NovaTerminal.VT.Tests;
 
 // Issue #267: DECRQM (CSI Ps $ p / CSI ? Ps $ p) replies with DECRPM (CSI [?] Ps ; Pm $ y),
 // reporting the live state of a tracked mode: Pm = 1 (set), 2 (reset), 0 (not recognized).
