@@ -168,7 +168,7 @@ invariant changes.
 
 **Namespace:** `NovaTerminal.CommandAssist` (+ `.Application`, `.Domain`, `.Models`, `.Storage`, `.ShellIntegration`, `.ViewModels`)
 **Depends on:** *(leaf — only BCL)*
-**Public surface:** `CommandAssistController`, `CommandAssistAnchorCalculator` (+ `AssistRect`/`AssistPoint`/`AssistSize`), `AssistKey`/`AssistModifiers`, `CommandAssistModeRouter`, `CommandAssistKeyRouter`, `CommandAssistInsertionPlanner`, `CommandAssistResultBuilder`, `RecognizedCommandParser`, the `I*Store` / `I*Provider` / `ISuggestionEngine` / `ISecretsFilter` domain contracts and their local implementations, `IShellIntegrationProvider` + the four shell providers and bootstrap builders, `ShellIntegrationRegistry`, `ShellLifecycleTracker`, `JsonHistoryStore`, `JsonSnippetStore`, `CommandAssistJsonContext`, and the assist view-models
+**Public surface:** `CommandAssistController`, `CommandAssistAnchorCalculator` (+ `AssistRect`/`AssistPoint`/`AssistSize`), `AssistKey`/`AssistModifiers`, `CommandAssistModeRouter`, `CommandAssistKeyRouter`, `CommandAssistInsertionPlanner`, `CommandAssistResultBuilder`, `RecognizedCommandParser`, the `I*Store` / `I*Provider` / `ISuggestionEngine` / `ISecretsFilter` domain contracts and their local implementations, `IShellIntegrationProvider` + the four shell providers and bootstrap builders, `ShellIntegrationRegistry`, `ShellLifecycleTracker`, `JsonlHistoryStore`, `JsonSnippetStore`, `CommandAssistJsonContext` / `CommandAssistJsonLinesContext`, and the assist view-models
 **Internals exposed to:** `NovaTerminal.App.Tests` only. The App is deliberately not granted
 `InternalsVisibleTo`: the two helpers `TerminalPane` needs (`CommandAssistKeyRouter`,
 `CommandAssistInsertionPlanner`) are public pure-static functions over public types, so the App
@@ -177,7 +177,9 @@ consumes this assembly through its published surface.
 **Owns**
 - Assist domain: suggestion ranking, path suggestions, secrets redaction, local docs/recipes, heuristic error insight
 - Assist models: suggestions, query/context snapshots, history entries, snippets, failure context
-- Assist storage: `history.json` / `snippets.json` persistence and its source-generated JSON context
+- Assist storage: `history.jsonl` (append-only, in-memory index, periodic compaction, one-time
+  migration from the pre-V2 `history.json`) and `snippets.json` (whole-file: low write volume),
+  plus their source-generated JSON contexts
 - Shell integration: the `OSC 133` contract, the bash/zsh/fish/PowerShell bootstrap builders and providers, provider registry, lifecycle tracking, ordered async event dispatch
 - Assist view-models (`INotifyPropertyChanged` only — no toolkit types)
 - Application core: controller, mode router, insertion planner, result builder, key router, anchor calculator
@@ -187,8 +189,8 @@ consumes this assembly through its published surface.
   `src/NovaTerminal.App/CommandAssist/Views/` under `NovaTerminal.CommandAssist.Views` — the one
   namespace prefix deliberately shared between two assemblies.
 - Resolving application state. Storage paths (`AppPaths`) and settings (`TerminalSettings`) are
-  App concerns; they are passed in. `Shell/CommandAssistInfrastructure.cs` in the App is the
-  composition root that does the wiring.
+  App concerns; they are passed in. `Shell/CommandAssistServices.cs` in the App composes the graph,
+  `AppServices.Build` builds the single instance, and `MainWindow` injects it into every pane.
 
 **Invariants**
 - **No Avalonia (or Skia) in the dependency closure** — enforced twice: at IL level by
@@ -209,9 +211,11 @@ consumes this assembly through its published surface.
 - Architecture invariants: `tests/NovaTerminal.Architecture.Tests/`
 
 > **Note:** extracted from the App in #114 as Phase 0 of the Command Assist V2 rebuild
-> (`docs/plans/2026-08-01-command-assist-v2-plan.md`). Remaining Phase 0 work — replacing the static
-> `CommandAssistInfrastructure` locator, splitting `CommandAssistController`, and the storage
-> rewrite — lands in follow-ups.
+> (`docs/plans/2026-08-01-command-assist-v2-plan.md`). Phase 0b then replaced the static
+> `CommandAssistInfrastructure` locator with the injected `CommandAssistServices`, unified ranking on
+> `CommandAssistSuggestionEngine`, and swapped the history store for JSONL. The remaining Phase 0
+> item — splitting `CommandAssistController` into a state machine, capture pipeline, and suggestion
+> orchestrator (plan task 4) — lands in a follow-up.
 
 ---
 
@@ -255,7 +259,7 @@ consumes this assembly through its published surface.
 - Profile import/export (Alacritty, iTerm2, Windows Terminal)
 - Command palette and shortcuts
 - The Command Assist *presentation* layer only: `CommandAssist/Views/` (Avalonia `UserControl`s),
-  the `TerminalPane` wiring, and `Shell/CommandAssistInfrastructure.cs` as the composition root.
+  the `TerminalPane` wiring, and `Shell/CommandAssistServices.cs` as the composition root.
   Everything else moved to `NovaTerminal.CommandAssist` in #114.
 - Startup orchestration (seven `Startup*.cs` files in `Shell/`)
 - Workspace and session lifecycle
