@@ -74,14 +74,112 @@ public sealed class JsonlHistoryStoreTests : IDisposable
         await store.AppendAsync(CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
         await store.AppendAsync(CreateEntry("npm run build", executedAt: DateTimeOffset.Parse("2026-03-01T10:02:00+00:00")));
 
-        // The cap is applied when the file is (re)read: an append-only log is allowed to hold more
-        // lines than the cap until compaction reclaims them, so assert through a fresh instance.
         IReadOnlyList<CommandHistoryEntry> entries = await CreateStore(maxEntries: 2).GetRecentAsync(10);
 
         Assert.Equal(2, entries.Count);
         Assert.DoesNotContain(entries, entry => entry.CommandText == "git status");
         Assert.Equal("npm run build", entries[0].CommandText);
         Assert.Equal("dotnet test", entries[1].CommandText);
+    }
+
+    /// <summary>
+    /// An append-only log holds more physical lines than the cap until compaction reclaims them,
+    /// but "history keeps N entries" has to mean the same thing to a reader either way. Reads
+    /// enforce the cap so the promise does not drift with compaction timing.
+    /// </summary>
+    [Fact]
+    public async Task GetRecentAsync_NeverReturnsMoreThanTheRetentionCap()
+    {
+        JsonlHistoryStore store = CreateStore(maxEntries: 2);
+
+        await store.AppendAsync(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        await store.AppendAsync(CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
+        await store.AppendAsync(CreateEntry("npm run build", executedAt: DateTimeOffset.Parse("2026-03-01T10:02:00+00:00")));
+
+        // Three lines are still on disk - the file is far below the compaction floor.
+        Assert.Equal(3, (await File.ReadAllLinesAsync(_historyPath)).Length);
+
+        IReadOnlyList<CommandHistoryEntry> entries = await store.GetRecentAsync(10);
+
+        Assert.Equal(2, entries.Count);
+        Assert.Equal("npm run build", entries[0].CommandText);
+        Assert.Equal("dotnet test", entries[1].CommandText);
+    }
+
+    [Fact]
+    public async Task SearchAsync_NeverReturnsCandidatesBeyondTheRetentionCap()
+    {
+        JsonlHistoryStore store = CreateStore(maxEntries: 1);
+
+        await store.AppendAsync(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        await store.AppendAsync(CreateEntry("git stash pop", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
+
+        CommandHistoryEntry candidate = Assert.Single(await store.SearchAsync("git", maxCandidates: 10));
+
+        Assert.Equal("git stash pop", candidate.CommandText);
+    }
+
+    [Fact]
+    public async Task SetMaxEntries_WhenLowered_AppliesToTheLiveStoreAndCompactsTheFile()
+    {
+        JsonlHistoryStore store = CreateStore(maxEntries: 50);
+        await store.AppendAsync(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        await store.AppendAsync(CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
+        await store.AppendAsync(CreateEntry("npm run build", executedAt: DateTimeOffset.Parse("2026-03-01T10:02:00+00:00")));
+
+        store.SetMaxEntries(1);
+
+        CommandHistoryEntry kept = Assert.Single(await store.GetRecentAsync(10));
+        Assert.Equal("npm run build", kept.CommandText);
+
+        // The lowered cap reached the file, not just the in-memory view, so every later reader
+        // agrees - including a fresh instance built after a restart.
+        Assert.Single(await File.ReadAllLinesAsync(_historyPath));
+        Assert.Single(await CreateStore(maxEntries: 1).GetRecentAsync(10));
+    }
+
+    [Fact]
+    public async Task SetMaxEntries_WhenRaised_KeepsEntriesTheOldCapWouldHaveDropped()
+    {
+        JsonlHistoryStore store = CreateStore(maxEntries: 1);
+        await store.AppendAsync(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        await store.AppendAsync(CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
+
+        Assert.Single(await store.GetRecentAsync(10));
+
+        store.SetMaxEntries(50);
+
+        Assert.Equal(2, (await store.GetRecentAsync(10)).Count);
+    }
+
+    /// <summary>
+    /// A whole-file read failure is not a corrupt line. The in-memory view is a prefix of the
+    /// truth, so rewriting the file from it would delete everything past the failure point -
+    /// which is exactly what treating the two the same used to do.
+    /// </summary>
+    [Fact]
+    public async Task GetRecentAsync_WhenTheFileCannotBeRead_LeavesItIntactAndRecoversOnTheNextRead()
+    {
+        await File.WriteAllLinesAsync(_historyPath, new[]
+        {
+            Serialize(CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"))),
+            Serialize(CreateEntry("dotnet test", executedAt: DateTimeOffset.Parse("2026-03-01T10:01:00+00:00"))),
+            Serialize(CreateEntry("npm run build", executedAt: DateTimeOffset.Parse("2026-03-01T10:02:00+00:00")))
+        });
+
+        JsonlHistoryStore store = CreateStore();
+
+        IReadOnlyList<CommandHistoryEntry> duringFailure;
+        using (new FileStream(_historyPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            duringFailure = await store.GetRecentAsync(10);
+        }
+
+        Assert.Empty(duringFailure);
+        Assert.Equal(3, (await File.ReadAllLinesAsync(_historyPath)).Length);
+
+        // The partial view was never cached as the truth, so the same instance heals itself.
+        Assert.Equal(3, (await store.GetRecentAsync(10)).Count);
     }
 
     [Fact]

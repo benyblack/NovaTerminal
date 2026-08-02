@@ -970,13 +970,51 @@ public sealed class CommandAssistControllerTests
             return Task.FromResult(results);
         }
 
-        public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken = default)
+        /// <summary>
+        /// Implements the documented <see cref="IHistoryStore"/> recall gate rather than an
+        /// ad-hoc one: case-insensitive subsequence match, most recent first, no scoring.
+        /// </summary>
+        /// <remarks>
+        /// A <c>Contains</c> filter is both narrower (it rejects the non-contiguous matches the
+        /// real store admits) and unordered, so controller tests written against it would exercise
+        /// gate semantics production never has. The point of these tests is the controller's
+        /// behavior over a real candidate set.
+        /// </remarks>
+        public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxCandidates, CancellationToken cancellationToken = default)
         {
+            string normalized = query.Trim();
             IReadOnlyList<CommandHistoryEntry> results = _entries
-                .Where(x => x.CommandText.Contains(query, StringComparison.OrdinalIgnoreCase))
-                .Take(maxResults)
+                .Where(x => IsCandidate(x.CommandText, normalized))
+                .OrderByDescending(x => x.ExecutedAt)
+                .Take(Math.Max(0, maxCandidates))
                 .ToList();
             return Task.FromResult(results);
+        }
+
+        private static bool IsCandidate(string commandText, string query)
+        {
+            if (string.IsNullOrWhiteSpace(commandText))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                return true;
+            }
+
+            string text = commandText.ToLowerInvariant();
+            string needle = query.ToLowerInvariant();
+            int needleIndex = 0;
+            for (int i = 0; i < text.Length && needleIndex < needle.Length; i++)
+            {
+                if (text[i] == needle[needleIndex])
+                {
+                    needleIndex++;
+                }
+            }
+
+            return needleIndex == needle.Length;
         }
 
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
