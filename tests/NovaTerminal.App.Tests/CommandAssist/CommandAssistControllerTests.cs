@@ -82,11 +82,13 @@ public sealed class CommandAssistControllerTests
             [new CommandHelpItem("git checkout", "git checkout <branch>", "Switch branches.", "bash", ["Doc"])]);
         var recipeProvider = new RecordingRecipeProvider(
             [new CommandHelpItem("git recipe", "git status --short", "Show concise status.", "bash", ["Recipe"])]);
+        var grid = new FakeGrid();
         var controller = CreateController(
             suggestionEngine: new CommandAssistSuggestionEngine(),
             commandDocsProvider: docsProvider,
-            recipeProvider: recipeProvider);
-        controller.HandleTextInput("git checkout");
+            recipeProvider: recipeProvider,
+            grid: grid);
+        grid.SetLine("git checkout");
 
         bool opened = await controller.OpenHelpAsync();
 
@@ -236,28 +238,31 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
-    public void HandleTextInput_WhenHistoryExistsAndAssistNotExplicit_DoesNotShowHistorySuggestions()
+    public async Task Typing_WhenHistoryExistsAndAssistNotExplicit_DoesNotShowHistorySuggestions()
     {
         var historyStore = new InMemoryHistoryStore();
         historyStore.Seed(
             CreateEntry("git status"),
             CreateEntry("dotnet test"));
 
+        var grid = new FakeGrid();
         var controller = CreateController(
             historyStore: historyStore,
             snippetStore: null,
-            suggestionEngine: new CommandAssistSuggestionEngine());
+            suggestionEngine: new CommandAssistSuggestionEngine(),
+            grid: grid);
 
-        controller.HandleTextInput("git ");
+        grid.SetLine("git ");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "git ");
 
-        Assert.Equal("git ", controller.ViewModel.QueryText);
         Assert.False(controller.ViewModel.HasSuggestions);
         Assert.Equal(string.Empty, controller.ViewModel.TopSuggestionText);
         Assert.Empty(controller.Suggestions);
     }
 
     [Fact]
-    public void HandleTextInput_WhenSnippetExistsAndAssistNotExplicit_DoesNotShowSnippetSuggestions()
+    public async Task Typing_WhenSnippetExistsAndAssistNotExplicit_DoesNotShowSnippetSuggestions()
     {
         var snippetStore = new InMemorySnippetStore();
         snippetStore.Seed(new CommandSnippet(
@@ -271,12 +276,16 @@ public sealed class CommandAssistControllerTests
             CreatedAt: DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"),
             LastUsedAt: DateTimeOffset.Parse("2026-03-01T09:30:00+00:00")));
 
+        var grid = new FakeGrid();
         var controller = CreateController(
             historyStore: new InMemoryHistoryStore(),
             snippetStore: snippetStore,
-            suggestionEngine: new CommandAssistSuggestionEngine());
+            suggestionEngine: new CommandAssistSuggestionEngine(),
+            grid: grid);
 
-        controller.HandleTextInput("git st");
+        grid.SetLine("git st");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "git st");
 
         Assert.False(controller.ViewModel.HasSuggestions);
         Assert.Equal(string.Empty, controller.ViewModel.TopSuggestionText);
@@ -284,17 +293,19 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
-    public async Task HandleTextInput_WhenAssistIsExplicit_UpdatesQueryAndTopSuggestion()
+    public async Task Typing_WhenAssistIsExplicit_UpdatesQueryAndTopSuggestion()
     {
         var historyStore = new InMemoryHistoryStore();
         historyStore.Seed(
             CreateEntry("git status"),
             CreateEntry("dotnet test"));
 
-        var controller = CreateController(historyStore);
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
         controller.ToggleAssist();
 
-        controller.HandleTextInput("git ");
+        grid.SetLine("git ");
+        controller.NotifyInputActivity();
         await historyStore.WaitForSearchSettledAsync();
         await WaitForConditionAsync(() => controller.ViewModel.TopSuggestionText == "git status");
 
@@ -305,13 +316,15 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
-    public void HandleTextInput_WhenNoSuggestionsExist_HidesSuggestBubble()
+    public async Task Typing_WhenNoSuggestionsExist_HidesSuggestBubble()
     {
-        var controller = CreateController(new InMemoryHistoryStore());
+        var grid = new FakeGrid();
+        var controller = CreateController(new InMemoryHistoryStore(), grid: grid);
 
-        controller.HandleTextInput("zzzz");
+        grid.SetLine("zzzz");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "zzzz");
 
-        Assert.Equal("zzzz", controller.ViewModel.QueryText);
         Assert.False(controller.ViewModel.HasSuggestions);
         Assert.False(controller.ViewModel.IsVisible);
         Assert.False(controller.ViewModel.Bubble.IsVisible);
@@ -319,12 +332,14 @@ public sealed class CommandAssistControllerTests
     }
 
     [Fact]
-    public async Task HandleTextInput_WhenNoSuggestionsExist_DoesNotFlashVisibleBeforeRefreshCompletes()
+    public async Task Typing_WhenNoSuggestionsExist_DoesNotFlashVisibleBeforeRefreshCompletes()
     {
         var historyStore = new DelayedHistoryStore(TimeSpan.FromMilliseconds(250));
-        var controller = CreateController(historyStore);
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
 
-        controller.HandleTextInput("zzzz");
+        grid.SetLine("zzzz");
+        controller.NotifyInputActivity();
 
         Assert.False(controller.ViewModel.IsVisible);
         Assert.False(controller.ViewModel.Bubble.IsVisible);
@@ -339,9 +354,8 @@ public sealed class CommandAssistControllerTests
     {
         var historyStore = new InMemoryHistoryStore();
         var controller = CreateController(historyStore);
-        controller.HandleTextInput("gh auth login --password hunter2");
 
-        await controller.HandleEnterAsync();
+        await controller.HandleEnterAsync("gh auth login --password hunter2");
 
         Assert.Single(historyStore.Entries);
         Assert.Equal("gh auth login --password [REDACTED]", historyStore.Entries[0].CommandText);
@@ -349,15 +363,36 @@ public sealed class CommandAssistControllerTests
         Assert.Equal(string.Empty, controller.ViewModel.QueryText);
     }
 
+    /// <summary>
+    /// The submission the host read off the grid can legitimately be multiline - a continuation
+    /// entry is one command line - and capture still refuses it. Phase 1c did not relax this: a
+    /// multiline grid read contains continuation-prompt cells the user never typed, so persisting
+    /// it would put the shell's own decoration into history.
+    /// </summary>
     [Fact]
     public async Task HandleEnterAsync_DoesNotPersistMultiLineScriptLikeInput()
     {
         var historyStore = new InMemoryHistoryStore();
         var controller = CreateController(historyStore);
-        controller.HandleTextInput("echo one");
-        controller.HandlePastedText("echo one\necho two");
 
-        await controller.HandleEnterAsync();
+        await controller.HandleEnterAsync("echo one\necho two");
+
+        Assert.Empty(historyStore.Entries);
+    }
+
+    /// <summary>
+    /// A markless session has no grid to read at Enter, so it captures nothing. This is the
+    /// deliberate cost of deleting the shadow buffer: V1 captured whatever its keystroke mirror
+    /// held, which for any line the user had edited with keys the mirror could not see was a
+    /// command they never ran. Nothing is recoverable; wrong is not.
+    /// </summary>
+    [Fact]
+    public async Task HandleEnterAsync_InADegradedSession_CapturesNothing()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        var controller = CreateController(historyStore);
+
+        await controller.HandleEnterAsync(submittedText: null);
 
         Assert.Empty(historyStore.Entries);
     }
@@ -371,9 +406,11 @@ public sealed class CommandAssistControllerTests
     {
         var historyStore = new InMemoryHistoryStore();
         var controller = CreateController(historyStore);
-        controller.HandlePastedText("git status");
+        controller.NotifyPastedInput();
 
-        await controller.HandleEnterAsync();
+        // The grid can read pasted text perfectly well, so the submission text here is real; what
+        // rejects it is provenance, which is the only thing paste handling still carries.
+        await controller.HandleEnterAsync("git status");
 
         Assert.Empty(historyStore.Entries);
     }
@@ -401,11 +438,14 @@ public sealed class CommandAssistControllerTests
                     LastUsedAt: null,
                     ExitCode: 0)
             });
+        var grid = new FakeGrid();
         var controller = CreateController(
             historyStore: new InMemoryHistoryStore(),
-            suggestionEngine: suggestionEngine);
+            suggestionEngine: suggestionEngine,
+            grid: grid);
 
-        controller.HandlePastedText("git stat");
+        grid.SetLine("git stat");
+        controller.NotifyPastedInput();
         await WaitForConditionAsync(() => controller.Suggestions.Count > 0);
 
         // A row is selected, so a false return can only come from the suppression flag.
@@ -427,19 +467,22 @@ public sealed class CommandAssistControllerTests
     {
         var historyStore = new InMemoryHistoryStore();
         historyStore.Seed(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
-        var controller = CreateController(historyStore);
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
 
         controller.OpenHistorySearch();
         await historyStore.WaitForSearchSettledAsync();
 
-        await controller.HandleEnterAsync();
+        await controller.HandleEnterAsync("git status");
         int searchesAfterSubmission = historyStore.SearchCount;
 
-        // Follow-up interactions that refresh with a non-empty buffer. Search or explicit-Suggest
-        // scope would reach for history; the passive path-only scope this submission normalized
-        // back to must not.
-        controller.HandleTextInput("git st");
-        controller.HandleBackspace();
+        // Follow-up interactions that refresh with a non-empty command line. Search or
+        // explicit-Suggest scope would reach for history; the passive path-only scope this
+        // submission normalized back to must not.
+        grid.SetLine("git st");
+        controller.NotifyInputActivity();
+        grid.SetLine("git s");
+        controller.NotifyInputActivity();
         await historyStore.WaitForSearchSettledAsync();
 
         Assert.Equal(searchesAfterSubmission, historyStore.SearchCount);
@@ -451,34 +494,35 @@ public sealed class CommandAssistControllerTests
     public async Task HandleEnterAsync_WhenHistoryStoreThrows_DoesNotPropagate()
     {
         var controller = CreateController(new ThrowingHistoryStore());
-        controller.HandleTextInput("git status");
 
-        await controller.HandleEnterAsync();
+        await controller.HandleEnterAsync("git status");
 
         Assert.Equal(string.Empty, controller.ViewModel.QueryText);
         Assert.False(controller.ViewModel.IsVisible);
     }
 
     [Fact]
-    public async Task HandleTextInput_DoesNotBlockWhileHistorySearchIsPending()
+    public async Task Typing_DoesNotBlockWhileHistorySearchIsPending()
     {
         var historyStore = new DelayedHistoryStore(TimeSpan.FromMilliseconds(250), CreateEntry("git status"));
-        var controller = CreateController(historyStore);
-        var stopwatch = Stopwatch.StartNew();
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
         controller.ToggleAssist();
+        grid.SetLine("git");
+        var stopwatch = Stopwatch.StartNew();
 
-        controller.HandleTextInput("git");
+        controller.NotifyInputActivity();
 
         stopwatch.Stop();
 
-        Assert.True(stopwatch.ElapsedMilliseconds < 100, $"HandleTextInput blocked for {stopwatch.ElapsedMilliseconds}ms");
-        Assert.Equal("git", controller.ViewModel.QueryText);
+        Assert.True(stopwatch.ElapsedMilliseconds < 100, $"NotifyInputActivity blocked for {stopwatch.ElapsedMilliseconds}ms");
 
         await historyStore.WaitForLastSearchAsync();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "git");
     }
 
     [Fact]
-    public async Task HandleTextInput_DoesNotBlockWhileSuggestionEngineIsSlow()
+    public async Task Typing_DoesNotBlockWhileSuggestionEngineIsSlow()
     {
         var suggestionEngine = new DelayedSuggestionEngine(
             delay: TimeSpan.FromMilliseconds(250),
@@ -496,19 +540,21 @@ public sealed class CommandAssistControllerTests
                     LastUsedAt: null,
                     ExitCode: null)
             });
+        var grid = new FakeGrid();
         var controller = CreateController(
             historyStore: new InMemoryHistoryStore(),
-            suggestionEngine: suggestionEngine);
+            suggestionEngine: suggestionEngine,
+            grid: grid);
+        grid.SetLine("cd ./d");
         var stopwatch = Stopwatch.StartNew();
 
-        controller.HandleTextInput("cd ./d");
+        controller.NotifyInputActivity();
 
         stopwatch.Stop();
 
-        Assert.True(stopwatch.ElapsedMilliseconds < 100, $"HandleTextInput blocked for {stopwatch.ElapsedMilliseconds}ms");
-        Assert.Equal("cd ./d", controller.ViewModel.QueryText);
+        Assert.True(stopwatch.ElapsedMilliseconds < 100, $"NotifyInputActivity blocked for {stopwatch.ElapsedMilliseconds}ms");
 
-        await Task.Delay(350);
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "cd ./d", timeoutMs: 2000);
     }
 
     [Fact]
@@ -519,9 +565,11 @@ public sealed class CommandAssistControllerTests
             CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
             CreateEntry("git stash", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")));
 
-        var controller = CreateController(historyStore);
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
         controller.OpenHistorySearch();
-        controller.HandleTextInput("git st");
+        grid.SetLine("git st");
+        controller.NotifyInputActivity();
         await historyStore.WaitForSearchSettledAsync();
         await WaitForConditionAsync(() => controller.Suggestions.Count > 1 &&
                                           controller.ViewModel.TopSuggestionText == "git status");
@@ -554,9 +602,11 @@ public sealed class CommandAssistControllerTests
             CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
             CreateEntry("git stash", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")));
 
-        var controller = CreateController(historyStore);
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
         controller.ToggleAssist();
-        controller.HandleTextInput("git st");
+        grid.SetLine("git st");
+        controller.NotifyInputActivity();
         await historyStore.WaitForSearchSettledAsync();
         await WaitForConditionAsync(() => controller.Suggestions.Count > 1 &&
                                           controller.ViewModel.TopSuggestionText == "git status");
@@ -573,9 +623,8 @@ public sealed class CommandAssistControllerTests
     {
         var historyStore = new InMemoryHistoryStore();
         var controller = CreateController(historyStore);
-        controller.HandleTextInput("git status");
 
-        await controller.HandleEnterAsync();
+        await controller.HandleEnterAsync("git status");
         await controller.HandleCommandFinishedAsync(23);
 
         Assert.Single(historyStore.Entries);
@@ -616,9 +665,8 @@ public sealed class CommandAssistControllerTests
             WorkingDirectory: @"C:\repo",
             ExitCode: null,
             Duration: null));
-        controller.HandleTextInput("git status");
 
-        await controller.HandleEnterAsync();
+        await controller.HandleEnterAsync("git status");
 
         Assert.Single(historyStore.Entries);
         Assert.Equal(CommandCaptureSource.ShellIntegration, historyStore.Entries[0].Source);
@@ -637,9 +685,8 @@ public sealed class CommandAssistControllerTests
             WorkingDirectory: @"C:\repo",
             ExitCode: null,
             Duration: null));
-        controller.HandleTextInput("git status");
 
-        await controller.HandleEnterAsync();
+        await controller.HandleEnterAsync("git status");
 
         Assert.Single(historyStore.Entries);
         Assert.Equal(CommandCaptureSource.Heuristic, historyStore.Entries[0].Source);
@@ -724,9 +771,8 @@ public sealed class CommandAssistControllerTests
         var historyStore = new InMemoryHistoryStore();
         var controller = CreateController(historyStore);
         controller.SetShellIntegrationEnabled(true);
-        controller.HandleTextInput("git status");
 
-        await controller.HandleEnterAsync();
+        await controller.HandleEnterAsync("git status");
         await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
             Type: ShellIntegrationEventType.CommandAccepted,
             Timestamp: DateTimeOffset.Parse("2026-03-09T12:00:00+00:00"),
@@ -835,16 +881,15 @@ public sealed class CommandAssistControllerTests
             hostId: null,
             isRemote: false,
             isShellIntegrated: true);
-        controller.HandleTextInput("git status");
 
-        await controller.HandleEnterAsync();
+        await controller.HandleEnterAsync("git status");
 
         Assert.Single(historyStore.Entries);
         Assert.Equal(CommandCaptureSource.ShellIntegration, historyStore.Entries[0].Source);
     }
 
     [Fact]
-    public async Task HandleTextInput_WhenPinnedSnippetMatches_ShowsSnippetAsTopSuggestion()
+    public async Task Typing_WhenPinnedSnippetMatches_ShowsSnippetAsTopSuggestion()
     {
         var historyStore = new InMemoryHistoryStore();
         historyStore.Seed(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
@@ -860,9 +905,11 @@ public sealed class CommandAssistControllerTests
             CreatedAt: DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"),
             LastUsedAt: DateTimeOffset.Parse("2026-03-01T09:30:00+00:00")));
 
-        var controller = CreateController(historyStore, snippetStore, new CommandAssistSuggestionEngine());
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, snippetStore, new CommandAssistSuggestionEngine(), grid: grid);
         controller.ToggleAssist();
-        controller.HandleTextInput("git st");
+        grid.SetLine("git st");
+        controller.NotifyInputActivity();
 
         await historyStore.WaitForSearchSettledAsync();
         await snippetStore.WaitForReadAsync();
@@ -880,9 +927,11 @@ public sealed class CommandAssistControllerTests
         var historyStore = new InMemoryHistoryStore();
         historyStore.Seed(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
         var snippetStore = new InMemorySnippetStore();
-        var controller = CreateController(historyStore, snippetStore, new CommandAssistSuggestionEngine());
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, snippetStore, new CommandAssistSuggestionEngine(), grid: grid);
         controller.ToggleAssist();
-        controller.HandleTextInput("git st");
+        grid.SetLine("git st");
+        controller.NotifyInputActivity();
 
         await historyStore.WaitForSearchSettledAsync();
         await snippetStore.WaitForReadAsync();
@@ -932,9 +981,11 @@ public sealed class CommandAssistControllerTests
             CreatedAt: DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"),
             LastUsedAt: DateTimeOffset.Parse("2026-03-01T09:30:00+00:00")));
 
-        var controller = CreateController(historyStore, snippetStore, new CommandAssistSuggestionEngine());
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, snippetStore, new CommandAssistSuggestionEngine(), grid: grid);
         controller.ToggleAssist();
-        controller.HandleTextInput("git st");
+        grid.SetLine("git st");
+        controller.NotifyInputActivity();
         await historyStore.WaitForSearchSettledAsync();
         await snippetStore.WaitForReadAsync();
         await WaitForConditionAsync(() => controller.ViewModel.TopSuggestionText == "Git Status" &&
@@ -954,7 +1005,8 @@ public sealed class CommandAssistControllerTests
         ISuggestionEngine? suggestionEngine = null,
         ICommandDocsProvider? commandDocsProvider = null,
         IRecipeProvider? recipeProvider = null,
-        IErrorInsightService? errorInsightService = null)
+        IErrorInsightService? errorInsightService = null,
+        FakeGrid? grid = null)
     {
         historyStore ??= new InMemoryHistoryStore();
         var filter = new SecretsFilter();
@@ -965,7 +1017,7 @@ public sealed class CommandAssistControllerTests
         // still pass a real CommandAssistSuggestionEngine explicitly.
         var engine = suggestionEngine ?? new CommandAssistSuggestionEngine(new NoPathSuggestionProvider());
 
-        return new CommandAssistController(
+        var controller = new CommandAssistController(
             historyStore,
             filter,
             engine,
@@ -974,7 +1026,78 @@ public sealed class CommandAssistControllerTests
             recipeProvider,
             errorInsightService,
             modeRouter: null,
-            resultBuilder: null);
+            resultBuilder: null,
+            queryProvider: grid == null ? null : grid.Read);
+
+        if (grid != null)
+        {
+            // A controller handed a grid is standing in for an instrumented session sitting at its
+            // prompt, so open the lifecycle gate once here rather than in twenty tests. The gate's
+            // own behavior - that it opens on B, closes on C and D, and that a closed gate means no
+            // query no matter what the grid says - is what CommandAssistGridTruthTests is for.
+            grid.OpenPrompt(controller);
+        }
+
+        return controller;
+    }
+
+    /// <summary>
+    /// Stands in for the terminal grid behind the App's provider seam.
+    /// </summary>
+    /// <remarks>
+    /// Tests set the whole line rather than appending to it, which is the point of the Phase 1c
+    /// model: the grid does not know or care whether the line got there by typing, by
+    /// <c>Ctrl+U</c> then retyping, by an Up-arrow history recall or by the shell's own Tab
+    /// completion. Every one of those is "the line is now this".
+    /// </remarks>
+    private sealed class FakeGrid
+    {
+        // Locked rather than volatile because the real provider is read from the refresh pass's
+        // worker thread, not from the thread that set the line.
+        private readonly object _gate = new();
+        private AssistQuerySnapshot? _snapshot;
+
+        public AssistQuerySnapshot? Read()
+        {
+            lock (_gate)
+            {
+                return _snapshot;
+            }
+        }
+
+        public void SetLine(
+            string text,
+            int? cursorOffset = null,
+            bool isMultiline = false,
+            bool rightPromptTrimmed = false)
+        {
+            lock (_gate)
+            {
+                _snapshot = new AssistQuerySnapshot(text, cursorOffset ?? text.Length, isMultiline, rightPromptTrimmed);
+            }
+        }
+
+        /// <summary>The mark went away: scrollback reset, aged out, or the session ended.</summary>
+        public void GoDark()
+        {
+            lock (_gate)
+            {
+                _snapshot = null;
+            }
+        }
+
+        /// <summary><c>OSC 133;B</c> - the prompt finished printing and the line editor is live.</summary>
+        public void OpenPrompt(CommandAssistController controller)
+        {
+            SetLine(string.Empty);
+            controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+                Type: ShellIntegrationEventType.CommandStarted,
+                Timestamp: DateTimeOffset.UtcNow,
+                CommandText: null,
+                WorkingDirectory: null,
+                ExitCode: null,
+                Duration: null)).GetAwaiter().GetResult();
+        }
     }
 
     private static CommandFailureContext CreateFailureContext(string commandText, int? exitCode, string? errorOutput)

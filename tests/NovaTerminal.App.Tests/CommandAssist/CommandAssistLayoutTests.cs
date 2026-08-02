@@ -77,7 +77,7 @@ public sealed class CommandAssistLayoutTests
     {
         using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
-        pane.NotifyCommandAssistPaste("Get-ChildItem");
+        await AtAnIntegratedPromptAsync(pane, "Get-ChildItem");
         pane.OpenCommandAssistHelp();
         await Task.Delay(50);
 
@@ -106,7 +106,7 @@ public sealed class CommandAssistLayoutTests
     {
         using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
-        pane.NotifyCommandAssistPaste("frobnicate");
+        await AtAnIntegratedPromptAsync(pane, "frobnicate");
         pane.OpenCommandAssistHelp();
         await Task.Delay(50);
 
@@ -126,7 +126,7 @@ public sealed class CommandAssistLayoutTests
     {
         using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
-        pane.NotifyCommandAssistPaste("git st");
+        await AtAnIntegratedPromptAsync(pane, "git st");
         await Task.Delay(50);
 
         CommandAssistBubbleView bubbleView = Assert.IsType<CommandAssistBubbleView>(pane.FindControl<CommandAssistBubbleView>("CommandAssistBubble"));
@@ -149,7 +149,7 @@ public sealed class CommandAssistLayoutTests
         ConfigureCommandAssist(pane);
         pane.Measure(new Size(420, 420));
         pane.Arrange(new Rect(0, 0, 420, 420));
-        pane.NotifyCommandAssistPaste("git status --short");
+        await AtAnIntegratedPromptAsync(pane, "git status --short");
         await Task.Delay(50);
         pane.Measure(new Size(420, 420));
         pane.Arrange(new Rect(0, 0, 420, 420));
@@ -190,7 +190,7 @@ public sealed class CommandAssistLayoutTests
         ConfigureCommandAssist(pane);
         pane.Measure(new Size(700, 220));
         pane.Arrange(new Rect(0, 0, 700, 220));
-        pane.NotifyCommandAssistPaste("Get-ChildItem");
+        await AtAnIntegratedPromptAsync(pane, "Get-ChildItem");
         pane.OpenCommandAssistHelp();
         await Task.Delay(50);
         pane.Measure(new Size(700, 220));
@@ -213,7 +213,7 @@ public sealed class CommandAssistLayoutTests
         ConfigureCommandAssist(pane);
         pane.Measure(new Size(900, 500));
         pane.Arrange(new Rect(0, 0, 900, 500));
-        pane.NotifyCommandAssistPaste("git st");
+        await AtAnIntegratedPromptAsync(pane, "git st");
         await Task.Delay(50);
         pane.Measure(new Size(900, 500));
         pane.Arrange(new Rect(0, 0, 900, 500));
@@ -450,7 +450,7 @@ public sealed class CommandAssistLayoutTests
         ConfigureCommandAssist(pane);
         pane.Measure(new Size(900, 500));
         pane.Arrange(new Rect(0, 0, 900, 500));
-        pane.NotifyCommandAssistPaste("Get-ChildItem");
+        await AtAnIntegratedPromptAsync(pane, "Get-ChildItem");
         pane.OpenCommandAssistHelp();
         await Task.Delay(50);
         pane.Measure(new Size(900, 500));
@@ -473,7 +473,7 @@ public sealed class CommandAssistLayoutTests
         ConfigureCommandAssist(pane);
         pane.Measure(new Size(420, 420));
         pane.Arrange(new Rect(0, 0, 420, 420));
-        pane.NotifyCommandAssistPaste("Get-ChildItem");
+        await AtAnIntegratedPromptAsync(pane, "Get-ChildItem");
         pane.OpenCommandAssistHelp();
         await Task.Delay(50);
         pane.Measure(new Size(420, 420));
@@ -503,7 +503,7 @@ public sealed class CommandAssistLayoutTests
         Assert.NotNull(terminalView);
         double baselineHeight = terminalView.Bounds.Height;
 
-        pane.NotifyCommandAssistPaste("Get-ChildItem");
+        await AtAnIntegratedPromptAsync(pane, "Get-ChildItem");
         pane.OpenCommandAssistHelp();
         await Task.Delay(50);
         pane.Measure(new Size(900, 500));
@@ -647,6 +647,27 @@ public sealed class CommandAssistLayoutTests
         Assert.NotNull(hint);
         Assert.Equal(expectedVisibleRows, hint!.Value.VisibleRows);
         Assert.Equal(expectedCursorRow, hint.Value.VisibleCursorVisualRow);
+    }
+
+    /// <summary>
+    /// Puts <paramref name="commandLine"/> on the pane's command line the way a shell does: an
+    /// integrated prompt, the <c>OSC 133;B</c> mark, then the text.
+    /// </summary>
+    /// <remarks>
+    /// Phase 1c deleted the shadow keystroke buffer, so <c>NotifyCommandAssistPaste</c> - which
+    /// these tests used to seed a query with - no longer writes query state, and a paste-seeded
+    /// help lookup would silently find nothing. The grid is the only source now, so the setup says
+    /// so.
+    /// </remarks>
+    private static async Task AtAnIntegratedPromptAsync(TerminalPane pane, string commandLine)
+    {
+        pane.ArmShellIntegrationTracker();
+        pane.CreateAndWireParser();
+        pane.Parser!.Process("\x1b]133;A\x07PS C:\\> \x1b]133;B\x07" + commandLine);
+
+        // The shell-integration event dispatcher is serialized and asynchronous; the controller's
+        // lifecycle gate opens when B reaches it through that queue.
+        await Task.Delay(50);
     }
 
     private static void ConfigureCommandAssist(TerminalPane pane)
