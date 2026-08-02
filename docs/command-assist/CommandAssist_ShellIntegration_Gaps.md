@@ -5,7 +5,7 @@
 - App-layer launch-plan selection
 - PowerShell bootstrap integration with full structured command capture
   (`OSC 133;A`, `OSC 133;C;<base64>`, `OSC 133;D;<exit>;<duration>`, `OSC 7`)
-  <!-- V2 Phase 1a added `OSC 133;B` to all four bootstraps; see below. -->
+  (V2 Phase 1a added `OSC 133;B` to all four bootstraps — see "Added In V2 Phase 1a" below)
 - Bash provider via `--rcfile` (DEBUG trap preexec, `PROMPT_COMMAND` precmd)
 - Zsh provider via `ZDOTDIR` env-override (native `precmd_functions` /
   `preexec_functions` hooks; user prompt ownership preserved)
@@ -52,6 +52,16 @@
 - fish integration re-defines `fish_prompt` around a copy of the user's function; a config
   that re-defines `fish_prompt` again *after* the bootstrap loads loses the `B` mark
   (`A`/`C`/`D` are unaffected)
+- fish integration works by pointing `XDG_CONFIG_HOME` at our own directory, which also
+  moves `$__fish_config_dir/functions` — so fish's autoloader no longer finds the user's
+  `~/.config/fish/functions/fish_prompt.fish`. We source the user's `config.fish`
+  explicitly, but an autoloaded `fish_prompt` is not part of it: for those users the
+  function we wrap is fish's *default* prompt, not theirs. The marks are correct; the
+  prompt appearance is not
+- `ShellMarkPosition.AbsoluteRow` is stable across scrollback eviction but **not** across a
+  scrollback reset (CSI 3J / RIS / clear-buffer / reflow), which zeroes the buffer's row
+  counters. `ShellMarkPosition.Generation` carries the coordinate-space epoch so a consumer
+  can tell the two apart; a negative derived row only means "aged out" within one generation
 
 ## Deferred Follow-Up Areas
 - richer shell-specific prompt contracts beyond the current wrapper approach
