@@ -1,7 +1,19 @@
 # Command Assist SSH Conservative Fallback Design
 
 Date: 2026-03-11
-Status: Approved
+Status: Approved — **superseded for mark-anchored sessions** (V2 Phase 2a, 2026-08-02)
+
+> **Scope note (2026-08-02).** Everything below describes what to do when the prompt row is a
+> guess. V2 Phase 2a made it a fact wherever an `OSC 133;B` mark is live and on screen: those
+> sessions anchor directly to the marked row and consult none of this — not the
+> `HasReliablePromptAnchor = false` policy, not the cursor-band placement, not the short-pane
+> suppression, and not the placement-correction passes that were added alongside it. The design
+> remains in force, unchanged, for markless sessions, which is why none of the code it describes
+> was deleted. See `docs/plans/2026-08-01-command-assist-v2-plan.md` Phase 2 tasks 1–2.
+>
+> The premise in *Problem* below — "SSH sessions currently set `HasReliablePromptAnchor = false`" —
+> is no longer unconditionally true. The rule is now: a mark makes the anchor reliable regardless of
+> session type; without one, SSH is still untrusted exactly as described here.
 
 ## Goal
 

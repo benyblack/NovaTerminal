@@ -288,9 +288,71 @@ also says so: the bubble is labelled **`History - recent`** rather than `History
 be read, because an identical-looking filter box that silently cannot filter reads as a bug the
 first time a keystroke fails to narrow it.
 
+### Overlay anchoring after Phase 2a
+
+A second thing the marks buy, beyond the query: the overlay knows where the prompt *is*. Phase 2a
+makes the `133;B` mark the anchor source when one is live and on screen, and demotes the geometric
+`CommandAssistPromptHint` heuristic — cursor row plus band ratios — to the markless fallback.
+
+`133;A` was the design doc's nominal choice and is not the one shipped: `A` reaches the App as a
+bare `OnPromptReady` notification with no position, while `B` is already stamped with a full
+`ShellIntegrationMark` (row, column, eviction-stable `AbsoluteRow`, generation, alt-screen flag) for
+the grid reader. `B` is also the semantically better row — it is where the user's *input* starts,
+which is what the bubble sits next to — and it re-fires on every prompt repaint. `A` would need a
+mark of its own to be usable at all.
+
+What the mark path skips, and why each one was a hedge against not knowing the row:
+
+- the anchor-reliability guess (`SSH ⇒ untrusted`): an instrumented remote emits the same marks a
+  local shell does, so the session type stops being the question;
+- the band ratios in `CommandAssistAnchorCalculator` (0.45 / 0.55 / 0.60 / 0.70), including the
+  0.55 whose 0.005-wide margin produced #232's font-dependent flakiness;
+- the short-pane suppression that hid the overlay entirely on remote panes;
+- the render-priority placement-correction passes and the opacity flicker they cost.
+
+What it keeps: the size clamps, the compact bubble/popup thresholds, and the popup flip/side rules.
+Those are pane-geometry facts, not prompt-position guesses.
+
+None of that stack is deleted, because markless sessions are not gone — an un-instrumented remote is
+still the common SSH case until Phase 2 task 3 ships the remote snippets. Everything above is
+*gated* on the anchor source and stays reachable for sessions without marks.
+
+Limits of the mark anchor: it is only usable while the marked row is on screen, so scrolling the
+prompt out of the viewport, a scrollback reset (generation bump), eviction, or the alt screen all
+drop back to the heuristic mid-session. The conversion is re-derived on every placement pass rather
+than cached, because the scroll offset is an input to it.
+
+#### Known gaps in the mark-anchored path
+
+**The vertical budget is the pane, not the overlay host.** `TryCalculateCommandAssistAnchorLayout`
+measures against `TerminalPane.Bounds`, but the overlay host lives in `RootGrid` row 0, and row 1
+(today the port-forwarding status bar; the find overlay is a row-0 overlay and does not shrink
+anything) is `Auto`-sized. While row 1 is visible the clamp budget is ~22px taller than the host the
+bubble is actually laid out in, so a bubble clamped to the bottom of that budget can be clipped by
+the host. This is pre-existing and shared with the cursor-heuristic path — the mark changed which
+row is the anchor, not what the anchor is measured against — and it is deliberately **not** fixed in
+Phase 2a, because the fix belongs to whichever pass makes the anchor math host-relative for both
+sources at once. It is worth writing down here rather than leaving implicit, because mark anchoring
+is the one path that claims exactness: everywhere else a few pixels is inside the error bars of a
+guess, and here it is not.
+
+**Mark arrival posts no placement update, by argument rather than by test.** A `133;B` mark reaching
+the pane does not itself schedule an overlay placement pass; the anchor is picked up by the next one
+`CommandAssistAnchorHintChanged` fires. The argument that no new event is needed is stronger than
+the PR body claimed: the mark is recorded *at the cursor*, so a mark can only appear on a row the
+cursor is already on. Any sequence that changes which row that is has to move the cursor to get
+there, and cursor movement is already one of the events that fires the hint — a repaint at the same
+row needs no new pass because the answer did not change. So the gap is not "a mark can land
+unnoticed" but "the pass that notices it may be the same frame or the next one". Reviewed and
+argued; still untested, and a test would need a mark delivered without any cursor movement at all,
+which the parser does not currently make reachable.
+
 ## Current Limitations
 - shell integration is local-only; SSH launch plans skip provider injection
-  because env-var overrides do not propagate across SSH
+  because env-var overrides do not propagate across SSH; **as of Phase 2a a remote that emits
+  OSC 133 by other means (manual instrumentation today, the Phase 2 task 3 snippets later) gets
+  trusted overlay anchoring automatically** — nothing about anchoring is keyed off the session type
+  any more, only off whether a mark is live
 - providers bail out (`IsIntegrated: false`) when the user forces an
   incompatible startup mode (PowerShell `-File`; bash `-c`/`--rcfile`/`--init-file`;
   zsh `-c`/`--no-rcs`/`-f`; fish `-c`/`--no-config`/`-N`); those sessions fall

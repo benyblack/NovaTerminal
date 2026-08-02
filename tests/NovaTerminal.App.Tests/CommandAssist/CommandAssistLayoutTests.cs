@@ -2,6 +2,9 @@ using NovaTerminal.Shell;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Layout;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using System.Collections.ObjectModel;
 using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.Controls;
@@ -439,6 +442,364 @@ public sealed class CommandAssistLayoutTests
             $"Expected conservative fallback to stay in lower safe zone when prompt hint rows lag pane height, but bottom was {layout.BubbleRect.Bottom}.");
     }
 
+    // ------------------------------------------------------------ mark anchoring (V2 Phase 2a)
+    //
+    // These are the SSH counterparts to the conservative-fallback tests above. The difference is
+    // one OSC 133;B: with a mark the remote prompt row is known, so the whole conservative stack -
+    // the unreliable-anchor fallback, the short-pane suppression band, the placement-correction
+    // passes - has to step aside. Without one, every assertion above still holds.
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenRemoteShellEmitsMarks_AnchorsToTheMarkRow()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        // Metrics before layout, not after (#232) - see the note on the conservative tests above.
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        MarkPromptAt(pane, row: 10);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.True(layout.UsesPromptAnchor,
+            "A mark-anchored SSH pane is prompt-anchored: the row is a fact, not a per-session-type guess.");
+        Assert.Equal(180, layout.PromptRect.Top, precision: 1);
+        Assert.True(layout.BubbleRect.Bottom <= layout.PromptRect.Top,
+            $"Expected bubble bottom {layout.BubbleRect.Bottom} to clear the marked prompt row top {layout.PromptRect.Top}.");
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenRemoteShellEmitsMarksInUpperBandOnShortPane_DoesNotSuppressTheOverlay()
+    {
+        // Same geometry as TerminalPane_WhenRemotePromptIsInUpperBandOnShortPane_SuppressesConservativeAssistLayout,
+        // which returns null. The only difference is the mark, and it is the whole difference.
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 220
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 220));
+        pane.Arrange(new Rect(0, 0, 900, 220));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 220));
+        termView.Arrange(new Rect(0, 0, 900, 220));
+        MarkPromptAt(pane, row: 1);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.True(layout.UsesMarkAnchor);
+        Assert.Equal(18, layout.PromptRect.Top, precision: 1);
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenTheMarkComesFromADeadCoordinateGeneration_FallsBackToTheHeuristic()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        MarkPromptAt(pane, row: 10);
+        Assert.True(Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest()).UsesMarkAnchor);
+
+        // CSI 3J - what clear(1) sends - resets the buffer's row counters, so the mark's
+        // AbsoluteRow now names an unrelated row. The generation epoch is what notices.
+        pane.Parser!.Process("\x1b[3J");
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.False(layout.UsesMarkAnchor);
+        Assert.False(layout.UsesPromptAnchor);
+    }
+
+    /// <summary>
+    /// The negative control for the zero-pass assertions below.
+    /// </summary>
+    /// <remarks>
+    /// Without this test those assertions are vacuous. The correction stack only runs for a
+    /// <i>visible</i> assist on an SSH pane, so a pane-level test that never makes the bound view
+    /// model visible reads a zero counter whether the <c>UsesMarkAnchor</c> gate exists or not -
+    /// deleting the gate leaves it green. This is the same pane, the same visible view model and
+    /// the same real <c>UpdateCommandAssistOverlayPlacement</c> path as its mark-anchored twin,
+    /// minus the mark, and it must reach the counter.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TerminalPane_WhenAMarklessSshLayoutIsPlacedWithTheAssistVisible_RunsPlacementCorrectionPasses()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        // Cursor low in the pane so the conservative fallback produces a layout rather than
+        // suppressing it: the correction stack is only reachable when there is a layout to correct.
+        pane.Buffer!.SetCursorPosition(0, 18);
+
+        CommandAssistAnchorLayout markless = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+        Assert.False(markless.UsesMarkAnchor);
+        Assert.Equal(0, pane.CommandAssistPlacementCorrectionPassesForTest);
+
+        ShowCommandAssist(pane);
+
+        Assert.True(pane.CommandAssistPlacementCorrectionPassesForTest >= 1,
+            "A visible assist on a markless SSH pane must still schedule the correction stack. If it " +
+            "does not, this harness cannot reach the counter at all and the zero-pass assertions on " +
+            "the mark-anchored panes prove nothing.");
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenLayoutIsMarkAnchored_RunsNoPlacementCorrectionPasses()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        MarkPromptAt(pane, row: 10);
+
+        CommandAssistAnchorLayout marked = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+        Assert.True(marked.UsesMarkAnchor);
+
+        // The counter, driven the production way: same pane geometry and same visible view model as
+        // TerminalPane_WhenAMarklessSshLayoutIsPlacedWithTheAssistVisible_RunsPlacementCorrectionPasses,
+        // which reaches the counter. The mark is the only difference, so a zero here is the mark's
+        // doing.
+        ShowCommandAssist(pane);
+        Assert.Equal(0, pane.CommandAssistPlacementCorrectionPassesForTest);
+
+        // And the gate asked directly, which pins *why*: with the assist visible on an SSH pane - the
+        // exact conditions the correction stack was written for - a mark-anchored layout declines it,
+        // while the same layout without the mark flag still wants it.
+        Assert.False(pane.ShouldCorrectCommandAssistPlacementForTest(marked, assistIsVisible: true));
+        Assert.True(pane.ShouldCorrectCommandAssistPlacementForTest(marked with { UsesMarkAnchor = false }, assistIsVisible: true));
+    }
+
+    [AvaloniaFact]
+    public void TerminalPane_WhenLayoutIsMarkAnchoredOnALocalPane_AlsoRunsNoPlacementCorrectionPasses()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 500));
+        termView.Arrange(new Rect(0, 0, 900, 500));
+        MarkPromptAt(pane, row: 4);
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        Assert.True(layout.UsesMarkAnchor);
+        ShowCommandAssist(pane);
+        Assert.Equal(0, pane.CommandAssistPlacementCorrectionPassesForTest);
+
+        // Two reasons hold this down on a local pane, not one: the correction stack is SSH-only as
+        // well as markless-only. Asserting that the markless twin is *also* declined says so out
+        // loud, so this does not read as mark evidence it cannot supply - the SSH pair above is where
+        // the mark does the work on its own.
+        Assert.False(pane.ShouldCorrectCommandAssistPlacementForTest(layout, assistIsVisible: true));
+        Assert.False(pane.ShouldCorrectCommandAssistPlacementForTest(layout with { UsesMarkAnchor = false }, assistIsVisible: true));
+    }
+
+    /// <summary>
+    /// The markless-to-mark handoff, with a placement-correction pass already in flight.
+    /// </summary>
+    /// <remarks>
+    /// <c>ScheduleCommandAssistPlacementCorrection</c> posts a closure that captures the layout it
+    /// was scheduled for. A <c>133;B</c> mark can land before that closure runs, and by then the
+    /// overlay has been re-placed against the mark row - so measured against the captured markless
+    /// layout it looks like a large drift, and the pass would hide the overlay and re-apply the
+    /// markless margins for a frame at the exact moment the anchor became exact. The pass has to
+    /// re-derive the layout and re-ask the gate.
+    /// <para>
+    /// The one test in this file hosted in a <see cref="Window"/>. The correction pass measures the
+    /// rendered position with <c>TranslatePoint</c>, which needs both visuals attached to a visual
+    /// root and returns <c>null</c> without one - and on <c>null</c> the pass bails before it can do
+    /// any of the damage under test, so a detached pane makes this assertion vacuous. (Verified: it
+    /// was, until the window went in.)
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public void TerminalPane_WhenAMarkArrivesWhileACorrectionPassIsPending_TheStalePassLeavesTheMarkPlacementAlone()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+
+        var window = new Window
+        {
+            Content = pane,
+            Width = 960,
+            Height = 560
+        };
+        try
+        {
+            window.Show();
+
+            TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+            Assert.NotNull(pane.Buffer);
+            // Metrics before the layout that sizes the buffer, as everywhere else in this file (#232).
+            termView.SetMetricsForTest(10, 18);
+            pane.Measure(new Size(900, 500));
+            pane.Arrange(new Rect(0, 0, 900, 500));
+            termView.Measure(new Size(900, 500));
+            termView.Arrange(new Rect(0, 0, 900, 500));
+            pane.Buffer!.SetCursorPosition(0, 18);
+
+            CommandAssistBarViewModel vm = ShowCommandAssist(pane);
+            CommandAssistAnchorLayout markless = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+            Assert.False(markless.UsesMarkAnchor);
+            Assert.True(pane.CommandAssistPlacementCorrectionPassesForTest >= 1,
+                "The handoff is only reachable with a correction pass in flight.");
+
+            // The handoff. Row 2 rather than row 18 so the two anchors disagree by far more than the
+            // 2px drift tolerance; the QueryText change stands in for the repaint that re-runs
+            // placement in production (a bound-property change is what the pane listens to).
+            MarkPromptAt(pane, row: 2);
+            vm.QueryText = "git st";
+
+            CommandAssistAnchorLayout marked = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+            Assert.True(marked.UsesMarkAnchor);
+            Assert.True(Math.Abs(marked.BubbleRect.Y - markless.BubbleRect.Y) > 2,
+                $"The mark and markless anchors must actually disagree for this to test anything, but they were {marked.BubbleRect.Y} and {markless.BubbleRect.Y}.");
+
+            CommandAssistBubbleView bubbleView = Assert.IsType<CommandAssistBubbleView>(pane.FindControl<CommandAssistBubbleView>("CommandAssistBubble"));
+            Grid overlayHost = Assert.IsType<Grid>(pane.FindControl<Grid>("CommandAssistOverlayHost"));
+            Assert.Equal(marked.BubbleRect.Y, bubbleView.Margin.Top, precision: 1);
+            Assert.True(overlayHost.IsVisible, "The pending pass bails on a hidden host, which would make this vacuous.");
+
+            // Lay the mark-anchored margins out, then confirm the pending pass really can measure the
+            // rendered position - the drift branch is unreachable if it cannot, and an unreachable
+            // branch cannot be asserted about. A margin change invalidates the bubble only and lets
+            // the layout manager walk up from there, so re-measuring the pane by hand short-circuits
+            // at the first still-valid ancestor and changes nothing; the real layout pass is needed.
+            RelayoutTo(pane, bubbleView, new Size(900, 500));
+            Assert.True(bubbleView.IsVisible);
+            Point renderedTopLeft = Assert.IsType<Point>(bubbleView.TranslatePoint(new Point(0, 0), pane));
+            Assert.Equal(marked.BubbleRect.Y, renderedTopLeft.Y, precision: 1);
+
+            // The damage is one frame wide, and it self-heals: an ungated pass suppresses the overlay
+            // and re-applies the markless margins, then posts a placement update that - being
+            // mark-anchored - unwinds both. Draining the queue and looking at the end state therefore
+            // cannot see it. Record the trail instead: "the overlay never went transparent, and the
+            // bubble never visited the markless row" is the property, not the resting position.
+            var opacityTrail = new List<double>();
+            var bubbleTopTrail = new List<double>();
+            overlayHost.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == Visual.OpacityProperty)
+                {
+                    opacityTrail.Add((double)e.NewValue!);
+                }
+            };
+            bubbleView.PropertyChanged += (_, e) =>
+            {
+                if (e.Property == Layoutable.MarginProperty)
+                {
+                    bubbleTopTrail.Add(((Thickness)e.NewValue!).Top);
+                }
+            };
+
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.DoesNotContain(0.0, opacityTrail);
+            Assert.DoesNotContain(bubbleTopTrail, top => Math.Abs(top - markless.BubbleRect.Y) <= 2);
+            Assert.Equal(marked.BubbleRect.Y, bubbleView.Margin.Top, precision: 1);
+            Assert.Equal(1.0, overlayHost.Opacity);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public async Task TerminalPane_WhenPopupIsVisible_AnchorsPopupTopToCalculatedRect()
     {
@@ -647,6 +1008,74 @@ public sealed class CommandAssistLayoutTests
         Assert.NotNull(hint);
         Assert.Equal(expectedVisibleRows, hint!.Value.VisibleRows);
         Assert.Equal(expectedCursorRow, hint.Value.VisibleCursorVisualRow);
+    }
+
+    /// <summary>
+    /// Emits an <c>OSC 133;B</c> mark on viewport row <paramref name="row"/>.
+    /// </summary>
+    /// <remarks>
+    /// The mark records wherever the cursor is when B is dispatched, so positioning the cursor is
+    /// how a test chooses the marked row. Nothing is written after it: the anchor is the row, not
+    /// the text on it, and a test that types would only be testing the write path again.
+    /// </remarks>
+    private static void MarkPromptAt(TerminalPane pane, int row)
+    {
+        pane.CreateAndWireParser();
+        Assert.NotNull(pane.Buffer);
+        Assert.True(row < pane.Buffer!.Rows, $"Row {row} is outside the {pane.Buffer.Rows}-row buffer this pane was arranged to.");
+        pane.Buffer.SetCursorPosition(0, row);
+        pane.Parser!.Process("\x1b]133;B\x07");
+    }
+
+    /// <summary>
+    /// Re-runs layout from <paramref name="root"/> down to <paramref name="leaf"/>.
+    /// </summary>
+    /// <remarks>
+    /// <c>Layoutable.InvalidateMeasure</c> does not walk up the tree - it registers the control with
+    /// the visual root's layout manager and lets that walk up on the next pass. A test that drives
+    /// <c>Measure</c>/<c>Arrange</c> by hand has no such pass, so an invalidated leaf is unreachable:
+    /// every still-valid ancestor short-circuits before recursing into it, and the leaf keeps whatever
+    /// bounds it had (here, none - the overlay host was collapsed the last time layout ran). Marking
+    /// the chain invalid restores the recursion.
+    /// </remarks>
+    private static void RelayoutTo(Control root, Visual leaf, Size size)
+    {
+        for (Visual? visual = leaf; visual is not null; visual = visual.GetVisualParent())
+        {
+            if (visual is Layoutable layoutable)
+            {
+                layoutable.InvalidateMeasure();
+                layoutable.InvalidateArrange();
+            }
+
+            if (ReferenceEquals(visual, root))
+            {
+                break;
+            }
+        }
+
+        root.Measure(size);
+        root.Arrange(new Rect(size));
+    }
+
+    /// <summary>
+    /// Makes the bound Command Assist view model visible, the way production does.
+    /// </summary>
+    /// <remarks>
+    /// Visibility is what <c>TerminalPane</c> watches: setting it raises
+    /// <c>PropertyChanged</c>, which is the pane's own route into
+    /// <c>UpdateCommandAssistOverlayPlacement</c> - so this drives the real placement path rather
+    /// than a test seam onto it. <c>OpenCommandAssistHelp</c> is called only because it is the
+    /// public entry point that constructs the controller, and therefore the view model there is to
+    /// bind; whether help itself finds anything is irrelevant here.
+    /// </remarks>
+    private static CommandAssistBarViewModel ShowCommandAssist(TerminalPane pane)
+    {
+        pane.OpenCommandAssistHelp();
+        CommandAssistBarViewModel vm = Assert.IsType<CommandAssistBarViewModel>(pane.CommandAssistViewModel);
+        vm.IsVisible = true;
+        Assert.True(vm.Bubble.IsVisible);
+        return vm;
     }
 
     /// <summary>
