@@ -68,6 +68,35 @@ public static class FishBootstrapBuilder
         b.Append("    __nova_emit_prompt_ready").Append(nl);
         b.Append("end").Append(nl);
         b.Append(nl);
+        // The fish_prompt EVENT fires before the prompt function runs, so it
+        // can only carry A. OSC 133;B has to land after the last prompt cell,
+        // and fish has no post-prompt event -- so we copy the user's
+        // fish_prompt aside and re-define fish_prompt as "original, then B".
+        // The copy keeps the user's prompt output byte-for-byte; we only
+        // append to it.
+        //
+        // Bail out entirely if fish_prompt cannot be resolved (functions -q
+        // triggers autoloading, so this only fails in a genuinely broken
+        // config). Degrading to A-only beats replacing the user's prompt
+        // with a synthesized one.
+        //
+        // The `not functions -q __nova_user_fish_prompt` half is what makes a
+        // re-source safe. This file IS $__fish_config_dir/config.fish for the
+        // session, so anything that re-runs it (fish's own
+        // `source $__fish_config_dir/config.fish`, `exec fish`, a user alias)
+        // would otherwise copy the CURRENT fish_prompt -- already our wrapper --
+        // over __nova_user_fish_prompt, and the redefinition below would then
+        // call itself forever. With the guard, the second pass finds
+        // __nova_user_fish_prompt already defined and leaves both functions
+        // alone, so the original user prompt stays wrapped exactly once.
+        b.Append("if functions -q fish_prompt; and not functions -q __nova_user_fish_prompt").Append(nl);
+        b.Append("    functions --copy fish_prompt __nova_user_fish_prompt").Append(nl);
+        b.Append("    function fish_prompt").Append(nl);
+        b.Append("        __nova_user_fish_prompt").Append(nl);
+        b.Append("        printf '\\033]133;B\\a'").Append(nl);
+        b.Append("    end").Append(nl);
+        b.Append("end").Append(nl);
+        b.Append(nl);
         b.Append("__nova_emit_prompt_ready").Append(nl);
         return b.ToString();
     }

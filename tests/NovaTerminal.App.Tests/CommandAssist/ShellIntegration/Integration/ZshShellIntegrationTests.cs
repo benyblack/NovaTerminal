@@ -27,7 +27,7 @@ public sealed class ZshShellIntegrationTests : IDisposable
         try { Directory.Delete(_tempRoot, recursive: true); } catch { }
     }
 
-    private HarnessResult RunZsh(string stdin)
+    private HarnessResult RunZsh(string stdin, string? extraInitLine = null)
     {
         string? zsh = ShellHarness.FindZsh();
         if (zsh is null)
@@ -50,6 +50,14 @@ public sealed class ZshShellIntegrationTests : IDisposable
             ["HOME"] = _tempRoot,
         };
 
+        // The bootstrap sources $HOME/.zshrc first, so a test-controlled user
+        // rc goes there (HOME is redirected above, so this cannot be the dev
+        // machine's real config).
+        if (extraInitLine is not null)
+        {
+            File.WriteAllText(Path.Combine(_tempRoot, ".zshrc"), extraInitLine + "\n");
+        }
+
         // `--no-global-rcs` skips /etc/zsh/* so the system zshrc doesn't run
         // compinit on us. On a fresh CI runner compinit detects "insecure
         // directories" and prompts `Ignore? [y/n]` BEFORE our bootstrap
@@ -68,6 +76,37 @@ public sealed class ZshShellIntegrationTests : IDisposable
         Assert.Contains(result.Events, e => e.Kind == "A");
         Assert.Contains(result.Events, e => e.Kind == "C" && e.DecodedCommand == "echo hello");
         Assert.Contains(result.Events, e => e.Kind == "D" && e.DecodedFinish.exitCode == 0);
+    }
+
+    [Fact]
+    public void Bootstrap_EmitsCommandStartMarkPastThePromptText()
+    {
+        // The B mark is appended to PROMPT as a %{...%} zero-width sequence, so it is
+        // parsed once the prompt cells are painted and the cursor is on the first cell
+        // of the user's input -- exactly the prompt's display width. Asserting the exact
+        // column (not merely "> 0") is what pins the %{...%} zero-width wrapper: without
+        // it zsh counts the escape as printable cells and the anchor drifts.
+        const string prompt = "nova-test$ ";
+        HarnessResult result = RunZsh("exit 0\n", extraInitLine: $"PROMPT='{prompt}'");
+
+        var marks = result.Events.Where(e => e.Kind == "B").ToList();
+        Assert.NotEmpty(marks);
+        Assert.Contains(marks, m => m.MarkPosition is { } p && p.column == prompt.Length);
+    }
+
+    [Fact]
+    public void Bootstrap_DoesNotAccumulatePromptMarksAcrossPromptCycles()
+    {
+        // __nova_apply_prompt_mark runs once per precmd. It strips any trailing copy of
+        // the mark before re-appending, so PROMPT must not grow a marker per cycle --
+        // the failure mode is quadratic B traffic, which a generous bound still catches.
+        HarnessResult result = RunZsh("true\ntrue\nexit 0\n", extraInitLine: "PROMPT='nova-test$ '");
+
+        int prompts = result.Events.Count(e => e.Kind == "A");
+        int marks = result.Events.Count(e => e.Kind == "B");
+
+        Assert.True(marks <= prompts * 2,
+            $"expected at most one B per prompt repaint, got {marks} B for {prompts} A");
     }
 
     [Fact]

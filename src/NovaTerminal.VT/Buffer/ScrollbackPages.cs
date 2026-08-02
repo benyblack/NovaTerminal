@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace NovaTerminal.VT.Storage
 {
@@ -55,8 +56,21 @@ namespace NovaTerminal.VT.Storage
         private long _currentBytes;
 
         // Absolute row counters (never reset on eviction so indexing stays correct).
+        // They ARE reset by Clear(), which is what the generation epoch below exists
+        // to make detectable.
         private long _totalRowsAppended;
         private long _totalRowsEvicted;
+
+        // Invalidation epoch for the absolute-row coordinate space. Eviction leaves the
+        // space intact (TotalRowsEvicted only grows), but Clear() resets both counters to
+        // zero, so absolute row ids issued before it silently alias rows appended after it.
+        // Clear() is reachable from CSI 3J / RIS / user "clear buffer" / reflow, all of
+        // which are routine, so a holder of an absolute row id needs a way to notice.
+        // The counter is process-global rather than per-instance because reflow can swap in
+        // a brand-new ScrollbackPages (TerminalBuffer.ReflowEngine): a per-instance counter
+        // starting at zero would collide with a pre-reflow id's epoch.
+        private static long s_nextGeneration;
+        private long _generation = Interlocked.Increment(ref s_nextGeneration);
 
         // Cache for O(1) sequential GetRow access during reflow
         private TerminalPage? _lastAccessedPage;
@@ -72,6 +86,15 @@ namespace NovaTerminal.VT.Storage
 
         /// <summary>Total rows that have been evicted from this scrollback due to budget limits.</summary>
         public long TotalRowsEvicted => _totalRowsEvicted;
+
+        /// <summary>
+        /// Monotonic id of the current absolute-row coordinate space. Stable across appends
+        /// and evictions; changes whenever <see cref="Clear"/> resets the row counters (CSI 3J,
+        /// RIS, user clear-buffer, reflow) and whenever a fresh store is constructed. A holder
+        /// of an <c>AbsoluteRow</c> must record this alongside it and treat the row id as
+        /// invalid once the two no longer match.
+        /// </summary>
+        public long Generation => Interlocked.Read(ref _generation);
 
         /// <summary>Approximate byte consumption of retained cell data.</summary>
         public long CurrentBytes => _currentBytes;
@@ -317,6 +340,9 @@ namespace NovaTerminal.VT.Storage
 
         /// <summary>
         /// Removes all scrollback data and returns all pages to the pool.
+        /// Resets the absolute-row counters, and therefore bumps <see cref="Generation"/>:
+        /// every absolute row id issued before this call is now meaningless (it would
+        /// resolve to a plausible-looking but wrong row rather than going negative).
         /// </summary>
         public void Clear()
         {
@@ -327,6 +353,7 @@ namespace NovaTerminal.VT.Storage
             _currentBytes = 0;
             _totalRowsAppended = 0;
             _totalRowsEvicted = 0;
+            Interlocked.Exchange(ref _generation, Interlocked.Increment(ref s_nextGeneration));
 
             _lastAccessedPage = null;
             _lastAccessedPageStartAbsRow = 0;

@@ -26,6 +26,13 @@ The PowerShell bootstrap emits the full structured lifecycle:
   - working directory updates
 - `OSC 133;A`
   - prompt ready (emitted from the wrapped `prompt` function)
+- `OSC 133;B`
+  - prompt end / start of user input, appended to the string the wrapped `prompt`
+    function *returns*. Anything the function writes lands before the prompt text
+    (the host prints the return value afterwards), so writing `B` would put the mark
+    at the prompt's start instead of at the first cell of the user's input. The parser
+    reports the cursor position with this mark; Command Assist V2 uses it to read the
+    live command line out of the grid.
 - `OSC 133;C;<base64-utf8>`
   - command accepted; the user-entered buffer is base64-encoded so multiline
     submissions survive transit through the VT byte stream

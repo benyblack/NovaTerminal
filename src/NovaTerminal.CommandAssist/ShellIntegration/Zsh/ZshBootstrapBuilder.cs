@@ -44,6 +44,27 @@ public static class ZshBootstrapBuilder
         b.Append("    printf '\\033]133;A\\a'").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
+        // OSC 133;B marks the END of the prompt -- the cell where the user's
+        // input starts. precmd runs before PROMPT is expanded, so B cannot be
+        // printed from a hook the way A is; it has to be the last thing in
+        // PROMPT itself. %{...%} tells zsh the sequence occupies zero columns,
+        // so prompt-width arithmetic and ZLE redraw stay correct.
+        b.Append("typeset -g __nova_prompt_mark=$'%{\\e]133;B\\a%}'").Append(nl);
+        // Re-applied every precmd rather than once at startup because prompt
+        // frameworks (powerlevel10k, starship, oh-my-zsh themes) reassign
+        // PROMPT from their own precmd hooks; ours is appended to
+        // precmd_functions last, so we get the final word.
+        //
+        // Strip-then-append rather than skip-if-present: zsh has no "arm last"
+        // invariant like bash's __nova_arm, so a precmd hook registered after
+        // ours can append to PROMPT and leave our mark buried mid-prompt, where
+        // it would report the input cell several columns early. Removing the
+        // existing suffix (a no-op when absent, since ${var%pattern} only trims
+        // a trailing match) and re-appending is idempotent AND self-correcting.
+        b.Append("__nova_apply_prompt_mark() {").Append(nl);
+        b.Append("    PROMPT=\"${PROMPT%$__nova_prompt_mark}$__nova_prompt_mark\"").Append(nl);
+        b.Append("}").Append(nl);
+        b.Append(nl);
         // zsh has native preexec/precmd hooks via the function-array convention.
         // preexec receives the about-to-run command as $1, so unlike bash we
         // do not need a one-shot guard around the DEBUG trap.
@@ -65,12 +86,17 @@ public static class ZshBootstrapBuilder
         b.Append("        __nova_command_start_ms=\"\"").Append(nl);
         b.Append("    fi").Append(nl);
         b.Append("    __nova_emit_prompt_ready").Append(nl);
+        b.Append("    __nova_apply_prompt_mark").Append(nl);
         b.Append("}").Append(nl);
         b.Append(nl);
         b.Append("typeset -ag precmd_functions preexec_functions").Append(nl);
         b.Append("precmd_functions+=(__nova_precmd)").Append(nl);
         b.Append("preexec_functions+=(__nova_preexec)").Append(nl);
         b.Append(nl);
+        // The first prompt is expanded before any precmd runs in some zsh
+        // configurations, so seed the mark here too; __nova_apply_prompt_mark
+        // is idempotent.
+        b.Append("__nova_apply_prompt_mark").Append(nl);
         b.Append("__nova_emit_prompt_ready").Append(nl);
         return b.ToString();
     }

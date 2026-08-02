@@ -32,6 +32,15 @@ treat running/idle as a guess.
 - Any session with **shell integration enabled** — it reports at the **precise**
   tier from prompt/command events, which is accurate for WSL and SSH too.
 
+**One exception to the precise tier:** the PowerShell bootstrap emits `OSC 133;C`
+(command accepted) and `OSC 133;D` (command finished) from a wrapped PSReadLine
+`Enter` handler, and skips that wrapping when PSReadLine is absent (minimal hosts,
+server-core, some constrained-language modes). Such a session still reaches the
+**precise** tier from the prompt marks (`OSC 133;A`/`B`) it does emit, but it never
+reports `running` — with no `C`/`D` it looks permanently at a prompt, and it is not
+covered by the child-process heuristic either, because the precise tier suppresses
+it. Installing PSReadLine restores full status.
+
 **Workarounds:**
 - Enable shell integration in the shell (including inside WSL / on the remote)
   to get precise status.

@@ -35,15 +35,40 @@ segment before it can be claimed as supported.
 
 ## Phase 1 — Truthful query state
 
+**Status: tasks 1 and 2 shipped (Phase 1a).**
+
 Tasks:
-1. Emit `OSC 133;B` from all four bootstrap builders; extend the four `*BootstrapBuilderTests` and the shell-harness integration tests. Preserve bail-out conditions and bash DEBUG-trap guard semantics.
-2. Parser/tracker: wire `133;B` through `AnsiParser` → `ShellLifecycleTracker.HandleCommandStarted` (currently dead) with mark position (row/col).
+1. **[done — Phase 1a]** Emit `OSC 133;B` from all four bootstrap builders; extend the four `*BootstrapBuilderTests` and the shell-harness integration tests. Preserve bail-out conditions and bash DEBUG-trap guard semantics.
+2. **[done — Phase 1a]** Parser/tracker: wire `133;B` through `AnsiParser` → `ShellLifecycleTracker.HandleCommandStarted` (currently dead) with mark position (row/col).
 3. `GridQueryReader` in the new assembly: extract command text between last `B` mark and cursor from the buffer, handling wrapped logical lines and scrolled viewports. Exhaustive buffer-level unit tests first (wrap, resize/reflow, multiline continuation, prompt redraw, cleared screen).
 4. `SuggestionOrchestrator` consumes `GridQueryReader` when marks are live; delete the shadow buffer (`TextInputObserved`/`BackspaceObserved` mirroring). Heuristic Enter-capture stays for history in non-integrated sessions.
 5. Degraded mode: no marks → path suggestions + explicit `Ctrl+R` history search only; prefix-dependent features off.
 6. `CommandAssistInsertionPlanner` computes against grid truth; add tests for post-`Ctrl+U`, post-history-recall, post-Tab-completion insertion (the desync cases that broke V1).
 
 Exit criteria: desync test matrix green on all four shells; shadow buffer code deleted; smoke scenarios 1–8 re-validated.
+
+Phase 1a notes (for the task-3 `GridQueryReader` author):
+- The B mark is carried as `ShellIntegrationEvent.MarkPosition` (`ShellMarkPosition`: `Row`,
+  `Column`, `AbsoluteRow`, `IsAltScreen`, `Generation`). `Row` is the buffer's current row index
+  and goes stale on scrollback eviction; `AbsoluteRow` (`TotalRowsEvicted + Row`) is the stable
+  identity and re-derives the live row as `AbsoluteRow - TotalRowsEvicted`.
+- Staleness has **two** cases and only one of them shows up in the row number:
+  - *Eviction* — `TotalRowsEvicted` only grows, so `AbsoluteRow - TotalRowsEvicted` goes
+    negative and the mark is visibly dead.
+  - *Coordinate-space reset* — `ScrollbackPages.Clear()` zeroes **both** counters. It is
+    reached from CSI 3J (what `clear(1)` sends with the `E3` capability — i.e. routinely),
+    RIS, the user's clear-buffer action, and reflow. Afterwards a pre-reset `AbsoluteRow`
+    resolves to a large *positive* row holding unrelated content, with nothing anomalous about
+    it. `Generation` (`ScrollbackPages.Generation`, a process-global monotonic epoch bumped in
+    `Clear()` and on construction) is the detector: **the reader must reject any mark whose
+    `Generation` differs from `buffer.Scrollback.Generation`, and only then treat a negative
+    derived row as "aged out".**
+- B rides inside PS1/PROMPT/`fish_prompt`/the pwsh prompt string, so every prompt repaint
+  (including post-resize and post-clear) re-emits it with fresh coordinates. The reader should
+  treat the newest mark as truth rather than caching one.
+- The controller still ignores `CommandStarted`; nothing consumes the position yet. The pane
+  short-circuits `CommandStarted` before the Command Assist dispatcher for that reason — Phase
+  1b has to remove that early-out (`TerminalPane.OnShellIntegrationEventObserved`).
 
 ## Phase 2 — Marks-based anchoring + SSH parity
 

@@ -15,6 +15,7 @@ public sealed class ShellLifecycleTrackerTests
 
         tracker.HandleWorkingDirectoryChanged("/repo");
         tracker.HandleCommandStarted();
+        tracker.HandleCommandAccepted("sleep 2");
         now = now.AddSeconds(2);
         tracker.HandleCommandFinished(17);
 
@@ -34,6 +35,7 @@ public sealed class ShellLifecycleTrackerTests
                 Assert.Null(evt.ExitCode);
                 Assert.Null(evt.Duration);
             },
+            evt => Assert.Equal(ShellIntegrationEventType.CommandAccepted, evt.Type),
             evt =>
             {
                 Assert.Equal(ShellIntegrationEventType.CommandFinished, evt.Type);
@@ -41,6 +43,86 @@ public sealed class ShellLifecycleTrackerTests
                 Assert.Equal(17, evt.ExitCode);
                 Assert.Equal(TimeSpan.FromSeconds(2), evt.Duration);
             });
+    }
+
+    [Fact]
+    public void HandleCommandStarted_DoesNotStartTheDurationFallbackClock()
+    {
+        // OSC 133;B is not an execution edge -- it is "the prompt finished printing".
+        // Anchoring the fallback clock there would bill the user's typing time to the
+        // command, and every path that can produce a D marker goes through C first, so
+        // B must leave the clock alone entirely. Without a C, a D that carries no
+        // duration of its own reports no duration rather than a fabricated one.
+        DateTimeOffset now = new(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+        var tracker = new ShellLifecycleTracker(() => now);
+        var events = new List<ShellIntegrationEvent>();
+        tracker.EventObserved += events.Add;
+
+        tracker.HandleCommandStarted(new ShellMarkPosition(0, 5, 0, false, 1));
+        now = now.AddMinutes(5); // user reading, then typing, at the prompt
+        tracker.HandleCommandFinished(exitCode: 0);
+
+        var finished = Assert.Single(events, e => e.Type == ShellIntegrationEventType.CommandFinished);
+        Assert.Null(finished.Duration);
+    }
+
+    [Fact]
+    public void HandleCommandStarted_CarriesTheMarkPositionOnTheEmittedEvent()
+    {
+        var tracker = new ShellLifecycleTracker();
+        var events = new List<ShellIntegrationEvent>();
+        tracker.EventObserved += events.Add;
+
+        tracker.HandleWorkingDirectoryChanged("/repo");
+        tracker.HandleCommandStarted(new ShellMarkPosition(
+            Row: 42, Column: 17, AbsoluteRow: 1042, IsAltScreen: false, Generation: 7));
+
+        var started = Assert.Single(events, e => e.Type == ShellIntegrationEventType.CommandStarted);
+        Assert.NotNull(started.MarkPosition);
+        ShellMarkPosition position = started.MarkPosition.Value;
+        Assert.Equal(42, position.Row);
+        Assert.Equal(17, position.Column);
+        Assert.Equal(1042L, position.AbsoluteRow);
+        Assert.False(position.IsAltScreen);
+        Assert.Equal(7L, position.Generation);
+        Assert.Equal("/repo", started.WorkingDirectory);
+    }
+
+    [Fact]
+    public void HandleCommandStarted_WithoutAPosition_EmitsANullMarkPosition()
+    {
+        // Marks from integrations that predate position capture (and every
+        // other event type) simply leave the field null.
+        var tracker = new ShellLifecycleTracker();
+        var events = new List<ShellIntegrationEvent>();
+        tracker.EventObserved += events.Add;
+
+        tracker.HandleCommandStarted();
+        tracker.HandlePromptReady();
+        tracker.HandleCommandAccepted("git status");
+
+        Assert.All(events, e => Assert.Null(e.MarkPosition));
+    }
+
+    [Fact]
+    public void HandleCommandAccepted_RestartsTheDurationFallbackClock()
+    {
+        // OSC 133;B now fires at every prompt, so the clock it starts would
+        // bill the user's typing time to the command. C is the real
+        // execution-start edge and must win.
+        DateTimeOffset now = new(2026, 8, 1, 12, 0, 0, TimeSpan.Zero);
+        var tracker = new ShellLifecycleTracker(() => now);
+        var events = new List<ShellIntegrationEvent>();
+        tracker.EventObserved += events.Add;
+
+        tracker.HandleCommandStarted(new ShellMarkPosition(0, 5, 0, false, 1));
+        now = now.AddSeconds(30); // user typing at the prompt
+        tracker.HandleCommandAccepted("sleep 1");
+        now = now.AddSeconds(1);
+        tracker.HandleCommandFinished(exitCode: 0);
+
+        var finished = Assert.Single(events, e => e.Type == ShellIntegrationEventType.CommandFinished);
+        Assert.Equal(TimeSpan.FromSeconds(1), finished.Duration);
     }
 
     [Fact]

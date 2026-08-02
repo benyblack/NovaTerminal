@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using Avalonia.Headless.XUnit;
+using Avalonia.Threading;
 using NovaTerminal.Controls;
 using NovaTerminal.Shell;
 using NovaTerminal.VT;
@@ -163,6 +164,95 @@ public class PaneParserWiringTests
             Environment.SetEnvironmentVariable("NOVATERM_APPDATA_ROOT", previousRoot);
             Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    /// <summary>
+    /// PR #284's one behaviour change: "the command is running" is driven by OSC 133;C
+    /// (command accepted / execution start), not OSC 133;B (prompt end). B fires once per
+    /// painted prompt — including every repaint — while the shell sits idle waiting for
+    /// input, so wiring Running to it would report every idle prompt as a busy session,
+    /// clear <see cref="TerminalPane.LastExitCode"/> under the user's feet, and fire
+    /// <c>CommandStarted</c> as terminal noise.
+    ///
+    /// Driven through the real parser so the assertion covers the pane's wiring, not a
+    /// hand-called notifier.
+    /// </summary>
+    [AvaloniaFact]
+    public void PromptEndMark_DoesNotStartACommand_ButCommandAcceptedDoes()
+    {
+        using var pane = new TerminalPane();
+        pane.CreateAndWireParser();
+        Assert.NotNull(pane.Parser);
+        AnsiParser parser = pane.Parser!;
+
+        Assert.True(
+            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.TryGet(pane.PaneId, out var registration),
+            "the pane registers itself with the agent-session registry in SetupCommon");
+
+        int commandStartedCount = 0;
+        pane.CommandStarted += _ => commandStartedCount++;
+
+        // Seed a finished command so the LastExitCode reset has something to clear.
+        parser.OnCommandFinished?.Invoke(3);
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(3, pane.LastExitCode);
+
+        // A + prompt text + B: the whole prompt cycle, with the shell now idle at the
+        // input cell.
+        parser.Process("\x1b]133;A\x07");
+        parser.Process("user@host:~$ ");
+        parser.Process("\x1b]133;B\x07");
+        Dispatcher.UIThread.RunJobs();
+
+        var afterPromptEnd = registration.StatusMachine.Snapshot();
+        Assert.Equal(NovaTerminal.AgentHost.AgentSessionStatusKind.AwaitingInput, afterPromptEnd.Kind);
+        // Precise, not merely "heuristic and nothing running": A already put the machine on
+        // the precise tier, so AwaitingInput here is a real statement about the shell.
+        Assert.Equal(NovaTerminal.AgentHost.AgentSessionStatusConfidence.Precise, afterPromptEnd.Confidence);
+        Assert.Null(afterPromptEnd.CurrentCommand);
+        Assert.Equal(3, pane.LastExitCode);
+        Assert.Equal(0, commandStartedCount);
+
+        // C is the execution-start edge.
+        string encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("sleep 5"));
+        parser.Process($"\x1b]133;C;{encoded}\x07");
+        Dispatcher.UIThread.RunJobs();
+
+        var afterAccepted = registration.StatusMachine.Snapshot();
+        Assert.Equal(NovaTerminal.AgentHost.AgentSessionStatusKind.Running, afterAccepted.Kind);
+        Assert.Equal("sleep 5", afterAccepted.CurrentCommand);
+        Assert.Null(pane.LastExitCode);
+        Assert.Equal(1, commandStartedCount);
+    }
+
+    /// <summary>
+    /// The other half of the B contract: a prompt repaint re-emits B, and that must stay a
+    /// no-op for session status even while a command is genuinely running (a prompt-drawing
+    /// TUI, or a shell that repaints after a resize mid-command).
+    /// </summary>
+    [AvaloniaFact]
+    public void RepeatedPromptEndMarks_DoNotDisturbARunningCommand()
+    {
+        using var pane = new TerminalPane();
+        pane.CreateAndWireParser();
+        Assert.True(
+            NovaTerminal.AgentHost.AgentSessionRegistry.Instance.TryGet(pane.PaneId, out var registration));
+
+        AnsiParser parser = pane.Parser!;
+        string encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("sleep 5"));
+        parser.Process("\x1b]133;A\x07$ \x1b]133;B\x07");
+        parser.Process($"\x1b]133;C;{encoded}\x07");
+        Assert.Equal(
+            NovaTerminal.AgentHost.AgentSessionStatusKind.Running,
+            registration.StatusMachine.Snapshot().Kind);
+
+        parser.Process("\x1b]133;B\x07");
+        parser.Process("\x1b]133;B\x07");
+        Dispatcher.UIThread.RunJobs();
+
+        var snapshot = registration.StatusMachine.Snapshot();
+        Assert.Equal(NovaTerminal.AgentHost.AgentSessionStatusKind.Running, snapshot.Kind);
+        Assert.Equal("sleep 5", snapshot.CurrentCommand);
     }
 
     private static string CreateTempAppRoot()

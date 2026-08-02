@@ -27,7 +27,7 @@ public sealed class FishShellIntegrationTests : IDisposable
         try { Directory.Delete(_tempRoot, recursive: true); } catch { }
     }
 
-    private HarnessResult RunFish(string stdin)
+    private HarnessResult RunFish(string stdin, string? extraInitLine = null)
     {
         string? fish = ShellHarness.FindFish();
         if (fish is null)
@@ -48,6 +48,17 @@ public sealed class FishShellIntegrationTests : IDisposable
             ["HOME"] = _tempRoot,
         };
 
+        // The bootstrap explicitly sources "$HOME/.config/fish/config.fish" as the
+        // user's config. HOME is redirected above, and XDG_CONFIG_HOME points at
+        // <root> (not <root>/.config), so this file is a distinct, test-owned config
+        // and there is no risk of the bootstrap sourcing itself.
+        if (extraInitLine is not null)
+        {
+            string userConfigDir = Path.Combine(_tempRoot, ".config", "fish");
+            Directory.CreateDirectory(userConfigDir);
+            File.WriteAllText(Path.Combine(userConfigDir, "config.fish"), extraInitLine + "\n");
+        }
+
         // fish -i reads stdin in interactive mode.
         return ShellHarness.Run(fish, "-i", stdin, env, TimeSpan.FromSeconds(20));
     }
@@ -60,6 +71,43 @@ public sealed class FishShellIntegrationTests : IDisposable
         Assert.Contains(result.Events, e => e.Kind == "A");
         Assert.Contains(result.Events, e => e.Kind == "C" && e.DecodedCommand == "echo hello");
         Assert.Contains(result.Events, e => e.Kind == "D" && e.DecodedFinish.exitCode == 0);
+    }
+
+    [Fact]
+    public void Bootstrap_EmitsCommandStartMarkPastThePromptText()
+    {
+        // fish_prompt is copied aside and re-defined as "original, then B", so the mark
+        // is parsed once the user's prompt has been painted and the cursor sits on the
+        // first cell of the user's input -- exactly the prompt's display width. The
+        // exact column is what proves the copy ran *before* the mark and emitted the
+        // user's prompt byte-for-byte; "> 0" would pass even if the wrapper had painted
+        // something of its own.
+        const string prompt = "nova-test$ ";
+        HarnessResult result = RunFish(
+            "exit 0\n",
+            extraInitLine: $"function fish_prompt; printf '{prompt}'; end");
+
+        var marks = result.Events.Where(e => e.Kind == "B").ToList();
+        Assert.NotEmpty(marks);
+        Assert.Contains(marks, m => m.MarkPosition is { } p && p.column == prompt.Length);
+    }
+
+    [Fact]
+    public void Bootstrap_DoesNotAccumulatePromptMarksAcrossPromptCycles()
+    {
+        // fish wraps fish_prompt exactly once at bootstrap (guarded against a
+        // re-source), so unlike bash/zsh there is no per-cycle string to grow. Pin it
+        // at runtime anyway: the wrap is the one place a recursive or repeated
+        // redefinition would show up, as a burst of B per prompt.
+        HarnessResult result = RunFish(
+            "true\ntrue\nexit 0\n",
+            extraInitLine: "function fish_prompt; printf 'nova-test$ '; end");
+
+        int prompts = result.Events.Count(e => e.Kind == "A");
+        int marks = result.Events.Count(e => e.Kind == "B");
+
+        Assert.True(marks <= prompts * 2,
+            $"expected at most one B per prompt repaint, got {marks} B for {prompts} A");
     }
 
     [Fact]
