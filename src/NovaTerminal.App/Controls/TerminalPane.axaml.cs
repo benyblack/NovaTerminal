@@ -1335,6 +1335,12 @@ namespace NovaTerminal.Controls
                 // frame earlier in the same session.
                 _suppressSshAssistOverlayUntilSettled = false;
                 _sshAssistCorrectionPassCount = 0;
+
+                // The correction-log dedup signature belongs to the run of passes being abandoned.
+                // Left set, the first [Corrected] line after a later markless relapse is swallowed
+                // as a duplicate of one from before the transition - and that first line is exactly
+                // the diagnostic that says the mark anchor stopped working.
+                _lastCommandAssistAnchorCorrectionSignature = null;
             }
 
             if (CommandAssistOverlayHost != null)
@@ -1416,6 +1422,12 @@ namespace NovaTerminal.Controls
         /// evidence for the same thing is the absence of <c>[AssistAnchor][SSH][Corrected]</c> lines
         /// in the log, which a test cannot read.
         /// </summary>
+        /// <remarks>
+        /// Zero is also what an under-driven test reads: the counter is only reachable with a visible
+        /// bound view model on an SSH pane. <c>CommandAssistLayoutTests</c> pairs every zero-pass
+        /// assertion with a markless negative control that must reach it, because without one the
+        /// assertion holds with the <c>UsesMarkAnchor</c> gate deleted.
+        /// </remarks>
         internal int CommandAssistPlacementCorrectionPassesForTest => _commandAssistPlacementCorrectionPasses;
 
         /// <summary>
@@ -1475,6 +1487,23 @@ namespace NovaTerminal.Controls
                     return;
                 }
 
+                // `layout` was captured a frame ago, while the pane was still markless. A 133;B mark
+                // can land in between - that is the markless->mark handoff this change exists to
+                // clean up - and by now the overlay has been re-placed against the mark row. Measured
+                // against the stale layout that reads as drift, so the block below would hide the
+                // overlay and re-apply markless margins for a frame at the exact moment the anchor
+                // became exact. Re-derive and re-ask the gate instead; the answer for a mark-anchored
+                // pane is "no correction", so this returns without touching anything.
+                CommandAssistAnchorLayout? currentLayout = TryCalculateCommandAssistAnchorLayout();
+                if (currentLayout == null ||
+                    !ShouldCorrectCommandAssistPlacement(currentLayout, _boundCommandAssistViewModel?.IsVisible == true))
+                {
+                    // Not a bare return: a markless pass may have left the overlay hidden waiting for
+                    // this pass to clear it, and nothing else will now.
+                    ReleaseSshAssistOverlaySuppression();
+                    return;
+                }
+
                 Control? anchorControl = CommandAssistBubble.IsVisible
                     ? CommandAssistBubble
                     : CommandAssistPopup != null && CommandAssistPopup.IsVisible
@@ -1497,13 +1526,7 @@ namespace NovaTerminal.Controls
                 double drift = Math.Abs(actualTop - expectedTop);
                 if (drift <= 2)
                 {
-                    _sshAssistCorrectionPassCount = 0;
-                    if (_suppressSshAssistOverlayUntilSettled)
-                    {
-                        _suppressSshAssistOverlayUntilSettled = false;
-                        CommandAssistOverlayHost.Opacity = 1.0;
-                    }
-
+                    ReleaseSshAssistOverlaySuppression();
                     return;
                 }
 
@@ -1540,6 +1563,30 @@ namespace NovaTerminal.Controls
             }
 
             Dispatcher.UIThread.Post(CorrectPlacement, DispatcherPriority.Render);
+        }
+
+        /// <summary>
+        /// Ends a run of placement-correction passes and un-hides the overlay if one of them hid it.
+        /// </summary>
+        /// <remarks>
+        /// The correction stack is the only thing that sets
+        /// <see cref="_suppressSshAssistOverlayUntilSettled"/>, so it is also the only thing that can
+        /// clear it: every exit from a correction pass that is not "post another one" comes through
+        /// here, or the overlay stays at zero opacity until the next placement pass happens to run.
+        /// </remarks>
+        private void ReleaseSshAssistOverlaySuppression()
+        {
+            _sshAssistCorrectionPassCount = 0;
+            if (!_suppressSshAssistOverlayUntilSettled)
+            {
+                return;
+            }
+
+            _suppressSshAssistOverlayUntilSettled = false;
+            if (CommandAssistOverlayHost != null)
+            {
+                CommandAssistOverlayHost.Opacity = 1.0;
+            }
         }
 
         private void OnBufferScreenSwitched(bool isAltScreen)
