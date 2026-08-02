@@ -125,20 +125,20 @@ reopens on evidence rather than on assumption.
 
 The gate is deliberately *not* conditioned on `IsShellIntegrationEnabled`, which records only
 whether we injected the bootstrap. A shell that emits `B` is instrumented whether we did it or the
-user did, and Phase 2's instrumented-remote work depends on believing the marks. (Today that is
-theory rather than practice: `ShellLifecycleTracker` is armed only by
-`TerminalPane.ApplyShellIntegrationLaunchPlan`, so a session we did not instrument delivers no
-events at all and stays fully degraded. Arming it on observed marks is Phase 2 task 3.)
+user did, and Phase 2's instrumented-remote work depends on believing the marks. (Phase 2b turned
+that from theory into practice: `ShellLifecycleTracker` used to be armed only by
+`TerminalPane.ApplyShellIntegrationLaunchPlan`, so a session we did not instrument delivered no
+events at all and stayed fully degraded. It is now also armed for every SSH pane.)
 
 The gate and the mark are two independent facts and both are required. The gate can be open while
 the mark has aged out of scrollback or its coordinate generation has been reset; the mark can be
 live while the command it anchors is halfway through printing its output.
 
-*Known edge, currently unreachable:* the parser raises `OnCommandAccepted` only for a `133;C`
-carrying a decodable base64 payload, so a bare `133;C` does not close the gate — `133;D` then has
-to. All four bootstraps emit `133;C;<base64>`, and a session we did not instrument has no tracker
-armed, so no reachable configuration hits this. It becomes real the moment Phase 2 arms the tracker
-for third-party integrations, and should be closed there.
+*Known edge, closed in Phase 2b:* the parser used to raise `OnCommandAccepted` only for a `133;C`
+carrying a decodable base64 payload, so a bare `133;C` did not close the gate — `133;D` then had
+to. That was unreachable while all four bootstraps emitted `133;C;<base64>` and no un-instrumented
+session had a tracker armed. Arming the tracker for remote sessions made it reachable, and the
+parser now raises the event for every `C`. See "Added In V2 Phase 2b" below.
 
 **2. Settled-boundary reads, not per-keystroke reads.** The buffer takes its write lock per written
 character, so a read racing a prompt repaint (`\r`, erase-to-end-of-line, reprint) can legitimately
@@ -347,12 +347,85 @@ unnoticed" but "the pass that notices it may be the same frame or the next one".
 argued; still untested, and a test would need a mark delivered without any cursor movement at all,
 which the parser does not currently make reachable.
 
+## Added In V2 Phase 2b — instrumented remotes
+
+Injection is still local-only and always will be: `--rcfile`, `ZDOTDIR`, `XDG_CONFIG_HOME` and
+`-File` all die at the SSH boundary. What Phase 2b adds is the other half — the user installs the
+emitter on the remote host, and Nova consumes it exactly as it consumes a local one.
+
+**The snippets.** `assets/shell-integration/nova-shell-integration.{sh,fish,ps1}`, embedded into
+`NovaTerminal.CommandAssist` and surfaced through `RemoteShellIntegrationSnippets` for the Settings
+copy action. Three files, not four: the `.sh` dispatches on `$BASH_VERSION` / `$ZSH_VERSION` at load
+time and carries both wirings, because a user pasting a file should not first have to know which of
+the two they are on; fish gets its own because `case`, `$-`, `local`, function syntax and array
+syntax are all different, so a dispatch would have been a second file anyway. Each one ports the
+guards its builder counterpart was argued into — append-to-prompt-never-replace, per-mechanism
+not-already-wrapped guards, the bash DEBUG-trap arm/disarm one-shot, the zsh strip-then-append,
+the fish `functions --copy` guard, the pwsh double prompt-capture guard — plus two the local
+builders do not need: a **non-interactive bail-out** (a snippet in `~/.bashrc` is sourced by `scp`
+and `rsync`, where an OSC corrupts the stream) and a **load guard** (an rc file can be sourced more
+than once). User-facing page: `docs/command-assist/RemoteShellIntegration.md`.
+
+**Arming.** `TerminalPane.ArmRemoteShellIntegrationTracker` attaches the OSC 133 translator to every
+SSH pane at session start, gated only on `CommandAssistShellIntegrationEnabled`. Unconditionally and
+eagerly, rather than lazily on the first observed mark, because `133;A` and the first `133;B` arrive
+with the very first remote prompt and a tracker armed after them would miss the mark that opens the
+first command-input window. It cannot regress a markless remote: every path into
+`ShellLifecycleTracker` is a parser mark callback, so a host with no snippet dispatches no events,
+and the agent-status machinery hangs off the parser callbacks directly rather than off the tracker.
+
+**Runtime detection, twice over, and both are load-bearing.** The pane latches
+`_hasObservedShellIntegrationMark` on any of A/B/C/D and republishes the session context, so
+`AssistSessionContext.IsShellIntegrationEnabled` becomes true for a session we never injected into.
+`AssistSessionContext.IsShellIntegrationLive` separately ORs in `HasObservedShellIntegrationMarker`,
+which the event stream sets directly. Neither alone is enough: the pane's republish is posted to the
+UI thread and can lose a race with a burst where A, B and C arrive in one parse chunk, while
+`UpdateSession` forgets observed markers whenever it is told integration is off, so without the
+republish an ordinary directory change would demote an instrumented remote back to markless.
+
+**The bare `133;C`.** `AnsiParser` raises `OnCommandAccepted` for every C mark, with `null` text when
+there is none it can trust, because C is the edge that closes the query gate and a swallowed C leaves
+the grid reader serving a running command's output as a command line. Payload classification, in
+order: base64 when it decodes to plausible text (no U+FFFD, no control characters — `make`, `date`
+and `true` are all valid base64 by shape, so "it decoded" proves nothing on its own); plain text when
+it does not decode, is printable, and is not a FinalTerm `key=value` attribute (`aid=7` is printable
+and would otherwise be written into permanent history); `null` otherwise. `CapturePipeline` sets
+`HasObservedStructuredCommandCaptureMarker` only for a C **carrying text** — that flag is what stands
+the heuristic path down, and a shell emitting a bare C forever would then have both paths silent.
+
+**What is lifted and what is not.** Lifted for a session with live marks: structured history capture
+(`CommandCaptureSource.ShellIntegration`), structured exit code and duration enrichment, grid-truth
+query state between B and C, insertion, Fix-mode command text, trusted overlay anchoring (already
+lifted in 2a). Kept off for every remote session regardless of marks:
+`FileSystemPathSuggestionProvider`, which completes against the machine Nova runs on and would offer
+the user's laptop directories at a prompt sitting on a server. Everything keyed on the *session type*
+rather than on the marks — the conservative markless anchoring stack, the SSH-only anchor
+diagnostics, the pane-estimated-rows startup workaround — stays, because markless SSH remains a
+supported and common session type.
+
+**One behavioural fix that falls out of it.** `HandleCommandAssistCompletionAsync` used to run the
+host-side exit-code patch whenever `!_isShellIntegrationActive`, which is permanently true over SSH.
+With a tracker armed, both that patch and the structured `CommandFinished` patch would target the
+same entry; the first clears the pending id and the second silently does nothing, losing the
+duration. It is now keyed on whether the tracker is armed at all.
+
 ## Current Limitations
-- shell integration is local-only; SSH launch plans skip provider injection
-  because env-var overrides do not propagate across SSH; **as of Phase 2a a remote that emits
-  OSC 133 by other means (manual instrumentation today, the Phase 2 task 3 snippets later) gets
-  trusted overlay anchoring automatically** — nothing about anchoring is keyed off the session type
-  any more, only off whether a mark is live
+- shell integration **injection** is local-only; SSH launch plans skip provider injection
+  because env-var overrides do not propagate across SSH. As of Phase 2a a remote that emits
+  OSC 133 by other means gets trusted overlay anchoring automatically — nothing about anchoring is
+  keyed off the session type any more, only off whether a mark is live — and as of Phase 2b it gets
+  the rest of Command Assist too, via the user-installed snippets above. An **un-instrumented** SSH
+  host is unchanged: markless, heuristic capture only, conservative anchoring
+- remote **filesystem path suggestions** remain off for every SSH session, instrumented or not.
+  `FileSystemPathSuggestionProvider` reads the local disk; completing the remote one needs a remote
+  listing channel, which belongs to the remote-files sidebar rather than to Command Assist
+- the remote snippets are static text the user pastes, so they cannot be versioned or updated in
+  place: a host instrumented from an older Nova keeps whatever it was given. The marks are a stable
+  contract, so this degrades to "an older snippet, still emitting the same four marks", but a future
+  mark addition would need the user to re-copy
+- a remote shell that is neither bash, zsh, fish nor PowerShell (dash, ash, ksh, tcsh) gets nothing.
+  The `.sh` snippet's final branch deliberately installs *nothing* rather than emitting A and B
+  without a preexec hook, which would open the command-input window and never close it
 - providers bail out (`IsIntegrated: false`) when the user forces an
   incompatible startup mode (PowerShell `-File`; bash `-c`/`--rcfile`/`--init-file`;
   zsh `-c`/`--no-rcs`/`-f`; fish `-c`/`--no-config`/`-N`); those sessions fall
