@@ -104,6 +104,24 @@ public class GridQueryReaderTests
     }
 
     [Fact]
+    public void MarkAtColumnZeroOfAnEmptyPromptRow_Reads()
+    {
+        // A zero-width prompt (PROMPT='' or a prompt that ends with a newline) puts the mark on
+        // column 0. Nothing left of the mark, and firstCol == 0 for both the mark row and every
+        // continuation row: the one place those two cases coincide.
+        var s = new Session().Prompt(string.Empty);
+
+        Assert.Equal(0, s.Mark.Column);
+        Assert.Equal(string.Empty, s.Read().Text);
+
+        s.Write("ls -la");
+
+        var line = s.Read();
+        Assert.Equal("ls -la", line.Text);
+        Assert.Equal(6, line.CursorOffset);
+    }
+
+    [Fact]
     public void PromptTextItselfIsNeverIncluded()
     {
         var s = new Session().Prompt("user@host ~/src (main) $ ").Write("ls");
@@ -349,6 +367,55 @@ public class GridQueryReaderTests
     }
 
     [Fact]
+    public void SoftWrappedRowPagedIntoScrollback_IsStillFollowedAsOneLogicalLine()
+    {
+        // The reason IsRowWrappedAbsolute exists: a soft-wrapped logical line whose *first*
+        // physical row has already paged out of the viewport. That row has no TerminalRow object
+        // at all, so the wrap bit has to come from the scrollback page -- and the sibling
+        // scrollback test above uses hard line breaks, which leaves that bit false and the
+        // branch never exercised in its interesting state.
+        string input = new string('a', 14) + new string('b', 16) + new string('c', 16) + new string('d', 14);
+        var s = new Session(cols: 16, rows: 3).Prompt().Write(input);
+
+        Assert.True(s.Buffer.Scrollback.Count > 0, "the first physical row must have paged out");
+
+        s.Buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.Null(s.Buffer.GetRowAbsolute(0));          // genuinely paged, not a viewport row
+            Assert.True(s.Buffer.IsRowWrappedAbsolute(0));    // ...with the wrap bit set
+        }
+        finally
+        {
+            s.Buffer.Lock.ExitReadLock();
+        }
+
+        var line = s.Read();
+
+        Assert.Equal(input, line.Text);
+        Assert.DoesNotContain("\n", line.Text);
+        Assert.False(line.IsMultiline);
+        Assert.Equal(0, line.StartRow);
+    }
+
+    [Fact]
+    public void ExtendedGraphemeOnAScrollbackRow_SurvivesThePaging()
+    {
+        // The side table that holds multi-char clusters is per-row; a paged row has to carry it
+        // through GetGraphemeAbsolute or the emoji comes back as a lone replacement char.
+        var s = new Session(cols: 40, rows: 3)
+            .Prompt()
+            .Write("echo " + Emoji)
+            .Write("\r\n> def")
+            .Write("\r\n> ghi")
+            .Write("\r\n> jkl");
+
+        Assert.True(s.Buffer.Scrollback.Count > 0, "the mark's row must have scrolled off");
+
+        Assert.Equal("echo " + Emoji + "\n> def\n> ghi\n> jkl", s.Read().Text);
+    }
+
+    [Fact]
     public void MarkAgedOutOfScrollback_Fails()
     {
         var s = new Session(cols: 40, rows: 3, maxHistory: 128).Prompt().Write("ls");
@@ -434,6 +501,23 @@ public class GridQueryReaderTests
         s.Prompt().Write("git status");
 
         s.Buffer.Resize(40, 3);
+
+        Assert.Equal("git status", s.Read().Text);
+    }
+
+    [Fact]
+    public void HeightGrowingResize_KeepsTheMarkUsable()
+    {
+        // The other half of the height-only case: growing the viewport pulls rows back out of
+        // scrollback, so Scrollback.Count falls while absolute row identity must not move.
+        var s = new Session(cols: 40, rows: 3);
+        for (int i = 0; i < 6; i++) s.Write($"line {i}\r\n");
+        s.Prompt().Write("git status");
+
+        int scrollbackBefore = s.Buffer.Scrollback.Count;
+        Assert.True(scrollbackBefore > 0, "there must be scrollback for the grow to reclaim");
+
+        s.Buffer.Resize(40, 8);
 
         Assert.Equal("git status", s.Read().Text);
     }
@@ -589,7 +673,63 @@ public class GridQueryReaderTests
 
         var line = s.Read();
 
-        Assert.EndsWith("[main]", line.Text);
+        // Pinned exactly, not just EndsWith: the interior cells were never written, so this also
+        // pins that untouched '\0' cells inside the span come back as spaces.
+        Assert.Equal("ls" + new string(' ', 15) + "[main]", line.Text);
+        Assert.False(line.RightPromptTrimmed);
+    }
+
+    [Fact]
+    public void TypedInputReachingTheRightEdgeWithAnInteriorDoubleSpace_KeepsItsTail()
+    {
+        // The case the "gap starts at or after the cursor" condition does *not* cover: the
+        // cursor is at the start of the line (Home) but the input runs to the right edge, so
+        // every interior gap is at or after the cursor. A rule built on the gap alone deletes
+        // the "bbbb". The gap must also dominate the badge it separates: two blanks in front of
+        // four characters is a typo, not a right prompt.
+        string input = "echo " + new string('a', 26) + "  bbbb"; // 37 cells: columns 2..38
+        var s = new Session(cols: 40, rows: 6).Prompt().Write(input).Write("\x1b[3G");
+
+        var line = s.Read();
+
+        Assert.Equal(input, line.Text);
+        Assert.Equal(0, line.CursorOffset);
+        Assert.False(line.RightPromptTrimmed);
+    }
+
+    [Fact]
+    public void MultiSegmentRightPrompt_IsTrimmedWholeRatherThanAtItsInternalGap()
+    {
+        // "12:34  ok" is one right-aligned group with its own internal gap. Cutting at the
+        // rightmost qualifying run would keep "ls" plus 26 blanks plus "12:34" -- worse than not
+        // trimming. The gap is therefore the *widest* run, which is the row's real slack.
+        var s = new Session(cols: 40, rows: 6)
+            .Prompt()
+            .Write("ls")
+            .Write("\x1b[31G12:34  ok") // columns 30..38
+            .Write("\x1b[5G");
+
+        var line = s.Read();
+
+        Assert.Equal("ls", line.Text);
+        Assert.True(line.RightPromptTrimmed);
+    }
+
+    [Fact]
+    public void RightAlignedContentTooWideToBeABadge_IsKept()
+    {
+        // A right prompt is a small label. Sixteen columns of a forty-column row is not one, so
+        // the reader refuses the trim and returns the row -- over-returning is recoverable,
+        // deleting typed input is not.
+        var s = new Session(cols: 40, rows: 6)
+            .Prompt()
+            .Write("ls")
+            .Write("\x1b[24Gabcdefghijklmnop") // columns 23..38, gap of 19
+            .Write("\x1b[5G");
+
+        var line = s.Read();
+
+        Assert.Equal("ls" + new string(' ', 19) + "abcdefghijklmnop", line.Text);
         Assert.False(line.RightPromptTrimmed);
     }
 
@@ -662,6 +802,46 @@ public class GridQueryReaderTests
 
         Assert.Equal(ascii + CjkOne, line.Text);
         Assert.DoesNotContain(" ", line.Text);
+        Assert.Equal(1, line.EndRow);
+    }
+
+    [Fact]
+    public void CombiningMarkAttachedByTheWritePath_IsOneGrapheme()
+    {
+        // The mark arrives as a separate write and the write path merges it into the base cell's
+        // extended text. The reader must read the merged cluster, not the bare base character.
+        var s = new Session().Prompt().Write("echo e").Write("\u0301");
+
+        var line = s.Read();
+
+        Assert.Equal("echo e\u0301", line.Text);
+        Assert.Equal(line.Text.Length, line.CursorOffset);
+    }
+
+    [Fact]
+    public void ZwjClusterAttachedByTheWritePath_IsOneGrapheme()
+    {
+        // U+1F468 ZWJ U+1F4BB: two emoji joined into a single cluster by the attachment path.
+        const string Zwj = "\U0001F468\u200D\U0001F4BB";
+        var s = new Session().Prompt().Write("echo " + Zwj);
+
+        Assert.Equal("echo " + Zwj, s.Read().Text);
+    }
+
+    [Fact]
+    public void CursorParkedOnTheWideCharacterWrapHole_MapsToTheCharacterBoundary()
+    {
+        // The blank cell a double-width character leaves behind when it wraps early is layout,
+        // not text. Parking the cursor on it must not emit it, and the offset must land on the
+        // boundary between the last character that fitted and the wide one that did not.
+        string ascii = new string('a', 16) + "x";
+        var s = new Session(cols: 20, rows: 6).Prompt().Write(ascii + CjkOne);
+        s.Write("\x1b[1;20H"); // row 0, column 19: the hole
+
+        var line = s.Read();
+
+        Assert.Equal(ascii + CjkOne, line.Text);
+        Assert.Equal(ascii.Length, line.CursorOffset);
         Assert.Equal(1, line.EndRow);
     }
 

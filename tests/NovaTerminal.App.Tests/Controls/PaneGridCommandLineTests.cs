@@ -15,6 +15,8 @@ namespace NovaTerminal.Tests.Controls;
 public class PaneGridCommandLineTests
 {
     private const string PromptEnd = "\x1b]133;B\x07";
+    private const string CommandExecuted = "\x1b]133;C\x07";
+    private const string CommandFinished = "\x1b]133;D;0\x07";
 
     [AvaloniaFact]
     public void WithoutAMark_ThereIsNoGridCommandLine()
@@ -56,5 +58,32 @@ public class PaneGridCommandLineTests
 
         Assert.True(pane.TryGetGridCommandLine(out GridCommandLine line));
         Assert.Equal("ls -la", line.Text);
+    }
+
+    [AvaloniaFact]
+    public void TheMarkSurvivesCommandExecutionButNotCommandCompletion()
+    {
+        // C (executed) must not drop the mark: it fires the instant the user submits, while the
+        // input line is still on screen and still exactly what the mark describes. D (finished)
+        // must, or the span from the mark to the cursor is the command's *output* -- and it
+        // stays dropped until the next prompt re-emits B.
+        using var pane = new TerminalPane();
+        pane.CreateAndWireParser();
+
+        pane.Parser!.Process("\x1b]133;A\x07$ " + PromptEnd + "git status");
+
+        pane.Parser!.Process(CommandExecuted);
+        Assert.True(pane.TryGetGridCommandLine(out GridCommandLine submitted));
+        Assert.Equal("git status", submitted.Text);
+
+        pane.Parser!.Process("\r\n On branch main\r\n");
+        pane.Parser!.Process(CommandFinished);
+
+        Assert.False(pane.TryGetGridCommandLine(out _));
+
+        pane.Parser!.Process("\x1b]133;A\x07$ " + PromptEnd + "ls");
+
+        Assert.True(pane.TryGetGridCommandLine(out GridCommandLine next));
+        Assert.Equal("ls", next.Text);
     }
 }
