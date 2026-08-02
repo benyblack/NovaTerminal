@@ -187,11 +187,70 @@ public class ShellMarkAnchorResolverTests
     }
 
     [Fact]
+    public void MarkMidViewportAtAPartialScrollOffset_ResolvesToTheShiftedRow()
+    {
+        // The row-0 scroll case above pins that scrollOffset is *used*; it cannot tell the sign
+        // apart from its own negation, because the answer there is 0 either way. Here the mark is
+        // three rows below the top of a partially scrolled viewport, so the expected row is 3 with
+        // the offset applied in the right direction and -3 (refused) with it inverted.
+        var s = new Session(rows: 6).Write("a\r\nb\r\nc\r\n").Prompt();
+        s.Write(string.Concat(Enumerable.Repeat("out\r\n", 20)));
+        int scrollback = s.Buffer.Scrollback.Count;
+        Assert.True(scrollback > 3, "the mark must be scrollable back to a mid-viewport row");
+
+        // Scrolled all the way back the marked row is 3 (three lines of output preceded the prompt);
+        // easing off by one row moves it up to 2, and so on. Any of those is only correct if
+        // viewportTop = Scrollback.Count - scrollOffset.
+        Assert.True(s.TryResolve(out int fullyScrolled, scrollOffset: scrollback));
+        Assert.Equal(3, fullyScrolled);
+
+        Assert.True(s.TryResolve(out int oneRowLess, scrollOffset: scrollback - 1));
+        Assert.Equal(2, oneRowLess);
+
+        Assert.True(s.TryResolve(out int twoRowsLess, scrollOffset: scrollback - 2));
+        Assert.Equal(1, twoRowsLess);
+
+        // And it leaves the viewport again on the way back to the live edge.
+        Assert.False(s.TryResolve(out _, scrollOffset: scrollback - 4));
+    }
+
+    [Fact]
     public void NegativeScrollOffset_HasNoAnchor()
     {
         var s = new Session(rows: 6).Prompt();
 
         Assert.False(s.TryResolve(out _, scrollOffset: -1));
+    }
+
+    [Fact]
+    public void ScrollOffsetPastTheEndOfHistory_HasNoAnchor()
+    {
+        // Nobody can scroll further back than the history that exists, and the arithmetic does not
+        // fail loudly if they claim to: an over-large offset drives viewportTop negative, which
+        // shifts every row down by the overshoot and hands back a plausible in-range row for a
+        // mark that is nowhere near it. Refusing is the only honest answer, same as every other
+        // ambiguity here.
+        var s = new Session(rows: 6).Prompt();
+        s.Write(string.Concat(Enumerable.Repeat("out\r\n", 20)));
+        int scrollback = s.Buffer.Scrollback.Count;
+
+        Assert.True(s.TryResolve(out int row, scrollOffset: scrollback), "the largest legal offset still resolves");
+        Assert.Equal(0, row);
+        Assert.False(s.TryResolve(out _, scrollOffset: scrollback + 1));
+        Assert.False(s.TryResolve(out _, scrollOffset: scrollback + 5));
+    }
+
+    [Fact]
+    public void ScrollOffsetPastTheEndOfHistoryOnAnUnscrolledBuffer_HasNoAnchor()
+    {
+        // The degenerate shape of the same bug: with no scrollback at all, offset 1 would put
+        // viewportTop at -1 and report the first-row mark as row 1.
+        var s = new Session(rows: 6).Prompt();
+
+        Assert.Equal(0, s.Buffer.Scrollback.Count);
+        Assert.True(s.TryResolve(out int row));
+        Assert.Equal(0, row);
+        Assert.False(s.TryResolve(out _, scrollOffset: 1));
     }
 
     [Fact]

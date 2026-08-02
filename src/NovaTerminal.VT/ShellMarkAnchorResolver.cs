@@ -36,7 +36,9 @@ namespace NovaTerminal.VT
         /// <param name="mark">The newest <c>OSC 133;B</c> mark.</param>
         /// <param name="scrollOffset">
         /// Rows the viewport is scrolled back by; 0 means pinned to the live edge. This is the same
-        /// value <see cref="TerminalBuffer.GetVisualCursorRow"/> takes.
+        /// value <see cref="TerminalBuffer.GetVisualCursorRow"/> takes. Must be in
+        /// <c>[0, Scrollback.Count]</c>: anything outside that names a viewport that cannot be
+        /// reached, and is refused rather than extrapolated.
         /// </param>
         /// <param name="visibleRows">
         /// How many rows the renderer is actually drawing. Deliberately the renderer's count rather
@@ -115,6 +117,16 @@ namespace NovaTerminal.VT
             if (derivedRow >= buffer.InternalTotalLines)
             {
                 return false; // past the end of the buffer: not a row that exists
+            }
+
+            // An offset larger than the history that exists names a viewport nobody can be
+            // scrolled to. Left unchecked it drives viewportTop negative, which shifts every
+            // derivedRow *down* by the overshoot and hands back a plausible-looking row for a
+            // mark that is nowhere near it - the one failure mode this type is supposed to make
+            // impossible. Every ambiguity is false, and an impossible offset is one.
+            if (scrollOffset > buffer.Scrollback.Count)
+            {
+                return false;
             }
 
             // Viewport top in the buffer's current addressing space, mirroring
