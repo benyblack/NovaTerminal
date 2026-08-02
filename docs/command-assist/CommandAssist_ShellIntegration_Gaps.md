@@ -322,6 +322,31 @@ prompt out of the viewport, a scrollback reset (generation bump), eviction, or t
 drop back to the heuristic mid-session. The conversion is re-derived on every placement pass rather
 than cached, because the scroll offset is an input to it.
 
+#### Known gaps in the mark-anchored path
+
+**The vertical budget is the pane, not the overlay host.** `TryCalculateCommandAssistAnchorLayout`
+measures against `TerminalPane.Bounds`, but the overlay host lives in `RootGrid` row 0, and row 1
+(today the port-forwarding status bar; the find overlay is a row-0 overlay and does not shrink
+anything) is `Auto`-sized. While row 1 is visible the clamp budget is ~22px taller than the host the
+bubble is actually laid out in, so a bubble clamped to the bottom of that budget can be clipped by
+the host. This is pre-existing and shared with the cursor-heuristic path — the mark changed which
+row is the anchor, not what the anchor is measured against — and it is deliberately **not** fixed in
+Phase 2a, because the fix belongs to whichever pass makes the anchor math host-relative for both
+sources at once. It is worth writing down here rather than leaving implicit, because mark anchoring
+is the one path that claims exactness: everywhere else a few pixels is inside the error bars of a
+guess, and here it is not.
+
+**Mark arrival posts no placement update, by argument rather than by test.** A `133;B` mark reaching
+the pane does not itself schedule an overlay placement pass; the anchor is picked up by the next one
+`CommandAssistAnchorHintChanged` fires. The argument that no new event is needed is stronger than
+the PR body claimed: the mark is recorded *at the cursor*, so a mark can only appear on a row the
+cursor is already on. Any sequence that changes which row that is has to move the cursor to get
+there, and cursor movement is already one of the events that fires the hint — a repaint at the same
+row needs no new pass because the answer did not change. So the gap is not "a mark can land
+unnoticed" but "the pass that notices it may be the same frame or the next one". Reviewed and
+argued; still untested, and a test would need a mark delivered without any cursor movement at all,
+which the parser does not currently make reachable.
+
 ## Current Limitations
 - shell integration is local-only; SSH launch plans skip provider injection
   because env-var overrides do not propagate across SSH; **as of Phase 2a a remote that emits

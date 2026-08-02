@@ -522,22 +522,33 @@ public sealed class CommandAssistAnchorCalculatorTests
     {
         var calculator = new CommandAssistAnchorCalculator();
 
+        const int markRow = 29;
+        const double cellHeight = 18;
+        const double paneHeight = 540;
         CommandAssistAnchorLayout layout = calculator.Calculate(new CommandAssistAnchorRequest(
             PaneWidth: 960,
-            PaneHeight: 540,
-            CellHeight: 18,
-            CursorVisualRow: 29,
+            PaneHeight: paneHeight,
+            CellHeight: cellHeight,
+            CursorVisualRow: markRow,
             VisibleRows: 30,
             BubbleWidth: 360,
             BubbleHeight: 36,
             PopupWidth: 460,
             PopupHeight: 180,
             HasMarkAnchor: true,
-            MarkVisualRow: 29));
+            MarkVisualRow: markRow));
 
+        // The bottom row is the one case where PromptRect is *not* the mark row: 29 * 18 = 522 is
+        // inside the pane but outside the pane-padding budget, so ClampRect pulls the rect up to
+        // 540 - 12 - 18 = 510. Clearing the clamped rect is therefore not the property - a bubble
+        // could clear 510 and still cover the row the user is typing on. Assert against the mark's
+        // own y, and pin the clamp separately so a change to either shows up as itself.
+        const double markTop = markRow * cellHeight;
+        const double clampedPromptTop = paneHeight - 12 - cellHeight;
         Assert.True(layout.UsesMarkAnchor);
-        Assert.True(layout.BubbleRect.Bottom <= layout.PromptRect.Top,
-            $"Expected the bubble to flip above the bottom-row mark, but bubble bottom {layout.BubbleRect.Bottom} was past prompt top {layout.PromptRect.Top}.");
+        Assert.Equal(clampedPromptTop, layout.PromptRect.Top, precision: 1);
+        Assert.True(layout.BubbleRect.Bottom <= markTop,
+            $"Expected the bubble to flip clear above the bottom-row mark at y={markTop}, but bubble bottom was {layout.BubbleRect.Bottom}.");
         AssertRectWithin(layout.BubbleRect, 960, 540);
         AssertRectWithin(layout.PopupRect, 960, 540);
     }

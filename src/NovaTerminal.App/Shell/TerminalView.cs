@@ -46,10 +46,15 @@ namespace NovaTerminal.Shell
     /// <param name="VisibleMarkVisualRow">
     /// Zero-based row inside the viewport holding the first cell of the user's input.
     /// </param>
+    /// <remarks>
+    /// Deliberately not shape-parity with <see cref="CommandAssistPromptHint"/>: that record also
+    /// carries a <c>CellWidth</c> nothing reads, and copying an unread field for symmetry would
+    /// only make a second place to keep in sync. Vertical anchoring needs a row, a row count, and
+    /// a row height; when a consumer needs a column, add it then.
+    /// </remarks>
     public readonly record struct CommandAssistMarkAnchorHint(
         int VisibleMarkVisualRow,
         int VisibleRows,
-        float CellWidth,
         float CellHeight);
 
     public class TerminalView : Control
@@ -825,7 +830,6 @@ namespace NovaTerminal.Shell
             return new CommandAssistMarkAnchorHint(
                 VisibleMarkVisualRow: visualRow,
                 VisibleRows: visibleRows,
-                CellWidth: _metrics.CellWidth,
                 CellHeight: _metrics.CellHeight);
         }
 
