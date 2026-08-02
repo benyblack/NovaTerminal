@@ -35,10 +35,10 @@ segment before it can be claimed as supported.
 
 ## Phase 1 — Truthful query state
 
-**Status: tasks 1–6 complete; one task added and open.** Tasks 1 and 2 shipped in Phase 1a; task 3
-in Phase 1b; tasks 4, 5 and 6 in Phase 1c. Task 7 below was raised by the Phase 1c review and is
-**required before the Phase 6 flag flip**, on the same footing as the deferred smoke-scenario
-re-validation in the exit criteria: the phase's mechanism is done, its user-visible coverage is not.
+**Status: complete.** Tasks 1 and 2 shipped in Phase 1a; task 3 in Phase 1b; tasks 4, 5 and 6 in
+Phase 1c; task 7 — raised by the Phase 1c review as a pre-flag-flip requirement — in Phase 1d. The
+one item the phase still carries to Phase 6 is the deferred smoke-scenario re-validation in the exit
+criteria, which waits on the flag flip because the feature is still default-off.
 
 Tasks:
 1. **[done — Phase 1a]** Emit `OSC 133;B` from all four bootstrap builders; extend the four `*BootstrapBuilderTests` and the shell-harness integration tests. Preserve bail-out conditions and bash DEBUG-trap guard semantics.
@@ -47,9 +47,9 @@ Tasks:
 4. **[done — Phase 1c]** `SuggestionOrchestrator` consumes `GridQueryReader` when marks are live; delete the shadow buffer (`TextInputObserved`/`BackspaceObserved` mirroring). Heuristic Enter-capture stays for history in non-integrated sessions. *Amended:* the pass resolves its own query (callers no longer hand one in) and reads on its worker rather than on the keystroke, per the PR #285 review's settled-boundary point. Enter-capture stays but its source is now the grid, so it works for an instrumented session's first command and captures **nothing** in a markless one — see the Phase 1c notes below.
 5. **[done — Phase 1c]** Degraded mode: no marks → path suggestions + explicit `Ctrl+R` history search only; prefix-dependent features off. *Amended:* with no query the path provider returns nothing, so degraded passive suggestions are empty in practice; `Ctrl+R` shows the recency list and is browse-only.
 6. **[done — Phase 1c]** `CommandAssistInsertionPlanner` computes against grid truth; add tests for post-`Ctrl+U`, post-history-recall, post-Tab-completion insertion (the desync cases that broke V1). *Amended:* the planner also gained four refusal rules (no snapshot, cursor off the end, multiline, right prompt trimmed).
-7. **[open — required before the flag flip]** **Markless capture-only accumulator (ii-strict).** Restore Enter-time history capture for sessions with no `OSC 133` marks, as a *poisoned* line accumulator that lives entirely in `TerminalPane`. See "Phase 1c follow-up" below for the design and the reasoning.
+7. **[done — Phase 1d]** **Markless capture-only accumulator (ii-strict).** Restore Enter-time history capture for sessions with no `OSC 133` marks, as a *poisoned* line accumulator that lives entirely in `TerminalPane`. See "Phase 1c follow-up" below for the design and the reasoning, and the Phase 1d notes for what shipped.
 
-Exit criteria: desync test matrix green on all four shells; shadow buffer code deleted; smoke scenarios 1–8 re-validated. *Status: the desync matrix is green at three levels (reader, controller seam, real pane driven by escape sequences) and the shadow buffer is deleted. Smoke scenarios 1–8 are re-validated at the flag-flip phase, since the feature is still default-off and the M4.2 scenario doc still describes V1 behavior. Task 7 (markless capture) is carried to the same gate for the same reason, and Phase 6 step 1 must check both.*
+Exit criteria: desync test matrix green on all four shells; shadow buffer code deleted; smoke scenarios 1–8 re-validated. *Status: the desync matrix is green at three levels (reader, controller seam, real pane driven by escape sequences), the shadow buffer is deleted, and task 7 landed in Phase 1d. Smoke scenarios 1–8 are re-validated at the flag-flip phase, since the feature is still default-off and the M4.2 scenario doc still describes V1 behavior; that is the only Phase 1 item Phase 6 step 1 still has to check.*
 
 Phase 1a notes (for the task-3 `GridQueryReader` author):
 - The B mark is carried as `ShellIntegrationEvent.MarkPosition` (`ShellMarkPosition`: `Row`,
@@ -166,6 +166,40 @@ bar Phase 1c set for the grid reader, met by a different mechanism.
 population it serves (instrumented remotes stop needing it) without emptying it (`cmd.exe` and
 bailed-out bootstraps remain).
 
+### Phase 1d notes — what task 7 actually shipped
+
+`MarklessSubmissionAccumulator` (`src/NovaTerminal.App/Controls/`) plus wiring in `TerminalPane`.
+Zero changes inside `NovaTerminal.CommandAssist`, as designed: the assist assembly still sees one
+`HandleEnterAsync(string?)` and cannot tell the two sources apart.
+
+- **The poison classification is an allow-list, not the deny-list the design sketched.** The
+  interceptor is handed `(Key, KeyModifiers)`, and a deny-list of "arrows, Home, End, Delete, Tab,
+  page keys, F-keys, unowned chords" fails *open* on anything nobody thought of. Inverted, it fails
+  closed: a key press leaves the buffer alone only if it is a modifier key, `Enter`, `Backspace`
+  (both without `Alt`), `Ctrl+C` (which resets), a key Command Assist consumed, or a printable key
+  with no `Ctrl`/`Alt`/`Meta`. Everything else poisons. An allow-list missing a harmless key costs
+  one capture; a deny-list missing a line-editing key writes a false command to history.
+- **`TryHandleCommandAssistKey` was split** into the routing decision (`TryRouteCommandAssistKey`,
+  unchanged behavior) and the observation, which runs after it and returns nothing. "Command Assist
+  consumed this key" and "the shell never saw it" are the same fact, so the routing result is the
+  input to the classification.
+- **Text that reaches the PTY without going through key handling poisons at its own call site**:
+  `Ctrl+Enter` insertion (the one key Command Assist owns that *sends*), both paste paths, the
+  drag-and-drop path toast, sibling-pane broadcast, the clipboard-image path, and the agent host's
+  A3 act surface (`AgentSessionRegistration.InputInjected`, added for this).
+- **Resets**: `Enter` (after the capture read), `Ctrl+C`, any alt-screen transition in either
+  direction, and session start / restart / profile switch (`InitializeSessionCore`).
+- **Backspace refuses rather than guesses** when the last character is a surrogate or a combining
+  mark, because "one character" is then not the same thing to the accumulator and to the shell's
+  line editor. On an empty buffer it is a no-op, not a poison. There is an 8 KB cap.
+- **Composition with suppression.** They are distinct and both survive. Poison is an accumulator
+  fact ("I cannot describe this line"); `IsCurrentSubmissionSuppressed` is a provenance fact ("this
+  text was not composed here") that `CapturePipeline` applies to *both* sources, which is why a
+  paste is still not captured in an instrumented session where the grid reads it perfectly.
+- Tests: `PaneMarklessCaptureTests` (pane level, 26) and `MarklessSubmissionAccumulatorTests` (unit,
+  27). Mutation-checked: un-poisoning arrows fails the poison theory; letting the accumulator win
+  over the grid fails the grid-wins test.
+
 ## Phase 2 — Marks-based anchoring + SSH parity
 
 Tasks:
@@ -210,9 +244,9 @@ Exit criteria: local providers run through the seam with zero behavior change; a
 
 ## Phase 6 — Flag flip
 
-1. Verify all six re-enable criteria from the design doc, plus the two items Phase 1 carried here:
-   smoke scenarios 1–8 re-validated, and Phase 1 task 7 (markless capture-only accumulator) landed
-   or explicitly re-adjudicated.
+1. Verify all six re-enable criteria from the design doc, plus the one item Phase 1 carried here:
+   smoke scenarios 1–8 re-validated. (Phase 1's other carried item, task 7's markless capture-only
+   accumulator, landed in Phase 1d.)
 2. Update `CommandAssistDefaultDisabledTests` → `CommandAssistDefaultEnabledTests`; flip `TerminalSettings.CommandAssistEnabled = true`; changelog + docs refresh (`CommandAssist.md` rewritten to match V2 reality, §14 keyboard table fixed).
 3. New smoke checklist executed on Windows + Unix-over-SSH; record results in `docs/command-assist/`.
 
