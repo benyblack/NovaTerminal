@@ -36,8 +36,7 @@ public sealed class CommandAssistResultBuilder
                 Score: 0,
                 WorkingDirectory: null,
                 LastUsedAt: null,
-                ExitCode: null,
-                CanExecuteDirectly: false))
+                ExitCode: null))
             .ToArray();
     }
 
@@ -54,8 +53,7 @@ public sealed class CommandAssistResultBuilder
                 Score: item.Confidence,
                 WorkingDirectory: null,
                 LastUsedAt: null,
-                ExitCode: null,
-                CanExecuteDirectly: true))
+                ExitCode: null))
             .ToArray();
     }
 

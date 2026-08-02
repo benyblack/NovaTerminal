@@ -94,8 +94,7 @@ public sealed class FileSystemPathSuggestionProvider : IPathSuggestionProvider
                 Score: (isDirectory ? 260 : 240) - i,
                 WorkingDirectory: context.WorkingDirectory,
                 LastUsedAt: null,
-                ExitCode: null,
-                CanExecuteDirectly: false));
+                ExitCode: null));
         }
 
         return suggestions;

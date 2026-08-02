@@ -19,8 +19,7 @@ public sealed class CommandAssistSuggestionEngineTests
             Score: 42,
             WorkingDirectory: @"C:\repo",
             LastUsedAt: null,
-            ExitCode: null,
-            CanExecuteDirectly: false);
+            ExitCode: null);
 
         Assert.Equal("Switch branches or restore files.", suggestion.Description);
         Assert.Contains("Doc", suggestion.Badges);
@@ -43,8 +42,7 @@ public sealed class CommandAssistSuggestionEngineTests
             Score: 1,
             WorkingDirectory: null,
             LastUsedAt: null,
-            ExitCode: null,
-            CanExecuteDirectly: false);
+            ExitCode: null);
 
         Assert.Equal(type, suggestion.Type);
         Assert.Equal("Helper detail", suggestion.Description);
@@ -161,8 +159,7 @@ public sealed class CommandAssistSuggestionEngineTests
                         Score: 500,
                         WorkingDirectory: @"C:\repo",
                         LastUsedAt: null,
-                        ExitCode: null,
-                        CanExecuteDirectly: false)
+                        ExitCode: null)
                 }));
         var context = new CommandAssistQueryContext(
             Input: "cd ./d",
@@ -197,8 +194,7 @@ public sealed class CommandAssistSuggestionEngineTests
                         Score: 5,
                         WorkingDirectory: @"C:\repo",
                         LastUsedAt: null,
-                        ExitCode: null,
-                        CanExecuteDirectly: false)
+                        ExitCode: null)
                 }));
 
         var context = new CommandAssistQueryContext(
@@ -238,8 +234,7 @@ public sealed class CommandAssistSuggestionEngineTests
                         Score: 100,
                         WorkingDirectory: @"C:\repo",
                         LastUsedAt: null,
-                        ExitCode: null,
-                        CanExecuteDirectly: false)
+                        ExitCode: null)
                 }));
 
         var context = new CommandAssistQueryContext(
@@ -279,8 +274,7 @@ public sealed class CommandAssistSuggestionEngineTests
                         Score: 100,
                         WorkingDirectory: @"C:\repo",
                         LastUsedAt: null,
-                        ExitCode: null,
-                        CanExecuteDirectly: false)
+                        ExitCode: null)
                 }));
 
         var context = new CommandAssistQueryContext(

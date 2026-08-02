@@ -109,8 +109,7 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
                 Score: x.Score,
                 WorkingDirectory: x.Latest.WorkingDirectory,
                 LastUsedAt: x.Latest.ExecutedAt,
-                ExitCode: x.Latest.ExitCode,
-                CanExecuteDirectly: false));
+                ExitCode: x.Latest.ExitCode));
     }
 
     private static IEnumerable<AssistSuggestion> BuildSnippetSuggestions(
@@ -155,8 +154,7 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
                 Score: x.Score,
                 WorkingDirectory: x.Snippet.WorkingDirectory,
                 LastUsedAt: x.Snippet.LastUsedAt ?? x.Snippet.CreatedAt,
-                ExitCode: null,
-                CanExecuteDirectly: false));
+                ExitCode: null));
     }
 
     private static double ScoreText(

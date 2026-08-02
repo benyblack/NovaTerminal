@@ -48,7 +48,8 @@ public sealed class CommandAssistControllerTests
         Assert.Single(results);
         Assert.Equal(AssistSuggestionType.Fix, results[0].Type);
         Assert.Equal("Closest local match.", results[0].Description);
-        Assert.True(results[0].CanExecuteDirectly);
+        Assert.Equal("git status", results[0].InsertText);
+        Assert.Equal(0.95, results[0].Score);
     }
 
     [Fact]
@@ -65,8 +66,7 @@ public sealed class CommandAssistControllerTests
             Score: 10,
             WorkingDirectory: @"C:\repo",
             LastUsedAt: DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"),
-            ExitCode: 0,
-            CanExecuteDirectly: false);
+            ExitCode: 0);
 
         IReadOnlyList<AssistSuggestion> results = builder.BuildCombined([existing], Array.Empty<CommandHelpItem>(), Array.Empty<CommandHelpItem>(), Array.Empty<CommandFixSuggestion>());
 
@@ -409,8 +409,7 @@ public sealed class CommandAssistControllerTests
                     Score: 100,
                     WorkingDirectory: @"C:\repo",
                     LastUsedAt: null,
-                    ExitCode: null,
-                    CanExecuteDirectly: false)
+                    ExitCode: null)
             });
         var controller = CreateController(
             historyStore: new InMemoryHistoryStore(),
@@ -874,7 +873,12 @@ public sealed class CommandAssistControllerTests
     {
         historyStore ??= new InMemoryHistoryStore();
         var filter = new SecretsFilter();
-        var engine = suggestionEngine ?? new HistorySuggestionEngine();
+
+        // Phase 0b deleted the test-only HistorySuggestionEngine that used to be the default here.
+        // Its stand-in is the production engine with path suggestions stubbed out, which is what
+        // the old engine effectively was: history-only ranking. Tests that care about path rows
+        // still pass a real CommandAssistSuggestionEngine explicitly.
+        var engine = suggestionEngine ?? new CommandAssistSuggestionEngine(new NoPathSuggestionProvider());
 
         return new CommandAssistController(
             historyStore,
@@ -933,6 +937,13 @@ public sealed class CommandAssistControllerTests
         }
     }
 
+    /// <summary>Stubs out the filesystem so controller tests never depend on the working directory.</summary>
+    private sealed class NoPathSuggestionProvider : IPathSuggestionProvider
+    {
+        public IReadOnlyList<AssistSuggestion> GetSuggestions(CommandAssistQueryContext context, int maxResults)
+            => Array.Empty<AssistSuggestion>();
+    }
+
     private sealed class InMemoryHistoryStore : IHistoryStore
     {
         private readonly List<CommandHistoryEntry> _entries = new();
@@ -966,18 +977,6 @@ public sealed class CommandAssistControllerTests
                 .Take(maxResults)
                 .ToList();
             return Task.FromResult(results);
-        }
-
-        public Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
-        {
-            int index = _entries.FindIndex(x => x.Id == entryId);
-            if (index < 0)
-            {
-                return Task.FromResult(false);
-            }
-
-            _entries[index] = _entries[index] with { ExitCode = exitCode };
-            return Task.FromResult(true);
         }
 
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
@@ -1038,9 +1037,6 @@ public sealed class CommandAssistControllerTests
                 cancellationToken);
         }
 
-        public Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
-            => Task.FromResult(false);
-
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
@@ -1060,9 +1056,6 @@ public sealed class CommandAssistControllerTests
 
         public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CommandHistoryEntry>>(Array.Empty<CommandHistoryEntry>());
-
-        public Task<bool> TryUpdateExitCodeAsync(string entryId, int? exitCode, CancellationToken cancellationToken = default)
-            => Task.FromException<bool>(new InvalidOperationException("simulated write failure"));
 
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
             => Task.FromException<bool>(new InvalidOperationException("simulated write failure"));
