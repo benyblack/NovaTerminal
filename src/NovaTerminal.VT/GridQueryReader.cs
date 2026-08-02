@@ -34,20 +34,36 @@ namespace NovaTerminal.VT
     /// same physical row as the input. Naively reading "mark column to last non-blank cell"
     /// swallows it. Stopping at the cursor instead is wrong, because the cursor is often
     /// mid-line. The rule used here, applied <i>only</i> to the final row of the span and
-    /// <i>only</i> when the cursor is on that row:
+    /// <i>only</i> when the cursor is on that row, reads the row as
+    /// <c>[input][gap][badge]</c> and requires all of:
     /// <list type="number">
     /// <item><description>the trailing content must end within
     /// <see cref="MaxRightPromptIndent"/> columns of the right edge (right-aligned text does;
     /// typed input generally does not, and <c>ZLE_RPROMPT_INDENT</c> defaults to 1);</description></item>
-    /// <item><description>it must be separated from the rest of the row by a run of at least
-    /// <see cref="MinRightPromptGap"/> blank cells;</description></item>
-    /// <item><description>that run must start at or after the cursor. Nothing left of the
-    /// cursor is ever discarded, so a double space inside typed input cannot be mistaken for
-    /// the separator.</description></item>
+    /// <item><description>the gap must start at or after the cursor. Nothing left of the
+    /// cursor is ever discarded;</description></item>
+    /// <item><description>the gap is the <i>widest</i> run of blank cells in that region, so a
+    /// multi-segment right prompt such as <c>12:34  ok</c> is trimmed whole instead of being cut
+    /// at its own internal gap (which would keep the wide run and the left segment — worse than
+    /// not trimming at all);</description></item>
+    /// <item><description>the gap must be at least <see cref="MinRightPromptGap"/> cells wide
+    /// <i>and strictly wider than the badge it separates</i>. A right prompt is a small label
+    /// pushed to the edge by the row's slack; a stray double space inside typed input is
+    /// not;</description></item>
+    /// <item><description>the badge must be no wider than
+    /// <c>Cols / </c><see cref="MaxRightPromptWidthDivisor"/> columns. Right prompts are badges,
+    /// not sentences.</description></item>
     /// </list>
-    /// All three must hold. Shells drop the right prompt as soon as input grows into it, which
-    /// is why rows other than the cursor's are exempt: a soft-wrapped row is full of input by
-    /// definition.
+    /// All five must hold. Conditions 4 and 5 are what stop the reader deleting typed input:
+    /// without them a row such as <c>echo aaaa...aa  bbbb</c> that happens to reach the right
+    /// edge, with the cursor parked at the start of the line (Home), silently loses its
+    /// <c>bbbb</c> — condition 2 does not protect content to the <i>right</i> of a mid-line
+    /// cursor. The failure mode is deliberately asymmetric: an unrecognised right prompt comes
+    /// back as extra text, which a consumer can survive, while a mis-recognised one deletes what
+    /// the user typed. A badge wider than the gap in front of it, or wider than a third of the
+    /// row, is therefore kept.
+    /// Shells drop the right prompt as soon as input grows into it, which is why rows other than
+    /// the cursor's are exempt: a soft-wrapped row is full of input by definition.
     /// </para>
     /// <para>
     /// <b>Multiline.</b> The span always runs to the end of the logical line the cursor is on
@@ -85,7 +101,10 @@ namespace NovaTerminal.VT
         /// </summary>
         public const int MaxSpanRows = 512;
 
-        /// <summary>Blank cells required before a right-aligned prompt is recognised as one.</summary>
+        /// <summary>
+        /// Blank cells required before a right-aligned prompt is recognised as one. A floor, not
+        /// the whole test: the gap must also be strictly wider than the badge it separates.
+        /// </summary>
         public const int MinRightPromptGap = 2;
 
         /// <summary>
@@ -93,6 +112,13 @@ namespace NovaTerminal.VT
         /// <c>ZLE_RPROMPT_INDENT</c> defaults to 1; 2 leaves a little slack.
         /// </summary>
         public const int MaxRightPromptIndent = 2;
+
+        /// <summary>
+        /// The widest a right prompt may be, as a fraction of the terminal width: a badge may
+        /// occupy at most <c>Cols / MaxRightPromptWidthDivisor</c> columns. Anything larger is
+        /// far more likely to be typed input that happens to reach the right edge, and is kept.
+        /// </summary>
+        public const int MaxRightPromptWidthDivisor = 3;
 
         /// <summary>
         /// Extracts the command line between <paramref name="mark"/> and the cursor.
@@ -112,9 +138,13 @@ namespace NovaTerminal.VT
                 return false;
             }
 
-            // Non-recursive lock: only acquire if this thread is not already inside one.
+            // Non-recursive lock: only acquire if this thread is not already inside one. The
+            // upgradeable-read case cannot arise on today's call paths, but re-entering from
+            // inside one would throw, and this method's contract is that it never does.
             bool lockTaken = false;
-            if (!buffer.Lock.IsReadLockHeld && !buffer.Lock.IsWriteLockHeld)
+            if (!buffer.Lock.IsReadLockHeld &&
+                !buffer.Lock.IsWriteLockHeld &&
+                !buffer.Lock.IsUpgradeableReadLockHeld)
             {
                 buffer.Lock.EnterReadLock();
                 lockTaken = true;
@@ -280,6 +310,15 @@ namespace NovaTerminal.VT
         /// definition, except for the one-cell hole a double-width character leaves when it
         /// does not fit in the last column and wraps early.
         /// </summary>
+        /// <remarks>
+        /// The hole is not distinguishable from content. A typed space in the last column of a
+        /// row whose next row begins with a wide character produces a byte-identical grid to the
+        /// early-wrap hole, because nothing records <i>why</i> the cell is blank. The reader
+        /// drops it either way, so that one case loses a typed space. The alternative — keeping
+        /// it — inserts a phantom space into the middle of every command line that wraps before
+        /// a CJK or emoji character, which is both far more common and harder for a consumer to
+        /// undo.
+        /// </remarks>
         private static int SoftWrappedRowEnd(TerminalBuffer buffer, int row, int cols)
         {
             if (cols >= 2 &&
@@ -314,7 +353,7 @@ namespace NovaTerminal.VT
                 if (contentEnd > cursorCol && lastNonBlank >= cols - 1 - MaxRightPromptIndent)
                 {
                     int gapStart = FindRightPromptGapStart(
-                        buffer, row, Math.Max(firstCol, cursorCol), lastNonBlank);
+                        buffer, row, Math.Max(firstCol, cursorCol), lastNonBlank, cols);
                     if (gapStart >= 0)
                     {
                         rightPromptTrimmed = true;
@@ -329,13 +368,35 @@ namespace NovaTerminal.VT
         }
 
         /// <summary>
-        /// Start column of the rightmost run of at least <see cref="MinRightPromptGap"/> blanks
-        /// that lies at or after <paramref name="floor"/> and left of
-        /// <paramref name="lastNonBlank"/>, or <c>-1</c> when there is none.
+        /// Start column of the blank run that separates a right-aligned prompt from the rest of
+        /// the row, or <c>-1</c> when the row does not look like one.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The candidate is the <i>widest</i> blank run at or after <paramref name="floor"/> and
+        /// left of <paramref name="lastNonBlank"/> — the row's dominant slack, which is what a
+        /// right-aligned paint produces. Taking the rightmost qualifying run instead (the
+        /// previous rule) cuts a multi-segment right prompt such as <c>12:34  ok</c> at its own
+        /// internal gap, keeping the wide run and the left segment: worse than not trimming.
+        /// Ties resolve to the leftmost run, which yields the larger badge and so the more
+        /// conservative answer below.
+        /// </para>
+        /// <para>
+        /// The run then has to look like a separator rather than a typo: at least
+        /// <see cref="MinRightPromptGap"/> cells wide, strictly wider than the badge it
+        /// separates, and that badge no wider than
+        /// <paramref name="cols"/><c> / </c><see cref="MaxRightPromptWidthDivisor"/> columns.
+        /// Failing any of these keeps the whole row — over-returning is recoverable, deleting
+        /// typed input is not.
+        /// </para>
+        /// </remarks>
         private static int FindRightPromptGapStart(
-            TerminalBuffer buffer, int row, int floor, int lastNonBlank)
+            TerminalBuffer buffer, int row, int floor, int lastNonBlank, int cols)
         {
+            int bestStart = -1;
+            int bestEnd = -1;
+            int bestWidth = 0;
+
             int col = lastNonBlank - 1;
             while (col >= floor)
             {
@@ -351,15 +412,35 @@ namespace NovaTerminal.VT
                     runStart--;
                 }
 
-                if (col - runStart + 1 >= MinRightPromptGap)
+                // Scanning right to left, ">=" keeps the leftmost of equally wide runs.
+                int width = col - runStart + 1;
+                if (width >= bestWidth)
                 {
-                    return runStart;
+                    bestWidth = width;
+                    bestStart = runStart;
+                    bestEnd = col;
                 }
 
                 col = runStart - 1;
             }
 
-            return -1;
+            if (bestStart < 0 || bestWidth < MinRightPromptGap)
+            {
+                return -1;
+            }
+
+            int badgeWidth = lastNonBlank - bestEnd;
+            if (badgeWidth >= bestWidth)
+            {
+                return -1; // the gap does not dominate: this is spacing inside typed input
+            }
+
+            if (badgeWidth > cols / MaxRightPromptWidthDivisor)
+            {
+                return -1; // too big to be a badge
+            }
+
+            return bestStart;
         }
 
         private static int LastNonBlankColumn(TerminalBuffer buffer, int row, int firstCol, int cols)

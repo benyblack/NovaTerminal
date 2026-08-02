@@ -1794,6 +1794,23 @@ namespace NovaTerminal.Controls
             };
             Parser.OnCommandFinishedDetailed += (exitCode, durationMs) =>
             {
+                // OSC 133;D == the command finished, so the B mark that anchored its input line
+                // no longer points at an input line: everything from it down is command output.
+                // Dropping it here closes the window in which the grid reader would happily
+                // return output as "the live command line" -- until the next prompt re-emits B,
+                // there is nothing truthful to read, and "no mark" is the honest answer.
+                //
+                // D rather than C (CommandExecuted) deliberately: in one B -> C -> D cycle, C
+                // fires the instant the user submits, while the input line is still on screen and
+                // still exactly what the mark describes. Clearing on C would blind the reader for
+                // the whole run of the command, including the submission edge that Phase 1c reads
+                // the final command text on. GridQueryReader.MaxSpanRows stays as a backstop for
+                // shells that emit B without a matching D, but it is no longer the only guard.
+                lock (_commandStartMarkGate)
+                {
+                    _latestCommandStartMark = null;
+                }
+
                 _shellLifecycleTracker?.HandleCommandFinished(exitCode, durationMs);
 
                 // Long-command completion (A2 PR4): the pane only applies the
@@ -2998,11 +3015,17 @@ namespace NovaTerminal.Controls
         /// (taken by <see cref="GridQueryReader"/> itself).
         /// </para>
         /// <para>
+        /// <b>Lifecycle.</b> The mark is dropped on <c>OSC 133;D</c> (command finished), so
+        /// between one command's end and the next prompt's <c>B</c> this returns <c>false</c>
+        /// rather than serving that command's output as a command line. It is deliberately kept
+        /// across <c>OSC 133;C</c>: C fires the instant the user submits, while the input line is
+        /// still on screen and still exactly what the mark describes.
+        /// <see cref="GridQueryReader.MaxSpanRows"/> remains as a backstop for shells that emit
+        /// <c>B</c> without a matching <c>D</c>.
+        /// </para>
+        /// <para>
         /// <b>Nothing consumes this yet.</b> Phase 1c wires it into the suggestion orchestrator
-        /// and deletes the keystroke shadow buffer. Note the reader's own contract: the result
-        /// is only meaningful between <c>OSC 133;B</c> and the following <c>OSC 133;C</c> — past
-        /// that the "command line" is really command output, and gating on the lifecycle is the
-        /// caller's job.
+        /// and deletes the keystroke shadow buffer.
         /// </para>
         /// </remarks>
         /// <returns><c>false</c> when there is no live mark or the grid cannot be read.</returns>
