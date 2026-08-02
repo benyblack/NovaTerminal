@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "matrixPath": "docs/vt_coverage_matrix.md",
-  "matrixSha256": "f98f4f3667c6abd1f97facb39580ae76e07800e9f14f98e396c39fb8e7b4e74d",
+  "matrixSha256": "bcde51bbb2b60aa2055a21b8a66bc7044dcc65fd5c5e791eb5580193212bbc00",
   "summary": {
     "totalRows": 58,
     "supportedCount": 18,
@@ -682,8 +682,8 @@
       "section": "5) Screen buffers \u0026 modes (DEC private modes)",
       "feature": "Mouse reporting",
       "status": "\u26A0 Partial",
-      "specOrNotes": "Click (\u0060?1000\u0060) and drag-motion (\u0060?1002\u0060) tracking, plus hover motion with no buttons held under any-event tracking (\u0060?1003\u0060, issue #269); SGR (\u0060?1006\u0060) and legacy X10 coordinate encodings both supported. Motion reports are coalesced to at most one per distinct terminal cell (tracked last-reported cell, reset on buffer attach/resize, pointer exit, and \u0060?1002\u0060/\u0060?1003\u0060 mode changes) so a stationary-but-jittery pointer or a TUI toggling tracking modes doesn\u0027t flood the PTY",
-      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/Input/TerminalInputModeEncoderTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Input/TerminalViewMouseMotionTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/MouseReportingTests.cs\u0060",
+      "specOrNotes": "Click (\u0060?1000\u0060) and drag-motion (\u0060?1002\u0060) tracking, plus hover motion with no buttons held under any-event tracking (\u0060?1003\u0060, issue #269); SGR (\u0060?1006\u0060) and legacy X10 coordinate encodings both supported. Motion reports are coalesced to at most one per distinct terminal cell (tracked last-reported cell, reset on buffer attach/resize, alternate-screen switch, pointer exit, and \u0060?1002\u0060/\u0060?1003\u0060 mode changes observed between two motion events) so a stationary-but-jittery pointer or a TUI toggling tracking modes doesn\u0027t flood the PTY",
+      "evidenceText": "Unit: \u0060tests/NovaTerminal.App.Tests/Input/TerminalInputModeEncoderTests.cs\u0060, \u0060tests/NovaTerminal.App.Tests/Input/TerminalViewMouseMotionTests.cs\u0060",
       "evidenceKinds": [
         "unit"
       ],
@@ -695,16 +695,12 @@
         {
           "path": "tests/NovaTerminal.App.Tests/Input/TerminalViewMouseMotionTests.cs",
           "exists": true
-        },
-        {
-          "path": "tests/NovaTerminal.App.Tests/MouseReportingTests.cs",
-          "exists": true
         }
       ],
       "hasAutomatedEvidenceSignal": true,
       "hasLinkedEvidence": true,
       "ownership": "Input layer",
-      "knownDeviations": "\u0060?1001\u0060 (highlight tracking) and urxvt (\u0060?1015\u0060)/pixel-position (\u0060?1016\u0060) mouse coordinate encodings are not implemented; only X10 and SGR (\u0060?1006\u0060) coordinate encodings are supported",
+      "knownDeviations": "\u0060?1001\u0060 (highlight tracking) and urxvt (\u0060?1015\u0060)/pixel-position (\u0060?1016\u0060) mouse coordinate encodings are not implemented; only X10 and SGR (\u0060?1006\u0060) coordinate encodings are supported. Coordinates are viewport-relative and 1-based on every report path (motion, press, release, wheel); the legacy X10 encoding clamps coordinates to its 223 ceiling rather than promoting the report to the SGR form the application never requested",
       "sourceLine": 113
     },
     {

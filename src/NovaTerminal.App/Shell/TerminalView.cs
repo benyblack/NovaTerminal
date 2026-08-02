@@ -1057,6 +1057,13 @@ namespace NovaTerminal.Shell
             // previously-cached values, causing stale blank SKPictures to be served.
             _rowCache.RequestClear();
 
+            // Issue #269: ?47/?1047/?1049 replaces every cell under a stationary pointer, so the
+            // incoming application's first hover must report. Without this, a fresh session with
+            // empty scrollback (coordinates identical across the switch) has that first hover
+            // coalesced away as a duplicate and the app draws no highlight until the pointer
+            // crosses a full cell boundary.
+            ResetMouseMotionTracking();
+
             // When switching back from alt screen to main screen, mark that transition
             // to ensure the next content update resets scroll position
             if (!isAltScreen && _buffer != null)
@@ -1834,15 +1841,17 @@ namespace NovaTerminal.Shell
                 if (notches != 0)
                 {
                     var point = e.GetCurrentPoint(this);
-                    var (row, col) = ScreenToTerminal(point.Position);
+                    // Viewport-relative, 1-based - the wire coordinate space. Must agree with the
+                    // press/release/motion paths so an app sees one consistent coordinate system.
+                    var (reportColumn, reportRow) = ToMouseReportCell(point.Position);
                     var button = notches > 0 ? TerminalMouseButton.WheelUp : TerminalMouseButton.WheelDown;
                     for (int i = 0; i < Math.Abs(notches); i++)
                     {
                         SendMouseEvent(new TerminalMouseEvent(
                             TerminalMouseEventKind.Wheel,
                             button,
-                            col + 1,
-                            row + 1,
+                            reportColumn,
+                            reportRow,
                             e.KeyModifiers));
                     }
                 }
@@ -1886,13 +1895,7 @@ namespace NovaTerminal.Shell
                 TerminalMouseButton button = GetPressedMouseButton(point.Properties);
                 if (button != TerminalMouseButton.None)
                 {
-                    var (reportRow, reportCol) = ScreenToTerminal(point.Position);
-                    SendMouseEvent(new TerminalMouseEvent(
-                        TerminalMouseEventKind.Press,
-                        button,
-                        reportCol + 1,
-                        reportRow + 1,
-                        e.KeyModifiers));
+                    HandleMousePressAt(point.Position, button, e.KeyModifiers);
                     e.Handled = true;
                     return;
                 }
@@ -1948,8 +1951,7 @@ namespace NovaTerminal.Shell
             {
                 var point = e.GetCurrentPoint(this);
                 TerminalMouseButton button = GetPressedMouseButton(point.Properties);
-                var (row, col) = ScreenToTerminal(point.Position);
-                HandleMouseMoveCore(button, col + 1, row + 1, e.KeyModifiers);
+                HandleMouseMoveAt(point.Position, button, e.KeyModifiers);
 
                 e.Handled = true;
                 return;
@@ -1997,12 +1999,12 @@ namespace NovaTerminal.Shell
             if (_buffer != null && _buffer.IsMouseReportingActive())
             {
                 var point = e.GetCurrentPoint(this);
-                var (row, col) = ScreenToTerminal(point.Position);
+                var (reportColumn, reportRow) = ToMouseReportCell(point.Position);
                 SendMouseEvent(new TerminalMouseEvent(
                     TerminalMouseEventKind.Release,
                     GetReleasedMouseButton(e),
-                    col + 1,
-                    row + 1,
+                    reportColumn,
+                    reportRow,
                     e.KeyModifiers));
                 e.Handled = true;
                 return;
@@ -2157,10 +2159,13 @@ namespace NovaTerminal.Shell
         /// Clears the motion-reporting coalescing state (issue #269) so the next qualifying
         /// pointer move re-reports the current cell rather than being suppressed as a
         /// duplicate of whatever was last sent. Called whenever the "current cell" concept
-        /// goes stale: a new buffer is attached, the cell grid is resized/reflowed, or the
-        /// pointer leaves the view. Internal (rather than private) so tests can drive the
-        /// reset paths directly, since constructing real Avalonia pointer-exited/resize events
-        /// headlessly is not practical - see <see cref="HandleMouseMoveCore"/>'s doc comment.
+        /// goes stale: a new buffer is attached (<see cref="SetBuffer"/>), the cell grid is
+        /// resized/reflowed, the alternate screen is entered or left
+        /// (<see cref="OnScreenSwitched"/>), or the pointer leaves the view
+        /// (<see cref="OnPointerExited"/>). Internal (rather than private) so tests can also drive
+        /// the reset directly for the sites that are not reachable headlessly (a real
+        /// pointer-exited event or layout resize); the SetBuffer and screen-switch sites are
+        /// covered through their real call paths.
         /// </summary>
         internal void ResetMouseMotionTracking()
         {
@@ -2180,15 +2185,25 @@ namespace NovaTerminal.Shell
         /// cell: Avalonia can raise many PointerMoved events while the cursor sits over a
         /// single terminal cell, and forwarding every one of them would flood the PTY.
         ///
-        /// A change in which mode is active (1002 vs 1003, either turning on/off) also resets
-        /// the tracked cell, so toggling the mode re-reports the current cell instead of
-        /// leaving it suppressed because it happens to match whatever was last sent under the
-        /// old mode.
+        /// A mode change (1002 vs 1003, either turning on or off) that is OBSERVED BETWEEN TWO
+        /// MOTION EVENTS also resets the tracked cell, so a TUI that toggles tracking while the
+        /// pointer sits still still gets its next hover reported. This is a sample of
+        /// parser-owned <see cref="ModeState"/> taken on the UI thread, not a subscription: a
+        /// flip that both begins and ends between two <see cref="OnPointerMoved"/> calls (e.g.
+        /// `?1003l` ... `?1003h` inside one redraw) reads as "unchanged" and its first
+        /// post-reinit hover in the same cell is still coalesced away. The explicit reset sites
+        /// (buffer attach, resize, screen switch, pointer exit) cover the transitions that
+        /// actually move content under the pointer; see <see cref="ResetMouseMotionTracking"/>.
         /// </summary>
         internal void HandleMouseMoveCore(TerminalMouseButton button, int column, int row, KeyModifiers modifiers)
         {
             if (_buffer == null) return;
 
+            // ModeState's mouse booleans are written on the PTY reader thread (the parser runs
+            // there before output is posted to the dispatcher) and read here on the UI thread
+            // without synchronization. Single bool reads cannot tear, and observing a mode one
+            // event late only delays a report by one motion event, so no lock is warranted - but
+            // it is why the mode-flip detection below is a best-effort sample, not a guarantee.
             ModeState modes = _buffer.Modes;
             bool anyEvent = modes.MouseModeAnyEvent;
             bool buttonEvent = modes.MouseModeButtonEvent;
@@ -2216,19 +2231,57 @@ namespace NovaTerminal.Shell
                 return;
             }
 
-            _lastReportedMouseMotionCell = cell;
-            SendMouseEvent(new TerminalMouseEvent(TerminalMouseEventKind.Move, button, column, row, modifiers));
+            // Only remember the cell if a report actually went out. A pointer move that lands
+            // between SetBuffer and SetSession (no session yet) sends nothing, and recording it
+            // anyway would suppress the first real hover in that cell once the session attaches.
+            if (SendMouseEvent(new TerminalMouseEvent(TerminalMouseEventKind.Move, button, column, row, modifiers)))
+            {
+                _lastReportedMouseMotionCell = cell;
+            }
         }
 
-        private void SendMouseEvent(TerminalMouseEvent mouseEvent)
+        /// <summary>
+        /// Sends a button-press report for a view-local pointer <paramref name="position"/>
+        /// (issue #269 review). Shares <see cref="ToMouseReportCell"/> with the motion, release
+        /// and wheel paths so all four report the same viewport-relative coordinate space.
+        /// Internal so tests can drive the real press path without a constructible Avalonia
+        /// <c>PointerPressedEventArgs</c>.
+        /// </summary>
+        internal void HandleMousePressAt(Point position, TerminalMouseButton button, KeyModifiers modifiers)
         {
-            if (_session == null || _buffer == null) return;
+            var (column, row) = ToMouseReportCell(position);
+            SendMouseEvent(new TerminalMouseEvent(TerminalMouseEventKind.Press, button, column, row, modifiers));
+        }
+
+        /// <summary>
+        /// Motion path entry point taking a view-local pointer <paramref name="position"/>: turns
+        /// it into viewport-relative wire coordinates and hands off to
+        /// <see cref="HandleMouseMoveCore"/>. This is what <see cref="OnPointerMoved"/> calls, so
+        /// tests driving it exercise the production coordinate conversion rather than a copy.
+        /// </summary>
+        internal void HandleMouseMoveAt(Point position, TerminalMouseButton button, KeyModifiers modifiers)
+        {
+            var (column, row) = ToMouseReportCell(position);
+            HandleMouseMoveCore(button, column, row, modifiers);
+        }
+
+        /// <summary>
+        /// Encodes and sends a mouse report. Returns <c>true</c> only when bytes were actually
+        /// handed to the session, so callers that track "what we last reported" can avoid
+        /// recording a report that never happened.
+        /// </summary>
+        private bool SendMouseEvent(TerminalMouseEvent mouseEvent)
+        {
+            if (_session == null || _buffer == null) return false;
 
             string? sequence = TerminalInputModeEncoder.EncodeMouseEvent(_buffer.Modes, mouseEvent);
             if (sequence != null)
             {
                 _session.SendInput(sequence);
+                return true;
             }
+
+            return false;
         }
 
         private static TerminalMouseButton GetPressedMouseButton(PointerPointProperties properties)
@@ -2388,7 +2441,40 @@ namespace NovaTerminal.Shell
         }
 
         /// <summary>
-        /// Converts screen coordinates to terminal ABSOLUTE row/col.
+        /// Converts a view-local pointer position into the 1-based <c>(column, row)</c> pair that
+        /// goes on the wire in an xterm mouse report.
+        ///
+        /// Mouse coordinates are VIEWPORT-relative: row 1 is the top line currently on screen no
+        /// matter how much scrollback sits behind it, and the row never exceeds the screen height.
+        /// This is deliberately NOT <see cref="ScreenToTerminal"/>, which returns a
+        /// scrollback-ABSOLUTE row - the correct space for selection anchors, word/line selection
+        /// and hyperlink hit-testing, because those index into scrollback via
+        /// <c>GetCellAbsolute</c>/<c>GetHyperlinkAbsolute</c> and must stay pinned to their content
+        /// while the view scrolls. Both contracts are needed; they must not be interchanged.
+        ///
+        /// Issue #269 review fix: every mouse-report call site used to send the absolute row, so a
+        /// session with 500 lines of scrollback reported row 501 for the top-left cell (only the
+        /// alt screen was accidentally correct, since there TotalLines == Rows). That also defeated
+        /// motion coalescing - the dedup key drifted under a physically stationary pointer as
+        /// output scrolled - and pushed rows past the legacy encoding's 223-coordinate ceiling.
+        /// </summary>
+        private (int Column, int Row) ToMouseReportCell(Point position)
+        {
+            if (_buffer == null || _metrics.CellWidth <= 0 || _metrics.CellHeight <= 0)
+            {
+                return (1, 1);
+            }
+
+            int col = Math.Clamp((int)(position.X / _metrics.CellWidth), 0, _buffer.Cols - 1);
+            int visualRow = Math.Clamp((int)(position.Y / _metrics.CellHeight), 0, _buffer.Rows - 1);
+            return (col + 1, visualRow + 1);
+        }
+
+        /// <summary>
+        /// Converts screen coordinates to terminal ABSOLUTE row/col (scrollback-relative: row 0 is
+        /// the oldest line still in history). Used by selection and link hit-testing, which need to
+        /// stay attached to content across scrolling. Mouse REPORTING must not use this - see
+        /// <see cref="ToMouseReportCell"/>.
         /// </summary>
         private (int Row, int Col) ScreenToTerminal(Point position)
         {
