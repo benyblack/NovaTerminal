@@ -36,12 +36,21 @@ internal sealed class AssistSessionStateMachine
     /// may act on it.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Kept beside the enum rather than inside it on purpose: a paste can land in any state, so
     /// folding it in would double the state count while carrying no information about what the
     /// surface is showing. It is still only reachable through named transitions
     /// (<see cref="ObservePastedText"/> sets it; <see cref="ObserveTypedInput"/> and
-    /// <see cref="CompleteSubmission"/> clear it), never through a setter. Phase 1 deletes the
-    /// shadow query buffer this exists to protect, and should delete this with it.
+    /// <see cref="CompleteSubmission"/> clear it), never through a setter.
+    /// </para>
+    /// <para>
+    /// Phase 1c deleted the shadow query buffer and an earlier draft of this comment expected this
+    /// flag to go with it. It does not, and the reason is worth stating: this is not a query fact.
+    /// The grid reads pasted text as faithfully as typed text - what it cannot see is provenance,
+    /// and provenance is the whole question. A pasted line must not be written to history as though
+    /// the user composed it here, and must not have a suggestion spliced into it. Both of those
+    /// survive the deletion, so this does too.
+    /// </para>
     /// </remarks>
     public bool IsCurrentSubmissionSuppressed { get; private set; }
 
@@ -125,6 +134,28 @@ internal sealed class AssistSessionStateMachine
     /// The user typed into the shell. Returns to Suggest mode with the popup closed, preserving
     /// whether this is an explicit session - typing on after a history search stays explicit.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Known weakness, accepted rather than fixed:</strong> one keystroke after a paste
+    /// clears <see cref="IsCurrentSubmissionSuppressed"/>, so "paste a command, add a character,
+    /// press Enter" writes the pasted text to history as though the user had composed it. That was
+    /// harmless in V1 because the shadow buffer only held the characters it had watched go by; it is
+    /// not harmless now, because the grid reproduces pasted text perfectly and this flag is the only
+    /// thing standing between a paste and the history file.
+    /// </para>
+    /// <para>
+    /// The tightening - suppression survives until the submission resets it - was considered and
+    /// deliberately not taken here. It is a behavior change, not a bug fix: paste-then-edit-then-run
+    /// capturing is V1 behavior that
+    /// <c>AssistSessionStateMachineTests.ObserveTypedInput_ClearsSubmissionSuppression</c> and
+    /// <c>SubmissionSuppression_SurvivesEverythingExceptTypingAndSubmitting</c> both pin by name, and
+    /// flipping it silently inside a phase whose subject is query truth would bury a policy decision
+    /// about what belongs in history inside a refactor. It belongs with the Phase 3 capture-policy
+    /// work, where the "paste a snippet and tweak it" case can be weighed against the "paste a
+    /// credential-bearing one-liner" case in the open. Until then the loss is bounded by
+    /// <c>ISecretsFilter</c> redaction and stated here rather than left to be rediscovered.
+    /// </para>
+    /// </remarks>
     public void ObserveTypedInput()
     {
         IsCurrentSubmissionSuppressed = false;

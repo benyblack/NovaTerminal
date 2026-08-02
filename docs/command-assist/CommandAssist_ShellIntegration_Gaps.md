@@ -109,6 +109,128 @@ still exactly what the mark describes, and Phase 1c reads the final command text
 `GridQueryReader.MaxSpanRows` stays as a backstop for shells that emit `B` without a matching `D`,
 rather than being the only guard.
 
+## Added In V2 Phase 1c — the consumption contract
+
+Phase 1b made the reader trustworthy. Phase 1c is what consumes it, and the reader's contract is
+only half of the story: a caller that reads whenever it likes, and acts on whatever comes back,
+gets wrong answers from a correct reader. Three rules, all enforced on the Command Assist side.
+
+**1. Lifecycle gate — read only between `B` and `C`.** The reader cannot self-gate: the cells
+between the mark and the cursor look identical whether the user is editing a command line or the
+command has run and those are the first lines of its output. Only the OSC 133 stream distinguishes
+them, so consumption is gated on `AssistSessionContext.IsAcceptingCommandInput` — opened by
+`CommandStarted` (`133;B`), closed by `CommandAccepted` (`133;C`), by `CommandFinished` (`133;D`)
+and by an alt-screen switch. Nothing else opens it; a prompt repaint re-emits `B`, so the gate
+reopens on evidence rather than on assumption.
+
+The gate is deliberately *not* conditioned on `IsShellIntegrationEnabled`, which records only
+whether we injected the bootstrap. A shell that emits `B` is instrumented whether we did it or the
+user did, and Phase 2's instrumented-remote work depends on believing the marks. (Today that is
+theory rather than practice: `ShellLifecycleTracker` is armed only by
+`TerminalPane.ApplyShellIntegrationLaunchPlan`, so a session we did not instrument delivers no
+events at all and stays fully degraded. Arming it on observed marks is Phase 2 task 3.)
+
+The gate and the mark are two independent facts and both are required. The gate can be open while
+the mark has aged out of scrollback or its coordinate generation has been reset; the mark can be
+live while the command it anchors is halfway through printing its output.
+
+*Known edge, currently unreachable:* the parser raises `OnCommandAccepted` only for a `133;C`
+carrying a decodable base64 payload, so a bare `133;C` does not close the gate — `133;D` then has
+to. All four bootstraps emit `133;C;<base64>`, and a session we did not instrument has no tracker
+armed, so no reachable configuration hits this. It becomes real the moment Phase 2 arms the tracker
+for third-party integrations, and should be closed there.
+
+**2. Settled-boundary reads, not per-keystroke reads.** The buffer takes its write lock per written
+character, so a read racing a prompt repaint (`\r`, erase-to-end-of-line, reprint) can legitimately
+observe a half-erased line — and acting on that produces suggestion flicker on every `Ctrl+U`,
+history recall and tab completion. The read therefore happens inside `SuggestionOrchestrator`'s
+refresh pass, on the worker the pass already runs on, not on the keystroke that triggered it. A
+keystroke is a trigger carrying no text; the pass resolves its own query. Passes supersede each
+other through the existing per-pass `CancellationTokenSource`, so a burst of keystrokes applies one
+read, the last one. That is coalescing by supersession, not by timing: there is no debounce, which
+is a Phase 3 policy decision.
+
+The window that remains is a read that beats the shell's echo of the character just typed, and it is
+worth restating because an earlier revision of this document understated it as "ranks a
+one-character-stale query". For *ranking*, that is the whole of it. For *insertion* it was a
+corruption bug. The stale read is internally perfect — `git st` with the cursor at offset 6, every
+planner guard satisfied — while the PTY already holds `git sta`; and because the stale text is always
+a strict **prefix** of the true line, no `StartsWith`-style check can ever catch it. `Ctrl+Enter` on a
+row ranked from `git st` would append `atus` to a line that already reads `git sta`, and the line
+becomes `git staatus`. Guarded now: `TerminalPane` tracks `_hasUnechoedInput` — set by
+`TextInputObserved` / `BackspaceObserved`, cleared once session bytes have been parsed into the
+grid — and `TryInsertSelectedCommandAssistSuggestion` refuses while it is set, which is the same
+refusal-on-doubt rule the planner's four conditions follow. Ranking is deliberately left unguarded: a
+marginally worse row for one keystroke does not justify going quiet, and the next trigger corrects it.
+The clear is approximate in one direction only — unrelated session output can clear the flag early,
+leaving the original window open — but never the other, because output that has been parsed is
+output that is in the grid.
+
+**3. Insertion refuses rather than guesses.** `CommandAssistInsertionPlanner` keeps the V1 rule that
+insertion is additive — send only the characters the suggestion adds, never delete, never move the
+cursor — but it now computes against `AssistQuerySnapshot` and refuses outright when the append
+assumption does not hold:
+
+- **no snapshot** (markless session, or gate closed): the command line cannot be seen, so appending
+  a whole command to an unknown prefix is how `git sgit status` happens;
+- **cursor not at the end of the text**: sent text lands at the cursor, so the "suffix" would be
+  spliced into the middle of the command;
+- **`IsMultiline`**: the text contains continuation-prompt cells (`PS2`, `PROMPT2`, fish's `> `)
+  that the user never typed, so it is not a prefix even when it starts one;
+- **`RightPromptTrimmed`**: the reader's RPROMPT trim is conservative, but conservative means "over-
+  returns rather than deletes"; when it did fire, the *tail* of the line is an inference, and the
+  tail is exactly what an append attaches to.
+
+An observed-empty line is not a refusal: the grid was read and the line is empty, so the whole
+command is sent. That distinction — "empty" versus "unknown" — is why the query crosses the
+boundary as a nullable snapshot rather than a string.
+
+### Degraded mode after Phase 1c
+
+A session with no OSC 133 marks — a non-integrated local shell, a shell whose bootstrap bailed out,
+an un-instrumented SSH host — has no query at all. Not an empty query it might act on: no query.
+The shadow keystroke buffer is deleted, not kept as a fallback, because a fallback that desyncs is
+worse than no fallback (it was the fallback that made V1's history and insertions wrong). What that
+costs, concretely:
+
+- **no passive suggestions.** With no query the path provider has no command token and no
+  path-shaped fragment to work from, so it returns nothing. Degraded passive suggestions are empty
+  by construction rather than by a special case.
+- **no help token from the command line.** `Ctrl+Alt+H` with nothing selected finds nothing.
+  Explain-selection still works, because a selection is an explicit input the grid is not needed
+  for, and Fix still works, because it analyses the command that failed rather than the one being
+  typed.
+- **no insertion.** Rows can be browsed; nothing may be spliced into a command line nobody can see.
+- **no Enter-time history capture.** This is the one that is worth arguing about. V1's heuristic
+  capture read the shadow buffer, so for any line the user had edited with keys the mirror could
+  not observe — `Ctrl+U`, arrows, history recall, tab completion — it wrote a command the user
+  never ran into persistent history. Recording nothing is recoverable; recording something false is
+  not. Instrumented sessions are unaffected: the first command is captured from the grid at Enter
+  (which is strictly better than the mirror ever was, since the grid survives all of those edits),
+  and every command after it comes from the `133;C` payload.
+
+  **This is a hole, not a resting state, and it is tracked as Phase 1 task 7 in
+  `docs/plans/2026-08-01-command-assist-v2-plan.md` — required before the flag flip.** The affected
+  population is not marginal: `cmd.exe`, every shell whose bootstrap bailed out, and *every* SSH
+  session, since SSH launch plans skip provider injection. For those, history never fills, so
+  `Ctrl+R` is an empty box rather than a browse-only one. The replacement is deliberately not the
+  mirror: it is a **poisoned** capture-only accumulator confined to `TerminalPane`
+  (`TextInputObserved` appends, `BackspaceObserved` chops, any key the pane does not model — arrows,
+  `Home`/`End`, `Delete`, `Tab`, page keys, F-keys, unowned chords — poisons it, paste poisons it,
+  `Enter` and `Ctrl+C` reset it), consulted at Enter only when the grid has nothing, and never used
+  as the query. The distinction from V1 is the whole argument: V1's mirror answered "what is on the
+  line" with a guess and failed *silently and wrongly*; a poisoned accumulator turns itself off the
+  moment it stops knowing, so its outcomes are "exactly what was typed" or "nothing". That is the
+  same bar the grid reader is held to, reached by a different mechanism, and it is deletable once
+  Phase 2 gives instrumented remotes real marks.
+
+**`Ctrl+R` in a degraded session** still opens and still helps, because history is per user rather
+than per session: with no query to filter on, Search shows the recency list, which includes
+everything captured in instrumented sessions. It is browse-only — see the insertion rule above. It
+also says so: the bubble is labelled **`History - recent`** rather than `History` when no query can
+be read, because an identical-looking filter box that silently cannot filter reads as a bug the
+first time a keystroke fails to narrow it.
+
 ## Current Limitations
 - shell integration is local-only; SSH launch plans skip provider injection
   because env-var overrides do not propagate across SSH

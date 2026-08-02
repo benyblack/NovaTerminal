@@ -142,6 +142,11 @@ namespace NovaTerminal.Controls
         // across the two; the gate costs one uncontended lock per prompt.
         private readonly object _commandStartMarkGate = new();
         private ShellIntegrationMark? _latestCommandStartMark;
+
+        // True between "the user pressed a key that edits the command line" and "the session sent
+        // us bytes we have parsed into the grid". See NoteInputAwaitingEcho for why insertion
+        // refuses while it is set. Written from the UI thread, cleared from the PTY read thread.
+        private volatile bool _hasUnechoedInput;
         private string? _lastRelevantCommandText;
         private CommandAssistBarViewModel? _boundCommandAssistViewModel;
         private string? _lastCommandAssistAnchorDiagnosticSignature;
@@ -534,26 +539,34 @@ namespace NovaTerminal.Controls
             TermView.MetricsChanged += _onTermViewMetricsLayout;
             TermView.CommandAssistAnchorHintChanged += () => UpdateCommandAssistOverlayPlacement();
             SizeChanged += (_, _) => UpdateCommandAssistOverlayPlacement();
-            TermView.TextInputObserved += text =>
+            // Keystrokes are triggers, not content (V2 Phase 1c). The text and the fact that a
+            // character was deleted are both discarded here: Command Assist re-reads the command
+            // line out of the grid on the refresh these queue, which is the only source that also
+            // knows about the arrow keys, Ctrl+U, history recall and shell-side Tab completion.
+            // The TermView events themselves stay - they are the cheapest available signal that
+            // the prompt is being edited.
+            TermView.TextInputObserved += _ =>
             {
+                NoteInputAwaitingEcho();
                 if (EnsureCommandAssistInitialized())
                 {
-                    _commandAssistController?.HandleTextInput(text);
+                    _commandAssistController?.NotifyInputActivity();
                 }
             };
             TermView.BackspaceObserved += () =>
             {
+                NoteInputAwaitingEcho();
                 if (EnsureCommandAssistInitialized())
                 {
-                    _commandAssistController?.HandleBackspace();
+                    _commandAssistController?.NotifyInputActivity();
                 }
             };
             TermView.EnterObserved += OnCommandAssistEnterObserved;
-            TermView.PasteObserved += text =>
+            TermView.PasteObserved += _ =>
             {
                 if (EnsureCommandAssistInitialized())
                 {
-                    _commandAssistController?.HandlePastedText(text);
+                    _commandAssistController?.NotifyPastedInput();
                 }
             };
 
@@ -975,7 +988,12 @@ namespace NovaTerminal.Controls
                 services.ErrorInsightService,
                 modeRouter: null,
                 resultBuilder: null,
-                action =>
+                // The grid-truth seam. Command Assist may not reference NovaTerminal.VT (see
+                // ProjectFileLayeringTests), so the reader's GridCommandLine is mapped to the
+                // assist assembly's own AssistQuerySnapshot right here, at the one boundary that
+                // can see both types. Everything downstream sees plain data.
+                queryProvider: TryReadAssistQuerySnapshot,
+                dispatch: action =>
                 {
                     if (Dispatcher.UIThread.CheckAccess())
                     {
@@ -1419,12 +1437,25 @@ namespace NovaTerminal.Controls
             UpdateRemoteFilesSidebarEntryPointState();
         }
 
+        /// <remarks>
+        /// The grid read happens here, synchronously, rather than inside the async continuation.
+        /// <c>TerminalView</c> sends the carriage return to the PTY before raising this, so the
+        /// input line is already condemned: every scheduling hop between the keypress and the read
+        /// widens the window in which the shell has begun repainting over it. This is as close to
+        /// the keypress as the pane can get.
+        /// </remarks>
         private void OnCommandAssistEnterObserved()
         {
-            _ = HandleCommandAssistEnterObservedAsync();
+            if (!EnsureCommandAssistInitialized())
+            {
+                return;
+            }
+
+            AssistQuerySnapshot? submitted = _commandAssistController.TryReadQuerySnapshot();
+            _ = HandleCommandAssistEnterObservedAsync(submitted?.Text);
         }
 
-        private async Task HandleCommandAssistEnterObservedAsync()
+        private async Task HandleCommandAssistEnterObservedAsync(string? submittedText)
         {
             if (!EnsureCommandAssistInitialized())
             {
@@ -1433,13 +1464,12 @@ namespace NovaTerminal.Controls
 
             try
             {
-                string currentQuery = _commandAssistController.ViewModel.QueryText;
-                if (!string.IsNullOrWhiteSpace(currentQuery))
+                if (!string.IsNullOrWhiteSpace(submittedText))
                 {
-                    _lastRelevantCommandText = currentQuery.Trim();
+                    _lastRelevantCommandText = submittedText.Trim();
                 }
 
-                await _commandAssistController.HandleEnterAsync();
+                await _commandAssistController.HandleEnterAsync(submittedText);
             }
             catch (Exception ex)
             {
@@ -1541,6 +1571,42 @@ namespace NovaTerminal.Controls
             return TryHandleCommandAssistKey(Key.P, KeyModifiers.Control | KeyModifiers.Shift);
         }
 
+        /// <summary>
+        /// The user pressed a key that edits the command line, and the PTY has been sent the bytes
+        /// for it. Until the shell echoes them back and the parser paints them, the grid is a
+        /// prefix of the real command line.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// This is the one desync the grid cannot self-report. Every other stale read looks wrong -
+        /// a half-erased line, a mark that went dark - but an unechoed keystroke leaves a read that
+        /// is internally perfect: <c>"git st"</c> with the cursor at offset 6, every planner guard
+        /// satisfied, while the shell already holds <c>"git sta"</c>. Because the stale text is
+        /// always a strict <em>prefix</em> of the true line, no prefix check can detect it: the
+        /// planner would compute <c>"atus"</c> against <c>"git st"</c> and the line would become
+        /// <c>"git staatus"</c>.
+        /// </para>
+        /// <para>
+        /// So insertion refuses while this is set, consistent with the planner's other rules -
+        /// refusal on doubt, never a guess. Ranking is deliberately left alone: a one-character-
+        /// stale query ranks slightly worse rows and the next trigger fixes it, which is a cost
+        /// worth paying to keep suggestions live while typing.
+        /// </para>
+        /// <para>
+        /// The clear is approximate in one direction only. Any session output clears the flag, so
+        /// unrelated output (a background job printing) can clear it before the echo lands, leaving
+        /// the original window open. It cannot go the other way: output that has been parsed is
+        /// output that is in the grid.
+        /// </para>
+        /// </remarks>
+        internal void NoteInputAwaitingEcho() => _hasUnechoedInput = true;
+
+        /// <summary>Session bytes have been parsed into the grid, so the grid has caught up.</summary>
+        internal void NoteSessionOutputApplied() => _hasUnechoedInput = false;
+
+        /// <summary>Whether an edit keystroke is still waiting for the shell's echo.</summary>
+        internal bool HasUnechoedInput => _hasUnechoedInput;
+
         private bool TryInsertSelectedCommandAssistSuggestion()
         {
             if (_commandAssistController == null || Session == null)
@@ -1548,14 +1614,38 @@ namespace NovaTerminal.Controls
                 return false;
             }
 
-            string existingQuery = _commandAssistController.ViewModel.QueryText;
-            if (!_commandAssistController.TryAcceptSelection(out string? insertionText) || insertionText == null)
+            // The echo race: a fresh read taken now can be a self-consistent snapshot of a command
+            // line the shell has already moved past. See NoteInputAwaitingEcho.
+            if (_hasUnechoedInput)
+            {
+                return false;
+            }
+
+            // Read the line before accepting: accepting dismisses the surface, and the planner needs
+            // to know what is on the command line *now* rather than what the last ranking pass saw.
+            // A markless session yields null here, and the planner refuses -- insertion is
+            // prefix-dependent and degraded mode does not offer prefix-dependent features.
+            AssistQuerySnapshot? existingQuery = _commandAssistController.TryReadQuerySnapshot();
+
+            // Everything above and below this line is non-mutating, and that ordering is the point.
+            // TryAcceptSelection accepts *and* dismisses; calling it first meant that every refusal
+            // after it - a degraded session, a cursor mid-line, a multiline entry - tore the list
+            // down and sent nothing, so Ctrl+Enter read as "the feature is broken" rather than as
+            // "not here". The plan is computed first and the surface is only touched once there is
+            // text to send.
+            if (!_commandAssistController.TryGetInsertionText(out string? insertionText) ||
+                string.IsNullOrWhiteSpace(insertionText))
             {
                 return false;
             }
 
             if (!CommandAssistInsertionPlanner.TryCreateInsertion(existingQuery, insertionText, out string? textToSend) ||
                 string.IsNullOrEmpty(textToSend))
+            {
+                return false;
+            }
+
+            if (!_commandAssistController.TryAcceptSelection(out _))
             {
                 return false;
             }
@@ -1956,6 +2046,10 @@ namespace NovaTerminal.Controls
             Session.OnOutputReceived += text =>
             {
                 Parser.Process(text);
+
+                // After Parse, not before: the flag's contract is "the grid may be behind the
+                // keyboard", so it may only be cleared once these bytes are actually painted.
+                NoteSessionOutputApplied();
                 Dispatcher.UIThread.Post(() =>
                 {
                     UpdateScrollUI();
@@ -2267,12 +2361,16 @@ namespace NovaTerminal.Controls
                 return;
             }
 
+            // The text is kept for the failure-analysis path (Fix mode needs a command to analyse
+            // and a paste is often the whole of one), but it is no longer handed to Command Assist
+            // as query state: NotifyPastedInput carries provenance only. See
+            // CommandAssistController.NotifyPastedInput.
             if (!string.IsNullOrWhiteSpace(text))
             {
                 _lastRelevantCommandText = text.Trim();
             }
 
-            _commandAssistController?.HandlePastedText(text);
+            _commandAssistController?.NotifyPastedInput();
         }
 
         internal bool CanExplainSelection(string? selectedTextOverride = null)
@@ -2975,6 +3073,23 @@ namespace NovaTerminal.Controls
             args = plan.ShellArguments ?? string.Empty;
             _isShellIntegrationActive = true;
             _shellIntegrationEnvOverrides = plan.EnvironmentOverrides;
+            ArmShellIntegrationTracker();
+        }
+
+        /// <summary>
+        /// Arms the translator that turns raw OSC 133 parser callbacks into the ordered
+        /// <see cref="ShellIntegrationEvent"/> stream Command Assist consumes.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately separate from <c>_isShellIntegrationActive</c>, which the caller above sets
+        /// and which means something narrower: that <em>we</em> injected a bootstrap into this
+        /// shell. Arming the translator only says the events will be delivered if they arrive.
+        /// (Phase 2's remote-integration work is where a session we did not instrument gets to arm
+        /// it too.) Internal so a headless test can drive the real parser to tracker to dispatcher
+        /// to controller path without spawning a shell.
+        /// </remarks>
+        internal void ArmShellIntegrationTracker()
+        {
             _shellLifecycleTracker = new ShellLifecycleTracker();
             _shellLifecycleTracker.EventObserved += OnShellIntegrationEventObserved;
         }
@@ -2987,20 +3102,16 @@ namespace NovaTerminal.Controls
                 _lastRelevantCommandText = shellEvent.CommandText.Trim();
             }
 
-            // OSC 133;B (CommandStarted) is dropped unconditionally by
-            // CommandAssistController.HandleShellIntegrationEventAsync, and B fires once per
-            // prompt AND once per prompt repaint -- so forwarding it only queues no-op work
-            // onto the serialized dispatcher, ahead of events that do something. The
-            // "shell integration is live" flag the controller would set from it is already
-            // set by the PromptReady (OSC 133;A) that precedes every B.
-            // The grid reader (Phase 1b) does not need this path either: it takes the mark
-            // straight off the parser callback via _latestCommandStartMark. Phase 1c, when the
-            // orchestrator starts pulling grid truth on the event, has to remove this early-out.
-            if (shellEvent.Type == ShellIntegrationEventType.CommandStarted)
-            {
-                return;
-            }
-
+            // OSC 133;B (CommandStarted) used to be dropped here as a no-op: nothing consumed it,
+            // and B fires once per prompt AND once per prompt repaint, so forwarding it only
+            // queued dead work onto the serialized dispatcher ahead of events that did something.
+            //
+            // Phase 1c gave it a job. B is what opens Command Assist's command-input window
+            // (AssistSessionContext.IsAcceptingCommandInput), and that window is the lifecycle gate
+            // on reading the command line out of the grid: with the event dropped, the gate would
+            // never open and grid-truth query state would be dead on arrival. The early-out is
+            // therefore gone, and the repaint cost -- one dispatcher hop per prompt paint, doing an
+            // idempotent bool set and a marker observation -- is the price of the gate.
             _ = _shellIntegrationEventDispatcher.EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent));
         }
 
@@ -3024,8 +3135,13 @@ namespace NovaTerminal.Controls
         /// <c>B</c> without a matching <c>D</c>.
         /// </para>
         /// <para>
-        /// <b>Nothing consumes this yet.</b> Phase 1c wires it into the suggestion orchestrator
-        /// and deletes the keystroke shadow buffer.
+        /// <b>The mark is only half the gate.</b> Whether the cells between it and the cursor are a
+        /// command line the user is editing or the output of a command that already ran is a
+        /// lifecycle fact, and Command Assist holds it
+        /// (<c>AssistSessionContext.IsAcceptingCommandInput</c>, opened by <c>133;B</c> and closed
+        /// by <c>133;C</c>). This seam answers only "can the grid be read from the newest mark";
+        /// <see cref="TryReadAssistQuerySnapshot"/> is what the orchestrator calls, and the
+        /// orchestrator applies the gate before calling it.
         /// </para>
         /// </remarks>
         /// <returns><c>false</c> when there is no live mark or the grid cannot be read.</returns>
@@ -3047,6 +3163,36 @@ namespace NovaTerminal.Controls
 
             return mark is ShellIntegrationMark live
                 && GridQueryReader.TryReadCommandLine(buffer, live, out line);
+        }
+
+        /// <summary>
+        /// The App-boundary mapping: <see cref="GridCommandLine"/> (VT) to
+        /// <see cref="AssistQuerySnapshot"/> (Command Assist). This is the provider handed to the
+        /// controller, and the only place the two type systems meet.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Callable from any thread, and it is: the suggestion orchestrator invokes it from the
+        /// worker its refresh pass runs on, deliberately, so the read lands behind the queue hop
+        /// rather than on the keystroke that triggered it. Both things it touches are safe for
+        /// that - the mark is read under <c>_commandStartMarkGate</c> and
+        /// <see cref="GridQueryReader"/> takes the buffer's own read lock.
+        /// </para>
+        /// <para>
+        /// The span's <c>StartRow</c>/<c>EndRow</c> are dropped rather than carried across. Nothing
+        /// on the far side has a use for buffer coordinates, and Phase 2's anchoring work will take
+        /// the <c>133;A</c> row through the anchor calculator instead.
+        /// </para>
+        /// </remarks>
+        internal AssistQuerySnapshot? TryReadAssistQuerySnapshot()
+        {
+            return TryGetGridCommandLine(out GridCommandLine line)
+                ? new AssistQuerySnapshot(
+                    Text: line.Text,
+                    CursorOffset: line.CursorOffset,
+                    IsMultiline: line.IsMultiline,
+                    RightPromptTrimmed: line.RightPromptTrimmed)
+                : null;
         }
 
         internal async Task HandleCommandAssistCompletionAsync(int? exitCode)

@@ -21,9 +21,43 @@ namespace NovaTerminal.CommandAssist.Application;
 /// by a shell-integration event is immediately visible to the next ranking pass. All mutation goes
 /// through named methods.
 /// </para>
+/// <para>
+/// <strong>Threading contract.</strong> Every mutator here is called on the dispatcher thread - the
+/// controller marshals shell-integration events and host callbacks there before touching this
+/// object - but the readers are not all on it: <see cref="SuggestionOrchestrator"/> reads
+/// <see cref="IsAcceptingCommandInput"/>, <see cref="IsAltScreenActive"/>,
+/// <see cref="WorkingDirectory"/>, <see cref="ShellKind"/>, <see cref="ProfileId"/> and
+/// <see cref="IsRemote"/> from the worker its refresh pass runs on. There is no lock, and the
+/// contract that makes that safe has two halves.
+/// </para>
+/// <para>
+/// First, <em>every field must stay reference-sized or bool-sized</em>. Those are written
+/// atomically by the CLR, so a worker either sees the old value or the new one and never a torn
+/// one. A future multi-field fact - a struct carrying a mark, a tuple of directory plus generation -
+/// cannot simply be added here; it needs a lock or an immutable snapshot object swapped in as a
+/// single reference (which is what <c>TerminalPane</c> does with its mark gate).
+/// </para>
+/// <para>
+/// Second, <em>a stale read is tolerated rather than prevented</em>. A pass that reads the gate
+/// microseconds before <c>133;C</c> closes it produces an outcome for a command line that has since
+/// been submitted - and that outcome is dropped anyway, because the transition that closed the gate
+/// came with a refresh that superseded the pass through
+/// <c>SuggestionOrchestrator.CancelPending</c>. The window is real and the correctness argument is
+/// supersession, not synchronization; anything that starts acting on these values <em>without</em>
+/// going through a cancellable pass has to re-establish it.
+/// </para>
 /// </remarks>
 internal sealed class AssistSessionContext
 {
+    /// <summary>
+    /// Backing field for <see cref="IsAcceptingCommandInput"/>. Explicitly <c>volatile</c> - unlike
+    /// its neighbours - because it is the one flag a worker thread polls in a tight decision rather
+    /// than reads once as context: <see cref="SuggestionOrchestrator.TryReadQuery"/> consults it to
+    /// decide whether it is legal to touch the terminal grid at all. The others are already
+    /// atomic-by-width and would only gain ordering guarantees nothing depends on.
+    /// </summary>
+    private volatile bool _isAcceptingCommandInput;
+
     /// <summary>Shell kind reported by the host ("pwsh", "bash", ...), or null when unknown.</summary>
     public string? ShellKind { get; private set; }
 
@@ -72,6 +106,37 @@ internal sealed class AssistSessionContext
     public bool IsStructuredCaptureActive =>
         IsShellIntegrationEnabled && HasObservedStructuredCommandCaptureMarker;
 
+    /// <summary>
+    /// Whether the shell is currently sitting in its line editor waiting for the user: opened by
+    /// <c>OSC 133;B</c> (prompt end), closed again by <c>OSC 133;C</c> (the line was submitted).
+    /// This is the lifecycle gate on grid-truth query reading.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The grid reader cannot gate itself. Between the mark and the cursor there are cells; whether
+    /// those cells are a command line the user is editing or the first lines of that command's
+    /// output is a fact about the shell's lifecycle, not about the buffer, and only the OSC 133
+    /// stream carries it. So the gate lives here, on the consumer side, and the reader's answer is
+    /// consulted only while it is open.
+    /// </para>
+    /// <para>
+    /// It is deliberately <em>not</em> conditioned on <see cref="IsShellIntegrationEnabled"/>. That
+    /// flag records whether <em>we</em> injected a bootstrap; a shell that emits <c>B</c> is
+    /// instrumented whether we did it or the user did, and Phase 2's instrumented-remote story
+    /// depends on believing the marks rather than the injection. What closes the gate is evidence
+    /// that the window ended - <c>C</c>, <c>D</c>, an alt-screen switch - never the absence of
+    /// configuration.
+    /// </para>
+    /// <para>
+    /// <c>D</c> closes it as well as <c>C</c> because a shell can reach <c>D</c> without an
+    /// intervening <c>C</c>, and leaving the gate open for a command's whole run is exactly the
+    /// failure it exists to prevent. The pane drops its mark on <c>D</c> too, so that case is
+    /// double-covered on purpose: two independent facts have to be wrong before output can be
+    /// served as a command line.
+    /// </para>
+    /// </remarks>
+    public bool IsAcceptingCommandInput => _isAcceptingCommandInput;
+
     /// <summary>Replaces the host-reported session facts.</summary>
     /// <remarks>
     /// Observed markers survive only while shell integration stays configured: a session that
@@ -108,8 +173,54 @@ internal sealed class AssistSessionContext
         }
     }
 
-    /// <summary>Records an alt-screen switch.</summary>
-    public void SetAltScreenActive(bool isActive) => IsAltScreenActive = isActive;
+    /// <summary>
+    /// Records an alt-screen switch. Going into the alt screen closes the command-input window:
+    /// the prompt that emitted <c>B</c> is not on the screen the user is looking at any more, and
+    /// leaving it open would let a refresh read the TUI's own grid as a command line.
+    /// </summary>
+    /// <remarks>
+    /// Coming back out does not reopen it. The shell repaints its prompt when the alt screen is
+    /// torn down, and that repaint re-emits <c>B</c>, so the gate reopens on evidence rather than
+    /// on assumption.
+    /// </remarks>
+    public void SetAltScreenActive(bool isActive)
+    {
+        IsAltScreenActive = isActive;
+        if (isActive)
+        {
+            _isAcceptingCommandInput = false;
+        }
+    }
+
+    /// <summary><c>OSC 133;B</c>: the prompt finished printing and the line editor is the user's.</summary>
+    /// <remarks>
+    /// <para>
+    /// Refused while the alt screen is up, so that the invariant "the gate is never open during an
+    /// alt screen" holds no matter which order the two facts arrive in.
+    /// <see cref="SetAltScreenActive"/> closes the gate on the way in, but a full-screen TUI is free
+    /// to emit <c>133;B</c> of its own afterwards - it is a perfectly legal thing for a program that
+    /// draws its own prompt to do - and that would reopen a window onto the TUI's grid. Consumers
+    /// already check alt-screen separately, so this is belt and braces; without it the two flags can
+    /// disagree, and a self-contradicting invariant is one refactor away from being load-bearing.
+    /// </para>
+    /// <para>
+    /// Re-emitting <c>B</c> while the gate is already open is idempotent by construction. Prompt
+    /// frameworks repaint constantly and each repaint carries the mark; the pane keeps the newest
+    /// mark and this keeps the gate open, which is exactly the intent.
+    /// </para>
+    /// </remarks>
+    public void OpenCommandInputWindow()
+    {
+        if (IsAltScreenActive)
+        {
+            return;
+        }
+
+        _isAcceptingCommandInput = true;
+    }
+
+    /// <summary><c>OSC 133;C</c> / <c>OSC 133;D</c>: the line editor is closed.</summary>
+    public void CloseCommandInputWindow() => _isAcceptingCommandInput = false;
 
     /// <summary>Records a working-directory change reported by a shell-integration event.</summary>
     public void SetWorkingDirectory(string workingDirectory) => WorkingDirectory = workingDirectory;

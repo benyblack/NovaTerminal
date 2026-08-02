@@ -64,12 +64,20 @@ public sealed class TerminalPaneCommandAssistShortcutTests
         Assert.False(pane.CommandAssistViewModel?.IsVisible ?? false);
     }
 
+    /// <summary>
+    /// Phase 1c: the pane's query comes off the grid, so this drives the whole real seam - the
+    /// parser sees <c>OSC 133;B</c>, the pane keeps the mark, the controller's lifecycle gate opens,
+    /// and Help resolves its command token by reading the cells between the mark and the cursor.
+    /// The paste that used to seed a shadow buffer here no longer has anything to seed.
+    /// </summary>
     [AvaloniaFact]
-    public async Task OpenCommandAssistHelp_WhenQueryPresent_UsesPaneInfrastructure()
+    public async Task OpenCommandAssistHelp_WhenTheGridHoldsACommand_UsesPaneInfrastructure()
     {
         using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
-        pane.NotifyCommandAssistPaste("Get-ChildItem");
+        pane.ArmShellIntegrationTracker();
+        pane.CreateAndWireParser();
+        await TypeAtAnIntegratedPromptAsync(pane, "Get-ChildItem");
 
         bool handled = pane.OpenCommandAssistHelp();
         await Task.Delay(50);
@@ -79,6 +87,53 @@ public sealed class TerminalPaneCommandAssistShortcutTests
         Assert.True(vm.IsVisible);
         Assert.Equal("Help", vm.ModeLabel);
         Assert.True(vm.HasSuggestions);
+    }
+
+    /// <summary>
+    /// The gate at pane level: outside the <c>B</c>..<c>C</c> window the grid still holds the text,
+    /// and Help still gets nothing from it. Without the gate the same bytes would produce a help
+    /// lookup for whatever the command printed.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task OpenCommandAssistHelp_AfterTheCommandWasSubmitted_TakesNoTokenFromTheGrid()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+        pane.ArmShellIntegrationTracker();
+        pane.CreateAndWireParser();
+        await TypeAtAnIntegratedPromptAsync(pane, "Get-ChildItem");
+
+        await SubmitAsync(pane, "Get-ChildItem");
+
+        pane.OpenCommandAssistHelp();
+        await Task.Delay(50);
+
+        CommandAssistBarViewModel vm = AssertViewModel(pane);
+        Assert.Equal(string.Empty, vm.QueryText);
+        Assert.False(vm.HasSuggestions);
+    }
+
+    /// <summary>
+    /// Drives a real integrated prompt: <c>OSC 133;A</c>, prompt text, <c>OSC 133;B</c>, then the
+    /// command line itself. The delay lets the pane's serialized shell-integration dispatcher
+    /// deliver <c>B</c> to the controller, which is what opens the lifecycle gate.
+    /// </summary>
+    private static async Task TypeAtAnIntegratedPromptAsync(TerminalPane pane, string commandLine)
+    {
+        pane.Parser!.Process("\x1b]133;A\x07PS C:\\> \x1b]133;B\x07" + commandLine);
+        await Task.Delay(50);
+    }
+
+    /// <summary>
+    /// <c>OSC 133;C;&lt;base64&gt;</c>, the way all four bootstraps emit it. The payload matters:
+    /// the parser only raises <c>OnCommandAccepted</c> for a C that decodes to something, so a
+    /// bare <c>133;C</c> would not close the lifecycle gate here.
+    /// </summary>
+    private static async Task SubmitAsync(TerminalPane pane, string commandLine)
+    {
+        string encoded = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(commandLine));
+        pane.Parser!.Process($"\x1b]133;C;{encoded}\x07");
+        await Task.Delay(50);
     }
 
     [AvaloniaFact]

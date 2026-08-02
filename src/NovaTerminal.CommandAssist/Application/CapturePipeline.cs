@@ -13,11 +13,13 @@ namespace NovaTerminal.CommandAssist.Application;
 /// </summary>
 /// <remarks>
 /// <para>
-/// There are two capture paths because there are two kinds of session. When the shell is
-/// instrumented it tells us the command text it accepted, and that text is authoritative - it
-/// survives multi-line input, history recall and line editing. When it is not, all we have is the
-/// keystrokes we watched go by, so the Enter key is the trigger and the shadow query buffer is the
-/// source.
+/// There are two capture paths because there are two moments a command becomes known. The
+/// structured path is the shell telling us, through <c>OSC 133;C</c>, the text it accepted; that is
+/// authoritative and survives multi-line input, history recall and line editing. The Enter-time
+/// path is the host telling us what it could see on the command line when the user pressed Enter -
+/// since Phase 1c that is the terminal grid read between the newest <c>OSC 133;B</c> mark and the
+/// cursor, and nothing else. There is no keystroke mirror behind it any more, so in a session with
+/// no marks the host has nothing to pass and this path captures nothing at all.
 /// </para>
 /// <para>
 /// The paths overlap for exactly one command. Structured capture only stands down the heuristic once
@@ -55,7 +57,13 @@ internal sealed class CapturePipeline
     /// Heuristic capture: the user pressed Enter and we believe <paramref name="submission"/> is what
     /// went to the shell.
     /// </summary>
-    /// <param name="submission">The shadow query buffer contents.</param>
+    /// <param name="submission">
+    /// The command line as the host read it out of the terminal grid at the instant Enter was
+    /// observed. An empty string means the host had nothing truthful to offer - a markless session,
+    /// a closed lifecycle gate, an unreadable mark - and nothing is persisted, which is the whole
+    /// point: the alternative source (a keystroke mirror) was deleted in Phase 1c because it wrote
+    /// commands the user never ran into permanent history.
+    /// </param>
     /// <param name="isSubmissionSuppressed">
     /// Whether the session marked this submission untrustworthy (pasted rather than typed).
     /// </param>

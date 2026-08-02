@@ -18,10 +18,28 @@ namespace NovaTerminal.CommandAssist.Application;
 /// <see cref="SuggestionOrchestrator"/> (producing ranked rows).
 /// </summary>
 /// <remarks>
+/// <para>
 /// <see cref="AssistSessionContext"/> carries the environment all three share. The controller keeps
 /// the view-model writes because presentation is the facade's job: the state machine says the
 /// session is in an explicit Suggest session, the controller decides that means the bubble is up and
 /// the popup is not.
+/// </para>
+/// <para>
+/// <strong>Query state (Phase 1c).</strong> The controller does not hold a query. It has no
+/// <c>HandleTextInput(text)</c>, no backspace mirror and no paste mirror, because it has no buffer
+/// for them to write into. The question "what is on the command line" is answered by reading the
+/// terminal grid between the newest <c>OSC 133;B</c> mark and the cursor - see
+/// <see cref="AssistQuerySnapshot"/> - and every consumer of the query (ranking, the help token, the
+/// insertion planner, the view-model's <c>QueryText</c>) goes to that one source. Keystrokes remain
+/// as <em>triggers</em>: <see cref="NotifyInputActivity"/> says "the line probably changed, look
+/// again", and the looking is the orchestrator's job.
+/// </para>
+/// <para>
+/// What survives from the old shadow buffer is exactly one bit:
+/// <see cref="AssistSessionStateMachine.IsCurrentSubmissionSuppressed"/>. Paste suppression is a
+/// statement about provenance ("the user did not compose this here"), which the grid cannot
+/// reconstruct from pixels, and it gates history capture and insertion rather than the query.
+/// </para>
 /// </remarks>
 public sealed class CommandAssistController
 {
@@ -47,6 +65,7 @@ public sealed class CommandAssistController
         IErrorInsightService? errorInsightService,
         CommandAssistModeRouter? modeRouter,
         CommandAssistResultBuilder? resultBuilder,
+        Func<AssistQuerySnapshot?>? queryProvider = null,
         Action<Action>? dispatch = null)
     {
         HistoryStore = historyStore;
@@ -66,6 +85,10 @@ public sealed class CommandAssistController
             snippetStore,
             suggestionEngine,
             _context,
+            // No provider means no grid, which is the same situation as a shell that emits no
+            // marks: the session runs in degraded mode. Defaulting to "no truth available" rather
+            // than throwing keeps every non-App host (tests, the MCP surface) on the honest path.
+            queryProvider ?? (() => null),
             _dispatch,
             ApplyRefreshOutcome);
     }
@@ -98,6 +121,17 @@ public sealed class CommandAssistController
         }
     }
 
+    /// <summary>
+    /// Opens explicit history search (<c>Ctrl+R</c>).
+    /// </summary>
+    /// <remarks>
+    /// The label distinguishes the two things this surface can be. With a readable command line the
+    /// rows are filtered by it, and "History" says so. Without one - a markless session, a closed
+    /// lifecycle gate - there is no query and there will never be one, so the rows are the recency
+    /// list and typing will not narrow them. Calling that "History" too presents a filter box that
+    /// cannot filter, and the user reads the first keystroke that changes nothing as a bug rather
+    /// than as the documented degraded behavior.
+    /// </remarks>
     public bool OpenHistorySearch()
     {
         if (_context.IsAltScreenActive)
@@ -107,7 +141,7 @@ public sealed class CommandAssistController
         }
 
         _state.OpenSearch();
-        ViewModel.ModeLabel = "History";
+        ViewModel.ModeLabel = TryReadQuerySnapshot() == null ? "History - recent" : "History";
         ViewModel.IsPopupOpen = true;
         ViewModel.IsVisible = true;
         QueueRefreshSuggestions();
@@ -126,48 +160,89 @@ public sealed class CommandAssistController
         return true;
     }
 
-    public void HandleTextInput(string text)
+    /// <summary>
+    /// The user did something at the prompt that probably changed the command line - typed a
+    /// character, pressed Backspace. Triggers a refresh; carries no text.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is the whole of what a keystroke means to Command Assist now. The character itself is
+    /// not interesting: it is already on the screen, and so is everything the shell did that no
+    /// keystroke describes - the <c>Ctrl+U</c> that emptied the line, the Up-arrow that recalled a
+    /// command, the Tab the shell completed. V1 mirrored the four events it could see and was wrong
+    /// about the line the moment any of the others happened.
+    /// </para>
+    /// <para>
+    /// Backspace deliberately has no separate entry point and no "is there anything to delete"
+    /// guard. Whether the line got shorter is the grid's business.
+    /// </para>
+    /// </remarks>
+    public void NotifyInputActivity()
     {
-        if (_context.IsAltScreenActive || string.IsNullOrEmpty(text))
+        if (_context.IsAltScreenActive)
         {
             return;
         }
 
         _state.ObserveTypedInput();
-        ViewModel.QueryText += text;
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
+
+        // Visibility follows the rows that are already up, not the rows this refresh will produce.
+        // Setting it true here and false when the pass lands is the flash that #232's predecessor
+        // shipped; the pass sets it for real in ApplyRefreshOutcome.
         ViewModel.IsVisible = ViewModel.HasSuggestions;
         QueueRefreshSuggestions();
     }
 
-    public void HandleBackspace()
-    {
-        if (_context.IsAltScreenActive || string.IsNullOrEmpty(ViewModel.QueryText))
-        {
-            return;
-        }
-
-        ViewModel.QueryText = ViewModel.QueryText[..^1];
-        QueueRefreshSuggestions();
-    }
-
-    public void HandlePastedText(string text)
+    /// <summary>
+    /// The user pasted into the terminal. Suppresses the current submission and triggers a refresh;
+    /// like <see cref="NotifyInputActivity"/> it carries no text.
+    /// </summary>
+    /// <remarks>
+    /// Suppression is the one piece of the old paste handling that had to survive the shadow
+    /// buffer's deletion, and it is not a query fact: it says the text on the line was not composed
+    /// here, which stops it being written to history as though it were and stops a suggestion being
+    /// spliced into it. The grid can read pasted text perfectly well; what it cannot see is where
+    /// the text came from.
+    /// </remarks>
+    public void NotifyPastedInput()
     {
         _state.ObservePastedText();
-        ViewModel.QueryText = text ?? string.Empty;
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
         ViewModel.IsVisible = !_context.IsAltScreenActive && ViewModel.HasSuggestions;
         QueueRefreshSuggestions();
     }
 
-    public async Task HandleEnterAsync()
+    /// <summary>
+    /// The user pressed Enter. Runs heuristic history capture over <paramref name="submittedText"/>
+    /// and resets the session for the next command line.
+    /// </summary>
+    /// <param name="submittedText">
+    /// What the host believes was submitted, read from the grid at the moment Enter was observed, or
+    /// <see langword="null"/> when there was nothing truthful to read. Passed in rather than pulled
+    /// from a snapshot here because the host owns the timing: Enter reaches the PTY before this runs,
+    /// and the closer the read sits to the keypress the smaller the window in which the shell has
+    /// already begun repainting.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// A markless session passes <see langword="null"/> and captures nothing. That is a deliberate
+    /// loss and the alternative was worse: V1's Enter-time capture read the shadow buffer, so any
+    /// line the user had edited with the keys the mirror could not see was written to persistent
+    /// history <em>wrong</em>. Recording no command is recoverable; recording a command the user
+    /// never ran is not. Instrumented sessions are unaffected - the first command is captured from
+    /// the grid here, and every command after it from the <c>OSC 133;C</c> payload, which is what
+    /// <see cref="AssistSessionContext.IsStructuredCaptureActive"/> stands the heuristic down for.
+    /// </para>
+    /// </remarks>
+    public async Task HandleEnterAsync(string? submittedText = null)
     {
         try
         {
             await _capturePipeline.CaptureSubmissionAsync(
-                ViewModel.QueryText,
+                submittedText ?? string.Empty,
                 _state.IsCurrentSubmissionSuppressed);
         }
         catch
@@ -180,6 +255,17 @@ public sealed class CommandAssistController
             ResetSubmissionState();
         }
     }
+
+    /// <summary>
+    /// The live command line, or <see langword="null"/> when the session is markless, the shell is
+    /// not in its line editor, or the grid cannot be read.
+    /// </summary>
+    /// <remarks>
+    /// Read fresh on every call rather than cached from the last refresh. Callers use it to decide
+    /// what to send to a live terminal, and the line may have moved since the rows on screen were
+    /// ranked.
+    /// </remarks>
+    public AssistQuerySnapshot? TryReadQuerySnapshot() => _suggestionOrchestrator.TryReadQuery();
 
     public void UpdateSessionContext(
         string? shellKind,
@@ -273,7 +359,10 @@ public sealed class CommandAssistController
             return false;
         }
 
-        ViewModel.QueryText = insertionText;
+        // No query write here. Accepting a row asks the host to send a delta to the terminal; the
+        // line's new contents are then whatever the shell paints, and the next refresh reads that.
+        // Writing the accepted text into QueryText was V1 predicting the outcome of an edit it did
+        // not perform, and it was wrong whenever the send failed or the shell transformed the input.
         _state.AcceptSelection();
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
@@ -302,8 +391,13 @@ public sealed class CommandAssistController
             return false;
         }
 
+        // Falls back to grid truth, not to the view-model. The view-model holds whatever the last
+        // ranking pass wrote, which is a frame behind at best and stale help-token extraction at
+        // worst; in a markless session there is no query and the recognized command comes from the
+        // selection alone, which is the degraded-mode contract.
+        string effectiveQuery = queryText ?? TryReadQuerySnapshot()?.Text ?? string.Empty;
         CommandAssistContextSnapshot snapshot = _context.CreateSnapshot(
-            queryText ?? ViewModel.QueryText,
+            effectiveQuery,
             selectedText);
         var helpQuery = new CommandHelpQuery(
             RawInput: snapshot.QueryText,
@@ -323,7 +417,7 @@ public sealed class CommandAssistController
 
         _dispatch(() => ApplyHelperSuggestions(
             _modeRouter.ChooseModeForHelpRequest(),
-            queryText ?? ViewModel.QueryText,
+            effectiveQuery,
             suggestions,
             "No local help found.",
             openPopup: true));
@@ -379,8 +473,30 @@ public sealed class CommandAssistController
         return false;
     }
 
+    /// <summary>
+    /// Consumes an OSC 133 event: moves the command-input lifecycle gate, then lets the capture
+    /// pipeline do whatever the event means for history.
+    /// </summary>
+    /// <remarks>
+    /// The gate moves here rather than inside <see cref="CapturePipeline"/> because it is not a
+    /// capture concern - it is what makes grid-truth reading legal, and the pipeline would be the
+    /// wrong place to look for it. <c>B</c> opens the window, <c>C</c> and <c>D</c> close it; see
+    /// <see cref="AssistSessionContext.IsAcceptingCommandInput"/> for why both closers are needed
+    /// and why nothing else opens it.
+    /// </remarks>
     public async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
     {
+        switch (shellEvent.Type)
+        {
+            case ShellIntegrationEventType.CommandStarted:
+                _context.OpenCommandInputWindow();
+                break;
+            case ShellIntegrationEventType.CommandAccepted:
+            case ShellIntegrationEventType.CommandFinished:
+                _context.CloseCommandInputWindow();
+                break;
+        }
+
         await _capturePipeline.HandleShellIntegrationEventAsync(shellEvent);
     }
 
@@ -461,7 +577,7 @@ public sealed class CommandAssistController
             return;
         }
 
-        _suggestionOrchestrator.Refresh(_state.Mode, _state.IsExplicitSession, ViewModel.QueryText);
+        _suggestionOrchestrator.Refresh(_state.Mode, _state.IsExplicitSession);
     }
 
     /// <summary>
@@ -475,6 +591,10 @@ public sealed class CommandAssistController
         {
             return;
         }
+
+        // The one place a Suggest/Search query reaches the view-model. The pass read it off the
+        // grid, so this is also where the surface catches up with edits no keystroke reported.
+        ViewModel.QueryText = outcome.Query;
 
         if (outcome.Faulted)
         {
@@ -605,6 +725,11 @@ public sealed class CommandAssistController
         _suggestionOrchestrator.CancelPending();
         _state.EnterHelperMode(mode, openPopup);
         ViewModel.ModeLabel = mode.ToString();
+
+        // Help and Fix put their subject in the query field: the command Help was asked about, the
+        // command that failed. That is a caption for content the user asked for, not a claim about
+        // what is on the command line - and Fix in particular is shown *after* the line was
+        // submitted, when there is no command line to be truthful about.
         ViewModel.QueryText = queryText ?? string.Empty;
         ViewModel.IsPopupOpen = openPopup;
         ViewModel.IsVisible = true;
