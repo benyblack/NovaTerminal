@@ -540,6 +540,33 @@ duration. It is now keyed on whether the tracker is armed at all.
   exactly on the last column leaves `GridQueryReader` starting one cell early and picking up the
   prompt's final character. Recording pending-wrap on the mark would fix it; not worth the
   cross-layer churn for a prompt that exactly fills the terminal width
+- **an inline prediction is indistinguishable from a mid-line cursor, so insertion refuses while one
+  is showing.** PSReadLine's `InlineView` prediction is painted as ordinary cells to the right of the
+  cursor in a dim colour; nothing on the grid marks them as not-typed. The reader therefore reports
+  `Text` = the whole painted line with a `CursorOffset` short of its end, which is exactly what a user
+  who arrowed back into the middle of their line looks like. Ranking and the Help token use
+  `AssistQuerySnapshot.TextBeforeCursor` and so are correct either way, but insertion stays refused:
+  `IsUsableAsTypedPrefix` is false, and appending to a line whose tail may or may not be the user's is
+  the one failure this feature cannot afford. The hint strip drops its "insert" clause in that state
+  rather than promising a key that will do nothing. Distinguishing the two would need PSReadLine to
+  mark its prediction cells, which no terminal protocol offers
+- **`OSC 133;B` is not once per command line, so the per-command Escape suppression can end early.**
+  The suppression that keeps a dismissed passive bubble down for the rest of a line is cleared on `B`,
+  because `B` is the only marker that means "a fresh line". Our `B` is appended to the prompt string, so
+  anything that reprints the prompt re-emits it - `Ctrl+L`, and whichever render paths a given PSReadLine
+  version routes through `InvokePrompt` - and redrawing the screen after an Escape therefore
+  un-suppresses the bubble, so the next keystroke brings it back. (Measured on PSReadLine 2.3: a window
+  resize repaints the input only and does *not* re-emit `B`.) Accepted deliberately: the
+  alternative it replaced was a suppression that only a local `Enter` could clear, which meant
+  `Ctrl+C`, PSReadLine's own line-clearing `Escape`, a pasted submission or a broadcast send left the
+  passive bubble disabled for the life of the pane. Tightening it needs a "same logical line" identity
+  the marks do not carry
+- **cwd history written before the OSC 7 fix does not match cwd read after it.** Windows pwsh used to
+  report its working directory as `file://HOST/C:%5CUsers%5Cyou`, which resolved to the non-existent
+  UNC path `\\HOST\C:\Users\you`. History rows captured then carry that string, and the ranking
+  engine's cwd match is an equality test, so those rows no longer score a directory bonus for the
+  directory they were actually run in. They are still recalled and still ranked on every other signal;
+  nothing needs migrating and nothing is lost beyond one term for pre-fix rows
 
 ## Deferred Follow-Up Areas
 - richer shell-specific prompt contracts beyond the current wrapper approach

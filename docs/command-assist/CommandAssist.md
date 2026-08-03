@@ -108,9 +108,18 @@ What Mode A actually does while you type, in an integrated session:
   ranking runs at all. One character's worth of prefix ranks to "the command you run most often
   starting with that letter", which is noise wearing a suggestion's clothes.
 - **`Esc` takes it down for the rest of that command line.** Not just for one frame: the next keystroke
-  used to rebuild the surface, which made `Esc` useless on a bubble nobody asked for. Submitting the
-  line clears the suppression. `Ctrl+Space`, `Ctrl+R`, Help and Fix all still open after an `Esc` —
-  suppression only applies to surfaces the user did not request.
+  used to rebuild the surface, which made `Esc` useless on a bubble nobody asked for. The suppression is
+  cleared by the next prompt — `OSC 133;B` — so any way of ending a line clears it, not only a local
+  `Enter`: `Ctrl+C`, PSReadLine's own line-clearing `Escape`, a pasted submission, a broadcast send.
+  `Ctrl+Space`, `Ctrl+R`, Help and Fix all still open after an `Esc` — suppression only applies to
+  surfaces the user did not request. `Esc` pressed inside the ~75 ms debounce window, before anything is
+  on screen, also cancels the pass and suppresses the line, and still reaches the shell.
+- **Ranking uses the line up to the cursor, not the whole painted line.** PSReadLine's inline prediction
+  is painted as ordinary cells past the cursor, and the grid cannot tell them from text you typed — so
+  the bubble ranks on `AssistQuerySnapshot.TextBeforeCursor`, and the two-character floor measures that
+  too. Insertion is a different question and still refuses while a prediction is showing (see
+  `CommandAssist_ShellIntegration_Gaps.md`); the hint strip drops its "insert" clause rather than
+  promising a key that will do nothing.
 - **The popup is still intent-only.** Nothing auto-opens it: `Down`, a click, `Ctrl+Space`, `Ctrl+R` or
   a high-confidence Fix.
 - **Degraded (markless) sessions get no passive bubble.** There is no readable command line, so there is
@@ -120,8 +129,14 @@ What Mode A actually does while you type, in an integrated session:
 
 This is a deliberate reversal of M4.3's "silent unless summoned" policy, which scoped the passive path
 to filesystem completions only. That kept the feature invisible for most commands, which is the problem
-Phase 3 exists to solve. The kill switch (`CommandAssistPassiveBubbleEnabled`, below) restores the M4.3
-behavior exactly.
+Phase 3 exists to solve. The kill switch (`CommandAssistPassiveBubbleEnabled`, below) puts the passive
+scope back to paths-only.
+
+It is a *scope* control, not a time machine: the other passive-path policies from this phase still apply
+with it off, so a one-character line offers no path completions either, where M4.3 would have. Exempting
+the two-character floor when only paths are in scope was considered and not taken — one character is not
+a path fragment worth ranking, and a floor that depends on the resolved scope is a floor that can
+disagree with the scope about which pass it belongs to.
 
 **The debounce** lives in `SuggestionOrchestrator` and is applied to typing-triggered passes only: a
 burst of *n* keystrokes costs one grid read, one store recall and one ranking pass instead of *n* of
@@ -136,14 +151,16 @@ Settings → Terminal, under "Command assistant":
 | Setting | Default | What it gates |
 | --- | --- | --- |
 | `CommandAssistEnabled` | `false` | The master flag. Everything. |
-| `CommandAssistPassiveBubbleEnabled` | `true` | Whether the passive bubble may draw on history. Off = M4.3 quiet behavior (paths only). |
+| `CommandAssistPassiveBubbleEnabled` | `true` | Whether the passive bubble may draw on history. Off = passive scope is paths only. |
 | `CommandAssistHistoryEnabled` | `true` | Command capture **and** history-sourced suggestions — nothing else. Paths, Help and Fix work with it off. |
 | `CommandAssistShellIntegrationEnabled` | `true` | Whether Nova instruments local shells it starts. |
 
 The group also carries **Clear history**, which is the first caller `IHistoryStore.ClearAsync` has ever
 had. It arms on the first click ("Confirm clear") and clears on the second, and it goes through the one
-live store instance rather than opening a second one over the same file. The remote shell-integration
-snippet copy affordance from Phase 2b sits directly below.
+live store instance rather than opening a second one over the same file. A successful clear also dismisses
+every pane's assist surface, so rows that were on screen when the store was emptied do not linger as
+something the user can still accept. The remote shell-integration snippet copy affordance from Phase 2b
+sits directly below.
 
 `CommandAssistHistoryEnabled` used to be a second master flag by accident: `IsCommandAssistFeatureEnabled`
 required it, so turning capture off killed the bubble, the popup, Help, Fix and path suggestions too.
@@ -628,10 +645,23 @@ handled, so an `Alt` chord never reaches the window's shortcut handler at all.
 
 **The five in-surface keys are matched on their exact modifiers.** Before Phase 3b the router tested the
 key and ignored the modifiers for everything except `Enter`, so `Ctrl+Down` and `Alt+Up` were swallowed
-by the assist even though several line editors act on them. Rebinding these five is constrained in one
-way the Settings UI cannot express: Command Assist models `Escape`/`Up`/`Down`/`Enter`/`Tab` only, so an
-override naming any other key falls back to the default rather than silently matching nothing. The hint
-strip renders whatever binding is actually in force.
+by the assist even though several line editors act on them. Rebinding these five is constrained in two
+ways the Settings UI cannot express:
+
+- **Representability.** Command Assist models `Escape`, `Up`, `Down` and `Enter`, so an override naming
+  any other key falls back to the default rather than silently matching nothing. `Tab` is modelled
+  internally — the router needs to be able to answer "not mine" about it — but is *not* accepted as a
+  rebind target, because the row above is a promise: `Tab` is the shell's completion key and taking it is
+  the most disruptive thing this feature could do.
+- **The terminal gets the key first.** These chords are matched inside the pane while a surface is open,
+  after `TerminalView` has had its turn. A chord the terminal encodes for the shell — most `Ctrl`+letter
+  combinations, anything `Alt`+key (turned into an ESC-prefixed sequence and marked handled), and
+  anything the kitty keyboard protocol encodes for a full-screen program — will look bound in Settings
+  and never fire. The Shortcuts tab says so; there is no validation that can decide it, because whether a
+  key reaches the assist depends on what the running program has asked for.
+
+The hint strip renders whatever binding is actually in force, formatted by the same normalizer the
+Shortcuts editor writes bindings with, so a rebind reads identically in both places.
 
 Mouse, in the popup: hover highlights, a single click selects, and a double click — or a click on the
 row that is already selected — inserts. The row list scrolls. Right-click and middle-click are

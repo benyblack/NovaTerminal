@@ -3153,6 +3153,17 @@ namespace NovaTerminal.Controls
             _commandAssistController?.ToggleAssist();
         }
 
+        /// <summary>
+        /// Takes this pane's assist surface down, if it has one. Used when something outside the pane
+        /// invalidates what the surface is showing - today, Settings clearing command history.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately does not initialize Command Assist: a pane that never built a controller has no
+        /// surface to dismiss, and forcing one into existence to tell it to hide would be the opposite of
+        /// what the caller wants.
+        /// </remarks>
+        internal void DismissCommandAssistSurface() => _commandAssistController?.Dismiss();
+
         public bool OpenCommandAssistHelp()
         {
             if (!EnsureCommandAssistInitialized())

@@ -158,6 +158,82 @@ public sealed class AssistShortcutBindingTests
         Assert.Equal(AssistKeyBindings.Default.SelectionDown, resolved.Keys.SelectionDown);
     }
 
+    /// <summary>
+    /// Tab is modelled by <c>AssistKey</c> but is not rebindable (PR #293 review, non-blocking 3).
+    /// </summary>
+    /// <remarks>
+    /// Shell-first Tab is a documented promise: the keyboard table says Command Assist never takes it,
+    /// because at a shell prompt it is the completion key. Accepting an override that names it would let a
+    /// settings edit break that silently - the router would start claiming Tab and the shell would stop
+    /// seeing it.
+    /// </remarks>
+    [Theory]
+    [InlineData("Tab")]
+    [InlineData("Ctrl+Tab")]
+    [InlineData("Shift+Tab")]
+    public void Resolve_WithARebindingToTab_FallsBackToTheDefault(string binding)
+    {
+        Dictionary<string, string> overrides = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["command_assist_selection_down"] = binding,
+        };
+
+        AssistShortcutBindings resolved = AssistShortcutBindingResolver.Resolve(overrides);
+
+        Assert.Equal(AssistKeyBindings.Default.SelectionDown, resolved.Keys.SelectionDown);
+        Assert.Equal("Down", resolved.HintLabels.SelectionDown);
+        Assert.NotEqual(AssistKey.Tab, resolved.Keys.SelectionDown.Key);
+    }
+
+    /// <summary>
+    /// The hint strip and the Settings shortcut list write the same chord the same way (PR #293 review,
+    /// non-blocking 5): both go through <see cref="ShortcutMatcher.Format"/>.
+    /// </summary>
+    /// <remarks>
+    /// The hand-rolled label builder this replaced fell back to <c>Key.ToString()</c>, so a rebind to
+    /// <c>Ctrl+1</c> was advertised as "Ctrl+D1" - a chord the user never typed and Settings never shows.
+    /// </remarks>
+    [Theory]
+    [InlineData("Ctrl+1", "Ctrl+1")]
+    [InlineData("Alt+9", "Alt+9")]
+    [InlineData("Ctrl+,", "Ctrl+,")]
+    [InlineData("Ctrl+Space", "Ctrl+Space")]
+    [InlineData("Ctrl+Shift+F5", "Ctrl+Shift+F5")]
+    public void Resolve_LabelsARebindTheWayTheShortcutEditorWouldWriteIt(string binding, string expectedLabel)
+    {
+        Dictionary<string, string> overrides = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["command_assist_insert"] = binding,
+        };
+
+        AssistShortcutBindings resolved = AssistShortcutBindingResolver.Resolve(overrides);
+
+        // Unrepresentable as an assist key, so the *binding* falls back - but the point here is the
+        // label formatter, which is exercised by the representable cases below and by the round trip.
+        Assert.True(ShortcutMatcher.TryParse(binding, out Key key, out KeyModifiers modifiers));
+        Assert.Equal(expectedLabel, ShortcutMatcher.Format(key, modifiers));
+        Assert.Equal(AssistKeyBindings.Default.Insert, resolved.Keys.Insert);
+    }
+
+    /// <summary>
+    /// The two display overrides survive the shared formatter: nobody writes "Escape" in a hint strip,
+    /// and <c>Key.Enter</c> is an alias for <c>Key.Return</c>, which the canonical form spells "Return".
+    /// </summary>
+    [Fact]
+    public void Resolve_KeepsTheHintStripSpellingsForEscapeAndEnter()
+    {
+        Dictionary<string, string> overrides = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["command_assist_dismiss"] = "Shift+Escape",
+            ["command_assist_insert"] = "Alt+Enter",
+        };
+
+        AssistShortcutBindings resolved = AssistShortcutBindingResolver.Resolve(overrides);
+
+        Assert.Equal("Shift+Esc", resolved.HintLabels.Dismiss);
+        Assert.Equal("Alt+Enter", resolved.HintLabels.Insert);
+    }
+
     /// <summary>Nobody writes "Escape" in a hint strip.</summary>
     [Fact]
     public void Resolve_SpellsTheDismissKeyTheWayTerminalsDo()

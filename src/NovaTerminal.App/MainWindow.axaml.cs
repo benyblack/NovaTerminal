@@ -2575,6 +2575,34 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// Takes every pane's assist surface down. Called after Settings clears command history.
+        /// </summary>
+        /// <remarks>
+        /// <strong>PR #293 review, non-blocking 7.</strong> The rows on screen are a snapshot of a ranking
+        /// pass, and nothing invalidates them when the store underneath is emptied - so a user who cleared
+        /// their history while a bubble or popup was up went on looking at the commands they had just
+        /// deleted, and could still accept one. Dismissing is the right verb rather than re-ranking: the
+        /// honest answer for a just-emptied store is "nothing", and the next keystroke rebuilds the
+        /// surface from the empty store anyway.
+        /// </remarks>
+        private void DismissCommandAssistSurfaces()
+        {
+            var tabs = this.FindControl<TabControl>("Tabs");
+            if (tabs == null)
+            {
+                return;
+            }
+
+            foreach (TabItem ti in tabs.Items.Cast<TabItem>())
+            {
+                foreach (var pane in EnumeratePanes(ti.Content as Control))
+                {
+                    pane.DismissCommandAssistSurface();
+                }
+            }
+        }
+
         private void WireControlTree(Control control)
         {
             if (control is TerminalPane pane)
@@ -5053,7 +5081,20 @@ namespace NovaTerminal
             // The one live history store, so Settings' "Clear history" acts on the same instance the
             // panes append to (V2 Phase 3b task 5). Reading the property constructs it lazily, which is
             // acceptable here: the user is opening a settings dialog, not on the startup path.
+            //
+            // Assigned after construction rather than passed to the constructor, and that is safe for a
+            // specific reason worth writing down (PR #293 review, non-blocking 8): the window's clear
+            // handler reads this property when the button is *clicked*, not when the row is wired. Wiring
+            // happens during construction, above this line; the read cannot happen before the dialog is
+            // shown, which is after it. A null store is still handled - the row reports "not available in
+            // this window" - so a future caller that constructs a SettingsWindow without injecting one
+            // degrades visibly instead of throwing.
             sw.CommandAssistHistoryStore = _commandAssistServices.HistoryStore;
+
+            // N7: clearing history deletes the rows any open assist surface is currently showing, and
+            // those surfaces do not watch the store. Refreshed from here because MainWindow is what can
+            // see the panes.
+            sw.OnCommandAssistHistoryCleared += DismissCommandAssistSurfaces;
 
             // Snapshot the live-previewed values so Cancel can restore them (#167).
             // The preview handlers below mutate _settings directly; without this,

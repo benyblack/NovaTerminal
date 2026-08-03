@@ -160,22 +160,33 @@ public sealed class CommandAssistPerformanceTests
             refreshDelay: gate.Delay);
         grid.OpenPrompt(controller);
 
+        // Per-keystroke samples, not one division at the end (PR #293 review, non-blocking 9). A mean
+        // over 200 keys hides exactly the regression that matters: one keystroke that blocks for 100 ms
+        // moves the average by 0.5 ms and is invisible, while being precisely the jank the user feels.
+        // p95 is the tail statistic, so a handful of slow keys fails the test rather than being averaged
+        // away by the fast ones.
         const int keystrokes = 200;
-        var stopwatch = Stopwatch.StartNew();
+        var samples = new List<double>(keystrokes);
+        var stopwatch = new Stopwatch();
         for (int i = 0; i < keystrokes; i++)
         {
             grid.SetLine("git st" + i);
+            stopwatch.Restart();
             controller.NotifyInputActivity();
+            stopwatch.Stop();
+            samples.Add(stopwatch.Elapsed.TotalMilliseconds);
         }
 
-        stopwatch.Stop();
-        double perKeystrokeMs = stopwatch.Elapsed.TotalMilliseconds / keystrokes;
-        _output.WriteLine($"Keystroke handling: {perKeystrokeMs:F3}ms per key over {keystrokes} keys, {history.RecallCount} recalls while debouncing");
+        double p95 = Percentile(samples, 0.95);
+        double mean = samples.Sum() / samples.Count;
+        _output.WriteLine(
+            $"Keystroke handling over {keystrokes} keys: mean {mean:F3}ms, p50 {Percentile(samples, 0.5):F3}ms, " +
+            $"p95 {p95:F3}ms, max {samples.Max():F3}ms, {history.RecallCount} recalls while debouncing");
 
         Assert.Equal(0, history.RecallCount);
         Assert.True(
-            perKeystrokeMs < KeystrokeBudgetMs,
-            $"Keystroke handling averaged {perKeystrokeMs:F3}ms, over the {KeystrokeBudgetMs}ms tripwire.");
+            p95 < KeystrokeP95BudgetMs,
+            $"Keystroke handling p95 was {p95:F3}ms, over the {KeystrokeP95BudgetMs}ms tripwire.");
 
         gate.ReleaseAll();
         await WaitForAsync(() => history.RecallCount > 0);
@@ -253,11 +264,16 @@ public sealed class CommandAssistPerformanceTests
     private const double FirstSuggestionBudgetMs = 50;
 
     /// <summary>
-    /// What a keystroke may cost on the caller's thread. 1 ms is already 100x what the path does when
-    /// it is behaving (it queues a task and returns); anything approaching a frame means synchronous
-    /// work has crept back in.
+    /// What a keystroke may cost on the caller's thread, at p95.
     /// </summary>
-    private const double KeystrokeBudgetMs = 1;
+    /// <remarks>
+    /// The path queues a task and returns, so the measured figure is a few microseconds and the mean was
+    /// held at 1 ms. Moving to p95 (PR #293 review) makes the statistic tail-sensitive, and 5 ms is the
+    /// budget that goes with it: a single sample can legitimately absorb a thread-pool wake or a gen-0
+    /// collection on a shared CI agent, and it takes ten of 200 samples over the line to fail. Still two
+    /// orders of magnitude above what the path costs when it is behaving, and comfortably inside a frame.
+    /// </remarks>
+    private const double KeystrokeP95BudgetMs = 5;
 
     private const int Iterations = 50;
     private const int FirstPaintIterations = 20;
@@ -286,10 +302,20 @@ public sealed class CommandAssistPerformanceTests
     /// Safe here because the pass does not need this thread: the refresh runs on the thread pool and
     /// the controller's default dispatcher applies the outcome inline on that worker.
     /// </para>
+    /// <para>
+    /// <see cref="SpinWait.SpinOnce()"/> rather than <see cref="Thread.Yield"/> (PR #293 review,
+    /// non-blocking 9). <c>Thread.Yield</c> is an unconditional syscall that gives up the rest of the
+    /// quantum to a ready thread on the same core, so on a single-core CI agent this loop could hand the
+    /// core to the very worker it is waiting for and then be scheduled back only after a full quantum -
+    /// which lands in the measurement. <c>SpinWait</c> spins in user mode first and escalates to a yield
+    /// or a sleep on its own schedule, which is both cheaper for a wait this short and the documented way
+    /// to spin.
+    /// </para>
     /// </remarks>
     private static void SpinUntil(Func<bool> predicate, int timeoutMs)
     {
         var stopwatch = Stopwatch.StartNew();
+        var spinner = new SpinWait();
         while (!predicate())
         {
             if (stopwatch.ElapsedMilliseconds >= timeoutMs)
@@ -297,7 +323,7 @@ public sealed class CommandAssistPerformanceTests
                 throw new TimeoutException("Timed out waiting for the assist to settle.");
             }
 
-            Thread.Yield();
+            spinner.SpinOnce();
         }
     }
 

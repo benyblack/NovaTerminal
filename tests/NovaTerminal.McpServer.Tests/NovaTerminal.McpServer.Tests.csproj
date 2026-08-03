@@ -28,6 +28,11 @@
     <!-- Test-only: the drift guard reflects over the real profile types. The MCP server
          itself must never reference NovaTerminal.Platform. -->
     <ProjectReference Include="..\..\src\NovaTerminal.Platform\NovaTerminal.Platform.csproj" />
+    <!-- Test-only, same argument: SettingsToolsDriftGuardTests reflects over the real
+         TerminalSettings so the hand-mirrored field lists in SettingsTools cannot go stale
+         (PR #293 review). The MCP server itself must never reference NovaTerminal.App -
+         settings validation is a schema check, not a call into the app. -->
+    <ProjectReference Include="..\..\src\NovaTerminal.App\NovaTerminal.App.csproj" />
   </ItemGroup>
 
 </Project>

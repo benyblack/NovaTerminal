@@ -51,6 +51,16 @@ namespace NovaTerminal
         /// </remarks>
         internal IHistoryStore? CommandAssistHistoryStore { get; set; }
 
+        /// <summary>
+        /// Raised after command history has actually been cleared, so the host can refresh anything that
+        /// was showing the rows that just went away.
+        /// </summary>
+        /// <remarks>
+        /// An event rather than a direct call because this window cannot see panes, and it fires only on
+        /// the success path - a failed clear leaves the surfaces alone, since they are still accurate.
+        /// </remarks>
+        internal event Action? OnCommandAssistHistoryCleared;
+
         /// <summary>Whether the next "Clear history" click is the confirming one.</summary>
         private bool _isClearCommandAssistHistoryArmed;
 
@@ -1519,6 +1529,12 @@ namespace NovaTerminal
                 try
                 {
                     await CommandAssistHistoryStore.ClearAsync();
+
+                    // Any assist surface still on screen is showing rows that no longer exist (PR #293
+                    // review, non-blocking 7). The host owns the panes, so it is told rather than
+                    // reached for from here; with no host wired the clear still reports success, which is
+                    // true - only the refresh is missing.
+                    OnCommandAssistHistoryCleared?.Invoke();
                     ShowRemoteShellIntegrationStatus(status, "Command history cleared.");
                 }
                 catch (Exception ex)

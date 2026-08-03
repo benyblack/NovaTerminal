@@ -137,7 +137,11 @@ public static class SettingsTools
         ```
         """;
 
-    private static readonly string[] BoolFields =
+    // internal, not private: SettingsToolsDriftGuardTests reflects over TerminalSettings and pins these
+    // lists to it (PR #293 review, non-blocking 6). The lists are hand-mirrored knowledge of a type in
+    // another assembly, which is exactly the shape that goes stale silently - CommandAssistAutoHideInAltScreen
+    // sat in them as a phantom field after being deleted from TerminalSettings, and nothing failed.
+    internal static readonly string[] BoolFields =
     {
         "EnableLigatures", "EnableComplexShaping", "CursorBlink", "BellAudioEnabled",
         "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection", "EnableKittyKeyboardProtocol",
@@ -150,16 +154,16 @@ public static class SettingsTools
     };
 
     // Plain + enum-like strings; enum-like values are NOT value-validated (type-check only).
-    private static readonly string[] StringFields =
+    internal static readonly string[] StringFields =
     {
         "FontFamily", "ThemeName", "BackgroundImagePath", "GlobalHotkey",
         "BlurEffect", "CursorStyle", "PaneClosePolicy", "BackgroundImageStretch",
     };
 
-    private static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules" };
+    internal static readonly string[] ArrayFields = { "Profiles", "TabTemplateRules" };
 
     // Every recognized top-level field (union of all groups). Source of truth: TerminalSettings.cs.
-    private static readonly HashSet<string> KnownFields = new(StringComparer.Ordinal)
+    internal static readonly HashSet<string> KnownFields = new(StringComparer.Ordinal)
     {
         "FontSize", "MaxHistory", "FontFamily", "ThemeName", "WindowOpacity", "BlurEffect",
         "EnableLigatures", "EnableComplexShaping", "CursorStyle", "CursorBlink",

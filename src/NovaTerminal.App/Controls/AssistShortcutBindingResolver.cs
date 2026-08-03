@@ -86,7 +86,7 @@ namespace NovaTerminal.Controls
             }
 
             AssistKey assistKey = AssistKeyMapper.ToAssistKey(key);
-            if (assistKey == AssistKey.None)
+            if (!IsRebindable(assistKey))
             {
                 return new ResolvedBinding(defaultBinding, defaultLabel);
             }
@@ -97,40 +97,66 @@ namespace NovaTerminal.Controls
         }
 
         /// <summary>
+        /// Whether an assist key may be the target of a rebind.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <see cref="AssistKey.None"/> is out because it is the value every key the assist does not model
+        /// maps to, so a binding carrying it would either match every foreign key or none - see the class
+        /// remarks.
+        /// </para>
+        /// <para>
+        /// <strong><see cref="AssistKey.Tab"/> is out too (PR #293 review, non-blocking 3).</strong> It is
+        /// modelled only so the router can be asked about it and answer "not mine": shell-first Tab is a
+        /// documented promise - the keyboard table in <c>docs/command-assist/CommandAssist.md</c> says Tab
+        /// is never taken by Command Assist, because at a shell prompt it is the shell's completion key and
+        /// intercepting it is the single most disruptive thing this feature could do. Accepting it here
+        /// would let a settings override quietly break that promise for <c>Escape</c>-shaped reasons:
+        /// <c>AssistKeyBinding.Matches</c> would start claiming Tab, and the key the user's shell needs
+        /// most would stop arriving. An override naming Tab falls back to the catalogue default, exactly
+        /// like <c>Ctrl+J</c> or <c>F5</c>.
+        /// </para>
+        /// </remarks>
+        private static bool IsRebindable(AssistKey key) =>
+            key != AssistKey.None && key != AssistKey.Tab;
+
+        /// <summary>
         /// Renders a chord the way the hint strip should read it.
         /// </summary>
         /// <remarks>
-        /// Not the key's own name verbatim, for two keys. <c>Escape</c> is written "Esc" by every
-        /// terminal UI in existence, and <c>Avalonia.Input.Key.Enter</c> is an alias for
-        /// <c>Key.Return</c>, so <c>ToString()</c> on it produces "Return" - which is what the key says
-        /// on approximately no keyboard sold this century. Everything else is the key's name, so a
-        /// rebind reads the same way here as it does in the Settings shortcut list.
+        /// <para>
+        /// <strong>One formatter, since the PR #293 review (non-blocking 5).</strong> The chord is
+        /// rendered by <see cref="ShortcutMatcher.Format"/> - the same function the Settings shortcut
+        /// editor uses to normalize a recorded key into a binding string - so a rebind reads identically
+        /// in the hint strip and in the shortcut list. The hand-rolled version this replaced claimed to do
+        /// that and did not: it fell back to <c>Key.ToString()</c>, so <c>Ctrl+1</c> showed as "Ctrl+D1"
+        /// and <c>Ctrl+,</c> as "Ctrl+OemComma", neither of which is what Settings displays or what the
+        /// user typed.
+        /// </para>
+        /// <para>
+        /// Two keys are then overridden for display, and only for display. <c>Escape</c> is written "Esc"
+        /// by every terminal UI in existence, and <c>Avalonia.Input.Key.Enter</c> is an alias for
+        /// <c>Key.Return</c>, so the normalizer produces "Return" - what the key says on approximately no
+        /// keyboard sold this century. The binding string keeps the canonical token; only the strip reads
+        /// differently.
+        /// </para>
         /// </remarks>
         private static string BuildLabel(Key key, KeyModifiers modifiers)
         {
-            List<string> parts = new(4);
-            if ((modifiers & KeyModifiers.Control) != 0)
+            string normalized = ShortcutMatcher.Format(key, modifiers);
+            return key switch
             {
-                parts.Add("Ctrl");
-            }
+                Key.Escape => ReplaceKeyToken(normalized, "Esc"),
+                Key.Enter => ReplaceKeyToken(normalized, "Enter"),
+                _ => normalized,
+            };
+        }
 
-            if ((modifiers & KeyModifiers.Alt) != 0)
-            {
-                parts.Add("Alt");
-            }
-
-            if ((modifiers & KeyModifiers.Shift) != 0)
-            {
-                parts.Add("Shift");
-            }
-
-            parts.Add(key switch
-            {
-                Key.Escape => "Esc",
-                Key.Enter => "Enter",
-                _ => key.ToString(),
-            });
-            return string.Join("+", parts);
+        /// <summary>Swaps the key token (always last) of a normalized chord for a display name.</summary>
+        private static string ReplaceKeyToken(string normalized, string displayName)
+        {
+            int lastPlus = normalized.LastIndexOf('+');
+            return lastPlus < 0 ? displayName : normalized[..(lastPlus + 1)] + displayName;
         }
 
         private readonly record struct ResolvedBinding(AssistKeyBinding Binding, string Label);
