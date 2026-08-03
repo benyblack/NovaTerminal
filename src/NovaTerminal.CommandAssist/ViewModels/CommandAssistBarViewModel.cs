@@ -45,6 +45,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     private bool _hasSuggestions;
     private bool _showEmptyState;
     private bool _isPopupOpen;
+    private string _attributionText = string.Empty;
 
     public CommandAssistBarViewModel()
     {
@@ -308,6 +309,28 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// The licence credit for the content currently shown, relayed to the popup footer. Set by
+    /// <c>CommandAssistController</c> when Help publishes catalogue rows and cleared on every other
+    /// surface (V2 Phase 4b).
+    /// </summary>
+    public string AttributionText
+    {
+        get => _attributionText;
+        set
+        {
+            string next = value ?? string.Empty;
+            if (_attributionText == next)
+            {
+                return;
+            }
+
+            _attributionText = next;
+            OnPropertyChanged();
+            SyncPresentationState();
+        }
+    }
+
     public bool IsPopupOpen
     {
         get => _isPopupOpen;
@@ -363,6 +386,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         Popup.EmptyStateText = EmptyStateText;
         Popup.HasSuggestions = HasSuggestions;
         Popup.ShowEmptyState = ShowEmptyState;
+        Popup.AttributionText = AttributionText;
     }
 
     /// <summary>

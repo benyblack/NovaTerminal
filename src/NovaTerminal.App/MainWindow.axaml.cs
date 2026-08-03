@@ -5096,6 +5096,13 @@ namespace NovaTerminal
             // see the panes.
             sw.OnCommandAssistHistoryCleared += DismissCommandAssistSurfaces;
 
+            // The same injection, for the same reason, for the snippet manager (V2 Phase 4b): one
+            // live JsonSnippetStore, so Settings and the panes' pin action write through the same
+            // instance rather than two views of one file. Editing or deleting a snippet also invalidates
+            // whatever an open assist surface is showing, so it takes the same refresh.
+            sw.CommandAssistSnippetStore = _commandAssistServices.SnippetStore;
+            sw.OnCommandAssistSnippetsChanged += DismissCommandAssistSurfaces;
+
             // Snapshot the live-previewed values so Cancel can restore them (#167).
             // The preview handlers below mutate _settings directly; without this,
             // closing the dialog without saving left the preview values live, and any

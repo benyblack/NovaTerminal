@@ -233,12 +233,25 @@
                 </Grid>
             </Border>
 
-            <TextBlock Grid.Row="2"
-                       x:Name="PopupShortcutHintText"
-                       Text="{Binding ShortcutHintText}"
-                       Foreground="#8B96A5"
-                       FontSize="11"
-                       TextTrimming="CharacterEllipsis"/>
+            <!--
+                Footer. The hint strip is always there; the attribution line appears under it only
+                when the rows on screen carry a licence that has to be credited - today that is the
+                tldr-derived command catalogue in Help mode (V2 Phase 4b). Wrapped rather than
+                trimmed, because a credit cut off at the ellipsis is not a credit.
+            -->
+            <StackPanel Grid.Row="2" Spacing="3">
+                <TextBlock x:Name="PopupShortcutHintText"
+                           Text="{Binding ShortcutHintText}"
+                           Foreground="#8B96A5"
+                           FontSize="11"
+                           TextTrimming="CharacterEllipsis"/>
+                <TextBlock x:Name="PopupAttributionText"
+                           Text="{Binding AttributionText}"
+                           IsVisible="{Binding HasAttribution}"
+                           Foreground="#6C7684"
+                           FontSize="10"
+                           TextWrapping="Wrap"/>
+            </StackPanel>
         </Grid>
     </Border>
 </UserControl>

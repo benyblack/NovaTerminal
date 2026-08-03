@@ -19,6 +19,7 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
     private bool _useCompactLayout;
     private int _selectedIndex = -1;
     private string _shortcutHintText = string.Empty;
+    private string _attributionText = string.Empty;
 
     public CommandAssistPopupViewModel(ObservableCollection<CommandAssistSuggestionItemViewModel> suggestions)
     {
@@ -119,6 +120,41 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
         get => _shortcutHintText;
         set => SetField(ref _shortcutHintText, value);
     }
+
+    /// <summary>
+    /// The licence credit for the content currently on screen, or empty when there is none to give.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// V2 Phase 4b. The bundled command catalogue is derived from tldr-pages, which is CC-BY-SA 4.0
+    /// and therefore requires attribution wherever its content appears. This app has no About dialog,
+    /// so the credit goes in the footer of the surface that shows the content, where a user reading a
+    /// tldr example can see where it came from without going looking.
+    /// </para>
+    /// <para>
+    /// Empty in every mode except Help, and that is not laziness about placement: Suggest and Search
+    /// rank the user's own history, and a licence line under rows nobody licensed would be noise
+    /// claiming to be a credit.
+    /// </para>
+    /// </remarks>
+    public string AttributionText
+    {
+        get => _attributionText;
+        set
+        {
+            if (_attributionText == value)
+            {
+                return;
+            }
+
+            _attributionText = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AttributionText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(HasAttribution)));
+        }
+    }
+
+    /// <summary>Whether the footer's attribution row has anything to show.</summary>
+    public bool HasAttribution => !string.IsNullOrWhiteSpace(AttributionText);
 
     public ObservableCollection<CommandAssistSuggestionItemViewModel> Suggestions { get; }
 

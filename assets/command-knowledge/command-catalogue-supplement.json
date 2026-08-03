@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "Hand-authored catalogue entries for commands tldr-pages does not document, merged into",
+    "command-catalogue.json by scripts/generate-command-catalogue.ps1. These are NOT tldr-pages",
+    "content and are not covered by its CC-BY-SA licence; the generator marks every entry from",
+    "this file with \"o\": \"nova\" in the output so the asset's attribution header stays honest.",
+    "Keep this list short. An entry belongs here only when the command is one the plan or a user",
+    "report names and tldr has no page for it - not as a place to second-guess tldr's wording."
+  ],
+  "entries": [
+    {
+      "t": "Get-Process",
+      "d": "List the processes running on the local computer.",
+      "s": "pwsh",
+      "e": [
+        { "c": "Get-Process", "d": "List every running process" },
+        { "c": "Get-Process -Name <process_name>", "d": "Show processes matching a name, without the .exe suffix" },
+        { "c": "Get-Process -Id <process_id>", "d": "Show a single process by its process id" },
+        { "c": "Get-Process | Sort-Object -Property WS -Descending | Select-Object -First 10", "d": "Show the ten processes using the most memory" },
+        { "c": "Get-Process -Name <process_name> | Stop-Process", "d": "Stop every process matching a name" },
+        { "c": "Get-Process -IncludeUserName", "d": "Include the owning user (requires an elevated session)" }
+      ]
+    },
+    {
+      "t": "Get-Service",
+      "d": "List the Windows services on the local computer.",
+      "s": "pwsh",
+      "e": [
+        { "c": "Get-Service", "d": "List every service with its status" },
+        { "c": "Get-Service -Name <service_name>", "d": "Show a single service by name" },
+        { "c": "Get-Service | Where-Object Status -eq 'Running'", "d": "List only the services that are running" },
+        { "c": "Get-Service -DisplayName '<display_name_pattern>'", "d": "Find services by their display name" },
+        { "c": "Get-Service -Name <service_name> | Restart-Service", "d": "Restart a service (requires an elevated session)" },
+        { "c": "Get-Service -DependentServices -Name <service_name>", "d": "Show the services that depend on a service" }
+      ]
+    }
+  ]
+}

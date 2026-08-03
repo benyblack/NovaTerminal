@@ -102,6 +102,69 @@ public sealed class CommandAssistControllerTests
         Assert.Equal("git", docsProvider.LastQuery?.CommandToken);
     }
 
+    /// <summary>
+    /// The CC-BY-SA credit for the bundled catalogue reaches the popup footer, and only while the
+    /// content it belongs to is on screen (V2 Phase 4b).
+    /// </summary>
+    [Fact]
+    public async Task OpenHelpAsync_WhenTheDocsProviderCarriesAttribution_ShowsItInThePopupFooter()
+    {
+        var docsProvider = new AttributedDocsProvider(
+            [new CommandHelpItem("ssh", "ssh", "Secure Shell.", null, ["Doc"])],
+            "Command examples from tldr-pages, CC BY-SA 4.0.");
+        var grid = new FakeGrid();
+        var controller = CreateController(
+            suggestionEngine: new CommandAssistSuggestionEngine(),
+            commandDocsProvider: docsProvider,
+            grid: grid);
+        grid.SetLine("ssh");
+
+        await controller.OpenHelpAsync();
+
+        Assert.Equal("Command examples from tldr-pages, CC BY-SA 4.0.", controller.ViewModel.Popup.AttributionText);
+        Assert.True(controller.ViewModel.Popup.HasAttribution);
+    }
+
+    [Fact]
+    public async Task OpenHelpAsync_WhenTheProviderHasNoAttribution_LeavesTheFooterCreditEmpty()
+    {
+        var grid = new FakeGrid();
+        var controller = CreateController(
+            suggestionEngine: new CommandAssistSuggestionEngine(),
+            commandDocsProvider: new RecordingDocsProvider(
+                [new CommandHelpItem("ssh", "ssh", "Secure Shell.", null, ["Doc"])]),
+            grid: grid);
+        grid.SetLine("ssh");
+
+        await controller.OpenHelpAsync();
+
+        Assert.False(controller.ViewModel.Popup.HasAttribution);
+    }
+
+    [Fact]
+    public async Task AttributionIsDroppedWhenAFixSurfaceReplacesHelp()
+    {
+        // A credit that outlived its content would be crediting tldr-pages under rows that came
+        // from the error heuristics.
+        var grid = new FakeGrid();
+        var controller = CreateController(
+            suggestionEngine: new CommandAssistSuggestionEngine(),
+            commandDocsProvider: new AttributedDocsProvider(
+                [new CommandHelpItem("ssh", "ssh", "Secure Shell.", null, ["Doc"])],
+                "Command examples from tldr-pages, CC BY-SA 4.0."),
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion("Did you mean ssh?", "ssh host", "Closest local match.", 0.95, ["Fix"])]),
+            grid: grid);
+        grid.SetLine("ssh");
+
+        await controller.OpenHelpAsync();
+        Assert.True(controller.ViewModel.Popup.HasAttribution);
+
+        await controller.HandleCommandFailureAsync(CreateFailureContext("shh host", 127, "command not found"));
+
+        Assert.False(controller.ViewModel.Popup.HasAttribution);
+    }
+
     [Fact]
     public async Task HandleCommandFailureAsync_WhenInsightIsHighConfidence_OpensFixMode()
     {
@@ -1879,6 +1942,26 @@ public sealed class CommandAssistControllerTests
             LastQuery = query;
             return Task.FromResult(_results);
         }
+    }
+
+    /// <summary>
+    /// A docs provider that also carries a licence line, the way <c>CommandKnowledgeService</c>
+    /// does once its catalogue has been read.
+    /// </summary>
+    private sealed class AttributedDocsProvider : ICommandDocsProvider, ICommandKnowledgeAttributionSource
+    {
+        private readonly IReadOnlyList<CommandHelpItem> _results;
+
+        public AttributedDocsProvider(IReadOnlyList<CommandHelpItem> results, string? attribution)
+        {
+            _results = results;
+            Attribution = attribution;
+        }
+
+        public string? Attribution { get; }
+
+        public Task<IReadOnlyList<CommandHelpItem>> GetHelpAsync(CommandHelpQuery query, CancellationToken cancellationToken = default)
+            => Task.FromResult(_results);
     }
 
     private sealed class RecordingRecipeProvider : IRecipeProvider

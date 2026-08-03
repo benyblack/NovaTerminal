@@ -638,12 +638,21 @@ public sealed class CommandAssistController
             recipes,
             Array.Empty<CommandFixSuggestion>());
 
+        // Read after the awaits, never before. The catalogue's licence line is the catalogue's own
+        // `attribution` field, so it exists only once the asset has been parsed - and the two calls
+        // above are exactly what parses it. Asked through an optional interface rather than a
+        // constructor parameter so that a docs provider with nothing to credit (the empty default, a
+        // test fake, a future Phase 5 provider chain) simply does not implement it and the footer
+        // stays empty, instead of every provider having to carry a null it never sets.
+        string? attribution = (_commandDocsProvider as ICommandKnowledgeAttributionSource)?.Attribution;
+
         _dispatch(() => ApplyHelperSuggestions(
             _modeRouter.ChooseModeForHelpRequest(),
             effectiveQuery,
             suggestions,
             "No local help found.",
-            openPopup: true));
+            openPopup: true,
+            attribution: attribution));
 
         return true;
     }
@@ -845,6 +854,10 @@ public sealed class CommandAssistController
         _isInsertionAvailable = outcome.InsertionAppearsAvailable;
         ViewModel.QueryText = outcome.Query;
 
+        // A ranking pass shows the user's own history, snippets and paths - nothing licensed. If a
+        // Help surface left a credit behind, this is where it goes.
+        ViewModel.AttributionText = string.Empty;
+
         if (outcome.Faulted)
         {
             ClearSuggestionSurface();
@@ -890,6 +903,7 @@ public sealed class CommandAssistController
         ViewModel.EmptyStateText = string.Empty;
         ViewModel.ShowEmptyState = false;
         ViewModel.HasSuggestions = false;
+        ViewModel.AttributionText = string.Empty;
         ViewModel.Suggestions.Clear();
         _suggestions.Clear();
     }
@@ -990,10 +1004,16 @@ public sealed class CommandAssistController
         string? queryText,
         IReadOnlyList<AssistSuggestion> suggestions,
         string emptyStateText,
-        bool openPopup)
+        bool openPopup,
+        string? attribution = null)
     {
         _suggestionOrchestrator.CancelPending();
         _state.EnterHelperMode(mode, openPopup);
+
+        // Written on every helper surface, including the ones that pass null, so the credit cannot
+        // outlive the content it belongs to: a Fix popup opening over a Help popup would otherwise
+        // keep crediting tldr-pages under rows that came from the error heuristics.
+        ViewModel.AttributionText = suggestions.Count > 0 ? attribution ?? string.Empty : string.Empty;
 
         // One fresh read on a user action, so the hint strip is right about insertion for a Help row
         // too. No snapshot reads as available, for the reason on

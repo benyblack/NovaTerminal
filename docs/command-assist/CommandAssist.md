@@ -202,6 +202,63 @@ Shows:
 - recent variants from user history,
 - short distilled help.
 
+#### What Help actually shows (V2 Phase 4b — shipped reality)
+
+The rest of this section is the original spec. This part describes what is in the build, and where
+it differs the build wins.
+
+**Where the content comes from.** `CommandKnowledgeService` (in `NovaTerminal.CommandAssist`)
+replaced `LocalCommandDocsProvider` and `SeedRecipeProvider`, which between them knew seven
+commands — `git`, `docker`, `ls`, `cd`, `grep`, `Get-ChildItem`, `Set-Location` — and answered
+"No local help found" for everything else (#250). It serves two sources, in order:
+
+1. **The bundled catalogue.** `assets/command-knowledge/command-catalogue.json`, embedded in the
+   assembly: 585 commands, 2,714 example invocations, 825 KB. Generated from a tldr-pages checkout
+   by `scripts/generate-command-catalogue.ps1` and committed, so a build needs no network. Each
+   entry is one summary line and up to six examples.
+2. **Local probing.** `ICommandHelpProbe` at the App boundary answers "how would this user open
+   full help for this command on this machine" — `Get-Help <token>` under PowerShell, `man <token>`
+   or `<token> --help` under a POSIX shell, `<token> /?` under `cmd` — from `PATH` and `MANPATH`
+   existence checks, never by running anything. Its row is offered **even when the catalogue knows
+   nothing**, which is the point of having two sources.
+
+The Phase 5 AI seam is the intended third source and is deliberately absent rather than stubbed.
+
+**Docs versus recipes.** The catalogue entry's summary is the `Doc` row: it answers *what is this
+command*. The examples are `Recipe` rows: they answer *how do I run it*, and each one is
+insertable. A recipe row's display text **is** the command it inserts — the old seed recipes showed
+a prose title ("Clone and switch") over a command the user could not see, and a row that says what
+`Enter` will do cannot mislead about it. Argument placeholders are rendered `<like_this>`.
+
+**Lookup.** In order: the two-token form first (`git rebase` before `git` — the catalogue carries
+~200 git subcommands and `git` alone answers almost nothing), then the one-token form. Lookup is
+case-insensitive, so a PowerShell cmdlet resolves however the user cased it; a path or a `.exe`
+suffix is reduced to the bare command (`/usr/bin/ssh`, `.\git.exe`); and a leading `sudo`, `doas`,
+`env`, `command`, `exec` or `time` is stepped over. There is deliberately **no** fuzzy matching —
+an entry the user did not ask for is worse than no entry, and nearest-command guessing is Fix
+mode's job, done against a failure the user has already seen.
+
+**Attribution.** tldr-pages content is CC BY-SA 4.0 and requires credit wherever it appears. The
+app has no About dialog, so the credit is a footer line in the Help popup, fed from the asset's own
+`attribution` field and cleared as soon as the surface stops showing catalogue content. Two entries
+(`Get-Process`, `Get-Service`) are hand-authored because tldr has no page for them; the generator
+marks them `"o": "nova"` in the asset so the credit line is a true statement about exactly the rows
+it covers.
+
+**Regenerating.** Clone tldr-pages and run the generator; see the script header. The committed
+asset's invariants — count, size budget, placeholder rendering, unique tokens, the design doc's
+named commands, the attribution string — are pinned by `CommandCatalogueAssetTests`, so a bad
+regeneration fails the suite rather than shipping.
+
+#### Snippets (V2 Phase 4b)
+
+Snippets are created by pinning a suggestion (`Ctrl+Shift+S`) or in **Settings → Command
+assistant → Saved snippets**, which lists every snippet with an editable name and command and a
+Delete button. Edits commit when the field loses focus; snippets live in their own store, not in
+`settings.json`, so they are not routed through the window's Save button. A snippet with no command
+is refused (it would insert nothing); a snippet with no name is labelled from its command's first
+line.
+
 ### Mode D: Fix
 
 **Shipped behaviour as of V2 Phase 4a** (plan tasks 1–2). This section describes what the code does,
