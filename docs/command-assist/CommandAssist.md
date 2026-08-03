@@ -473,9 +473,49 @@ This feature must feel immediate.
 
 ---
 
-## 14. Suggested keyboard model
+## 14. Keyboard model
 
-### Defaults
+### Shipped (V2 Phase 3a)
+
+This is what the product does. The original speculative table follows it, kept because the roadmap
+still refers to it.
+
+| Key | Owner | Effect |
+| --- | --- | --- |
+| `Ctrl+Space` | app | Toggle the explicit assist session for the focused pane. |
+| `Ctrl+R` | app | Open history search (popup, recency list scoped to this pane's context). |
+| `Ctrl+Alt+H` | app | Help for the command on the line, or for the selection. |
+| `Up` / `Down` | assist, while a surface is visible | Move the selection; opens the popup on the first move. |
+| `Enter` | **assist, while the popup is open with a row selected**; otherwise the shell | Insert the selected suggestion. See below. |
+| `Ctrl+Enter` | assist, while a surface is visible | Insert the selected suggestion. Works in every state, including Help and Fix. |
+| `Esc` | assist, while a surface is visible | Dismiss. |
+| `Tab` | **always the shell** | Shell completion. Command Assist never takes it. |
+| `Ctrl+Shift+P` | assist when a row can be pinned, otherwise falls through | Pin/unpin the selected row. (Collides with the command palette; Phase 3b moves it.) |
+
+Mouse, in the popup: hover highlights, a single click selects, and a double click — or a click on the
+row that is already selected — inserts. The row list scrolls.
+
+**The `Enter` rule, precisely.** `Enter` is Command Assist's only when *all* of: a surface is visible,
+the popup is open, a row is selected, and the mode is Suggest or Search. In Suggest mode that state is
+only reachable by the user having moved the selection, and in Search mode only because they pressed
+`Ctrl+R`; typing closes the popup, so the ordinary type-a-command-and-press-`Enter` flow never reaches
+it. Help and Fix are excluded — their rows are documentation and diagnoses rather than a command line
+being composed, and a Fix popup is on screen right after a submission, where the next `Enter` is most
+likely aimed at the shell.
+
+Only a *completely unmodified* `Enter` is taken. `Shift+Enter` is a newline in several line editors,
+and under the kitty keyboard protocol's disambiguate tier every modified `Enter` is a distinct `CSI u`
+sequence the shell may act on.
+
+If the insertion is refused (the line cannot be read, a keystroke is still unechoed, the cursor is
+mid-line, the text was pasted), `Enter` is *not* consumed and reaches the shell, which submits as it
+always did. A refusal must not turn `Enter` into a dead key.
+
+There is still no execute-from-assist action: insertion sends text to the shell's line editor and
+stops, and the user presses `Enter` themselves. Insert and execute stay separate.
+
+### Original proposal (historical)
+
 - `Ctrl+Space` → open/toggle assist for current pane
 - `Ctrl+R` → history search mode
 - `Ctrl+Shift+P` → command palette
@@ -487,6 +527,12 @@ This feature must feel immediate.
 - `Alt+Enter` → insert without execution
 
 Keep insert and execute clearly separate.
+
+Differences from what shipped, and why: `Tab` stays shell-owned (taking the completion key from the
+shell is a bigger loss than the convenience is worth); `Enter` inserts rather than executes, and the
+"user explicitly navigated there" condition became a state-machine predicate rather than a focus
+question, because the assist surface never takes keyboard focus from the terminal; `Ctrl+Enter` is
+insert, not execute; `Alt+Enter` is unassigned.
 
 ---
 
