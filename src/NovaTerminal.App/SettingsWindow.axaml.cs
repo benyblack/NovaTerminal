@@ -1770,6 +1770,13 @@ namespace NovaTerminal
                 }
             };
 
+            // Columns are assigned explicitly. Avalonia defaults Grid.Column to 0 for every child, so
+            // a Children initializer alone stacks all three controls on top of each other in the
+            // first column - which is exactly what the first build of this row did.
+            Grid.SetColumn(nameEditor, 0);
+            Grid.SetColumn(commandEditor, 1);
+            Grid.SetColumn(deleteButton, 2);
+
             return new Border
             {
                 Background = new SolidColorBrush(Color.Parse("#23272f")),
@@ -1780,7 +1787,7 @@ namespace NovaTerminal
                 Margin = new Thickness(0, 0, 0, 8),
                 Child = new Grid
                 {
-                    ColumnDefinitions = new ColumnDefinitions("200,*,Auto"),
+                    ColumnDefinitions = new ColumnDefinitions("220,*,Auto"),
                     ColumnSpacing = 10,
                     Children = { nameEditor, commandEditor, deleteButton },
                 },
