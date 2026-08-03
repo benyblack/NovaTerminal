@@ -23,6 +23,7 @@ using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using NovaTerminal.CommandAssist.Application;
+using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ViewModels;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
@@ -170,6 +171,14 @@ namespace NovaTerminal.Controls
         // across the two; the gate costs one uncontended lock per prompt.
         private readonly object _commandStartMarkGate = new();
         private ShellIntegrationMark? _latestCommandStartMark;
+
+        // Where the running command's output region begins, captured at OSC 133;C. Guarded by the
+        // same gate and for the same reason. See CaptureCommandOutputRegionStart.
+        private ShellIntegrationMark? _commandOutputRegionStart;
+
+        // The last output tail captured at OSC 133;D, already capped and already redacted. A test
+        // seam only: the value the controller sees is passed as an argument, not read from here.
+        private string? _lastFailureOutputTailForTest;
 
         // True between "the user pressed a key that edits the command line" and "the session sent
         // us bytes we have parsed into the grid". See NoteInputAwaitingEcho for why insertion
@@ -2626,6 +2635,14 @@ namespace NovaTerminal.Controls
             {
                 NoteShellIntegrationMarkObserved();
 
+                // OSC 133;C is the only moment the output region's *start* can be established: the
+                // input line is still on screen and the mark that describes it is still live, so
+                // "the row after the last row of the input" is answerable. One frame later the
+                // shell has echoed a newline and started printing, and nothing on the grid says
+                // where that began. Runs here on the parse thread, synchronously, for the same
+                // reason - a UI-thread hop would read a grid the parser has moved on from.
+                CaptureCommandOutputRegionStart();
+
                 // Only overwritten when the mark carried text. A bare `133;C` (legal FinalTerm, and
                 // what several third-party remote snippets emit) arrives with null, and clearing
                 // here would throw away the command the grid/heuristic path already read at Enter -
@@ -2682,6 +2699,15 @@ namespace NovaTerminal.Controls
             Parser.OnCommandFinished += exitCode =>
             {
                 _agentRegistration?.StatusMachine.NotifyCommandFinished(exitCode);
+
+                // Captured here, on the parse thread, and only for a failure. By the time the UI
+                // post below runs, the shell has painted the next prompt over the last rows of the
+                // output and may already be running the next command; D is the last instant at
+                // which the region is still on the grid. The success path pays nothing - no read,
+                // no redaction - because there is nothing for Fix mode to say about it.
+                string? outputTail = TryCaptureFailureOutputTail(exitCode);
+                _lastFailureOutputTailForTest = outputTail;
+
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (exitCode.HasValue)
@@ -2690,7 +2716,7 @@ namespace NovaTerminal.Controls
                     }
 
                     CommandFinished?.Invoke(this, exitCode);
-                    _ = HandleCommandAssistCompletionAsync(exitCode);
+                    _ = HandleCommandAssistCompletionAsync(exitCode, outputTail);
                 });
             };
             Parser.OnCommandFinishedDetailed += (exitCode, durationMs) =>
@@ -2711,6 +2737,11 @@ namespace NovaTerminal.Controls
                 lock (_commandStartMarkGate)
                 {
                     _latestCommandStartMark = null;
+
+                    // The output region ends here too. OnCommandFinished (above, same OSC 133;D)
+                    // has already read it; holding the mark past this point would let the *next*
+                    // failure read a region that starts inside this command's output.
+                    _commandOutputRegionStart = null;
                 }
 
                 _shellLifecycleTracker?.HandleCommandFinished(exitCode, durationMs);
@@ -2744,7 +2775,10 @@ namespace NovaTerminal.Controls
             lock (_commandStartMarkGate)
             {
                 _latestCommandStartMark = null;
+                _commandOutputRegionStart = null;
             }
+
+            _lastFailureOutputTailForTest = null;
 
             // Update SFTP Menu Visibility
             // If it's not an SSH session, detach the context menu entirely to avoid "tiny empty box" artifacts
@@ -4137,7 +4171,108 @@ namespace NovaTerminal.Controls
         internal AssistQuerySnapshot? TryReadGatedAssistQuerySnapshotForTest() =>
             _commandAssistController?.TryReadQuerySnapshot();
 
-        internal async Task HandleCommandAssistCompletionAsync(int? exitCode)
+        /// <summary>
+        /// Records where the running command's output begins, at the <c>OSC 133;C</c> edge.
+        /// </summary>
+        /// <remarks>
+        /// Called on the PTY parse thread. Cheap by construction - one bounded grid walk to find
+        /// the last row of the input line - and unconditional, because the thing being recorded is
+        /// a coordinate, not content: skipping it for successful commands would mean not knowing,
+        /// at <c>D</c>, whether the command that just failed had one.
+        /// </remarks>
+        private void CaptureCommandOutputRegionStart()
+        {
+            TerminalBuffer? buffer = Buffer;
+            if (buffer == null)
+            {
+                return;
+            }
+
+            ShellIntegrationMark? commandLineMark;
+            lock (_commandStartMarkGate)
+            {
+                commandLineMark = _latestCommandStartMark;
+            }
+
+            bool captured = CommandOutputReader.TryCaptureOutputStart(
+                buffer, commandLineMark, out ShellIntegrationMark outputStart);
+
+            lock (_commandStartMarkGate)
+            {
+                _commandOutputRegionStart = captured ? outputStart : null;
+            }
+        }
+
+        /// <summary>
+        /// The redacted tail of a failing command's output, read at the <c>OSC 133;D</c> edge.
+        /// </summary>
+        /// <returns>
+        /// Null for a success, for a missing exit code, for a session with no <c>C</c> mark to
+        /// bound the region, and for any grid the reader will not vouch for. Never a partial or
+        /// speculative answer.
+        /// </returns>
+        /// <remarks>
+        /// <para>
+        /// <strong>The cap comes before the redaction, and that ordering is the point.</strong>
+        /// <see cref="CommandOutputReader"/> stops walking after 40 logical lines or 8 KB, so the
+        /// regex pass below runs over at most 8 KB however much the command printed. Redacting
+        /// first and truncating afterwards would make a failing <c>terraform apply</c> pay for
+        /// megabytes of scrollback on the parse thread.
+        /// </para>
+        /// <para>
+        /// <strong>Redaction happens here, not downstream.</strong> This is the boundary: above it
+        /// the text is raw grid content owned by the VT layer, below it the text is a plain string
+        /// inside <c>CommandFailureContext</c> that Phase 5's provider seam may eventually send off
+        /// the machine. One call site is one thing to audit, and
+        /// <c>PaneCommandOutputCaptureTests</c> fails if it is removed.
+        /// </para>
+        /// </remarks>
+        private string? TryCaptureFailureOutputTail(int? exitCode)
+        {
+            if (exitCode is null or 0)
+            {
+                return null;
+            }
+
+            TerminalBuffer? buffer = Buffer;
+            if (buffer == null)
+            {
+                return null;
+            }
+
+            ShellIntegrationMark? outputStart;
+            lock (_commandStartMarkGate)
+            {
+                outputStart = _commandOutputRegionStart;
+            }
+
+            if (outputStart is not ShellIntegrationMark region)
+            {
+                return null;
+            }
+
+            if (!CommandOutputReader.TryReadOutputTail(buffer, region, out string tail) ||
+                string.IsNullOrWhiteSpace(tail))
+            {
+                return null;
+            }
+
+            ISecretsFilter filter = _commandAssistServices?.SecretsFilter ?? FallbackSecretsFilter;
+            return filter.Redact(tail).RedactedText;
+        }
+
+        /// <summary>
+        /// Used when no services graph has been attached (headless tests, a pane created before
+        /// composition). <see cref="SecretsFilter"/> is stateless, so one instance is enough - and
+        /// the alternative, skipping redaction when there is no graph, would make the guarantee
+        /// conditional on wiring.
+        /// </summary>
+        private static readonly ISecretsFilter FallbackSecretsFilter = new SecretsFilter();
+
+        /// <summary>The tail captured for the last failing command. Test seam; see the field.</summary>
+        internal string? LastFailureOutputTailForTest => _lastFailureOutputTailForTest;
+
+        internal async Task HandleCommandAssistCompletionAsync(int? exitCode, string? outputTail = null)
         {
             if (!EnsureCommandAssistInitialized())
             {
@@ -4173,7 +4308,12 @@ namespace NovaTerminal.Controls
                 ExitCode: exitCode,
                 ShellKind: DetermineShellKind(Session?.ShellCommand ?? ShellCommand),
                 WorkingDirectory: CurrentWorkingDirectory,
-                ErrorOutput: null,
+
+                // V2 Phase 4a task 1: was a hard-coded null, which made two of the three branches
+                // in HeuristicErrorInsightService unreachable and Fix mode a typo corrector with no
+                // evidence. Captured at D on the parse thread and redacted there; see
+                // TryCaptureFailureOutputTail.
+                OutputTail: outputTail,
                 IsRemote: Profile?.Type == ConnectionType.SSH,
                 SelectedText: null);
 

@@ -1506,7 +1506,7 @@ public sealed class CommandAssistControllerTests
             ExitCode: exitCode,
             ShellKind: "pwsh",
             WorkingDirectory: @"C:\repo",
-            ErrorOutput: errorOutput,
+            OutputTail: errorOutput,
             IsRemote: false,
             SelectedText: null);
     }

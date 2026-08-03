@@ -203,13 +203,69 @@ Shows:
 - short distilled help.
 
 ### Mode D: Fix
-Activated after a command exits non-zero or when stderr appears significant.
 
-Shows:
-- likely typo corrections,
-- missing flag hints,
-- cwd-related suggestions,
-- optional AI explanation.
+**Shipped behaviour as of V2 Phase 4a** (plan tasks 1–2). This section describes what the code does,
+not what the original spec sketched.
+
+Activated when a command exits non-zero, on the `OSC 133;D` edge. Nothing is shown for exit 0, ever.
+
+**What it reads.** At `OSC 133;C` the pane records where the command's *output region* starts — the
+row after the last row of the input line — as an eviction-stable `ShellIntegrationMark`. At `133;D`,
+and only for a non-zero exit, `CommandOutputReader` (in `NovaTerminal.VT`) walks backwards from the
+cursor and returns the last **40 logical lines / 8 KB** of that region, joined with `\n`. Soft-wrapped
+physical rows are joined *without* a separator, because they are one logical line: a recogniser
+matching `is not recognized as a name of a cmdlet` must not depend on how wide the pane is.
+
+It is called `OutputTail`, not `ErrorOutput`, and the name is the honest one. A terminal has one grid;
+stdout and stderr are interleaved on it and nothing in the byte stream distinguishes them. Fix mode
+pattern-matches a tail that usually ends with the error — it is not reading a separate stream.
+
+**Refusals.** The reader returns nothing rather than the wrong rows when the mark's `Generation` no
+longer matches the buffer's (a `CSI 3J` / `RIS` / reflow resets both row counters, so a stale absolute
+row resolves to plausible unrelated content), when the alt screen is active, or when there was no `C`
+edge to bound the region. Output that scrolled the region's start out of scrollback *clamps* to the
+oldest surviving row instead — the last 40 lines are still the last 40 lines. Known gap: a command
+that drove the alt screen and left it before `D` resolves against the restored main screen; the rows
+are real, they are just not that program's output, and no recogniser matches them.
+
+**Redaction.** `ISecretsFilter` runs at the single capture site in `TerminalPane`, on the parse
+thread, *after* the cap. Nothing unredacted crosses into `NovaTerminal.CommandAssist`, which is where
+Phase 5's provider seam will eventually sit.
+
+**What it says.** `HeuristicErrorInsightService` runs a table of recognisers
+(`CommandErrorRecognizers.All`) over the command text and the tail. Every recogniser is asked and the
+results are concatenated; confidence decides what the user sees, not table order.
+
+| Confidence | Meaning | Surface |
+| --- | --- | --- |
+| 0.95 | one-edit typo of a known name, with the shell saying it could not resolve it | Fix popup opens |
+| 0.90 | the failing tool printed the exact command; we quote it back | Fix popup opens |
+| 0.70 | a good guess with an obvious alternative reading | bubble only |
+| 0.55 | one of several plausible causes | bubble only |
+| 0.40 | an explanation, with a runnable command attached | bubble only |
+
+The 0.8 line is `CommandAssistModeRouter.FixModeThreshold`. Only the top two rows cross it, and both
+are cases with no inference in them.
+
+Covered failure classes: per-shell command-not-found (pwsh, Windows PowerShell, cmd, bash/zsh, fish),
+the `./` invocation hint, cross-shell command translation (`dir`↔`ls`, `cat`↔`type`, …),
+permission denied, file/path not found, git (unknown subcommand, not-a-repository, pathspec, no
+upstream, detached HEAD, rejected push), npm/pnpm (missing script, ERESOLVE), docker (daemon
+unreachable, no such container/image/volume), dotnet (SDK not found, MSBuild/NETSDK/CS diagnostics).
+
+**How much it infers scales with how much it can see.** With output that matched a recogniser, the
+table's answer stands. With output that matched nothing, a typo correction drops to 0.40 — the
+command ran and failed for a reason we do not understand, and "did you mean git?" for a working `git`
+is noise. With *no* output captured at all (a markless session, a scrolled-away region), the
+pre-Phase-4a behaviour survives: a name-similarity guess, capped below the threshold so it informs
+without interrupting.
+
+**Extending it.** Add an entry to `CommandErrorRecognizers.All` and a sample to
+`CommandErrorRecognizerTests`, saying whether the sample was captured from a real run or transcribed.
+Do not add branches to the service — the table is what Phase 4b's knowledge catalogue and Phase 5's
+provider seam walk.
+
+Not yet shipped: missing-flag hints, cwd-related suggestions, AI explanation (Phase 5).
 
 ### Mode E: Ask AI
 Explicitly invoked only.

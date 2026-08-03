@@ -7,73 +7,108 @@ using NovaTerminal.CommandAssist.Models;
 
 namespace NovaTerminal.CommandAssist.Domain;
 
+/// <summary>
+/// Fix mode's local brain: a table of recognisers run over the failing command and the tail of what
+/// it printed.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>What changed in V2 Phase 4a.</strong> This class used to have three branches, two of
+/// which were unreachable: both keyed off <c>CommandFailureContext.ErrorOutput</c>, and the single
+/// call site in <c>TerminalPane</c> passed a hard-coded <c>null</c>. The one branch that did run
+/// was an edit-distance guess against a seven-name list, published at 0.82 against a Fix threshold
+/// of 0.8 - so the only thing Fix mode could ever say was "did you mean git?", and it said it on
+/// the strength of no evidence about what had actually gone wrong. Phase 4a task 1 fills
+/// <see cref="CommandFailureContext.OutputTail"/> from the grid, which is what makes the rest of
+/// the table reachable at all.
+/// </para>
+/// <para>
+/// <strong>The dispatch is deliberately dumb.</strong> Every recogniser is asked, in table order,
+/// and the results are concatenated. There is no early exit on a match: a command-not-found on a
+/// script file legitimately produces both "did you mean" and "run it with ./", and a first-match
+/// rule would have to encode a priority that the confidence numbers already express better. The
+/// cost is bounded - fifteen substring scans over at most 8 KB, once per failing command.
+/// </para>
+/// <para>
+/// <strong>The output-tail ladder.</strong> How much the service is willing to infer scales with
+/// how much it can see:
+/// <list type="number">
+/// <item><description><em>Output captured and a recogniser matched</em> - the table's answer,
+/// at the confidence the recogniser chose.</description></item>
+/// <item><description><em>Output captured, nothing matched</em> - a typo correction is
+/// <em>refused</em> above <see cref="CommandErrorRecognizers.Plausible"/>. The command ran, printed
+/// something we do not understand, and failed; "did you mean git?" for a <c>git</c> that exists and
+/// exited 1 is noise. This is the case the old 0.82 branch got wrong.</description></item>
+/// <item><description><em>No output captured at all</em> (markless session, scrolled past,
+/// stale mark) - the pre-Phase-4a behaviour survives unchanged, because it is all there is: a
+/// correction of the first token, capped below the Fix threshold so it informs without
+/// interrupting.</description></item>
+/// </list>
+/// </para>
+/// <para>
+/// Ordering is by confidence, then by title, so the surface's top row is the strongest claim and
+/// the order is stable across runs (the popup's selected index is 0 and must not move between two
+/// equally confident rows).
+/// </para>
+/// </remarks>
 public sealed class HeuristicErrorInsightService : IErrorInsightService
 {
-    private static readonly string[] KnownCommands =
-    [
-        "git",
-        "docker",
-        "ls",
-        "cd",
-        "grep",
-        "Get-ChildItem",
-        "Set-Location"
-    ];
+    private readonly IReadOnlyList<CommandErrorRecognizer> _recognizers;
 
-    public Task<IReadOnlyList<CommandFixSuggestion>> AnalyzeAsync(CommandFailureContext context, CancellationToken cancellationToken = default)
+    public HeuristicErrorInsightService()
+        : this(CommandErrorRecognizers.All)
+    {
+    }
+
+    /// <summary>
+    /// Test seam: run a subset of the table. Production always uses
+    /// <see cref="CommandErrorRecognizers.All"/>.
+    /// </summary>
+    public HeuristicErrorInsightService(IReadOnlyList<CommandErrorRecognizer> recognizers)
+    {
+        _recognizers = recognizers ?? throw new ArgumentNullException(nameof(recognizers));
+    }
+
+    public Task<IReadOnlyList<CommandFixSuggestion>> AnalyzeAsync(
+        CommandFailureContext context,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (string.IsNullOrWhiteSpace(context.CommandText))
+        if (context is null || string.IsNullOrWhiteSpace(context.CommandText))
         {
-            return Task.FromResult<IReadOnlyList<CommandFixSuggestion>>(Array.Empty<CommandFixSuggestion>());
+            return Empty;
         }
 
-        string commandToken = ExtractPrimaryToken(context.CommandText);
-        if (string.IsNullOrWhiteSpace(commandToken))
+        var signal = new CommandErrorSignal(context);
+        if (signal.PrimaryToken.Length == 0)
         {
-            return Task.FromResult<IReadOnlyList<CommandFixSuggestion>>(Array.Empty<CommandFixSuggestion>());
+            return Empty;
         }
 
-        List<CommandFixSuggestion> suggestions = new();
-
-        if (IsCommandNotFound(context.ErrorOutput))
+        List<CommandFixSuggestion> suggestions = [];
+        foreach (CommandErrorRecognizer recognizer in _recognizers)
         {
-            CommandFixSuggestion? shellMismatchSuggestion = TryBuildShellMismatchSuggestion(context.ShellKind, commandToken, context.CommandText);
-            if (shellMismatchSuggestion != null)
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<CommandFixSuggestion> matched = recognizer.Analyze(signal);
+            if (matched.Count > 0)
             {
-                suggestions.Add(shellMismatchSuggestion);
-            }
-
-            CommandFixSuggestion? correctionSuggestion = TryBuildCorrectionSuggestion(commandToken, context.CommandText);
-            if (correctionSuggestion != null)
-            {
-                suggestions.Add(correctionSuggestion);
-            }
-        }
-        else if (context.ExitCode.HasValue && context.ExitCode.Value != 0)
-        {
-            CommandFixSuggestion? correctionSuggestion = TryBuildCorrectionSuggestion(commandToken, context.CommandText);
-            if (correctionSuggestion != null)
-            {
-                suggestions.Add(correctionSuggestion with
-                {
-                    Confidence = Math.Min(correctionSuggestion.Confidence, 0.82),
-                    Description = "Closest known local command match after a failed command."
-                });
+                suggestions.AddRange(matched);
             }
         }
 
-        if (IsPathNotFound(context.ErrorOutput))
+        if (suggestions.Count == 0)
         {
-            CommandFixSuggestion? pathSuggestion = TryBuildPathInvocationSuggestion(context.ShellKind, commandToken);
-            if (pathSuggestion != null)
+            CommandFixSuggestion? fallback = TryBuildUninformedCorrection(signal);
+            if (fallback != null)
             {
-                suggestions.Add(pathSuggestion);
+                suggestions.Add(fallback);
             }
         }
 
         IReadOnlyList<CommandFixSuggestion> ordered = suggestions
+            .GroupBy(item => item.SuggestedCommand, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(item => item.Confidence).First())
             .OrderByDescending(item => item.Confidence)
             .ThenBy(item => item.Title, StringComparer.OrdinalIgnoreCase)
             .ToArray();
@@ -81,180 +116,49 @@ public sealed class HeuristicErrorInsightService : IErrorInsightService
         return Task.FromResult(ordered);
     }
 
-    private static bool IsCommandNotFound(string? errorOutput)
+    /// <summary>
+    /// The bottom two rungs of the ladder in the class remarks: a typo correction offered on
+    /// weaker evidence than a command-not-found message, and priced accordingly.
+    /// </summary>
+    /// <remarks>
+    /// The distinction between "the command printed nothing we recognise" and "we could not read
+    /// what it printed" is the whole content of this method, and it is why
+    /// <see cref="CommandErrorSignal.HasOutput"/> exists. With no output the service is in exactly
+    /// the position V1 was permanently in, and the old answer - a capped correction - is still the
+    /// best available. With output that matched nothing, the same answer would be actively worse
+    /// than silence, so it is priced below the point where it can open a popup and below the point
+    /// where it reads as a claim.
+    /// </remarks>
+    private static CommandFixSuggestion? TryBuildUninformedCorrection(CommandErrorSignal signal)
     {
-        if (string.IsNullOrWhiteSpace(errorOutput))
-        {
-            return false;
-        }
-
-        return errorOutput.Contains("command not found", StringComparison.OrdinalIgnoreCase) ||
-               errorOutput.Contains("is not recognized as an internal or external command", StringComparison.OrdinalIgnoreCase) ||
-               errorOutput.Contains("is not recognized", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsPathNotFound(string? errorOutput)
-    {
-        return !string.IsNullOrWhiteSpace(errorOutput) &&
-               errorOutput.Contains("No such file or directory", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string ExtractPrimaryToken(string commandText)
-    {
-        string trimmed = commandText.Trim();
-        if (trimmed.Length == 0)
-        {
-            return string.Empty;
-        }
-
-        int firstWhitespace = trimmed.IndexOfAny([' ', '\t', '\r', '\n']);
-        return firstWhitespace >= 0 ? trimmed[..firstWhitespace] : trimmed;
-    }
-
-    private static CommandFixSuggestion? TryBuildCorrectionSuggestion(string commandToken, string commandText)
-    {
-        string? bestMatch = null;
-        int bestDistance = int.MaxValue;
-
-        foreach (string knownCommand in KnownCommands)
-        {
-            int distance = ComputeLevenshteinDistance(commandToken, knownCommand);
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                bestMatch = knownCommand;
-            }
-        }
-
-        if (bestMatch == null ||
-            bestDistance == 0 ||
-            bestDistance > GetMaxAllowedDistance(commandToken, bestMatch))
+        if (signal.ExitCode is null or 0)
         {
             return null;
         }
 
-        string suggestedCommand = ReplaceLeadingToken(commandText, commandToken, bestMatch);
-        double confidence = bestDistance <= 1 ? 0.95 : 0.84;
+        string? corrected = FixKnownCommands.TryCorrect(signal.PrimaryToken, out int distance);
+        if (corrected == null)
+        {
+            return null;
+        }
+
+        double confidence = signal.HasOutput
+            ? CommandErrorRecognizers.Explanatory
+            : distance == 1
+                ? CommandErrorRecognizers.Likely
+                : CommandErrorRecognizers.Plausible;
 
         return new CommandFixSuggestion(
-            Title: $"Did you mean {bestMatch}?",
-            SuggestedCommand: suggestedCommand,
-            Description: "Closest known local command match.",
+            Title: $"Did you mean {corrected}?",
+            SuggestedCommand: signal.WithPrimaryToken(corrected),
+            Description: signal.HasOutput
+                ? "The command failed for a reason this terminal does not recognise; "
+                    + $"'{corrected}' is the closest known command name."
+                : "No output was captured for this command, so this is a name-similarity guess only.",
             Confidence: confidence,
             Badges: ["Fix", "Typo"]);
     }
 
-    private static CommandFixSuggestion? TryBuildPathInvocationSuggestion(string? shellKind, string commandToken)
-    {
-        if (commandToken.StartsWith("./", StringComparison.Ordinal) ||
-            commandToken.StartsWith(".\\", StringComparison.Ordinal) ||
-            commandToken.Contains('/') ||
-            commandToken.Contains('\\'))
-        {
-            return null;
-        }
-
-        string prefix = string.Equals(shellKind, "pwsh", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(shellKind, "powershell", StringComparison.OrdinalIgnoreCase)
-            ? ".\\"
-            : "./";
-
-        return new CommandFixSuggestion(
-            Title: "Try running the file from the current directory",
-            SuggestedCommand: prefix + commandToken,
-            Description: "The shell may need an explicit current-directory path.",
-            Confidence: 0.83,
-            Badges: ["Fix", "Path"]);
-    }
-
-    private static CommandFixSuggestion? TryBuildShellMismatchSuggestion(string? shellKind, string commandToken, string commandText)
-    {
-        string? replacement = null;
-
-        if (string.Equals(shellKind, "bash", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(shellKind, "zsh", StringComparison.OrdinalIgnoreCase))
-        {
-            if (string.Equals(commandToken, "Get-ChildItem", StringComparison.OrdinalIgnoreCase))
-            {
-                replacement = "ls";
-            }
-            else if (string.Equals(commandToken, "Set-Location", StringComparison.OrdinalIgnoreCase))
-            {
-                replacement = "cd";
-            }
-            else if (string.Equals(commandToken, "dir", StringComparison.OrdinalIgnoreCase))
-            {
-                replacement = "ls";
-            }
-        }
-        else if (string.Equals(shellKind, "cmd", StringComparison.OrdinalIgnoreCase) &&
-                 string.Equals(commandToken, "ls", StringComparison.OrdinalIgnoreCase))
-        {
-            replacement = "dir";
-        }
-
-        if (replacement == null)
-        {
-            return null;
-        }
-
-        return new CommandFixSuggestion(
-            Title: "Try the shell-native command",
-            SuggestedCommand: ReplaceLeadingToken(commandText, commandToken, replacement),
-            Description: "The original command token looks like it belongs to a different shell.",
-            Confidence: 0.82,
-            Badges: ["Fix", "Shell"]);
-    }
-
-    private static string ReplaceLeadingToken(string commandText, string originalToken, string replacementToken)
-    {
-        string trimmed = commandText.TrimStart();
-        if (!trimmed.StartsWith(originalToken, StringComparison.Ordinal))
-        {
-            return replacementToken;
-        }
-
-        return replacementToken + trimmed[originalToken.Length..];
-    }
-
-    private static int GetMaxAllowedDistance(string commandToken, string candidate)
-    {
-        int shortestLength = Math.Min(commandToken.Length, candidate.Length);
-        return shortestLength <= 4 ? 2 : 2;
-    }
-
-    private static int ComputeLevenshteinDistance(string source, string target)
-    {
-        if (string.Equals(source, target, StringComparison.OrdinalIgnoreCase))
-        {
-            return 0;
-        }
-
-        string left = source.ToLowerInvariant();
-        string right = target.ToLowerInvariant();
-        int[,] distances = new int[left.Length + 1, right.Length + 1];
-
-        for (int i = 0; i <= left.Length; i++)
-        {
-            distances[i, 0] = i;
-        }
-
-        for (int j = 0; j <= right.Length; j++)
-        {
-            distances[0, j] = j;
-        }
-
-        for (int i = 1; i <= left.Length; i++)
-        {
-            for (int j = 1; j <= right.Length; j++)
-            {
-                int substitutionCost = left[i - 1] == right[j - 1] ? 0 : 1;
-                distances[i, j] = Math.Min(
-                    Math.Min(distances[i - 1, j] + 1, distances[i, j - 1] + 1),
-                    distances[i - 1, j - 1] + substitutionCost);
-            }
-        }
-
-        return distances[left.Length, right.Length];
-    }
+    private static Task<IReadOnlyList<CommandFixSuggestion>> Empty =>
+        Task.FromResult<IReadOnlyList<CommandFixSuggestion>>(Array.Empty<CommandFixSuggestion>());
 }
