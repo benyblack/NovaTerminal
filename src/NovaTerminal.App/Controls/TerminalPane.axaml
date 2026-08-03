@@ -116,11 +116,19 @@
                         </Grid>
                     </Border>
 
+                    <!--
+                        The host itself has no Background, so it is transparent to hit testing and a
+                        click anywhere except on a child still reaches the terminal underneath. It used
+                        to set IsHitTestVisible="False", which excludes the whole subtree and is why the
+                        popup rows could not be clicked at all (V2 Phase 3a): a child cannot opt back
+                        into hit testing its parent has switched off. The bubble opts out individually
+                        instead - it is a status readout with nothing to click, and it sits directly over
+                        the prompt row the user selects text on.
+                    -->
                     <Grid x:Name="CommandAssistOverlayHost"
                           Grid.Row="0"
                           ZIndex="150"
-                          IsVisible="False"
-                          IsHitTestVisible="False">
+                          IsVisible="False">
                         <assist:CommandAssistPopupView x:Name="CommandAssistPopup"
                                                        HorizontalAlignment="Left"
                                                        VerticalAlignment="Top"
@@ -128,6 +136,7 @@
                         <assist:CommandAssistBubbleView x:Name="CommandAssistBubble"
                                                         HorizontalAlignment="Left"
                                                         VerticalAlignment="Top"
+                                                        IsHitTestVisible="False"
                                                         Margin="16,16,16,24" />
                     </Grid>
                 </Grid>

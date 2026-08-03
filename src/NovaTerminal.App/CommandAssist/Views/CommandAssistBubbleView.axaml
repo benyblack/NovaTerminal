@@ -10,7 +10,7 @@
             BorderThickness="1"
             CornerRadius="8"
             Padding="10,6">
-        <Grid ColumnDefinitions="Auto,Auto,*" ColumnSpacing="10">
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
             <TextBlock x:Name="BubbleModeLabelText"
                        Text="{Binding ModeLabel}"
                        Foreground="#8EC5FF"
@@ -28,6 +28,20 @@
                        Grid.Column="2"
                        Text="{Binding SummaryText}"
                        Foreground="#D7E8FF"
+                       VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis"/>
+
+            <!--
+                The hint strip. Present on the view-model since M4.2 and never bound until V2 Phase 3a,
+                which is why the shortcuts were unlearnable in-product: the one surface that could have
+                taught them rendered everything except them. Content is state-dependent (see
+                CommandAssistBarViewModel), so it never advertises a key the surface does not own.
+            -->
+            <TextBlock x:Name="BubbleShortcutHintText"
+                       Grid.Column="3"
+                       Text="{Binding ShortcutHintText}"
+                       Foreground="#8B96A5"
+                       FontSize="11"
                        VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis"/>
         </Grid>

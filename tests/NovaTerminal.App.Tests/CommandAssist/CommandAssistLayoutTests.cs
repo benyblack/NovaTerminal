@@ -2,6 +2,7 @@ using NovaTerminal.Shell;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -440,6 +441,104 @@ public sealed class CommandAssistLayoutTests
         Assert.False(layout.UsesPromptAnchor);
         Assert.True(layout.BubbleRect.Bottom > 500 * 0.5,
             $"Expected conservative fallback to stay in lower safe zone when prompt hint rows lag pane height, but bottom was {layout.BubbleRect.Bottom}.");
+    }
+
+    // ------------------------------------------- explicit intent is never hidden (V2 Phase 3a)
+
+    /// <summary>
+    /// The owner's third report: in a tab split into two SSH panes, the assist did not appear on one of
+    /// them. A split halves the pane height, which puts both panes under the short-pane threshold, and
+    /// on the pane whose prompt was still in the upper band the conservative band check hid the overlay
+    /// outright - for <c>Ctrl+R</c> as readily as for an uninvited bubble.
+    /// </summary>
+    /// <remarks>
+    /// The geometry is copied exactly from
+    /// <c>TerminalPane_WhenRemotePromptIsInUpperBandOnShortPane_SuppressesConservativeAssistLayout</c>,
+    /// which is the negative control: without an explicitly requested surface the same pane still
+    /// returns null. The Escape at the end is a second control on the same instance, so the bypass
+    /// cannot be satisfied by "a controller exists" rather than by the session state.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TerminalPane_WhenHistorySearchIsOpenOnAShortRemotePane_DoesNotSuppressTheOverlay()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 220
+        };
+        ConfigureCommandAssist(pane);
+        pane.UpdateProfile(new TerminalProfile
+        {
+            Type = ConnectionType.SSH,
+            Command = "ssh.exe",
+            SshHost = "ubuntu.example"
+        });
+        pane.Measure(new Size(900, 220));
+        pane.Arrange(new Rect(0, 0, 900, 220));
+
+        TerminalView termView = Assert.IsType<TerminalView>(pane.FindControl<TerminalView>("TermView"));
+        Assert.NotNull(pane.Buffer);
+        termView.SetMetricsForTest(10, 18);
+        termView.Measure(new Size(900, 220));
+        termView.Arrange(new Rect(0, 0, 900, 220));
+        pane.Buffer.SetCursorPosition(0, 1);
+        AssertPromptHint(termView, expectedCursorRow: 1, expectedVisibleRows: 12);
+
+        // No marks are produced: this is a markless remote pane, the case the suppression exists for.
+        Assert.True(pane.OpenCommandAssistHistorySearch());
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(
+            pane.CalculateCommandAssistAnchorLayoutForTest());
+
+        // Worst-case placement is the safe lower band, not invisibility.
+        Assert.False(layout.UsesMarkAnchor);
+        Assert.False(layout.UsesPromptAnchor);
+        Assert.True(layout.BubbleRect.Bottom > 220 * 0.5,
+            $"Expected the summoned surface to land in the lower safe band, but bottom was {layout.BubbleRect.Bottom}.");
+
+        // Control: dismiss the surface and the conservative suppression is back.
+        Assert.True(pane.TryHandleCommandAssistKey(Key.Escape, KeyModifiers.None));
+        Assert.Null(pane.CalculateCommandAssistAnchorLayoutForTest());
+    }
+
+    /// <summary>
+    /// The other half of the third report, checked directly rather than through geometry: both panes of
+    /// a split get their own initialized controller off one shared services graph, and <c>Ctrl+R</c>
+    /// opens on the second one as readily as on the first.
+    /// </summary>
+    /// <remarks>
+    /// <c>MainWindow.WirePane</c> is the funnel that assigns <c>CommandAssistServices</c> to every pane
+    /// it creates, including the ones a split adds, so the injection itself is structural. What this
+    /// pins is that nothing in the pane's own initialization is single-instance: a second pane sharing
+    /// the same history store and snippet store must build a second controller and a second view-model
+    /// rather than finding the first one's state.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TwoPanesSharingOneServicesGraph_BothOpenTheirOwnHistorySearch()
+    {
+        using var first = new TerminalPane();
+        using var second = new TerminalPane();
+        ConfigureCommandAssist(first);
+        ConfigureCommandAssist(second);
+
+        Assert.True(first.OpenCommandAssistHistorySearch());
+        Assert.True(second.OpenCommandAssistHistorySearch());
+
+        CommandAssistBarViewModel firstViewModel = Assert.IsType<CommandAssistBarViewModel>(first.CommandAssistViewModel);
+        CommandAssistBarViewModel secondViewModel = Assert.IsType<CommandAssistBarViewModel>(second.CommandAssistViewModel);
+
+        Assert.NotSame(firstViewModel, secondViewModel);
+        Assert.True(firstViewModel.IsVisible);
+        Assert.True(secondViewModel.IsVisible);
+        Assert.True(firstViewModel.IsPopupOpen);
+        Assert.True(secondViewModel.IsPopupOpen);
+
+        // And they are independent: dismissing one leaves the other up, which is what "one pane of the
+        // split has no assist" would have looked like from the other direction.
+        Assert.True(first.TryHandleCommandAssistKey(Key.Escape, KeyModifiers.None));
+
+        Assert.False(firstViewModel.IsVisible);
+        Assert.True(secondViewModel.IsVisible);
     }
 
     // ------------------------------------------------------------ mark anchoring (V2 Phase 2a)
@@ -904,13 +1003,12 @@ public sealed class CommandAssistLayoutTests
         var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>
         {
             new(
-                SelectionGlyph: ">",
-                DisplayText: "git status",
-                DescriptionText: "Show working tree state.",
-                BadgesText: "History",
-                MetadataText: @"C:\repo",
-                IsSelected: true,
-                Type: AssistSuggestionType.History)
+                displayText: "git status",
+                descriptionText: "Show working tree state.",
+                badgesText: "History",
+                metadataText: @"C:\repo",
+                isSelected: true,
+                type: AssistSuggestionType.History)
         };
         var vm = new CommandAssistPopupViewModel(suggestions)
         {
@@ -944,13 +1042,12 @@ public sealed class CommandAssistLayoutTests
         var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>
         {
             new(
-                SelectionGlyph: ">",
-                DisplayText: "git status",
-                DescriptionText: "Show working tree state.",
-                BadgesText: "History",
-                MetadataText: @"C:\repo",
-                IsSelected: true,
-                Type: AssistSuggestionType.History)
+                displayText: "git status",
+                descriptionText: "Show working tree state.",
+                badgesText: "History",
+                metadataText: @"C:\repo",
+                isSelected: true,
+                type: AssistSuggestionType.History)
         };
         var vm = new CommandAssistPopupViewModel(suggestions)
         {

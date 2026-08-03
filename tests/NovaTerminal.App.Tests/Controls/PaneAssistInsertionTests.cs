@@ -79,27 +79,201 @@ public class PaneAssistInsertionTests
         Assert.False(fixture.ViewModel.IsVisible);
     }
 
+    // ------------------------------------------------- accept on Enter (V2 Phase 3a)
+
     /// <summary>
-    /// Destructive refusal. In a degraded session there is no snapshot, so the planner refuses -
-    /// but the pane used to call <c>TryAcceptSelection</c> (which accepts <em>and</em> dismisses)
-    /// before asking it, so the refusal arrived after the list was already gone. From the user's
-    /// side that is <c>Ctrl+Enter</c> silently deleting the thing they were browsing and sending
-    /// nothing: indistinguishable from a broken feature. The plan is computed from the
-    /// non-mutating read first; the surface is only touched once there is text to send.
+    /// The owner's first report, end to end through the real pane: browse to a row, press
+    /// <c>Enter</c>, and the suffix is sent. Before this, <c>Enter</c> went to the shell, submitted
+    /// the line and dismissed the popup on the way out - "lists history but does no action when I
+    /// select".
     /// </summary>
     [AvaloniaFact]
-    public async Task InADegradedSession_CtrlEnterRefusesWithoutTearingTheListDown()
+    public async Task WhenBrowsingARow_PlainEnterInsertsInsteadOfSubmitting()
+    {
+        using var fixture = await Fixture.AtAnIntegratedPromptAsync("git st", history: "git status");
+
+        // Down opens the popup over the bubble and selects a row: the browse state that owns Enter.
+        Assert.True(fixture.PressDown());
+
+        Assert.True(fixture.PressEnter());
+        Assert.Equal("atus", Assert.Single(fixture.Session.Sent));
+    }
+
+    /// <summary>
+    /// The typing flow, which the keyboard change must leave alone. With only the bubble up - no popup,
+    /// no browse - <c>Enter</c> is not consumed, so it reaches the shell and submits the command the
+    /// user typed.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task WhenOnlyTheBubbleIsUp_PlainEnterIsLeftToTheShell()
+    {
+        using var fixture = await Fixture.AtAnIntegratedPromptAsync("git st", history: "git status");
+
+        Assert.False(fixture.ViewModel.IsPopupOpen);
+
+        Assert.False(fixture.PressEnter());
+        Assert.Empty(fixture.Session.Sent);
+    }
+
+    /// <summary>
+    /// A refused insertion must not eat the key either. <c>Enter</c> is routed to the assist while
+    /// browsing, but if the insertion cannot be planned the pane returns false so the shell still gets
+    /// its Enter - a dead key would be a worse answer than the pre-Phase-3a behavior.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task WhenBrowsingButInsertionIsRefused_EnterFallsThroughToTheShell()
+    {
+        using var fixture = await Fixture.AtAnIntegratedPromptAsync("git st", history: "git status");
+        Assert.True(fixture.PressDown());
+
+        // The echo race: bytes are in flight, so no insertion may be planned.
+        fixture.Pane.NoteInputAwaitingEcho();
+
+        Assert.False(fixture.PressEnter());
+        Assert.Empty(fixture.Session.Sent);
+        Assert.True(fixture.ViewModel.IsVisible);
+    }
+
+    // -------------------------------------- degraded-session insertion (V2 Phase 3a)
+
+    /// <summary>
+    /// The narrowing of the Phase 1c "browse-only in degraded sessions" rule, and the owner's report
+    /// it answers: <c>Ctrl+R</c> on a markless pane listed history and nothing could be done with it.
+    /// </summary>
+    /// <remarks>
+    /// There is still no grid snapshot here. What changed is that "no snapshot" stopped meaning "the
+    /// prefix is unknown" in the one case where the pane can prove otherwise: the markless accumulator
+    /// was reset by the last Enter and has observed nothing since, so the line is empty and the whole
+    /// command may be sent. See <c>TerminalPane.TryReadInsertionQuerySnapshot</c>.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task InADegradedSessionWithAProvablyEmptyLine_CtrlEnterSendsTheWholeCommand()
     {
         using var fixture = await Fixture.DegradedAtAHistorySearchAsync(history: "git status");
 
-        Assert.True(fixture.ViewModel.IsVisible);
-        Assert.True(fixture.ViewModel.HasSuggestions);
+        fixture.PressCtrlEnter();
+
+        Assert.Equal("git status", Assert.Single(fixture.Session.Sent));
+    }
+
+    /// <summary>The same, through the new Enter path rather than <c>Ctrl+Enter</c>.</summary>
+    [AvaloniaFact]
+    public async Task InADegradedSessionWithAProvablyEmptyLine_EnterOnASelectionSendsTheWholeCommand()
+    {
+        using var fixture = await Fixture.DegradedAtAHistorySearchAsync(history: "git status");
+
+        Assert.True(fixture.PressDown());
+
+        Assert.True(fixture.PressEnter());
+        Assert.Equal("git status", Assert.Single(fixture.Session.Sent));
+    }
+
+    /// <summary>
+    /// The gate's first half. The user typed two characters and then opened history: the line is no
+    /// longer empty, the pane cannot see what is on it, and appending a whole command to it is how
+    /// <c>gigit status</c> happens. Refuse - and, as before, without tearing the list down.
+    /// </summary>
+    /// <remarks>
+    /// The echo flag is cleared deliberately. Typing sets it, and it would refuse on its own; clearing
+    /// it leaves the accumulator's "not empty" as the only reason this refuses, which is the property
+    /// under test.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task InADegradedSessionAfterTyping_CtrlEnterRefusesWithoutTearingTheListDown()
+    {
+        using var fixture = await Fixture.DegradedAtAHistorySearchAsync(history: "git status");
+
+        fixture.Pane.NotifyTypedTextObserved("gi");
+        fixture.Pane.NoteSessionOutputApplied();
 
         fixture.PressCtrlEnter();
 
         Assert.Empty(fixture.Session.Sent);
         Assert.True(fixture.ViewModel.IsVisible);
         Assert.True(fixture.ViewModel.HasSuggestions);
+    }
+
+    /// <summary>
+    /// The gate's second half. <c>Home</c> is not an assist-owned key and is not one the accumulator can
+    /// model, so it poisons: the accumulator's buffer is still empty but its answer is now "I cannot say
+    /// what is on this line", and an empty buffer must not be read as an empty line.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InADegradedSessionWithAPoisonedLine_CtrlEnterRefuses()
+    {
+        using var fixture = await Fixture.DegradedAtAHistorySearchAsync(history: "git status");
+
+        Assert.False(fixture.Pane.TryHandleCommandAssistKey(Key.Home, KeyModifiers.None));
+
+        fixture.PressCtrlEnter();
+
+        Assert.Empty(fixture.Session.Sent);
+        Assert.True(fixture.ViewModel.IsVisible);
+        Assert.True(fixture.ViewModel.HasSuggestions);
+    }
+
+    /// <summary>
+    /// The gate's third half: the echo race applies to the degraded path too. A keystroke the shell has
+    /// not echoed means the pane's belief about the line is behind the shell's, whatever the accumulator
+    /// says.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InADegradedSessionWithUnechoedInput_CtrlEnterRefuses()
+    {
+        using var fixture = await Fixture.DegradedAtAHistorySearchAsync(history: "git status");
+
+        fixture.Pane.NoteInputAwaitingEcho();
+
+        fixture.PressCtrlEnter();
+
+        Assert.Empty(fixture.Session.Sent);
+        Assert.True(fixture.ViewModel.IsVisible);
+    }
+
+    // ---------------------------------------------------------------- mouse (V2 Phase 3a)
+
+    /// <summary>
+    /// A single click selects the row it landed on and nothing more - browsing with the mouse must not
+    /// commit an edit to the command line.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task PointerSelect_SelectsTheRowWithoutSendingAnything()
+    {
+        using var fixture = await Fixture.AtAnIntegratedPromptAsync("git st", history: "git status");
+
+        fixture.Pane.OnCommandAssistSuggestionPointerSelected(0);
+
+        Assert.True(fixture.ViewModel.IsPopupOpen);
+        Assert.Equal(0, fixture.ViewModel.SelectedIndex);
+        Assert.Empty(fixture.Session.Sent);
+    }
+
+    /// <summary>
+    /// A double click - or a click on the already-selected row - runs the same insertion path
+    /// <c>Ctrl+Enter</c> does, gate for gate.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task PointerAccept_RunsTheSameInsertionPathAsCtrlEnter()
+    {
+        using var fixture = await Fixture.AtAnIntegratedPromptAsync("git st", history: "git status");
+
+        fixture.Pane.OnCommandAssistSuggestionPointerAccepted(0);
+
+        Assert.Equal("atus", Assert.Single(fixture.Session.Sent));
+        Assert.False(fixture.ViewModel.IsVisible);
+    }
+
+    /// <summary>A pointer accept obeys the echo gate, exactly as the keyboard path does.</summary>
+    [AvaloniaFact]
+    public async Task PointerAccept_WhenInputIsUnechoed_SendsNothing()
+    {
+        using var fixture = await Fixture.AtAnIntegratedPromptAsync("git st", history: "git status");
+        fixture.Pane.NoteInputAwaitingEcho();
+
+        fixture.Pane.OnCommandAssistSuggestionPointerAccepted(0);
+
+        Assert.Empty(fixture.Session.Sent);
+        Assert.True(fixture.ViewModel.IsVisible);
     }
 
     private sealed class Fixture : IDisposable
@@ -151,6 +325,13 @@ public class PaneAssistInsertionTests
 
         public void PressCtrlEnter() =>
             Pane.TryHandleCommandAssistKey(Key.Enter, KeyModifiers.Control);
+
+        /// <summary>Returns whether Command Assist consumed the key, i.e. whether the shell saw it.</summary>
+        public bool PressEnter() =>
+            Pane.TryHandleCommandAssistKey(Key.Enter, KeyModifiers.None);
+
+        public bool PressDown() =>
+            Pane.TryHandleCommandAssistKey(Key.Down, KeyModifiers.None);
 
         public void Dispose()
         {

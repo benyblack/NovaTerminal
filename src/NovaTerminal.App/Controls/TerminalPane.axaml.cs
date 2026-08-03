@@ -500,6 +500,17 @@ namespace NovaTerminal.Controls
             ProcessExited += (_, exitCode) => _agentRegistration?.StatusMachine.NotifyExited(exitCode);
 
             TermView.KeyDownInterceptor = TryHandleCommandAssistKey;
+
+            // Mouse support for the popup rows (V2 Phase 3a). Wired here rather than in
+            // BindCommandAssistViews because the view is a fixed part of the pane's XAML tree while the
+            // view-model comes and goes with the feature flag: subscribing on every bind would add a
+            // second handler per rebind.
+            if (CommandAssistPopup != null)
+            {
+                CommandAssistPopup.SuggestionPointerSelected += OnCommandAssistSuggestionPointerSelected;
+                CommandAssistPopup.SuggestionPointerAccepted += OnCommandAssistSuggestionPointerAccepted;
+            }
+
             TermView.TextInput += (_, e) =>
             {
                 if (!string.IsNullOrEmpty(e.Text))
@@ -1264,11 +1275,28 @@ namespace NovaTerminal.Controls
         /// the "it might be a login banner" case.
         /// </summary>
         /// <remarks>
+        /// <para>
         /// V2 Phase 2a: this is a hedge against not knowing where the prompt is, so a mark-anchored
         /// pane never reaches it. The <paramref name="hasMarkAnchor"/> early-out is redundant with
         /// <paramref name="hasReliablePromptAnchor"/> (a mark makes the anchor reliable by
         /// definition) and deliberately so: the property under test is "marks bypass suppression",
         /// and it should not depend on a second flag staying in sync.
+        /// </para>
+        /// <para>
+        /// V2 Phase 3a adds the second bypass, and it is the fix for the owner's third report: in a tab
+        /// split into two SSH panes, the assist did not appear on one of them at all. A split halves the
+        /// pane height, which puts both panes under
+        /// <see cref="ConservativeRemoteShortPaneHeightThreshold"/>, and on the pane whose prompt was
+        /// still in the upper band this returned true — for <c>Ctrl+R</c> as readily as for a passive
+        /// bubble. Suppressing a surface the user summoned is not conservative behavior; it is the
+        /// feature not working. So an explicitly requested surface is never hidden here, and the worst
+        /// case becomes what the anchor calculator already does without a reliable anchor: the safe
+        /// lower band.
+        /// </para>
+        /// <para>
+        /// The suppression stays exactly as it was for uninvited surfaces on markless SSH, which is the
+        /// case it was written for.
+        /// </para>
         /// </remarks>
         private bool ShouldSuppressConservativeRemoteAssist(
             CommandAssistPromptHint? promptHint,
@@ -1276,7 +1304,7 @@ namespace NovaTerminal.Controls
             bool hasMarkAnchor,
             double paneHeight)
         {
-            if (hasMarkAnchor)
+            if (hasMarkAnchor || IsCommandAssistSurfaceUserRequested)
             {
                 return false;
             }
@@ -1354,6 +1382,13 @@ namespace NovaTerminal.Controls
                 // Mark-anchored placement never hides the overlay while it settles: there is nothing
                 // to settle. Clearing here also unwinds any suppression left over from a markless
                 // frame earlier in the same session.
+                //
+                // A user-requested surface deliberately does *not* clear the counters here, even though
+                // it is also never hidden (V2 Phase 3a). Resetting _sshAssistCorrectionPassCount on
+                // every placement pass would stop MaxSshAssistCorrectionPasses from ever being reached,
+                // and since a correction pass posts another placement pass, that is an unbounded render
+                // loop. The bypass therefore lives on the opacity write below, which is the only thing
+                // the user can see anyway.
                 _suppressSshAssistOverlayUntilSettled = false;
                 _sshAssistCorrectionPassCount = 0;
 
@@ -1366,8 +1401,12 @@ namespace NovaTerminal.Controls
 
             if (CommandAssistOverlayHost != null)
             {
+                // The settle-suppression never applies to a surface the user asked for (V2 Phase 3a):
+                // an invisible answer to Ctrl+R is indistinguishable from no answer, which is how the
+                // owner experienced it on one pane of an SSH split.
+                bool keepOverlayOpaque = !_suppressSshAssistOverlayUntilSettled || IsCommandAssistSurfaceUserRequested;
                 CommandAssistOverlayHost.IsVisible = shouldShowOverlayHost;
-                CommandAssistOverlayHost.Opacity = shouldShowOverlayHost && !_suppressSshAssistOverlayUntilSettled ? 1.0 : 0.0;
+                CommandAssistOverlayHost.Opacity = shouldShowOverlayHost && keepOverlayOpaque ? 1.0 : 0.0;
             }
 
             if (layout == null)
@@ -1466,8 +1505,27 @@ namespace NovaTerminal.Controls
                 return false;
             }
 
+            // Deliberately *not* gated on IsCommandAssistSurfaceUserRequested. V2 Phase 3a's rule is
+            // that a summoned surface is never hidden, not that it is never corrected: correcting the
+            // placement is the useful half of this stack and costs the user nothing. What it must not do
+            // is drop the overlay to zero opacity while it settles, which for up to six render passes
+            // reads as "Ctrl+R did nothing" — so the hiding is what carries the bypass, at the two
+            // places that apply it (see the opacity write in UpdateCommandAssistOverlayPlacement and
+            // the suppression write inside CorrectPlacement).
             return Profile?.Type == ConnectionType.SSH && assistIsVisible;
         }
+
+        /// <summary>
+        /// Whether the assist surface currently on screen is one the user asked for by name —
+        /// <c>Ctrl+Space</c>, <c>Ctrl+R</c>, Help, a confident Fix popup.
+        /// </summary>
+        /// <remarks>
+        /// The single question every overlay-hiding heuristic in this file now asks first. The
+        /// authority is <c>AssistSessionStateMachine.IsUserRequestedSurface</c>; this is only the
+        /// null-safe pane-side spelling of it.
+        /// </remarks>
+        private bool IsCommandAssistSurfaceUserRequested =>
+            _commandAssistController?.IsUserRequestedSurface == true;
 
         internal bool ShouldCorrectCommandAssistPlacementForTest(CommandAssistAnchorLayout layout, bool assistIsVisible)
         {
@@ -1551,8 +1609,12 @@ namespace NovaTerminal.Controls
                     return;
                 }
 
-                _suppressSshAssistOverlayUntilSettled = true;
-                CommandAssistOverlayHost.Opacity = 0.0;
+                // Correct the placement either way; hide only what the user did not ask for.
+                if (!IsCommandAssistSurfaceUserRequested)
+                {
+                    _suppressSshAssistOverlayUntilSettled = true;
+                    CommandAssistOverlayHost.Opacity = 0.0;
+                }
 
                 // Re-apply anchored margins if the rendered position drifted from expected.
                 CommandAssistBubble.Margin = new Thickness(layout.BubbleRect.X, layout.BubbleRect.Y, 0, 0);
@@ -1917,9 +1979,11 @@ namespace NovaTerminal.Controls
             }
 
             CommandAssistController? controller = _commandAssistController;
-            bool isAssistVisible = controller?.ViewModel.IsVisible == true;
+            var keyState = new AssistKeyState(
+                IsSurfaceVisible: controller?.ViewModel.IsVisible == true,
+                IsAcceptOnEnterArmed: controller?.IsAcceptOnEnterArmed == true);
             if (!CommandAssistKeyRouter.IsAssistOwnedKey(
-                    isAssistVisible,
+                    keyState,
                     AssistKeyMapper.ToAssistKey(key),
                     AssistKeyMapper.ToAssistModifiers(modifiers)))
             {
@@ -1934,6 +1998,19 @@ namespace NovaTerminal.Controls
             {
                 controller?.HandleEscape();
                 return true;
+            }
+
+            // Accept-on-Enter (V2 Phase 3a). The router only says yes here while the popup is open with
+            // a row selected, so the typing flow never reaches this branch.
+            //
+            // The return value is the insertion's, not `true`, and that is the important part: when
+            // insertion refuses - a poisoned markless line, an unechoed keystroke, a cursor mid-line -
+            // Enter falls through to the shell and submits, exactly as it did before this branch
+            // existed. Consuming it instead would turn a refusal into a dead key, which is a strictly
+            // worse answer than the pre-Phase-3a behavior the user is used to.
+            if (key == Key.Enter && modifiers == KeyModifiers.None)
+            {
+                return TryInsertSelectedCommandAssistSuggestion();
             }
 
             if (key == Key.Down)
@@ -2012,6 +2089,40 @@ namespace NovaTerminal.Controls
         /// <summary>Whether an edit keystroke is still waiting for the shell's echo.</summary>
         internal bool HasUnechoedInput => _hasUnechoedInput;
 
+        /// <summary>
+        /// A popup row was clicked once: select it, exactly as <c>Up</c>/<c>Down</c> would.
+        /// </summary>
+        /// <remarks>
+        /// Selecting rather than accepting is deliberate. A single click that ran an insertion would
+        /// make the list unbrowsable by mouse — there would be no way to look at a row's detail panel
+        /// without committing to it — and it would put a destructive action one stray click away on a
+        /// surface that overlays the terminal. Accept needs a second, deliberate act: a double click, or
+        /// a click on the row that is already selected.
+        /// </remarks>
+        internal void OnCommandAssistSuggestionPointerSelected(int index)
+        {
+            _commandAssistController?.TrySelectSuggestionAt(index);
+        }
+
+        /// <summary>A popup row was double-clicked, or clicked while already selected: accept it.</summary>
+        internal void OnCommandAssistSuggestionPointerAccepted(int index)
+        {
+            CommandAssistController? controller = _commandAssistController;
+            if (controller == null)
+            {
+                return;
+            }
+
+            // Select first even on the accept path: a double click on an unselected row must insert the
+            // row that was clicked, not whatever the keyboard had highlighted.
+            if (!controller.TrySelectSuggestionAt(index))
+            {
+                return;
+            }
+
+            TryInsertSelectedCommandAssistSuggestion();
+        }
+
         private bool TryInsertSelectedCommandAssistSuggestion()
         {
             if (_commandAssistController == null || Session == null)
@@ -2028,9 +2139,7 @@ namespace NovaTerminal.Controls
 
             // Read the line before accepting: accepting dismisses the surface, and the planner needs
             // to know what is on the command line *now* rather than what the last ranking pass saw.
-            // A markless session yields null here, and the planner refuses -- insertion is
-            // prefix-dependent and degraded mode does not offer prefix-dependent features.
-            AssistQuerySnapshot? existingQuery = _commandAssistController.TryReadQuerySnapshot();
+            AssistQuerySnapshot? existingQuery = TryReadInsertionQuerySnapshot();
 
             // Everything above and below this line is non-mutating, and that ordering is the point.
             // TryAcceptSelection accepts *and* dismisses; calling it first meant that every refusal
@@ -2064,6 +2173,79 @@ namespace NovaTerminal.Controls
             _marklessSubmission.Poison();
             Session.SendInput(textToSend);
             return true;
+        }
+
+        /// <summary>
+        /// The command line the insertion planner is measured against: grid truth where it exists, and
+        /// in a markless session an <em>observed-empty</em> line when - and only when - the accumulator
+        /// can prove the line is empty.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>V2 Phase 3a: the "browse-only in degraded sessions" rule is narrowed, not dropped.</strong>
+        /// Phase 1c refused all insertion without a snapshot, for a good reason: appending a whole
+        /// command to an unknown prefix is how <c>git sgit status</c> happens. But "unknown" was doing
+        /// two jobs. In the case the owner actually hit - open a markless SSH pane, press
+        /// <c>Ctrl+R</c>, pick a row - the prefix is not unknown at all. It is empty, and the pane can
+        /// prove it: the accumulator was reset by the last <c>Enter</c> (or <c>Ctrl+C</c>) and has
+        /// observed nothing since, and it poisons on every edit it cannot model. So this returns the
+        /// snapshot that says "the line was read and it is empty", which the planner already handles
+        /// as a fact rather than an absence, and the whole command is sent.
+        /// </para>
+        /// <para>
+        /// <strong>Why this is safe.</strong> Four independent things all have to agree, and each of
+        /// them fails closed:
+        /// </para>
+        /// <list type="number">
+        /// <item>the accumulator is <em>not poisoned</em> - so no arrow key, <c>Home</c>, <c>Delete</c>,
+        /// <c>Tab</c>, paste, prior insertion, agent injection or unrecognised chord has touched the
+        /// line since it was reset (the classification is an allow-list, so an unknown key poisons);</item>
+        /// <item>the accumulator is <em>empty</em> - the user has typed nothing since the reset, so
+        /// there is no prefix for the appended text to corrupt;</item>
+        /// <item><see cref="_hasUnechoedInput"/> is clear, checked by the caller before this runs - so
+        /// there are no keystrokes in flight to the shell that the pane has not seen come back. This is
+        /// the condition that closes the "typed a character and hit Enter in the same frame" window,
+        /// and it is the same gate the echo-race fix uses;</item>
+        /// <item>the controller's own gates still apply - a suppressed (pasted) submission and an alt
+        /// screen both refuse upstream of here.</item>
+        /// </list>
+        /// <para>
+        /// If any of them is in doubt the answer is <see langword="null"/> and the planner refuses,
+        /// exactly as before. And the failure mode of the remaining risk is bounded in a way the
+        /// original refusal's was not: insertion sends text to the shell's line editor and stops. The
+        /// user sees the command sitting on their prompt and has to press <c>Enter</c> themselves, so
+        /// the worst case is a visible, editable, deletable line - not a command that ran.
+        /// </para>
+        /// <para>
+        /// One honest cost: "the accumulator is clean and empty" is not the same as "the shell is at a
+        /// prompt". A markless pane running a program that reads stdin (<c>cat</c>, a REPL) satisfies
+        /// every condition, so an accepted row is typed into that program instead. That is what typing
+        /// the command by hand would also have done, and it is visible either way; the alternative -
+        /// refusing forever in every un-instrumented session - is the bug being fixed.
+        /// </para>
+        /// </remarks>
+        private AssistQuerySnapshot? TryReadInsertionQuerySnapshot()
+        {
+            AssistQuerySnapshot? gridTruth = _commandAssistController?.TryReadQuerySnapshot();
+            if (gridTruth.HasValue)
+            {
+                return gridTruth;
+            }
+
+            if (!_marklessSubmission.IsCleanAndEmpty)
+            {
+                return null;
+            }
+
+            // Deliberately constructed rather than read: the cursor is at offset 0 of an empty line,
+            // the entry is not multiline and no right prompt was trimmed, because none of those things
+            // can be true of a line with no characters in it. Going through the planner rather than
+            // sending the text directly keeps one refusal discipline for both paths.
+            return new AssistQuerySnapshot(
+                Text: string.Empty,
+                CursorOffset: 0,
+                IsMultiline: false,
+                RightPromptTrimmed: false);
         }
 
         internal static string DetermineShellKind(string? shellCommand)
