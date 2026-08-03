@@ -39,9 +39,36 @@ public static class PowerShellBootstrapBuilder
         builder.Append("    [Console]::Out.Write(\"$esc$sequence$bel\")").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
+        // OSC 7 carries a file:// URI, and it has to be a well-formed one or the consumer cannot get a
+        // path back out of it. The emission this replaced was
+        // `file://$env:COMPUTERNAME/$([Uri]::EscapeUriString((Get-Location).Path))`, which was wrong
+        // three ways at once (PR #293 review, blocker 3):
+        //
+        //   1. It kept the backslashes and escaped them. EscapeUriString turns '\' into %5C, so a
+        //      Windows cwd came out as `file://HOST/C:%5CUsers%5Cyou`. With COMPUTERNAME unset (a
+        //      service-launched pwsh, some container images) it degraded to `file:///C:%5CUsers%5Cyou`,
+        //      which [Uri]::TryCreate rejects outright - so the parser's fallback handed Command Assist
+        //      the literal URI string *as the working directory*.
+        //   2. It put the hostname in the authority. `file://HOST/C:/Users/you` parses, but its
+        //      LocalPath is the UNC share `\\HOST\C:\Users\you` - a path that does not exist, on the
+        //      machine that emitted it. Nothing ever read the hostname, so it was cost without use.
+        //   3. Whole-string escaping leaves the URI-reserved '#' and '?' alone, so a directory named
+        //      `a#b` truncated the path at the fragment.
+        //
+        // So: flip the separators first, escape per segment with EscapeDataString (which does cover '#'
+        // and '?'), put ':' back because a drive letter is a normal path segment character in a URI and
+        // `C%3A` reads as an escape nobody expects, ensure exactly one leading slash (Linux/macOS pwsh
+        // paths already have one, a drive letter does not), and emit no authority at all. The result is
+        // `file:///C:/Users/you` on Windows and `file:///home/you` elsewhere.
+        //
+        // Kept byte-identical to the remote snippet in
+        // assets/shell-integration/nova-shell-integration.ps1 - two implementations of one URI is how
+        // they drifted the first time.
         builder.Append("function Write-NovaPwd() {").Append(nl);
-        builder.Append("    $cwd = [Uri]::EscapeUriString((Get-Location).Path)").Append(nl);
-        builder.Append("    Write-NovaSequence \"]7;file://$env:COMPUTERNAME/$cwd\"").Append(nl);
+        builder.Append("    $novaSegments = ((Get-Location).Path -replace '\\\\', '/') -split '/'").Append(nl);
+        builder.Append("    $novaPath = (($novaSegments | ForEach-Object { [Uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/')").Append(nl);
+        builder.Append("    if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }").Append(nl);
+        builder.Append("    Write-NovaSequence \"]7;file://$novaPath\"").Append(nl);
         builder.Append("}").Append(nl);
         builder.Append(nl);
         builder.Append("function Write-NovaPromptReady() {").Append(nl);

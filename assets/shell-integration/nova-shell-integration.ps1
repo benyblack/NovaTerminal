@@ -77,9 +77,20 @@ function Write-NovaPwd() {
     # is a different URI and not the one the user is in. On Windows the drive
     # letter has no leading slash and does need one added, and the separators
     # have to be flipped before they are escaped as %5C.
-    $novaPath = (Get-Location).Path -replace '\\', '/'
+    #
+    # Two further fixes, and they are why there is no hostname here any more:
+    #   * No authority. `file://HOST/C:/Users/you` is a well-formed URI whose
+    #     path is the UNC share \\HOST\C:\Users\you - a path that does not exist
+    #     on the machine that emitted it. Nothing consumes the hostname.
+    #   * Per-segment escaping. EscapeUriString leaves the URI-reserved '#' and
+    #     '?' alone, so a directory named `a#b` truncated at the fragment;
+    #     EscapeDataString covers them. ':' is put back afterwards because a
+    #     drive letter is an ordinary path-segment character in a URI.
+    # Kept identical to PowerShellBootstrapBuilder.Write-NovaPwd.
+    $novaSegments = ((Get-Location).Path -replace '\\', '/') -split '/'
+    $novaPath = (($novaSegments | ForEach-Object { [Uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/')
     if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }
-    Write-NovaSequence "]7;file://$([System.Net.Dns]::GetHostName())$([Uri]::EscapeUriString($novaPath))"
+    Write-NovaSequence "]7;file://$novaPath"
 }
 
 function Write-NovaPromptReady() {
