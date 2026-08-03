@@ -141,6 +141,37 @@ internal sealed class AssistSessionStateMachine
     /// more likely to be aimed at the shell. Both keep <c>Ctrl+Enter</c>.
     /// </para>
     /// </remarks>
+    /// <summary>
+    /// Whether <c>Up</c> belongs to Command Assist rather than to the shell's history recall.
+    /// </summary>
+    /// <param name="isPopupOpen">Whether the row list is on screen.</param>
+    /// <remarks>
+    /// <para>
+    /// <strong>The PR #290 review fix, and the keyboard model it settles.</strong> Phase 3a shipped
+    /// <c>Up</c> and <c>Down</c> both owned whenever any surface was visible, which turned the passive
+    /// typing bubble into a trap: type <c>git st</c>, press <c>Up</c> expecting the shell's history,
+    /// and instead the assist ate the key, <c>MoveSelectionUp</c>'s clamp-to-zero opened the popup, and
+    /// the next <c>Enter</c> inserted a suggestion rather than running the command. Two keys were
+    /// silently redefined by a surface the user never asked for.
+    /// </para>
+    /// <para>
+    /// So the entry into the list is one-directional in the passive states: <c>Down</c> browses
+    /// suggestions (it has no meaning at a shell prompt, so nothing is taken), <c>Up</c> stays the
+    /// shell's history recall. This is what fish and PSReadLine teach. Once the popup is open the user
+    /// is demonstrably in the list and <c>Up</c> navigates it; and in a surface the user summoned by
+    /// name (<c>Ctrl+Space</c>, <c>Ctrl+R</c>, Help, a confident Fix popup - see
+    /// <see cref="IsUserRequestedSurface"/>) both arrows are owned from the first keypress, because
+    /// there the list <em>is</em> what the user asked for.
+    /// </para>
+    /// <para>
+    /// <see cref="AssistSessionState.FixHint"/> falls out on the passive side, which is right: it is
+    /// the one Fix state the user did not ask for, and <c>Down</c> still opens its popup.
+    /// </para>
+    /// </remarks>
+    public bool AllowsSelectionUp(bool isPopupOpen) =>
+        State != AssistSessionState.Hidden &&
+        (isPopupOpen || IsUserRequestedSurface);
+
     public bool AllowsAcceptOnEnter(bool isPopupOpen, bool hasSelection) =>
         isPopupOpen &&
         hasSelection &&

@@ -502,16 +502,24 @@ public sealed class CommandAssistLayoutTests
     }
 
     /// <summary>
-    /// The other half of the third report, checked directly rather than through geometry: both panes of
-    /// a split get their own initialized controller off one shared services graph, and <c>Ctrl+R</c>
-    /// opens on the second one as readily as on the first.
+    /// The other half of the third report, checked directly rather than through geometry: two panes off
+    /// one shared services graph each get their own initialized controller, and <c>Ctrl+R</c> opens on
+    /// the second as readily as on the first.
     /// </summary>
     /// <remarks>
-    /// <c>MainWindow.WirePane</c> is the funnel that assigns <c>CommandAssistServices</c> to every pane
-    /// it creates, including the ones a split adds, so the injection itself is structural. What this
-    /// pins is that nothing in the pane's own initialization is single-instance: a second pane sharing
-    /// the same history store and snippet store must build a second controller and a second view-model
-    /// rather than finding the first one's state.
+    /// <para>
+    /// <strong>These are two standalone panes, not a split</strong> (PR #290 review, correcting an earlier
+    /// version of this comment that said "both panes of a split"). There is no <c>MainWindow</c>, no split
+    /// grid and no shared parent here - nothing about split *geometry* is under test, and the geometry
+    /// half of the report is covered by the short-pane suppression tests above.
+    /// </para>
+    /// <para>
+    /// What this does pin is the part a split would depend on: <c>MainWindow.WirePane</c> assigns
+    /// <c>CommandAssistServices</c> to every pane it creates, including the ones a split adds, so the
+    /// injection is structural - and nothing in a pane's own initialization may be single-instance. A
+    /// second pane sharing the same history store and snippet store must build a second controller and a
+    /// second view-model rather than finding the first one's state.
+    /// </para>
     /// </remarks>
     [AvaloniaFact]
     public void TwoPanesSharingOneServicesGraph_BothOpenTheirOwnHistorySearch()
@@ -995,6 +1003,182 @@ public sealed class CommandAssistLayoutTests
         Assert.True(view.IsVisible);
         Assert.Equal("Suggest", modeLabel.Text);
         Assert.Equal("git status", summary.Text);
+    }
+
+    // ------------------------- the hint strip may not squeeze the bubble (PR #290 review)
+
+    /// <summary>
+    /// 280 px is the bubble-width floor <c>CalculateCommandAssistSurfaceSizing</c> clamps to, which is
+    /// what a split SSH pane lands on. At that width the hint strip's <c>Auto</c> column beat the
+    /// summary's <c>*</c> column outright: the shortcut legend rendered in full and the suggestion - the
+    /// only content in the bubble anyone reads - got what was left, which was nothing.
+    /// </summary>
+    [AvaloniaFact]
+    public void CommandAssistBubbleView_AtTheNarrowBubbleFloor_CollapsingTheHintGivesTheSummaryItsWidth()
+    {
+        const double bubbleWidth = 280;
+
+        double squeezed = MeasureBubbleSummaryWidth(showShortcutHint: true, bubbleWidth);
+        double collapsed = MeasureBubbleSummaryWidth(showShortcutHint: false, bubbleWidth);
+
+        // 40% is the honest floor rather than a round half: the mode label and the column spacing are
+        // real content too, and at 280 px they are most of the rest of the bubble.
+        Assert.True(
+            collapsed >= bubbleWidth * 0.4,
+            $"With the hint collapsed the summary should keep a usable share of the bubble, but had " +
+            $"{collapsed:F0} of {bubbleWidth:F0} (with the hint shown: {squeezed:F0}).");
+        Assert.True(
+            squeezed < collapsed * 0.5,
+            $"The negative control failed: the hint must actually be what squeezes the summary, but it " +
+            $"had {squeezed:F0} px with the hint shown against {collapsed:F0} px without it. Either the " +
+            "layout changed or this test no longer measures the reported bug.");
+    }
+
+    /// <summary>
+    /// And the collapse is driven by the same compact-layout decision that already hides the query
+    /// echo, from the real placement path on a real narrow pane.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task TerminalPane_WhenTheBubbleIsNarrow_CollapsesTheShortcutHint()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 420,
+            Height = 420
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(420, 420));
+        pane.Arrange(new Rect(0, 0, 420, 420));
+        await AtAnIntegratedPromptAsync(pane, "Get-ChildItem");
+        pane.OpenCommandAssistHelp();
+        await Task.Delay(50);
+        pane.Measure(new Size(420, 420));
+        pane.Arrange(new Rect(0, 0, 420, 420));
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+        CommandAssistBarViewModel vm = Assert.IsType<CommandAssistBarViewModel>(pane.CommandAssistViewModel);
+
+        Assert.True(layout.UseCompactBubbleLayout);
+        Assert.Equal(280, layout.BubbleRect.Width, precision: 1);
+        Assert.False(vm.Bubble.ShowShortcutHint);
+        Assert.False(vm.Bubble.ShowQueryText);
+    }
+
+    /// <summary>
+    /// The control: a pane with room keeps the hint, or the assertion above would be satisfied by a hint
+    /// that never renders anywhere.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task TerminalPane_WhenTheBubbleHasRoom_KeepsTheShortcutHint()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+        await AtAnIntegratedPromptAsync(pane, "Get-ChildItem");
+        pane.OpenCommandAssistHelp();
+        await Task.Delay(50);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        CommandAssistAnchorLayout layout = Assert.IsType<CommandAssistAnchorLayout>(pane.CalculateCommandAssistAnchorLayoutForTest());
+        CommandAssistBarViewModel vm = Assert.IsType<CommandAssistBarViewModel>(pane.CommandAssistViewModel);
+
+        Assert.False(layout.UseCompactBubbleLayout);
+        Assert.True(vm.Bubble.ShowShortcutHint);
+    }
+
+    /// <summary>
+    /// The pass-through property, pinned (PR #290 review): the overlay host paints no background, so a
+    /// click anywhere except on a child reaches the terminal underneath, and the bubble - a status
+    /// readout with nothing to click, sitting right over the row the user selects text on - opts out of
+    /// hit testing individually.
+    /// </summary>
+    /// <remarks>
+    /// The host's own <c>IsHitTestVisible</c> is asserted <em>true</em> deliberately. It was false once,
+    /// which excludes the whole subtree: no click could reach a popup row, and a child cannot opt back
+    /// into hit testing its parent has switched off. Both halves have to stay as they are.
+    /// </remarks>
+    [AvaloniaFact]
+    public void TerminalPane_OverlayHostPassesClicksThroughAndTheBubbleTakesNone()
+    {
+        using var pane = new TerminalPane();
+        ConfigureCommandAssist(pane);
+
+        Grid overlayHost = Assert.IsType<Grid>(pane.FindControl<Grid>("CommandAssistOverlayHost"));
+        CommandAssistBubbleView bubbleView = Assert.IsType<CommandAssistBubbleView>(pane.FindControl<CommandAssistBubbleView>("CommandAssistBubble"));
+        CommandAssistPopupView popupView = Assert.IsType<CommandAssistPopupView>(pane.FindControl<CommandAssistPopupView>("CommandAssistPopup"));
+
+        Assert.Null(overlayHost.Background);
+        Assert.True(overlayHost.IsHitTestVisible);
+        Assert.False(bubbleView.IsHitTestVisible);
+        Assert.True(popupView.IsHitTestVisible);
+    }
+
+    /// <summary>
+    /// Right- and middle-clicks on the popup are swallowed rather than left to bubble into the pane,
+    /// where they would open the pane context menu over the list or paste into the shell beneath it.
+    /// </summary>
+    [Fact]
+    public void CommandAssistPopupView_SwallowsRightAndMiddleClicksOnly()
+    {
+        Assert.True(CommandAssistPopupView.IsSwallowedPointerButton(isRightButtonPressed: true, isMiddleButtonPressed: false));
+        Assert.True(CommandAssistPopupView.IsSwallowedPointerButton(isRightButtonPressed: false, isMiddleButtonPressed: true));
+        Assert.False(CommandAssistPopupView.IsSwallowedPointerButton(isRightButtonPressed: false, isMiddleButtonPressed: false));
+    }
+
+    /// <summary>
+    /// Arranges a bubble at <paramref name="width"/> and returns the arranged width of the summary
+    /// TextBlock - the <c>*</c> column's share of it.
+    /// </summary>
+    private static double MeasureBubbleSummaryWidth(bool showShortcutHint, double width)
+    {
+        var vm = new CommandAssistBubbleViewModel
+        {
+            IsVisible = true,
+            ModeLabel = "Suggest",
+            QueryText = "git st",
+            SummaryText = "git status --short --branch",
+            ShortcutHintText = CommandAssistBarViewModel.IdleHintText,
+
+            // Compact layout hides both, and the query echo is not what this measures.
+            ShowQueryText = false,
+            ShowShortcutHint = showShortcutHint
+        };
+        var view = new CommandAssistBubbleView
+        {
+            DataContext = vm,
+            Width = width,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+
+        // Hosted in a window rather than measured detached: the bubble's content lives behind a
+        // ContentPresenter, which only realizes its child during a layout pass from a visual root. A
+        // detached Measure/Arrange leaves every child at zero bounds, which would make this pass for the
+        // wrong reason.
+        var window = new Window
+        {
+            Content = view,
+            Width = width + 120,
+            Height = 200
+        };
+        try
+        {
+            window.Show();
+            RelayoutTo(window, view, new Size(width + 120, 200));
+
+            TextBlock summary = Assert.IsType<TextBlock>(view.FindControl<TextBlock>("BubbleSummaryText"));
+            return summary.Bounds.Width;
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]

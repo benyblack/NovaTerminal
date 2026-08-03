@@ -26,11 +26,20 @@
             <Setter Property="Background" Value="#332F6FEB"/>
         </Style>
     </UserControl.Styles>
+    <!--
+        Right- and middle-clicks anywhere on the popup are swallowed here rather than allowed to bubble
+        (PR #290 review): the popup floats over a live terminal inside a pane whose root grid owns a
+        context menu, so a right-click on a suggestion row opened the pane menu on top of the list, and a
+        middle-click was an X11-style paste into the shell underneath. Neither gesture means anything to
+        the popup, so neither may mean anything to what is behind it.
+    -->
     <Border Background="#F01B1B1B"
             BorderBrush="#404040"
             BorderThickness="1"
             CornerRadius="10"
-            Padding="12">
+            Padding="12"
+            PointerPressed="OnPopupSurfacePointerPressed"
+            ContextRequested="OnPopupSurfaceContextRequested">
         <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*"
               RowSpacing="10">
             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">

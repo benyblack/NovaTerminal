@@ -703,8 +703,11 @@ public sealed class CommandAssistControllerTests
         Assert.True(selected);
         Assert.Equal(1, controller.ViewModel.SelectedIndex);
         Assert.True(controller.ViewModel.IsPopupOpen);
-        Assert.True(controller.IsSuggestionSelectedAt(1));
-        Assert.False(controller.IsSuggestionSelectedAt(0));
+
+        // The row flags the popup view actually reads - the "is this row the selected one" question the
+        // deleted IsSuggestionSelectedAt used to answer for nobody but this test (PR #290 review).
+        Assert.False(controller.ViewModel.Suggestions[0].IsSelected);
+        Assert.True(controller.ViewModel.Suggestions[1].IsSelected);
         Assert.True(controller.IsAcceptOnEnterArmed);
     }
 
@@ -716,7 +719,159 @@ public sealed class CommandAssistControllerTests
         controller.ToggleAssist();
 
         Assert.False(controller.TrySelectSuggestionAt(0));
-        Assert.False(controller.IsSuggestionSelectedAt(0));
+        Assert.Empty(controller.ViewModel.Suggestions);
+    }
+
+    // ----------------------- an invisible overlay cannot arm Enter (PR #290 review)
+
+    /// <summary>
+    /// The first blocker at the controller: the session can believe a popup is up while the pane has
+    /// hidden or dimmed the overlay it renders - a passive popup on a short markless-SSH pane, which is
+    /// not a user-requested surface and so bypasses none of the pane's hiding. An armed <c>Enter</c>
+    /// there is a command line that silently does not submit.
+    /// </summary>
+    [Fact]
+    public async Task WhenTheHostSaysTheOverlayIsNotRendered_EnterIsNotArmedAndTheHintDoesNotPromiseIt()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("git stash", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")));
+        bool isOverlayRendered = true;
+        var controller = CreateController(historyStore, renderedSurfaceProbe: () => isOverlayRendered);
+
+        controller.OpenHistorySearch();
+        await historyStore.WaitForSearchSettledAsync();
+        await WaitForConditionAsync(() => controller.Suggestions.Count > 1);
+        controller.MoveSelectionDown();
+
+        // The control: with the overlay on screen this is the armed browse state.
+        Assert.True(controller.IsAcceptOnEnterArmed);
+        Assert.Contains("Enter insert", controller.ViewModel.Bubble.ShortcutHintText);
+
+        isOverlayRendered = false;
+        controller.NotifyRenderedSurfaceVisibilityChanged();
+
+        Assert.False(controller.IsAcceptOnEnterArmed);
+        Assert.False(controller.ViewModel.IsAcceptOnEnterArmed);
+        Assert.Contains("Ctrl+Enter insert", controller.ViewModel.Bubble.ShortcutHintText);
+        Assert.Contains("Ctrl+Enter insert", controller.ViewModel.Popup.ShortcutHintText);
+
+        // Selection and popup state are untouched: the surface is hidden, not dismissed, and it comes
+        // back the moment the pane finishes settling.
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.Equal(1, controller.ViewModel.SelectedIndex);
+    }
+
+    // -------------------- Up belongs to the shell while typing (PR #290 review)
+
+    /// <summary>
+    /// The second blocker at the controller. Typing produces a passive bubble, and in it <c>Up</c> is
+    /// the shell's history recall - the App asks this before routing the key.
+    /// </summary>
+    [Fact]
+    public async Task WhileTypingWithOnlyABubbleUp_UpIsNotAssistOwned()
+    {
+        var grid = new FakeGrid();
+        CommandAssistController controller = CreatePassiveBubbleController(grid);
+
+        grid.SetLine("cd ./d");
+        controller.NotifyInputActivity();
+        await WaitForPassiveBubbleAsync(controller);
+
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.False(controller.IsSelectionUpOwned);
+
+        // And the strip says so rather than advertising a key the surface has given back to the shell.
+        Assert.Contains("Down browse", controller.ViewModel.Bubble.ShortcutHintText);
+        Assert.DoesNotContain("Up/Down", controller.ViewModel.Bubble.ShortcutHintText);
+    }
+
+    /// <summary>
+    /// The other half: <c>Down</c> opens the list from that same state, after which <c>Up</c> navigates
+    /// it. Without this the rule above would be indistinguishable from "the assist never gets an arrow".
+    /// </summary>
+    [Fact]
+    public async Task AfterDownOpensTheListFromAPassiveBubble_UpBecomesAssistOwned()
+    {
+        var grid = new FakeGrid();
+        CommandAssistController controller = CreatePassiveBubbleController(grid);
+
+        grid.SetLine("cd ./d");
+        controller.NotifyInputActivity();
+        await WaitForPassiveBubbleAsync(controller);
+
+        Assert.True(controller.MoveSelectionDown());
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.IsSelectionUpOwned);
+    }
+
+    /// <summary>
+    /// An explicitly summoned surface owns both arrows from the first keypress: the user asked for the
+    /// list, so reaching it must not depend on which direction they reach in.
+    /// </summary>
+    [Fact]
+    public void AfterTheAssistShortcut_UpIsAssistOwnedWithNoOpenList()
+    {
+        var controller = CreateController();
+
+        controller.ToggleAssist();
+
+        // Ctrl+Space leaves the popup closed, so this is the summoned-surface branch rather than the
+        // open-list one - the two reasons Up can be owned, told apart.
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.IsSelectionUpOwned);
+    }
+
+    /// <summary>
+    /// <c>Up</c> at the top of the list is a no-op, and specifically not "select row 0": the old clamp
+    /// went through <c>SetSelectedIndex</c>, which opens the popup and arms <c>Enter</c>. That is how a
+    /// key pressed for shell history built the surface that then swallowed the next <c>Enter</c>.
+    /// </summary>
+    [Fact]
+    public async Task MoveSelectionUp_AtTheTopOfTheList_DoesNotOpenThePopupOrArmEnter()
+    {
+        var grid = new FakeGrid();
+        CommandAssistController controller = CreatePassiveBubbleController(grid);
+
+        grid.SetLine("cd ./d");
+        controller.NotifyInputActivity();
+        await WaitForPassiveBubbleAsync(controller);
+        Assert.Equal(0, controller.ViewModel.SelectedIndex);
+        Assert.False(controller.ViewModel.IsPopupOpen);
+
+        bool moved = controller.MoveSelectionUp();
+
+        Assert.False(moved);
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.False(controller.IsAcceptOnEnterArmed);
+    }
+
+    /// <summary>
+    /// And inside an open list it still navigates. <c>Up</c> from row 1 lands on row 0 and stays there.
+    /// </summary>
+    [Fact]
+    public async Task MoveSelectionUp_InsideAnOpenList_MovesBackUpAndThenStops()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("git stash", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")));
+        var controller = CreateController(historyStore);
+
+        controller.OpenHistorySearch();
+        await historyStore.WaitForSearchSettledAsync();
+        await WaitForConditionAsync(() => controller.Suggestions.Count > 1);
+        Assert.True(controller.MoveSelectionDown());
+        Assert.Equal(1, controller.ViewModel.SelectedIndex);
+
+        Assert.True(controller.MoveSelectionUp());
+        Assert.Equal(0, controller.ViewModel.SelectedIndex);
+
+        Assert.False(controller.MoveSelectionUp());
+        Assert.Equal(0, controller.ViewModel.SelectedIndex);
+        Assert.True(controller.ViewModel.IsPopupOpen);
     }
 
     /// <summary>
@@ -1215,7 +1370,8 @@ public sealed class CommandAssistControllerTests
         ICommandDocsProvider? commandDocsProvider = null,
         IRecipeProvider? recipeProvider = null,
         IErrorInsightService? errorInsightService = null,
-        FakeGrid? grid = null)
+        FakeGrid? grid = null,
+        Func<bool>? renderedSurfaceProbe = null)
     {
         historyStore ??= new InMemoryHistoryStore();
         var filter = new SecretsFilter();
@@ -1236,7 +1392,8 @@ public sealed class CommandAssistControllerTests
             errorInsightService,
             modeRouter: null,
             resultBuilder: null,
-            queryProvider: grid == null ? null : grid.Read);
+            queryProvider: grid == null ? null : grid.Read,
+            renderedSurfaceProbe: renderedSurfaceProbe);
 
         if (grid != null)
         {
@@ -1354,11 +1511,71 @@ public sealed class CommandAssistControllerTests
         }
     }
 
+    /// <summary>
+    /// A controller whose passive typing bubble actually has rows in it.
+    /// </summary>
+    /// <remarks>
+    /// A passive Suggest session is scoped to <em>paths only</em> - unasked-for history rows were the
+    /// noisiest part of V1, see <c>SuggestionOrchestrator.ResolveScope</c> - so seeding history is not
+    /// enough to make one visible, and every history-seeded test in this file that calls
+    /// <c>ToggleAssist</c> first is in the <em>explicit</em> bubble state instead. The PR #290 review's
+    /// <c>Up</c> rule is specifically about the passive state, so it needs a path provider that answers.
+    /// </remarks>
+    private static CommandAssistController CreatePassiveBubbleController(FakeGrid grid)
+    {
+        return CreateController(
+            suggestionEngine: new CommandAssistSuggestionEngine(new FixedPathSuggestionProvider(
+                CreatePathRow("./docs/"),
+                CreatePathRow("./deploy.sh"))),
+            grid: grid);
+    }
+
+    /// <summary>
+    /// Waits for a passive bubble's ranking pass to be <em>finished</em>, not merely to have produced
+    /// rows.
+    /// </summary>
+    /// <remarks>
+    /// The test dispatch is the identity function, so <c>ApplyRefreshOutcome</c> runs on the pass's own
+    /// thread-pool thread while the test thread carries on. Waiting on the row count therefore returns
+    /// mid-apply, and the writes that come after it - closing the popup, publishing visibility - land on
+    /// top of whatever the test did next. <c>IsVisible</c> is the last of those writes, and it is false
+    /// until a pass lands (<c>NotifyInputActivity</c> sets it from the rows that were already up, which
+    /// is none), so it is the one flag that means "the pass is done".
+    /// </remarks>
+    private static Task WaitForPassiveBubbleAsync(CommandAssistController controller) =>
+        WaitForConditionAsync(() => controller.ViewModel.IsVisible && controller.Suggestions.Count > 1);
+
+    private static AssistSuggestion CreatePathRow(string text) => new(
+        Id: text,
+        Type: AssistSuggestionType.Path,
+        DisplayText: text,
+        InsertText: text,
+        Description: null,
+        Badges: Array.Empty<string>(),
+        Score: 50,
+        WorkingDirectory: null,
+        LastUsedAt: null,
+        ExitCode: null);
+
     /// <summary>Stubs out the filesystem so controller tests never depend on the working directory.</summary>
     private sealed class NoPathSuggestionProvider : IPathSuggestionProvider
     {
         public IReadOnlyList<AssistSuggestion> GetSuggestions(CommandAssistQueryContext context, int maxResults)
             => Array.Empty<AssistSuggestion>();
+    }
+
+    /// <summary>The opposite: a filesystem that always has these two entries in it.</summary>
+    private sealed class FixedPathSuggestionProvider : IPathSuggestionProvider
+    {
+        private readonly AssistSuggestion[] _suggestions;
+
+        public FixedPathSuggestionProvider(params AssistSuggestion[] suggestions)
+        {
+            _suggestions = suggestions;
+        }
+
+        public IReadOnlyList<AssistSuggestion> GetSuggestions(CommandAssistQueryContext context, int maxResults)
+            => context.IncludePathSuggestions ? _suggestions : Array.Empty<AssistSuggestion>();
     }
 
     private sealed class InMemoryHistoryStore : IHistoryStore

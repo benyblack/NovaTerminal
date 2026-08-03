@@ -36,10 +36,17 @@
                 which is why the shortcuts were unlearnable in-product: the one surface that could have
                 taught them rendered everything except them. Content is state-dependent (see
                 CommandAssistBarViewModel), so it never advertises a key the surface does not own.
+
+                It is also the lowest-priority content in the bubble, and the layout has to say so: this
+                is an Auto column next to the summary's *, so without a cap it wins every width argument
+                (PR #290 review). Collapsed outright in compact layout - the 280 px floor a split SSH
+                pane lands on - and capped otherwise so the summary keeps the remainder.
             -->
             <TextBlock x:Name="BubbleShortcutHintText"
                        Grid.Column="3"
                        Text="{Binding ShortcutHintText}"
+                       IsVisible="{Binding ShowShortcutHint}"
+                       MaxWidth="240"
                        Foreground="#8B96A5"
                        FontSize="11"
                        VerticalAlignment="Center"

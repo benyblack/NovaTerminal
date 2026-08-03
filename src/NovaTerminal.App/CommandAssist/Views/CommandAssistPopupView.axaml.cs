@@ -99,6 +99,49 @@ public partial class CommandAssistPopupView : UserControl
     }
 
     /// <summary>
+    /// Whether a pointer button pressed on the popup must be swallowed rather than allowed to reach
+    /// whatever is behind it.
+    /// </summary>
+    /// <remarks>
+    /// A predicate rather than an inline condition so the rule is assertable without synthesizing
+    /// pointer input: the two buttons named here are the two that do something destructive to the
+    /// terminal underneath (pane context menu, X11-style middle-click paste), and neither does anything
+    /// at all to the popup.
+    /// </remarks>
+    internal static bool IsSwallowedPointerButton(bool isRightButtonPressed, bool isMiddleButtonPressed) =>
+        isRightButtonPressed || isMiddleButtonPressed;
+
+    /// <summary>
+    /// Swallows right- and middle-clicks landing anywhere on the popup surface.
+    /// </summary>
+    /// <remarks>
+    /// Left-clicks are deliberately left alone here: the row handler below is the one that decides what
+    /// a left-click means, and marking the press handled at this level first would not stop it (the row
+    /// handler runs first, on the inner control) but would obscure where the decision lives.
+    /// </remarks>
+    private void OnPopupSurfacePointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        PointerPointProperties properties = e.GetCurrentPoint(this).Properties;
+        if (IsSwallowedPointerButton(properties.IsRightButtonPressed, properties.IsMiddleButtonPressed))
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Stops a context-menu request raised over the popup from reaching the pane.
+    /// </summary>
+    /// <remarks>
+    /// Separate from the pointer handler because it is a separate event: Avalonia raises
+    /// <c>ContextRequested</c> from the pointer <em>release</em> (and from the menu key), so handling the
+    /// press alone leaves <c>TerminalPane.RootGrid</c>'s <c>ContextMenu</c> free to open over the list.
+    /// </remarks>
+    private void OnPopupSurfaceContextRequested(object? sender, ContextRequestedEventArgs e)
+    {
+        e.Handled = true;
+    }
+
+    /// <summary>
     /// Single click selects; double click - or a click on the row that is already selected - accepts.
     /// </summary>
     /// <remarks>

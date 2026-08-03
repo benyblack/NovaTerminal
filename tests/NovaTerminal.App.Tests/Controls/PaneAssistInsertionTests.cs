@@ -1,4 +1,6 @@
 using System.Reflection;
+using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using NovaTerminal.CommandAssist.Models;
@@ -132,6 +134,87 @@ public class PaneAssistInsertionTests
         Assert.False(fixture.PressEnter());
         Assert.Empty(fixture.Session.Sent);
         Assert.True(fixture.ViewModel.IsVisible);
+    }
+
+    // -------------------- an unrendered overlay owns nothing (PR #290 review)
+
+    /// <summary>
+    /// The first blocker, end to end. The session is in the browse state that arms <c>Enter</c>, and then
+    /// the pane's own placement-correction stack drops the overlay to zero opacity - which it does for up
+    /// to six render passes on a markless SSH pane, and which a passive popup does not get a bypass from.
+    /// An armed <c>Enter</c> there means the user's command line silently fails to submit while nothing
+    /// is on screen to explain why.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task WhenTheOverlayIsNotRendered_PlainEnterFallsThroughToTheShell()
+    {
+        using var fixture = await Fixture.AtAnIntegratedPromptAsync("git st", history: "git status");
+        Assert.True(fixture.PressDown());
+
+        // The control: the surface is up, so this is the state that would have inserted.
+        Assert.True(fixture.IsOverlayRendered);
+        Assert.True(fixture.ViewModel.IsPopupOpen);
+        Assert.True(fixture.ViewModel.IsAcceptOnEnterArmed);
+
+        fixture.DimOverlayLikeAPlacementCorrection();
+
+        Assert.False(fixture.IsOverlayRendered);
+        Assert.False(fixture.PressEnter());
+        Assert.Empty(fixture.Session.Sent);
+
+        // Hidden, not dismissed: the row is still selected and Ctrl+Enter - which never depended on the
+        // surface being legible - still works, so this refuses the ambiguous key only.
+        Assert.True(fixture.ViewModel.IsPopupOpen);
+        fixture.PressCtrlEnter();
+        Assert.Equal("atus", Assert.Single(fixture.Session.Sent));
+    }
+
+    // ------------------ Up is the shell's while typing (PR #290 review)
+
+    /// <summary>
+    /// The second blocker, as the exact sequence reported: type at a prompt with a passive bubble up,
+    /// press <c>Up</c> for the previous command, press <c>Enter</c> to run it. <c>Up</c> must reach the
+    /// shell, the popup must stay closed, and <c>Enter</c> must reach the shell too.
+    /// </summary>
+    /// <remarks>
+    /// Before the fix all three failed together: <c>Up</c> was assist-owned whenever any surface was
+    /// visible, <c>MoveSelectionUp</c>'s clamp-to-zero opened the popup as a side effect of selecting row
+    /// 0, and the resulting browse state armed <c>Enter</c> - so the key pressed for history recall built
+    /// the surface that swallowed the submission.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task WithAPassiveBubbleUp_UpAndEnterBothReachTheShell()
+    {
+        using var fixture = await Fixture.AtAPassivePathBubbleAsync();
+
+        Assert.True(fixture.ViewModel.IsVisible);
+        Assert.True(fixture.IsOverlayRendered);
+        Assert.False(fixture.ViewModel.IsPopupOpen);
+
+        Assert.False(fixture.PressUp());
+
+        Assert.False(fixture.ViewModel.IsPopupOpen);
+        Assert.False(fixture.ViewModel.IsAcceptOnEnterArmed);
+        Assert.False(fixture.PressEnter());
+        Assert.Empty(fixture.Session.Sent);
+    }
+
+    /// <summary>
+    /// And <c>Down</c> is the way in from that same state: it opens the list, after which <c>Enter</c>
+    /// inserts. Without this the test above would be satisfied by a passive bubble that owns no keys at
+    /// all, which is not the model - browsing while typing is the feature.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task WithAPassiveBubbleUp_DownOpensTheListAndThenEnterInserts()
+    {
+        using var fixture = await Fixture.AtAPassivePathBubbleAsync();
+
+        Assert.True(fixture.PressDown());
+
+        Assert.True(fixture.ViewModel.IsPopupOpen);
+        Assert.True(fixture.ViewModel.IsAcceptOnEnterArmed);
+        Assert.True(fixture.PressEnter());
+        Assert.NotEmpty(fixture.Session.Sent);
     }
 
     // -------------------------------------- degraded-session insertion (V2 Phase 3a)
@@ -323,6 +406,51 @@ public class PaneAssistInsertionTests
             return fixture;
         }
 
+        /// <summary>
+        /// The passive typing bubble: an instrumented prompt reading <c>cd ./d</c>, a real directory with
+        /// two matching entries in it, and no explicit session anywhere.
+        /// </summary>
+        /// <remarks>
+        /// Paths rather than history, because that is the only source a passive Suggest session is scoped
+        /// to (<c>SuggestionOrchestrator.ResolveScope</c>: unasked-for history rows were the noisiest part
+        /// of V1). Every other fixture here calls <c>ToggleCommandAssist</c> or <c>Ctrl+R</c>, which puts
+        /// the session in an <em>explicit</em> state where both arrows are assist-owned - so a fixture
+        /// that never asks for anything is what the PR #290 review's <c>Up</c> rule needs.
+        /// </remarks>
+        public static async Task<Fixture> AtAPassivePathBubbleAsync()
+        {
+            Fixture fixture = await CreateAsync(history: "git status");
+            Directory.CreateDirectory(Path.Combine(fixture._directory, "docs"));
+            Directory.CreateDirectory(Path.Combine(fixture._directory, "deploy"));
+            fixture.Pane.HandleWorkingDirectoryChangedForTest(fixture._directory);
+
+            fixture.Pane.ArmShellIntegrationTracker();
+            fixture.Pane.CreateAndWireParser();
+            fixture.Pane.Parser!.Process(PromptStart + "$ " + PromptEnd + "cd ./d");
+            await Task.Delay(50);
+
+            // A trigger, not content: the grid above is the query. The echo flag it sets is cleared
+            // straight away, because "bytes in flight" is a different refusal and not the one under test.
+            fixture.Pane.NotifyTypedTextObserved("d");
+            fixture.Pane.NoteSessionOutputApplied();
+
+            await fixture.WaitForAsync(() => fixture.ViewModel.Suggestions.Count > 1);
+            return fixture;
+        }
+
+        /// <summary>Whether the overlay this pane hosts is actually on screen.</summary>
+        public bool IsOverlayRendered => Pane.IsCommandAssistOverlayRendered;
+
+        /// <summary>
+        /// Leaves the overlay in the state a placement-correction pass leaves it in: hosted, believed
+        /// visible by the session, and rendering at zero opacity.
+        /// </summary>
+        public void DimOverlayLikeAPlacementCorrection()
+        {
+            Grid host = Assert.IsType<Grid>(Pane.FindControl<Grid>("CommandAssistOverlayHost"));
+            host.Opacity = 0.0;
+        }
+
         public void PressCtrlEnter() =>
             Pane.TryHandleCommandAssistKey(Key.Enter, KeyModifiers.Control);
 
@@ -332,6 +460,9 @@ public class PaneAssistInsertionTests
 
         public bool PressDown() =>
             Pane.TryHandleCommandAssistKey(Key.Down, KeyModifiers.None);
+
+        public bool PressUp() =>
+            Pane.TryHandleCommandAssistKey(Key.Up, KeyModifiers.None);
 
         public void Dispose()
         {
@@ -379,12 +510,22 @@ public class PaneAssistInsertionTests
                 Source: CommandCaptureSource.Heuristic,
                 DurationMs: null));
 
-            var pane = new TerminalPane();
+            // Laid out, not bare. The pane hides its own overlay host when it has no layout to place, and
+            // since the PR #290 review an unrendered overlay may not own Enter - so a pane that was never
+            // measured is a pane where the accept path is unreachable, and every Enter test here would be
+            // asserting the refusal rather than the insertion.
+            var pane = new TerminalPane
+            {
+                Width = 900,
+                Height = 500
+            };
             pane.CommandAssistServices = services;
             var settings = new TerminalSettings(); // constructed, not Load() - see #232
             settings.CommandAssistEnabled = true;
             settings.CommandAssistHistoryEnabled = true;
             pane.ApplySettings(settings);
+            pane.Measure(new Size(900, 500));
+            pane.Arrange(new Rect(0, 0, 900, 500));
 
             var session = new RecordingSession();
             typeof(TerminalPane)

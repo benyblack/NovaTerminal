@@ -484,6 +484,69 @@ public sealed class AssistSessionStateMachineTests
         Assert.False(machine.AllowsAcceptOnEnter(isPopupOpen: true, hasSelection: true));
     }
 
+    // ------------------------------------- Up belongs to the shell while typing (PR #290 review)
+
+    /// <summary>
+    /// The blocker, at the layer that decides it: in a passive bubble the user did not ask for,
+    /// <c>Up</c> is the shell's history recall and Command Assist may not take it.
+    /// </summary>
+    /// <remarks>
+    /// <c>FixHint</c> is in the table for the same reason it is out of
+    /// <c>IsUserRequestedSurface</c>: it is a bubble-only affordance for a diagnosis nobody requested.
+    /// </remarks>
+    [Theory]
+    [InlineData(AssistSessionState.PassiveBubble)]
+    [InlineData(AssistSessionState.FixHint)]
+    public void AllowsSelectionUp_InAPassiveBubble_IsFalse(AssistSessionState state)
+    {
+        AssistSessionStateMachine machine = CreateInState(state);
+
+        Assert.False(machine.AllowsSelectionUp(isPopupOpen: false));
+    }
+
+    /// <summary>
+    /// Once the row list is open the user is demonstrably browsing it, so <c>Up</c> navigates - even in
+    /// a passive session, which is the one the user reached with <c>Down</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistSessionState.PassivePopup)]
+    [InlineData(AssistSessionState.ExplicitPopup)]
+    [InlineData(AssistSessionState.HistorySearch)]
+    [InlineData(AssistSessionState.Help)]
+    [InlineData(AssistSessionState.FixPopup)]
+    public void AllowsSelectionUp_WithTheListOpen_IsTrue(AssistSessionState state)
+    {
+        AssistSessionStateMachine machine = CreateInState(state);
+
+        Assert.True(machine.AllowsSelectionUp(isPopupOpen: true));
+    }
+
+    /// <summary>
+    /// A surface the user summoned by name owns both arrows from the first keypress: the list is what
+    /// they asked for, so reaching it must not require a specific direction.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistSessionState.ExplicitBubble)]
+    [InlineData(AssistSessionState.HistorySearch)]
+    public void AllowsSelectionUp_InASummonedSurfaceWithNoOpenList_IsStillTrue(AssistSessionState state)
+    {
+        AssistSessionStateMachine machine = CreateInState(state);
+
+        Assert.True(machine.AllowsSelectionUp(isPopupOpen: false));
+    }
+
+    /// <summary>
+    /// Hidden owns nothing, popup flag or not - the same guard <c>AllowsAcceptOnEnter</c> needs, for the
+    /// same reason: leftover rows stay navigable objects while no surface is on screen.
+    /// </summary>
+    [Fact]
+    public void AllowsSelectionUp_WhenHidden_IsFalse()
+    {
+        AssistSessionStateMachine machine = CreateInState(AssistSessionState.Hidden);
+
+        Assert.False(machine.AllowsSelectionUp(isPopupOpen: true));
+    }
+
     // ------------------------------------------- user-requested surfaces (V2 Phase 3a)
 
     /// <summary>

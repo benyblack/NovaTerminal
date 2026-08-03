@@ -179,6 +179,10 @@ namespace NovaTerminal.Controls
         private string? _lastCommandAssistAnchorAppliedSignature;
         private string? _lastCommandAssistAnchorCorrectionSignature;
         private bool _suppressSshAssistOverlayUntilSettled;
+
+        // Last value of IsCommandAssistOverlayRendered the controller was told about. Starts false, which
+        // matches the overlay host's IsVisible="False" in the XAML.
+        private bool _wasCommandAssistOverlayRendered;
         private int _sshAssistCorrectionPassCount;
         private int _commandAssistPlacementCorrectionPasses;
         private readonly CommandAssistBubbleViewModel _hiddenCommandAssistBubbleViewModel = new() { IsVisible = false };
@@ -1017,6 +1021,12 @@ namespace NovaTerminal.Controls
                 // assist assembly's own AssistQuerySnapshot right here, at the one boundary that
                 // can see both types. Everything downstream sees plain data.
                 queryProvider: TryReadAssistQuerySnapshot,
+
+                // The other seam the controller cannot see for itself: whether the overlay it believes
+                // is up is actually on screen. This pane hides it (no layout) and dims it (placement
+                // correction) on its own authority, and an armed Enter on a zero-pixel surface is the
+                // PR #290 review's first blocker.
+                renderedSurfaceProbe: () => IsCommandAssistOverlayRendered,
                 dispatch: action =>
                 {
                     if (Dispatcher.UIThread.CheckAccess())
@@ -1407,6 +1417,7 @@ namespace NovaTerminal.Controls
                 bool keepOverlayOpaque = !_suppressSshAssistOverlayUntilSettled || IsCommandAssistSurfaceUserRequested;
                 CommandAssistOverlayHost.IsVisible = shouldShowOverlayHost;
                 CommandAssistOverlayHost.Opacity = shouldShowOverlayHost && keepOverlayOpaque ? 1.0 : 0.0;
+                NotifyCommandAssistOverlayRenderedChanged();
             }
 
             if (layout == null)
@@ -1419,6 +1430,12 @@ namespace NovaTerminal.Controls
                 if (_boundCommandAssistViewModel != null)
                 {
                     _boundCommandAssistViewModel.Bubble.ShowQueryText = !layout.UseCompactBubbleLayout;
+
+                    // Same rule, same reason, one more casualty of a 280 px bubble: the hint strip's Auto
+                    // column beat the summary's * column at the width a split SSH pane produces, so the
+                    // one thing the bubble exists to show was squeezed out by a legend for it
+                    // (PR #290 review). The popup footer still carries the shortcuts.
+                    _boundCommandAssistViewModel.Bubble.ShowShortcutHint = !layout.UseCompactBubbleLayout;
                 }
 
                 CommandAssistBubble.Width = layout.BubbleRect.Width;
@@ -1527,6 +1544,48 @@ namespace NovaTerminal.Controls
         private bool IsCommandAssistSurfaceUserRequested =>
             _commandAssistController?.IsUserRequestedSurface == true;
 
+        /// <summary>
+        /// Whether the assist overlay this pane hosts is actually on screen right now.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The pane-side half of the PR #290 review's first blocker. Assist visibility has two
+        /// authorities and they disagree: the session says "a surface is up" through
+        /// <c>CommandAssistBarViewModel.IsVisible</c>, and this pane independently hides the overlay host
+        /// when the conservative anchor check yields no layout, or drops it to zero opacity while a
+        /// placement correction settles. Both of those bypasses are waived for a surface the user asked
+        /// for by name - and a <c>PassivePopup</c> is not one, so a passive popup could hold an armed
+        /// <c>Enter</c> at zero pixels while the user's command line silently failed to submit.
+        /// </para>
+        /// <para>
+        /// Read live rather than cached: it is asked on the key path and during
+        /// <c>SyncPresentationState</c>, and both want the current frame's answer.
+        /// </para>
+        /// </remarks>
+        internal bool IsCommandAssistOverlayRendered =>
+            CommandAssistOverlayHost is { IsVisible: true } host && host.Opacity > 0;
+
+        /// <summary>
+        /// Tells the controller the answer to <see cref="IsCommandAssistOverlayRendered"/> moved, so the
+        /// hint strip can catch up with the routing decision.
+        /// </summary>
+        /// <remarks>
+        /// Gated on an actual change, and not only to save work: republishing presentation state can
+        /// raise <c>IsAcceptOnEnterArmed</c>, which this pane listens to, which runs another placement
+        /// pass. The change check is what makes that converge on the second pass instead of recursing.
+        /// </remarks>
+        private void NotifyCommandAssistOverlayRenderedChanged()
+        {
+            bool isRendered = IsCommandAssistOverlayRendered;
+            if (isRendered == _wasCommandAssistOverlayRendered)
+            {
+                return;
+            }
+
+            _wasCommandAssistOverlayRendered = isRendered;
+            _commandAssistController?.NotifyRenderedSurfaceVisibilityChanged();
+        }
+
         internal bool ShouldCorrectCommandAssistPlacementForTest(CommandAssistAnchorLayout layout, bool assistIsVisible)
         {
             return ShouldCorrectCommandAssistPlacement(layout, assistIsVisible);
@@ -1614,6 +1673,7 @@ namespace NovaTerminal.Controls
                 {
                     _suppressSshAssistOverlayUntilSettled = true;
                     CommandAssistOverlayHost.Opacity = 0.0;
+                    NotifyCommandAssistOverlayRenderedChanged();
                 }
 
                 // Re-apply anchored margins if the rendered position drifted from expected.
@@ -1635,6 +1695,7 @@ namespace NovaTerminal.Controls
                     _suppressSshAssistOverlayUntilSettled = false;
                     _sshAssistCorrectionPassCount = 0;
                     CommandAssistOverlayHost.Opacity = 1.0;
+                    NotifyCommandAssistOverlayRenderedChanged();
                     TerminalLogger.Log("[AssistAnchor][SSH][Corrected] max-pass reached; showing overlay with best-known anchor.");
                     return;
                 }
@@ -1669,6 +1730,7 @@ namespace NovaTerminal.Controls
             if (CommandAssistOverlayHost != null)
             {
                 CommandAssistOverlayHost.Opacity = 1.0;
+                NotifyCommandAssistOverlayRenderedChanged();
             }
         }
 
@@ -1979,9 +2041,14 @@ namespace NovaTerminal.Controls
             }
 
             CommandAssistController? controller = _commandAssistController;
+            // Every fact here is asked of the controller rather than computed locally, including the two
+            // that depend on this pane: IsAcceptOnEnterArmed folds in IsCommandAssistOverlayRendered
+            // through the probe installed in InitializeCommandAssist, so the router, the hint strip and
+            // this pane cannot hold three different opinions about who owns Enter.
             var keyState = new AssistKeyState(
                 IsSurfaceVisible: controller?.ViewModel.IsVisible == true,
-                IsAcceptOnEnterArmed: controller?.IsAcceptOnEnterArmed == true);
+                IsAcceptOnEnterArmed: controller?.IsAcceptOnEnterArmed == true,
+                IsSelectionUpOwned: controller?.IsSelectionUpOwned == true);
             if (!CommandAssistKeyRouter.IsAssistOwnedKey(
                     keyState,
                     AssistKeyMapper.ToAssistKey(key),
@@ -2001,7 +2068,8 @@ namespace NovaTerminal.Controls
             }
 
             // Accept-on-Enter (V2 Phase 3a). The router only says yes here while the popup is open with
-            // a row selected, so the typing flow never reaches this branch.
+            // a row selected *and the overlay is rendered*, so neither the typing flow nor a surface this
+            // pane has hidden or dimmed reaches this branch.
             //
             // The return value is the insertion's, not `true`, and that is the important part: when
             // insertion refuses - a poisoned markless line, an unechoed keystroke, a cursor mid-line -
@@ -2019,6 +2087,9 @@ namespace NovaTerminal.Controls
                 return true;
             }
 
+            // Only reached when the router granted Up to the assist - an open popup, or a surface the user
+            // summoned. In the passive states Up is never routed here at all, so the shell keeps its
+            // history recall (PR #290 review).
             if (key == Key.Up)
             {
                 controller?.MoveSelectionUp();
