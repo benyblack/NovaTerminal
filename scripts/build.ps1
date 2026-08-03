@@ -31,6 +31,33 @@ $verbs = @('build','test','publish','pack','msbuild','clean')
 if ($verbs -contains $dotnetArgs[0]) {
     $rest = @($dotnetArgs | Select-Object -Skip 1)
     $dotnetArgs = @($dotnetArgs[0], '-nodeReuse:false') + $rest
+
+    # Kill stale NovaTerminal.McpServer processes before compiling. MCP clients
+    # (Claude Desktop, Cowork, etc.) launch the server from this repo's bin output
+    # and often leave it running, which locks the DLLs and fails the build with
+    # "file is in use". Killing is always safe: clients respawn the server on the
+    # next tool call. Scoped to servers launched from THIS repo tree only.
+    # Note: $env:OS is not reliable here (some hosts spawn children with a stripped
+    # environment), so use the runtime's own platform check.
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+        try {
+            $stale = @(Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" -ErrorAction Stop |
+                Where-Object {
+                    $_.CommandLine -and
+                    $_.CommandLine -like '*NovaTerminal.McpServer.dll*' -and
+                    $_.CommandLine -like "*$repoRoot*"
+                })
+            foreach ($p in $stale) {
+                Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+            if ($stale.Count -gt 0) {
+                Write-Output "build.ps1: killed $($stale.Count) stale NovaTerminal.McpServer process(es) locking bin outputs."
+            }
+        } catch {
+            Write-Output "build.ps1: stale-server sweep skipped ($($_.Exception.Message))"
+        }
+    }
 }
 
 & dotnet @dotnetArgs
