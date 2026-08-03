@@ -22,8 +22,21 @@ namespace NovaTerminal.CommandAssist.Application;
 /// True when the candidate fetch or the ranking threw. The surface is cleared rather than left
 /// showing rows from a previous query.
 /// </param>
+/// <param name="InsertionAppearsAvailable">
+/// Whether an accept would have something to append to. Carried back so the hint strip can stop
+/// advertising "insert" on a line where <c>CommandAssistInsertionPlanner</c> is going to refuse - which,
+/// with PSReadLine's inline prediction showing, is every line (PR #293 review).
+/// <para>
+/// Deliberately <see langword="true"/> when the pass read no snapshot at all. A markless session does
+/// refuse insertion, but "there is no grid to read" is a different condition from "the line cannot be
+/// appended to", and the degraded-mode hint strip is not this change's subject: reporting unavailability
+/// there would silently reword the strip for every un-instrumented shell. Only a snapshot that exists and
+/// says no makes this false.
+/// </para>
+/// </param>
 internal readonly record struct SuggestionRefreshOutcome(
     CommandAssistMode RequestedMode,
     string Query,
     IReadOnlyList<AssistSuggestion> Suggestions,
-    bool Faulted);
+    bool Faulted,
+    bool InsertionAppearsAvailable = true);

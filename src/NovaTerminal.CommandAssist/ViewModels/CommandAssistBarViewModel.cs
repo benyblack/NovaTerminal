@@ -84,6 +84,26 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     /// </remarks>
     internal Func<bool>? SelectionUpOwnedProbe { get; set; }
 
+    /// <summary>
+    /// Answers "would an accept actually insert right now", i.e. whether the command line the rows were
+    /// ranked against is one a suffix can be appended to.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>PR #293 review.</strong> Installed by <c>CommandAssistController</c> beside the other two
+    /// probes and read at the same moment. It exists because
+    /// <c>CommandAssistInsertionPlanner.TryCreateInsertion</c> refuses whenever the cursor is not at the
+    /// end of the painted line - which, with PSReadLine's inline prediction on, is the entire time the
+    /// bubble is up. The strip was promising a key that could not work.
+    /// </para>
+    /// <para>
+    /// Null reads as "available", which keeps a bare view-model - a designer, a test that builds one
+    /// directly - on the fuller hint rather than hiding a clause on a surface that has no controller to
+    /// ask.
+    /// </para>
+    /// </remarks>
+    internal Func<bool>? InsertionAvailableProbe { get; set; }
+
     /// <summary>Whether the hint strip is currently promising <c>Enter</c>. Presentation state, so it follows the probe.</summary>
     public bool IsAcceptOnEnterArmed { get; private set; }
 
@@ -320,7 +340,8 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         }
 
         bool isSelectionUpOwned = SelectionUpOwnedProbe?.Invoke() ?? true;
-        string hintText = BuildHintText(acceptOnEnterArmed, isSelectionUpOwned);
+        bool isInsertionAvailable = InsertionAvailableProbe?.Invoke() ?? true;
+        string hintText = BuildHintText(acceptOnEnterArmed, isSelectionUpOwned, isInsertionAvailable);
 
         Bubble.IsVisible = IsVisible;
         Bubble.ModeLabel = ModeLabel;
@@ -348,12 +369,24 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     /// Renders the hint strip for the current state out of the current key names.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// Three states, unchanged from Phase 3a - browsing a row, a summoned surface that is not browsing,
     /// and the passive bubble that owns only one arrow - with the key names now variable. With
     /// <see cref="AssistShortcutHintLabels.Default"/> each branch produces its constant verbatim, which
     /// is the property the tests pin.
+    /// </para>
+    /// <para>
+    /// <strong>The insert clause is now conditional (PR #293 review).</strong> When the line cannot be
+    /// appended to - a mid-line cursor, a multiline entry, a trimmed right prompt, or (the case that
+    /// motivated it) a PSReadLine inline prediction painted past the cursor - the planner refuses the
+    /// accept, so the clause is dropped rather than advertised. Browse and close still work in that
+    /// state, which is why only the one clause goes. When <c>Enter</c> is armed the clause stays
+    /// unconditionally: arming already requires an open popup with a selected row, and it is the
+    /// keyboard's most load-bearing promise; removing it there would make the strip flicker between two
+    /// shapes on a browse.
+    /// </para>
     /// </remarks>
-    private string BuildHintText(bool acceptOnEnterArmed, bool isSelectionUpOwned)
+    private string BuildHintText(bool acceptOnEnterArmed, bool isSelectionUpOwned, bool isInsertionAvailable)
     {
         AssistShortcutHintLabels labels = _shortcutHintLabels;
 
@@ -362,9 +395,13 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
             return $"{labels.Accept} insert  |  {labels.SelectionUp}/{labels.SelectionDown} browse  |  {labels.Dismiss} close";
         }
 
-        return isSelectionUpOwned
-            ? $"{labels.SelectionUp}/{labels.SelectionDown} browse  |  {labels.Insert} insert  |  {labels.Dismiss} close"
-            : $"{labels.SelectionDown} browse  |  {labels.Insert} insert  |  {labels.Dismiss} close";
+        string browse = isSelectionUpOwned
+            ? $"{labels.SelectionUp}/{labels.SelectionDown} browse"
+            : $"{labels.SelectionDown} browse";
+
+        return isInsertionAvailable
+            ? $"{browse}  |  {labels.Insert} insert  |  {labels.Dismiss} close"
+            : $"{browse}  |  {labels.Dismiss} close";
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

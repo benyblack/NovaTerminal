@@ -19,6 +19,51 @@ public sealed class CommandAssistInsertionPlannerTests
         return new AssistQuerySnapshot(text, cursorOffset ?? text.Length, isMultiline, rightPromptTrimmed);
     }
 
+    // ---------------------------------------- the typed prefix projection (PR #293, blocker 1)
+
+    /// <summary>
+    /// <c>TextBeforeCursor</c> is the query projection every prefix consumer wants: the painted line up
+    /// to the cursor, so PSReadLine's inline prediction - real cells past the cursor - is left out.
+    /// </summary>
+    [Theory]
+    [InlineData("echo hello-world", 2, "ec")]
+    [InlineData("echo hello-world", 1, "e")]
+    [InlineData("git status", 10, "git status")]
+    [InlineData("git status", 4, "git ")]
+    [InlineData("", 0, "")]
+    public void TextBeforeCursor_IsTheLineUpToTheCursor(string text, int cursorOffset, string expected)
+    {
+        Assert.Equal(expected, Line(text, cursorOffset).TextBeforeCursor);
+    }
+
+    /// <summary>
+    /// Clamped rather than trusting the invariant. <c>CursorOffset</c> is documented as always valid, and
+    /// two comparisons remove a whole class of crash from a future reader change.
+    /// </summary>
+    [Theory]
+    [InlineData("git status", -1, "")]
+    [InlineData("git status", 99, "git status")]
+    public void TextBeforeCursor_ClampsAnOutOfRangeCursor(string text, int cursorOffset, string expected)
+    {
+        Assert.Equal(expected, Line(text, cursorOffset).TextBeforeCursor);
+    }
+
+    /// <summary>
+    /// And it is not a substitute for <c>IsUsableAsTypedPrefix</c>: a prediction and a mid-line cursor are
+    /// indistinguishable on the grid, so insertion still refuses on both. Having a good prefix to rank on
+    /// does not make an append safe.
+    /// </summary>
+    [Fact]
+    public void TextBeforeCursor_DoesNotMakeAMidLineCursorInsertable()
+    {
+        AssistQuerySnapshot line = Line("echo hello-world", cursorOffset: 2);
+
+        Assert.Equal("ec", line.TextBeforeCursor);
+        Assert.False(line.IsUsableAsTypedPrefix);
+        Assert.False(CommandAssistInsertionPlanner.TryCreateInsertion(line, "echo hello", out string? textToSend));
+        Assert.Null(textToSend);
+    }
+
     [Fact]
     public void TryCreateInsertion_WhenLineIsPrefix_ReturnsOnlySuffix()
     {

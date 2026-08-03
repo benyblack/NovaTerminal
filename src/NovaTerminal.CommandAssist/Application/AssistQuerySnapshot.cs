@@ -62,4 +62,46 @@ public readonly record struct AssistQuerySnapshot(
     /// </remarks>
     public bool IsUsableAsTypedPrefix =>
         !IsMultiline && !RightPromptTrimmed && CursorOffset == Text.Length;
+
+    /// <summary>
+    /// <see cref="Text"/> up to the cursor: what the user has actually put on the line to the left of
+    /// where they are typing.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The PR #293 review's first blocker, and why the reader is not the thing that was
+    /// wrong.</strong> <see cref="Text"/> is the whole painted line, and PSReadLine's inline prediction
+    /// is painted on that line - real cells, to the right of the cursor, in a dim colour the grid does
+    /// not record as "not input". So with predictions on (<c>PredictionSource
+    /// HistoryAndPlugin</c>, <c>PredictionViewStyle InlineView</c>, which is the pwsh 7.2+ default for
+    /// many users) typing <c>ec</c> produced <c>Text = "echo some long thing from history"</c> with
+    /// <c>CursorOffset = 2</c>. Every consumer that ranked or tokenized <see cref="Text"/> was
+    /// therefore working from the shell's guess rather than from the user's two characters: the bubble
+    /// ranked on the prediction, and the two-character floor measured the prediction's length, so it
+    /// let a one-character line through as well.
+    /// </para>
+    /// <para>
+    /// The reader is right to return the whole line - it reports what is painted, and it cannot tell a
+    /// prediction from text the user typed and then arrowed left through. This is the projection every
+    /// consumer of the query as a <em>prefix</em> wants, and the cursor is the only signal that
+    /// distinguishes the two regions.
+    /// </para>
+    /// <para>
+    /// Not a substitute for <see cref="IsUsableAsTypedPrefix"/>. Insertion still refuses when the
+    /// cursor is mid-line, because "the text left of the cursor" says nothing about what appending
+    /// would do to the text right of it - and a prediction and a mid-line cursor are indistinguishable
+    /// on the grid, so refusing both is the only safe reading. Ranking and the Help token are the
+    /// consumers this is for: they want the best available prefix and cannot damage anything by being
+    /// wrong.
+    /// </para>
+    /// <para>
+    /// Clamped rather than trusting the invariant. <see cref="CursorOffset"/> is documented as always a
+    /// valid index, and a defensive clamp here costs two comparisons and removes a whole class of
+    /// crash from a reader change.
+    /// </para>
+    /// </remarks>
+    public string TextBeforeCursor =>
+        CursorOffset <= 0 ? string.Empty :
+        CursorOffset >= Text.Length ? Text :
+        Text[..CursorOffset];
 }

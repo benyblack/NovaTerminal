@@ -144,6 +144,7 @@ internal sealed class SuggestionOrchestrator
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 
     private CancellationTokenSource? _refreshCts;
+    private int _passesInFlight;
 
     public SuggestionOrchestrator(
         IHistoryStore historyStore,
@@ -183,8 +184,23 @@ internal sealed class SuggestionOrchestrator
     {
         CancellationToken token = BeginPass();
         SuggestionScope scope = ResolveScope(requestedMode, isExplicitSession);
+        Interlocked.Increment(ref _passesInFlight);
         _ = RunPassAsync(scope, requestedMode, isExplicitSession, isTypingTriggered, token);
     }
+
+    /// <summary>
+    /// Whether a queued pass has not yet published its outcome - including one still sitting in the
+    /// debounce delay, which is the case this exists for.
+    /// </summary>
+    /// <remarks>
+    /// <strong>PR #293 review, non-blocking 1.</strong> <c>Escape</c> used to be a no-op whenever the
+    /// view-model said nothing was visible, which is exactly the state a keystroke leaves behind for the
+    /// 75 ms of the debounce: press Escape inside that window and the pass landed anyway, so the bubble
+    /// the user had just declined appeared. The controller asks this so it can cancel the pass and take
+    /// the suppression flag - while still returning "not handled", because a key the user pressed at a
+    /// prompt with nothing on screen belongs to the shell.
+    /// </remarks>
+    public bool HasPassInFlight => Volatile.Read(ref _passesInFlight) > 0;
 
     /// <summary>
     /// Reads the live command line, or returns <see langword="null"/> when there is nothing
@@ -250,11 +266,33 @@ internal sealed class SuggestionOrchestrator
         bool isTypingTriggered,
         CancellationToken token)
     {
+        try
+        {
+            await RunPassCoreAsync(scope, requestedMode, isExplicitSession, isTypingTriggered, token)
+                .ConfigureAwait(false);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _passesInFlight);
+        }
+    }
+
+    private async Task RunPassCoreAsync(
+        SuggestionScope scope,
+        CommandAssistMode requestedMode,
+        bool isExplicitSession,
+        bool isTypingTriggered,
+        CancellationToken token)
+    {
         // The query is resolved *inside* the worker, not here. Refresh() is called straight off the
         // keystroke, so anything before the Task.Run boundary still runs on the caller's thread -
         // which is exactly the mid-repaint read this design exists to avoid. Recorded outside the
         // lambda so the catch below and the outcome can both see whatever the pass managed to read.
         string query = string.Empty;
+
+        // True until a snapshot says otherwise: see SuggestionRefreshOutcome.InsertionAppearsAvailable for
+        // why "no snapshot" is not "no insertion" as far as the hint strip is concerned.
+        bool insertionAppearsAvailable = true;
 
         if (isTypingTriggered && _passiveRefreshDebounce > TimeSpan.Zero)
         {
@@ -282,12 +320,25 @@ internal sealed class SuggestionOrchestrator
                 // In a markless session this stays empty: degraded mode has no query, so an
                 // explicit Search falls back to the recency list and everything prefix-dependent
                 // finds nothing to work with. That is the intent, not a gap.
-                query = TryReadQuery()?.Text ?? string.Empty;
+                //
+                // TextBeforeCursor, not Text (PR #293 review, blocker 1). The reader returns the whole
+                // painted line, and PSReadLine paints its inline prediction on that line to the right
+                // of the cursor: ranking on Text meant ranking on the shell's guess, so typing `ec`
+                // ranked on `echo <whatever history suggested>` and the bubble showed a row that had
+                // nothing to do with the two characters the user had typed. Everything the floor below
+                // and the stores see is now the text left of the cursor, which is the part the user put
+                // there.
+                AssistQuerySnapshot? snapshot = TryReadQuery();
+                query = snapshot?.TextBeforeCursor ?? string.Empty;
+                insertionAppearsAvailable = snapshot?.IsUsableAsTypedPrefix ?? true;
 
                 // The >= 2 characters rule. Checked after the read and before any store or engine
                 // work, so a one-character line costs a grid read and nothing else - and publishes an
                 // empty outcome rather than returning, because a bubble ranked from three characters
                 // has to disappear when the user backspaces down to one.
+                //
+                // It measures `query`, which is now the text left of the cursor, so a long inline
+                // prediction no longer games the floor into letting a one-character line through.
                 if (IsBelowPassiveQueryFloor(requestedMode, isExplicitSession, query))
                 {
                     return (IReadOnlyList<AssistSuggestion>)Array.Empty<AssistSuggestion>();
@@ -321,12 +372,24 @@ internal sealed class SuggestionOrchestrator
                 return _suggestionEngine.GetSuggestions(history, snippets, queryContext, MaxDisplayedSuggestions);
             }).ConfigureAwait(false);
 
-            Publish(new SuggestionRefreshOutcome(requestedMode, query, suggestions, Faulted: false), token);
+            Publish(
+                new SuggestionRefreshOutcome(
+                    requestedMode,
+                    query,
+                    suggestions,
+                    Faulted: false,
+                    InsertionAppearsAvailable: insertionAppearsAvailable),
+                token);
         }
         catch
         {
             Publish(
-                new SuggestionRefreshOutcome(requestedMode, query, Array.Empty<AssistSuggestion>(), Faulted: true),
+                new SuggestionRefreshOutcome(
+                    requestedMode,
+                    query,
+                    Array.Empty<AssistSuggestion>(),
+                    Faulted: true,
+                    InsertionAppearsAvailable: insertionAppearsAvailable),
                 token);
         }
     }
@@ -378,8 +441,18 @@ internal sealed class SuggestionOrchestrator
     /// The noise argument was not wrong, it was answered elsewhere: <see cref="MinPassiveQueryLength"/>
     /// stops the bubble appearing on a barely-touched line, the debounce stops it flickering per
     /// keystroke, <c>Escape</c> takes it down for the rest of the command, and
-    /// <see cref="AssistSessionContext.IsPassiveBubbleEnabled"/> is the kill switch that restores this
-    /// exact paths-only behavior for a user who disagrees.
+    /// <see cref="AssistSessionContext.IsPassiveBubbleEnabled"/> is the kill switch that puts the passive
+    /// scope back to paths-only for a user who disagrees.
+    /// </para>
+    /// <para>
+    /// <strong>"Paths-only" is the scope, not the whole of M4.3 (PR #293 review, non-blocking 2).</strong>
+    /// The switch narrows what a passive pass may draw on; it does not undo the other Phase 3b policies
+    /// that apply to the passive path. <see cref="MinPassiveQueryLength"/> in particular still holds, so a
+    /// one-character line offers no path completions either, where M4.3 would have. Exempting the floor
+    /// when only paths are in scope was considered and not taken: a single character is not a path
+    /// fragment worth ranking, and making the floor depend on the resolved scope would mean the floor and
+    /// the scope could disagree about which pass they belong to. The switch is a scope control and this is
+    /// what it says it is.
     /// </para>
     /// <para>
     /// Snippets stay out of the passive scope. A pinned snippet is a row the user built by hand, and

@@ -126,6 +126,137 @@ public sealed class CommandAssistPassiveBubbleTests
         Assert.Contains(controller.Suggestions, row => row.Type == AssistSuggestionType.Path);
     }
 
+    // ------------------------------------------------- PSReadLine's inline prediction (PR #293, B1)
+
+    /// <summary>
+    /// The headline of PR #293's first blocker: with a prediction painted past the cursor, the bubble
+    /// ranks on the two characters the user typed, not on the whole painted line.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The grid returns <c>Text = "echo hello-world"</c> with <c>CursorOffset = 2</c>, which is what
+    /// PSReadLine produces for a user who has typed <c>ec</c> with
+    /// <c>PredictionSource HistoryAndPlugin</c> / <c>PredictionViewStyle InlineView</c> on. The
+    /// prediction's cells are real and dim; nothing on the grid marks them as not-input.
+    /// </para>
+    /// <para>
+    /// <strong>Mutation check:</strong> revert <c>SuggestionOrchestrator</c> to <c>TryReadQuery()?.Text</c>
+    /// and the recall arrives for <c>"echo hello-world"</c>, which no seeded row matches as a prefix -
+    /// <c>echo hello</c> loses to nothing because the query is longer than every candidate.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Typing_WithAnInlinePredictionPainted_RanksOnTheTextBeforeTheCursor()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("echo hello");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("echo hello-world", cursorOffset: 2);
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        await WaitForAsync(() => controller.ViewModel.QueryText.Length > 0);
+        Assert.Equal("ec", controller.ViewModel.QueryText);
+        Assert.Equal(new[] { "ec" }, history.SearchQueries);
+        Assert.Equal("echo hello", controller.ViewModel.TopSuggestionText);
+    }
+
+    /// <summary>
+    /// The floor measures the typed prefix too, so a long prediction can no longer game it: one typed
+    /// character shows nothing and costs no recall, however much the shell painted after the cursor.
+    /// </summary>
+    /// <remarks>
+    /// This is the half of blocker 1 that was not just a wrong ranking. The floor exists to stop the
+    /// bubble appearing on a barely-touched line, and measuring the painted line meant the very first
+    /// character of a recognised command cleared it - the bubble appeared one keystroke early, every time,
+    /// for exactly the users who have predictions on.
+    /// </remarks>
+    [Fact]
+    public async Task Typing_OneCharacterWithALongPrediction_StaysBelowTheFloorAndDoesNotRecall()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("echo hello");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("echo hello-world", cursorOffset: 1);
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        await WaitForAsync(() => controller.ViewModel.QueryText == "e");
+        Assert.Empty(controller.Suggestions);
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.Equal(0, history.SearchCount);
+    }
+
+    /// <summary>
+    /// The ordinary case is untouched: cursor at the end of the line means the whole line is the query,
+    /// which is what every pre-existing test in this file asserts and what this pins by name.
+    /// </summary>
+    [Fact]
+    public async Task Typing_WithTheCursorAtTheEnd_RanksOnTheWholeLine()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("echo hello");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("echo h");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        await WaitForAsync(() => controller.ViewModel.QueryText == "echo h");
+        Assert.Equal(new[] { "echo h" }, history.SearchQueries);
+        Assert.Equal("echo hello", controller.ViewModel.TopSuggestionText);
+    }
+
+    /// <summary>
+    /// The hint strip stops promising "insert" while a prediction is showing, because
+    /// <c>CommandAssistInsertionPlanner</c> refuses on a mid-line cursor and a promise it cannot keep is
+    /// worse than a shorter strip. Browse and close survive - both still work.
+    /// </summary>
+    [Fact]
+    public async Task Typing_WithAnInlinePredictionPainted_DropsTheInsertClauseFromTheHintStrip()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("echo hello");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("echo hello-world", cursorOffset: 2);
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+        Assert.DoesNotContain("insert", controller.ViewModel.Bubble.ShortcutHintText, StringComparison.Ordinal);
+        Assert.Contains("browse", controller.ViewModel.Bubble.ShortcutHintText, StringComparison.Ordinal);
+        Assert.Contains("close", controller.ViewModel.Bubble.ShortcutHintText, StringComparison.Ordinal);
+    }
+
+    /// <summary>And with no prediction the clause is back, so the test above is not vacuous.</summary>
+    [Fact]
+    public async Task Typing_WithNoPrediction_KeepsTheInsertClause()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("echo hello");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("echo h");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+        Assert.Contains("insert", controller.ViewModel.Bubble.ShortcutHintText, StringComparison.Ordinal);
+    }
+
     // ------------------------------------------------------------------ the kill switch
 
     /// <summary>
@@ -255,6 +386,152 @@ public sealed class CommandAssistPassiveBubbleTests
         await WaitForAsync(() => controller.Suggestions.Count > 0);
         Assert.True(controller.ViewModel.IsVisible);
         Assert.True(controller.ViewModel.IsPopupOpen);
+    }
+
+    // ------------------------------------------------- suppression has to end somehow (PR #293, B2)
+
+    /// <summary>
+    /// The two-keystroke repro from the review. Escape takes the bubble down and suppresses it for the
+    /// command line; a second Escape falls through to the shell, which clears the line without submitting
+    /// anything; the shell prints a fresh prompt (<c>OSC 133;B</c>); and the bubble must work again.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Before <c>BeginCommandLine</c> the suppression flag was cleared by <c>CompleteSubmission</c> and
+    /// nothing else, and <c>CompleteSubmission</c> only runs for an <c>Enter</c> Command Assist saw. So
+    /// this sequence - which costs the user two keypresses and no unusual configuration - disabled the
+    /// passive bubble for the rest of the pane's life.
+    /// </para>
+    /// <para>
+    /// <strong>Mutation check:</strong> remove the <c>_state.BeginCommandLine()</c> call from the
+    /// <c>CommandStarted</c> branch and this fails with the bubble still down.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task Escape_ThenANewPromptWithoutASubmission_LetsTheBubbleComeBack()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+
+        // First Escape: ours. Second Escape: nothing is visible, so it falls through to the shell, which
+        // clears the line. No OSC 133;C is emitted - nothing was submitted.
+        Assert.True(controller.HandleEscape());
+        Assert.False(controller.HandleEscape());
+
+        // The shell reprints its prompt and hands back the line editor.
+        grid.OpenPrompt(controller);
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+        Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
+    }
+
+    /// <summary>
+    /// A submission Command Assist never saw a key for - a pasted line ending in a newline, a broadcast
+    /// send, an agent-sent command - clears the surface, because <c>OSC 133;C</c> says the line was
+    /// accepted.
+    /// </summary>
+    /// <remarks>
+    /// Without this the bubble ranked for the line that just ran stayed on screen over that command's
+    /// output, still offering to insert into a line editor the shell no longer owns.
+    /// </remarks>
+    [Fact]
+    public async Task CommandAccepted_WithoutALocalEnter_ClearsTheSurface()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+
+        await controller.HandleShellIntegrationEventAsync(new ShellIntegrationEvent(
+            Type: ShellIntegrationEventType.CommandAccepted,
+            Timestamp: DateTimeOffset.UtcNow,
+            CommandText: "git status",
+            WorkingDirectory: null,
+            ExitCode: null,
+            Duration: null));
+
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.Empty(controller.Suggestions);
+        Assert.Equal(string.Empty, controller.ViewModel.QueryText);
+    }
+
+    /// <summary>
+    /// Escape inside the debounce window cancels the pass that has not landed yet and takes the
+    /// suppression flag - while still returning "not handled", so the key reaches the shell.
+    /// </summary>
+    /// <remarks>
+    /// The old early-out on <c>IsVisible</c> made Escape a no-op for the 75 ms after a keystroke, which is
+    /// the window in which a user who does not want the bubble is most likely to press it: they typed, saw
+    /// nothing yet, and pressed Escape - and the bubble appeared anyway (PR #293 review, non-blocking 1).
+    /// </remarks>
+    [Fact]
+    public async Task Escape_DuringTheDebounceWindow_CancelsThePassAndSuppresses()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        Assert.False(controller.ViewModel.IsVisible);
+
+        // Not handled - there is nothing on screen, so the shell gets its Escape - but the pending pass is
+        // cancelled and the line is suppressed.
+        Assert.False(controller.HandleEscape());
+
+        delay.ReleaseAll();
+        grid.SetLine("git");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+        await Task.Delay(50);
+
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.Empty(controller.Suggestions);
+        Assert.Equal(0, history.SearchCount);
+    }
+
+    /// <summary>
+    /// And Escape on a genuinely untouched prompt is still a plain no-op: no pass, nothing to cancel,
+    /// nothing suppressed, so the next keystroke gets a bubble.
+    /// </summary>
+    [Fact]
+    public async Task Escape_OnAnUntouchedPrompt_DoesNotSuppressTheNextKeystroke()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        Assert.False(controller.HandleEscape());
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+        Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
     }
 
     // ------------------------------------------------------------------ the debounce
@@ -517,11 +794,25 @@ public sealed class CommandAssistPassiveBubbleTests
             }
         }
 
-        public void SetLine(string text)
+        /// <summary>
+        /// Paints <paramref name="text"/> with the cursor at <paramref name="cursorOffset"/>, defaulting to
+        /// the end of the line.
+        /// </summary>
+        /// <remarks>
+        /// The cursor knob is what makes PSReadLine's inline prediction expressible (PR #293 review,
+        /// blocker 1): a prediction is real painted cells to the right of the cursor, so
+        /// <c>SetLine("echo hello-world", cursorOffset: 2)</c> is exactly what the reader hands back when
+        /// the user has typed <c>ec</c> and the shell has offered the rest.
+        /// </remarks>
+        public void SetLine(string text, int? cursorOffset = null)
         {
             lock (_gate)
             {
-                _snapshot = new AssistQuerySnapshot(text, text.Length, IsMultiline: false, RightPromptTrimmed: false);
+                _snapshot = new AssistQuerySnapshot(
+                    text,
+                    cursorOffset ?? text.Length,
+                    IsMultiline: false,
+                    RightPromptTrimmed: false);
             }
         }
 
@@ -580,6 +871,24 @@ public sealed class CommandAssistPassiveBubbleTests
         }
 
         public int SearchCount => Volatile.Read(ref _searchCount);
+
+        /// <summary>
+        /// Every query the store was asked for, in order. Asserting on the query rather than only on the
+        /// rows is what pins <em>what the pass ranked on</em> - the whole subject of PR #293's blocker 1,
+        /// where the rows happened to look plausible while the query was the shell's guess.
+        /// </summary>
+        public IReadOnlyList<string> SearchQueries
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _searchQueries.ToArray();
+                }
+            }
+        }
+
+        private readonly List<string> _searchQueries = new();
 
         public void Seed(string commandText)
         {
@@ -641,6 +950,7 @@ public sealed class CommandAssistPassiveBubbleTests
             string needle = query.Trim();
             lock (_gate)
             {
+                _searchQueries.Add(query);
                 IReadOnlyList<CommandHistoryEntry> results = _entries
                     .Where(entry => IsCandidate(entry.CommandText, needle))
                     .OrderByDescending(entry => entry.ExecutedAt)
