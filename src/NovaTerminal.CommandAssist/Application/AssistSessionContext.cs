@@ -86,6 +86,46 @@ internal sealed class AssistSessionContext
     public bool IsShellIntegrationEnabled { get; private set; }
 
     /// <summary>
+    /// Whether history is in play at all: <c>TerminalSettings.CommandAssistHistoryEnabled</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>V2 Phase 3b, task 3.</strong> This flag used to be a second master switch by accident:
+    /// <c>TerminalPane.IsCommandAssistFeatureEnabled</c> required it as well as
+    /// <c>CommandAssistEnabled</c>, so turning history capture off took the whole feature down -
+    /// no bubble, no popup, no Help, no Fix, no path suggestions. Nothing about a user who does not
+    /// want their commands written to a file says they do not want filesystem completion or a
+    /// diagnosis of the command that just failed.
+    /// </para>
+    /// <para>
+    /// So the master flag now gates the feature and this one gates exactly two things: whether
+    /// <see cref="CapturePipeline"/> writes anything, and whether history is a suggestion source in
+    /// <see cref="SuggestionOrchestrator"/>'s scope resolution. Everything else runs either way.
+    /// </para>
+    /// </remarks>
+    public bool IsHistoryEnabled { get; private set; } = true;
+
+    /// <summary>
+    /// Whether the passive typing bubble is allowed to draw on history:
+    /// <c>TerminalSettings.CommandAssistPassiveBubbleEnabled</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>V2 Phase 3b, task 1 - the kill switch.</strong> The design doc's Pillar 4 replaces
+    /// "silent unless summoned" with "quiet but present", and the risk it names is that the bubble
+    /// still feels noisy. When this is false the passive Suggest scope reverts to exactly the M4.3
+    /// behavior: paths only, so a bubble appears only where the user typed something path-shaped and
+    /// history rows wait to be asked for.
+    /// </para>
+    /// <para>
+    /// Not a visibility flag. It scopes what the passive pass may rank, which is where the noise came
+    /// from; suppressing the surface itself is <see cref="AssistSessionStateMachine.IsPassiveSurfaceSuppressed"/>,
+    /// and that is the user's per-command decision rather than a preference.
+    /// </para>
+    /// </remarks>
+    public bool IsPassiveBubbleEnabled { get; private set; } = true;
+
+    /// <summary>
     /// Whether any OSC 133 marker has been seen on this session.
     /// </summary>
     /// <remarks>
@@ -204,6 +244,18 @@ internal sealed class AssistSessionContext
             HasObservedShellIntegrationMarker = false;
             HasObservedStructuredCommandCaptureMarker = false;
         }
+    }
+
+    /// <summary>Applies the two Command Assist sub-settings this object carries.</summary>
+    /// <remarks>
+    /// Pushed as one call rather than two properties so that a host which reads settings can never
+    /// leave the pair half-applied, and so the pane has exactly one place to forward a settings
+    /// change from.
+    /// </remarks>
+    public void SetFeaturePolicy(bool isHistoryEnabled, bool isPassiveBubbleEnabled)
+    {
+        IsHistoryEnabled = isHistoryEnabled;
+        IsPassiveBubbleEnabled = isPassiveBubbleEnabled;
     }
 
     /// <summary>

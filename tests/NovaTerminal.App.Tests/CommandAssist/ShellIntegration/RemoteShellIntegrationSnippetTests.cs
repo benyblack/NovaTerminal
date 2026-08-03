@@ -475,6 +475,41 @@ public sealed class RemoteShellIntegrationSnippetTests
     }
 
     /// <summary>
+    /// The remote snippet and the local bootstrap emit the same OSC 7 URI, character for character
+    /// (PR #293 review, blocker 3).
+    /// </summary>
+    /// <remarks>
+    /// They already drifted once - #289 fixed the leading-slash bug in the snippet and left the builder
+    /// alone, so a locally instrumented pwsh and a snippet-instrumented one reported cwd differently. The
+    /// hostname authority is gone from both: <c>file://HOST/C:/x</c> resolves to the UNC share
+    /// <c>\\HOST\C:\x</c>, and nothing ever read the hostname.
+    /// </remarks>
+    [Fact]
+    public void PowerShellSnippet_EmitsTheSameOsc7UriAsTheLocalBootstrap()
+    {
+        string content = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
+        string builderScript = NovaTerminal.CommandAssist.ShellIntegration.PowerShell.PowerShellBootstrapBuilder.BuildScript();
+
+        foreach (string line in new[]
+                 {
+                     "$novaSegments = ((Get-Location).Path -replace '\\\\', '/') -split '/'",
+                     "$novaPath = (($novaSegments | ForEach-Object { [Uri]::EscapeDataString($_) -replace '%3A', ':' }) -join '/')",
+                     "if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }",
+                     "Write-NovaSequence \"]7;file://$novaPath\"",
+                 })
+        {
+            Assert.Contains(line, content, StringComparison.Ordinal);
+            Assert.Contains(line, builderScript, StringComparison.Ordinal);
+        }
+
+        // The old emission's two ingredients, matched as code rather than as words - both are named in
+        // the snippet's own comments explaining why they are gone.
+        Assert.DoesNotContain("[Uri]::EscapeUriString(", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("[System.Net.Dns]::GetHostName()", content, StringComparison.Ordinal);
+        Assert.DoesNotContain("[Uri]::EscapeUriString(", builderScript, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Binding Enter unconditionally to <c>AcceptLine</c> clobbers whatever the user had there -
     /// <c>AcceptOrInsertNewline</c> is the pwsh default in recent PSReadLine versions, and
     /// hard-coding over it breaks multi-line editing. A named PSReadLine function is delegated to;

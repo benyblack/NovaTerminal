@@ -54,6 +54,47 @@ internal sealed class AssistSessionStateMachine
     /// </remarks>
     public bool IsCurrentSubmissionSuppressed { get; private set; }
 
+    /// <summary>
+    /// True when the user dismissed an uninvited surface on this command line, so the passive typing
+    /// bubble stays down until the line is submitted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>V2 Phase 3b, task 1.</strong> The passive bubble appears without being asked for, so
+    /// Escape has to mean more than "hide it once": without this, the very next keystroke queues a
+    /// passive refresh and the bubble the user just dismissed comes straight back. The design doc's
+    /// Pillar 4 says "Escape hides it for the rest of the command", and this is that scope - cleared
+    /// by <see cref="CompleteSubmission"/> and by nothing else, so the next command line starts
+    /// unsuppressed.
+    /// </para>
+    /// <para>
+    /// <strong>Cleared by <see cref="BeginCommandLine"/> as well, since the PR #293 review.</strong>
+    /// <see cref="CompleteSubmission"/> alone was not enough, because it only runs for a submission
+    /// Command Assist saw - a local <c>Enter</c>. Every other way a command line ends left the flag set
+    /// for the rest of the session: <c>Ctrl+C</c>, PSReadLine's own <c>Escape</c> (which clears the line
+    /// without submitting anything), a pasted line ending in a newline, a broadcast-to-all-panes send, an
+    /// agent-sent command. Two Escapes in a row was enough to reach it - the first took the bubble down
+    /// and set the flag, the second fell through to the shell, which cleared the line - and from there the
+    /// passive bubble never came back for the life of the pane. Anchoring the clear to <c>OSC 133;B</c>
+    /// instead ties it to the thing it is actually scoped to: a new command line.
+    /// </para>
+    /// <para>
+    /// Beside the enum rather than in it, for the same reason as
+    /// <see cref="IsCurrentSubmissionSuppressed"/>: it is orthogonal to what the surface is showing
+    /// (a user can dismiss, then summon <c>Ctrl+R</c>, then be back in a suppressed passive state
+    /// afterwards), and folding it into the enum would double the state count.
+    /// </para>
+    /// <para>
+    /// It does not suppress <em>anything the user asks for</em>. <see cref="AllowsPassiveSuggestions"/>
+    /// is the only consumer and it exempts explicit sessions, so <c>Ctrl+Space</c>, <c>Ctrl+R</c>,
+    /// Help and Fix all still open after an Escape - which is what makes a per-command scope safe.
+    /// Distinguishing the two is why <see cref="DismissForCurrentCommand"/> exists separately from
+    /// <see cref="Dismiss"/>: the host tearing a session down, and an accept closing the surface, are
+    /// not the user saying "not on this line".
+    /// </para>
+    /// </remarks>
+    public bool IsPassiveSurfaceSuppressed { get; private set; }
+
     /// <summary>The assist mode implied by the current state.</summary>
     public CommandAssistMode Mode => State switch
     {
@@ -77,6 +118,12 @@ internal sealed class AssistSessionStateMachine
     /// so a refresh queued while they are up is dropped rather than allowed to overwrite them.
     /// </summary>
     public bool AllowsSuggestionRefresh => Mode is CommandAssistMode.Suggest or CommandAssistMode.Search;
+
+    /// <summary>
+    /// Whether a refresh the user did not ask for may run at all. False for the rest of a command
+    /// line the user pressed Escape on; see <see cref="IsPassiveSurfaceSuppressed"/>.
+    /// </summary>
+    public bool AllowsPassiveSuggestions => IsExplicitSession || !IsPassiveSurfaceSuppressed;
 
     /// <summary>
     /// True when the surface on screen is one the user asked for by name, so no placement heuristic
@@ -305,8 +352,60 @@ internal sealed class AssistSessionStateMachine
         };
     }
 
-    /// <summary>Dismisses the surface (Escape, or the host tearing the session down).</summary>
+    /// <summary>Dismisses the surface (the host tearing the session down, or an accept closing it).</summary>
     public void Dismiss() => State = AssistSessionState.Hidden;
+
+    /// <summary>
+    /// The user dismissed the surface with Escape: hide it, and keep the passive bubble down for the
+    /// rest of this command line.
+    /// </summary>
+    /// <remarks>
+    /// Note what this does <em>not</em> clear: <see cref="IsCurrentSubmissionSuppressed"/>. Escaping a
+    /// bubble says nothing about whether the text on the line was pasted, and conflating the two would
+    /// let "paste, Escape, Enter" write a pasted line to history.
+    /// </remarks>
+    public void DismissForCurrentCommand()
+    {
+        IsPassiveSurfaceSuppressed = true;
+        State = AssistSessionState.Hidden;
+    }
+
+    /// <summary>
+    /// The shell printed a prompt and handed its line editor to the user (<c>OSC 133;B</c>): a new
+    /// command line has begun, so the per-command Escape suppression is over.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>PR #293 review, blocker 2.</strong> <see cref="IsPassiveSurfaceSuppressed"/> is scoped to
+    /// "the rest of this command line", and before this the only thing that ended a command line was
+    /// <see cref="CompleteSubmission"/> - i.e. a local <c>Enter</c> that Command Assist observed. Any
+    /// other ending (see that flag's remarks) left the suppression in force indefinitely. <c>B</c> is the
+    /// marker that means "here is a fresh line", so it is the honest place to reset.
+    /// </para>
+    /// <para>
+    /// Deliberately narrow. It does <em>not</em> touch <see cref="IsCurrentSubmissionSuppressed"/>: a new
+    /// prompt says nothing about whether the text about to appear on it was typed or pasted, and pasting
+    /// happens after the prompt is printed. It does not touch <see cref="State"/> either - the surface the
+    /// user has up (a <c>Ctrl+R</c> popup that survived a repaint) is not the suppression flag's business.
+    /// </para>
+    /// <para>
+    /// <strong>Accepted caveat: <c>B</c> is not guaranteed to be once per command line.</strong> Our
+    /// <c>B</c> is appended to the prompt string, so anything that reprints the prompt re-emits it -
+    /// <c>Ctrl+L</c>, and whichever render paths a given PSReadLine version routes through
+    /// <c>InvokePrompt</c>. A repaint mid-line therefore un-suppresses a bubble the user dismissed, and
+    /// the next keystroke brings it back. (Measured on PSReadLine 2.3 in a live pane: a window resize
+    /// repaints the input only and does <em>not</em> re-emit <c>B</c>, so that path does not un-suppress.
+    /// The set is version-dependent, which is why this is stated as a caveat rather than a list.) It is
+    /// the wrong behavior in a narrow case and strictly better than the bug it replaces: a suppression
+    /// that never clears is silent and permanent, where this one costs the user a second <c>Escape</c>
+    /// after they redrew their screen. Tightening it would need a "same logical line" identity the marks
+    /// do not carry.
+    /// </para>
+    /// </remarks>
+    public void BeginCommandLine()
+    {
+        IsPassiveSurfaceSuppressed = false;
+    }
 
     /// <summary>The alt screen came up; the surface hides and the session ends.</summary>
     /// <remarks>
@@ -319,12 +418,13 @@ internal sealed class AssistSessionStateMachine
     public void AcceptSelection() => State = AssistSessionState.Hidden;
 
     /// <summary>
-    /// The command line was submitted. Ends the session and clears submission suppression - the next
-    /// line starts clean.
+    /// The command line was submitted. Ends the session and clears both suppressions - the next line
+    /// starts clean.
     /// </summary>
     public void CompleteSubmission()
     {
         IsCurrentSubmissionSuppressed = false;
+        IsPassiveSurfaceSuppressed = false;
         State = AssistSessionState.Hidden;
     }
 }

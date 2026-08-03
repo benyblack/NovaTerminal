@@ -20,7 +20,11 @@ namespace NovaTerminal.Controls
             Key.Down => AssistKey.Down,
             Key.Enter => AssistKey.Enter,
             Key.Tab => AssistKey.Tab,
-            Key.P => AssistKey.P,
+
+            // No letters. The only one that was ever mapped was P, for the pin clause the router
+            // carried on Ctrl+Shift+P; V2 Phase 3b moved pin to its own catalogue entry dispatched
+            // from the window, where the whole key space is available. Every unmapped key becomes
+            // None, and AssistKeyBinding.Matches refuses to match None.
             _ => AssistKey.None,
         };
 

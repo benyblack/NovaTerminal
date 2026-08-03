@@ -416,6 +416,70 @@ public sealed class AssistSessionStateMachineTests
         Assert.Equal(CommandAssistMode.Suggest, machine.Mode);
     }
 
+    // ------------------------------- passive suppression has to end somehow (PR #293, blocker 2)
+
+    /// <summary>
+    /// <c>OSC 133;B</c> ends the per-command Escape suppression, which before this was cleared only by a
+    /// submission Command Assist observed.
+    /// </summary>
+    [Fact]
+    public void BeginCommandLine_ClearsPassiveSuppression()
+    {
+        var machine = new AssistSessionStateMachine();
+        machine.DismissForCurrentCommand();
+        Assert.False(machine.AllowsPassiveSuggestions);
+
+        machine.BeginCommandLine();
+
+        Assert.True(machine.AllowsPassiveSuggestions);
+        Assert.False(machine.IsPassiveSurfaceSuppressed);
+    }
+
+    /// <summary>
+    /// And it clears nothing else. A fresh prompt says nothing about whether the text about to appear on
+    /// it was typed or pasted - pasting happens after the prompt is printed - and it is not the state
+    /// machine's business to close a surface the user still has open.
+    /// </summary>
+    [Fact]
+    public void BeginCommandLine_LeavesSubmissionSuppressionAndStateAlone()
+    {
+        AssistSessionStateMachine machine = CreateInState(AssistSessionState.HistorySearch);
+        machine.ObservePastedText();
+        machine.OpenSearch();
+
+        machine.BeginCommandLine();
+
+        Assert.True(machine.IsCurrentSubmissionSuppressed);
+        Assert.Equal(AssistSessionState.HistorySearch, machine.State);
+    }
+
+    /// <summary>
+    /// The gap the review found, as a state-machine fact: nothing except a submission used to clear the
+    /// flag, so every non-Enter ending left it set.
+    /// </summary>
+    [Fact]
+    public void PassiveSuppression_SurvivesEverythingExceptANewCommandLineOrASubmission()
+    {
+        var machine = new AssistSessionStateMachine();
+        machine.DismissForCurrentCommand();
+
+        machine.ObserveTypedInput();
+        machine.ObservePastedText();
+        machine.Dismiss();
+        machine.HideForAltScreen();
+        machine.AcceptSelection();
+        machine.OpenSearch();
+        machine.OpenHelp();
+        machine.OpenPopupForSelection();
+        machine.ClosePopupAfterRefresh();
+
+        Assert.True(machine.IsPassiveSurfaceSuppressed);
+
+        machine.BeginCommandLine();
+
+        Assert.False(machine.IsPassiveSurfaceSuppressed);
+    }
+
     // -------------------------------------------------- accept on Enter (V2 Phase 3a)
 
     /// <summary>

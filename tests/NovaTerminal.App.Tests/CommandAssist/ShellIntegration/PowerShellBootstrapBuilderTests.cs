@@ -215,6 +215,38 @@ public sealed class PowerShellBootstrapBuilderTests : IDisposable
         Assert.DoesNotContain("Write-NovaSequence ']133;B'", script);
     }
 
+    /// <summary>
+    /// The OSC 7 payload has to be a URI a consumer can get a path back out of (PR #293 review,
+    /// blocker 3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The emission this replaced was <c>file://$env:COMPUTERNAME/$([Uri]::EscapeUriString(path))</c>,
+    /// which produced <c>file://HOST/C:%5CUsers%5Cyou</c> - a URI whose LocalPath is the non-existent UNC
+    /// share <c>\\HOST\C:\Users\you</c> - and, with COMPUTERNAME unset, <c>file:///C:%5CUsers%5Cyou</c>,
+    /// which <c>Uri.TryCreate</c> rejects outright.
+    /// </para>
+    /// <para>
+    /// Pinned as text because there is no way to run a pwsh prompt cycle from a unit test; the shape is
+    /// exercised end to end by <c>Osc7PathExtractionTests</c> on the parser side, and the two halves are
+    /// joined by <c>PowerShellBootstrap_Osc7Emission_RoundTripsThroughTheParser</c> there.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void BuildScript_EmitsAWellFormedAuthoritylessFileUriForTheWorkingDirectory()
+    {
+        string script = PowerShellBootstrapBuilder.BuildScript();
+
+        Assert.Contains("Write-NovaSequence \"]7;file://$novaPath\"", script);
+        Assert.Contains("if (-not $novaPath.StartsWith('/')) { $novaPath = '/' + $novaPath }", script);
+        Assert.Contains("[Uri]::EscapeDataString($_) -replace '%3A', ':'", script);
+
+        // The three shapes of the bug, each named so a revert cannot pass.
+        Assert.DoesNotContain("$env:COMPUTERNAME", script);
+        Assert.DoesNotContain("EscapeUriString", script);
+        Assert.DoesNotContain("]7;file://$env:COMPUTERNAME/$cwd", script);
+    }
+
     [Fact]
     public void WriteScript_WritesBootstrapIntoRequestedDirectory()
     {

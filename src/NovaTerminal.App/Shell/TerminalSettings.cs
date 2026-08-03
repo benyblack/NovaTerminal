@@ -64,9 +64,24 @@ namespace NovaTerminal.Shell
         // Disabled by default as of 0.3: the Command Assist feature isn't production-ready
         // yet. This master flag gates the whole feature; users can opt in via Settings.
         public bool CommandAssistEnabled { get; set; } = false;
+
+        // Gates command capture and history-sourced suggestions only. It is not a second master
+        // switch: with this off the bubble, popup, path suggestions, Help and Fix all still work
+        // (V2 Phase 3b task 3 - it used to take the whole feature down).
         public bool CommandAssistHistoryEnabled { get; set; } = true;
         public int CommandAssistMaxHistoryEntries { get; set; } = 5000;
-        public bool CommandAssistAutoHideInAltScreen { get; set; } = true;
+
+        // The passive typing bubble (V2 Phase 3b task 1): after two typed characters the bubble shows
+        // the top-ranked history/path suggestion without being asked. On by default when the master
+        // flag is on, because a feature nobody can see is the problem this phase exists to fix; off
+        // restores the M4.3 quiet behavior, where a passive bubble only ever offers path completions.
+        //
+        // CommandAssistAutoHideInAltScreen used to sit here. It was never read: hiding the overlay
+        // when a full-screen TUI takes the alternate screen is unconditional, and a setting that
+        // could switch it off would only ever let the assist paint over vim. Deleted in Phase 3b
+        // rather than wired up; unknown keys in settings.json are ignored on load, so an existing
+        // file that still carries it loads fine.
+        public bool CommandAssistPassiveBubbleEnabled { get; set; } = true;
         public bool CommandAssistShellIntegrationEnabled { get; set; } = true;
         public bool CommandAssistPowerShellIntegrationEnabled { get; set; } = true;
         public bool ExperimentalNativeSshEnabled { get; set; } = false;

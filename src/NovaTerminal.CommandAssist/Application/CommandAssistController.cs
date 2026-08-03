@@ -56,6 +56,37 @@ public sealed class CommandAssistController
     private readonly CommandAssistResultBuilder _resultBuilder;
     private readonly Func<bool> _renderedSurfaceProbe;
 
+    /// <summary>
+    /// Whether an accept against the command line the surface was last built for would insert rather
+    /// than refuse. Feeds the hint strip only.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>PR #293 review, blocker 1's follow-on.</strong> With PSReadLine's inline prediction
+    /// showing, the cursor is never at the end of the painted line, so
+    /// <see cref="AssistQuerySnapshot.IsUsableAsTypedPrefix"/> is false and
+    /// <see cref="CommandAssistInsertionPlanner"/> refuses every accept. A hint strip that goes on
+    /// advertising "Ctrl+Enter insert" in that state is promising a key that does nothing, which is the
+    /// exact failure mode the strip's own comments call worse than no strip at all.
+    /// </para>
+    /// <para>
+    /// A cached fact rather than a live probe, deliberately. The strip is republished from
+    /// <see cref="CommandAssistBarViewModel.SyncPresentationState"/>, which runs on every view-model
+    /// write - several per keystroke - and a live read would put a buffer-locking grid walk on the
+    /// caller's thread each time, which is precisely the synchronous work the keystroke-latency tripwire
+    /// exists to keep out. It is written where the surface's content is: from the ranking outcome
+    /// (which read the snapshot anyway) and from <see cref="ApplyHelperSuggestions"/>. The cost is that
+    /// it can lag the line by one pass; the strip under-promising for 75 ms is not a bug worth a grid
+    /// read per property set.
+    /// </para>
+    /// <para>
+    /// Starts <see langword="true"/> and stays true for a session with no grid to read - see
+    /// <see cref="SuggestionRefreshOutcome.InsertionAppearsAvailable"/> for why degraded mode is not the
+    /// same question.
+    /// </para>
+    /// </remarks>
+    private bool _isInsertionAvailable = true;
+
     public CommandAssistController(
         IHistoryStore historyStore,
         ISecretsFilter secretsFilter,
@@ -68,7 +99,9 @@ public sealed class CommandAssistController
         CommandAssistResultBuilder? resultBuilder,
         Func<AssistQuerySnapshot?>? queryProvider = null,
         Func<bool>? renderedSurfaceProbe = null,
-        Action<Action>? dispatch = null)
+        Action<Action>? dispatch = null,
+        TimeSpan? passiveRefreshDebounce = null,
+        Func<TimeSpan, CancellationToken, Task>? refreshDelay = null)
     {
         HistoryStore = historyStore;
         SecretsFilter = secretsFilter;
@@ -90,7 +123,8 @@ public sealed class CommandAssistController
             // same predicate rather than each deciding for itself. Same for Up, which the strip used to
             // advertise unconditionally and the passive bubble no longer owns.
             AcceptOnEnterProbe = () => IsAcceptOnEnterArmed,
-            SelectionUpOwnedProbe = () => IsSelectionUpOwned
+            SelectionUpOwnedProbe = () => IsSelectionUpOwned,
+            InsertionAvailableProbe = () => _isInsertionAvailable
         };
         _dispatch = dispatch ?? (action => action());
         _capturePipeline = new CapturePipeline(historyStore, secretsFilter, _context);
@@ -104,7 +138,9 @@ public sealed class CommandAssistController
             // than throwing keeps every non-App host (tests, the MCP surface) on the honest path.
             queryProvider ?? (() => null),
             _dispatch,
-            ApplyRefreshOutcome);
+            ApplyRefreshOutcome,
+            passiveRefreshDebounce,
+            refreshDelay);
     }
 
     public IHistoryStore HistoryStore { get; }
@@ -264,11 +300,22 @@ public sealed class CommandAssistController
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
 
+        // Escape on this command line means the passive bubble stays down until the line is
+        // submitted, so a keystroke after it must not put the surface back up - not even the rows
+        // that were already ranked. See AssistSessionStateMachine.IsPassiveSurfaceSuppressed.
+        if (!_state.AllowsPassiveSuggestions)
+        {
+            _suggestionOrchestrator.CancelPending();
+            ViewModel.IsVisible = false;
+            ClearSuggestionSurface();
+            return;
+        }
+
         // Visibility follows the rows that are already up, not the rows this refresh will produce.
         // Setting it true here and false when the pass lands is the flash that #232's predecessor
         // shipped; the pass sets it for real in ApplyRefreshOutcome.
         ViewModel.IsVisible = ViewModel.HasSuggestions;
-        QueueRefreshSuggestions();
+        QueueRefreshSuggestions(isTypingTriggered: true);
     }
 
     /// <summary>
@@ -287,8 +334,20 @@ public sealed class CommandAssistController
         _state.ObservePastedText();
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
+
+        if (!_state.AllowsPassiveSuggestions)
+        {
+            _suggestionOrchestrator.CancelPending();
+            ViewModel.IsVisible = false;
+            ClearSuggestionSurface();
+            return;
+        }
+
         ViewModel.IsVisible = !_context.IsAltScreenActive && ViewModel.HasSuggestions;
-        QueueRefreshSuggestions();
+
+        // Debounced like typing rather than treated as an explicit action: a paste is a line edit, a
+        // multi-line paste arrives as several of them, and the user did not ask for a surface.
+        QueueRefreshSuggestions(isTypingTriggered: true);
     }
 
     /// <summary>
@@ -367,6 +426,34 @@ public sealed class CommandAssistController
         _context.SetShellIntegrationEnabled(isEnabled);
     }
 
+    /// <summary>
+    /// Applies the two Command Assist sub-settings: whether history is in play at all, and whether the
+    /// passive typing bubble may draw on it.
+    /// </summary>
+    /// <remarks>
+    /// Called from the host whenever settings are applied, including the first initialization. Neither
+    /// flag gates the feature - see <see cref="AssistSessionContext.IsHistoryEnabled"/> for what
+    /// changed in V2 Phase 3b and why.
+    /// </remarks>
+    public void SetFeaturePolicy(bool isHistoryEnabled, bool isPassiveBubbleEnabled)
+    {
+        _context.SetFeaturePolicy(isHistoryEnabled, isPassiveBubbleEnabled);
+    }
+
+    /// <summary>
+    /// Replaces the key names the hint strip renders, so a rebound shortcut is advertised correctly.
+    /// </summary>
+    /// <remarks>
+    /// The labels come from the App's shortcut catalogue, which this assembly cannot see (it must not
+    /// reference Avalonia, and the catalogue's bindings are <c>Avalonia.Input</c> chords). So the host
+    /// resolves them and pushes them here; the defaults reproduce the shipped strings exactly, which is
+    /// what a controller with no host - a test, the MCP surface - keeps showing.
+    /// </remarks>
+    public void SetShortcutHintLabels(AssistShortcutHintLabels labels)
+    {
+        ViewModel.ShortcutHintLabels = labels;
+    }
+
     public void Dismiss()
     {
         _suggestionOrchestrator.CancelPending();
@@ -376,14 +463,51 @@ public sealed class CommandAssistController
         ClearSuggestionSurface();
     }
 
+    /// <summary>
+    /// The user pressed Escape. Takes the surface down, and keeps the passive bubble down for the rest
+    /// of this command line.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The per-command scope is V2 Phase 3b's, and it is what makes the passive bubble dismissible in
+    /// any useful sense: before it, Escape hid a surface the next keystroke rebuilt. Explicit surfaces
+    /// are unaffected - <c>Ctrl+R</c> and <c>Ctrl+Space</c> still open after an Escape - because
+    /// suppression is only consulted for a refresh the user did not ask for.
+    /// </para>
+    /// <para>
+    /// Returns <see langword="false"/> when nothing is on screen, which is how Escape reaches the
+    /// shell (where it means "cancel this line" in every line editor) on an untouched prompt.
+    /// </para>
+    /// <para>
+    /// <strong>The debounce window is not "nothing on screen" (PR #293 review, non-blocking 1).</strong>
+    /// For the 75 ms after a keystroke the view-model still says invisible while a pass is on its way,
+    /// and the old early-out meant Escape in that window did nothing at all: the pass landed and the
+    /// bubble appeared, after the user had declined it. So a pending pass is cancelled and the
+    /// suppression flag taken even though there is nothing to hide - and the return value stays
+    /// <see langword="false"/>, because a key pressed at a prompt with nothing on screen belongs to the
+    /// shell. Suppressing without handling is the whole point: the user gets both the shell's Escape and
+    /// the absence of a bubble.
+    /// </para>
+    /// </remarks>
     public bool HandleEscape()
     {
         if (!ViewModel.IsVisible)
         {
+            if (_suggestionOrchestrator.HasPassInFlight)
+            {
+                _suggestionOrchestrator.CancelPending();
+                _state.DismissForCurrentCommand();
+                ClearSuggestionSurface();
+            }
+
             return false;
         }
 
-        Dismiss();
+        _suggestionOrchestrator.CancelPending();
+        _state.DismissForCurrentCommand();
+        ViewModel.IsVisible = false;
+        ViewModel.IsPopupOpen = false;
+        ClearSuggestionSurface();
         return true;
     }
 
@@ -489,7 +613,12 @@ public sealed class CommandAssistController
         // ranking pass wrote, which is a frame behind at best and stale help-token extraction at
         // worst; in a markless session there is no query and the recognized command comes from the
         // selection alone, which is the degraded-mode contract.
-        string effectiveQuery = queryText ?? TryReadQuerySnapshot()?.Text ?? string.Empty;
+        //
+        // TextBeforeCursor, for the reason ranking uses it (PR #293 review, blocker 1): the whole
+        // painted line includes PSReadLine's inline prediction, so Help on `ec` used to extract its
+        // command token from whatever the shell had guessed - answering a question about `git` while the
+        // user was typing `ec`. The token comes from the characters the user put there.
+        string effectiveQuery = queryText ?? TryReadQuerySnapshot()?.TextBeforeCursor ?? string.Empty;
         CommandAssistContextSnapshot snapshot = _context.CreateSnapshot(
             effectiveQuery,
             selectedText);
@@ -572,11 +701,32 @@ public sealed class CommandAssistController
     /// pipeline do whatever the event means for history.
     /// </summary>
     /// <remarks>
+    /// <para>
     /// The gate moves here rather than inside <see cref="CapturePipeline"/> because it is not a
     /// capture concern - it is what makes grid-truth reading legal, and the pipeline would be the
     /// wrong place to look for it. <c>B</c> opens the window, <c>C</c> and <c>D</c> close it; see
     /// <see cref="AssistSessionContext.IsAcceptingCommandInput"/> for why both closers are needed
     /// and why nothing else opens it.
+    /// </para>
+    /// <para>
+    /// <strong>The two session transitions here are PR #293 review blocker 2.</strong> Before it, the
+    /// session's own bookkeeping only ever moved on keys this controller saw, so a command line that began
+    /// or ended any other way left the session out of step with the shell:
+    /// </para>
+    /// <list type="bullet">
+    /// <item><c>B</c> now calls <see cref="AssistSessionStateMachine.BeginCommandLine"/>, which is what
+    /// ends the per-command Escape suppression. See that method for the accepted caveat about prompt
+    /// repaints.</item>
+    /// <item><c>C</c> now normalizes the surface the same way a local <c>Enter</c> does. <c>C</c> is the
+    /// shell saying "this line has been accepted", and it arrives for submissions no keystroke of ours
+    /// described - a pasted line ending in a newline, a broadcast send to every pane, an agent-sent
+    /// command, <c>Enter</c> pressed while the pane did not have focus. Without this the bubble ranked for
+    /// the line that just ran stayed on screen over the running command's output.</item>
+    /// </list>
+    /// <para>
+    /// The surface write goes through <see cref="_dispatch"/>: this runs on the pane's serialized event
+    /// dispatcher, which is not the UI thread, and the view-model is bound.
+    /// </para>
     /// </remarks>
     public async Task HandleShellIntegrationEventAsync(ShellIntegrationEvent shellEvent)
     {
@@ -584,8 +734,12 @@ public sealed class CommandAssistController
         {
             case ShellIntegrationEventType.CommandStarted:
                 _context.OpenCommandInputWindow();
+                _state.BeginCommandLine();
                 break;
             case ShellIntegrationEventType.CommandAccepted:
+                _context.CloseCommandInputWindow();
+                _dispatch(ResetSubmissionState);
+                break;
             case ShellIntegrationEventType.CommandFinished:
                 _context.CloseCommandInputWindow();
                 break;
@@ -664,14 +818,14 @@ public sealed class CommandAssistController
         ClearSuggestionSurface();
     }
 
-    private void QueueRefreshSuggestions()
+    private void QueueRefreshSuggestions(bool isTypingTriggered = false)
     {
-        if (!_state.AllowsSuggestionRefresh)
+        if (!_state.AllowsSuggestionRefresh || !_state.AllowsPassiveSuggestions)
         {
             return;
         }
 
-        _suggestionOrchestrator.Refresh(_state.Mode, _state.IsExplicitSession);
+        _suggestionOrchestrator.Refresh(_state.Mode, _state.IsExplicitSession, isTypingTriggered);
     }
 
     /// <summary>
@@ -688,6 +842,7 @@ public sealed class CommandAssistController
 
         // The one place a Suggest/Search query reaches the view-model. The pass read it off the
         // grid, so this is also where the surface catches up with edits no keystroke reported.
+        _isInsertionAvailable = outcome.InsertionAppearsAvailable;
         ViewModel.QueryText = outcome.Query;
 
         if (outcome.Faulted)
@@ -839,6 +994,12 @@ public sealed class CommandAssistController
     {
         _suggestionOrchestrator.CancelPending();
         _state.EnterHelperMode(mode, openPopup);
+
+        // One fresh read on a user action, so the hint strip is right about insertion for a Help row
+        // too. No snapshot reads as available, for the reason on
+        // SuggestionRefreshOutcome.InsertionAppearsAvailable - which is also the answer for Fix, published
+        // after the line was submitted with the lifecycle gate already shut.
+        _isInsertionAvailable = TryReadQuerySnapshot()?.IsUsableAsTypedPrefix ?? true;
         ViewModel.ModeLabel = mode.ToString();
 
         // Help and Fix put their subject in the query field: the command Help was asked about, the

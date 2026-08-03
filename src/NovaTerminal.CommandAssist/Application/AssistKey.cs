@@ -20,7 +20,6 @@ public enum AssistKey
     Down,
     Enter,
     Tab,
-    P,
 }
 
 /// <summary>

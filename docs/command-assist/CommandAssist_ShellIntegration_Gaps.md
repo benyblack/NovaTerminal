@@ -147,8 +147,14 @@ history recall and tab completion. The read therefore happens inside `Suggestion
 refresh pass, on the worker the pass already runs on, not on the keystroke that triggered it. A
 keystroke is a trigger carrying no text; the pass resolves its own query. Passes supersede each
 other through the existing per-pass `CancellationTokenSource`, so a burst of keystrokes applies one
-read, the last one. That is coalescing by supersession, not by timing: there is no debounce, which
-is a Phase 3 policy decision.
+read, the last one. That is coalescing by supersession.
+
+**A debounce was added on top in V2 Phase 3b**, which is where the policy decision Phase 0c deferred got
+made: a typing-triggered pass now waits 75 ms before doing any work, and the next keystroke cancels it
+through the same token. So a burst of *n* keystrokes costs one grid read rather than *n*, and the read
+happens 75 ms after the last one rather than immediately after each. Explicit passes (`Ctrl+R`,
+`Ctrl+Space`, a pin toggle) are not debounced: there is nothing to coalesce and the delay would be pure
+latency.
 
 The window that remains is a read that beats the shell's echo of the character just typed, and it is
 worth restating because an earlier revision of this document understated it as "ranks a
@@ -165,6 +171,16 @@ marginally worse row for one keystroke does not justify going quiet, and the nex
 The clear is approximate in one direction only — unrelated session output can clear the flag early,
 leaving the original window open — but never the other, because output that has been parsed is
 output that is in the grid.
+
+**V2 Phase 3b narrowed the ranking half of this to near-zero, and did not close it.** The 75 ms debounce
+means the read no longer happens microseconds after the keystroke that triggered it; a local shell's echo
+lands orders of magnitude inside that window, so in practice a debounced pass reads the line the user
+actually has. What is gone is the *every keystroke is a race* property. What remains, and is the reason
+the insertion guard stays exactly as it is: a remote shell whose echo takes longer than 75 ms still
+produces a one-character-stale read, and nothing about the delay makes that detectable. Insertion still
+refuses on `_hasUnechoedInput` rather than trusting the clock, and ranking still tolerates the stale
+read. Anyone tempted to delete the guard on the strength of the debounce should note that the debounce is
+a *timing* argument and the guard is a *correctness* one; they are not substitutes.
 
 **3. Insertion refuses rather than guesses.** `CommandAssistInsertionPlanner` keeps the V1 rule that
 insertion is additive — send only the characters the suggestion adds, never delete, never move the
@@ -524,6 +540,33 @@ duration. It is now keyed on whether the tracker is armed at all.
   exactly on the last column leaves `GridQueryReader` starting one cell early and picking up the
   prompt's final character. Recording pending-wrap on the mark would fix it; not worth the
   cross-layer churn for a prompt that exactly fills the terminal width
+- **an inline prediction is indistinguishable from a mid-line cursor, so insertion refuses while one
+  is showing.** PSReadLine's `InlineView` prediction is painted as ordinary cells to the right of the
+  cursor in a dim colour; nothing on the grid marks them as not-typed. The reader therefore reports
+  `Text` = the whole painted line with a `CursorOffset` short of its end, which is exactly what a user
+  who arrowed back into the middle of their line looks like. Ranking and the Help token use
+  `AssistQuerySnapshot.TextBeforeCursor` and so are correct either way, but insertion stays refused:
+  `IsUsableAsTypedPrefix` is false, and appending to a line whose tail may or may not be the user's is
+  the one failure this feature cannot afford. The hint strip drops its "insert" clause in that state
+  rather than promising a key that will do nothing. Distinguishing the two would need PSReadLine to
+  mark its prediction cells, which no terminal protocol offers
+- **`OSC 133;B` is not once per command line, so the per-command Escape suppression can end early.**
+  The suppression that keeps a dismissed passive bubble down for the rest of a line is cleared on `B`,
+  because `B` is the only marker that means "a fresh line". Our `B` is appended to the prompt string, so
+  anything that reprints the prompt re-emits it - `Ctrl+L`, and whichever render paths a given PSReadLine
+  version routes through `InvokePrompt` - and redrawing the screen after an Escape therefore
+  un-suppresses the bubble, so the next keystroke brings it back. (Measured on PSReadLine 2.3: a window
+  resize repaints the input only and does *not* re-emit `B`.) Accepted deliberately: the
+  alternative it replaced was a suppression that only a local `Enter` could clear, which meant
+  `Ctrl+C`, PSReadLine's own line-clearing `Escape`, a pasted submission or a broadcast send left the
+  passive bubble disabled for the life of the pane. Tightening it needs a "same logical line" identity
+  the marks do not carry
+- **cwd history written before the OSC 7 fix does not match cwd read after it.** Windows pwsh used to
+  report its working directory as `file://HOST/C:%5CUsers%5Cyou`, which resolved to the non-existent
+  UNC path `\\HOST\C:\Users\you`. History rows captured then carry that string, and the ranking
+  engine's cwd match is an equality test, so those rows no longer score a directory bonus for the
+  directory they were actually run in. They are still recalled and still ranked on every other signal;
+  nothing needs migrating and nothing is lost beyond one term for pre-fix rows
 
 ## Deferred Follow-Up Areas
 - richer shell-specific prompt contracts beyond the current wrapper approach

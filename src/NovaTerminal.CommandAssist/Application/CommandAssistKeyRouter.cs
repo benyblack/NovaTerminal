@@ -32,6 +32,85 @@ public readonly record struct AssistKeyState(
     bool IsSelectionUpOwned);
 
 /// <summary>
+/// One in-surface Command Assist chord: the key, and the modifiers that must be held exactly.
+/// </summary>
+/// <remarks>
+/// Exact modifier equality, not "at least these". That was already the rule for accept-on-Enter
+/// (Shift+Enter is a newline in several line editors; every modified Enter is a distinct CSI u
+/// sequence under the kitty disambiguate tier) and V2 Phase 3b extends it to the rest: a
+/// <c>Ctrl+Down</c> or an <c>Alt+Up</c> is something the shell's line editor may well act on, and the
+/// router used to swallow both because it tested the key and ignored the modifiers.
+/// </remarks>
+public readonly record struct AssistKeyBinding(AssistKey Key, AssistModifiers Modifiers)
+{
+    /// <summary>Whether a keystroke is this chord.</summary>
+    /// <remarks>
+    /// <see cref="AssistKey.None"/> never matches. It is what the App boundary maps every key Command
+    /// Assist does not model to, so a binding that ended up as <c>None</c> - a rebind to a key this
+    /// enum does not carry - must match nothing rather than everything.
+    /// </remarks>
+    public bool Matches(AssistKey key, AssistModifiers modifiers) =>
+        Key != AssistKey.None && key == Key && modifiers == Modifiers;
+}
+
+/// <summary>
+/// The five in-surface chords, as resolved from the App's shortcut catalogue.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <strong>V2 Phase 3b, task 2.</strong> These were hard-coded in the router, which meant the one
+/// part of the Command Assist keyboard the user meets constantly was the one part they could not
+/// rebind - and it also meant the hint strip's key names could not be anything but literals. They are
+/// catalogue entries now (<c>command_assist_dismiss</c>, <c>_selection_up</c>, <c>_selection_down</c>,
+/// <c>_accept</c>, <c>_insert</c> under <c>ShortcutScope.CommandAssist</c>), resolved App-side and
+/// passed in here.
+/// </para>
+/// <para>
+/// The defaults are exactly the shipped chords, so a user with no overrides - which is every user
+/// until they open Settings - sees no change at all.
+/// </para>
+/// </remarks>
+public sealed record AssistKeyBindings(
+    AssistKeyBinding Dismiss,
+    AssistKeyBinding SelectionUp,
+    AssistKeyBinding SelectionDown,
+    AssistKeyBinding Accept,
+    AssistKeyBinding Insert)
+{
+    /// <summary>The shipped keyboard: <c>Esc</c>, <c>Up</c>, <c>Down</c>, <c>Enter</c>, <c>Ctrl+Enter</c>.</summary>
+    public static AssistKeyBindings Default { get; } = new(
+        Dismiss: new AssistKeyBinding(AssistKey.Escape, AssistModifiers.None),
+        SelectionUp: new AssistKeyBinding(AssistKey.Up, AssistModifiers.None),
+        SelectionDown: new AssistKeyBinding(AssistKey.Down, AssistModifiers.None),
+        Accept: new AssistKeyBinding(AssistKey.Enter, AssistModifiers.None),
+        Insert: new AssistKeyBinding(AssistKey.Enter, AssistModifiers.Control));
+}
+
+/// <summary>
+/// What Command Assist does with a keystroke it owns.
+/// </summary>
+/// <remarks>
+/// Returned instead of a bool so the host acts on the resolved <em>action</em> rather than
+/// re-deciding from the key. <c>TerminalPane</c> used to ask "is this ours?" and then run its own
+/// second cascade of key comparisons to find out which of ours it was; with rebindable chords that
+/// second cascade would have been a second, divergent binding table.
+/// </remarks>
+public enum AssistKeyAction
+{
+    /// <summary>Not Command Assist's key; the terminal gets it.</summary>
+    None = 0,
+    Dismiss,
+    SelectionUp,
+    SelectionDown,
+
+    /// <summary>Insert the selected row, in the browse state where the accept key is armed.</summary>
+    Accept,
+
+    /// <summary>Insert the selected row, in any state.</summary>
+    Insert,
+}
+
+/// <summary>
 /// Decides whether a keystroke belongs to Command Assist or should fall through to the terminal.
 /// </summary>
 /// <remarks>
@@ -42,24 +121,38 @@ public readonly record struct AssistKeyState(
 /// </remarks>
 public static class CommandAssistKeyRouter
 {
-    public static bool IsAssistOwnedKey(AssistKeyState state, AssistKey key, AssistModifiers modifiers)
+    /// <summary>
+    /// Resolves a keystroke to the Command Assist action it triggers, or
+    /// <see cref="AssistKeyAction.None"/>.
+    /// </summary>
+    public static AssistKeyAction Resolve(
+        AssistKeyState state,
+        AssistKey key,
+        AssistModifiers modifiers,
+        AssistKeyBindings? bindings = null)
     {
         if (!state.IsSurfaceVisible)
         {
-            return false;
+            return AssistKeyAction.None;
         }
 
-        bool isCtrl = (modifiers & AssistModifiers.Control) != 0;
-        bool isShift = (modifiers & AssistModifiers.Shift) != 0;
-        bool isAlt = (modifiers & AssistModifiers.Alt) != 0;
+        AssistKeyBindings effective = bindings ?? AssistKeyBindings.Default;
 
-        // Unmodified Enter, and only while browsing (V2 Phase 3a). "Unmodified" is exact rather than
-        // "no Alt": a modified Enter is encoded as CSI u under the kitty disambiguate tier and means
-        // something to the shell's line editor, and Shift+Enter in particular is a newline in several
-        // of them. Ctrl+Enter keeps its own clause below and works in every state, browse or not.
-        if (key == AssistKey.Enter && modifiers == AssistModifiers.None)
+        // Insert first, and this ordering is load-bearing rather than incidental. Accept and insert
+        // are the same key with different modifiers by default, and the accept clause is conditional
+        // on the browse state: testing accept first would let an unarmed Ctrl+Enter fall past both
+        // when Accept and Insert resolve to overlapping chords.
+        if (effective.Insert.Matches(key, modifiers))
         {
-            return state.IsAcceptOnEnterArmed;
+            return AssistKeyAction.Insert;
+        }
+
+        // The accept key, and only while browsing (V2 Phase 3a). Outside the browse state it belongs
+        // to the shell - which for the default Enter is the ordinary
+        // type-a-command-and-press-Enter flow, untouched.
+        if (effective.Accept.Matches(key, modifiers))
+        {
+            return state.IsAcceptOnEnterArmed ? AssistKeyAction.Accept : AssistKeyAction.None;
         }
 
         // Up is asymmetric with Down, and deliberately (PR #290 review). At a prompt with only a
@@ -68,14 +161,35 @@ public static class CommandAssistKeyRouter
         // and the Enter that followed inserted a suggestion instead of submitting. Down is the
         // one-directional way into the list - it has no shell meaning at a prompt - and once the popup
         // is open, or the user summoned the surface by name, Up navigates as it always did.
-        if (key == AssistKey.Up)
+        if (effective.SelectionUp.Matches(key, modifiers))
         {
-            return state.IsSelectionUpOwned;
+            return state.IsSelectionUpOwned ? AssistKeyAction.SelectionUp : AssistKeyAction.None;
         }
 
-        return key == AssistKey.Escape ||
-               key == AssistKey.Down ||
-               (isCtrl && !isShift && !isAlt && key == AssistKey.Enter) ||
-               (isCtrl && isShift && key == AssistKey.P);
+        if (effective.SelectionDown.Matches(key, modifiers))
+        {
+            return AssistKeyAction.SelectionDown;
+        }
+
+        if (effective.Dismiss.Matches(key, modifiers))
+        {
+            return AssistKeyAction.Dismiss;
+        }
+
+        // Pin/unpin is deliberately absent. It used to be a clause here on Ctrl+Shift+P, which is the
+        // command palette's chord: MainWindow tried the pin first and fell through to the palette, so
+        // whether Ctrl+Shift+P opened the palette depended on whether an assist row happened to be
+        // selected. V2 Phase 3b gave pin its own catalogue entry (command_assist_pin), and because
+        // that entry is dispatched from the window's shortcut handler it can be bound to the whole key
+        // space rather than to the handful of keys AssistKey models.
+        return AssistKeyAction.None;
     }
+
+    /// <summary>Whether Command Assist owns this keystroke.</summary>
+    public static bool IsAssistOwnedKey(
+        AssistKeyState state,
+        AssistKey key,
+        AssistModifiers modifiers,
+        AssistKeyBindings? bindings = null) =>
+        Resolve(state, key, modifiers, bindings) != AssistKeyAction.None;
 }
