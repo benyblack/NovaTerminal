@@ -3,6 +3,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Models;
 using NovaTerminal.CommandAssist.ViewModels;
 using NovaTerminal.Controls;
@@ -313,6 +314,118 @@ public class PaneAssistInsertionTests
         Assert.True(fixture.ViewModel.IsVisible);
     }
 
+    // ------------- a terminal that answered a device query (dogfood report 2, cmd.exe)
+
+    /// <summary>
+    /// <strong>The owner's "Enter puts nothing in the terminal if I am in cmd" report, reproduced
+    /// through the real parser.</strong> A markless pane whose terminal has answered a device query -
+    /// which ConPTY and Clink both provoke while the first prompt is being drawn - could never insert
+    /// anything for the life of the session.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>ESC [ 6 n</c> is a cursor-position report request; the parser answers it on the pane's
+    /// behalf, which is what raises <c>AnsiParser.OnResponse</c>. That used to poison the markless
+    /// accumulator outright, and the accumulator being clean <em>and</em> empty is the whole of the
+    /// degraded-mode insertion gate - so <c>Ctrl+R</c>, pick a row, <c>Enter</c> sent nothing, with no
+    /// user-visible cause and nothing on screen to explain it. Only submitting a command by hand
+    /// (which resets the accumulator) unstuck it, which is why it read as "the feature does not work
+    /// in cmd".
+    /// </para>
+    /// <para>
+    /// The query goes through <c>Parser.Process</c> rather than being simulated, so this test fails if
+    /// the response plumbing is rewired as well as if the gate regresses.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task InADegradedSessionAfterTheTerminalAnsweredADeviceQuery_EnterStillSendsTheWholeCommand()
+    {
+        using var fixture = await Fixture.DegradedAtAHistorySearchAsync(history: "git status");
+
+        fixture.Pane.Parser!.Process("\x1b[6n");
+
+        Assert.True(fixture.PressDown());
+        Assert.True(fixture.PressEnter());
+        Assert.Equal("git status", Assert.Single(fixture.Session.Sent));
+    }
+
+    /// <summary>The same through <c>Ctrl+Enter</c>, which is the chord the pane's own gate is written for.</summary>
+    [AvaloniaFact]
+    public async Task InADegradedSessionAfterTheTerminalAnsweredADeviceQuery_CtrlEnterStillSendsTheWholeCommand()
+    {
+        using var fixture = await Fixture.DegradedAtAHistorySearchAsync(history: "git status");
+
+        fixture.Pane.Parser!.Process("\x1b[6n");
+
+        fixture.PressCtrlEnter();
+
+        Assert.Equal("git status", Assert.Single(fixture.Session.Sent));
+    }
+
+    // The other half of the split - history capture still refusing after a device reply - is pinned
+    // by PaneMarklessCaptureTests.InAMarklessSession_AParserDeviceReplyStopsTheLineBeingCaptured.
+
+    // ------------- a prompt with a right-aligned badge (dogfood report 2, Windows PowerShell)
+
+    /// <summary>
+    /// <strong>The owner's "Enter puts nothing in the terminal if I am in windows powershell"
+    /// report, reproduced through the real parser and grid reader.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The prompt is an oh-my-posh-shaped one: input on the left, a right-aligned badge painted at the
+    /// far edge of the same row. <c>GridQueryReader</c> recognises the badge and excludes it, which is
+    /// correct and is what keeps it out of the query - but it also raised <c>RightPromptTrimmed</c>,
+    /// and <c>AssistQuerySnapshot.IsUsableAsTypedPrefix</c> treated that as fatal. Since the flag is
+    /// set on <em>every</em> prompt such a shell paints, every accept refused for the life of the
+    /// session.
+    /// </para>
+    /// <para>
+    /// Why it split along shell lines the way the owner saw: pwsh 7's PSReadLine 2.3 repaints the input
+    /// line out to the right edge and erases the badge off the grid, so the flag is never raised there.
+    /// The PSReadLine 2.0 that ships with Windows PowerShell 5.1 leaves it painted. Same prompt, same
+    /// shell family, opposite outcome - and <c>cmd.exe</c> failed at the same time for the entirely
+    /// separate reason above, which is what made one report out of two bugs.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task OnAPromptWithARightAlignedBadge_EnterInsertsInsteadOfSubmitting()
+    {
+        using var fixture = await Fixture.AtAPromptWithARightAlignedBadgeAsync("git st", history: "git status");
+
+        Assert.True(fixture.PressEnter());
+        Assert.Equal("atus", Assert.Single(fixture.Session.Sent));
+    }
+
+    /// <summary>
+    /// The empty-line case, which is the exact keystroke sequence reported: <c>Ctrl+R</c> at a bare
+    /// prompt, then <c>Enter</c>.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task OnAnEmptyPromptWithARightAlignedBadge_EnterSendsTheWholeCommand()
+    {
+        using var fixture = await Fixture.AtAPromptWithARightAlignedBadgeAsync(string.Empty, history: "git status");
+
+        Assert.True(fixture.PressEnter());
+        Assert.Equal("git status", Assert.Single(fixture.Session.Sent));
+    }
+
+    /// <summary>
+    /// The badge is still excluded from the query - relaxing the insertion rule must not turn the right
+    /// prompt into text the assist thinks the user typed.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task OnAPromptWithARightAlignedBadge_TheBadgeIsNotPartOfTheQuery()
+    {
+        using var fixture = await Fixture.AtAPromptWithARightAlignedBadgeAsync("git st", history: "git status");
+
+        AssistQuerySnapshot snapshot = fixture.Pane.TryReadGatedAssistQuerySnapshotForTest()!.Value;
+
+        Assert.Equal("git st", snapshot.Text);
+        Assert.True(snapshot.RightPromptTrimmed);
+        Assert.True(snapshot.IsUsableAsTypedPrefix);
+    }
+
     // ------------------- the prompt row PSReadLine has rendered (second live bug)
 
     /// <summary>
@@ -509,6 +622,57 @@ public class PaneAssistInsertionTests
 
             fixture.Pane.OpenCommandAssistHistorySearch();
             await fixture.WaitForAsync(() => fixture.ViewModel.HasSuggestions);
+            return fixture;
+        }
+
+        /// <summary>
+        /// An instrumented prompt whose input row also carries a right-aligned badge, with the
+        /// history list up from <c>Ctrl+R</c>. This is the oh-my-posh / zsh <c>RPROMPT</c> shape as
+        /// PSReadLine 2.0 leaves it on the grid.
+        /// </summary>
+        /// <remarks>
+        /// The badge is painted by moving the cursor to the right edge, writing there, and moving
+        /// back to the input - which is exactly what a right prompt is - rather than by setting a
+        /// flag, so what this pins is the reader's recognition of a real screen shape. The badge is
+        /// deliberately narrow and the gap deliberately wide, because
+        /// <c>GridQueryReader.FindRightPromptGapStart</c> only recognises a right prompt when the gap
+        /// dominates the badge; a fixture that failed those conditions would leave
+        /// <c>RightPromptTrimmed</c> clear and the test would pass without testing anything.
+        /// </remarks>
+        public static async Task<Fixture> AtAPromptWithARightAlignedBadgeAsync(string commandLine, string history)
+        {
+            const string Badge = "in pwsh";
+
+            Fixture fixture = await CreateAsync(history);
+            fixture.Pane.ArmShellIntegrationTracker();
+            fixture.Pane.CreateAndWireParser();
+            fixture.Pane.Parser!.Process(PromptStart + "$ " + PromptEnd + commandLine);
+
+            int cols = fixture.Pane.Buffer!.Cols;
+            int inputEndColumn = 2 + commandLine.Length; // "$ " plus what is typed
+            Assert.True(
+                cols - Badge.Length > inputEndColumn + GridQueryReader.MinRightPromptGap,
+                "the fixture needs a gap wide enough for the reader to recognise the badge");
+            Assert.True(
+                Badge.Length <= cols / GridQueryReader.MaxRightPromptWidthDivisor,
+                "the fixture's badge must be narrow enough to be a badge");
+
+            // 1-based CUP: paint the badge flush against the right edge, then put the cursor back
+            // where the line editor left it.
+            fixture.Pane.Parser!.Process($"\x1b[1;{cols - Badge.Length + 1}H{Badge}");
+            fixture.Pane.Parser!.Process($"\x1b[1;{inputEndColumn + 1}H");
+
+            await Task.Delay(50);
+
+            fixture.Pane.OpenCommandAssistHistorySearch();
+            await fixture.WaitForAsync(() => fixture.ViewModel.HasSuggestions);
+
+            AssistQuerySnapshot snapshot = fixture.Pane.TryReadGatedAssistQuerySnapshotForTest()
+                ?? throw new InvalidOperationException("the fixture's prompt must be readable");
+            Assert.True(
+                snapshot.RightPromptTrimmed,
+                "the fixture must actually reproduce a trimmed right prompt");
+
             return fixture;
         }
 

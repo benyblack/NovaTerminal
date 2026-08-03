@@ -33,10 +33,11 @@ namespace NovaTerminal.CommandAssist.Application;
 /// typed prefix.
 /// </param>
 /// <param name="RightPromptTrimmed">
-/// A right-aligned prompt (zsh <c>RPROMPT</c>, fish <c>fish_right_prompt</c>, starship's right
-/// prompt) was recognised on the final row and excluded. The reader's trim is deliberately
-/// conservative, but "conservative" is not "certain": the tail of the line is the one part of it
-/// that may not be what the user typed.
+/// A right-aligned prompt (zsh <c>RPROMPT</c>, fish <c>fish_right_prompt</c>, oh-my-posh's and
+/// starship's right prompts) was recognised on the final row and excluded. The reader's trim is
+/// deliberately conservative, but "conservative" is not "certain": the tail of the line is the one
+/// part of it that may not be what the user typed. Diagnostic only - see
+/// <see cref="IsUsableAsTypedPrefix"/> for why insertion does not branch on it.
 /// </param>
 public readonly record struct AssistQuerySnapshot(
     string Text,
@@ -49,19 +50,43 @@ public readonly record struct AssistQuerySnapshot(
     /// the end of - the assumption every suffix-append insertion rests on.
     /// </summary>
     /// <remarks>
-    /// Three ways it fails, and all three are ordinary rather than exotic:
+    /// <para>
+    /// Two ways it fails, and both are ordinary rather than exotic:
+    /// </para>
     /// <list type="bullet">
     /// <item>the cursor is not at the end, so appending would land text in the middle of the line;</item>
     /// <item>the entry is multiline, so the text contains continuation-prompt cells that were never
-    /// typed;</item>
-    /// <item>a right prompt was trimmed, so the tail of the line is the reader's judgement rather
-    /// than an observation.</item>
+    /// typed.</item>
     /// </list>
+    /// <para>
     /// Ranking and help still run on an untrustworthy snapshot - a bad ranking shows the wrong rows,
     /// which the user ignores. A bad insertion edits the user's command line.
+    /// </para>
+    /// <para>
+    /// <strong><see cref="RightPromptTrimmed"/> used to be a third term, and removing it is the fix
+    /// for the owner's "Enter puts nothing in the terminal on Windows PowerShell" report.</strong> It
+    /// was redundant with the cursor test, and the redundancy is provable rather than probable.
+    /// <c>GridQueryReader.FindRightPromptGapStart</c> searches for the separating gap with its floor at
+    /// <c>max(firstCol, cursorCol)</c>, so the trim boundary is always at or after the cursor and
+    /// <em>nothing left of the cursor is ever discarded</em>. Whatever the reader removed - a genuine
+    /// right prompt or, in the case its five conditions were meant to catch, typed input that happened
+    /// to look like one - it was removed from the region past the cursor, which
+    /// <c>CommandAssistInsertionPlanner</c> does not read: the planner compares
+    /// <see cref="Text"/> against the selected command only when <see cref="CursorOffset"/> equals its
+    /// length, i.e. exactly when the trimmed region was empty of anything before the cursor.
+    /// </para>
+    /// <para>
+    /// The cost of keeping it was not theoretical. A right-aligned prompt (oh-my-posh's, zsh's
+    /// <c>RPROMPT</c>, starship's) painted on the input row sets the flag on <em>every</em> prompt, so
+    /// every accept refused for the life of the session. Windows PowerShell shows this and pwsh 7 does
+    /// not for a reason that has nothing to do with correctness: PSReadLine 2.3 repaints the input line
+    /// out to the right edge and erases the right prompt off the grid, while the 2.0 that ships with
+    /// Windows PowerShell 5.1 leaves it painted. Same prompt, same shell family, opposite behaviour -
+    /// which is what the owner saw.
+    /// </para>
     /// </remarks>
     public bool IsUsableAsTypedPrefix =>
-        !IsMultiline && !RightPromptTrimmed && CursorOffset == Text.Length;
+        !IsMultiline && CursorOffset == Text.Length;
 
     /// <summary>
     /// <see cref="Text"/> up to the cursor: what the user has actually put on the line to the left of

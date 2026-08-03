@@ -182,16 +182,61 @@ public sealed class CommandAssistInsertionPlannerTests
     }
 
     /// <summary>
-    /// Refusal 4 - a right prompt was trimmed. The reader's RPROMPT heuristic is deliberately
-    /// conservative, but conservative means "over-returns rather than deletes"; when it did fire,
-    /// the tail of the line is an inference and the tail is exactly what a suffix append attaches
-    /// to.
+    /// <strong>A trimmed right prompt is no longer a refusal, and this is the owner's "Enter puts
+    /// nothing in the terminal on Windows PowerShell" report at planner scope.</strong>
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It used to be refusal 4, on the reasoning that the tail of the line was the reader's inference
+    /// and the tail is what a suffix append attaches to. The first half is true and the second is not:
+    /// <c>GridQueryReader.FindRightPromptGapStart</c> floors its search at the cursor column, so the
+    /// trim boundary is always at or after the cursor and never removes anything the append is measured
+    /// against. What survives is <see cref="AssistQuerySnapshot.IsUsableAsTypedPrefix"/>'s cursor test,
+    /// which is the real guard.
+    /// </para>
+    /// <para>
+    /// Left in as a refusal it made Command Assist inert for anyone with a right-aligned prompt -
+    /// oh-my-posh, zsh <c>RPROMPT</c>, starship - because the flag is then set on every prompt the
+    /// shell paints.
+    /// </para>
+    /// </remarks>
     [Fact]
-    public void TryCreateInsertion_WhenARightPromptWasTrimmed_Refuses()
+    public void TryCreateInsertion_WhenARightPromptWasTrimmed_StillSendsTheSuffix()
     {
         bool created = CommandAssistInsertionPlanner.TryCreateInsertion(
             Line("git st", rightPromptTrimmed: true),
+            selectedCommand: "git status",
+            out string? textToSend);
+
+        Assert.True(created);
+        Assert.Equal("atus", textToSend);
+    }
+
+    /// <summary>
+    /// The empty-line case of the same prompt, which is the one the owner actually pressed
+    /// <c>Enter</c> on: <c>Ctrl+R</c> at a bare prompt whose row carries a right-aligned badge.
+    /// </summary>
+    [Fact]
+    public void TryCreateInsertion_OnAnEmptyLineWithARightPromptTrimmed_SendsTheWholeCommand()
+    {
+        bool created = CommandAssistInsertionPlanner.TryCreateInsertion(
+            Line(string.Empty, rightPromptTrimmed: true),
+            selectedCommand: "git status",
+            out string? textToSend);
+
+        Assert.True(created);
+        Assert.Equal("git status", textToSend);
+    }
+
+    /// <summary>
+    /// The guard that did the work all along is untouched: a trimmed right prompt with the cursor
+    /// somewhere else on the line still refuses, because the cursor is not at the end.
+    /// </summary>
+    [Fact]
+    public void TryCreateInsertion_WhenARightPromptWasTrimmedAndTheCursorIsMidLine_StillRefuses()
+    {
+        bool created = CommandAssistInsertionPlanner.TryCreateInsertion(
+            Line("git st", cursorOffset: 3, rightPromptTrimmed: true),
             selectedCommand: "git status",
             out string? textToSend);
 
