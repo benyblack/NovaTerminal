@@ -225,22 +225,41 @@ function Format-ExampleCommand {
 
     # tldr placeholder syntax, in the order the replacements have to happen.
     #
-    #   {{[-i|--interactive]}}  an option with a short and a long spelling. The long spelling wins:
-    #                           this text is going onto the user's command line, where
-    #                           `--interactive` explains itself and `-i` does not.
-    #   {{a|b}}                 a plain alternation; same rule, take the last alternative.
-    #   {{value}}               an argument the user has to supply. Rendered <value>, which is the
-    #                           convention the hand-written seed recipes used and the one a user
-    #                           reading a command line already knows means "replace me".
+    #   {{[-i|--interactive]}}  an option with several spellings.
+    #   {{ps|container ls}}     an alternation between whole words.
+    #   {{value}}               an argument the user has to supply. Rendered <value> - the convention
+    #                           the hand-written seed recipes used, and the one a user reading a
+    #                           command line already knows means "replace me".
+    #
+    # The alternation rule is "the long option if there is one, otherwise the first alternative", and
+    # both halves matter. Long-option-first turns {{[-i|--interactive]}} into `--interactive`, which
+    # explains itself on the command line where `-i` does not. First-otherwise turns
+    # {{[ps|container ls]}} into `docker ps` rather than `docker container ls`: tldr lists the
+    # canonical spelling first, and taking the last alternative produced the form nobody types.
     $result = $Command
-    $result = [regex]::Replace($result, '\{\{\[([^\]]*)\]\}\}', { param($m) ($m.Groups[1].Value -split '\|')[-1] })
-    $result = [regex]::Replace($result, '\{\{([^}]*)\}\}', {
+    $result = [regex]::Replace($result, '\{\{\[([^\]]*)\]\}\}', { param($m) Select-Alternative $m.Groups[1].Value })
+
+    # One level of nesting is allowed inside the placeholder body, because tldr writes brace
+    # expansions inside placeholders: `mkdir --parents {{path/to/{a,b}/{x,y,z}}}`. A plain
+    # [^}]* stops at the first inner brace and leaves `{{` in the output - which then reaches the
+    # user's command line verbatim. Pinned by CommandCatalogueAssetTests.
+    $result = [regex]::Replace($result, '\{\{((?:[^{}]|\{[^{}]*\})*)\}\}', {
         param($m)
         $inner = $m.Groups[1].Value
-        if ($inner -match '\|') { $inner = ($inner -split '\|')[-1] }
+        if ($inner -match '\|') { return Select-Alternative $inner }
         '<' + $inner + '>'
     })
     return $result.Trim()
+}
+
+function Select-Alternative {
+    param([string] $Alternatives)
+
+    $parts = $Alternatives -split '\|'
+    foreach ($part in $parts) {
+        if ($part.StartsWith('--')) { return $part }
+    }
+    return $parts[0]
 }
 
 function Format-Description {

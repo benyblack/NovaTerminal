@@ -51,8 +51,7 @@ public sealed class CommandAssistServices
 
     private int _historyMaxEntries;
     private ISnippetStore? _snippetStore;
-    private ICommandDocsProvider? _commandDocsProvider;
-    private IRecipeProvider? _recipeProvider;
+    private CommandKnowledgeService? _commandKnowledgeService;
     private IErrorInsightService? _errorInsightService;
 
     /// <param name="bootstrapDirectoryFactory">
@@ -129,27 +128,36 @@ public sealed class CommandAssistServices
         }
     }
 
-    public ICommandDocsProvider CommandDocsProvider
+    /// <summary>
+    /// The bundled command-knowledge catalogue, serving both Help docs and Recipe rows (V2 Phase 4b).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One instance behind both properties, not two. The catalogue is ~825 KB of JSON parsed into an
+    /// index on first use; a Help request asks for docs and recipes in the same breath, so two
+    /// instances would mean two parses and two copies of the index for one popup.
+    /// </para>
+    /// <para>
+    /// It replaces <c>LocalCommandDocsProvider</c> and <c>SeedRecipeProvider</c>, which between them
+    /// knew seven commands. Construction stays free - the parse is lazy and happens on a worker
+    /// inside the service - so this still honors the "constructing this object must not touch the
+    /// filesystem" rule in the type remarks.
+    /// </para>
+    /// </remarks>
+    private CommandKnowledgeService CommandKnowledge
     {
         get
         {
             lock (_sync)
             {
-                return _commandDocsProvider ??= new LocalCommandDocsProvider();
+                return _commandKnowledgeService ??= new CommandKnowledgeService(new LocalCommandHelpProbe());
             }
         }
     }
 
-    public IRecipeProvider RecipeProvider
-    {
-        get
-        {
-            lock (_sync)
-            {
-                return _recipeProvider ??= new SeedRecipeProvider();
-            }
-        }
-    }
+    public ICommandDocsProvider CommandDocsProvider => CommandKnowledge;
+
+    public IRecipeProvider RecipeProvider => CommandKnowledge;
 
     public IErrorInsightService ErrorInsightService
     {

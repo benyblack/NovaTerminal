@@ -31,7 +31,7 @@
                                       "d":  "Extract an archive to stdout"
                                   },
                                   {
-                                      "c":  "7z a -t<zip> <path/to/archive> <path/to/file_or_directory>",
+                                      "c":  "7z a -t7z <path/to/archive> <path/to/file_or_directory>",
                                       "d":  "archive using a specific archive type"
                                   }
                               ]
@@ -91,7 +91,7 @@
                                       "d":  "Find string in files with a name matching file_name"
                                   },
                                   {
-                                      "c":  "ag '<r)$>'",
+                                      "c":  "ag '^ca(t'",
                                       "d":  "Find files whose contents match a regex"
                                   }
                               ]
@@ -406,11 +406,11 @@
                                       "d":  "Display all set attributes of files in the current directory and sub-directories"
                                   },
                                   {
-                                      "c":  "attrib +<i> <path\\to\\file_or_directory1 path\\to\\file_or_directory2 ...>",
+                                      "c":  "attrib +r <path\\to\\file_or_directory1 path\\to\\file_or_directory2 ...>",
                                       "d":  "Add the read-only or archive or system or hidden or not content indexed attribute to files or directories"
                                   },
                                   {
-                                      "c":  "attrib -<i> <path\\to\\file_or_directory1 path\\to\\file_or_directory2 ...>",
+                                      "c":  "attrib -r <path\\to\\file_or_directory1 path\\to\\file_or_directory2 ...>",
                                       "d":  "Remove a specific attribute of files or directories"
                                   }
                               ]
@@ -514,7 +514,7 @@
                                       "d":  "Encode a file"
                                   },
                                   {
-                                      "c":  "base64 --wrap <...> <path/to/file>",
+                                      "c":  "base64 --wrap 0 <path/to/file>",
                                       "d":  "Wrap encoded output at a specific width (0 disables wrapping)"
                                   },
                                   {
@@ -566,7 +566,7 @@
                                       "d":  "Remove decorations and disable paging"
                                   },
                                   {
-                                      "c":  "bat --highlight-line <10:+5> <path/to/file>",
+                                      "c":  "bat --highlight-line 10 <path/to/file>",
                                       "d":  "Highlight a specific line or a range of lines with a different background color"
                                   },
                                   {
@@ -604,7 +604,7 @@
                                       "d":  "Calculate an expression with the specified scale"
                                   },
                                   {
-                                      "c":  "echo '<e>(<1>)' | bc --mathlib",
+                                      "c":  "echo 's(<1>)' | bc --mathlib",
                                       "d":  "Calculate a sine/cosine/arctangent/natural logarithm/exponential function using mathlib"
                                   }
                               ]
@@ -633,7 +633,7 @@
                         "d":  "Homebrew - a package manager for macOS and Linux.",
                         "e":  [
                                   {
-                                      "c":  "brew install <cask>",
+                                      "c":  "brew install formula",
                                       "d":  "Install the latest stable version of a formula or cask"
                                   },
                                   {
@@ -641,7 +641,7 @@
                                       "d":  "List all installed formulae and casks"
                                   },
                                   {
-                                      "c":  "brew upgrade <cask>",
+                                      "c":  "brew upgrade formula",
                                       "d":  "Upgrade an installed formula or cask (if none is given, all installed formulae/casks are upgraded)"
                                   },
                                   {
@@ -697,7 +697,7 @@
                                       "d":  "Create a new Bun project in the current directory"
                                   },
                                   {
-                                      "c":  "bun run <script_name>",
+                                      "c":  "bun run path/to/file",
                                       "d":  "Run a JavaScript file or a package.json script"
                                   },
                                   {
@@ -705,15 +705,15 @@
                                       "d":  "Run unit tests"
                                   },
                                   {
-                                      "c":  "bun install",
+                                      "c":  "bun i",
                                       "d":  "Download and install all the packages listed as dependencies in package.json"
                                   },
                                   {
-                                      "c":  "bun add <module_name>",
+                                      "c":  "bun a <module_name>",
                                       "d":  "Add a dependency to package.json"
                                   },
                                   {
-                                      "c":  "bun remove <module_name>",
+                                      "c":  "bun rm <module_name>",
                                       "d":  "Remove a dependency from package.json"
                                   }
                               ]
@@ -813,7 +813,7 @@
                                       "d":  "List installed binary crates"
                                   },
                                   {
-                                      "c":  "cargo init --<lib> <path/to/directory>",
+                                      "c":  "cargo init --bin <path/to/directory>",
                                       "d":  "Create a new binary or library Rust project in the specified directory (or the current working directory by default)"
                                   },
                                   {
@@ -821,7 +821,7 @@
                                       "d":  "Add a dependency to Cargo.toml in the current directory"
                                   },
                                   {
-                                      "c":  "cargo build --release",
+                                      "c":  "cargo b --release",
                                       "d":  "Build the Rust project in the current directory using the release profile"
                                   }
                               ]
@@ -1211,7 +1211,7 @@
                                       "d":  "Start an interactive shell session where echo is disabled in command output"
                                   },
                                   {
-                                      "c":  "cmd /v:<off>",
+                                      "c":  "cmd /v:on",
                                       "d":  "Start an interactive shell session with delayed variable expansion enabled or disabled"
                                   }
                               ]
@@ -1259,7 +1259,7 @@
                                       "d":  "Open specific files/directories in a new window"
                                   },
                                   {
-                                      "c":  "code --<uninstall>-extension <publisher.extension>",
+                                      "c":  "code --install-extension <publisher.extension>",
                                       "d":  "Install/uninstall a specific extension"
                                   },
                                   {
@@ -1507,11 +1507,11 @@
                                       "d":  "Send form-encoded data (POST request of type application/x-www-form-urlencoded). Use --data @file_name or --data @'-' to read from stdin"
                                   },
                                   {
-                                      "c":  "curl --insecure --proxy <http://127.0.0.1:8080> --header '<Authorization: Bearer token>' --request <...> <https://example.com>",
+                                      "c":  "curl --insecure --proxy <http://127.0.0.1:8080> --header '<Authorization: Bearer token>' --request GET <https://example.com>",
                                       "d":  "Send a request with an extra header, using a custom HTTP method and over a proxy (such as BurpSuite), ignoring insecure self-signed certificates"
                                   },
                                   {
-                                      "c":  "curl --data '<{\"name\":\"bob\">}' --header '<Content-Type: application/json>' <http://example.com/users/1234>",
+                                      "c":  "curl --data '<{\"name\":\"bob\"}>' --header '<Content-Type: application/json>' <http://example.com/users/1234>",
                                       "d":  "Send data in JSON format, specifying the appropriate Content-Type header"
                                   }
                               ]
@@ -1571,7 +1571,7 @@
                                       "d":  "Convert a given date to the Unix timestamp format"
                                   },
                                   {
-                                      "c":  "date --rfc-3339 <ns>",
+                                      "c":  "date --rfc-3339 date",
                                       "d":  "Display the current date using the RFC-3339 format (YYYY-MM-DD hh:mm:ss TZ) and specify its precision"
                                   }
                               ]
@@ -1680,7 +1680,7 @@
                                       "d":  "Run a file securely. It will ask (if needed) to allow net, read, etc"
                                   },
                                   {
-                                      "c":  "deno run --allow-all <jsr:@deno/deployctl>",
+                                      "c":  "deno run --allow-env <jsr:@deno/deployctl>",
                                       "d":  "Run a file with explicit permissions or allow all (only if you trust the source)"
                                   },
                                   {
@@ -1773,11 +1773,11 @@
                                       "d":  "Get a detailed answer for a given domain (A records)"
                                   },
                                   {
-                                      "c":  "dig +short <example.com> <NS>",
+                                      "c":  "dig +short <example.com> A",
                                       "d":  "Query a specific DNS record type associated with a given domain name"
                                   },
                                   {
-                                      "c":  "dig <+tls> @<...> <example.com>",
+                                      "c":  "dig <+tls> @1.1.1.1 <example.com>",
                                       "d":  "Specify an alternate DNS server to query and optionally use DNS over TLS (DoT)"
                                   },
                                   {
@@ -1933,27 +1933,27 @@
                         "s":  "bash",
                         "e":  [
                                   {
-                                      "c":  "sudo dnf upgrade",
+                                      "c":  "sudo dnf up",
                                       "d":  "Upgrade installed packages to the newest available versions"
                                   },
                                   {
-                                      "c":  "dnf search <keyword1 keyword2 ...>",
+                                      "c":  "dnf se <keyword1 keyword2 ...>",
                                       "d":  "Search packages via keywords"
                                   },
                                   {
-                                      "c":  "dnf info <package>",
+                                      "c":  "dnf if <package>",
                                       "d":  "Display details about a package"
                                   },
                                   {
-                                      "c":  "sudo dnf install <package1 package2 ...>",
+                                      "c":  "sudo dnf in <package1 package2 ...>",
                                       "d":  "Install new packages (use --assumeyes to confirm all prompts automatically)"
                                   },
                                   {
-                                      "c":  "sudo dnf remove <package1 package2 ...>",
+                                      "c":  "sudo dnf rm <package1 package2 ...>",
                                       "d":  "Remove packages"
                                   },
                                   {
-                                      "c":  "dnf list --installed",
+                                      "c":  "dnf ls --installed",
                                       "d":  "List installed packages"
                                   }
                               ]
@@ -1963,27 +1963,27 @@
                         "d":  "Manage Docker containers and images.",
                         "e":  [
                                   {
-                                      "c":  "docker container ls --all",
+                                      "c":  "docker ps --all",
                                       "d":  "List all Docker containers (running and stopped)"
                                   },
                                   {
-                                      "c":  "docker container run --name <container_name> <image>",
+                                      "c":  "docker run --name <container_name> <image>",
                                       "d":  "Start a container from an image, with a custom name"
                                   },
                                   {
-                                      "c":  "docker container <stop> <container_name>",
+                                      "c":  "docker container start <container_name>",
                                       "d":  "Start or stop an existing container"
                                   },
                                   {
-                                      "c":  "docker image pull <image>",
+                                      "c":  "docker pull <image>",
                                       "d":  "Pull an image from a Docker registry"
                                   },
                                   {
-                                      "c":  "docker image ls",
+                                      "c":  "docker images",
                                       "d":  "Display the list of already downloaded images"
                                   },
                                   {
-                                      "c":  "docker container exec --interactive --tty <container_name> <sh>",
+                                      "c":  "docker exec --interactive --tty <container_name> <sh>",
                                       "d":  "Open an interactive tty with Bourne shell (sh) inside a running container"
                                   }
                               ]
@@ -2076,7 +2076,7 @@
                         "d":  "Disk usage: estimate and summarize file and directory space usage.",
                         "e":  [
                                   {
-                                      "c":  "du -<m> <path/to/directory>",
+                                      "c":  "du -b <path/to/directory>",
                                       "d":  "List the sizes of a directory and any subdirectories, in the given unit (B/KiB/MiB)"
                                   },
                                   {
@@ -2186,7 +2186,7 @@
                                       "d":  "clear the screen and run a query after the SQL script is updated"
                                   },
                                   {
-                                      "c":  "<find src/> | entr -s '< sed 10q>'",
+                                      "c":  "<find src/> | entr -s 'make '",
                                       "d":  "Rebuild the project if source files change, limiting output to the first few lines"
                                   }
                               ]
@@ -2292,7 +2292,7 @@
                                       "d":  "Get the first char position from a specific set in a string"
                                   },
                                   {
-                                      "c":  "expr <expression1> <%> <expression2>",
+                                      "c":  "expr <expression1> + <expression2>",
                                       "d":  "Calculate a specific mathematic expression"
                                   },
                                   {
@@ -2379,7 +2379,7 @@
                                       "d":  "Find files with a specific extension"
                                   },
                                   {
-                                      "c":  "fd \"<regex>\" --type directory",
+                                      "c":  "fd \"<regex>\" --type d",
                                       "d":  "Find only directories matching a specific pattern"
                                   },
                                   {
@@ -2436,19 +2436,19 @@
                                       "d":  "Transcode a FLAC file to Red Book CD format (44100kHz, 16bit)"
                                   },
                                   {
-                                      "c":  "ffmpeg -i <path/to/video.mp4> -filter:v 'scale=-1:1000' -r 15 <path/to/output.gif>",
+                                      "c":  "ffmpeg -i <path/to/video.mp4> -vf 'scale=-1:1000' -r 15 <path/to/output.gif>",
                                       "d":  "Save a video as GIF, scaling the height to 1000px and setting framerate to 15"
                                   },
                                   {
-                                      "c":  "ffmpeg -i <path/to/frame_%d.jpg> -f image2 <video.gif>",
+                                      "c":  "ffmpeg -i <path/to/frame_%d.jpg> -f image2 video.mpg",
                                       "d":  "Combine numbered images (frame_1.jpg, frame_2.jpg, etc) into a video or GIF"
                                   },
                                   {
-                                      "c":  "ffmpeg -i <path/to/input_video.mp4> -ss <mm:ss> -to <mm2:ss2> -codec copy <path/to/output_video.mp4>",
+                                      "c":  "ffmpeg -i <path/to/input_video.mp4> -ss <mm:ss> -to <mm2:ss2> -c copy <path/to/output_video.mp4>",
                                       "d":  "Trim a video from a given start time mm:ss to an end time mm2:ss2 (omit the -to flag to trim till the end)"
                                   },
                                   {
-                                      "c":  "ffmpeg -i <path/to/input_video>.avi -codec:a aac -b:a 128k -codec:v libx264 -crf 23 <path/to/output_video>.mp4",
+                                      "c":  "ffmpeg -i <path/to/input_video>.avi -c:a aac -b:a 128k -c:v libx264 -crf 23 <path/to/output_video>.mp4",
                                       "d":  "Convert AVI video to MP4. AAC Audio @ 128kbit, h264 Video @ CRF 23"
                                   }
                               ]
@@ -2566,7 +2566,7 @@
                                       "d":  "Permanently close the port for a service in the specified zone (like port 80 when in the public zone)"
                                   },
                                   {
-                                      "c":  "firewall-cmd --permanent --zone <public> --add-rich-rule 'rule family \"<ipv6>\" forward-port port \"<443>\" protocol \"<tcp>\" to-port \"<8443>\"'",
+                                      "c":  "firewall-cmd --permanent --zone <public> --add-rich-rule 'rule family \"ipv4\" forward-port port \"<443>\" protocol \"udp\" to-port \"<8443>\"'",
                                       "d":  "Permanently forward a port for incoming packets in the specified zone (like port 443 to 8443 when entering the public zone)"
                                   },
                                   {
@@ -2668,7 +2668,7 @@
                                       "d":  "Display system memory"
                                   },
                                   {
-                                      "c":  "free -<g>",
+                                      "c":  "free -b",
                                       "d":  "Display memory in Bytes/KB/MB/GB"
                                   },
                                   {
@@ -2967,7 +2967,7 @@
                                       "d":  "Get clipboard text"
                                   },
                                   {
-                                      "c":  "Get-Clipboard -TextFormatType <Rtf>",
+                                      "c":  "Get-Clipboard -TextFormatType Text",
                                       "d":  "Get clipboard content as specific text format"
                                   },
                                   {
@@ -2998,7 +2998,7 @@
                                       "d":  "List all available PowerShell commands in the current session"
                                   },
                                   {
-                                      "c":  "Get-Command -Type <Function>",
+                                      "c":  "Get-Command -Type Alias",
                                       "d":  "List only PowerShell aliases/cmdlets/functions available in the computer"
                                   },
                                   {
@@ -3094,15 +3094,15 @@
                                       "d":  "Calculate the SHA256 checksum for a file"
                                   },
                                   {
-                                      "c":  "Get-FileHash <path\\to\\file> -Algorithm <MD5>",
+                                      "c":  "Get-FileHash <path\\to\\file> -Algorithm SHA1",
                                       "d":  "Calculate the checksum for a file using a specified algorithm"
                                   },
                                   {
-                                      "c":  "Get-FileHash <path\\to\\file> -Algorithm <RIPEMD160>",
+                                      "c":  "Get-FileHash <path\\to\\file> -Algorithm MACTripleDES",
                                       "d":  "Calculate the checksum for a file using a deprecated algorithm (no longer available in PowerShell 6 or later)"
                                   },
                                   {
-                                      "c":  "(Get-FileHash <path\\to\\file> -Algorithm <MD5>).Hash -eq \"<known_hash>\"",
+                                      "c":  "(Get-FileHash <path\\to\\file> -Algorithm SHA1).Hash -eq \"<known_hash>\"",
                                       "d":  "Check a known checksum of a file"
                                   }
                               ]
@@ -3241,23 +3241,23 @@
                                       "d":  "Clone a GitHub repository locally"
                                   },
                                   {
-                                      "c":  "gh issue create",
+                                      "c":  "gh issue new",
                                       "d":  "Create a new issue"
                                   },
                                   {
-                                      "c":  "gh issue list",
+                                      "c":  "gh issue ls",
                                       "d":  "View and filter the open issues of the current repository"
                                   },
                                   {
-                                      "c":  "gh issue view --web <url>",
+                                      "c":  "gh issue view --web issue_number",
                                       "d":  "View an issue in the default web browser"
                                   },
                                   {
-                                      "c":  "gh pr create",
+                                      "c":  "gh pr new",
                                       "d":  "Create a pull request"
                                   },
                                   {
-                                      "c":  "gh pr view --web <branch>",
+                                      "c":  "gh pr view --web pr_number",
                                       "d":  "View a pull request in the default web browser"
                                   }
                               ]
@@ -3517,7 +3517,7 @@
                                       "d":  "Start a bisect session on a commit range bounded by a known buggy commit, and a known clean (typically older) one"
                                   },
                                   {
-                                      "c":  "git bisect <bad>",
+                                      "c":  "git bisect good",
                                       "d":  "For each commit that git bisect selects, mark it as \"bad\" or \"good\" after testing it for the issue"
                                   },
                                   {
@@ -4235,11 +4235,11 @@
                         "d":  "Manage custom configuration options for Git repositories.",
                         "e":  [
                                   {
-                                      "c":  "git config --global <user.email> \"<email@example.com>\"",
+                                      "c":  "git config --global user.name \"Your Name\"",
                                       "d":  "Globally set your name or email (this information is required to commit to a repository and will be included in all commits)"
                                   },
                                   {
-                                      "c":  "git config --<system> --list --show-origin",
+                                      "c":  "git config --local --list --show-origin",
                                       "d":  "List local, global, or system configuration entries and show their file location"
                                   },
                                   {
@@ -4525,7 +4525,7 @@
                                       "d":  "Show only staged (added, but not yet committed) changes"
                                   },
                                   {
-                                      "c":  "git diff 'HEAD@<seconds ago>}'",
+                                      "c":  "git diff 'HEAD@{3 months'",
                                       "d":  "Show changes from all commits since a given date/time (a date expression, e.g. \"1 week 2 days\" or an ISO date)"
                                   },
                                   {
@@ -4687,11 +4687,11 @@
                                       "d":  "Exclude files/directories that match the specified regex"
                                   },
                                   {
-                                      "c":  "git fame --since \"<2021-05-13>\"",
+                                      "c":  "git fame --since \"3 weeks ago\"",
                                       "d":  "Calculate contributions made after the specified date"
                                   },
                                   {
-                                      "c":  "git fame --format <tsv>",
+                                      "c":  "git fame --format pipe",
                                       "d":  "Display contributions in the specified format"
                                   },
                                   {
@@ -5133,7 +5133,7 @@
                                       "d":  "Compute the object ID and store it in the Git database"
                                   },
                                   {
-                                      "c":  "git hash-object -t <tree> <path/to/file>",
+                                      "c":  "git hash-object -t blob <path/to/file>",
                                       "d":  "Compute the object ID specifying the object type"
                                   },
                                   {
@@ -5287,7 +5287,7 @@
                                       "d":  "Listen on a specific port"
                                   },
                                   {
-                                      "c":  "git instaweb --start --httpd <webrick>",
+                                      "c":  "git instaweb --start --httpd lighttpd",
                                       "d":  "Use a specified HTTP daemon"
                                   },
                                   {
@@ -5495,15 +5495,15 @@
                         "d":  "Extract patch and authorship information from a single email message.",
                         "e":  [
                                   {
-                                      "c":  "git mailinfo <patch>",
+                                      "c":  "git mailinfo message",
                                       "d":  "Extract the patch and author data from an email message"
                                   },
                                   {
-                                      "c":  "git mailinfo -k <patch>",
+                                      "c":  "git mailinfo -k message",
                                       "d":  "Extract but remove leading and trailing whitespace"
                                   },
                                   {
-                                      "c":  "git mailinfo --scissors <patch>",
+                                      "c":  "git mailinfo --scissors message",
                                       "d":  "Remove everything from the body before a scissors line (e.g. \"-->* --\") and retrieve the message or patch"
                                   }
                               ]
@@ -5529,7 +5529,7 @@
                                       "d":  "Remove the current repository from the user's maintenance repository list"
                                   },
                                   {
-                                      "c":  "git maintenance run --task <prefetch>",
+                                      "c":  "git maintenance run --task commit-graph",
                                       "d":  "Run a specific maintenance task on the current repository"
                                   }
                               ]
@@ -6641,7 +6641,7 @@
                                       "d":  "Show information about the latest commit (hash, message, changes, and other metadata)"
                                   },
                                   {
-                                      "c":  "git show <branch>",
+                                      "c":  "git show commit",
                                       "d":  "Show information about a specific commit, tag, or branch (such as HEAD for the latest commit)"
                                   },
                                   {
@@ -6667,11 +6667,11 @@
                         "d":  "Show branches and their commits.",
                         "e":  [
                                   {
-                                      "c":  "git show-branch <commit>",
+                                      "c":  "git show-branch branch_name",
                                       "d":  "Show a summary of the latest commit on a branch"
                                   },
                                   {
-                                      "c":  "git show-branch <commit2 ...>",
+                                      "c":  "git show-branch branch_name1",
                                       "d":  "Compare commits in the history of multiple commits or branches"
                                   },
                                   {
@@ -6687,7 +6687,7 @@
                                       "d":  "List the latest commits in all branches"
                                   },
                                   {
-                                      "c":  "git show-branch --current <ref>",
+                                      "c":  "git show-branch --current commit",
                                       "d":  "Compare a given branch with the current branch"
                                   }
                               ]
@@ -6701,7 +6701,7 @@
                                       "d":  "Read an IDX file for a Git packfile and dump its contents to stdout"
                                   },
                                   {
-                                      "c":  "git show-index --object-format <sha256> <path/to/file>",
+                                      "c":  "git show-index --object-format sha1 <path/to/file>",
                                       "d":  "Specify the hash algorithm for the index file (experimental)"
                                   }
                               ]
@@ -6855,11 +6855,11 @@
                         "d":  "See commits from a specified user.",
                         "e":  [
                                   {
-                                      "c":  "git standup -a <email> -d 10",
+                                      "c":  "git standup -a name -d 10",
                                       "d":  "Show a given author's commits from the last 10 days"
                                   },
                                   {
-                                      "c":  "git standup -a <email> -d 10 -g",
+                                      "c":  "git standup -a name -d 10 -g",
                                       "d":  "Show a given author's commits from the last 10 days and whether they are GPG signed"
                                   },
                                   {
@@ -7015,7 +7015,7 @@
                                       "d":  "Display data about a Git repository"
                                   },
                                   {
-                                      "c":  "git summary <tag_name>",
+                                      "c":  "git summary commit",
                                       "d":  "Display data about a Git repository since a commit-ish"
                                   },
                                   {
@@ -7259,7 +7259,7 @@
                         "d":  "Print a Git logical variable's value.",
                         "e":  [
                                   {
-                                      "c":  "git var <GIT_PAGER>",
+                                      "c":  "git var GIT_AUTHOR_IDENT",
                                       "d":  "Print the value of a Git logical variable"
                                   },
                                   {
@@ -7497,7 +7497,7 @@
                         "d":  "GNU Privacy Guard, an OpenPGP encryption and signing tool.",
                         "e":  [
                                   {
-                                      "c":  "gpg --full-generate-key",
+                                      "c":  "gpg --full-gen-key",
                                       "d":  "Create a GPG public and private key interactively"
                                   },
                                   {
@@ -7569,7 +7569,7 @@
                                       "d":  "Search for a pattern in all files recursively in a directory, ignoring binary files"
                                   },
                                   {
-                                      "c":  "grep <--after-context> 3 \"<search_pattern>\" <path/to/file>",
+                                      "c":  "grep --context 3 \"<search_pattern>\" <path/to/file>",
                                       "d":  "Print 3 lines of Context around, Before, or After each match"
                                   },
                                   {
@@ -7679,15 +7679,15 @@
                                       "d":  "Add a new helm repository"
                                   },
                                   {
-                                      "c":  "helm repo list",
+                                      "c":  "helm repo ls",
                                       "d":  "List helm repositories"
                                   },
                                   {
-                                      "c":  "helm repo update",
+                                      "c":  "helm repo up",
                                       "d":  "Update helm repositories"
                                   },
                                   {
-                                      "c":  "helm repo remove <repository_name>",
+                                      "c":  "helm repo rm <repository_name>",
                                       "d":  "Delete a helm repository"
                                   },
                                   {
@@ -7765,7 +7765,7 @@
                                       "d":  "Display the last 20 commands (in Zsh it displays all commands starting from the 20th)"
                                   },
                                   {
-                                      "c":  "history -<E>",
+                                      "c":  "history -d",
                                       "d":  "Display history with timestamps in different formats (only available in Zsh)"
                                   },
                                   {
@@ -7997,11 +7997,11 @@
                                       "d":  "Send form-encoded data (POST request of type application/x-www-form-urlencoded)"
                                   },
                                   {
-                                      "c":  "Invoke-WebRequest -Headers <@{ X-My-Header = '123' >} -Method <PUT> <http://example.com>",
+                                      "c":  "Invoke-WebRequest -Headers <@{ X-My-Header = '123' }> -Method <PUT> <http://example.com>",
                                       "d":  "Send a request with an extra header, using a custom HTTP method"
                                   },
                                   {
-                                      "c":  "Invoke-WebRequest -Body '<{\"name\":\"bob\">}' -ContentType 'application/json' <http://example.com/users/1234>",
+                                      "c":  "Invoke-WebRequest -Body '<{\"name\":\"bob\"}>' -ContentType 'application/json' <http://example.com/users/1234>",
                                       "d":  "Send data in JSON format, specifying the appropriate content-type header"
                                   },
                                   {
@@ -8047,27 +8047,27 @@
                         "s":  "bash",
                         "e":  [
                                   {
-                                      "c":  "ip address",
+                                      "c":  "ip a",
                                       "d":  "List interfaces with detailed info"
                                   },
                                   {
-                                      "c":  "ip -brief address",
+                                      "c":  "ip -br a",
                                       "d":  "List interfaces with brief network layer info"
                                   },
                                   {
-                                      "c":  "ip -brief link",
+                                      "c":  "ip -br l",
                                       "d":  "List interfaces with brief link layer info"
                                   },
                                   {
-                                      "c":  "ip route",
+                                      "c":  "ip r",
                                       "d":  "Display the routing table"
                                   },
                                   {
-                                      "c":  "ip neighbor",
+                                      "c":  "ip n",
                                       "d":  "Show neighbors (ARP table)"
                                   },
                                   {
-                                      "c":  "sudo ip link set <ethX> <down>",
+                                      "c":  "sudo ip l s <ethX> up",
                                       "d":  "Make an interface up/down"
                                   }
                               ]
@@ -8151,7 +8151,7 @@
                                       "d":  "Append rule to chain policy for IP"
                                   },
                                   {
-                                      "c":  "sudo iptables --append <chain> --source <ip_address> --protocol <...> --dport <port> --jump <rule>",
+                                      "c":  "sudo iptables --append <chain> --source <ip_address> --protocol tcp --dport <port> --jump <rule>",
                                       "d":  "Append rule to chain policy for IP considering protocol and port"
                                   },
                                   {
@@ -8286,7 +8286,7 @@
                                       "d":  "Show logs for a given unit since the last time it started"
                                   },
                                   {
-                                      "c":  "journalctl --since <...> --until \"<YYYY-MM-DD HH:MM:SS>\"",
+                                      "c":  "journalctl --since now --until \"<YYYY-MM-DD HH:MM:SS>\"",
                                       "d":  "Filter messages within a time range (either timestamp or placeholders like \"yesterday\")"
                                   },
                                   {
@@ -8312,7 +8312,7 @@
                                       "d":  "Pass specific arguments"
                                   },
                                   {
-                                      "c":  "<cat path/to/multiple_json_file_*.json> | jq '<{newKey1: .key1, newKey2: .key2.nestedKey, ...>}'",
+                                      "c":  "<cat path/to/multiple_json_file_*.json> | jq '<{newKey1: .key1, newKey2: .key2.nestedKey, ...}>'",
                                       "d":  "Create new JSON object via old JSON objects from multiple files"
                                   },
                                   {
@@ -8360,19 +8360,19 @@
                                       "d":  "List available signal names (to be used without the SIG prefix)"
                                   },
                                   {
-                                      "c":  "kill -HUP <process_id>",
+                                      "c":  "kill -1 <process_id>",
                                       "d":  "Terminate a program using the SIGHUP (hang up) signal. Many daemons will reload instead of terminating"
                                   },
                                   {
-                                      "c":  "kill -INT <process_id>",
+                                      "c":  "kill -2 <process_id>",
                                       "d":  "Terminate a program using the SIGINT (interrupt) signal. This is typically initiated by the user pressing <Ctrl c>"
                                   },
                                   {
-                                      "c":  "kill -KILL <process_id>",
+                                      "c":  "kill -9 <process_id>",
                                       "d":  "Signal the operating system to immediately terminate a program (which gets no chance to capture the signal)"
                                   },
                                   {
-                                      "c":  "kill -STOP <process_id>",
+                                      "c":  "kill -19 <process_id>",
                                       "d":  "Signal the operating system to pause a program until a SIGCONT (\"continue\") signal is received"
                                   }
                               ]
@@ -8416,11 +8416,11 @@
                                       "d":  "Delete one or more clusters"
                                   },
                                   {
-                                      "c":  "kind get <kubeconfig>",
+                                      "c":  "kind get clusters",
                                       "d":  "Get details about clusters, nodes, or the kubeconfig"
                                   },
                                   {
-                                      "c":  "kind export <logs>",
+                                      "c":  "kind export kubeconfig",
                                       "d":  "Export the kubeconfig or the logs"
                                   }
                               ]
@@ -8430,7 +8430,7 @@
                         "d":  "Run commands against Kubernetes clusters.",
                         "e":  [
                                   {
-                                      "c":  "kubectl get <...> --output wide",
+                                      "c":  "kubectl get pods --output wide",
                                       "d":  "List information about a resource with more details"
                                   },
                                   {
@@ -8442,7 +8442,7 @@
                                       "d":  "List all resources with different types"
                                   },
                                   {
-                                      "c":  "kubectl top <nodes>",
+                                      "c":  "kubectl top pods",
                                       "d":  "Display resource (CPU/Memory/Storage) usage of nodes or pods"
                                   },
                                   {
@@ -8521,11 +8521,11 @@
                                       "d":  "Open a file for interactive reading"
                                   },
                                   {
-                                      "c":  "<<b>>",
+                                      "c":  "<Space>",
                                       "d":  "Page down/up"
                                   },
                                   {
-                                      "c":  "<<g>>",
+                                      "c":  "<G>",
                                       "d":  "Go to end/start of file"
                                   },
                                   {
@@ -8604,15 +8604,15 @@
                                       "d":  "List files with a trailing symbol to indicate file type (directory/, symbolic_link@, executable*, ...)"
                                   },
                                   {
-                                      "c":  "ls -l --all",
+                                      "c":  "ls -la",
                                       "d":  "List all files in long format (permissions, ownership, size, and modification date)"
                                   },
                                   {
-                                      "c":  "ls -l --human-readable",
+                                      "c":  "ls -lh",
                                       "d":  "List files in long format with size displayed using human-readable units (KiB, MiB, GiB)"
                                   },
                                   {
-                                      "c":  "ls -lS --recursive",
+                                      "c":  "ls -lSR",
                                       "d":  "List files in long format, sorted by Size (descending) recursively"
                                   }
                               ]
@@ -8829,7 +8829,7 @@
                                       "d":  "Scale an image to have a specified file size"
                                   },
                                   {
-                                      "c":  "magick convert -background none <path/to/image1.png path/to/image2.png ...> <+append> <path/to/output_image.png>",
+                                      "c":  "magick convert -background none <path/to/image1.png path/to/image2.png ...> -append <path/to/output_image.png>",
                                       "d":  "Vertically/horizontally append images and have the empty space be transparent"
                                   },
                                   {
@@ -8847,7 +8847,7 @@
                                       "d":  "Call the first target specified in the Makefile (usually named \"all\")"
                                   },
                                   {
-                                      "c":  "make <...>",
+                                      "c":  "make install",
                                       "d":  "Call a specific target"
                                   },
                                   {
@@ -9005,7 +9005,7 @@
                                       "d":  "Create directories with specific permissions"
                                   },
                                   {
-                                      "c":  "mkdir --parents {{path/to/{a,b}/{x,y,z}/{h,i,j}}}",
+                                      "c":  "mkdir --parents <path/to/{a,b}/{x,y,z}/{h,i,j}>",
                                       "d":  "Create multiple nested directories recursively"
                                   }
                               ]
@@ -9384,7 +9384,7 @@
                                       "d":  "Analyze the current working directory"
                                   },
                                   {
-                                      "c":  "ncdu --color <off>",
+                                      "c":  "ncdu --color dark",
                                       "d":  "Colorize output"
                                   },
                                   {
@@ -9484,7 +9484,7 @@
                                       "d":  "Write the same text file in multiple locations"
                                   },
                                   {
-                                      "c":  "New-Item -ItemType <Junction> -Path <path\\to\\link_file> -Target <path\\to\\source_file_or_directory>",
+                                      "c":  "New-Item -ItemType SymbolicLink -Path <path\\to\\link_file> -Target <path\\to\\source_file_or_directory>",
                                       "d":  "Create a symbolic link\\hard link\\junction to a file or directory"
                                   },
                                   {
@@ -9592,7 +9592,7 @@
                                       "d":  "Read from stdin"
                                   },
                                   {
-                                      "c":  "nl -b <n> <path/to/file>",
+                                      "c":  "nl -b a <path/to/file>",
                                       "d":  "Number all body lines including blank lines or do not number body lines"
                                   },
                                   {
@@ -9604,7 +9604,7 @@
                                       "d":  "Use a specific increment for line numbering"
                                   },
                                   {
-                                      "c":  "nl -n <rn>",
+                                      "c":  "nl -n rz",
                                       "d":  "Specify the line numbering format to right or left justified, keeping leading zeros or not"
                                   }
                               ]
@@ -9614,11 +9614,11 @@
                         "d":  "Network exploration tool and security/port scanner.",
                         "e":  [
                                   {
-                                      "c":  "nmap -v<3> <ip_or_hostname>",
+                                      "c":  "nmap -v1 <ip_or_hostname>",
                                       "d":  "Scan the top 1000 ports of a remote host with various verbosity levels"
                                   },
                                   {
-                                      "c":  "nmap -T5 -sn <ip_or_hostname1,ip_or_hostname2,...>",
+                                      "c":  "nmap -T5 -sn 192.168.0.0/24",
                                       "d":  "Run a ping sweep over an entire subnet or individual hosts very aggressively"
                                   },
                                   {
@@ -9700,23 +9700,23 @@
                                       "d":  "Create a package.json file with default values (omit --yes to do it interactively)"
                                   },
                                   {
-                                      "c":  "npm install",
+                                      "c":  "npm i",
                                       "d":  "Download all the packages listed as dependencies in package.json"
                                   },
                                   {
-                                      "c":  "npm install <package_name>@<version>",
+                                      "c":  "npm i <package_name>@<version>",
                                       "d":  "Download a specific version of a package and add it to the list of dependencies in package.json"
                                   },
                                   {
-                                      "c":  "npm install <package_name> --save-dev",
+                                      "c":  "npm i <package_name> --save-dev",
                                       "d":  "Download the latest version of a package and add it to the list of dev dependencies in package.json"
                                   },
                                   {
-                                      "c":  "npm install <package_name> --global",
+                                      "c":  "npm i <package_name> --global",
                                       "d":  "Download the latest version of a package and install it globally (set the install location with npm config set prefix)"
                                   },
                                   {
-                                      "c":  "npm uninstall <package_name>",
+                                      "c":  "npm r <package_name>",
                                       "d":  "Uninstall a package and remove it from the list of dependencies in package.json"
                                   }
                               ]
@@ -9726,23 +9726,23 @@
                         "d":  "Alias of npm exec. Execute binaries from npm packages.",
                         "e":  [
                                   {
-                                      "c":  "npm exec <command> <argument1 argument2 ...>",
+                                      "c":  "npm x <command> <argument1 argument2 ...>",
                                       "d":  "Execute the command from a local or remote npm package"
                                   },
                                   {
-                                      "c":  "npm exec --package <package> <command>",
+                                      "c":  "npm x --package <package> <command>",
                                       "d":  "Specify the package explicitly (useful if multiple commands with the same name exist)"
                                   },
                                   {
-                                      "c":  "npm exec --no-install <command> <argument1 argument2 ...>",
+                                      "c":  "npm x --no-install <command> <argument1 argument2 ...>",
                                       "d":  "Run a command if it exists in the current path or in node_modules/.bin"
                                   },
                                   {
-                                      "c":  "npm exec --quiet <command> <argument1 argument2 ...>",
+                                      "c":  "npm x --quiet <command> <argument1 argument2 ...>",
                                       "d":  "Execute a specific command, suppressing any output from npm itself"
                                   },
                                   {
-                                      "c":  "npm exec --help",
+                                      "c":  "npm x --help",
                                       "d":  "Display help"
                                   }
                               ]
@@ -9790,7 +9790,7 @@
                                       "d":  "Enter text editing mode (insert mode)"
                                   },
                                   {
-                                      "c":  "<Esc><<d><d>>",
+                                      "c":  "<Esc><y><y>",
                                       "d":  "Copy (\"yank\") or cut (\"delete\") the current line (paste it with <p>)"
                                   },
                                   {
@@ -9828,7 +9828,7 @@
                                       "d":  "Display the disassembled executable sections in Intel syntax"
                                   },
                                   {
-                                      "c":  "objdump --disassemble <path/to/binary> --visualize-jumps=<extended-color> --disassembler-color=<extended-color>",
+                                      "c":  "objdump --disassemble <path/to/binary> --visualize-jumps=color --disassembler-color=color",
                                       "d":  "Display the disassembled executable sections with jump visualizations and syntax highlighting"
                                   },
                                   {
@@ -9903,7 +9903,7 @@
                         "d":  "OpenSSL cryptographic toolkit.",
                         "e":  [
                                   {
-                                      "c":  "openssl genpkey -algorithm <ec> -out <path/to/private.key> -aes256",
+                                      "c":  "openssl genpkey -algorithm rsa -out <path/to/private.key> -aes256",
                                       "d":  "Generate a private key and encrypt the output file using AES-256"
                                   },
                                   {
@@ -9915,7 +9915,7 @@
                                       "d":  "Generate a self-signed certificate valid for a specified number of days (365)"
                                   },
                                   {
-                                      "c":  "openssl x509 -in <path/to/certificate.crt> -out <path/to/certificate.der> -outform <der>",
+                                      "c":  "openssl x509 -in <path/to/certificate.crt> -out path/to/certificate.pem -outform pem",
                                       "d":  "Convert a certificate to .pem or .der format"
                                   },
                                   {
@@ -10032,7 +10032,7 @@
                                       "d":  "Convert a Markdown file to PDF using pdflatex (the formats are determined by file extensions)"
                                   },
                                   {
-                                      "c":  "<command> | pandoc --from <input_format> --pdf-engine <...> --output <path/to/output.pdf>",
+                                      "c":  "<command> | pandoc --from <input_format> --pdf-engine tectonic --output <path/to/output.pdf>",
                                       "d":  "Convert the output from another command to PDF, using a specific PDF engine"
                                   },
                                   {
@@ -10040,7 +10040,7 @@
                                       "d":  "Convert to a standalone file with the appropriate headers/footers (for LaTeX, HTML, etc.)"
                                   },
                                   {
-                                      "c":  "pandoc --from <...> <path/to/input> --to <...> --output <path/to/output>",
+                                      "c":  "pandoc --from docx <path/to/input> --to pdf --output <path/to/output>",
                                       "d":  "Manually specify formats (overriding automatic format detection using the filename extension, or when there is no extension)"
                                   },
                                   {
@@ -10093,7 +10093,7 @@
                                       "d":  "List partitions on all block devices"
                                   },
                                   {
-                                      "c":  "sudo parted </dev/sdX> mklabel <sun>",
+                                      "c":  "sudo parted </dev/sdX> mklabel aix",
                                       "d":  "Create a new partition table of the specified label-type"
                                   },
                                   {
@@ -10227,7 +10227,7 @@
                                       "d":  "Same as above, customize host and port"
                                   },
                                   {
-                                      "c":  "pg_dump --format custom <db_name> > <output_file.dump>",
+                                      "c":  "pg_dump --format c <db_name> > <output_file.dump>",
                                       "d":  "Dump a database into a custom-format archive file"
                                   },
                                   {
@@ -10448,7 +10448,7 @@
                                       "d":  "Create a package.json file"
                                   },
                                   {
-                                      "c":  "pnpm install",
+                                      "c":  "pnpm i",
                                       "d":  "Download all the packages listed as dependencies in package.json"
                                   },
                                   {
@@ -10464,7 +10464,7 @@
                                       "d":  "Download a package and install it globally"
                                   },
                                   {
-                                      "c":  "pnpm remove <module_name>",
+                                      "c":  "pnpm rm <module_name>",
                                       "d":  "Uninstall a package and remove it from the list of dependencies in package.json"
                                   }
                               ]
@@ -10482,7 +10482,7 @@
                                       "d":  "Create a container from an image, with a custom name"
                                   },
                                   {
-                                      "c":  "podman <stop> <container_name>",
+                                      "c":  "podman start <container_name>",
                                       "d":  "Start or stop an existing container"
                                   },
                                   {
@@ -10835,7 +10835,7 @@
                                       "d":  "Convert a string to a QR code and print it in terminal"
                                   },
                                   {
-                                      "c":  "qrencode --output <path/to/output_file.png> --level h <string>",
+                                      "c":  "qrencode --output <path/to/output_file.png> --level l <string>",
                                       "d":  "Convert a string to a QR code with a specific error correction level and save to an output file"
                                   },
                                   {
@@ -11038,7 +11038,7 @@
                                       "d":  "Rename a file by force"
                                   },
                                   {
-                                      "c":  "Rename-Item -Path \"<path\\to\\file>\" -NewName \"<new_file_name>\" -cf",
+                                      "c":  "Rename-Item -Path \"<path\\to\\file>\" -NewName \"<new_file_name>\" -Confirm",
                                       "d":  "Prompt confirmation before renaming a file"
                                   }
                               ]
@@ -11052,7 +11052,7 @@
                                       "d":  "Increase/decrease the priority of a running process"
                                   },
                                   {
-                                      "c":  "renice -n <-4> -u <user>",
+                                      "c":  "renice -n <-4> -u uid",
                                       "d":  "Increase/decrease the priority of all processes owned by a user"
                                   },
                                   {
@@ -11319,7 +11319,7 @@
                                       "d":  "Compile a binary crate"
                                   },
                                   {
-                                      "c":  "rustc --codegen lto --codegen opt-level=<z> <path/to/main.rs>",
+                                      "c":  "rustc --codegen lto --codegen opt-level=0 <path/to/main.rs>",
                                       "d":  "Compile with optimizations (s means optimize for binary size; z is the same with even more optimizations)"
                                   },
                                   {
@@ -11577,7 +11577,7 @@
                                       "d":  "List the name and status of all services"
                                   },
                                   {
-                                      "c":  "service <service_name> <reload>",
+                                      "c":  "service <service_name> start",
                                       "d":  "Start/Stop/Restart/Reload service (start/stop should always be available)"
                                   },
                                   {
@@ -11673,7 +11673,7 @@
                                       "d":  "Go to the home directory of the current user"
                                   },
                                   {
-                                      "c":  "Set-Location <+>",
+                                      "c":  "Set-Location -",
                                       "d":  "Go back/forward to the previously chosen directory"
                                   }
                               ]
@@ -12055,11 +12055,11 @@
                         "s":  "bash",
                         "e":  [
                                   {
-                                      "c":  "ss --all <--unix>",
+                                      "c":  "ss --all --tcp",
                                       "d":  "Show all TCP/UDP/RAW/UNIX sockets"
                                   },
                                   {
-                                      "c":  "ss <exclude> <...>",
+                                      "c":  "ss state bucket",
                                       "d":  "Filter TCP sockets by states, only/exclude"
                                   },
                                   {
@@ -12185,7 +12185,7 @@
                                       "d":  "Generate an ed25519 key with 32 key derivation function rounds and save the key to a specific file"
                                   },
                                   {
-                                      "c":  "ssh-keygen -t rsa -b 4096 -C \"<email>\"",
+                                      "c":  "ssh-keygen -t rsa -b 4096 -C \"comment\"",
                                       "d":  "Generate an RSA 4096-bit key with email as a comment"
                                   },
                                   {
@@ -12220,7 +12220,7 @@
                                       "d":  "Start a registered Windows program name and pass its command arguments"
                                   },
                                   {
-                                      "c":  "Start-Process -WindowStyle <Maximized> <program>",
+                                      "c":  "Start-Process -WindowStyle Minimized <program>",
                                       "d":  "Start a Windows program in minimized or maximized window mode"
                                   },
                                   {
@@ -12367,7 +12367,7 @@
                                       "d":  "Display all settings for the current terminal"
                                   },
                                   {
-                                      "c":  "stty <cols> <count>",
+                                      "c":  "stty rows <count>",
                                       "d":  "Set the number of rows or columns"
                                   },
                                   {
@@ -12379,7 +12379,7 @@
                                       "d":  "Reset all modes to reasonable values for the current terminal"
                                   },
                                   {
-                                      "c":  "stty <cooked>",
+                                      "c":  "stty raw",
                                       "d":  "Switch between raw and normal mode"
                                   }
                               ]
@@ -12450,11 +12450,11 @@
                         "d":  "Subversion client tool.",
                         "e":  [
                                   {
-                                      "c":  "svn checkout <file:///path/to/repository>",
+                                      "c":  "svn co <file:///path/to/repository>",
                                       "d":  "Check out a working copy from a repository"
                                   },
                                   {
-                                      "c":  "svn update",
+                                      "c":  "svn up",
                                       "d":  "Bring changes from the repository into the working copy"
                                   },
                                   {
@@ -12462,7 +12462,7 @@
                                       "d":  "Put files and directories under version control, scheduling them for addition to repository. They will be added in next commit"
                                   },
                                   {
-                                      "c":  "svn commit --message <commit_log_message> <path/to/directory>",
+                                      "c":  "svn ci --message <commit_log_message> <path/to/directory>",
                                       "d":  "Send changes from your working copy to the repository"
                                   },
                                   {
@@ -12470,7 +12470,7 @@
                                       "d":  "Display changes from the last 10 revisions, showing modified files for each revision"
                                   },
                                   {
-                                      "c":  "svn help",
+                                      "c":  "svn h",
                                       "d":  "Display help"
                                   }
                               ]
@@ -12496,7 +12496,7 @@
                                       "d":  "Update dependencies"
                                   },
                                   {
-                                      "c":  "swift build --configuration <release>",
+                                      "c":  "swift build --configuration debug",
                                       "d":  "Compile project for release"
                                   }
                               ]
@@ -12546,11 +12546,11 @@
                                       "d":  "List failed units"
                                   },
                                   {
-                                      "c":  "systemctl <status> <unit>",
+                                      "c":  "systemctl start <unit>",
                                       "d":  "Start/Stop/Restart/Reload/Show the status of a service"
                                   },
                                   {
-                                      "c":  "systemctl <disable> <unit>",
+                                      "c":  "systemctl enable <unit>",
                                       "d":  "Enable/Disable a unit to be started on bootup"
                                   },
                                   {
@@ -12558,7 +12558,7 @@
                                       "d":  "Reload systemd, scan for new or changed units"
                                   },
                                   {
-                                      "c":  "systemctl <is-failed> <unit>",
+                                      "c":  "systemctl is-active <unit>",
                                       "d":  "Check if a unit is active/enabled/failed"
                                   }
                               ]
@@ -12573,7 +12573,7 @@
                                       "d":  "Display system configuration for the local machine"
                                   },
                                   {
-                                      "c":  "systeminfo /fo <csv>",
+                                      "c":  "systeminfo /fo table",
                                       "d":  "Display system configuration in a specified output format"
                                   },
                                   {
@@ -12659,11 +12659,11 @@
                                       "d":  "create a gzipped (compressed) archive from a directory using relative paths"
                                   },
                                   {
-                                      "c":  "tar xvf <.xz]>",
+                                      "c":  "tar xvf path/to/source.tar[.gz",
                                       "d":  "Extract a (compressed) archive file into the current directory verbosely"
                                   },
                                   {
-                                      "c":  "tar xf <.xz]> --directory <path/to/directory>",
+                                      "c":  "tar xf path/to/source.tar[.gz --directory <path/to/directory>",
                                       "d":  "Extract a (compressed) archive file into the target directory"
                                   },
                                   {
@@ -12713,7 +12713,7 @@
                                       "d":  "Display currently running processes"
                                   },
                                   {
-                                      "c":  "tasklist /fo <csv>",
+                                      "c":  "tasklist /fo table",
                                       "d":  "Display running processes in a specified output format"
                                   },
                                   {
@@ -12929,15 +12929,15 @@
                                       "d":  "Run sleep 10 and terminate it after 3 seconds"
                                   },
                                   {
-                                      "c":  "timeout --signal <...> <5s> <sleep 10>",
+                                      "c":  "timeout --signal INT <5s> <sleep 10>",
                                       "d":  "Send a signal to the command after the time limit expires (TERM by default, kill -l to list all signals)"
                                   },
                                   {
-                                      "c":  "timeout --verbose <...> <command>",
+                                      "c":  "timeout --verbose 0.5s <command>",
                                       "d":  "Send verbose output to stderr showing signal sent upon timeout"
                                   },
                                   {
-                                      "c":  "timeout --preserve-status <...> <command>",
+                                      "c":  "timeout --preserve-status 1s <command>",
                                       "d":  "Preserve the exit status of the command regardless of timing out"
                                   },
                                   {
@@ -12963,7 +12963,7 @@
                                       "d":  "Print the tldr page for a command in the given language (if available, otherwise fall back to English)"
                                   },
                                   {
-                                      "c":  "tldr --platform <windows> <command>",
+                                      "c":  "tldr --platform android <command>",
                                       "d":  "Print the tldr page for a command from a specific platform"
                                   },
                                   {
@@ -12985,15 +12985,15 @@
                                       "d":  "Start a new session"
                                   },
                                   {
-                                      "c":  "tmux new-session -s <name>",
+                                      "c":  "tmux new -s <name>",
                                       "d":  "Start a new named session"
                                   },
                                   {
-                                      "c":  "tmux list-sessions",
+                                      "c":  "tmux ls",
                                       "d":  "List existing sessions"
                                   },
                                   {
-                                      "c":  "tmux attach",
+                                      "c":  "tmux a",
                                       "d":  "Attach to the most recently used session"
                                   },
                                   {
@@ -13046,7 +13046,7 @@
                                       "d":  "Create specific files or update their timestamps if they already exist"
                                   },
                                   {
-                                      "c":  "touch --no-create <-m> <path/to/file1 path/to/file2 ...>",
+                                      "c":  "touch --no-create -a <path/to/file1 path/to/file2 ...>",
                                       "d":  "Set the file access or modification times to the current one and don't create file if it doesn't exist"
                                   },
                                   {
@@ -13058,11 +13058,11 @@
                                       "d":  "Set the files' timestamp to the reference file's timestamp, and do not create the file if it does not exist"
                                   },
                                   {
-                                      "c":  "touch --date \"<...>\" <path/to/file>",
+                                      "c":  "touch --date \"last year\" <path/to/file>",
                                       "d":  "Set the timestamp by parsing a string"
                                   },
                                   {
-                                      "c":  "touch <path/to/file{1..10>}",
+                                      "c":  "touch <path/to/file{1..10}>",
                                       "d":  "Create multiple files with an increasing number"
                                   }
                               ]
@@ -13245,7 +13245,7 @@
                                       "d":  "Compile a TypeScript file into a JavaScript file with the same name"
                                   },
                                   {
-                                      "c":  "tsc --target <...> <path/to/file.ts>",
+                                      "c":  "tsc --target ES5 <path/to/file.ts>",
                                       "d":  "Compile a TypeScript file into JavaScript using a specific target syntax (default is ES3)"
                                   },
                                   {
@@ -13279,7 +13279,7 @@
                         "s":  "bash",
                         "e":  [
                                   {
-                                      "c":  "sudo ufw <disable>",
+                                      "c":  "sudo ufw enable",
                                       "d":  "Enable/Disable ufw"
                                   },
                                   {
@@ -13635,7 +13635,7 @@
                                       "d":  "Remove a dependency from the project"
                                   },
                                   {
-                                      "c":  "uv run <command>",
+                                      "c":  "uv run path/to/script.py",
                                       "d":  "Run a script or a command in the project's environment"
                                   },
                                   {
@@ -13713,7 +13713,7 @@
                                       "d":  "View Vim's help manual"
                                   },
                                   {
-                                      "c":  "<<Esc><:>wq<Enter>>",
+                                      "c":  "<Esc><Z><Z>",
                                       "d":  "Save and quit the current buffer"
                                   },
                                   {
@@ -13999,11 +13999,11 @@
                         "s":  "pwsh",
                         "e":  [
                                   {
-                                      "c":  "winget install <package>",
+                                      "c":  "winget add <package>",
                                       "d":  "Install a package (use --source when package is available from multiple sources)"
                                   },
                                   {
-                                      "c":  "winget uninstall <package>",
+                                      "c":  "winget rm <package>",
                                       "d":  "Remove a package (Note: remove can also be used instead of uninstall)"
                                   },
                                   {
@@ -14019,7 +14019,7 @@
                                       "d":  "Upgrade all packages to the latest versions"
                                   },
                                   {
-                                      "c":  "winget list --source winget",
+                                      "c":  "winget ls --source winget",
                                       "d":  "List all packages installed that can be managed with winget"
                                   }
                               ]
@@ -14187,19 +14187,19 @@
                                       "d":  "Generate a hexdump from a binary file and save it as a text file"
                                   },
                                   {
-                                      "c":  "xxd -autoskip <input_file>",
+                                      "c":  "xxd -a <input_file>",
                                       "d":  "Display a more compact output, replacing consecutive zeros (if any) with a star"
                                   },
                                   {
-                                      "c":  "xxd -cols <10> <input_file>",
+                                      "c":  "xxd -c <10> <input_file>",
                                       "d":  "Display the output with 10 columns of one octet (byte) each"
                                   },
                                   {
-                                      "c":  "xxd -len <32> <input_file>",
+                                      "c":  "xxd -l <32> <input_file>",
                                       "d":  "Display output only up to a length of 32 bytes"
                                   },
                                   {
-                                      "c":  "xxd -postscript <input_file>",
+                                      "c":  "xxd -p <input_file>",
                                       "d":  "Display the output in plain mode, without any gaps between the columns"
                                   }
                               ]
@@ -14322,27 +14322,27 @@
                         "s":  "bash",
                         "e":  [
                                   {
-                                      "c":  "sudo dnf upgrade",
+                                      "c":  "sudo dnf up",
                                       "d":  "Upgrade installed packages to the newest available versions"
                                   },
                                   {
-                                      "c":  "dnf search <keyword1 keyword2 ...>",
+                                      "c":  "dnf se <keyword1 keyword2 ...>",
                                       "d":  "Search packages via keywords"
                                   },
                                   {
-                                      "c":  "dnf info <package>",
+                                      "c":  "dnf if <package>",
                                       "d":  "Display details about a package"
                                   },
                                   {
-                                      "c":  "sudo dnf install <package1 package2 ...>",
+                                      "c":  "sudo dnf in <package1 package2 ...>",
                                       "d":  "Install new packages (use --assumeyes to confirm all prompts automatically)"
                                   },
                                   {
-                                      "c":  "sudo dnf remove <package1 package2 ...>",
+                                      "c":  "sudo dnf rm <package1 package2 ...>",
                                       "d":  "Remove packages"
                                   },
                                   {
-                                      "c":  "dnf list --installed",
+                                      "c":  "dnf ls --installed",
                                       "d":  "List installed packages"
                                   }
                               ]
@@ -14356,11 +14356,11 @@
                                       "d":  "Start a new named session"
                                   },
                                   {
-                                      "c":  "zellij list-sessions",
+                                      "c":  "zellij ls",
                                       "d":  "List existing sessions"
                                   },
                                   {
-                                      "c":  "zellij attach",
+                                      "c":  "zellij a",
                                       "d":  "Attach to the most recently used session"
                                   },
                                   {
@@ -14428,7 +14428,7 @@
                                       "d":  "Remove a directory from zoxide's database"
                                   },
                                   {
-                                      "c":  "zoxide init <zsh>",
+                                      "c":  "zoxide init bash",
                                       "d":  "Generate shell configuration for command aliases (z, zi)"
                                   }
                               ]
@@ -14469,27 +14469,27 @@
                         "s":  "bash",
                         "e":  [
                                   {
-                                      "c":  "sudo zypper refresh",
+                                      "c":  "sudo zypper ref",
                                       "d":  "Synchronize list of packages and versions available"
                                   },
                                   {
-                                      "c":  "sudo zypper install <package>",
+                                      "c":  "sudo zypper in <package>",
                                       "d":  "Install a new package"
                                   },
                                   {
-                                      "c":  "sudo zypper remove <package>",
+                                      "c":  "sudo zypper rm <package>",
                                       "d":  "Remove a package"
                                   },
                                   {
-                                      "c":  "sudo zypper update",
+                                      "c":  "sudo zypper up",
                                       "d":  "Upgrade installed packages to the newest available versions"
                                   },
                                   {
-                                      "c":  "zypper search <keyword>",
+                                      "c":  "zypper se <keyword>",
                                       "d":  "Search package via keyword"
                                   },
                                   {
-                                      "c":  "zypper repos --sort-by-priority",
+                                      "c":  "zypper lr --sort-by-priority",
                                       "d":  "Show information related to configured repositories"
                                   }
                               ]
