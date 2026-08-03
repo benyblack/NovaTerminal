@@ -297,6 +297,237 @@ public sealed class CommandAssistSuggestionEngineTests
         Assert.All(results, suggestion => Assert.NotEqual(AssistSuggestionType.Path, suggestion.Type));
     }
 
+    // ------------------------------------------- context-scoped ranking (V2 Phase 3a)
+    //
+    // The owner's second report: "the list shows commands from all sessions/tabs indiscriminately".
+    // The fix is an ordering rule, not a filter - a command run somewhere else is still in the list,
+    // below the entries from here, because reaching for a command you remember running on another box
+    // is the reason a shared history exists at all.
+
+    /// <summary>
+    /// <c>Ctrl+R</c> on an SSH pane: this host's commands come first, and the local ones are still
+    /// there afterwards.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_WithNoQueryOnARemotePane_RanksThisHostsCommandsFirst()
+    {
+        var engine = new CommandAssistSuggestionEngine(new FakePathSuggestionProvider(Array.Empty<AssistSuggestion>()));
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: "/home/nova",
+            ShellKind: "bash",
+            ProfileId: "profile-ssh",
+            IsRemote: true,
+            HostId: "ubuntu.example");
+
+        // The local entry is the most recent, so pure recency (the pre-Phase-3a rule) puts it first.
+        var history = new[]
+        {
+            CreateEntry("dotnet build", executedAt: DateTimeOffset.Parse("2026-03-01T12:00:00+00:00")),
+            CreateRemoteEntry("systemctl status nova", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T11:00:00+00:00")),
+            CreateRemoteEntry("journalctl -u nova", "other.example", DateTimeOffset.Parse("2026-03-01T11:30:00+00:00"))
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 10);
+
+        Assert.Equal("systemctl status nova", results[0].DisplayText);
+        Assert.Contains(results, item => item.DisplayText == "dotnet build");
+        Assert.Contains(results, item => item.DisplayText == "journalctl -u nova");
+    }
+
+    /// <summary>
+    /// The same rule on a local pane, where "here" means "not on somebody else's machine": there is no
+    /// local host id to compare, so localness is the context.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_WithNoQueryOnALocalPane_RanksLocalCommandsFirst()
+    {
+        var engine = new CommandAssistSuggestionEngine(new FakePathSuggestionProvider(Array.Empty<AssistSuggestion>()));
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
+
+        var history = new[]
+        {
+            CreateRemoteEntry("apt install ripgrep", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T12:00:00+00:00")),
+            CreateEntry("dotnet build", executedAt: DateTimeOffset.Parse("2026-03-01T11:00:00+00:00"))
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 10);
+
+        Assert.Equal("dotnet build", results[0].DisplayText);
+        Assert.Contains(results, item => item.DisplayText == "apt install ripgrep");
+    }
+
+    /// <summary>
+    /// Two remote hosts, one pane. Another host's entries rank below this host's - which is the case
+    /// the owner actually hit, since a single global recency list is dominated by whichever pane ran a
+    /// command last.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_WithNoQueryOnARemotePane_RanksOtherHostsBelowThisOne()
+    {
+        var engine = new CommandAssistSuggestionEngine(new FakePathSuggestionProvider(Array.Empty<AssistSuggestion>()));
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: "/home/nova",
+            ShellKind: "bash",
+            ProfileId: "profile-ssh",
+            IsRemote: true,
+            HostId: "ubuntu.example");
+
+        var history = new[]
+        {
+            CreateRemoteEntry("uptime", "other.example", DateTimeOffset.Parse("2026-03-01T12:00:00+00:00")),
+            CreateRemoteEntry("df -h", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"))
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 10);
+
+        Assert.Equal("df -h", results[0].DisplayText);
+        Assert.Equal("uptime", results[1].DisplayText);
+    }
+
+    /// <summary>
+    /// An SSH profile whose host is not yet known must not match everything. An unknown context is not
+    /// a context, and the fallback is the pre-Phase-3a recency order.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_OnARemotePaneWithNoHostId_AppliesNoContextBoost()
+    {
+        var engine = new CommandAssistSuggestionEngine(new FakePathSuggestionProvider(Array.Empty<AssistSuggestion>()));
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: "/home/nova",
+            ShellKind: "bash",
+
+            // Null so that the profile term cannot stand in for the host term this test is about.
+            ProfileId: null,
+            IsRemote: true,
+            HostId: null);
+
+        var history = new[]
+        {
+            CreateEntry("dotnet build", executedAt: DateTimeOffset.Parse("2026-03-01T12:00:00+00:00")),
+            CreateRemoteEntry("df -h", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T11:00:00+00:00"))
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 10);
+
+        Assert.Equal("dotnet build", results[0].DisplayText);
+    }
+
+    /// <summary>
+    /// The text-query path gets a host boost alongside the existing profile boost, sized as a nudge:
+    /// with equally good text matches the same-host row wins.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_WithATextQueryOnARemotePane_PrefersTheSameHostAmongEqualMatches()
+    {
+        var engine = new CommandAssistSuggestionEngine(new FakePathSuggestionProvider(Array.Empty<AssistSuggestion>()));
+        var context = new CommandAssistQueryContext(
+            Input: "systemctl s",
+            WorkingDirectory: "/home/nova",
+            ShellKind: "bash",
+            ProfileId: null,
+            IsRemote: true,
+            HostId: "ubuntu.example");
+
+        var history = new[]
+        {
+            CreateRemoteEntry("systemctl start nova", "other.example", DateTimeOffset.Parse("2026-03-01T12:00:00+00:00")),
+            CreateRemoteEntry("systemctl status nova", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"))
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 10);
+
+        Assert.Equal("systemctl status nova", results[0].DisplayText);
+        Assert.Equal("systemctl start nova", results[1].DisplayText);
+    }
+
+    /// <summary>
+    /// And the nudge must stay a nudge: a same-host row that matches the query worse than a local row
+    /// still loses. A partition here would read as the list ignoring what the user typed.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_WithATextQuery_DoesNotLetTheContextBoostBeatABetterTextMatch()
+    {
+        var engine = new CommandAssistSuggestionEngine(new FakePathSuggestionProvider(Array.Empty<AssistSuggestion>()));
+        var context = new CommandAssistQueryContext(
+            Input: "git st",
+            WorkingDirectory: "/home/nova",
+            ShellKind: "bash",
+            ProfileId: null,
+            IsRemote: true,
+            HostId: "ubuntu.example");
+
+        var history = new[]
+        {
+            // Prefix match (120) locally...
+            CreateEntry("git status", executedAt: DateTimeOffset.Parse("2026-03-01T09:00:00+00:00")),
+
+            // ...against a mere subsequence match (12) plus the host boost (30) on this host.
+            CreateRemoteEntry("grep -r it standalone", "ubuntu.example", DateTimeOffset.Parse("2026-03-01T12:00:00+00:00"))
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 10);
+
+        Assert.Equal("git status", results[0].DisplayText);
+    }
+
+    /// <summary>
+    /// Pinned snippets keep their place at the top of an empty-query list. They have no host or
+    /// remoteness to compare, and pinning already means "in scope everywhere", so they share the
+    /// context band rather than being pushed below every same-host history row.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_WithNoQuery_KeepsPinnedSnippetsAboveContextMatchedHistory()
+    {
+        var engine = new CommandAssistSuggestionEngine(new FakePathSuggestionProvider(Array.Empty<AssistSuggestion>()));
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
+
+        var history = new[]
+        {
+            CreateEntry("dotnet build", executedAt: DateTimeOffset.Parse("2026-03-01T12:00:00+00:00"))
+        };
+
+        var snippets = new[]
+        {
+            CreateSnippet("Deploy", "./deploy.sh --prod", isPinned: true)
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, snippets, context, maxResults: 10);
+
+        Assert.Equal(AssistSuggestionType.Snippet, results[0].Type);
+    }
+
+    private static CommandHistoryEntry CreateRemoteEntry(
+        string commandText,
+        string hostId,
+        DateTimeOffset executedAt)
+    {
+        return new CommandHistoryEntry(
+            Id: Guid.NewGuid().ToString("N"),
+            CommandText: commandText,
+            ExecutedAt: executedAt,
+            ShellKind: "bash",
+            WorkingDirectory: "/home/nova",
+            ProfileId: "profile-ssh",
+            SessionId: "session-ssh",
+            HostId: hostId,
+            ExitCode: 0,
+            IsRemote: true,
+            IsRedacted: false,
+            Source: CommandCaptureSource.ShellIntegration,
+            DurationMs: null);
+    }
+
     private static CommandHistoryEntry CreateEntry(
         string commandText,
         string? profileId = "profile-1",

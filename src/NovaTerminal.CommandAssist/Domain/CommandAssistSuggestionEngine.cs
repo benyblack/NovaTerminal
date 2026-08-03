@@ -7,6 +7,44 @@ namespace NovaTerminal.CommandAssist.Domain;
 
 public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
 {
+    /// <summary>
+    /// What a same-context history entry is worth on the empty-query (<c>Ctrl+R</c>) path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Large enough to <em>partition</em> rather than nudge: every other empty-query term together
+    /// tops out around 30 (recency is a tiebreak, not a score, and frequency is capped at 5), so this
+    /// puts every entry from the current host - or every local entry, on a local pane - above every
+    /// entry that is not, and orders within each band by the usual recency/frequency rules.
+    /// </para>
+    /// <para>
+    /// <strong>Partitioning, not filtering.</strong> The owner's report was that <c>Ctrl+R</c> "shows
+    /// commands from all sessions/tabs indiscriminately", and the fix is deliberately an ordering one:
+    /// a command run on another host is still in the list, below the fold, because reaching for a
+    /// command you remember running somewhere else is the reason a shared history exists. Hiding it
+    /// would trade one complaint for a worse one.
+    /// </para>
+    /// </remarks>
+    internal const double EmptyQueryContextMatchBoost = 1000;
+
+    /// <summary>
+    /// What a same-profile history entry is worth on the empty-query path: a secondary sort within
+    /// each context band, not a band of its own.
+    /// </summary>
+    internal const double EmptyQueryProfileMatchBoost = 200;
+
+    /// <summary>
+    /// What a same-context history entry is worth once the user has typed something.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately a nudge here rather than a partition. With a query on the line the user has said
+    /// what they are looking for, and the text-match terms (prefix 120, token prefix 70, contains 25)
+    /// are the better signal; a partition would rank a same-host subsequence match above a local
+    /// prefix match, which reads as the list ignoring what was typed. Sized to sit between the
+    /// existing cwd (12) and profile (20) signals and a text-match tier.
+    /// </remarks>
+    internal const double TextQueryContextMatchBoost = 30;
+
     private readonly IPathSuggestionProvider _pathSuggestionProvider;
 
     public CommandAssistSuggestionEngine(IPathSuggestionProvider? pathSuggestionProvider = null)
@@ -85,11 +123,12 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
                     query,
                     latest.WorkingDirectory,
                     latest.ShellKind,
-                    latest.ProfileId,
                     latest.ExitCode,
                     context,
                     frequency,
-                    isPinned: false);
+                    isPinned: false,
+                    isContextMatch: IsSameSessionContext(latest, context),
+                    isProfileMatch: Matches(context.ProfileId, latest.ProfileId));
 
                 return new
                 {
@@ -125,11 +164,20 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
                     query,
                     snippet.WorkingDirectory,
                     snippet.ShellKind,
-                    profileId: null,
                     exitCode: 0,
                     context,
                     frequency: 1,
-                    isPinned: snippet.IsPinned);
+                    isPinned: snippet.IsPinned,
+
+                    // A pinned snippet is in scope for every session by definition - that is what
+                    // pinning means - so it satisfies both affinity terms rather than being pushed
+                    // below every same-host history entry by a scoping rule it has no fields to
+                    // satisfy (a snippet carries no host and no profile). Without this, V2 Phase 3a's
+                    // context boost would have silently demoted pinned snippets out of the top of an
+                    // empty-query list, which is the one place users put things to find them.
+                    // An unpinned snippet is just a suggestion and ranks like one.
+                    isContextMatch: snippet.IsPinned,
+                    isProfileMatch: snippet.IsPinned);
 
                 // Snippets should remain discoverable even with empty query.
                 if (string.IsNullOrWhiteSpace(query))
@@ -162,11 +210,12 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
         string query,
         string? workingDirectory,
         string? shellKind,
-        string? profileId,
         int? exitCode,
         CommandAssistQueryContext context,
         int frequency,
-        bool isPinned)
+        bool isPinned,
+        bool isContextMatch,
+        bool isProfileMatch)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -175,7 +224,14 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
 
         if (string.IsNullOrWhiteSpace(query))
         {
-            return 1 + Math.Min(frequency, 5) + (isPinned ? 20 : 0);
+            // The empty-query (Ctrl+R) path. Recency is the tiebreak rather than a term here - see the
+            // ThenByDescending in GetSuggestions - so the context boosts are the only thing large
+            // enough to reorder the list, which is exactly what V2 Phase 3a wants them to do.
+            return 1 +
+                   Math.Min(frequency, 5) +
+                   (isPinned ? 20 : 0) +
+                   (isContextMatch ? EmptyQueryContextMatchBoost : 0) +
+                   (isProfileMatch ? EmptyQueryProfileMatchBoost : 0);
         }
 
         string normalizedText = text.Trim();
@@ -200,11 +256,40 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
         double frequencyScore = frequency * 4;
         double cwdScore = Matches(context.WorkingDirectory, workingDirectory) ? 12 : 0;
         double shellScore = Matches(context.ShellKind, shellKind) ? 4 : 0;
-        double profileScore = Matches(context.ProfileId, profileId) ? 20 : 0;
+        double profileScore = isProfileMatch ? 20 : 0;
+        double contextScore = isContextMatch ? TextQueryContextMatchBoost : 0;
         double successScore = exitCode == 0 ? 18 : exitCode.HasValue ? -8 : 0;
         double pinScore = isPinned ? 40 : 0;
 
-        return textMatchScore + frequencyScore + cwdScore + shellScore + profileScore + successScore + pinScore;
+        return textMatchScore + frequencyScore + cwdScore + shellScore + profileScore + contextScore + successScore + pinScore;
+    }
+
+    /// <summary>
+    /// Whether a history entry came from the same place the current pane is.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Two cases, and the asymmetry is deliberate. On a remote pane, "here" means <em>this host</em>:
+    /// the commands that make sense are the ones that ran on the box, and a host id is the only thing
+    /// that identifies it across sessions, tabs and reconnects (a session id would scope the list to
+    /// this tab, which is what a shell's own per-session history already does badly). On a local pane,
+    /// "here" means "not on somebody else's machine" - there is no local host id to compare, and
+    /// `ubuntu.example`'s `apt install` has no business at the top of a Windows prompt.
+    /// </para>
+    /// <para>
+    /// A remote pane with no host id (an SSH profile with the host still unresolved) matches nothing
+    /// rather than matching everything: an unknown context is not a context, and the fallback is the
+    /// pre-Phase-3a pure-recency order, which is merely unhelpful rather than wrong.
+    /// </para>
+    /// </remarks>
+    private static bool IsSameSessionContext(CommandHistoryEntry entry, CommandAssistQueryContext context)
+    {
+        if (!context.IsRemote)
+        {
+            return !entry.IsRemote;
+        }
+
+        return entry.IsRemote && Matches(context.HostId, entry.HostId);
     }
 
     private static IReadOnlyList<string> BuildHistoryBadges(CommandHistoryEntry entry, CommandAssistQueryContext context, int frequency)

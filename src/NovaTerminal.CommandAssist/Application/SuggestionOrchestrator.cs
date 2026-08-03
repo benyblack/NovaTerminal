@@ -45,22 +45,44 @@ namespace NovaTerminal.CommandAssist.Application;
 /// </remarks>
 internal sealed class SuggestionOrchestrator
 {
-    /// <summary>Rows the popup/bubble shows. M4.2's hard-coded cap; Phase 3 replaces it with scrolling.</summary>
-    public const int MaxDisplayedSuggestions = 5;
-
     /// <summary>
-    /// How many history candidates the ranking engine gets to choose from for a text query.
+    /// Rows the popup renders.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// M4.2 shipped this at 5 because the popup was a fixed-height list with no way to reach a sixth
+    /// row. V2 Phase 3a gave it a <c>ScrollViewer</c>, so the cap is now about how much ranked history
+    /// is worth holding rather than about how much fits: 50 is a scrollable list a user will page
+    /// through and abandon, not a screenful.
+    /// </para>
+    /// <para>
+    /// The bubble still shows one row, so this cap costs nothing when the popup is closed.
+    /// </para>
+    /// </remarks>
+    public const int MaxDisplayedSuggestions = 50;
+
+    /// <summary>
+    /// How many history candidates the ranking engine gets to choose from.
+    /// </summary>
+    /// <remarks>
+    /// <para>
     /// Wider than <see cref="MaxDisplayedSuggestions"/> on purpose. The store used to pre-rank with
     /// its own scoring function and hand back its own top five, so the engine only ever re-ordered
     /// a set the store had already picked. Now the store is a recall gate that truncates by
     /// recency, so it has to hand over enough rows for the engine's cwd / shell / profile / exit-code
     /// signals to matter - otherwise a relevant-but-older command could never reach the list.
-    /// Empty-query recall stays at the display cap: with no text to score, "most recent five" is
-    /// already the answer, and widening it would let the frequency signal outrank recency.
+    /// </para>
+    /// <para>
+    /// <strong>V2 Phase 3a: the empty-query path uses the same pool.</strong> It used to recall only
+    /// <see cref="MaxDisplayedSuggestions"/> entries, on the argument that "most recent five" is
+    /// already the answer when there is no text to score. That argument dies with context scoping: if
+    /// the store hands over five rows, all of them from whichever session ran most recently, no amount
+    /// of ranking can put *this* host's commands first - the host's commands were never in the set.
+    /// The owner's "the list shows commands from all sessions indiscriminately" is that truncation as
+    /// much as it is the absence of a ranking rule.
+    /// </para>
     /// </remarks>
-    private const int HistoryCandidatePoolSize = 50;
+    private const int HistoryCandidatePoolSize = 200;
 
     private readonly IHistoryStore _historyStore;
     private readonly ISnippetStore? _snippetStore;
@@ -186,13 +208,14 @@ internal sealed class SuggestionOrchestrator
                     _context.IsRemote,
                     IncludeHistorySuggestions: scope.IncludeHistory,
                     IncludeSnippetSuggestions: scope.IncludeSnippets,
-                    IncludePathSuggestions: scope.IncludePaths);
+                    IncludePathSuggestions: scope.IncludePaths,
+                    HostId: _context.HostId);
 
                 IReadOnlyList<CommandHistoryEntry> history = Array.Empty<CommandHistoryEntry>();
                 if (queryContext.IncludeHistorySuggestions)
                 {
                     history = string.IsNullOrWhiteSpace(query)
-                        ? await _historyStore.GetRecentAsync(MaxDisplayedSuggestions).ConfigureAwait(false)
+                        ? await _historyStore.GetRecentAsync(HistoryCandidatePoolSize).ConfigureAwait(false)
                         : await _historyStore.SearchAsync(query, HistoryCandidatePoolSize).ConfigureAwait(false);
                 }
 
