@@ -34,4 +34,16 @@ public enum AssistModifiers
     Alt = 1,
     Control = 2,
     Shift = 4,
+
+    /// <summary>
+    /// The platform command key (Windows/Super/Cmd).
+    /// </summary>
+    /// <remarks>
+    /// Modelled even though no assist shortcut uses it, because the router's accept rule is
+    /// <c>modifiers == None</c> exactly. Dropping <c>Meta</c> at the App boundary made a
+    /// <c>Win+Enter</c> look unmodified to the router while <c>TerminalPane</c>'s own
+    /// <c>modifiers == KeyModifiers.None</c> check saw it for what it was: the router claimed the key,
+    /// the pane declined to act on it, and the hint strip agreed with neither.
+    /// </remarks>
+    Meta = 8,
 }

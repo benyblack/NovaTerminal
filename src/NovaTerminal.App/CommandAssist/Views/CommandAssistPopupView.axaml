@@ -5,12 +5,42 @@
              x:DataType="viewModels:CommandAssistPopupViewModel"
              x:Class="NovaTerminal.CommandAssist.Views.CommandAssistPopupView"
              IsVisible="{Binding IsVisible}">
+    <UserControl.Styles>
+        <!--
+            Row visuals. Hover is pure CSS-style state, so pointer feedback costs no code: the
+            :pointerover pseudo-class already tracks what the mouse is over, and `Classes.selected` is
+            bound to the row view-model's mutable IsSelected. Selection wins over hover because the
+            selected row is the one Enter acts on and that has to stay legible while the pointer is
+            elsewhere in the list.
+        -->
+        <Style Selector="Border.assistRow">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style Selector="Border.assistRow:pointerover">
+            <Setter Property="Background" Value="#22FFFFFF"/>
+        </Style>
+        <Style Selector="Border.assistRow.selected">
+            <Setter Property="Background" Value="#332F6FEB"/>
+        </Style>
+    </UserControl.Styles>
+    <!--
+        Right- and middle-clicks anywhere on the popup are swallowed here rather than allowed to bubble
+        (PR #290 review): the popup floats over a live terminal inside a pane whose root grid owns a
+        context menu, so a right-click on a suggestion row opened the pane menu on top of the list, and a
+        middle-click was an X11-style paste into the shell underneath. Neither gesture means anything to
+        the popup, so neither may mean anything to what is behind it.
+    -->
     <Border Background="#F01B1B1B"
             BorderBrush="#404040"
             BorderThickness="1"
             CornerRadius="10"
-            Padding="12">
-        <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*"
+            Padding="12"
+            PointerPressed="OnPopupSurfacePointerPressed"
+            ContextRequested="OnPopupSurfaceContextRequested">
+        <Grid RowDefinitions="Auto,*,Auto" ColumnDefinitions="*"
               RowSpacing="10">
             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="10">
                 <TextBlock x:Name="PopupModeLabelText"
@@ -34,43 +64,51 @@
                         CornerRadius="6"
                         Padding="8">
                     <Grid>
-                        <ItemsControl x:Name="PopupSuggestionsList"
-                                      ItemsSource="{Binding Suggestions}"
+                        <ScrollViewer x:Name="PopupSuggestionsScroller"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto"
                                       IsVisible="{Binding HasSuggestions}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="viewModels:CommandAssistSuggestionItemViewModel">
-                                    <Grid ColumnDefinitions="Auto,*,Auto"
-                                          Margin="0,2">
-                                        <TextBlock Text="{Binding SelectionGlyph}"
-                                                   Foreground="#8EC5FF"
-                                                   Width="12"
-                                                   VerticalAlignment="Top"/>
-                                        <StackPanel Grid.Column="1"
-                                                    Spacing="1">
-                                            <TextBlock Text="{Binding DisplayText}"
-                                                       Foreground="White"
-                                                       FontFamily="Consolas"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding DescriptionText}"
-                                                       Foreground="#C8E1FF"
-                                                       FontSize="11"
-                                                       TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding MetadataText}"
-                                                       Foreground="#9CA3AF"
-                                                       FontSize="11"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="2"
-                                                   Text="{Binding BadgesText}"
-                                                   Foreground="#C8E1FF"
-                                                   FontSize="11"
-                                                   HorizontalAlignment="Right"
-                                                   Margin="8,0,0,0"
-                                                   TextWrapping="Wrap"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            <ItemsControl x:Name="PopupSuggestionsList"
+                                          ItemsSource="{Binding Suggestions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:CommandAssistSuggestionItemViewModel">
+                                        <Border Classes="assistRow"
+                                                Classes.selected="{Binding IsSelected}"
+                                                Margin="0,1"
+                                                PointerPressed="OnSuggestionRowPointerPressed">
+                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                <TextBlock Text="{Binding SelectionGlyph}"
+                                                           Foreground="#8EC5FF"
+                                                           Width="12"
+                                                           VerticalAlignment="Top"/>
+                                                <StackPanel Grid.Column="1"
+                                                            Spacing="1">
+                                                    <TextBlock Text="{Binding DisplayText}"
+                                                               Foreground="White"
+                                                               FontFamily="Consolas"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding DescriptionText}"
+                                                               Foreground="#C8E1FF"
+                                                               FontSize="11"
+                                                               TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding MetadataText}"
+                                                               Foreground="#9CA3AF"
+                                                               FontSize="11"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding BadgesText}"
+                                                           Foreground="#C8E1FF"
+                                                           FontSize="11"
+                                                           HorizontalAlignment="Right"
+                                                           Margin="8,0,0,0"
+                                                           TextWrapping="Wrap"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
 
                         <TextBlock x:Name="PopupEmptyStateTextBlock"
                                    Text="{Binding EmptyStateText}"
@@ -116,7 +154,7 @@
                     CornerRadius="6"
                     Padding="8"
                     IsVisible="{Binding UseCompactLayout}">
-                <Grid RowDefinitions="Auto,Auto"
+                <Grid RowDefinitions="Auto,*"
                       RowSpacing="8">
                     <StackPanel Spacing="4"
                                 IsVisible="{Binding HasSuggestions}">
@@ -139,42 +177,51 @@
                     </StackPanel>
 
                     <Grid Grid.Row="1">
-                        <ItemsControl ItemsSource="{Binding Suggestions}"
+                        <ScrollViewer x:Name="PopupCompactSuggestionsScroller"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto"
                                       IsVisible="{Binding HasSuggestions}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="viewModels:CommandAssistSuggestionItemViewModel">
-                                    <Grid ColumnDefinitions="Auto,*,Auto"
-                                          Margin="0,2">
-                                        <TextBlock Text="{Binding SelectionGlyph}"
-                                                   Foreground="#8EC5FF"
-                                                   Width="12"
-                                                   VerticalAlignment="Top"/>
-                                        <StackPanel Grid.Column="1"
-                                                    Spacing="1">
-                                            <TextBlock Text="{Binding DisplayText}"
-                                                       Foreground="White"
-                                                       FontFamily="Consolas"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding DescriptionText}"
-                                                       Foreground="#C8E1FF"
-                                                       FontSize="11"
-                                                       TextWrapping="Wrap"/>
-                                            <TextBlock Text="{Binding MetadataText}"
-                                                       Foreground="#9CA3AF"
-                                                       FontSize="11"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                        </StackPanel>
-                                        <TextBlock Grid.Column="2"
-                                                   Text="{Binding BadgesText}"
-                                                   Foreground="#C8E1FF"
-                                                   FontSize="11"
-                                                   HorizontalAlignment="Right"
-                                                   Margin="8,0,0,0"
-                                                   TextWrapping="Wrap"/>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                            <ItemsControl x:Name="PopupCompactSuggestionsList"
+                                          ItemsSource="{Binding Suggestions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="viewModels:CommandAssistSuggestionItemViewModel">
+                                        <Border Classes="assistRow"
+                                                Classes.selected="{Binding IsSelected}"
+                                                Margin="0,1"
+                                                PointerPressed="OnSuggestionRowPointerPressed">
+                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                                <TextBlock Text="{Binding SelectionGlyph}"
+                                                           Foreground="#8EC5FF"
+                                                           Width="12"
+                                                           VerticalAlignment="Top"/>
+                                                <StackPanel Grid.Column="1"
+                                                            Spacing="1">
+                                                    <TextBlock Text="{Binding DisplayText}"
+                                                               Foreground="White"
+                                                               FontFamily="Consolas"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <TextBlock Text="{Binding DescriptionText}"
+                                                               Foreground="#C8E1FF"
+                                                               FontSize="11"
+                                                               TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding MetadataText}"
+                                                               Foreground="#9CA3AF"
+                                                               FontSize="11"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding BadgesText}"
+                                                           Foreground="#C8E1FF"
+                                                           FontSize="11"
+                                                           HorizontalAlignment="Right"
+                                                           Margin="8,0,0,0"
+                                                           TextWrapping="Wrap"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
 
                         <TextBlock Text="{Binding EmptyStateText}"
                                    Foreground="#9CA3AF"
@@ -185,6 +232,13 @@
                     </Grid>
                 </Grid>
             </Border>
+
+            <TextBlock Grid.Row="2"
+                       x:Name="PopupShortcutHintText"
+                       Text="{Binding ShortcutHintText}"
+                       Foreground="#8B96A5"
+                       FontSize="11"
+                       TextTrimming="CharacterEllipsis"/>
         </Grid>
     </Border>
 </UserControl>

@@ -60,6 +60,20 @@ namespace NovaTerminal.Controls
 
         internal bool IsPoisoned => _poisoned;
 
+        /// <summary>
+        /// The accumulator can describe the current line <em>and</em> that description is "empty".
+        /// </summary>
+        /// <remarks>
+        /// The one thing this class knows that is useful outside history capture. In a markless session
+        /// there is no grid snapshot, so V2 Phase 3a asks this before allowing a suggestion to be
+        /// inserted: unpoisoned means nothing the accumulator cannot model has happened since the line
+        /// was reset, and empty means nothing has been typed - between them, the line is empty and a
+        /// whole command may be sent to it. See
+        /// <c>TerminalPane.TryReadInsertionQuerySnapshot</c> for the rest of the gate (the echo flag,
+        /// paste suppression, the alt screen).
+        /// </remarks>
+        internal bool IsCleanAndEmpty => !_poisoned && _buffer.Length == 0;
+
         /// <summary>The user typed printable text and the pane sent it to the PTY.</summary>
         internal void AppendTypedText(string? text)
         {

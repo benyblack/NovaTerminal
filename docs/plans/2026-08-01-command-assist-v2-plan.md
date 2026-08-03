@@ -255,16 +255,53 @@ Exit criteria: SSH + instrumented remote passes smoke scenarios with zero `[Corr
 
 ## Phase 3 — Visible usefulness
 
-Tasks:
-1. Auto-open policy v2: passive bubble with top-1 merged suggestion after >=2 chars, ~75 ms debounce; Escape suppresses for current command; popup still intent-only. Policy behind `CommandAssistPassiveBubbleEnabled` (default true when master flag on); M4.3-quiet behavior as fallback.
-2. Bind `ShortcutHintText` in `CommandAssistBubbleView`; verify content reflects rebound shortcuts.
-3. Popup interactivity: rows become selectable (mouse hover + click-to-accept), `ScrollViewer` + scroll-into-view, remove hard-coded `maxResults: 5` in favor of scrolling cap.
-4. Shortcuts: move pin off `Ctrl+Shift+P` to a new catalogued binding; add `Esc`/`Up`/`Down`/`Ctrl+Enter` to catalog under `ShortcutScope.CommandAssist`; migration for existing shortcut config.
-5. Gating decoupled: master flag alone gates the feature; history flag gates capture only. Wire `CommandAssistAutoHideInAltScreen` for real or delete it (decide at phase kickoff).
-6. Settings UI group: master, history + Clear history button (`IHistoryStore.ClearAsync` finally called), shell integration, passive bubble.
-7. Perf benchmark (new, spec §12 targets): first-paint <16 ms, incremental <30 ms, no typing jank; wire into CI as a regression guard.
+**Split into 3a and 3b after owner dogfooding.** Phases 0–2 were merged and tested by the product
+owner, who reported three things that no task in this phase covered: `Ctrl+R` listed history but
+"does no action when I select" (local *and* SSH); the list mixed every session's and tab's commands
+together; and in a tab split into two SSH panes the assist did not appear on one of them at all.
+Those are the whole of what a user sees, so they were pulled forward into **Phase 3a** together with
+the two tasks below that they touch (2, and 3 in full). Everything else is **Phase 3b**.
 
-Exit criteria: type-two-chars-see-value demo works on all four shells; benchmark in CI; updated smoke checklist passes.
+Tasks:
+1. Auto-open policy v2: passive bubble with top-1 merged suggestion after >=2 chars, ~75 ms debounce; Escape suppresses for current command; popup still intent-only. Policy behind `CommandAssistPassiveBubbleEnabled` (default true when master flag on); M4.3-quiet behavior as fallback. **Phase 3b.**
+2. ~~Bind `ShortcutHintText` in `CommandAssistBubbleView`; verify content reflects rebound shortcuts.~~ **Done (Phase 3a).** Bound in the bubble *and* repeated in the popup footer. Content is state-dependent rather than a constant, which the task line did not anticipate: after the accept-model change below, a fixed strip would advertise `Enter` in states where the shell owns it. `CommandAssistBarViewModel` computes it from one predicate (`AssistSessionStateMachine.AllowsAcceptOnEnter`) that the key router also consults, via a probe the controller installs — so the hint and the routing cannot disagree. "Reflects rebound shortcuts" is **not** done, because the bindings are not in the shortcut catalogue yet; that is task 4.
+3. ~~Popup interactivity: rows become selectable (mouse hover + click-to-accept), `ScrollViewer` + scroll-into-view, remove hard-coded `maxResults: 5` in favor of scrolling cap.~~ **Done (Phase 3a).** Hover via `:pointerover`, single click selects, double click (or a click on the already-selected row) accepts through the same gate `Ctrl+Enter` uses. `ScrollViewer` + `ContainerFromIndex(...).BringIntoView()` on selection change; cap 5 → 50 with the history recall pool widened to 200. Two things the task line missed: the rows had to stop being immutable records (a rebuild per selection move destroys the containers under the pointer), and `CommandAssistOverlayHost` had `IsHitTestVisible="False"`, which excludes the whole subtree — no click could ever have reached a row. Deliberately *not* a `ListBox`: it would take keyboard focus off `TerminalView` on the first click.
+4. Shortcuts: move pin off `Ctrl+Shift+P` to a new catalogued binding; add `Esc`/`Up`/`Down`/`Ctrl+Enter` to catalog under `ShortcutScope.CommandAssist`; migration for existing shortcut config. **Phase 3b** — and it now has one more entry to catalogue: plain `Enter`.
+5. Gating decoupled: master flag alone gates the feature; history flag gates capture only. Wire `CommandAssistAutoHideInAltScreen` for real or delete it (decide at phase kickoff). **Phase 3b.**
+6. Settings UI group: master, history + Clear history button (`IHistoryStore.ClearAsync` finally called), shell integration, passive bubble. **Phase 3b.**
+7. Perf benchmark (new, spec §12 targets): first-paint <16 ms, incremental <30 ms, no typing jank; wire into CI as a regression guard. **Phase 3b.**
+
+Phase 3a also shipped four things that were not tasks here at all — the three owner reports, plus the
+insertion narrowing they forced:
+
+- **`Enter` accepts while browsing.** Accept was `Ctrl+Enter`-only, so `Ctrl+R` → arrow → `Enter`
+  submitted the (empty) line and the submission reset dismissed the popup: nothing inserted, surface
+  gone. `Enter` is now assist-owned in exactly one state — popup open, row selected, mode Suggest or
+  Search, overlay actually rendered — and falls through to the shell when the insertion is refused, so a
+  refusal is never a dead key. Documented in `CommandAssist.md` §14, which was rewritten to describe
+  shipped reality (the Phase 6 task line asking for that is correspondingly smaller now).
+  The PR #290 review added two conditions to this: the rendered-overlay term (a passive popup the pane had
+  hidden or dimmed could otherwise own `Enter` at zero pixels) and the arrow asymmetry — `Down` browses
+  suggestions while typing, `Up` stays the shell's history recall, and both arrows are owned only in an
+  open list or on a surface the user summoned.
+- **Explicit intent is never hidden.** `ShouldSuppressConservativeRemoteAssist` hid the overlay
+  outright on short markless-SSH panes whose prompt sat high in the pane — and a split makes both
+  panes short. It applied to `Ctrl+R` as readily as to a passive bubble, which is the "does not show
+  up on one of them" report. A user-requested surface (`AssistSessionState`:
+  ExplicitBubble/ExplicitPopup/HistorySearch/Help/FixPopup) now bypasses it, and worst-case placement
+  is the safe lower band. The correction stack still *runs* for those surfaces; what it may not do is
+  drop them to zero opacity while it settles.
+- **Context-scoped history.** The `Ctrl+R` path was `GetRecentAsync` — pure recency, no context, and
+  truncated to 5 candidates so no ranking rule could have helped. Entries matching the pane's context
+  (host id for SSH, localness for local; profile as a secondary term) now rank first, and the rest
+  follow rather than being hidden. Ranking stays in `CommandAssistSuggestionEngine`; the stores remain
+  recall gates.
+- **Degraded-session insertion, narrowed rather than dropped.** #286's browse-only rule refused all
+  insertion without a grid snapshot. It now allows it when the pane can *prove* the line is empty:
+  the #287 markless accumulator is unpoisoned and empty, and no keystroke is awaiting echo. This is a
+  documented contract change — see the gaps doc.
+
+Exit criteria: type-two-chars-see-value demo works on all four shells; benchmark in CI; updated smoke checklist passes. **(Phase 3b; Phase 3a's own bar was the three owner reports plus green per-project suites.)**
 
 ## Phase 4 — Real content
 

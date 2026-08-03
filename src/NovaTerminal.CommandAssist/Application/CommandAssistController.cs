@@ -54,6 +54,7 @@ public sealed class CommandAssistController
     private readonly IErrorInsightService _errorInsightService;
     private readonly CommandAssistModeRouter _modeRouter;
     private readonly CommandAssistResultBuilder _resultBuilder;
+    private readonly Func<bool> _renderedSurfaceProbe;
 
     public CommandAssistController(
         IHistoryStore historyStore,
@@ -66,6 +67,7 @@ public sealed class CommandAssistController
         CommandAssistModeRouter? modeRouter,
         CommandAssistResultBuilder? resultBuilder,
         Func<AssistQuerySnapshot?>? queryProvider = null,
+        Func<bool>? renderedSurfaceProbe = null,
         Action<Action>? dispatch = null)
     {
         HistoryStore = historyStore;
@@ -77,7 +79,19 @@ public sealed class CommandAssistController
         _errorInsightService = errorInsightService ?? new EmptyErrorInsightService();
         _modeRouter = modeRouter ?? new CommandAssistModeRouter();
         _resultBuilder = resultBuilder ?? new CommandAssistResultBuilder();
-        ViewModel = new CommandAssistBarViewModel();
+
+        // No probe means "there is no host hiding anything", which is the honest answer for a
+        // controller with no view attached (tests, the MCP surface): the only thing that can contradict
+        // the view-model's visibility is a host that renders it, and there is none.
+        _renderedSurfaceProbe = renderedSurfaceProbe ?? (() => true);
+        ViewModel = new CommandAssistBarViewModel
+        {
+            // The hint strip and the key router must agree about what Enter does, so both read the
+            // same predicate rather than each deciding for itself. Same for Up, which the strip used to
+            // advertise unconditionally and the passive bubble no longer owns.
+            AcceptOnEnterProbe = () => IsAcceptOnEnterArmed,
+            SelectionUpOwnedProbe = () => IsSelectionUpOwned
+        };
         _dispatch = dispatch ?? (action => action());
         _capturePipeline = new CapturePipeline(historyStore, secretsFilter, _context);
         _suggestionOrchestrator = new SuggestionOrchestrator(
@@ -102,6 +116,68 @@ public sealed class CommandAssistController
 
     /// <summary>What the session is doing right now. Exposed for diagnostics and tests.</summary>
     internal AssistSessionState SessionState => _state.State;
+
+    /// <summary>
+    /// Whether an unmodified <c>Enter</c> currently means "insert the selected row" rather than
+    /// "submit the command line". See <see cref="AssistSessionStateMachine.AllowsAcceptOnEnter"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The single source of truth for the V2 Phase 3a keyboard change: the App's key interceptor puts
+    /// this into <see cref="AssistKeyState"/>, and the bubble's hint strip renders it. Both are asking
+    /// the same question of the same object.
+    /// </para>
+    /// <para>
+    /// <strong>Three terms, and the third is the PR #290 review fix.</strong>
+    /// <see cref="CommandAssistBarViewModel.IsVisible"/> is what the session believes; the host can
+    /// disagree, and on a short markless-SSH pane it does - <c>TerminalPane</c> hides the overlay host
+    /// outright when the conservative anchor check produces no layout, and drops it to zero opacity
+    /// while a placement correction settles. A <c>PassivePopup</c> is not a user-requested surface, so
+    /// neither bypass applies to it, and without this term a passive popup at zero pixels could own the
+    /// user's <c>Enter</c>: nothing on screen, and the command line does not submit.
+    /// <see cref="_renderedSurfaceProbe"/> is the host answering "is any of this actually rendered".
+    /// </para>
+    /// </remarks>
+    public bool IsAcceptOnEnterArmed =>
+        ViewModel.IsVisible &&
+        _renderedSurfaceProbe() &&
+        _state.AllowsAcceptOnEnter(ViewModel.IsPopupOpen, GetSelectedSuggestion() != null);
+
+    /// <summary>
+    /// Whether <c>Up</c> currently belongs to Command Assist rather than to the shell's history recall.
+    /// See <see cref="AssistSessionStateMachine.AllowsSelectionUp"/>.
+    /// </summary>
+    /// <remarks>
+    /// Reads the same way <see cref="IsAcceptOnEnterArmed"/> does, for the same reason: the App's key
+    /// interceptor asks this rather than deciding for itself, so there is one implementation of the
+    /// rule. The rendered-surface term is deliberately <em>not</em> repeated here - an <c>Up</c> that
+    /// only moves a selection cannot cost the user a submitted command, and refusing it on an invisible
+    /// surface would hand the shell a history recall in the middle of a browse the user can see coming
+    /// back the moment the correction pass settles.
+    /// </remarks>
+    public bool IsSelectionUpOwned =>
+        ViewModel.IsVisible &&
+        _state.AllowsSelectionUp(ViewModel.IsPopupOpen);
+
+    /// <summary>
+    /// The host's answer to "is the assist overlay actually rendered" changed, so republish everything
+    /// derived from it - the hint strip in particular.
+    /// </summary>
+    /// <remarks>
+    /// Without this the hint strip would lag the routing decision by one view-model change: the probe is
+    /// pulled during <see cref="CommandAssistBarViewModel.SyncPresentationState"/>, which only runs when
+    /// a view-model property is written, and the host's overlay visibility moves on render passes that
+    /// write nothing. The lag is in the safe direction (the strip under-promises), but "the strip and
+    /// the router cannot disagree" is the property this feature was given, so the host says when it
+    /// changed its mind.
+    /// </remarks>
+    public void NotifyRenderedSurfaceVisibilityChanged() => ViewModel.SyncPresentationState();
+
+    /// <summary>
+    /// Whether the surface on screen is one the user asked for, which no placement heuristic may
+    /// hide. See <see cref="AssistSessionStateMachine.IsUserRequestedSurface"/>.
+    /// </summary>
+    public bool IsUserRequestedSurface => ViewModel.IsVisible && _state.IsUserRequestedSurface;
 
     public void ToggleAssist()
     {
@@ -325,19 +401,37 @@ public sealed class CommandAssistController
         return SetSelectedIndex(nextIndex);
     }
 
+    /// <summary>
+    /// Moves the selection up one row. At the top of the list this is a no-op.
+    /// </summary>
+    /// <remarks>
+    /// The clamp used to be <c>SetSelectedIndex(0)</c>, which is not a no-op: it opens the popup and
+    /// arms <c>Enter</c> as side effects (see <see cref="SetSelectedIndex"/>). Combined with <c>Up</c>
+    /// being assist-owned in the passive states, that is the PR #290 review's second blocker - the key
+    /// the user pressed to reach their shell history built the surface that then ate their <c>Enter</c>.
+    /// <c>Up</c> is no longer routed here in those states, and this no longer creates a browse state
+    /// out of nothing even when it is.
+    /// </remarks>
     public bool MoveSelectionUp()
     {
-        if (_suggestions.Count == 0)
+        if (_suggestions.Count == 0 || ViewModel.SelectedIndex <= 0)
         {
             return false;
         }
 
-        int nextIndex = ViewModel.SelectedIndex <= 0
-            ? 0
-            : ViewModel.SelectedIndex - 1;
-
-        return SetSelectedIndex(nextIndex);
+        return SetSelectedIndex(ViewModel.SelectedIndex - 1);
     }
+
+    /// <summary>
+    /// Selects a row by index because the user pointed at it. Opens the popup the same way
+    /// <c>Up</c>/<c>Down</c> do, so a click and an arrow key leave the session in the same state -
+    /// including the state that arms <c>Enter</c>.
+    /// </summary>
+    /// <returns>
+    /// <see langword="false"/> for an index no row occupies, which is how a click that arrives one
+    /// frame after the list shrank resolves.
+    /// </returns>
+    public bool TrySelectSuggestionAt(int index) => SetSelectedIndex(index);
 
     public bool TryGetInsertionText(out string? insertionText)
     {
@@ -659,7 +753,10 @@ public sealed class CommandAssistController
             ViewModel.IsPopupOpen = true;
         }
 
-        SyncSuggestionViewModel();
+        // Selection only. Rebuilding the row list here (which is what this used to do) replaces every
+        // container under the pointer, so hover died on each arrow key and the scroll position jumped
+        // back to the top - see CommandAssistSuggestionItemViewModel.
+        SyncSelectionState();
         return true;
     }
 
@@ -670,7 +767,34 @@ public sealed class CommandAssistController
             : null;
     }
 
+    /// <summary>
+    /// Rebuilds the row list from <see cref="_suggestions"/>. Call only when the rows themselves
+    /// changed; <see cref="SyncSelectionState"/> covers a selection move.
+    /// </summary>
     private void SyncSuggestionViewModel()
+    {
+        ViewModel.Suggestions.Clear();
+
+        for (int i = 0; i < _suggestions.Count; i++)
+        {
+            AssistSuggestion suggestion = _suggestions[i];
+            ViewModel.Suggestions.Add(new CommandAssistSuggestionItemViewModel(
+                displayText: suggestion.DisplayText,
+                descriptionText: suggestion.Description ?? string.Empty,
+                badgesText: string.Join("  ", suggestion.Badges),
+                metadataText: BuildMetadataText(suggestion),
+                isSelected: i == ViewModel.SelectedIndex,
+                type: suggestion.Type));
+        }
+
+        SyncSelectionState();
+    }
+
+    /// <summary>
+    /// Republishes everything that depends on <em>which</em> row is selected, mutating the existing
+    /// rows rather than replacing them.
+    /// </summary>
+    private void SyncSelectionState()
     {
         AssistSuggestion? selected = GetSelectedSuggestion();
         ViewModel.TopSuggestionText = selected?.DisplayText ?? string.Empty;
@@ -678,19 +802,10 @@ public sealed class CommandAssistController
         ViewModel.SelectedMetadataText = selected == null ? string.Empty : BuildMetadataText(selected);
         ViewModel.SelectedDescriptionText = selected?.Description ?? string.Empty;
         ViewModel.HasSuggestions = _suggestions.Count > 0;
-        ViewModel.Suggestions.Clear();
 
-        for (int i = 0; i < _suggestions.Count; i++)
+        for (int i = 0; i < ViewModel.Suggestions.Count; i++)
         {
-            AssistSuggestion suggestion = _suggestions[i];
-            ViewModel.Suggestions.Add(new CommandAssistSuggestionItemViewModel(
-                SelectionGlyph: i == ViewModel.SelectedIndex ? ">" : " ",
-                DisplayText: suggestion.DisplayText,
-                DescriptionText: suggestion.Description ?? string.Empty,
-                BadgesText: string.Join("  ", suggestion.Badges),
-                MetadataText: BuildMetadataText(suggestion),
-                IsSelected: i == ViewModel.SelectedIndex,
-                Type: suggestion.Type));
+            ViewModel.Suggestions[i].IsSelected = i == ViewModel.SelectedIndex;
         }
     }
 

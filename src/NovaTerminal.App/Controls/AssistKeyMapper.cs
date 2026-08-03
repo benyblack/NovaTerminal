@@ -42,6 +42,16 @@ namespace NovaTerminal.Controls
                 result |= AssistModifiers.Shift;
             }
 
+            // Meta is mapped even though nothing in Command Assist binds it. The accept-on-Enter rule
+            // is "no modifiers at all", so a dropped modifier is not a harmless omission: it made
+            // Win+Enter read as unmodified in the router while TerminalPane's own
+            // `modifiers == KeyModifiers.None` guard read it correctly, so the two disagreed about who
+            // owned the key and the hint strip could promise an accept that never happened.
+            if ((modifiers & KeyModifiers.Meta) != 0)
+            {
+                result |= AssistModifiers.Meta;
+            }
+
             return result;
         }
     }

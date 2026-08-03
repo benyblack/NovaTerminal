@@ -197,11 +197,45 @@ is never consulted as a query. What degraded mode costs, concretely:
 - **no passive suggestions.** With no query the path provider has no command token and no
   path-shaped fragment to work from, so it returns nothing. Degraded passive suggestions are empty
   by construction rather than by a special case.
-- **no help token from the command line.** `Ctrl+Alt+H` with nothing selected finds nothing.
+- **no help token from the command line.** `Ctrl+Shift+H` with nothing selected finds nothing.
   Explain-selection still works, because a selection is an explicit input the grid is not needed
   for, and Fix still works, because it analyses the command that failed rather than the one being
   typed.
-- **no insertion.** Rows can be browsed; nothing may be spliced into a command line nobody can see.
+- **no insertion into a line that has been touched.** **Narrowed in V2 Phase 3a; the original rule was
+  "no insertion at all".** The rule was written against "there is no snapshot, so the prefix is
+  unknown", and that conflated two situations. In the one the owner actually hit — open a markless SSH
+  pane, press `Ctrl+R`, pick a row — the prefix is not unknown, it is *empty*, and the pane can prove
+  it. `MarklessSubmissionAccumulator` was reset by the last `Enter` (or `Ctrl+C`) and has observed
+  nothing since, and it poisons on every edit it cannot model. So `TerminalPane` supplies the planner
+  an `AssistQuerySnapshot("", 0, false, false)` — the "observed empty" value the planner already treats
+  as a fact rather than an absence — and the whole command is sent.
+
+  Four conditions, each failing closed, and all four must hold:
+
+  1. **there is no grid snapshot.** Grid truth still wins wherever it exists; this path is only for
+     sessions that have none.
+  2. **the accumulator is not poisoned.** No arrow key, `Home`, `Delete`, `Tab`, paste, prior
+     insertion, agent injection or unrecognised chord since the reset. The key classification is an
+     allow-list, so a key it has never heard of poisons.
+  3. **the accumulator is empty.** Nothing typed since the reset, so there is no prefix for an
+     appended command to corrupt. An empty *buffer* is not enough on its own — condition 2 is what
+     makes "empty" mean "the line is empty" rather than "I stopped watching".
+  4. **`TerminalPane._hasUnechoedInput` is clear.** No keystrokes in flight that the grid has not seen
+     come back; the same gate the echo race uses.
+
+  Paste suppression (`IsCurrentSubmissionSuppressed`) and the alt-screen check still refuse upstream of
+  all of this.
+
+  The safety argument rests on the shape of the failure, not only on the gate: insertion sends text to
+  the shell's line editor and stops. The user sees the command sitting on their prompt and presses
+  `Enter` themselves, so the worst case is a visible, editable, deletable line — never a command that
+  ran. Compare the case the original rule was written for (`git sgit status`), which is also visible,
+  but is produced by *appending to text the user typed* — which conditions 2–4 exclude.
+
+  One honest residual cost: "the accumulator is clean and empty" is not the same as "the shell is at a
+  prompt". A markless pane running a program that reads stdin (`cat`, a REPL) satisfies every
+  condition, so an accepted row is typed into that program instead. Typing the command by hand would
+  have done the same thing, and it is equally visible.
 - **Enter-time history capture, but only for a straight-through-typed line.** This is the one that
   was worth arguing about. V1's heuristic capture read the shadow buffer, so for any line the user
   had edited with keys the mirror could not observe — `Ctrl+U`, arrows, history recall, tab
@@ -283,10 +317,45 @@ is never consulted as a query. What degraded mode costs, concretely:
 
 **`Ctrl+R` in a degraded session** still opens and still helps, because history is per user rather
 than per session: with no query to filter on, Search shows the recency list, which includes
-everything captured in instrumented sessions. It is browse-only — see the insertion rule above. It
-also says so: the bubble is labelled **`History - recent`** rather than `History` when no query can
-be read, because an identical-looking filter box that silently cannot filter reads as a bug the
-first time a keystroke fails to narrow it.
+everything captured in instrumented sessions. It also says so: the bubble is labelled
+**`History - recent`** rather than `History` when no query can be read, because an identical-looking
+filter box that silently cannot filter reads as a bug the first time a keystroke fails to narrow it.
+
+Since V2 Phase 3a it is no longer browse-only: at an untouched prompt the selected row can be inserted
+with `Enter` or `Ctrl+Enter` under the four conditions above. Once anything has been typed on the line,
+it is browse-only again.
+
+**The recency list is context-ordered since V2 Phase 3a.** Entries from this pane's host (or local
+entries, on a local pane) rank above the rest, with profile as a secondary term. Nothing is filtered
+out — a command run on another host is still in the list, below the fold — and the ranking lives in
+`CommandAssistSuggestionEngine` like every other ranking rule. The recall pool was widened from 5 to
+200 candidates at the same time, because a store that hands over five rows, all from whichever pane ran
+a command last, gives the engine nothing to reorder.
+
+Three honest edges in that scoping, all found in the PR #290 review:
+
+- **the host id is the configured `Profile.SshHost` spelling, verbatim.** Not resolved, not canonicalised
+  — so the same machine reached as `10.0.0.5` and as `build.example` occupies two contexts and the two
+  panes do not share a band. Resolution would be a network call on a ranking path and would move under
+  DHCP; the fallback (an unknown context is not a context, so pure recency) is unhelpful rather than
+  wrong. Full band table in `CommandAssist.md` §6.
+- **pinning a snippet is worth +50 on the text-query path too**, not only on the empty-query one. A
+  pinned snippet satisfies both affinity terms by definition (it has no host and no profile of its own to
+  compare), so it collects the same-context 30 and same-profile 20 on top of its own pin boost of 40.
+  Deliberate, and bounded by the text-match tiers still dominating.
+- **an unpinned snippet sits in the same-profile band (+200)**: above cross-context history, below this
+  host's own. With more same-context rows than the popup shows it is below the fold, and pinning is the
+  answer. Chosen over "snippets always first" in the review; the dead `+8` nudge it replaced put snippets
+  below every command the user had ever run once.
+
+**One caveat about the popup and the mouse.** The popup surface is opaque to hit testing, and since the
+PR #290 review it also swallows right- and middle-clicks (they would otherwise open the pane context menu
+over the list, or paste into the shell beneath it). The cost is that an application on the *primary*
+screen which has enabled mouse reporting does not see clicks that land on the popup rectangle — the
+overlay is not a terminal surface and cannot forward them. Alt-screen apps are unaffected because the
+assist surface is hidden there outright; the exposure is a primary-screen program doing its own mouse
+tracking (`less`, a full-screen-less TUI) while an assist popup happens to be open over it. `Esc`
+dismisses.
 
 ### Overlay anchoring after Phase 2a
 

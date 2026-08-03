@@ -17,6 +17,8 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
     private bool _hasSuggestions;
     private bool _showEmptyState;
     private bool _useCompactLayout;
+    private int _selectedIndex = -1;
+    private string _shortcutHintText = string.Empty;
 
     public CommandAssistPopupViewModel(ObservableCollection<CommandAssistSuggestionItemViewModel> suggestions)
     {
@@ -100,6 +102,23 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
     }
 
     public bool UseExpandedLayout => !UseCompactLayout;
+
+    /// <summary>
+    /// Which row is selected, or <c>-1</c>. The rows carry their own <c>IsSelected</c> for rendering;
+    /// this exists so the view can scroll the selected container into view without walking the list.
+    /// </summary>
+    public int SelectedIndex
+    {
+        get => _selectedIndex;
+        set => SetField(ref _selectedIndex, value);
+    }
+
+    /// <summary>The same learnable hint strip the bubble shows, repeated in the popup footer.</summary>
+    public string ShortcutHintText
+    {
+        get => _shortcutHintText;
+        set => SetField(ref _shortcutHintText, value);
+    }
 
     public ObservableCollection<CommandAssistSuggestionItemViewModel> Suggestions { get; }
 
