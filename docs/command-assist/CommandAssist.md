@@ -98,6 +98,62 @@ Primary actions:
 - Pin
 - Copy
 
+#### Shipped: the passive bubble (auto-open policy v2, V2 Phase 3b)
+
+What Mode A actually does while you type, in an integrated session:
+
+- **After two typed characters**, debounced ~75 ms, the bubble shows the **top-1 row of the merged
+  history + path ranking**. One row, no popup. `Down` opens the list if you want the rest.
+- **Below two characters** — including backspacing back down to one — the bubble goes away and no
+  ranking runs at all. One character's worth of prefix ranks to "the command you run most often
+  starting with that letter", which is noise wearing a suggestion's clothes.
+- **`Esc` takes it down for the rest of that command line.** Not just for one frame: the next keystroke
+  used to rebuild the surface, which made `Esc` useless on a bubble nobody asked for. Submitting the
+  line clears the suppression. `Ctrl+Space`, `Ctrl+R`, Help and Fix all still open after an `Esc` —
+  suppression only applies to surfaces the user did not request.
+- **The popup is still intent-only.** Nothing auto-opens it: `Down`, a click, `Ctrl+Space`, `Ctrl+R` or
+  a high-confidence Fix.
+- **Degraded (markless) sessions get no passive bubble.** There is no readable command line, so there is
+  no query, so nothing clears the two-character floor. Unchanged from Phase 2 — an explicit `Ctrl+R`
+  still opens and shows the context-ordered recency list.
+- **Alt screen**: no surface at all, unconditionally. See §11.
+
+This is a deliberate reversal of M4.3's "silent unless summoned" policy, which scoped the passive path
+to filesystem completions only. That kept the feature invisible for most commands, which is the problem
+Phase 3 exists to solve. The kill switch (`CommandAssistPassiveBubbleEnabled`, below) restores the M4.3
+behavior exactly.
+
+**The debounce** lives in `SuggestionOrchestrator` and is applied to typing-triggered passes only: a
+burst of *n* keystrokes costs one grid read, one store recall and one ranking pass instead of *n* of
+each, because each new keystroke cancels the previous pass through the `CancellationTokenSource` that
+already handled supersession. Explicit surfaces are never debounced — `Ctrl+R` is one deliberate act
+with nothing to coalesce, and 75 ms of nothing after it is pure latency.
+
+#### Shipped: the settings group (V2 Phase 3b)
+
+Settings → Terminal, under "Command assistant":
+
+| Setting | Default | What it gates |
+| --- | --- | --- |
+| `CommandAssistEnabled` | `false` | The master flag. Everything. |
+| `CommandAssistPassiveBubbleEnabled` | `true` | Whether the passive bubble may draw on history. Off = M4.3 quiet behavior (paths only). |
+| `CommandAssistHistoryEnabled` | `true` | Command capture **and** history-sourced suggestions — nothing else. Paths, Help and Fix work with it off. |
+| `CommandAssistShellIntegrationEnabled` | `true` | Whether Nova instruments local shells it starts. |
+
+The group also carries **Clear history**, which is the first caller `IHistoryStore.ClearAsync` has ever
+had. It arms on the first click ("Confirm clear") and clears on the second, and it goes through the one
+live store instance rather than opening a second one over the same file. The remote shell-integration
+snippet copy affordance from Phase 2b sits directly below.
+
+`CommandAssistHistoryEnabled` used to be a second master flag by accident: `IsCommandAssistFeatureEnabled`
+required it, so turning capture off killed the bubble, the popup, Help, Fix and path suggestions too.
+Phase 3b decoupled them.
+
+`CommandAssistAutoHideInAltScreen` was **deleted** in Phase 3b rather than wired up. It was never read —
+alt-screen hiding is unconditional — and a switch that could disable it would only ever let the assist
+paint over `vim`. Unknown keys are ignored when `settings.json` is loaded, so a file that still carries
+it loads fine.
+
 ### Mode B: Search
 Expanded fuzzy search over:
 - command history,
@@ -462,6 +518,12 @@ Examples:
 
 Do not try to be clever here. Hide early, hide safely.
 
+**Not configurable, as of V2 Phase 3b.** `CommandAssistAutoHideInAltScreen` existed in the settings
+schema and was never read by anything; the hiding has always been unconditional. It was deleted rather
+than wired up, because the only thing a user could do with it is switch off the rule that stops the
+overlay painting over `vim`. Unknown keys are ignored on load, so an existing `settings.json` that still
+lists it is unaffected.
+
 ---
 
 ## 12. Performance requirements
@@ -481,6 +543,27 @@ This feature must feel immediate.
 - cache recent contexts
 - avoid giant object churn
 - keep view model diffs small
+
+### Shipped: the regression tripwire (V2 Phase 3b)
+
+`tests/NovaTerminal.App.Tests/Performance/CommandAssistPerformanceTests.cs`, run by CI with the rest of
+the suite. It is named honestly: a tripwire, not a benchmark. The repo's real BenchmarkDotNet project
+(`tests/NovaTerminal.Benchmarks`) is not run by CI, and what this phase needed was something that fails
+loudly when a change makes the assist an order of magnitude slower.
+
+Four measurements, with the thresholds set well above the targets above:
+
+| Measurement | Tripwire | Baseline (dev box, Debug) |
+| --- | --- | --- |
+| Ranking 5000 entries against `git st` | p95 < 30 ms | p50 2.0 ms, p95 3.3 ms |
+| Ranking 5000 entries, empty query | p95 < 30 ms | p50 1.6 ms, p95 3.3 ms |
+| Keystroke handling on the caller's thread | < 1 ms mean | 0.002 ms/key over 200 keys, 0 recalls while debouncing |
+| Keystroke → view-model content (no rendering) | p95 < 50 ms | p50 0.10 ms, p95 0.20 ms |
+
+5000 entries is the default retention cap and a deliberately pessimistic bound: the store's recall gate
+hands the engine at most 200 candidates, so production never ranks the whole file. Rendering is not
+measured — a headless unit test cannot honestly time an Avalonia layout and draw pass, so the "first
+paint" figure covers everything up to the view-model write and says so.
 
 ---
 
@@ -514,23 +597,41 @@ This feature must feel immediate.
 
 ## 14. Keyboard model
 
-### Shipped (V2 Phase 3a)
+### Shipped (V2 Phase 3a, extended in 3b)
 
 This is what the product does. The original speculative table follows it, kept because the roadmap
 still refers to it.
 
-| Key | Owner | Effect |
-| --- | --- | --- |
-| `Ctrl+Space` | app | Toggle the explicit assist session for the focused pane. |
-| `Ctrl+R` | app | Open history search (popup, recency list scoped to this pane's context). |
-| `Ctrl+Shift+H` | app | Help for the command on the line, or for the selection. |
-| `Down` | assist, while a surface is visible | Move the selection down; opens the popup on the first move. |
-| `Up` | assist while the popup is open, or on a surface the user summoned; **otherwise the shell** | Move the selection up. See below. |
-| `Enter` | **assist, while the popup is open with a row selected and the overlay is actually rendered**; otherwise the shell | Insert the selected suggestion. See below. |
-| `Ctrl+Enter` | assist, while a surface is visible | Insert the selected suggestion. Works in every state, including Help and Fix. |
-| `Esc` | assist, while a surface is visible | Dismiss. |
-| `Tab` | **always the shell** | Shell completion. Command Assist never takes it. |
-| `Ctrl+Shift+P` | assist when a row can be pinned, otherwise falls through | Pin/unpin the selected row. (Collides with the command palette; Phase 3b moves it.) |
+Every row below is a **catalogued, rebindable** shortcut as of Phase 3b (`ShortcutScope.CommandAssist`
+in `ShortcutCatalog`, editable in Settings → Shortcuts). The "Command id" column is the key in
+`settings.json`'s `Keybindings` map.
+
+| Key | Command id | Owner | Effect |
+| --- | --- | --- | --- |
+| `Ctrl+Space` | `command_assist_toggle` | app | Toggle the explicit assist session for the focused pane. |
+| `Ctrl+R` | `command_assist_history` | app | Open history search (popup, recency list scoped to this pane's context). |
+| `Ctrl+Shift+H` | `command_assist_help` | app | Help for the command on the line, or for the selection. |
+| `Ctrl+Shift+S` | `command_assist_pin` | app, falls through when no row can be pinned | Pin/unpin the selected row. Moved off `Ctrl+Shift+P` in Phase 3b — see below. |
+| `Down` | `command_assist_selection_down` | assist, while a surface is visible | Move the selection down; opens the popup on the first move. |
+| `Up` | `command_assist_selection_up` | assist while the popup is open, or on a surface the user summoned; **otherwise the shell** | Move the selection up. See below. |
+| `Enter` | `command_assist_accept` | **assist, while the popup is open with a row selected and the overlay is actually rendered**; otherwise the shell | Insert the selected suggestion. See below. |
+| `Ctrl+Enter` | `command_assist_insert` | assist, while a surface is visible | Insert the selected suggestion. Works in every state, including Help and Fix. |
+| `Esc` | `command_assist_dismiss` | assist, while a surface is visible | Dismiss, and suppress the passive bubble for the rest of this command line. |
+| `Tab` | — | **always the shell** | Shell completion. Command Assist never takes it. |
+
+**Pin moved to `Ctrl+Shift+S`.** `Ctrl+Shift+P` is the command palette's, and the two used to share it:
+`MainWindow` tried the pin first and opened the palette only when the pin declined, so whether the
+palette opened depended on whether an assist row happened to be selected. The palette now owns the chord
+unconditionally. `Ctrl+Shift+S` was picked over the design doc's suggested `Ctrl+Alt+P` because
+`TerminalView` turns any `Alt`+key into an ESC-prefixed sequence for the shell and marks the event
+handled, so an `Alt` chord never reaches the window's shortcut handler at all.
+
+**The five in-surface keys are matched on their exact modifiers.** Before Phase 3b the router tested the
+key and ignored the modifiers for everything except `Enter`, so `Ctrl+Down` and `Alt+Up` were swallowed
+by the assist even though several line editors act on them. Rebinding these five is constrained in one
+way the Settings UI cannot express: Command Assist models `Escape`/`Up`/`Down`/`Enter`/`Tab` only, so an
+override naming any other key falls back to the default rather than silently matching nothing. The hint
+strip renders whatever binding is actually in force.
 
 Mouse, in the popup: hover highlights, a single click selects, and a double click — or a click on the
 row that is already selected — inserts. The row list scrolls. Right-click and middle-click are

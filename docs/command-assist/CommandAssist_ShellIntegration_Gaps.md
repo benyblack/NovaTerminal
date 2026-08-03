@@ -147,8 +147,14 @@ history recall and tab completion. The read therefore happens inside `Suggestion
 refresh pass, on the worker the pass already runs on, not on the keystroke that triggered it. A
 keystroke is a trigger carrying no text; the pass resolves its own query. Passes supersede each
 other through the existing per-pass `CancellationTokenSource`, so a burst of keystrokes applies one
-read, the last one. That is coalescing by supersession, not by timing: there is no debounce, which
-is a Phase 3 policy decision.
+read, the last one. That is coalescing by supersession.
+
+**A debounce was added on top in V2 Phase 3b**, which is where the policy decision Phase 0c deferred got
+made: a typing-triggered pass now waits 75 ms before doing any work, and the next keystroke cancels it
+through the same token. So a burst of *n* keystrokes costs one grid read rather than *n*, and the read
+happens 75 ms after the last one rather than immediately after each. Explicit passes (`Ctrl+R`,
+`Ctrl+Space`, a pin toggle) are not debounced: there is nothing to coalesce and the delay would be pure
+latency.
 
 The window that remains is a read that beats the shell's echo of the character just typed, and it is
 worth restating because an earlier revision of this document understated it as "ranks a
@@ -165,6 +171,16 @@ marginally worse row for one keystroke does not justify going quiet, and the nex
 The clear is approximate in one direction only — unrelated session output can clear the flag early,
 leaving the original window open — but never the other, because output that has been parsed is
 output that is in the grid.
+
+**V2 Phase 3b narrowed the ranking half of this to near-zero, and did not close it.** The 75 ms debounce
+means the read no longer happens microseconds after the keystroke that triggered it; a local shell's echo
+lands orders of magnitude inside that window, so in practice a debounced pass reads the line the user
+actually has. What is gone is the *every keystroke is a race* property. What remains, and is the reason
+the insertion guard stays exactly as it is: a remote shell whose echo takes longer than 75 ms still
+produces a one-character-stale read, and nothing about the delay makes that detectable. Insertion still
+refuses on `_hasUnechoedInput` rather than trusting the clock, and ranking still tolerates the stale
+read. Anyone tempted to delete the guard on the strength of the debounce should note that the debounce is
+a *timing* argument and the guard is a *correctness* one; they are not substitutes.
 
 **3. Insertion refuses rather than guesses.** `CommandAssistInsertionPlanner` keeps the V1 rule that
 insertion is additive — send only the characters the suggestion adds, never delete, never move the
