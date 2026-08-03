@@ -9,7 +9,13 @@ public sealed class CommandAssistBubbleViewModel : INotifyPropertyChanged
     private string _modeLabel = "Suggest";
     private string _queryText = string.Empty;
     private string _summaryText = string.Empty;
-    private string _shortcutHintText = "Ctrl+Enter insert  |  Ctrl+Shift+H help  |  Ctrl+R history";
+    /// <remarks>
+    /// Only a placeholder until the first <c>CommandAssistBarViewModel.SyncPresentationState</c>,
+    /// which happens in that class's constructor. The V2 Phase 3a hint strip is state-dependent, so
+    /// the constant that used to live here (and promised <c>Ctrl+Enter</c> unconditionally) is not a
+    /// meaningful default any more.
+    /// </remarks>
+    private string _shortcutHintText = CommandAssistBarViewModel.IdleHintText;
     private bool _showQueryText = true;
 
     public bool IsVisible

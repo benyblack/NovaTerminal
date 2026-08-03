@@ -416,6 +416,109 @@ public sealed class AssistSessionStateMachineTests
         Assert.Equal(CommandAssistMode.Suggest, machine.Mode);
     }
 
+    // -------------------------------------------------- accept on Enter (V2 Phase 3a)
+
+    /// <summary>
+    /// The states where an unmodified <c>Enter</c> inserts the selected row instead of submitting the
+    /// command line: the two ranking modes, with the popup open and a row selected.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistSessionState.PassivePopup)]
+    [InlineData(AssistSessionState.ExplicitPopup)]
+    [InlineData(AssistSessionState.HistorySearch)]
+    public void AllowsAcceptOnEnter_WhenBrowsingARankedList_IsTrue(AssistSessionState state)
+    {
+        AssistSessionStateMachine machine = CreateInState(state);
+
+        Assert.True(machine.AllowsAcceptOnEnter(isPopupOpen: true, hasSelection: true));
+    }
+
+    /// <summary>
+    /// Help and Fix render content the user did not compose and Fix appears after a submission, so
+    /// their <c>Enter</c> stays the shell's; both keep <c>Ctrl+Enter</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistSessionState.Help)]
+    [InlineData(AssistSessionState.FixPopup)]
+    [InlineData(AssistSessionState.FixHint)]
+    public void AllowsAcceptOnEnter_InHelperModes_IsFalse(AssistSessionState state)
+    {
+        AssistSessionStateMachine machine = CreateInState(state);
+
+        Assert.False(machine.AllowsAcceptOnEnter(isPopupOpen: true, hasSelection: true));
+    }
+
+    /// <summary>
+    /// The typing flow, which must be untouched: a bubble is not a browse state whatever mode it is
+    /// in, so Enter reaches the shell and submits.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistSessionState.PassiveBubble)]
+    [InlineData(AssistSessionState.ExplicitBubble)]
+    [InlineData(AssistSessionState.PassivePopup)]
+    [InlineData(AssistSessionState.HistorySearch)]
+    public void AllowsAcceptOnEnter_WithNoOpenPopup_IsFalse(AssistSessionState state)
+    {
+        AssistSessionStateMachine machine = CreateInState(state);
+
+        Assert.False(machine.AllowsAcceptOnEnter(isPopupOpen: false, hasSelection: true));
+    }
+
+    [Fact]
+    public void AllowsAcceptOnEnter_WithAnOpenPopupButNoSelectedRow_IsFalse()
+    {
+        AssistSessionStateMachine machine = CreateInState(AssistSessionState.HistorySearch);
+
+        Assert.False(machine.AllowsAcceptOnEnter(isPopupOpen: true, hasSelection: false));
+    }
+
+    /// <summary>
+    /// Rows left over from a session that was toggled off are still navigable (see
+    /// <c>OpenPopupForSelection</c>), so the Hidden guard is not redundant with the popup flag.
+    /// </summary>
+    [Fact]
+    public void AllowsAcceptOnEnter_WhenHidden_IsFalse()
+    {
+        AssistSessionStateMachine machine = CreateInState(AssistSessionState.Hidden);
+
+        Assert.False(machine.AllowsAcceptOnEnter(isPopupOpen: true, hasSelection: true));
+    }
+
+    // ------------------------------------------- user-requested surfaces (V2 Phase 3a)
+
+    /// <summary>
+    /// The surfaces no placement heuristic may hide. Wider than <c>IsExplicitSession</c>: Help and a
+    /// confident Fix popup were asked for even though they rank nothing.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistSessionState.ExplicitBubble)]
+    [InlineData(AssistSessionState.ExplicitPopup)]
+    [InlineData(AssistSessionState.HistorySearch)]
+    [InlineData(AssistSessionState.Help)]
+    [InlineData(AssistSessionState.FixPopup)]
+    public void IsUserRequestedSurface_ForSummonedSurfaces_IsTrue(AssistSessionState state)
+    {
+        AssistSessionStateMachine machine = CreateInState(state);
+
+        Assert.True(machine.IsUserRequestedSurface);
+    }
+
+    /// <summary>
+    /// The passive surfaces, which the conservative-placement stack still applies to - including the
+    /// bubble-only Fix affordance, the one Fix state the user did not ask for.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistSessionState.Hidden)]
+    [InlineData(AssistSessionState.PassiveBubble)]
+    [InlineData(AssistSessionState.PassivePopup)]
+    [InlineData(AssistSessionState.FixHint)]
+    public void IsUserRequestedSurface_ForUninvitedSurfaces_IsFalse(AssistSessionState state)
+    {
+        AssistSessionStateMachine machine = CreateInState(state);
+
+        Assert.False(machine.IsUserRequestedSurface);
+    }
+
     private static AssistSessionStateMachine CreateInState(AssistSessionState state)
     {
         var machine = new AssistSessionStateMachine();

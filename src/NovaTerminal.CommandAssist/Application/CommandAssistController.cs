@@ -77,7 +77,12 @@ public sealed class CommandAssistController
         _errorInsightService = errorInsightService ?? new EmptyErrorInsightService();
         _modeRouter = modeRouter ?? new CommandAssistModeRouter();
         _resultBuilder = resultBuilder ?? new CommandAssistResultBuilder();
-        ViewModel = new CommandAssistBarViewModel();
+        ViewModel = new CommandAssistBarViewModel
+        {
+            // The hint strip and the key router must agree about what Enter does, so both read the
+            // same predicate rather than each deciding for itself.
+            AcceptOnEnterProbe = () => IsAcceptOnEnterArmed
+        };
         _dispatch = dispatch ?? (action => action());
         _capturePipeline = new CapturePipeline(historyStore, secretsFilter, _context);
         _suggestionOrchestrator = new SuggestionOrchestrator(
@@ -102,6 +107,25 @@ public sealed class CommandAssistController
 
     /// <summary>What the session is doing right now. Exposed for diagnostics and tests.</summary>
     internal AssistSessionState SessionState => _state.State;
+
+    /// <summary>
+    /// Whether an unmodified <c>Enter</c> currently means "insert the selected row" rather than
+    /// "submit the command line". See <see cref="AssistSessionStateMachine.AllowsAcceptOnEnter"/>.
+    /// </summary>
+    /// <remarks>
+    /// The single source of truth for the V2 Phase 3a keyboard change: the App's key interceptor puts
+    /// this into <see cref="AssistKeyState"/>, and the bubble's hint strip renders it. Both are asking
+    /// the same question of the same object.
+    /// </remarks>
+    public bool IsAcceptOnEnterArmed =>
+        ViewModel.IsVisible &&
+        _state.AllowsAcceptOnEnter(ViewModel.IsPopupOpen, GetSelectedSuggestion() != null);
+
+    /// <summary>
+    /// Whether the surface on screen is one the user asked for, which no placement heuristic may
+    /// hide. See <see cref="AssistSessionStateMachine.IsUserRequestedSurface"/>.
+    /// </summary>
+    public bool IsUserRequestedSurface => ViewModel.IsVisible && _state.IsUserRequestedSurface;
 
     public void ToggleAssist()
     {
@@ -338,6 +362,25 @@ public sealed class CommandAssistController
 
         return SetSelectedIndex(nextIndex);
     }
+
+    /// <summary>
+    /// Selects a row by index because the user pointed at it. Opens the popup the same way
+    /// <c>Up</c>/<c>Down</c> do, so a click and an arrow key leave the session in the same state -
+    /// including the state that arms <c>Enter</c>.
+    /// </summary>
+    /// <returns>
+    /// <see langword="false"/> for an index no row occupies, which is how a click that arrives one
+    /// frame after the list shrank resolves.
+    /// </returns>
+    public bool TrySelectSuggestionAt(int index) => SetSelectedIndex(index);
+
+    /// <summary>
+    /// Whether <paramref name="index"/> is the row already selected - the "clicking the highlighted
+    /// row accepts it" test, which the view uses so a second single click does what a double click
+    /// does.
+    /// </summary>
+    public bool IsSuggestionSelectedAt(int index) =>
+        index >= 0 && index < _suggestions.Count && ViewModel.SelectedIndex == index;
 
     public bool TryGetInsertionText(out string? insertionText)
     {
@@ -659,7 +702,10 @@ public sealed class CommandAssistController
             ViewModel.IsPopupOpen = true;
         }
 
-        SyncSuggestionViewModel();
+        // Selection only. Rebuilding the row list here (which is what this used to do) replaces every
+        // container under the pointer, so hover died on each arrow key and the scroll position jumped
+        // back to the top - see CommandAssistSuggestionItemViewModel.
+        SyncSelectionState();
         return true;
     }
 
@@ -670,7 +716,34 @@ public sealed class CommandAssistController
             : null;
     }
 
+    /// <summary>
+    /// Rebuilds the row list from <see cref="_suggestions"/>. Call only when the rows themselves
+    /// changed; <see cref="SyncSelectionState"/> covers a selection move.
+    /// </summary>
     private void SyncSuggestionViewModel()
+    {
+        ViewModel.Suggestions.Clear();
+
+        for (int i = 0; i < _suggestions.Count; i++)
+        {
+            AssistSuggestion suggestion = _suggestions[i];
+            ViewModel.Suggestions.Add(new CommandAssistSuggestionItemViewModel(
+                displayText: suggestion.DisplayText,
+                descriptionText: suggestion.Description ?? string.Empty,
+                badgesText: string.Join("  ", suggestion.Badges),
+                metadataText: BuildMetadataText(suggestion),
+                isSelected: i == ViewModel.SelectedIndex,
+                type: suggestion.Type));
+        }
+
+        SyncSelectionState();
+    }
+
+    /// <summary>
+    /// Republishes everything that depends on <em>which</em> row is selected, mutating the existing
+    /// rows rather than replacing them.
+    /// </summary>
+    private void SyncSelectionState()
     {
         AssistSuggestion? selected = GetSelectedSuggestion();
         ViewModel.TopSuggestionText = selected?.DisplayText ?? string.Empty;
@@ -678,19 +751,10 @@ public sealed class CommandAssistController
         ViewModel.SelectedMetadataText = selected == null ? string.Empty : BuildMetadataText(selected);
         ViewModel.SelectedDescriptionText = selected?.Description ?? string.Empty;
         ViewModel.HasSuggestions = _suggestions.Count > 0;
-        ViewModel.Suggestions.Clear();
 
-        for (int i = 0; i < _suggestions.Count; i++)
+        for (int i = 0; i < ViewModel.Suggestions.Count; i++)
         {
-            AssistSuggestion suggestion = _suggestions[i];
-            ViewModel.Suggestions.Add(new CommandAssistSuggestionItemViewModel(
-                SelectionGlyph: i == ViewModel.SelectedIndex ? ">" : " ",
-                DisplayText: suggestion.DisplayText,
-                DescriptionText: suggestion.Description ?? string.Empty,
-                BadgesText: string.Join("  ", suggestion.Badges),
-                MetadataText: BuildMetadataText(suggestion),
-                IsSelected: i == ViewModel.SelectedIndex,
-                Type: suggestion.Type));
+            ViewModel.Suggestions[i].IsSelected = i == ViewModel.SelectedIndex;
         }
     }
 

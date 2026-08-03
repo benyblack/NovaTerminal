@@ -79,6 +79,75 @@ internal sealed class AssistSessionStateMachine
     public bool AllowsSuggestionRefresh => Mode is CommandAssistMode.Suggest or CommandAssistMode.Search;
 
     /// <summary>
+    /// True when the surface on screen is one the user asked for by name, so no placement heuristic
+    /// may hide it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Wider than <see cref="IsExplicitSession"/> on purpose, and the difference is what the two
+    /// questions are for. <see cref="IsExplicitSession"/> asks "may this session draw on history and
+    /// snippets" - a ranking-scope question, so Help and Fix (which rank nothing) are not part of it.
+    /// This asks "did the user ask to see something", which Help and a confident Fix popup plainly
+    /// did.
+    /// </para>
+    /// <para>
+    /// V2 Phase 3a consumers: <c>TerminalPane.ShouldSuppressConservativeRemoteAssist</c>, and the
+    /// opacity half of the placement-correction stack. Both exist to avoid putting an
+    /// <em>uninvited</em> overlay somewhere misleading on a pane whose prompt row is a guess; the
+    /// answer for a surface the user summoned is different, because hiding it entirely is not a
+    /// conservative outcome - it is the feature failing to appear (owner report: assist missing on one
+    /// pane of an SSH split). Note that the correction passes themselves still run for these surfaces:
+    /// what is bypassed is the hiding, not the correcting.
+    /// </para>
+    /// <para>
+    /// <see cref="AssistSessionState.FixHint"/> is deliberately out. It is the bubble-only affordance
+    /// for a diagnosis we are not confident about, i.e. the one Fix state the user did not ask for.
+    /// </para>
+    /// </remarks>
+    public bool IsUserRequestedSurface => State is
+        AssistSessionState.ExplicitBubble or
+        AssistSessionState.ExplicitPopup or
+        AssistSessionState.HistorySearch or
+        AssistSessionState.Help or
+        AssistSessionState.FixPopup;
+
+    /// <summary>
+    /// Whether an unmodified <c>Enter</c> belongs to Command Assist rather than to the shell.
+    /// </summary>
+    /// <param name="isPopupOpen">Whether the row list is on screen.</param>
+    /// <param name="hasSelection">Whether one of those rows is selected.</param>
+    /// <remarks>
+    /// <para>
+    /// <strong>The V2 Phase 3a keyboard change, and the reason it is a state predicate rather than a
+    /// key list.</strong> Accept used to be <c>Ctrl+Enter</c> only, so a user who opened
+    /// <c>Ctrl+R</c>, moved to a row and pressed <c>Enter</c> - which is what every shell's own
+    /// reverse-search teaches - submitted their (empty) command line instead, and the submission reset
+    /// dismissed the popup. Nothing was inserted and the surface vanished: the owner reported it as
+    /// "lists history but does no action when I select".
+    /// </para>
+    /// <para>
+    /// Ownership is therefore granted in exactly the state where <c>Enter</c> cannot mean anything
+    /// else: the row list is open <em>and</em> a row is selected. In Suggest mode that state is only
+    /// reachable by the user having moved the selection (<c>Up</c>/<c>Down</c> or a click - see
+    /// <see cref="OpenPopupForSelection"/>, the only transition that opens a Suggest popup), and in
+    /// Search mode it is reachable only because the user pressed <c>Ctrl+R</c>. Typing never reaches
+    /// it: <see cref="ObserveTypedInput"/> closes the popup, so the ordinary
+    /// type-a-command-and-press-Enter flow is untouched and <c>Enter</c> stays shell-owned there.
+    /// </para>
+    /// <para>
+    /// Help and Fix are excluded even when their popup is open with a row selected. Their rows are
+    /// documentation and diagnoses rather than a command line the user is composing, and a Fix popup
+    /// in particular is on screen <em>after</em> a submission, where the next <c>Enter</c> is much
+    /// more likely to be aimed at the shell. Both keep <c>Ctrl+Enter</c>.
+    /// </para>
+    /// </remarks>
+    public bool AllowsAcceptOnEnter(bool isPopupOpen, bool hasSelection) =>
+        isPopupOpen &&
+        hasSelection &&
+        State != AssistSessionState.Hidden &&
+        Mode is CommandAssistMode.Suggest or CommandAssistMode.Search;
+
+    /// <summary>
     /// Toggles the explicit assist session (the assist shortcut).
     /// </summary>
     /// <param name="isSurfaceVisible">
