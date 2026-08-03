@@ -225,16 +225,19 @@ function Format-ExampleCommand {
 
     # tldr placeholder syntax, in the order the replacements have to happen.
     #
-    #   {{[-i|--interactive]}}  an option with several spellings.
-    #   {{ps|container ls}}     an alternation between whole words.
-    #   {{value}}               an argument the user has to supply. Rendered <value> - the convention
-    #                           the hand-written seed recipes used, and the one a user reading a
-    #                           command line already knows means "replace me".
+    #   {{[-i|--interactive]}}                 an option with several spellings.
+    #   {{ps|container ls}}                    an alternation between whole words.
+    #   {{path/to/source.tar[.gz|.bz2|.xz]}}   a suffix alternation: a fixed prefix with a choice of
+    #                                          endings, tldr's idiom for "pick one extension".
+    #   {{value}}                              an argument the user has to supply. Rendered <value> -
+    #                                          the convention the hand-written seed recipes used, and
+    #                                          the one a user reading a command line already knows
+    #                                          means "replace me".
     #
-    # The alternation rule is "the long option if there is one, otherwise the first alternative", and
-    # both halves matter. Long-option-first turns {{[-i|--interactive]}} into `--interactive`, which
-    # explains itself on the command line where `-i` does not. First-otherwise turns
-    # {{[ps|container ls]}} into `docker ps` rather than `docker container ls`: tldr lists the
+    # The whole-value alternation rule is "the long option if there is one, otherwise the first
+    # alternative", and both halves matter. Long-option-first turns {{[-i|--interactive]}} into
+    # `--interactive`, which explains itself on the command line where `-i` does not. First-otherwise
+    # turns {{[ps|container ls]}} into `docker ps` rather than `docker container ls`: tldr lists the
     # canonical spelling first, and taking the last alternative produced the form nobody types.
     $result = $Command
     $result = [regex]::Replace($result, '\{\{\[([^\]]*)\]\}\}', { param($m) Select-Alternative $m.Groups[1].Value })
@@ -246,7 +249,25 @@ function Format-ExampleCommand {
     $result = [regex]::Replace($result, '\{\{((?:[^{}]|\{[^{}]*\})*)\}\}', {
         param($m)
         $inner = $m.Groups[1].Value
-        if ($inner -match '\|') { return Select-Alternative $inner }
+        if ($inner -match '\|') {
+            # Suffix alternation: a non-empty prefix followed by a trailing [alt1|alt2|...] group,
+            # e.g. `path/to/source.tar[.gz|.bz2|.xz]`. This is NOT the whole-value case above (that
+            # one is consumed by the first regex, where the entire placeholder body is the bracket
+            # group) - here the bracket is only the tail end of a longer body. The generic "split on
+            # every |" handling used to run here too and truncated the body at the first alternative's
+            # bracket, dropping everything after it and leaving an unmatched `[` in the output
+            # (`path/to/source.tar[.gz`, never wrapped in <...>). tldr lists the default extension
+            # first for this idiom (unlike the long-option preference above), so the first alternative
+            # is what a suffix group renders as, and the whole prefix+suffix value gets the same
+            # <...> wrapper every other placeholder does.
+            $suffixMatch = [regex]::Match($inner, '^(.+)\[([^\[\]]*\|[^\[\]]*)\]$')
+            if ($suffixMatch.Success) {
+                $prefix = $suffixMatch.Groups[1].Value
+                $chosenSuffix = ($suffixMatch.Groups[2].Value -split '\|')[0]
+                return '<' + $prefix + $chosenSuffix + '>'
+            }
+            return Select-Alternative $inner
+        }
         '<' + $inner + '>'
     })
     return $result.Trim()

@@ -173,6 +173,69 @@ public sealed class CommandCatalogueAssetTests
         Assert.Contains(subcommands, entry => entry.Token == "git stash");
     }
 
+    /// <summary>
+    /// The full set of examples in the current asset where '[' and ']' legitimately do not balance,
+    /// verified by scanning every example's raw bracket count (not just the ones that looked
+    /// suspicious by eye): <c>printf</c>'s ANSI CSI escapes (<c>\e[1;34m</c>, <c>\e[0m</c>) open with
+    /// <c>\e[</c> and close with a letter, never <c>]</c>, so they are orphaned by construction; and
+    /// <c>telnet</c>'s <c>&lt;Ctrl ]&gt;</c>, which names the literal escape-character keystroke and
+    /// is not a bracket pair at all. Both predate this test and are unrelated to the tar
+    /// suffix-alternation bug the test below exists to catch. Exact-string rather than pattern-based
+    /// so a regeneration that introduces a *new* unbalanced example still fails loudly instead of
+    /// being silently swallowed by a broad "anything with an escape code" rule.
+    /// </summary>
+    private static readonly HashSet<string> KnownUnbalancedBracketExamples = new(StringComparer.Ordinal)
+    {
+        "printf \"<\\e[1;34m%.3d\\e[0m\\n>\" <42>",
+        "<Ctrl ]>",
+    };
+
+    [Fact]
+    public void Example_commands_have_balanced_square_brackets()
+    {
+        // The tldr suffix-alternation idiom (`{{path/to/source.tar[.gz|.bz2|.xz]}}`) used to defeat
+        // the generic `|`-splitting in Format-ExampleCommand: it split the placeholder body at the
+        // first alternative's own bracket, leaving an orphaned `[` and a truncated value on the
+        // user's command line (`tar xvf path/to/source.tar[.gz`, never wrapped in <...>). Every other
+        // bracket usage that survives into a rendered example - jq/yq's `.[0]`, `tr "[:lower:]"`,
+        // `[System.Convert]`, `grep <[s]tring>`, a `[0-9]` character class, and the two entries in
+        // KnownUnbalancedBracketExamples above - opens and closes within the same example or is an
+        // explicitly-named exception, so a plain '[' vs ']' count (minus those two) is the guard: an
+        // unlisted example with more '[' than ']' or vice versa is the bug again.
+        foreach (CommandKnowledgeEntry entry in Catalogue.Value.Entries!)
+        {
+            foreach (CommandKnowledgeExample example in entry.Examples!)
+            {
+                string command = example.Command!;
+                if (KnownUnbalancedBracketExamples.Contains(command))
+                {
+                    continue;
+                }
+
+                int opens = command.Count(c => c == '[');
+                int closes = command.Count(c => c == ']');
+                Assert.True(
+                    opens == closes,
+                    $"Entry '{entry.Token}' has an unbalanced-bracket example: \"{command}\" " +
+                    $"({opens} '[' vs {closes} ']').");
+            }
+        }
+    }
+
+    [Fact]
+    public void Tar_entries_render_the_suffix_alternation_idiom_without_leftover_brackets()
+    {
+        // Pins the fixed idiom directly against the one page in the curated set that exercises it:
+        // tldr's tar.md writes `{{path/to/source.tar[.gz|.bz2|.xz]}}` for both its extract examples.
+        CommandKnowledgeEntry tar = Catalogue.Value.Entries!.Single(e => e.Token == "tar");
+
+        Assert.All(tar.Examples!, example => Assert.DoesNotContain('[', example.Command!));
+        Assert.Contains(tar.Examples!, example => example.Command == "tar xvf <path/to/source.tar.gz>");
+        Assert.Contains(
+            tar.Examples!,
+            example => example.Command == "tar xf <path/to/source.tar.gz> --directory <path/to/directory>");
+    }
+
     [Fact]
     public void Powershell_entries_carry_the_pwsh_shell_hint()
     {

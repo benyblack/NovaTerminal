@@ -12659,11 +12659,11 @@
                                       "d":  "create a gzipped (compressed) archive from a directory using relative paths"
                                   },
                                   {
-                                      "c":  "tar xvf path/to/source.tar[.gz",
+                                      "c":  "tar xvf <path/to/source.tar.gz>",
                                       "d":  "Extract a (compressed) archive file into the current directory verbosely"
                                   },
                                   {
-                                      "c":  "tar xf path/to/source.tar[.gz --directory <path/to/directory>",
+                                      "c":  "tar xf <path/to/source.tar.gz> --directory <path/to/directory>",
                                       "d":  "Extract a (compressed) archive file into the target directory"
                                   },
                                   {
