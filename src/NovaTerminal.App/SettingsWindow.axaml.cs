@@ -1519,7 +1519,7 @@ namespace NovaTerminal
                     clearButton.Content = "Confirm clear";
                     ShowRemoteShellIntegrationStatus(
                         status,
-                        "This deletes every recorded command. Click again to confirm.");
+                        "This deletes every recorded command, including history carried over from an older version. Click again to confirm.");
                     return;
                 }
 

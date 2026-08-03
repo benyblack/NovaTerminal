@@ -194,6 +194,63 @@ public sealed class JsonlHistoryStoreTests : IDisposable
         Assert.Empty(await CreateStore().GetRecentAsync(10));
     }
 
+    /// <summary>
+    /// <strong>"Clear history" has to be true, and the backup the migration leaves behind is where a
+    /// V1-captured secret would still be sitting.</strong>
+    /// </summary>
+    /// <remarks>
+    /// The V1 Enter-time capture read a keystroke mirror with no echo check, so a password typed at a
+    /// non-echoing prompt in a markless session was written to <c>history.json</c> verbatim -
+    /// <c>SecretsFilter</c> matches nothing on a bare word. The migration copies those entries into
+    /// <c>history.jsonl</c> unfiltered and renames the source to <c>.bak</c>, so truncating only the
+    /// live log left exactly the entries the user was trying to erase on disk, under a confirmation
+    /// prompt that said otherwise. A user who suspects a secret is in their history has one control
+    /// and it has to work.
+    /// </remarks>
+    [Fact]
+    public async Task ClearAsync_AlsoDeletesTheMigratedLegacyBackup()
+    {
+        await File.WriteAllTextAsync(
+            _legacyPath,
+            JsonSerializer.Serialize(
+                new List<CommandHistoryEntry> { CreateEntry("hunter2") },
+                CommandAssistJsonContext.Default.ListCommandHistoryEntry));
+
+        JsonlHistoryStore store = CreateStore();
+
+        // The read is what runs the migration; after it, the secret lives in two files.
+        Assert.Single(await store.GetRecentAsync(10));
+        Assert.True(File.Exists(_legacyPath + ".bak"));
+
+        await store.ClearAsync();
+
+        Assert.Empty(await store.GetRecentAsync(10));
+        Assert.False(File.Exists(_legacyPath + ".bak"));
+    }
+
+    /// <summary>
+    /// And an un-migrated legacy file goes too, or the next launch migrates it straight back in.
+    /// </summary>
+    /// <remarks>
+    /// Reachable because <c>ClearAsync</c> does not load: clearing before anything has read the store
+    /// writes an empty <c>history.jsonl</c>, which then permanently suppresses the migration guard -
+    /// so without this the entries would survive both the clear and every later read, invisible.
+    /// </remarks>
+    [Fact]
+    public async Task ClearAsync_BeforeAnyRead_AlsoDeletesTheUnmigratedLegacyFile()
+    {
+        await File.WriteAllTextAsync(
+            _legacyPath,
+            JsonSerializer.Serialize(
+                new List<CommandHistoryEntry> { CreateEntry("hunter2") },
+                CommandAssistJsonContext.Default.ListCommandHistoryEntry));
+
+        await CreateStore().ClearAsync();
+
+        Assert.False(File.Exists(_legacyPath));
+        Assert.Empty(await CreateStore().GetRecentAsync(10));
+    }
+
     [Fact]
     public async Task GetRecentAsync_WhenLineIsCorrupt_SkipsItAndKeepsTheRest()
     {

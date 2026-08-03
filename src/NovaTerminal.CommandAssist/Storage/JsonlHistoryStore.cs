@@ -187,6 +187,38 @@ public sealed class JsonlHistoryStore : IHistoryStore
         }
     }
 
+    /// <summary>
+    /// Deletes every recorded command: the live log, the un-migrated V1 file, and the backup the
+    /// migration leaves behind.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The two legacy files are the privacy half of this method, added after the owner's
+    /// "I suspect it captures my passwords" report.</strong> The V1 capture path that Phase 1c
+    /// deleted read a keystroke mirror with no echo check at all, so a password typed at a
+    /// non-echoing prompt in a markless session <em>was</em> written to <c>history.json</c> verbatim
+    /// - <c>SecretsFilter</c> matches nothing on a bare word. Those entries are then copied into
+    /// <c>history.jsonl</c> unfiltered by
+    /// <see cref="TryMigrateLegacyFileUnsafeAsync"/>, and the source is renamed to
+    /// <c>history.json.bak</c> rather than deleted.
+    /// </para>
+    /// <para>
+    /// Truncating only <c>history.jsonl</c> therefore left the very entries the user is trying to
+    /// erase sitting on disk in the backup, while the confirmation prompt said "this deletes every
+    /// recorded command". A user who suspects a secret is in their history has exactly one control,
+    /// and it has to be true.
+    /// </para>
+    /// <para>
+    /// Deleting the un-migrated <c>history.json</c> matters for a second reason: without it, a
+    /// <c>ClearAsync</c> that runs before the first read (which is a legal order - it does not load)
+    /// would leave the legacy file to be migrated in on the next launch, re-materialising everything
+    /// the user just cleared.
+    /// </para>
+    /// <para>
+    /// Deletion failures are swallowed. A locked backup file must not turn "clear my history" into
+    /// an error that leaves the live log intact, which is the strictly worse outcome.
+    /// </para>
+    /// </remarks>
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -196,10 +228,37 @@ public sealed class JsonlHistoryStore : IHistoryStore
             _loadIncomplete = false;
             _capChangePendingCompaction = false;
             await WriteAllUnsafeAsync(Array.Empty<CommandHistoryEntry>(), cancellationToken);
+            DeleteLegacyFilesUnsafe();
         }
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Removes the pre-JSONL history file and the backup the migration renames it to. Best-effort.
+    /// </summary>
+    private void DeleteLegacyFilesUnsafe()
+    {
+        if (string.IsNullOrWhiteSpace(_legacyFilePath))
+        {
+            return;
+        }
+
+        foreach (string path in new[] { _legacyFilePath!, _legacyFilePath + ".bak" })
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            catch
+            {
+                // See the remarks on ClearAsync: a locked legacy file must not fail the clear.
+            }
         }
     }
 
