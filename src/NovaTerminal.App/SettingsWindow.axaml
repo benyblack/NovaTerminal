@@ -572,6 +572,37 @@
                             </Grid>
                             <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
 
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Suggestion bubble while typing"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="After two characters, show the best matching command from your history just above the prompt. Esc hides it for the rest of the command. Turn this off to keep the assistant silent until you ask for it with Ctrl+Space or Ctrl+R."/>
+                                </StackPanel>
+                                <CheckBox Name="CommandAssistPassiveBubbleToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Remember commands"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Record the commands you run so they can be suggested and searched with Ctrl+R. Values that look like secrets are redacted before anything is written. With this off the assistant still suggests file paths and explains failures - it just stops writing history."/>
+                                    <TextBlock Name="CommandAssistHistoryStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="10">
+                                    <Button Name="BtnClearCommandAssistHistory" Classes="Pill" Content="Clear history"/>
+                                    <CheckBox Name="CommandAssistHistoryToggle" Classes="Toggle" Content="" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Shell integration"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Let Nova instrument local shells it starts, so it knows where the prompt is, what you typed, and how each command exited. Without it the assistant falls back to guessing from the screen."/>
+                                </StackPanel>
+                                <CheckBox Name="CommandAssistShellIntegrationToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
                             <Grid ColumnDefinitions="*,360">
                                 <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Classes="RowLabel" Text="Remote shell integration"/>

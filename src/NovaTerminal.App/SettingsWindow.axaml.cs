@@ -14,6 +14,7 @@ using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia.Controls.Shapes;
 using Avalonia.Styling;
+using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.ShellIntegration.Remote;
 using NovaTerminal.Services.Ssh;
 using NovaTerminal.Shell.Shortcuts;
@@ -38,6 +39,20 @@ namespace NovaTerminal
 
         private DispatcherTimer? _statusTimer;
         private TerminalTheme? _editingTheme;
+
+        /// <summary>
+        /// The live Command Assist history store, injected by <c>MainWindow.OpenSettings</c> so the
+        /// "Clear history" button acts on the same instance the panes append to.
+        /// </summary>
+        /// <remarks>
+        /// Null for a window opened outside that path (a test, the parameterless constructor XAML
+        /// tooling uses), in which case the row says so rather than building a second store over the
+        /// same file.
+        /// </remarks>
+        internal IHistoryStore? CommandAssistHistoryStore { get; set; }
+
+        /// <summary>Whether the next "Clear history" click is the confirming one.</summary>
+        private bool _isClearCommandAssistHistoryArmed;
 
         public SettingsWindow() : this(0, null) { }
 
@@ -395,6 +410,7 @@ namespace NovaTerminal
             }
 
             WireRemoteShellIntegrationRow();
+            WireClearCommandAssistHistoryRow();
 
             if (btnSetDefault != null)
             {
@@ -1449,6 +1465,71 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// The "Clear history" button (V2 Phase 3b task 5): <see cref="IHistoryStore.ClearAsync"/>
+        /// finally gets a caller.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Two clicks, not a modal. The first click arms and relabels the button, the second one clears;
+        /// clicking anything else, or reopening the window, forgets. A destructive action a user cannot
+        /// undo needs a confirmation, and an <c>await</c>-ed dialog here would be the only modal in this
+        /// window - the arm-then-confirm pattern is cheaper to reason about and impossible to
+        /// double-click through.
+        /// </para>
+        /// <para>
+        /// Goes through the <em>live</em> store rather than constructing one over the same file.
+        /// <c>JsonlHistoryStore</c> caches an index and a physical line count and compacts from that
+        /// cache, so a second instance would clear the file while the pane's instance carried on
+        /// appending against a stale view - see <c>CommandAssistServices.ApplyHistoryRetentionLimit</c>
+        /// for the same argument about the retention cap. <c>MainWindow</c> injects the instance it hands
+        /// to panes; with no injection the row reports that instead of pretending.
+        /// </para>
+        /// </remarks>
+        private void WireClearCommandAssistHistoryRow()
+        {
+            var clearButton = this.FindControl<Button>("BtnClearCommandAssistHistory");
+            var status = this.FindControl<TextBlock>("CommandAssistHistoryStatus");
+            if (clearButton == null)
+            {
+                return;
+            }
+
+            clearButton.Click += async (_, _) =>
+            {
+                if (CommandAssistHistoryStore == null)
+                {
+                    ShowRemoteShellIntegrationStatus(status, "Command history is not available in this window.");
+                    return;
+                }
+
+                if (!_isClearCommandAssistHistoryArmed)
+                {
+                    _isClearCommandAssistHistoryArmed = true;
+                    clearButton.Content = "Confirm clear";
+                    ShowRemoteShellIntegrationStatus(
+                        status,
+                        "This deletes every recorded command. Click again to confirm.");
+                    return;
+                }
+
+                _isClearCommandAssistHistoryArmed = false;
+                clearButton.Content = "Clear history";
+
+                try
+                {
+                    await CommandAssistHistoryStore.ClearAsync();
+                    ShowRemoteShellIntegrationStatus(status, "Command history cleared.");
+                }
+                catch (Exception ex)
+                {
+                    // Reported rather than swallowed, for the same reason as the snippet copy: a clear
+                    // that silently failed looks exactly like one that worked.
+                    ShowRemoteShellIntegrationStatus(status, $"Could not clear history: {ex.Message}");
+                }
+            };
+        }
+
         private static void ShowRemoteShellIntegrationStatus(TextBlock? status, string message)
         {
             if (status == null)
@@ -1500,6 +1581,15 @@ namespace NovaTerminal
             if (ligatureToggle != null) ligatureToggle.IsChecked = _settings.EnableLigatures;
             if (complexShapingToggle != null) complexShapingToggle.IsChecked = _settings.EnableComplexShaping;
             if (commandAssistToggle != null) commandAssistToggle.IsChecked = _settings.CommandAssistEnabled;
+
+            // The Command Assist group (V2 Phase 3b task 5). Three sub-rows under the master toggle,
+            // following the Agent access group's indented-row convention.
+            var commandAssistPassiveBubbleToggle = this.FindControl<CheckBox>("CommandAssistPassiveBubbleToggle");
+            if (commandAssistPassiveBubbleToggle != null) commandAssistPassiveBubbleToggle.IsChecked = _settings.CommandAssistPassiveBubbleEnabled;
+            var commandAssistHistoryToggle = this.FindControl<CheckBox>("CommandAssistHistoryToggle");
+            if (commandAssistHistoryToggle != null) commandAssistHistoryToggle.IsChecked = _settings.CommandAssistHistoryEnabled;
+            var commandAssistShellIntegrationToggle = this.FindControl<CheckBox>("CommandAssistShellIntegrationToggle");
+            if (commandAssistShellIntegrationToggle != null) commandAssistShellIntegrationToggle.IsChecked = _settings.CommandAssistShellIntegrationEnabled;
 
             if (bgPathInput != null) bgPathInput.Text = _settings.BackgroundImagePath;
             if (bgOpacitySlider != null)
@@ -1716,6 +1806,12 @@ namespace NovaTerminal
             if (ligatureToggle != null) _settings.EnableLigatures = ligatureToggle.IsChecked == true;
             if (complexShapingToggle != null) _settings.EnableComplexShaping = complexShapingToggle.IsChecked == true;
             if (commandAssistToggle != null) _settings.CommandAssistEnabled = commandAssistToggle.IsChecked == true;
+            var commandAssistPassiveBubbleToggle = this.FindControl<CheckBox>("CommandAssistPassiveBubbleToggle");
+            if (commandAssistPassiveBubbleToggle != null) _settings.CommandAssistPassiveBubbleEnabled = commandAssistPassiveBubbleToggle.IsChecked == true;
+            var commandAssistHistoryToggle = this.FindControl<CheckBox>("CommandAssistHistoryToggle");
+            if (commandAssistHistoryToggle != null) _settings.CommandAssistHistoryEnabled = commandAssistHistoryToggle.IsChecked == true;
+            var commandAssistShellIntegrationToggle = this.FindControl<CheckBox>("CommandAssistShellIntegrationToggle");
+            if (commandAssistShellIntegrationToggle != null) _settings.CommandAssistShellIntegrationEnabled = commandAssistShellIntegrationToggle.IsChecked == true;
             var agentAccessObserveToggle = this.FindControl<CheckBox>("AgentAccessObserveToggle");
             if (agentAccessObserveToggle != null) _settings.AgentAccessObserveEnabled = agentAccessObserveToggle.IsChecked == true;
             var agentReplayExportToggle = this.FindControl<CheckBox>("AgentReplayExportToggle");

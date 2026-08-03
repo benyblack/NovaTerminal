@@ -71,10 +71,10 @@ public static class SettingsTools
         ## Command Assist
         | Field | Type | Notes |
         |-------|------|-------|
-        | `CommandAssistEnabled` | bool | Default false. |
-        | `CommandAssistHistoryEnabled` | bool | Default true. |
+        | `CommandAssistEnabled` | bool | Master flag. Default false. |
+        | `CommandAssistHistoryEnabled` | bool | Gates capture + history suggestions only. Default true. |
         | `CommandAssistMaxHistoryEntries` | integer | >= 0. Default 5000. |
-        | `CommandAssistAutoHideInAltScreen` | bool | Default true. |
+        | `CommandAssistPassiveBubbleEnabled` | bool | Passive typing bubble. Default true. |
         | `CommandAssistShellIntegrationEnabled` | bool | Default true. |
         | `CommandAssistPowerShellIntegrationEnabled` | bool | Default true. |
 
@@ -120,7 +120,7 @@ public static class SettingsTools
           "CommandAssistEnabled": false,
           "CommandAssistHistoryEnabled": true,
           "CommandAssistMaxHistoryEntries": 5000,
-          "CommandAssistAutoHideInAltScreen": true,
+          "CommandAssistPassiveBubbleEnabled": true,
           "CommandAssistShellIntegrationEnabled": true,
           "CommandAssistPowerShellIntegrationEnabled": true,
           "ExperimentalNativeSshEnabled": false,
@@ -143,7 +143,7 @@ public static class SettingsTools
         "BellVisualEnabled", "SmoothScrolling", "EnableLinkDetection", "EnableKittyKeyboardProtocol",
         "AllowOsc52ClipboardWrite",
         "QuakeModeEnabled",
-        "CommandAssistEnabled", "CommandAssistHistoryEnabled", "CommandAssistAutoHideInAltScreen",
+        "CommandAssistEnabled", "CommandAssistHistoryEnabled", "CommandAssistPassiveBubbleEnabled",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
         "AgentScreenshotEnabled", "AgentAccessActEnabled", "LongCommandNotificationsEnabled",
@@ -168,7 +168,7 @@ public static class SettingsTools
         "WheelLinesPerNotch", "PaneClosePolicy", "Keybindings", "TabTemplateRules",
         "BackgroundImagePath", "BackgroundImageOpacity", "BackgroundImageStretch",
         "QuakeModeEnabled", "GlobalHotkey", "CommandAssistEnabled", "CommandAssistHistoryEnabled",
-        "CommandAssistMaxHistoryEntries", "CommandAssistAutoHideInAltScreen",
+        "CommandAssistMaxHistoryEntries", "CommandAssistPassiveBubbleEnabled",
         "CommandAssistShellIntegrationEnabled", "CommandAssistPowerShellIntegrationEnabled",
         "ExperimentalNativeSshEnabled", "AgentAccessObserveEnabled", "AgentReplayExportEnabled",
         "AgentScreenshotEnabled", "AgentAccessActEnabled", "LongCommandNotificationsEnabled",

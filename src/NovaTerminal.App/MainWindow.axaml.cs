@@ -2201,14 +2201,13 @@ namespace NovaTerminal
                 bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
                 bool isShift = (modifiers & KeyModifiers.Shift) != 0;
 
+                // The command palette owns Ctrl+Shift+P outright since V2 Phase 3b. It used to try the
+                // Command Assist pin first and fall through when the pin declined, which meant whether
+                // this chord opened the palette depended on whether an assist row happened to be
+                // selected - a shortcut that works most of the time is worse than one that does not.
+                // Pin has its own catalogued binding below.
                 if (IsShortcut(e, "command_palette", "Ctrl+Shift+P"))
                 {
-                    if (_currentPane?.TryToggleCommandAssistPinShortcut() == true)
-                    {
-                        e.Handled = true;
-                        return;
-                    }
-
                     ToggleCommandPalette();
                     e.Handled = true;
                     return;
@@ -2248,6 +2247,18 @@ namespace NovaTerminal
                     if (_currentPane?.OpenCommandAssistHistorySearch() == true)
                     {
                         RecordCommandUsage("command_assist_history");
+                        e.Handled = true;
+                        return;
+                    }
+                }
+
+                // V2 Phase 3b: pin/unpin on its own chord. Falls through when there is no row to pin,
+                // so the key is not dead - it reaches the terminal like any unbound chord would.
+                if (IsShortcut(e, "command_assist_pin", "Ctrl+Shift+S"))
+                {
+                    if (_currentPane?.TryToggleCommandAssistPinShortcut() == true)
+                    {
+                        RecordCommandUsage("command_assist_pin");
                         e.Handled = true;
                         return;
                     }
@@ -4398,6 +4409,12 @@ namespace NovaTerminal
             }, GetEffectiveShortcutBinding("settings", "Ctrl+,"), "settings");
             CommandRegistry.Register("Connections", "General", () => ToggleConnections(), GetEffectiveShortcutBinding("connections", "Ctrl+Shift+K"), "connections");
             CommandRegistry.Register("Toggle Recording", "General", () => _currentPane?.ToggleRecording(), GetEffectiveShortcutBinding("toggle_recording", "Ctrl+Shift+R"), "toggle_recording");
+            CommandRegistry.Register(
+                "Command Assist: Pin/Unpin Selection",
+                "General",
+                () => _currentPane?.TryToggleCommandAssistPinShortcut(),
+                GetEffectiveShortcutBinding("command_assist_pin", "Ctrl+Shift+S"),
+                "command_assist_pin");
             CommandRegistry.Register("Open Recording...", "General", () => _ = ExecuteUiCommandAsync(ExecuteOpenRecordingCommandAsync, "Open Recording..."), "");
             CommandRegistry.Register("Open Recordings Folder", "General", () => OpenRecordingsFolder(), "");
 
@@ -5032,6 +5049,11 @@ namespace NovaTerminal
         private async Task OpenSettings(int tabIndex, Guid? profileId = null)
         {
             var sw = new SettingsWindow(tabIndex, profileId);
+
+            // The one live history store, so Settings' "Clear history" acts on the same instance the
+            // panes append to (V2 Phase 3b task 5). Reading the property constructs it lazily, which is
+            // acceptable here: the user is opening a settings dialog, not on the startup path.
+            sw.CommandAssistHistoryStore = _commandAssistServices.HistoryStore;
 
             // Snapshot the live-previewed values so Cancel can restore them (#167).
             // The preview handlers below mutate _settings directly; without this,
