@@ -34,6 +34,37 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
     internal const double EmptyQueryProfileMatchBoost = 200;
 
     /// <summary>
+    /// What an <em>unpinned</em> snippet is worth on the empty-query path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The PR #290 review's third blocker, decided explicitly.</strong> V2 Phase 3a gave
+    /// same-context history a partitioning boost of <see cref="EmptyQueryContextMatchBoost"/>, which
+    /// left an unpinned snippet scoring about 10 against every local history entry's 1001 - below
+    /// commands the user ran once and never thought about again. A snippet is user-authored text someone
+    /// deliberately saved; ranking it under ambient history is the wrong answer even if it is not the
+    /// worst one. The dead <c>+8 discoverability</c> nudge that was supposed to prevent this is gone
+    /// with this constant replacing it.
+    /// </para>
+    /// <para>
+    /// The band chosen is the same-profile one (deliberately the same number as
+    /// <see cref="EmptyQueryProfileMatchBoost"/>, not a coincidence): <em>above</em> cross-context
+    /// history, <em>below</em> the commands this very host ran. A snippet carries no host and no
+    /// profile, so it cannot claim to be from "here"; what it can claim is that a human wrote it down
+    /// on purpose, which is worth more than another machine's recency. A pinned snippet is unaffected -
+    /// pinning already satisfies both affinity terms below, which puts it in the top band, which is the
+    /// whole point of pinning.
+    /// </para>
+    /// <para>
+    /// The honest cost: with more same-context history entries than the display cap, an unpinned snippet
+    /// is below the fold. Pinning is the answer to that and is one keystroke
+    /// (<c>Ctrl+Shift+P</c>); hoisting every snippet above this host's own history would make the
+    /// empty-query list say "snippets first" for users who never asked for that.
+    /// </para>
+    /// </remarks>
+    internal const double EmptyQueryUnpinnedSnippetBandBoost = EmptyQueryProfileMatchBoost;
+
+    /// <summary>
     /// What a same-context history entry is worth once the user has typed something.
     /// </summary>
     /// <remarks>
@@ -175,14 +206,22 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
                     // satisfy (a snippet carries no host and no profile). Without this, V2 Phase 3a's
                     // context boost would have silently demoted pinned snippets out of the top of an
                     // empty-query list, which is the one place users put things to find them.
-                    // An unpinned snippet is just a suggestion and ranks like one.
+                    // An unpinned snippet gets the empty-query band below instead.
+                    //
+                    // Side effect worth naming (PR #290 review): on the *text*-query path these two
+                    // flags are also what a pinned snippet's profileScore (20) and contextScore (30) are
+                    // computed from, so pinning is worth +50 there on top of its own pinScore (40) - a
+                    // pinned snippet outranks an equally-matching history entry by 90 rather than 40.
+                    // Deliberate: the boosts are affinity terms and a pinned snippet is in scope
+                    // everywhere by definition. Documented rather than tuned, because the text-query
+                    // tiers (prefix 120, token 70, contains 25) still dominate, so what the user typed
+                    // still decides the order.
                     isContextMatch: snippet.IsPinned,
                     isProfileMatch: snippet.IsPinned);
 
-                // Snippets should remain discoverable even with empty query.
-                if (string.IsNullOrWhiteSpace(query))
+                if (string.IsNullOrWhiteSpace(query) && !snippet.IsPinned)
                 {
-                    score += 8;
+                    score += EmptyQueryUnpinnedSnippetBandBoost;
                 }
 
                 return new

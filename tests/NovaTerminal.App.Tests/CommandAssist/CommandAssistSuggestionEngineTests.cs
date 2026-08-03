@@ -507,6 +507,75 @@ public sealed class CommandAssistSuggestionEngineTests
         Assert.Equal(AssistSuggestionType.Snippet, results[0].Type);
     }
 
+    /// <summary>
+    /// The PR #290 review's third blocker, and the decision it forced: an unpinned snippet sits in the
+    /// same-profile band on the empty-query path - above every cross-context history row, below the rows
+    /// this pane's own context produced.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The numbers are asserted rather than described because the band is the whole point: 50 local rows
+    /// score ~1202 each (1 + frequency + 1000 context + 200 profile), the snippet 202, and the row from
+    /// another host 2. So the snippet lands at index 50, immediately after the local rows and
+    /// immediately before the foreign one. Under the <c>+8</c> nudge this replaced it scored 10 and lost
+    /// to nothing except that foreign row - which is the state the review found.
+    /// </para>
+    /// <para>
+    /// <c>maxResults: 60</c> is deliberate and is the honest part of this decision: with a display cap
+    /// below the number of same-context rows, an unpinned snippet is below the fold. Pinning is the
+    /// answer to that (<c>GetSuggestions_WithNoQuery_KeepsPinnedSnippetsAboveContextMatchedHistory</c>),
+    /// and the test says so rather than choosing a cap that hides the trade-off.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void GetSuggestions_WithNoQuery_RanksUnpinnedSnippetsBelowThisContextsHistoryAndAboveTheRest()
+    {
+        var engine = new CommandAssistSuggestionEngine(new FakePathSuggestionProvider(Array.Empty<AssistSuggestion>()));
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1");
+
+        List<CommandHistoryEntry> history = Enumerable.Range(0, 50)
+            .Select(i => CreateEntry(
+                $"dotnet build --project p{i}",
+                executedAt: DateTimeOffset.Parse("2026-03-01T12:00:00+00:00").AddMinutes(i)))
+            .ToList();
+        history.Add(CreateRemoteEntry("apt update", "other.example", DateTimeOffset.Parse("2026-03-01T13:00:00+00:00")));
+
+        var snippets = new[]
+        {
+            CreateSnippet("Deploy", "./deploy.sh --prod", isPinned: false)
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, snippets, context, maxResults: 60);
+
+        int snippetIndex = IndexOfDisplayText(results, "Deploy");
+        int foreignIndex = IndexOfDisplayText(results, "apt update");
+
+        Assert.Equal(52, results.Count);
+        Assert.Equal(50, snippetIndex);
+        Assert.Equal(51, foreignIndex);
+        Assert.All(
+            results.Take(snippetIndex),
+            row => Assert.Equal(AssistSuggestionType.History, row.Type));
+    }
+
+    private static int IndexOfDisplayText(IReadOnlyList<AssistSuggestion> results, string displayText)
+    {
+        for (int i = 0; i < results.Count; i++)
+        {
+            if (string.Equals(results[i].DisplayText, displayText, StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+
+        Assert.Fail($"'{displayText}' is not in the list at all: [{string.Join(", ", results.Select(x => x.DisplayText))}]");
+        return -1;
+    }
+
     private static CommandHistoryEntry CreateRemoteEntry(
         string commandText,
         string hostId,
