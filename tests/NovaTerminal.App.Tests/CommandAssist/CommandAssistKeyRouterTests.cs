@@ -100,15 +100,99 @@ public sealed class CommandAssistKeyRouterTests
         Assert.True(owned);
     }
 
+    /// <summary>
+    /// Pin/unpin left the router in V2 Phase 3b. It used to be a clause here on the command palette's
+    /// own chord, so whether Ctrl+Shift+P opened the palette depended on whether an assist row was
+    /// selected; it is a catalogued shortcut dispatched from the window now
+    /// (<c>command_assist_pin</c>), and the router must not claim the palette's key.
+    /// </summary>
     [Fact]
-    public void IsAssistOwnedKey_WhenAssistVisible_ConsumesPinShortcut()
+    public void IsAssistOwnedKey_WhenAssistVisible_LeavesTheCommandPaletteChordAlone()
     {
         bool owned = CommandAssistKeyRouter.IsAssistOwnedKey(
             Visible,
-            AssistKey.P,
+            NovaTerminal.Controls.AssistKeyMapper.ToAssistKey(Avalonia.Input.Key.P),
             AssistModifiers.Control | AssistModifiers.Shift);
 
-        Assert.True(owned);
+        Assert.False(owned);
+    }
+
+    // ------------------------------------------------- exact modifiers, and rebound chords (3b)
+
+    /// <summary>
+    /// Modifiers are matched exactly now. Ctrl+Down and Alt+Up mean something to several line
+    /// editors, and the router used to swallow both because it tested the key and ignored the
+    /// modifiers.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistKey.Down, AssistModifiers.Control)]
+    [InlineData(AssistKey.Up, AssistModifiers.Alt)]
+    [InlineData(AssistKey.Escape, AssistModifiers.Shift)]
+    public void IsAssistOwnedKey_WithAModifiedNavigationKey_LeavesItToTheShell(
+        AssistKey key,
+        AssistModifiers modifiers)
+    {
+        bool owned = CommandAssistKeyRouter.IsAssistOwnedKey(Visible, key, modifiers);
+
+        Assert.False(owned);
+    }
+
+    /// <summary>The resolved action is what the host acts on, so it is worth pinning per key.</summary>
+    [Fact]
+    public void Resolve_WithDefaultBindings_MapsEachKeyToItsAction()
+    {
+        Assert.Equal(
+            AssistKeyAction.Dismiss,
+            CommandAssistKeyRouter.Resolve(Visible, AssistKey.Escape, AssistModifiers.None));
+        Assert.Equal(
+            AssistKeyAction.SelectionDown,
+            CommandAssistKeyRouter.Resolve(Visible, AssistKey.Down, AssistModifiers.None));
+        Assert.Equal(
+            AssistKeyAction.SelectionUp,
+            CommandAssistKeyRouter.Resolve(Visible, AssistKey.Up, AssistModifiers.None));
+        Assert.Equal(
+            AssistKeyAction.Insert,
+            CommandAssistKeyRouter.Resolve(Visible, AssistKey.Enter, AssistModifiers.Control));
+        Assert.Equal(
+            AssistKeyAction.Accept,
+            CommandAssistKeyRouter.Resolve(Browsing, AssistKey.Enter, AssistModifiers.None));
+    }
+
+    /// <summary>
+    /// A rebind moves the behavior with it: swap dismiss onto Ctrl+Escape and plain Escape goes back
+    /// to the shell.
+    /// </summary>
+    [Fact]
+    public void Resolve_WithARebindingOfDismiss_FollowsTheNewChord()
+    {
+        AssistKeyBindings rebound = AssistKeyBindings.Default with
+        {
+            Dismiss = new AssistKeyBinding(AssistKey.Escape, AssistModifiers.Control)
+        };
+
+        Assert.Equal(
+            AssistKeyAction.Dismiss,
+            CommandAssistKeyRouter.Resolve(Visible, AssistKey.Escape, AssistModifiers.Control, rebound));
+        Assert.Equal(
+            AssistKeyAction.None,
+            CommandAssistKeyRouter.Resolve(Visible, AssistKey.Escape, AssistModifiers.None, rebound));
+    }
+
+    /// <summary>
+    /// A binding whose key is <see cref="AssistKey.None"/> - what every key the assist does not model
+    /// maps to - must match nothing. Matching everything is the failure mode this guards.
+    /// </summary>
+    [Fact]
+    public void Resolve_WithAnUnrepresentableBinding_MatchesNothing()
+    {
+        AssistKeyBindings broken = AssistKeyBindings.Default with
+        {
+            Dismiss = new AssistKeyBinding(AssistKey.None, AssistModifiers.None)
+        };
+
+        Assert.Equal(
+            AssistKeyAction.None,
+            CommandAssistKeyRouter.Resolve(Visible, AssistKey.None, AssistModifiers.None, broken));
     }
 
     [Theory]

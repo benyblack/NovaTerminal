@@ -7,7 +7,11 @@ namespace NovaTerminal.CommandAssist.ViewModels;
 
 public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 {
-    /// <summary>Shown while a row is selected in an open popup, where <c>Enter</c> inserts it.</summary>
+    /// <summary>
+    /// Shown while a row is selected in an open popup, where <c>Enter</c> inserts it, with the default
+    /// keyboard. Kept as a constant because it is the string the shipped defaults must still produce -
+    /// see <see cref="BuildHintText"/>.
+    /// </summary>
     internal const string BrowseHintText = "Enter insert  |  Up/Down browse  |  Esc close";
 
     /// <summary>
@@ -28,6 +32,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     /// </remarks>
     internal const string PassiveHintText = "Down browse  |  Ctrl+Enter insert  |  Esc close";
 
+    private AssistShortcutHintLabels _shortcutHintLabels = AssistShortcutHintLabels.Default;
     private bool _isVisible;
     private string _modeLabel = "Suggest";
     private string _queryText = string.Empty;
@@ -81,6 +86,27 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
     /// <summary>Whether the hint strip is currently promising <c>Enter</c>. Presentation state, so it follows the probe.</summary>
     public bool IsAcceptOnEnterArmed { get; private set; }
+
+    /// <summary>
+    /// The key names the hint strip renders. Set by the host from the shortcut catalogue; defaults to
+    /// the shipped keyboard.
+    /// </summary>
+    public AssistShortcutHintLabels ShortcutHintLabels
+    {
+        get => _shortcutHintLabels;
+        set
+        {
+            AssistShortcutHintLabels next = value ?? AssistShortcutHintLabels.Default;
+            if (_shortcutHintLabels == next)
+            {
+                return;
+            }
+
+            _shortcutHintLabels = next;
+            OnPropertyChanged();
+            SyncPresentationState();
+        }
+    }
 
     public bool IsVisible
     {
@@ -294,11 +320,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         }
 
         bool isSelectionUpOwned = SelectionUpOwnedProbe?.Invoke() ?? true;
-        string hintText = acceptOnEnterArmed
-            ? BrowseHintText
-            : isSelectionUpOwned
-                ? IdleHintText
-                : PassiveHintText;
+        string hintText = BuildHintText(acceptOnEnterArmed, isSelectionUpOwned);
 
         Bubble.IsVisible = IsVisible;
         Bubble.ModeLabel = ModeLabel;
@@ -320,6 +342,29 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         Popup.EmptyStateText = EmptyStateText;
         Popup.HasSuggestions = HasSuggestions;
         Popup.ShowEmptyState = ShowEmptyState;
+    }
+
+    /// <summary>
+    /// Renders the hint strip for the current state out of the current key names.
+    /// </summary>
+    /// <remarks>
+    /// Three states, unchanged from Phase 3a - browsing a row, a summoned surface that is not browsing,
+    /// and the passive bubble that owns only one arrow - with the key names now variable. With
+    /// <see cref="AssistShortcutHintLabels.Default"/> each branch produces its constant verbatim, which
+    /// is the property the tests pin.
+    /// </remarks>
+    private string BuildHintText(bool acceptOnEnterArmed, bool isSelectionUpOwned)
+    {
+        AssistShortcutHintLabels labels = _shortcutHintLabels;
+
+        if (acceptOnEnterArmed)
+        {
+            return $"{labels.Accept} insert  |  {labels.SelectionUp}/{labels.SelectionDown} browse  |  {labels.Dismiss} close";
+        }
+
+        return isSelectionUpOwned
+            ? $"{labels.SelectionUp}/{labels.SelectionDown} browse  |  {labels.Insert} insert  |  {labels.Dismiss} close"
+            : $"{labels.SelectionDown} browse  |  {labels.Insert} insert  |  {labels.Dismiss} close";
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

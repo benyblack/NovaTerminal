@@ -37,6 +37,57 @@ public sealed class TerminalPaneCommandAssistShortcutTests
         Assert.False(handled);
     }
 
+    /// <summary>
+    /// V2 Phase 3b task 3: history capture off no longer takes the feature down with it. Before the
+    /// decoupling this pane refused every Command Assist entry point, so a user who did not want their
+    /// commands recorded also lost Help, Fix and path suggestions.
+    /// </summary>
+    [AvaloniaFact]
+    public void ToggleCommandAssist_WithHistoryDisabled_StillOpensTheAssist()
+    {
+        using var pane = new TerminalPane();
+        pane.CommandAssistServices = TestCommandAssistServices.Instance;
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
+        settings.CommandAssistEnabled = true;
+        settings.CommandAssistHistoryEnabled = false;
+        pane.ApplySettings(settings);
+
+        pane.ToggleCommandAssist();
+
+        Assert.True(pane.CommandAssistViewModel?.IsVisible);
+    }
+
+    /// <summary>And the master flag still gates everything, which is what makes it the master flag.</summary>
+    [AvaloniaFact]
+    public void ToggleCommandAssist_WithTheMasterFlagOff_OpensNothing()
+    {
+        using var pane = new TerminalPane();
+        pane.CommandAssistServices = TestCommandAssistServices.Instance;
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
+        settings.CommandAssistEnabled = false;
+        settings.CommandAssistHistoryEnabled = true;
+        pane.ApplySettings(settings);
+
+        pane.ToggleCommandAssist();
+
+        Assert.False(pane.CommandAssistViewModel?.IsVisible ?? false);
+    }
+
+    /// <summary>
+    /// The pin shortcut no longer routes through the key router (V2 Phase 3b), so its refusal path is
+    /// worth pinning at the pane: with the feature off it declines rather than throwing or consuming.
+    /// </summary>
+    [AvaloniaFact]
+    public void TryToggleCommandAssistPinShortcut_WhenTheFeatureIsOff_ReturnsFalse()
+    {
+        using var pane = new TerminalPane();
+        var settings = new TerminalSettings(); // constructed, not Load() - see #232
+        settings.CommandAssistEnabled = false;
+        pane.ApplySettings(settings);
+
+        Assert.False(pane.TryToggleCommandAssistPinShortcut());
+    }
+
     [AvaloniaFact]
     public void TryHandleCommandAssistKey_WhenAssistVisible_DoesNotConsumeTab()
     {

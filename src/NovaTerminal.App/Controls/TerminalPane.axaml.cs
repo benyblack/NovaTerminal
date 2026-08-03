@@ -131,6 +131,13 @@ namespace NovaTerminal.Controls
         private string? _pendingEscapedPath;
         private CommandAssistController? _commandAssistController;
         private CommandAssistServices? _commandAssistServices;
+
+        /// <summary>
+        /// The in-surface Command Assist chords, resolved from the shortcut catalogue plus the user's
+        /// overrides. Replaced whenever settings are applied; defaults until then.
+        /// </summary>
+        private AssistKeyBindings _commandAssistKeyBindings = AssistKeyBindings.Default;
+
         private ShellLifecycleTracker? _shellLifecycleTracker;
 
         /// <summary>
@@ -998,6 +1005,7 @@ namespace NovaTerminal.Controls
             {
                 BindCommandAssistViews(_commandAssistController.ViewModel);
 
+                ApplyCommandAssistFeaturePolicy(_commandAssistController);
                 _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
                 UpdateCommandAssistContext();
                 return;
@@ -1041,8 +1049,39 @@ namespace NovaTerminal.Controls
 
             BindCommandAssistViews(_commandAssistController.ViewModel);
 
+            ApplyCommandAssistFeaturePolicy(_commandAssistController);
             _commandAssistController.HandleAltScreenChanged(Buffer?.IsAltScreenActive ?? false);
             UpdateCommandAssistContext();
+        }
+
+        /// <summary>
+        /// Pushes the two Command Assist sub-settings and the resolved in-surface keyboard into the
+        /// controller.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Called from both <see cref="InitializeCommandAssist"/> paths, so a settings change reaches an
+        /// already-live controller as well as a fresh one - <c>ApplySettings</c> routes through the same
+        /// method. Everything here is a re-application of current state rather than an event, so calling
+        /// it more often than necessary is free.
+        /// </para>
+        /// <para>
+        /// The bindings are cached in <see cref="_commandAssistKeyBindings"/> because the key router
+        /// consults them on every keystroke and re-resolving would mean re-parsing chord strings in the
+        /// hottest path in the feature.
+        /// </para>
+        /// </remarks>
+        private void ApplyCommandAssistFeaturePolicy(CommandAssistController controller)
+        {
+            TerminalSettings? settings = _settings;
+
+            controller.SetFeaturePolicy(
+                isHistoryEnabled: settings?.CommandAssistHistoryEnabled ?? true,
+                isPassiveBubbleEnabled: settings?.CommandAssistPassiveBubbleEnabled ?? true);
+
+            AssistShortcutBindings bindings = AssistShortcutBindingResolver.Resolve(settings?.Keybindings);
+            _commandAssistKeyBindings = bindings.Keys;
+            controller.SetShortcutHintLabels(bindings.HintLabels);
         }
 
         /// <summary>
@@ -1156,10 +1195,22 @@ namespace NovaTerminal.Controls
             }
         }
 
+        /// <summary>
+        /// Whether Command Assist runs in this pane at all.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>The master flag alone, since V2 Phase 3b (task 3).</strong> This used to require
+        /// <c>CommandAssistHistoryEnabled</c> as well, which made a privacy preference into a second
+        /// master switch: a user who turned command capture off lost the bubble, the popup, path
+        /// suggestions, Help and Fix - none of which read the history file. The history flag now gates
+        /// exactly capture and history-sourced suggestions, inside the assist assembly
+        /// (<c>AssistSessionContext.IsHistoryEnabled</c>), where both consumers live.
+        /// </para>
+        /// </remarks>
         private bool IsCommandAssistFeatureEnabled()
         {
-            return _settings?.CommandAssistEnabled == true &&
-                   _settings.CommandAssistHistoryEnabled;
+            return _settings?.CommandAssistEnabled == true;
         }
 
         // When this returns true the controller is guaranteed non-null; the attribute lets
@@ -2099,79 +2150,96 @@ namespace NovaTerminal.Controls
                 IsSurfaceVisible: controller?.ViewModel.IsVisible == true,
                 IsAcceptOnEnterArmed: controller?.IsAcceptOnEnterArmed == true,
                 IsSelectionUpOwned: controller?.IsSelectionUpOwned == true);
-            if (!CommandAssistKeyRouter.IsAssistOwnedKey(
-                    keyState,
-                    AssistKeyMapper.ToAssistKey(key),
-                    AssistKeyMapper.ToAssistModifiers(modifiers)))
+
+            // One resolution, one switch. Phase 3a asked the router "is this ours?" and then repeated
+            // the whole key cascade here to find out which of ours it was; with the chords rebindable
+            // (V2 Phase 3b) that repetition would be a second binding table, and the two would drift the
+            // first time someone changed one of them.
+            AssistKeyAction action = CommandAssistKeyRouter.Resolve(
+                keyState,
+                AssistKeyMapper.ToAssistKey(key),
+                AssistKeyMapper.ToAssistModifiers(modifiers),
+                _commandAssistKeyBindings);
+
+            switch (action)
+            {
+                case AssistKeyAction.Dismiss:
+                    controller?.HandleEscape();
+                    return true;
+
+                // Accept (V2 Phase 3a). The router only says yes here while the popup is open with a row
+                // selected *and the overlay is rendered*, so neither the typing flow nor a surface this
+                // pane has hidden or dimmed reaches this branch.
+                //
+                // The return value is the insertion's, not `true`, and that is the important part: when
+                // insertion refuses - a poisoned markless line, an unechoed keystroke, a cursor mid-line -
+                // the key falls through to the shell and submits, exactly as it did before this branch
+                // existed. Consuming it instead would turn a refusal into a dead key, which is a strictly
+                // worse answer than the pre-Phase-3a behavior the user is used to.
+                case AssistKeyAction.Accept:
+                    return TryInsertSelectedCommandAssistSuggestion();
+
+                case AssistKeyAction.SelectionDown:
+                    controller?.MoveSelectionDown();
+                    return true;
+
+                // Only reached when the router granted Up to the assist - an open popup, or a surface the
+                // user summoned. In the passive states Up is never routed here at all, so the shell keeps
+                // its history recall (PR #290 review).
+                case AssistKeyAction.SelectionUp:
+                    controller?.MoveSelectionUp();
+                    return true;
+
+                // Unlike Accept this consumes the key whether the insertion happened or not: the insert
+                // chord has no shell meaning to fall through to.
+                case AssistKeyAction.Insert:
+                    TryInsertSelectedCommandAssistSuggestion();
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// The catalogued pin/unpin shortcut fired. Toggles the selected row's snippet pin.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// No longer a call into <see cref="TryRouteCommandAssistKey"/>. Until V2 Phase 3b the pin chord
+        /// was <c>Ctrl+Shift+P</c> - the command palette's - and it was routed as an assist key so that
+        /// <c>MainWindow</c> could try the pin, watch it decline, and open the palette instead. That made
+        /// "does Ctrl+Shift+P open the command palette" depend on whether an assist row happened to be
+        /// selected. Pin has its own catalogue entry now (<c>command_assist_pin</c>), so it arrives here
+        /// as itself and the palette owns its chord unconditionally.
+        /// </para>
+        /// <para>
+        /// Routing it from the window rather than through <c>AssistKey</c> also means it can be rebound to
+        /// any chord at all, instead of the five keys the assist assembly's key vocabulary models.
+        /// </para>
+        /// <para>
+        /// Returns false rather than consuming the key when there is nothing to pin, so an unusable
+        /// shortcut is not a dead key. Nothing was sent to the shell either way: this arrives from the
+        /// window's handler on a chord <c>TerminalView</c> left unhandled.
+        /// </para>
+        /// </remarks>
+        public bool TryToggleCommandAssistPinShortcut()
+        {
+            if (!IsCommandAssistFeatureEnabled())
             {
                 return false;
             }
 
-            bool isCtrl = (modifiers & KeyModifiers.Control) != 0;
-            bool isShift = (modifiers & KeyModifiers.Shift) != 0;
-            bool isAlt = (modifiers & KeyModifiers.Alt) != 0;
-
-            if (key == Key.Escape)
+            CommandAssistController? controller = _commandAssistController;
+            if (controller == null ||
+                !controller.ViewModel.IsVisible ||
+                !controller.CanTogglePinSelection())
             {
-                controller?.HandleEscape();
-                return true;
+                return false;
             }
 
-            // Accept-on-Enter (V2 Phase 3a). The router only says yes here while the popup is open with
-            // a row selected *and the overlay is rendered*, so neither the typing flow nor a surface this
-            // pane has hidden or dimmed reaches this branch.
-            //
-            // The return value is the insertion's, not `true`, and that is the important part: when
-            // insertion refuses - a poisoned markless line, an unechoed keystroke, a cursor mid-line -
-            // Enter falls through to the shell and submits, exactly as it did before this branch
-            // existed. Consuming it instead would turn a refusal into a dead key, which is a strictly
-            // worse answer than the pre-Phase-3a behavior the user is used to.
-            if (key == Key.Enter && modifiers == KeyModifiers.None)
-            {
-                return TryInsertSelectedCommandAssistSuggestion();
-            }
-
-            if (key == Key.Down)
-            {
-                controller?.MoveSelectionDown();
-                return true;
-            }
-
-            // Only reached when the router granted Up to the assist - an open popup, or a surface the user
-            // summoned. In the passive states Up is never routed here at all, so the shell keeps its
-            // history recall (PR #290 review).
-            if (key == Key.Up)
-            {
-                controller?.MoveSelectionUp();
-                return true;
-            }
-
-            if (isCtrl && !isShift && !isAlt && key == Key.Enter)
-            {
-                TryInsertSelectedCommandAssistSuggestion();
-                return true;
-            }
-
-            if (isCtrl && isShift && key == Key.P)
-            {
-                if (controller == null || !controller.CanTogglePinSelection())
-                {
-                    return false;
-                }
-
-                _ = controller.TogglePinSelectionAsync();
-                return true;
-            }
-
-            return false;
-        }
-
-        public bool TryToggleCommandAssistPinShortcut()
-        {
-            // Routes without observing: this arrives from the window's shortcut handler, which sees
-            // the key before TerminalView does, so nothing was ever sent to the shell whether the
-            // pin toggles or not.
-            return TryRouteCommandAssistKey(Key.P, KeyModifiers.Control | KeyModifiers.Shift);
+            _ = controller.TogglePinSelectionAsync();
+            return true;
         }
 
         /// <summary>
@@ -2916,7 +2984,7 @@ namespace NovaTerminal.Controls
                 CommandAssistEnabled = settings.CommandAssistEnabled,
                 CommandAssistHistoryEnabled = settings.CommandAssistHistoryEnabled,
                 CommandAssistMaxHistoryEntries = settings.CommandAssistMaxHistoryEntries,
-                CommandAssistAutoHideInAltScreen = settings.CommandAssistAutoHideInAltScreen,
+                CommandAssistPassiveBubbleEnabled = settings.CommandAssistPassiveBubbleEnabled,
                 CommandAssistShellIntegrationEnabled = settings.CommandAssistShellIntegrationEnabled,
                 CommandAssistPowerShellIntegrationEnabled = settings.CommandAssistPowerShellIntegrationEnabled,
                 Profiles = settings.Profiles,

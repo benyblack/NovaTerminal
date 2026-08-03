@@ -68,7 +68,9 @@ public sealed class CommandAssistController
         CommandAssistResultBuilder? resultBuilder,
         Func<AssistQuerySnapshot?>? queryProvider = null,
         Func<bool>? renderedSurfaceProbe = null,
-        Action<Action>? dispatch = null)
+        Action<Action>? dispatch = null,
+        TimeSpan? passiveRefreshDebounce = null,
+        Func<TimeSpan, CancellationToken, Task>? refreshDelay = null)
     {
         HistoryStore = historyStore;
         SecretsFilter = secretsFilter;
@@ -104,7 +106,9 @@ public sealed class CommandAssistController
             // than throwing keeps every non-App host (tests, the MCP surface) on the honest path.
             queryProvider ?? (() => null),
             _dispatch,
-            ApplyRefreshOutcome);
+            ApplyRefreshOutcome,
+            passiveRefreshDebounce,
+            refreshDelay);
     }
 
     public IHistoryStore HistoryStore { get; }
@@ -264,11 +268,22 @@ public sealed class CommandAssistController
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
 
+        // Escape on this command line means the passive bubble stays down until the line is
+        // submitted, so a keystroke after it must not put the surface back up - not even the rows
+        // that were already ranked. See AssistSessionStateMachine.IsPassiveSurfaceSuppressed.
+        if (!_state.AllowsPassiveSuggestions)
+        {
+            _suggestionOrchestrator.CancelPending();
+            ViewModel.IsVisible = false;
+            ClearSuggestionSurface();
+            return;
+        }
+
         // Visibility follows the rows that are already up, not the rows this refresh will produce.
         // Setting it true here and false when the pass lands is the flash that #232's predecessor
         // shipped; the pass sets it for real in ApplyRefreshOutcome.
         ViewModel.IsVisible = ViewModel.HasSuggestions;
-        QueueRefreshSuggestions();
+        QueueRefreshSuggestions(isTypingTriggered: true);
     }
 
     /// <summary>
@@ -287,8 +302,20 @@ public sealed class CommandAssistController
         _state.ObservePastedText();
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
+
+        if (!_state.AllowsPassiveSuggestions)
+        {
+            _suggestionOrchestrator.CancelPending();
+            ViewModel.IsVisible = false;
+            ClearSuggestionSurface();
+            return;
+        }
+
         ViewModel.IsVisible = !_context.IsAltScreenActive && ViewModel.HasSuggestions;
-        QueueRefreshSuggestions();
+
+        // Debounced like typing rather than treated as an explicit action: a paste is a line edit, a
+        // multi-line paste arrives as several of them, and the user did not ask for a surface.
+        QueueRefreshSuggestions(isTypingTriggered: true);
     }
 
     /// <summary>
@@ -367,6 +394,34 @@ public sealed class CommandAssistController
         _context.SetShellIntegrationEnabled(isEnabled);
     }
 
+    /// <summary>
+    /// Applies the two Command Assist sub-settings: whether history is in play at all, and whether the
+    /// passive typing bubble may draw on it.
+    /// </summary>
+    /// <remarks>
+    /// Called from the host whenever settings are applied, including the first initialization. Neither
+    /// flag gates the feature - see <see cref="AssistSessionContext.IsHistoryEnabled"/> for what
+    /// changed in V2 Phase 3b and why.
+    /// </remarks>
+    public void SetFeaturePolicy(bool isHistoryEnabled, bool isPassiveBubbleEnabled)
+    {
+        _context.SetFeaturePolicy(isHistoryEnabled, isPassiveBubbleEnabled);
+    }
+
+    /// <summary>
+    /// Replaces the key names the hint strip renders, so a rebound shortcut is advertised correctly.
+    /// </summary>
+    /// <remarks>
+    /// The labels come from the App's shortcut catalogue, which this assembly cannot see (it must not
+    /// reference Avalonia, and the catalogue's bindings are <c>Avalonia.Input</c> chords). So the host
+    /// resolves them and pushes them here; the defaults reproduce the shipped strings exactly, which is
+    /// what a controller with no host - a test, the MCP surface - keeps showing.
+    /// </remarks>
+    public void SetShortcutHintLabels(AssistShortcutHintLabels labels)
+    {
+        ViewModel.ShortcutHintLabels = labels;
+    }
+
     public void Dismiss()
     {
         _suggestionOrchestrator.CancelPending();
@@ -376,6 +431,23 @@ public sealed class CommandAssistController
         ClearSuggestionSurface();
     }
 
+    /// <summary>
+    /// The user pressed Escape. Takes the surface down, and keeps the passive bubble down for the rest
+    /// of this command line.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The per-command scope is V2 Phase 3b's, and it is what makes the passive bubble dismissible in
+    /// any useful sense: before it, Escape hid a surface the next keystroke rebuilt. Explicit surfaces
+    /// are unaffected - <c>Ctrl+R</c> and <c>Ctrl+Space</c> still open after an Escape - because
+    /// suppression is only consulted for a refresh the user did not ask for.
+    /// </para>
+    /// <para>
+    /// Returns <see langword="false"/> when nothing is on screen, which is how Escape reaches the
+    /// shell (where it means "cancel this line" in every line editor) on an untouched prompt. Note the
+    /// asymmetry that follows: a user who never sees a bubble never suppresses one.
+    /// </para>
+    /// </remarks>
     public bool HandleEscape()
     {
         if (!ViewModel.IsVisible)
@@ -383,7 +455,11 @@ public sealed class CommandAssistController
             return false;
         }
 
-        Dismiss();
+        _suggestionOrchestrator.CancelPending();
+        _state.DismissForCurrentCommand();
+        ViewModel.IsVisible = false;
+        ViewModel.IsPopupOpen = false;
+        ClearSuggestionSurface();
         return true;
     }
 
@@ -664,14 +740,14 @@ public sealed class CommandAssistController
         ClearSuggestionSurface();
     }
 
-    private void QueueRefreshSuggestions()
+    private void QueueRefreshSuggestions(bool isTypingTriggered = false)
     {
-        if (!_state.AllowsSuggestionRefresh)
+        if (!_state.AllowsSuggestionRefresh || !_state.AllowsPassiveSuggestions)
         {
             return;
         }
 
-        _suggestionOrchestrator.Refresh(_state.Mode, _state.IsExplicitSession);
+        _suggestionOrchestrator.Refresh(_state.Mode, _state.IsExplicitSession, isTypingTriggered);
     }
 
     /// <summary>

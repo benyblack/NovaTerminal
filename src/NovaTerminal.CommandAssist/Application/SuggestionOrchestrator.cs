@@ -27,13 +27,31 @@ namespace NovaTerminal.CommandAssist.Application;
 /// taken per written character, so a read racing a prompt repaint (<c>\r</c>, erase-to-end, reprint)
 /// can legitimately observe a half-erased line. Reading inside the pass puts the read behind the
 /// queue hop the refresh already makes, and the per-pass cancellation below means that when several
-/// keystrokes arrive together only the last pass's read is applied. That is coalescing by
-/// supersession, not by timing: there is deliberately no debounce here, because a debounce is a
-/// policy decision and Phase 3 owns it.
+/// keystrokes arrive together only the last pass's read is applied.
 /// </para>
 /// <para>
-/// The remaining window is honest and small: a pass whose read beats the shell's echo of the last
-/// character ranks a one-character-stale query until the next trigger. Phase 3's debounce closes it.
+/// <strong>The debounce (V2 Phase 3b, task 1).</strong> Phase 0c deferred it here deliberately -
+/// "the debounce is a policy decision and Phase 3 owns it" - and Phase 3b is where the policy
+/// arrives, because the passive bubble makes the cost of a per-keystroke pass user-visible for the
+/// first time. A typing-triggered pass now waits
+/// <see cref="DefaultPassiveRefreshDebounce"/> before doing any work; the next keystroke cancels it
+/// through the same <see cref="CancellationTokenSource"/> that already handled supersession, so a
+/// burst of <em>n</em> keystrokes costs one grid read, one store recall and one ranking pass rather
+/// than <em>n</em> of each.
+/// </para>
+/// <para>
+/// It also closes the echo race that <c>CommandAssist_ShellIntegration_Gaps.md</c> documents as the
+/// residual staleness (#286): the pass whose read beat the shell's echo of the last character was
+/// racing that echo by microseconds, and 75 ms is several orders of magnitude more than a local echo
+/// needs. The window is *narrowed to near-zero rather than closed*, and the distinction is worth
+/// keeping honest - a remote shell whose echo takes longer than the debounce can still be read one
+/// character stale, and insertion still refuses on <c>TerminalPane._hasUnechoedInput</c> rather than
+/// trusting the delay. What is gone is the every-keystroke-is-a-race property.
+/// </para>
+/// <para>
+/// Explicit passes are <em>not</em> debounced. <c>Ctrl+R</c>, <c>Ctrl+Space</c> and a pin toggle are
+/// single user actions with nothing to coalesce, and 75 ms of nothing after a keypress the user
+/// meant is exactly the latency the debounce exists to avoid spending.
 /// </para>
 /// <para>
 /// Staleness is handled with a <see cref="CancellationTokenSource"/> per pass: queueing a refresh
@@ -84,6 +102,37 @@ internal sealed class SuggestionOrchestrator
     /// </remarks>
     private const int HistoryCandidatePoolSize = 200;
 
+    /// <summary>
+    /// How long a typing-triggered pass waits before doing any work, so that a burst of keystrokes
+    /// produces one ranking pass rather than one per character.
+    /// </summary>
+    /// <remarks>
+    /// 75 ms is the design doc's figure (Pillar 4). It sits below the ~100 ms at which a response
+    /// stops feeling immediate and far above the microseconds a local shell needs to echo, which is
+    /// what makes it useful for the echo race as well as for the allocation count.
+    /// </remarks>
+    public static readonly TimeSpan DefaultPassiveRefreshDebounce = TimeSpan.FromMilliseconds(75);
+
+    /// <summary>
+    /// How many characters the user has to have typed before an unasked-for bubble appears.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The design doc's "after >= 2 typed characters". One character is not enough evidence of intent
+    /// to justify a surface: at one character the ranked top-1 is essentially "the command you run
+    /// most often that starts with that letter", which is noise dressed as a suggestion, and every
+    /// prompt in an interactive session would grow a bubble the moment it was touched.
+    /// </para>
+    /// <para>
+    /// Measured on the query the pass reads off the grid, not on a keystroke count, which is the same
+    /// reason the pass owns the query at all: a line reached by <c>Ctrl+U</c>, a history recall or a
+    /// Tab completion has a length the keystrokes never described. It applies to the passive path
+    /// only - an explicit <c>Ctrl+Space</c> on an empty line is a request for the recency list and
+    /// gets it.
+    /// </para>
+    /// </remarks>
+    public const int MinPassiveQueryLength = 2;
+
     private readonly IHistoryStore _historyStore;
     private readonly ISnippetStore? _snippetStore;
     private readonly ISuggestionEngine _suggestionEngine;
@@ -91,6 +140,8 @@ internal sealed class SuggestionOrchestrator
     private readonly Func<AssistQuerySnapshot?> _queryProvider;
     private readonly Action<Action> _dispatch;
     private readonly Action<SuggestionRefreshOutcome> _applyOutcome;
+    private readonly TimeSpan _passiveRefreshDebounce;
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
 
     private CancellationTokenSource? _refreshCts;
 
@@ -101,7 +152,9 @@ internal sealed class SuggestionOrchestrator
         AssistSessionContext context,
         Func<AssistQuerySnapshot?> queryProvider,
         Action<Action> dispatch,
-        Action<SuggestionRefreshOutcome> applyOutcome)
+        Action<SuggestionRefreshOutcome> applyOutcome,
+        TimeSpan? passiveRefreshDebounce = null,
+        Func<TimeSpan, CancellationToken, Task>? delay = null)
     {
         _historyStore = historyStore;
         _snippetStore = snippetStore;
@@ -110,17 +163,27 @@ internal sealed class SuggestionOrchestrator
         _queryProvider = queryProvider;
         _dispatch = dispatch;
         _applyOutcome = applyOutcome;
+        _passiveRefreshDebounce = passiveRefreshDebounce ?? DefaultPassiveRefreshDebounce;
+
+        // Injected so a test can assert the coalescing without spending wall-clock time on it, and
+        // so the "no debounce" behavior stays reachable for the mutation check. Task.Delay is the
+        // only production implementation.
+        _delay = delay ?? ((duration, token) => Task.Delay(duration, token));
     }
 
     /// <summary>
     /// Queues a ranking pass, superseding any pass still in flight. Returns immediately; the pass
     /// resolves its own query and the outcome arrives through the dispatcher.
     /// </summary>
-    public void Refresh(CommandAssistMode requestedMode, bool isExplicitSession)
+    /// <param name="isTypingTriggered">
+    /// Whether this pass was queued by a keystroke rather than by a user action that names a surface.
+    /// Typing-triggered passes are debounced and gated on <see cref="MinPassiveQueryLength"/>.
+    /// </param>
+    public void Refresh(CommandAssistMode requestedMode, bool isExplicitSession, bool isTypingTriggered = false)
     {
         CancellationToken token = BeginPass();
         SuggestionScope scope = ResolveScope(requestedMode, isExplicitSession);
-        _ = RunPassAsync(scope, requestedMode, token);
+        _ = RunPassAsync(scope, requestedMode, isExplicitSession, isTypingTriggered, token);
     }
 
     /// <summary>
@@ -183,6 +246,8 @@ internal sealed class SuggestionOrchestrator
     private async Task RunPassAsync(
         SuggestionScope scope,
         CommandAssistMode requestedMode,
+        bool isExplicitSession,
+        bool isTypingTriggered,
         CancellationToken token)
     {
         // The query is resolved *inside* the worker, not here. Refresh() is called straight off the
@@ -190,6 +255,25 @@ internal sealed class SuggestionOrchestrator
         // which is exactly the mid-repaint read this design exists to avoid. Recorded outside the
         // lambda so the catch below and the outcome can both see whatever the pass managed to read.
         string query = string.Empty;
+
+        if (isTypingTriggered && _passiveRefreshDebounce > TimeSpan.Zero)
+        {
+            try
+            {
+                await _delay(_passiveRefreshDebounce, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Superseded by a later keystroke. This is the whole point of the debounce and not a
+                // fault: publishing anything here - even an empty outcome - would undo the coalescing.
+                return;
+            }
+
+            if (token.IsCancellationRequested)
+            {
+                return;
+            }
+        }
 
         try
         {
@@ -199,6 +283,15 @@ internal sealed class SuggestionOrchestrator
                 // explicit Search falls back to the recency list and everything prefix-dependent
                 // finds nothing to work with. That is the intent, not a gap.
                 query = TryReadQuery()?.Text ?? string.Empty;
+
+                // The >= 2 characters rule. Checked after the read and before any store or engine
+                // work, so a one-character line costs a grid read and nothing else - and publishes an
+                // empty outcome rather than returning, because a bubble ranked from three characters
+                // has to disappear when the user backspaces down to one.
+                if (IsBelowPassiveQueryFloor(requestedMode, isExplicitSession, query))
+                {
+                    return (IReadOnlyList<AssistSuggestion>)Array.Empty<AssistSuggestion>();
+                }
 
                 var queryContext = new CommandAssistQueryContext(
                     query,
@@ -252,27 +345,70 @@ internal sealed class SuggestionOrchestrator
     }
 
     /// <summary>
+    /// Whether a typing-triggered passive pass has too little to work with to justify a surface.
+    /// </summary>
+    private static bool IsBelowPassiveQueryFloor(
+        CommandAssistMode requestedMode,
+        bool isExplicitSession,
+        string query)
+    {
+        return requestedMode == CommandAssistMode.Suggest &&
+               !isExplicitSession &&
+               query.Length < MinPassiveQueryLength;
+    }
+
+    /// <summary>
     /// Which suggestion sources the current session is allowed to draw on.
     /// </summary>
     /// <remarks>
-    /// History search is history-only. An explicit Suggest session gets everything. A passive Suggest
-    /// bubble - one the user never asked for - gets paths only: unasked-for history rows were the
-    /// noisiest part of V1. Help and Fix rank nothing.
+    /// <para>
+    /// History search is history-only. An explicit Suggest session gets everything. Help and Fix rank
+    /// nothing.
+    /// </para>
+    /// <para>
+    /// <strong>The passive Suggest scope is a deliberate policy reversal (V2 Phase 3b, task 1).</strong>
+    /// It used to be paths-only, and the argument in this file was "unasked-for history rows were the
+    /// noisiest part of V1". That is the M4.3 quiet-by-default policy, and the V2 design doc reverses
+    /// it on purpose: paths-only means the bubble is silent in every session where the user is typing a
+    /// command rather than a filename, which is most of them, and a feature that is invisible until you
+    /// already know its shortcuts is the "visible usefulness" problem Phase 3 exists to fix. So the
+    /// passive bubble now ranks history and paths together and shows the top row of the merged list.
+    /// </para>
+    /// <para>
+    /// The noise argument was not wrong, it was answered elsewhere: <see cref="MinPassiveQueryLength"/>
+    /// stops the bubble appearing on a barely-touched line, the debounce stops it flickering per
+    /// keystroke, <c>Escape</c> takes it down for the rest of the command, and
+    /// <see cref="AssistSessionContext.IsPassiveBubbleEnabled"/> is the kill switch that restores this
+    /// exact paths-only behavior for a user who disagrees.
+    /// </para>
+    /// <para>
+    /// Snippets stay out of the passive scope. A pinned snippet is a row the user built by hand, and
+    /// putting it in a one-row bubble competing with a ranked history match makes the bubble's content
+    /// unpredictable for no gain - the popup they pinned it for is one <c>Down</c> away.
+    /// </para>
+    /// <para>
+    /// History is additionally gated on <see cref="AssistSessionContext.IsHistoryEnabled"/> in every
+    /// scope (Phase 3b task 3): with history off there is nothing to recall, and the rest of the
+    /// feature - paths, Help, Fix - keeps working, which is the whole point of decoupling the flags.
+    /// </para>
     /// <para>
     /// Scope is a question about the session, not about the query, so a markless session resolves the
     /// same scopes as an instrumented one. What differs is what the sources do with an empty query:
     /// history returns the recency list (which is what makes explicit <c>Ctrl+R</c> still worth
     /// opening in a degraded session) and the path provider returns nothing, because it needs a
     /// command token and a path-shaped fragment to work from. Degraded passive suggestions are
-    /// therefore empty by construction rather than by a special case.
+    /// therefore empty by construction rather than by a special case - a markless session has no
+    /// query, so it never clears <see cref="MinPassiveQueryLength"/> either.
     /// </para>
     /// </remarks>
-    private static SuggestionScope ResolveScope(CommandAssistMode requestedMode, bool isExplicitSession)
+    private SuggestionScope ResolveScope(CommandAssistMode requestedMode, bool isExplicitSession)
     {
+        bool history = _context.IsHistoryEnabled;
+
         if (requestedMode == CommandAssistMode.Search)
         {
             return new SuggestionScope(
-                IncludeHistory: true,
+                IncludeHistory: history,
                 IncludeSnippets: false,
                 IncludePaths: false);
         }
@@ -280,7 +416,7 @@ internal sealed class SuggestionOrchestrator
         if (requestedMode == CommandAssistMode.Suggest && isExplicitSession)
         {
             return new SuggestionScope(
-                IncludeHistory: true,
+                IncludeHistory: history,
                 IncludeSnippets: true,
                 IncludePaths: true);
         }
@@ -288,7 +424,7 @@ internal sealed class SuggestionOrchestrator
         if (requestedMode == CommandAssistMode.Suggest)
         {
             return new SuggestionScope(
-                IncludeHistory: false,
+                IncludeHistory: history && _context.IsPassiveBubbleEnabled,
                 IncludeSnippets: false,
                 IncludePaths: true);
         }

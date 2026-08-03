@@ -240,8 +240,21 @@ public sealed class CommandAssistControllerTests
         Assert.False(controller.ViewModel.IsVisible);
     }
 
+    /// <summary>
+    /// The V2 Phase 3b policy reversal, pinned at the controller: typing without asking for anything
+    /// now <em>does</em> produce a history row in the bubble.
+    /// </summary>
+    /// <remarks>
+    /// This test used to assert the opposite (<c>Typing_WhenHistoryExistsAndAssistNotExplicit_</c>
+    /// <c>DoesNotShowHistorySuggestions</c>), which was M4.3's quiet-by-default policy. The design doc's
+    /// Pillar 4 reverses it deliberately - a passive path scoped to filesystem completions is silent for
+    /// most commands, which is the "nobody can find this feature" problem Phase 3 exists to fix - and
+    /// the reversal ships with the <c>CommandAssistPassiveBubbleEnabled</c> kill switch that restores
+    /// the old behavior. <c>CommandAssistPassiveBubbleTests</c> covers the switch and the two-character
+    /// floor; this pins the default.
+    /// </remarks>
     [Fact]
-    public async Task Typing_WhenHistoryExistsAndAssistNotExplicit_DoesNotShowHistorySuggestions()
+    public async Task Typing_WhenHistoryExistsAndAssistNotExplicit_ShowsTheTopHistorySuggestion()
     {
         var historyStore = new InMemoryHistoryStore();
         historyStore.Seed(
@@ -257,11 +270,13 @@ public sealed class CommandAssistControllerTests
 
         grid.SetLine("git ");
         controller.NotifyInputActivity();
-        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "git ");
+        await WaitForConditionAsync(() => controller.ViewModel.TopSuggestionText == "git status", timeoutMs: 2000);
 
-        Assert.False(controller.ViewModel.HasSuggestions);
-        Assert.Equal(string.Empty, controller.ViewModel.TopSuggestionText);
-        Assert.Empty(controller.Suggestions);
+        Assert.True(controller.ViewModel.HasSuggestions);
+        Assert.True(controller.ViewModel.IsVisible);
+
+        // Still no popup: the passive path shows one row and waits to be asked for the rest.
+        Assert.False(controller.ViewModel.IsPopupOpen);
     }
 
     [Fact]
@@ -462,35 +477,53 @@ public sealed class CommandAssistControllerTests
     /// <summary>
     /// Submitting normalizes the session back to a passive Suggest bubble, including the mode: the
     /// controller this replaced left the mode field reading <c>Search</c> after a Ctrl+R submission.
-    /// That was unobservable - every reachable follow-up reset the mode before reading it - and the
-    /// normalized behavior is the correct one, so this pins it rather than restoring the stale value.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The observable this test uses changed with V2 Phase 3b, and the old one is worth recording
+    /// because it now passes for the wrong reason. It used to assert that a follow-up keystroke reached
+    /// for no history at all - true when the passive scope was paths-only, and true again in the moment
+    /// after the keystroke now only because the debounce has not elapsed yet. A snippet row is the
+    /// honest discriminator: the explicit Suggest scope includes snippets and the passive one never
+    /// has, so this asks the question the test is named for.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task HandleEnterAsync_AfterHistorySearch_LeavesTheSessionInPassiveSuggestScope()
     {
         var historyStore = new InMemoryHistoryStore();
         historyStore.Seed(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        var snippetStore = new InMemorySnippetStore();
+        snippetStore.Seed(new CommandSnippet(
+            Id: "snippet-1",
+            Name: "Git Status",
+            CommandText: "git status --short",
+            Description: null,
+            ShellKind: "pwsh",
+            WorkingDirectory: @"C:\repo",
+            IsPinned: true,
+            CreatedAt: DateTimeOffset.Parse("2026-03-01T09:00:00+00:00"),
+            LastUsedAt: DateTimeOffset.Parse("2026-03-01T09:30:00+00:00")));
         var grid = new FakeGrid();
-        var controller = CreateController(historyStore, grid: grid);
+        var controller = CreateController(
+            historyStore,
+            snippetStore: snippetStore,
+            suggestionEngine: new CommandAssistSuggestionEngine(new NoPathSuggestionProvider()),
+            grid: grid);
 
         controller.OpenHistorySearch();
         await historyStore.WaitForSearchSettledAsync();
 
         await controller.HandleEnterAsync("git status");
-        int searchesAfterSubmission = historyStore.SearchCount;
 
-        // Follow-up interactions that refresh with a non-empty command line. Search or
-        // explicit-Suggest scope would reach for history; the passive path-only scope this
-        // submission normalized back to must not.
+        // A follow-up keystroke with a non-empty command line. The explicit Suggest scope would offer
+        // the pinned snippet; the passive scope this submission normalized back to must not.
         grid.SetLine("git st");
         controller.NotifyInputActivity();
-        grid.SetLine("git s");
-        controller.NotifyInputActivity();
-        await historyStore.WaitForSearchSettledAsync();
+        await WaitForConditionAsync(() => controller.ViewModel.TopSuggestionText == "git status");
 
-        Assert.Equal(searchesAfterSubmission, historyStore.SearchCount);
-        Assert.Empty(controller.Suggestions);
-        Assert.False(controller.ViewModel.IsVisible);
+        Assert.Equal(AssistSessionState.PassiveBubble, controller.SessionState);
+        Assert.DoesNotContain(controller.Suggestions, row => row.Type == AssistSuggestionType.Snippet);
     }
 
     [Fact]

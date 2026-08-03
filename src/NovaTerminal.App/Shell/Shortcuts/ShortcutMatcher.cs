@@ -31,6 +31,36 @@ public static class ShortcutMatcher
         return e.Key == expected.Key && modifiers == expected.Modifiers;
     }
 
+    /// <summary>
+    /// Parses a binding string into the key and modifiers it names.
+    /// </summary>
+    /// <remarks>
+    /// Exposed for the Command Assist in-surface bindings (V2 Phase 3b), which are consumed by
+    /// <c>CommandAssistKeyRouter</c> inside the pane rather than matched against a
+    /// <see cref="KeyEventArgs"/> here. Shares the parse - and its cache - with
+    /// <see cref="Matches"/> so the two cannot disagree about what a binding string means.
+    /// </remarks>
+    public static bool TryParse(string shortcut, out Key key, out KeyModifiers modifiers)
+    {
+        key = Key.None;
+        modifiers = KeyModifiers.None;
+
+        if (string.IsNullOrWhiteSpace(shortcut))
+        {
+            return false;
+        }
+
+        ParsedShortcut? parsed = ParsedShortcutCache.GetOrAdd(shortcut, ParseShortcut);
+        if (parsed is not ParsedShortcut result)
+        {
+            return false;
+        }
+
+        key = result.Key;
+        modifiers = result.Modifiers;
+        return true;
+    }
+
     private static ParsedShortcut? ParseShortcut(string shortcut)
     {
         try

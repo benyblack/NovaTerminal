@@ -479,7 +479,17 @@ public sealed class CommandAssistGridTruthTests
                 Duration: null));
         }
 
-        public Task SettleAsync() => Task.Delay(60);
+        /// <summary>
+        /// Waits long enough for a typing-triggered pass to have run and published.
+        /// </summary>
+        /// <remarks>
+        /// Comfortably past <c>SuggestionOrchestrator.DefaultPassiveRefreshDebounce</c> (75 ms as of V2
+        /// Phase 3b), which is what this harness gets: it builds a production controller rather than
+        /// injecting a delay. It was 60 ms, which silently became "before the pass starts" the moment
+        /// the debounce landed. Several tests here assert that nothing appeared, and those are the ones
+        /// a too-short settle would pass for the wrong reason.
+        /// </remarks>
+        public Task SettleAsync() => Task.Delay(250);
 
         public Task WaitForQueryAsync(string expected)
             => WaitForConditionAsync(() => Controller.ViewModel.QueryText == expected);

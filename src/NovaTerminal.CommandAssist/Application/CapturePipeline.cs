@@ -106,7 +106,13 @@ internal sealed class CapturePipeline
         try
         {
             string trimmed = submission.Trim();
-            bool shouldPersist = !_context.IsAltScreenActive &&
+
+            // IsHistoryEnabled is the V2 Phase 3b decoupling: with history capture off the rest of
+            // the feature still runs (paths, Help, Fix, the popup), and this pipeline is one of the
+            // exactly two things the flag now gates. Checked here rather than at the call site so
+            // that no caller can write history by forgetting to ask.
+            bool shouldPersist = _context.IsHistoryEnabled &&
+                                 !_context.IsAltScreenActive &&
                                  !_context.IsStructuredCaptureActive &&
                                  !isSubmissionSuppressed &&
                                  !string.IsNullOrWhiteSpace(trimmed) &&
@@ -226,7 +232,10 @@ internal sealed class CapturePipeline
         // IsShellIntegrationLive rather than IsShellIntegrationEnabled: an accepted-command event
         // only reaches here from an armed ShellLifecycleTracker, and since Phase 2b a tracker is
         // armed for remote sessions we could not inject a bootstrap into. The mark is the evidence.
-        if (!_context.IsShellIntegrationLive || _context.IsAltScreenActive)
+        //
+        // IsHistoryEnabled joins them for V2 Phase 3b: the marker observations in the caller are
+        // lifecycle facts and still run with history off, but nothing is written.
+        if (!_context.IsShellIntegrationLive || _context.IsAltScreenActive || !_context.IsHistoryEnabled)
         {
             return;
         }

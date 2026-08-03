@@ -54,6 +54,36 @@ internal sealed class AssistSessionStateMachine
     /// </remarks>
     public bool IsCurrentSubmissionSuppressed { get; private set; }
 
+    /// <summary>
+    /// True when the user dismissed an uninvited surface on this command line, so the passive typing
+    /// bubble stays down until the line is submitted.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>V2 Phase 3b, task 1.</strong> The passive bubble appears without being asked for, so
+    /// Escape has to mean more than "hide it once": without this, the very next keystroke queues a
+    /// passive refresh and the bubble the user just dismissed comes straight back. The design doc's
+    /// Pillar 4 says "Escape hides it for the rest of the command", and this is that scope - cleared
+    /// by <see cref="CompleteSubmission"/> and by nothing else, so the next command line starts
+    /// unsuppressed.
+    /// </para>
+    /// <para>
+    /// Beside the enum rather than in it, for the same reason as
+    /// <see cref="IsCurrentSubmissionSuppressed"/>: it is orthogonal to what the surface is showing
+    /// (a user can dismiss, then summon <c>Ctrl+R</c>, then be back in a suppressed passive state
+    /// afterwards), and folding it into the enum would double the state count.
+    /// </para>
+    /// <para>
+    /// It does not suppress <em>anything the user asks for</em>. <see cref="AllowsPassiveSuggestions"/>
+    /// is the only consumer and it exempts explicit sessions, so <c>Ctrl+Space</c>, <c>Ctrl+R</c>,
+    /// Help and Fix all still open after an Escape - which is what makes a per-command scope safe.
+    /// Distinguishing the two is why <see cref="DismissForCurrentCommand"/> exists separately from
+    /// <see cref="Dismiss"/>: the host tearing a session down, and an accept closing the surface, are
+    /// not the user saying "not on this line".
+    /// </para>
+    /// </remarks>
+    public bool IsPassiveSurfaceSuppressed { get; private set; }
+
     /// <summary>The assist mode implied by the current state.</summary>
     public CommandAssistMode Mode => State switch
     {
@@ -77,6 +107,12 @@ internal sealed class AssistSessionStateMachine
     /// so a refresh queued while they are up is dropped rather than allowed to overwrite them.
     /// </summary>
     public bool AllowsSuggestionRefresh => Mode is CommandAssistMode.Suggest or CommandAssistMode.Search;
+
+    /// <summary>
+    /// Whether a refresh the user did not ask for may run at all. False for the rest of a command
+    /// line the user pressed Escape on; see <see cref="IsPassiveSurfaceSuppressed"/>.
+    /// </summary>
+    public bool AllowsPassiveSuggestions => IsExplicitSession || !IsPassiveSurfaceSuppressed;
 
     /// <summary>
     /// True when the surface on screen is one the user asked for by name, so no placement heuristic
@@ -305,8 +341,23 @@ internal sealed class AssistSessionStateMachine
         };
     }
 
-    /// <summary>Dismisses the surface (Escape, or the host tearing the session down).</summary>
+    /// <summary>Dismisses the surface (the host tearing the session down, or an accept closing it).</summary>
     public void Dismiss() => State = AssistSessionState.Hidden;
+
+    /// <summary>
+    /// The user dismissed the surface with Escape: hide it, and keep the passive bubble down for the
+    /// rest of this command line.
+    /// </summary>
+    /// <remarks>
+    /// Note what this does <em>not</em> clear: <see cref="IsCurrentSubmissionSuppressed"/>. Escaping a
+    /// bubble says nothing about whether the text on the line was pasted, and conflating the two would
+    /// let "paste, Escape, Enter" write a pasted line to history.
+    /// </remarks>
+    public void DismissForCurrentCommand()
+    {
+        IsPassiveSurfaceSuppressed = true;
+        State = AssistSessionState.Hidden;
+    }
 
     /// <summary>The alt screen came up; the surface hides and the session ends.</summary>
     /// <remarks>
@@ -319,12 +370,13 @@ internal sealed class AssistSessionStateMachine
     public void AcceptSelection() => State = AssistSessionState.Hidden;
 
     /// <summary>
-    /// The command line was submitted. Ends the session and clears submission suppression - the next
-    /// line starts clean.
+    /// The command line was submitted. Ends the session and clears both suppressions - the next line
+    /// starts clean.
     /// </summary>
     public void CompleteSubmission()
     {
         IsCurrentSubmissionSuppressed = false;
+        IsPassiveSurfaceSuppressed = false;
         State = AssistSessionState.Hidden;
     }
 }
