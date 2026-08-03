@@ -113,6 +113,88 @@ public sealed class CommandAssistOverlayContentRenderTests
     }
 
     /// <summary>
+    /// The other thing an off-UI-thread initialization can break silently: the rendered-surface probe
+    /// must be answering "yes" by the time the user's <c>Enter</c> arrives.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>CommandAssistController.IsAcceptOnEnterArmed</c> folds in a probe the pane installs during
+    /// <c>InitializeCommandAssist</c> - <c>CommandAssistOverlayHost.IsVisible &amp;&amp; Opacity &gt; 0</c> -
+    /// and the overlay host's visibility is written by a placement pass that only runs when a view-model
+    /// property changes. Initialization now marshals to the UI thread, so the order of "probe installed",
+    /// "views bound" and "first placement pass" is decided by the dispatcher rather than by the calling
+    /// thread; a probe that ended up stale-false would leave <c>Enter</c> unarmed on a surface the user
+    /// can plainly see, and the only symptom would be an <c>Enter</c> that submits.
+    /// </para>
+    /// <para>
+    /// So this drives the real order: shell integration off the PTY thread, then <c>Ctrl+R</c>, then
+    /// browse - and asserts the probe agrees with the screen. It is the guard for the hypothesis the
+    /// second live bug was first blamed on; the bug itself turned out to be in the grid read (see
+    /// <c>PaneAssistInsertionTests.OnAPromptPsReadLineHasRendered_CtrlEnterStillSendsTheSuffix</c>), and
+    /// this pins that the probe is not a second, latent copy of the same failure.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task TerminalPane_WhenShellIntegrationArrivesOffTheUiThread_ArmsEnterOnceTheOverlayIsShown()
+    {
+        // Ctrl+R needs something to list before a row can be selected, and a selected row is what
+        // arms Enter. Awaited rather than blocked on: this runs on the headless dispatcher thread.
+        await TestCommandAssistServices.Instance.HistoryStore.AppendAsync(new CommandHistoryEntry(
+            Id: Guid.NewGuid().ToString("N"),
+            CommandText: "git status",
+            ExecutedAt: DateTimeOffset.UtcNow,
+            ShellKind: "pwsh",
+            WorkingDirectory: null,
+            ProfileId: null,
+            SessionId: null,
+            HostId: null,
+            ExitCode: 0,
+            IsRemote: false,
+            IsRedacted: false,
+            Source: CommandCaptureSource.Heuristic,
+            DurationMs: null));
+
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+        pane.ArmShellIntegrationTracker();
+        pane.CreateAndWireParser();
+
+        await Task.Run(() =>
+        {
+            Assert.False(
+                Dispatcher.UIThread.CheckAccess(),
+                "This test is meaningless unless initialization really is triggered off the UI thread.");
+            pane.Parser!.Process("\x1b]133;A\x07PS C:\\> \x1b]133;B\x07");
+        });
+
+        await WaitForAsync(
+            () => pane.CommandAssistViewModel is CommandAssistBarViewModel,
+            "Command Assist to initialize from the off-thread shell-integration burst");
+
+        var viewModel = Assert.IsType<CommandAssistBarViewModel>(pane.CommandAssistViewModel);
+
+        // Ctrl+R: a surface the user asked for, with the row list open.
+        pane.OpenCommandAssistHistorySearch();
+        await WaitForAsync(() => viewModel.HasSuggestions, "the history list to fill");
+
+        Assert.True(
+            pane.IsCommandAssistOverlayRendered,
+            "the pane's own probe must say the overlay it just placed is on screen");
+        Assert.True(viewModel.IsVisible);
+        Assert.True(viewModel.IsPopupOpen);
+        Assert.True(
+            viewModel.IsAcceptOnEnterArmed,
+            "Enter must be armed on a visible popup with a row selected; a stale probe would leave it " +
+            "unarmed and the user's Enter would submit instead of inserting.");
+    }
+
+    /// <summary>
     /// The symptom guard for the popup: rendered rows must contain ink.
     /// </summary>
     [AvaloniaFact]

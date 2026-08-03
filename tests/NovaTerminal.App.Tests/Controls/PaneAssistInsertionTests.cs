@@ -313,6 +313,80 @@ public class PaneAssistInsertionTests
         Assert.True(fixture.ViewModel.IsVisible);
     }
 
+    // ------------------- the prompt row PSReadLine has rendered (second live bug)
+
+    /// <summary>
+    /// The second live V2 Phase 3a bug, end to end: on a pwsh prompt PSReadLine has rendered once,
+    /// <c>Ctrl+Enter</c> inserted nothing and plain <c>Enter</c> silently submitted instead.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Nothing about Command Assist's state was wrong - the popup was open, a row was selected, the
+    /// overlay was rendered and <c>Enter</c> was armed (the hint strip said so). The grid read was
+    /// wrong. PSReadLine repaints the whole logical line and pads to the right edge to erase what was
+    /// there before, and the padding crosses the edge, so the prompt row carries a real wrap flag with
+    /// a blank tail. <c>GridQueryReader</c> read every row before the last out to the full width, so
+    /// the command line came back as the typed text plus the remainder of the row as spaces:
+    /// <c>CursorOffset</c> correct, <c>Text</c> no longer ending at the cursor,
+    /// <c>IsUsableAsTypedPrefix</c> false, every insertion refused.
+    /// </para>
+    /// <para>
+    /// Which is why both keys broke at once, in the two ways the design says they should when an
+    /// insertion is refused: <c>Ctrl+Enter</c> is consumed and sends nothing, and <c>Enter</c> falls
+    /// through to the shell, submits, and the submission reset takes the popup down with it. The
+    /// symptom is indistinguishable from "Enter was never armed", which is what sent the first
+    /// investigation at the rendered-surface probe.
+    /// </para>
+    /// <para>
+    /// The fixture opens history with <c>Ctrl+R</c> rather than the assist toggle on purpose: an
+    /// all-blank query counts as whitespace, so the recency list still fills and the rows are up in
+    /// both the broken and the fixed build. What the assertion turns on is the insertion, not whether
+    /// anything got ranked.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task OnAPromptPsReadLineHasRendered_CtrlEnterStillSendsTheSuffix()
+    {
+        using var fixture = await Fixture.AtAPsReadLineRenderedPromptAsync("git st", history: "git status");
+
+        // The controls: this is the state that is supposed to insert.
+        Assert.True(fixture.IsOverlayRendered);
+        Assert.True(fixture.ViewModel.IsPopupOpen);
+        Assert.True(fixture.ViewModel.IsAcceptOnEnterArmed);
+
+        fixture.PressCtrlEnter();
+
+        Assert.Equal("atus", Assert.Single(fixture.Session.Sent));
+    }
+
+    /// <summary>The same prompt through the <c>Enter</c> path, which is how the owner met it.</summary>
+    [AvaloniaFact]
+    public async Task OnAPromptPsReadLineHasRendered_PlainEnterInsertsInsteadOfSubmitting()
+    {
+        using var fixture = await Fixture.AtAPsReadLineRenderedPromptAsync("git st", history: "git status");
+
+        Assert.True(fixture.PressEnter());
+        Assert.Equal("atus", Assert.Single(fixture.Session.Sent));
+    }
+
+    /// <summary>
+    /// An empty prompt PSReadLine has rendered: the whole command goes out, because the line was read
+    /// and it is empty.
+    /// </summary>
+    /// <remarks>
+    /// The worst case of the same bug and the one that produced the report. The planner's empty-line
+    /// fast path needs <c>Text</c> to be empty; a row of blanks instead took the prefix branch, where
+    /// no suggestion starts with a hundred spaces.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task OnAnEmptyPromptPsReadLineHasRendered_EnterSendsTheWholeCommand()
+    {
+        using var fixture = await Fixture.AtAPsReadLineRenderedPromptAsync(string.Empty, history: "git status");
+
+        Assert.True(fixture.PressEnter());
+        Assert.Equal("git status", Assert.Single(fixture.Session.Sent));
+    }
+
     // ---------------------------------------------------------------- mouse (V2 Phase 3a)
 
     /// <summary>
@@ -392,6 +466,49 @@ public class PaneAssistInsertionTests
             // An explicit session is what widens the suggestion scope back out to history.
             fixture.Pane.ToggleCommandAssist();
             await fixture.WaitForAsync(() => fixture.ViewModel.TopSuggestionText == history);
+            return fixture;
+        }
+
+        /// <summary>
+        /// An instrumented pwsh prompt as it looks after PSReadLine has rendered it once, with the
+        /// history list up from <c>Ctrl+R</c>.
+        /// </summary>
+        /// <remarks>
+        /// The padding run is the whole point: PSReadLine erases to the right edge and one cell past
+        /// it, which is a real autowrap, so the prompt row ends up flagged wrapped with a blank
+        /// continuation row under it. Written through the parser rather than by setting the flag, so
+        /// this stays a statement about what the shell does rather than about buffer internals.
+        /// </remarks>
+        public static async Task<Fixture> AtAPsReadLineRenderedPromptAsync(string commandLine, string history)
+        {
+            Fixture fixture = await CreateAsync(history);
+            fixture.Pane.ArmShellIntegrationTracker();
+            fixture.Pane.CreateAndWireParser();
+            fixture.Pane.Parser!.Process(PromptStart + "$ " + PromptEnd + commandLine);
+
+            int cols = fixture.Pane.Buffer!.Cols;
+            int used = 2 + commandLine.Length; // "$ " plus what is typed
+            Assert.True(cols > used, "the fixture's prompt must fit on one row");
+            fixture.Pane.Parser!.Process(new string(' ', cols - used + 1));
+            fixture.Pane.Parser!.Process($"\x1b[1;{used + 1}H");
+
+            TerminalBuffer buffer = fixture.Pane.Buffer!;
+            buffer.Lock.EnterReadLock();
+            try
+            {
+                Assert.True(
+                    buffer.IsRowWrappedAbsolute(0),
+                    "the simulated render must actually have wrapped the prompt row");
+            }
+            finally
+            {
+                buffer.Lock.ExitReadLock();
+            }
+
+            await Task.Delay(50);
+
+            fixture.Pane.OpenCommandAssistHistorySearch();
+            await fixture.WaitForAsync(() => fixture.ViewModel.HasSuggestions);
             return fixture;
         }
 

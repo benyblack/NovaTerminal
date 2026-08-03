@@ -296,6 +296,8 @@ namespace NovaTerminal.VT
                 cursorOffset = text.Length;
             }
 
+            TrimBlankTail(text, cursorOffset);
+
             result = new GridCommandLine(
                 Text: text.ToString(),
                 CursorOffset: cursorOffset,
@@ -476,10 +478,56 @@ namespace NovaTerminal.VT
         }
 
         /// <summary>
-        /// Exclusive end column for a soft-wrapped row. Such a row is full of input by
-        /// definition, except for the one-cell hole a double-width character leaves when it
-        /// does not fit in the last column and wraps early.
+        /// Drops the run of blank cells the span ends on, never cutting left of the cursor.
         /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <see cref="ContentRowEnd"/> already applies this rule to the span's final row, and for a
+        /// single-row span that is the whole story. It is not, once the span runs to a second row:
+        /// every row before the last is read out to <see cref="SoftWrappedRowEnd"/>, which is the
+        /// full width, because a soft-wrapped row is <i>usually</i> full of input. PSReadLine breaks
+        /// that assumption on every render. It repaints the whole logical line and pads to the right
+        /// edge to erase what was there before, and the padding writes one cell past the last column
+        /// — so the terminal wraps, the row's wrap flag is set for real, and the cursor is then moved
+        /// back to the input. The row is now flagged wrapped while its tail is blanks and its
+        /// continuation row is empty.
+        /// </para>
+        /// <para>
+        /// Without this, a pwsh prompt that PSReadLine has rendered once reads as the typed text plus
+        /// the remainder of the row as spaces. <see cref="GridCommandLine.CursorOffset"/> is still
+        /// correct, so the text no longer ends at the cursor and
+        /// <c>AssistQuerySnapshot.IsUsableAsTypedPrefix</c> goes false: every Command Assist insertion
+        /// on that prompt refuses, which the user sees as "Enter and Ctrl+Enter do nothing" (the
+        /// second live V2 Phase 3a bug). An empty prompt is the worst case - it reads as a hundred
+        /// spaces rather than as the empty string the planner has a fast path for.
+        /// </para>
+        /// <para>
+        /// Only spaces are dropped, and only past the cursor. Trailing spaces the user typed and left
+        /// the cursor after are input (see <c>TrailingSpacesLeftOfTheCursorAreKept</c>), and a
+        /// <c>'\n'</c> stops the trim: a hard line break is content the reader observed, not slack.
+        /// </para>
+        /// </remarks>
+        private static void TrimBlankTail(StringBuilder text, int cursorOffset)
+        {
+            int end = text.Length;
+            while (end > cursorOffset && text[end - 1] == ' ')
+            {
+                end--;
+            }
+
+            text.Length = end;
+        }
+
+        /// <summary>
+        /// Exclusive end column for a soft-wrapped row: the full width, minus the one-cell hole a
+        /// double-width character leaves when it does not fit in the last column and wraps early.
+        /// </summary>
+        /// <remarks>
+        /// A wrapped row is <i>usually</i> full of input, which is why this does not trim - but "the
+        /// terminal wrapped here" and "this row is full of input" are not the same statement, and
+        /// PSReadLine's erase-to-the-right-edge render produces a wrapped row with a blank tail. The
+        /// tail is dropped after assembly instead; see <see cref="TrimBlankTail"/>.
+        /// </remarks>
         /// <remarks>
         /// The hole is not distinguishable from content. A typed space in the last column of a
         /// row whose next row begins with a wide character produces a byte-identical grid to the
