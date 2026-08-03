@@ -285,6 +285,94 @@ public sealed class CommandKnowledgeServiceTests
         Assert.Equal("real", Assert.Single(await service.GetHelpAsync(Query("real"), CancellationToken.None)).Title);
     }
 
+    [Fact]
+    public async Task Attribution_folds_in_the_licence_url_when_the_catalogue_has_one()
+    {
+        // CC BY-SA 4.0 s3(a)(1)(A) asks attribution to include a link to the licence when one is
+        // supplied. The asset's own licenseUrl field is that link; before this, LicenseUrl was
+        // deserialized and never read, so the Help footer credited the licence by name without the
+        // URI the licence itself asks for.
+        var catalogue = new CommandKnowledgeCatalogue(
+            Version: 1,
+            License: "CC-BY-SA-4.0",
+            LicenseUrl: "https://creativecommons.org/licenses/by-sa/4.0/",
+            Attribution: "Command examples from tldr-pages, CC BY-SA 4.0.",
+            GeneratedFrom: null,
+            Entries: [new CommandKnowledgeEntry("real", "A real one.", null, null, [new CommandKnowledgeExample("real -v", "Verbose")])]);
+
+        var service = new CommandKnowledgeService(probe: null, catalogueFactory: () => catalogue);
+        await service.GetHelpAsync(Query("real"), CancellationToken.None);
+
+        Assert.Contains(
+            "https://creativecommons.org/licenses/by-sa/4.0/",
+            service.Attribution!,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Attribution_does_not_duplicate_a_licence_url_already_present_in_the_text()
+    {
+        const string Url = "https://creativecommons.org/licenses/by-sa/4.0/";
+        var catalogue = new CommandKnowledgeCatalogue(
+            Version: 1,
+            License: "CC-BY-SA-4.0",
+            LicenseUrl: Url,
+            Attribution: $"See {Url} for the licence.",
+            GeneratedFrom: null,
+            Entries: [new CommandKnowledgeEntry("real", "A real one.", null, null, [new CommandKnowledgeExample("real -v", "Verbose")])]);
+
+        var service = new CommandKnowledgeService(probe: null, catalogueFactory: () => catalogue);
+        await service.GetHelpAsync(Query("real"), CancellationToken.None);
+
+        int occurrences = service.Attribution!.Split(Url, StringSplitOptions.None).Length - 1;
+        Assert.Equal(1, occurrences);
+    }
+
+    [Fact]
+    public async Task Catalogue_is_parsed_at_most_once_under_concurrent_lookups()
+    {
+        // The Lazy<T> is documented as ExecutionAndPublication so concurrent panes opening Help at
+        // the same moment parse the embedded asset once. This pins that contract with a parse
+        // counter rather than timing, so it cannot flake: the seam already exists
+        // (catalogueFactory), so no production code changed to make this testable.
+        int factoryCalls = 0;
+        var catalogue = new CommandKnowledgeCatalogue(
+            Version: 1,
+            License: null,
+            LicenseUrl: null,
+            Attribution: null,
+            GeneratedFrom: null,
+            Entries: [new CommandKnowledgeEntry("real", "A real one.", null, null, [new CommandKnowledgeExample("real -v", "Verbose")])]);
+
+        var service = new CommandKnowledgeService(probe: null, catalogueFactory: () =>
+        {
+            Interlocked.Increment(ref factoryCalls);
+            return catalogue;
+        });
+
+        const int Concurrency = 8;
+        using var barrier = new Barrier(Concurrency);
+
+        Task[] tasks = Enumerable.Range(0, Concurrency)
+            .Select(i => Task.Run(async () =>
+            {
+                barrier.SignalAndWait();
+                if (i % 2 == 0)
+                {
+                    await service.GetHelpAsync(Query("real"), CancellationToken.None);
+                }
+                else
+                {
+                    await service.GetRecipesAsync(Query("real"), CancellationToken.None);
+                }
+            }))
+            .ToArray();
+
+        await Task.WhenAll(tasks);
+
+        Assert.Equal(1, factoryCalls);
+    }
+
     private static CommandHelpQuery Query(string rawInput, string? shellKind = "bash")
     {
         // CommandToken is what RecognizedCommandParser would have produced: the first word. Supplied

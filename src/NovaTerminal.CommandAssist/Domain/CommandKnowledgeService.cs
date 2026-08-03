@@ -223,6 +223,12 @@ public sealed class CommandKnowledgeService : ICommandDocsProvider, IRecipeProvi
     /// so consulting it first would make every two-token lookup impossible.
     /// </para>
     /// </remarks>
+    // Contract: platform selection for a catalogue entry happened at generation time (one entry per
+    // token, chosen by the generator's page-priority order and $WindowsFirstCommands overrides), so
+    // this method deliberately does not consult query.ShellKind to pick between rows - there is only
+    // ever one row per token to find. ShellKind is read later, only to decide whether to surface the
+    // probe row (see TryProbe / GetRecipesAsync), which is the one part of the response that is
+    // genuinely runtime-platform-specific.
     private static CommandKnowledgeEntry? Resolve(LoadedCatalogue catalogue, CommandHelpQuery query)
     {
         foreach (string key in BuildLookupKeys(query))
@@ -452,7 +458,29 @@ public sealed class CommandKnowledgeService : ICommandDocsProvider, IRecipeProvi
                 }
             }
 
-            return new LoadedCatalogue(index, catalogue?.Attribution);
+            return new LoadedCatalogue(index, BuildAttribution(catalogue?.Attribution, catalogue?.LicenseUrl));
+        }
+
+        /// <summary>
+        /// Appends the licence URL to the attribution line, if there is one to append. CC BY-SA 4.0
+        /// §3(a)(1)(A) asks attribution to include a link to the licence "if supplied", and the asset's
+        /// <c>licenseUrl</c> field carries exactly that link - but until now nothing read it, so the
+        /// Help footer credited the licence by name without the URI the licence itself asks for.
+        /// </summary>
+        private static string? BuildAttribution(string? attribution, string? licenseUrl)
+        {
+            if (string.IsNullOrWhiteSpace(attribution))
+            {
+                return attribution;
+            }
+
+            if (string.IsNullOrWhiteSpace(licenseUrl) ||
+                attribution.Contains(licenseUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                return attribution;
+            }
+
+            return attribution + " " + licenseUrl;
         }
     }
 }
