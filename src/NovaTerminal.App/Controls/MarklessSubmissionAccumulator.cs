@@ -58,6 +58,54 @@ namespace NovaTerminal.Controls
         /// </remarks>
         private volatile bool _poisoned;
 
+        /// <summary>
+        /// The terminal answered a device query (DA, DSR, DECRQM, an OSC colour report) on this
+        /// command line. Blocks history capture; deliberately does <em>not</em> block
+        /// <see cref="IsCleanAndEmpty"/>.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>This split is the fix for the owner's "Enter puts nothing in the terminal on
+        /// cmd.exe" report, and the asymmetry is the whole of it.</strong> A device reply is bytes
+        /// Nova wrote to the PTY that no keystroke produced. In the ordinary case the program that
+        /// issued the query reads them back - that is why it asked - and the command line is
+        /// untouched. In the pathological case (a query printed by something that then stopped
+        /// reading, the classic <c>cat</c> of a crafted file) they land in the shell's line editor as
+        /// literal input, sitting to the <em>left</em> of everything the user then types.
+        /// </para>
+        /// <para>
+        /// Those two cases are indistinguishable at the moment the reply is sent, so the two
+        /// consumers get the answer their own failure mode deserves:
+        /// </para>
+        /// <list type="bullet">
+        /// <item><description><b>Capture refuses.</b> The pathological case is undetectable
+        /// downstream: <c>TerminalPane.ReadEchoedMarklessSubmission</c> compares this buffer against
+        /// the same number of characters ending at the cursor, and injected bytes sit further left
+        /// than that window, so the echo gate matches and a command the user never ran
+        /// (<c>&lt;junk&gt;git status</c> recorded as <c>git status</c>) reaches permanent history.
+        /// <see cref="TryReadSubmission"/> therefore answers null for the rest of the line, exactly as
+        /// a poison would.</description></item>
+        /// <item><description><b>Insertion does not.</b> It asks a different question - "is the line
+        /// empty" - and a wrong answer costs something bounded and visible: the suggestion is typed
+        /// after the junk, on screen, editable, and the user still has to press Enter. That is the
+        /// same cost <c>TerminalPane.TryReadInsertionQuerySnapshot</c> already documents and accepts
+        /// for a markless pane running a program that reads stdin.</description></item>
+        /// </list>
+        /// <para>
+        /// The status quo it replaces was not a conservative choice, it was a dead feature. ConPTY
+        /// (and Clink, and any shell that probes the terminal at startup) issues a cursor-position
+        /// query while the first prompt is being drawn, so a local <c>cmd.exe</c> pane was poisoned
+        /// before the user touched the keyboard: measured live, <c>Ctrl+R</c> then <c>Enter</c> on a
+        /// brand-new pane refused every time, silently, and only started working after the first
+        /// command had been submitted (which is what resets the accumulator).
+        /// </para>
+        /// <para>
+        /// <c>volatile</c> for the same reason as <see cref="_poisoned"/>: the parser's response
+        /// callback runs on the PTY read thread.
+        /// </para>
+        /// </remarks>
+        private volatile bool _deviceReplyObserved;
+
         internal bool IsPoisoned => _poisoned;
 
         /// <summary>
@@ -71,6 +119,10 @@ namespace NovaTerminal.Controls
         /// whole command may be sent to it. See
         /// <c>TerminalPane.TryReadInsertionQuerySnapshot</c> for the rest of the gate (the echo flag,
         /// paste suppression, the alt screen).
+        /// <para>
+        /// Deliberately blind to <see cref="_deviceReplyObserved"/>, which is the one place this
+        /// question and the capture question are allowed to disagree. See that field for why.
+        /// </para>
         /// </remarks>
         internal bool IsCleanAndEmpty => !_poisoned && _buffer.Length == 0;
 
@@ -130,11 +182,18 @@ namespace NovaTerminal.Controls
         /// <summary>Something happened to the command line that this class cannot model.</summary>
         internal void Poison() => _poisoned = true;
 
+        /// <summary>
+        /// The terminal replied to a device query. See <see cref="_deviceReplyObserved"/> for why
+        /// this is not <see cref="Poison"/>.
+        /// </summary>
+        internal void ObserveDeviceReply() => _deviceReplyObserved = true;
+
         /// <summary>New command line: forget the text and clear the poison.</summary>
         internal void Reset()
         {
             _buffer.Clear();
             _poisoned = false;
+            _deviceReplyObserved = false;
         }
 
         /// <summary>
@@ -142,7 +201,11 @@ namespace NovaTerminal.Controls
         /// able to say. Does not reset — the caller resets after the read, because Enter is both
         /// the read point and the reset point and the order matters.
         /// </summary>
-        internal string? TryReadSubmission() => _poisoned ? null : _buffer.ToString();
+        /// <remarks>
+        /// A device reply refuses here as firmly as a poison does, and only here; see
+        /// <see cref="_deviceReplyObserved"/>.
+        /// </remarks>
+        internal string? TryReadSubmission() => _poisoned || _deviceReplyObserved ? null : _buffer.ToString();
 
         /// <summary>
         /// How a key press observed at <c>TerminalPane.TryHandleCommandAssistKey</c> affects the

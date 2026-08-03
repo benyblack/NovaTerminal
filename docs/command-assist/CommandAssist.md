@@ -162,6 +162,19 @@ every pane's assist surface, so rows that were on screen when the store was empt
 something the user can still accept. The remote shell-integration snippet copy affordance from Phase 2b
 sits directly below.
 
+**Clear history also deletes the pre-V2 files**, and that is a privacy fix rather than tidiness. V1's
+Enter-time capture read a keystroke mirror with no echo check at all, so a password typed at a
+non-echoing prompt in a markless session *was* written to `history.json` verbatim — `SecretsFilter` is
+pattern-based and a bare secret has no pattern. `JsonlHistoryStore` migrates that file into
+`history.jsonl` unfiltered and renames the source to `history.json.bak`, so before this a user who
+suspected a secret in their history and pressed the only button offered still had it on disk in the
+backup, under a confirmation prompt that said "this deletes every recorded command". `ClearAsync` now
+removes `history.jsonl`, `history.json` and `history.json.bak`; the confirmation copy says so.
+
+If you ran a Nova build from before PR #286 (V2 Phase 1c, 2026-08-02), assume anything you typed at a
+hidden prompt in a `cmd.exe` or un-instrumented SSH pane may be in your history, and clear it. Builds
+from #286 onward cannot capture it: see the echo gate below.
+
 `CommandAssistHistoryEnabled` used to be a second master flag by accident: `IsCommandAssistFeatureEnabled`
 required it, so turning capture off killed the bubble, the popup, Help, Fix and path suggestions too.
 Phase 3b decoupled them.

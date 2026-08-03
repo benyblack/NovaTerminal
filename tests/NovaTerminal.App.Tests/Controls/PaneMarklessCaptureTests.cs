@@ -379,8 +379,19 @@ public class PaneMarklessCaptureTests
     /// <summary>
     /// A device reply — DA1 here, but a DSR cursor report or an answerback the same way — is text
     /// on the PTY that the keyboard never produced. If it arrives while a line editor is reading,
-    /// it lands in the line exactly as a paste would.
+    /// it lands in the line exactly as a paste would, to the <em>left</em> of everything the user
+    /// types afterwards — which the echo gate cannot see, because it compares the accumulated text
+    /// against the same number of characters ending at the cursor and the injected bytes sit further
+    /// left than that window. So the capture path refuses.
     /// </summary>
+    /// <remarks>
+    /// This is one half of a deliberate split, and the assertion here is the half that must not move.
+    /// The other half - insertion, which asks "is the line empty" rather than "what was typed", and
+    /// whose failure mode is a visible editable line rather than a permanent record - keeps working
+    /// after a device reply, and is pinned by
+    /// <c>PaneAssistInsertionTests.InADegradedSessionAfterTheTerminalAnsweredADeviceQuery_EnterStillSendsTheWholeCommand</c>.
+    /// See <c>MarklessSubmissionAccumulator</c>'s <c>_deviceReplyObserved</c>.
+    /// </remarks>
     [AvaloniaFact]
     public async Task InAMarklessSession_AParserDeviceReplyStopsTheLineBeingCaptured()
     {
@@ -433,6 +444,76 @@ public class PaneMarklessCaptureTests
         fixture.PressEnter();
 
         Assert.True(await fixture.NothingWasCapturedAsync());
+    }
+
+    /// <summary>
+    /// <strong>The owner's "I suspect it also captures my passwords" report, in the shape that is
+    /// hardest to see: an <em>instrumented</em> session where the password prompt belongs to a
+    /// program the shell is running.</strong>
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// It is easy to assume the echo gate is only load-bearing for markless panes, because that is
+    /// the session the accumulator was written for. It is not. Between the <c>OSC 133;C</c> that
+    /// accepts a line and the next <c>B</c>, an instrumented session has no command line to read
+    /// either, so <c>TerminalPane.OnCommandAssistEnterObserved</c> falls back to the accumulator
+    /// exactly as <c>cmd.exe</c> does - and the accumulator was reset by the last <c>Enter</c>, so at
+    /// the remote <c>password:</c> prompt it is holding a clean, unpoisoned copy of the secret with
+    /// nothing else standing in the way. Measured on a live pwsh 7 and Windows PowerShell pane during
+    /// the dogfood audit: at the second <c>Enter</c> the accumulator held the marker string and the
+    /// echo gate was the only thing that dropped it.
+    /// </para>
+    /// <para>
+    /// The <c>C</c> here deliberately carries no payload. A payload-bearing <c>C</c> would also set
+    /// <c>AssistSessionContext.IsStructuredCaptureActive</c> and stand the heuristic path down
+    /// entirely, so the test would pass without the gate ever being consulted. This shape - the
+    /// payload-less <c>C</c> that iTerm2's and VS Code's snippets emit, and that the remote snippet
+    /// degrades to - leaves the heuristic path armed, which is the case worth pinning.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task InAnIntegratedSession_APasswordTypedWhileACommandIsRunningIsNotCaptured()
+    {
+        using var fixture = await Fixture.IntegratedAsync("ssh host");
+
+        fixture.PressEnter();
+        CommandHistoryEntry entry = await fixture.WaitForSingleEntryAsync();
+        Assert.Equal("ssh host", entry.CommandText);
+
+        // The shell says the line was accepted, which shuts the command-input window: from here the
+        // grid offers nothing and the pane is back on the accumulator.
+        fixture.Echo("\x1b]133;C\x07");
+        await Task.Delay(50);
+        Assert.Null(fixture.Pane.TryReadGatedAssistQuerySnapshotForTest());
+
+        fixture.Echo("\r\nhost's password: ");
+        fixture.Type("hunter2", echo: false);
+        fixture.PressEnter();
+
+        Assert.True(await fixture.OnlyTheFirstEntryWasCapturedAsync("ssh host"));
+    }
+
+    /// <summary>
+    /// The control for the test above: the same session, the same closed window, a prompt that
+    /// <em>does</em> echo. Without this, "nothing was captured" would be satisfied by a fallback path
+    /// that had simply stopped working.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task InAnIntegratedSession_AnEchoedLineAfterTheWindowClosedIsStillCaptured()
+    {
+        using var fixture = await Fixture.IntegratedAsync("cat > notes");
+
+        fixture.PressEnter();
+        await fixture.WaitForSingleEntryAsync();
+
+        fixture.Echo("\x1b]133;C\x07");
+        await Task.Delay(50);
+
+        fixture.Echo("\r\n");
+        fixture.Type("hello there");
+        fixture.PressEnter();
+
+        Assert.True(await fixture.WaitForEntryAsync("hello there"));
     }
 
     private sealed class Fixture : IDisposable
@@ -549,6 +630,28 @@ public class PaneMarklessCaptureTests
                 if (elapsed >= timeoutMs)
                 {
                     throw new TimeoutException("No history entry was captured.");
+                }
+
+                await Task.Delay(10);
+                elapsed += 10;
+            }
+        }
+
+        /// <summary>Whether <paramref name="expected"/> shows up in the store within the timeout.</summary>
+        public async Task<bool> WaitForEntryAsync(string expected, int timeoutMs = 2000)
+        {
+            int elapsed = 0;
+            while (true)
+            {
+                IReadOnlyList<CommandHistoryEntry> entries = await _historyStore.GetRecentAsync(10);
+                if (entries.Any(entry => entry.CommandText == expected))
+                {
+                    return true;
+                }
+
+                if (elapsed >= timeoutMs)
+                {
+                    return false;
                 }
 
                 await Task.Delay(10);
