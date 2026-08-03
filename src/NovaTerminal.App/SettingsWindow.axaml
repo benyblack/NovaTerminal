@@ -604,6 +604,27 @@
                             </Grid>
                             <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
 
+                            <!--
+                                Snippet management (V2 Phase 4b, Phase 4 task 4). Until now a snippet
+                                could only be created by pinning a suggestion and could never be
+                                renamed or deleted at all. The list is built in code-behind rather
+                                than data-bound, following the shortcut-bindings panel above it: this
+                                window has no view-model layer, and inventing one for four fields
+                                would make this the only bound section in it.
+                            -->
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Saved snippets"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Commands you pinned with Ctrl+Shift+S, plus anything you add here. They show up in the assistant's popup alongside your history. Edit a name or a command in place - changes save when you leave the box."/>
+                                    <TextBlock Name="CommandAssistSnippetStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="10">
+                                    <Button Name="BtnAddCommandAssistSnippet" Classes="Pill" Content="Add snippet"/>
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Name="CommandAssistSnippetsPanel" Margin="24,10,0,0" Spacing="0"/>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
                             <Grid ColumnDefinitions="*,360">
                                 <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Classes="RowLabel" Text="Remote shell integration"/>

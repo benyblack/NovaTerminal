@@ -164,10 +164,35 @@ public sealed class MainWindowStartupTests
         };
 
         window.RaiseEvent(args);
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
 
         Assert.True(args.Handled);
-        Assert.True(pane.CommandAssistViewModel?.IsVisible ?? false);
+
+        // Pumped until the surface appears rather than once (V2 Phase 4b). Opening Help used to be
+        // synchronous in all but name - the seven-command seed providers returned completed tasks, so
+        // the dispatch ran inline and one background pump was enough. CommandKnowledgeService reads an
+        // 825 KB catalogue off a worker on first use, so the surface now legitimately arrives a few
+        // milliseconds later, and a single pump was testing the old providers' shape rather than the
+        // shortcut this test is about.
+        Assert.True(await WaitForAsync(() => pane.CommandAssistViewModel?.IsVisible ?? false));
+    }
+
+    /// <summary>
+    /// Pumps the dispatcher until <paramref name="condition"/> holds or the budget runs out.
+    /// </summary>
+    private static async Task<bool> WaitForAsync(Func<bool> condition, int attempts = 200)
+    {
+        for (int i = 0; i < attempts; i++)
+        {
+            if (condition())
+            {
+                return true;
+            }
+
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            await Task.Delay(5);
+        }
+
+        return condition();
     }
 
     public async Task ExecuteCommand_DefersActionUntilAfterPaletteCloses()
