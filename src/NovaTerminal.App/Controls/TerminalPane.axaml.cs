@@ -2526,14 +2526,16 @@ namespace NovaTerminal.Controls
             Parser = new AnsiParser(Buffer);
 
             // A device reply is text on the PTY that the keyboard path never produced: DA1, a DSR
-            // cursor report, an answerback. Nothing here can promise the shell's line editor was
-            // not reading when the query arrived, and a reply that lands in a line editor is
-            // literal input in exactly the way a paste is - so the accumulator can no longer
-            // describe the line. Poison rather than reset, for the same reason
-            // NotifyExternalInputSent poisons: the writer cannot say whether what it sent ended the
-            // line. Subscribed here rather than beside the SendInput handler in
-            // InitializeSessionCore so it exists whenever a parser does, session or not.
-            Parser.OnResponse += _ => _marklessSubmission.Poison();
+            // cursor report, an answerback. Nothing here can promise the shell's line editor was not
+            // reading when the query arrived, so history capture stands down for the rest of the
+            // line - but the accumulator is *not* poisoned outright, because a local pane is sent one
+            // of these before the user has touched the keyboard (ConPTY and Clink both probe the
+            // terminal while the first prompt is drawn) and a poison there disabled suggestion
+            // insertion for the whole session. See MarklessSubmissionAccumulator's
+            // _deviceReplyObserved for the full argument and the measurement. Subscribed here rather
+            // than beside the SendInput handler in InitializeSessionCore so it exists whenever a
+            // parser does, session or not.
+            Parser.OnResponse += _ => _marklessSubmission.ObserveDeviceReply();
 
             // OSC 10/11 (fg/bg color query) answers come from the active theme; without this,
             // a freshly-created parser would fall back to AnsiParser's hardcoded defaults until

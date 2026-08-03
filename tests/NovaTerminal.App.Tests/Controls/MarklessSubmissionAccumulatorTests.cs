@@ -10,6 +10,92 @@ namespace NovaTerminal.Tests.Controls;
 /// </summary>
 public class MarklessSubmissionAccumulatorTests
 {
+    // ------------------------------------------------ device replies (dogfood report 2, cmd.exe)
+
+    /// <summary>
+    /// A device reply stands history capture down for the rest of the line. It is not observable
+    /// which of the two things happened - the program that issued the query read its answer, or the
+    /// answer landed in the shell's line editor as literal input to the left of everything typed
+    /// since - and the second one would put a command the user never ran into permanent history.
+    /// </summary>
+    [Fact]
+    public void AfterADeviceReply_CaptureRefusesEvenThoughTheTypedTextIsKnown()
+    {
+        var accumulator = new MarklessSubmissionAccumulator();
+
+        accumulator.AppendTypedText("git status");
+        accumulator.ObserveDeviceReply();
+
+        Assert.Null(accumulator.TryReadSubmission());
+    }
+
+    /// <summary>
+    /// <strong>And it deliberately does not answer the insertion question, which is the fix for the
+    /// owner's "Enter puts nothing in the terminal on cmd.exe" report.</strong>
+    /// </summary>
+    /// <remarks>
+    /// ConPTY and Clink both probe the terminal while the first prompt is drawn, so a local markless
+    /// pane receives one of these before the user has touched the keyboard. Treating it as a poison
+    /// made <c>IsCleanAndEmpty</c> false from session start, which is the sole gate on degraded-mode
+    /// insertion: <c>Ctrl+R</c> then <c>Enter</c> on a brand-new <c>cmd.exe</c> pane sent nothing,
+    /// silently, until the user had submitted a command by hand. Insertion's failure mode is a
+    /// visible, editable line rather than a permanent record, so it gets the other answer.
+    /// </remarks>
+    [Fact]
+    public void AfterADeviceReplyOnAnUntouchedLine_TheLineIsStillProvablyEmpty()
+    {
+        var accumulator = new MarklessSubmissionAccumulator();
+
+        accumulator.ObserveDeviceReply();
+
+        Assert.True(accumulator.IsCleanAndEmpty);
+        Assert.False(accumulator.IsPoisoned);
+    }
+
+    /// <summary>
+    /// The carve-out is scoped to "nothing has been typed". A device reply plus typed characters is
+    /// still a non-empty line, so insertion refuses for the ordinary reason.
+    /// </summary>
+    [Fact]
+    public void AfterADeviceReplyAndTyping_TheLineIsNotEmpty()
+    {
+        var accumulator = new MarklessSubmissionAccumulator();
+
+        accumulator.ObserveDeviceReply();
+        accumulator.AppendTypedText("gi");
+
+        Assert.False(accumulator.IsCleanAndEmpty);
+    }
+
+    /// <summary>A real poison still wins over an empty buffer, device reply or not.</summary>
+    [Fact]
+    public void ADeviceReplyDoesNotUnPoison()
+    {
+        var accumulator = new MarklessSubmissionAccumulator();
+
+        accumulator.Poison();
+        accumulator.ObserveDeviceReply();
+
+        Assert.False(accumulator.IsCleanAndEmpty);
+        Assert.Null(accumulator.TryReadSubmission());
+    }
+
+    /// <summary>
+    /// The reply is scoped to the command line it arrived on, like every other fact here: a new line
+    /// starts clean and can be captured again.
+    /// </summary>
+    [Fact]
+    public void Reset_ClearsTheDeviceReply()
+    {
+        var accumulator = new MarklessSubmissionAccumulator();
+
+        accumulator.ObserveDeviceReply();
+        accumulator.Reset();
+        accumulator.AppendTypedText("git status");
+
+        Assert.Equal("git status", accumulator.TryReadSubmission());
+    }
+
     [Fact]
     public void TypingThenReading_ReturnsExactlyWhatWasTyped()
     {
