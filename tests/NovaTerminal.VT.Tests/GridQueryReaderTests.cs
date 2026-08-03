@@ -176,6 +176,99 @@ public class GridQueryReaderTests
         Assert.Equal(1, line.CursorOffset);
     }
 
+    // ------------------------------------------- PSReadLine's erase-to-the-edge render
+
+    /// <summary>
+    /// Renders the way PSReadLine does: repaint the input, pad to the right edge to erase whatever
+    /// was there before, let the padding cross the edge, then put the cursor back on the input.
+    /// </summary>
+    /// <remarks>
+    /// The crossing is the part that matters. It is a real autowrap, so the row's wrap flag is set
+    /// for real and a blank continuation row appears below - and from then on the prompt row is a
+    /// wrapped row whose tail is slack rather than input, which is the state the reader used to
+    /// mis-read. Reproduced through the parser rather than by setting the flag directly, because
+    /// "the flag can be set on a row that is not full" is exactly the claim under test.
+    /// </remarks>
+    private static Session PsReadLineRenderedPrompt(string input, int cols = 40)
+    {
+        const int markColumn = 2; // "$ "
+        var s = new Session(cols: cols, rows: 6).Prompt().Write(input);
+
+        int used = markColumn + input.Length;
+        s.Write(new string(' ', cols - used + 1));   // pads to the edge, then one cell past it
+        s.Write($"\x1b[1;{used + 1}H");              // cursor back to the end of the input
+
+        AssertRowIsWrapped(s.Buffer, 0);
+        return s;
+    }
+
+    /// <summary>
+    /// Asserts a row carries the wrap flag. Under the buffer's read lock, which every cell and row
+    /// accessor asserts is held.
+    /// </summary>
+    private static void AssertRowIsWrapped(TerminalBuffer buffer, int absoluteRow)
+    {
+        buffer.Lock.EnterReadLock();
+        try
+        {
+            Assert.True(
+                buffer.IsRowWrappedAbsolute(absoluteRow),
+                $"row {absoluteRow} must actually have wrapped, or this test proves nothing");
+        }
+        finally
+        {
+            buffer.Lock.ExitReadLock();
+        }
+    }
+
+    [Fact]
+    public void AfterAPsReadLineRender_TheLineIsNotPaddedWithTheRestOfTheRow()
+    {
+        // The second live V2 Phase 3a bug. The text picked up every blank cell to the right edge
+        // because the span ran onto the (empty) continuation row and every row before the last is
+        // read out to the full width. CursorOffset stayed correct, so Text stopped ending at the
+        // cursor - and Command Assist reads that as "not a typed prefix" and refuses every
+        // insertion. Enter and Ctrl+Enter both did nothing on a pwsh prompt.
+        var s = PsReadLineRenderedPrompt("git st");
+
+        var line = s.Read();
+
+        Assert.Equal("git st", line.Text);
+        Assert.Equal(6, line.CursorOffset);
+        Assert.Equal(6, line.Text.Length); // i.e. the text still ends at the cursor
+        Assert.Equal(1, line.EndRow);      // the span really did run onto the continuation row
+    }
+
+    [Fact]
+    public void AfterAPsReadLineRenderOfAnEmptyLine_TheLineReadsAsEmpty()
+    {
+        // The worst case, and the one the owner hit: an empty prompt read as a hundred spaces.
+        // The planner has a fast path for a line that is empty - "the grid was read and there is
+        // nothing on it, so send the whole command" - and a row of blanks misses it entirely.
+        var s = PsReadLineRenderedPrompt(string.Empty);
+
+        var line = s.Read();
+
+        Assert.Equal(string.Empty, line.Text);
+        Assert.Equal(0, line.CursorOffset);
+        Assert.Equal(1, line.EndRow);
+    }
+
+    [Fact]
+    public void AGenuinelyWrappedLine_KeepsEveryColumnOfItsFirstRow()
+    {
+        // The control. Dropping the blank tail must not become "stop at the cursor's row": a line
+        // long enough to wrap for real has no slack on the row it wrapped from, and every one of
+        // those columns is typed input.
+        string input = "echo " + new string('a', 40);
+        var s = new Session(cols: 20, rows: 6).Prompt().Write(input);
+
+        var line = s.Read();
+
+        Assert.Equal(input, line.Text);
+        Assert.Equal(input.Length, line.CursorOffset);
+    }
+
     [Fact]
     public void HistoryRecall_IsReadFromTheGridEvenThoughNoKeystrokesProducedIt()
     {

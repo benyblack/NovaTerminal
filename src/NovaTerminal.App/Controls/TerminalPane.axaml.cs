@@ -1057,8 +1057,44 @@ namespace NovaTerminal.Controls
                 "App composition root; a pane created outside that path must set it explicitly.");
         }
 
+        /// <summary>
+        /// Hands the bar view-model's two child view-models to the two overlay views.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>Why the UI-thread hop.</strong> Everything below writes Avalonia properties -
+        /// <c>DataContext</c> on the two views, and <c>Width</c>/<c>Height</c>/<c>Margin</c> through
+        /// <see cref="UpdateCommandAssistOverlayPlacement"/> - and Avalonia property writes are
+        /// UI-thread-only. This method is reachable off it: Command Assist is initialized lazily on
+        /// first use (see <see cref="ApplySettings"/>, which deliberately does *not* construct the
+        /// controller), and in a real session the first use is not a keystroke but the shell-integration
+        /// event pump. <c>OSC 133;B</c> arrives on the PTY reader thread, goes onto
+        /// <c>_shellIntegrationEventDispatcher</c>, and reaches
+        /// <see cref="EnsureCommandAssistInitialized"/> from there - before the user has touched the
+        /// keyboard.
+        /// </para>
+        /// <para>
+        /// Without the hop the first <c>DataContext</c> write throws "The calling thread cannot access
+        /// this object because a different thread owns it", the throw is swallowed by the
+        /// fire-and-forget dispatch in <c>OnShellIntegrationEventObserved</c>, and - because
+        /// <see cref="_boundCommandAssistViewModel"/> is already assigned by then - the pane goes on
+        /// believing it is bound. Key routing, visibility and sizing all keep working, so the overlay
+        /// appears, correctly sized, with a null <c>DataContext</c> on both views. Both views use
+        /// <c>x:CompileBindings</c>, where a null data root is a silent no-value rather than a logged
+        /// binding error, so the surfaces render their chrome and not one character of content. That is
+        /// the post-3a "empty dark rectangles" regression, and it is why it was invisible to tests that
+        /// drive the pane from the UI thread: with the dispatcher's semaphore uncontended the await
+        /// completes synchronously and the bind never leaves the caller's thread.
+        /// </para>
+        /// </remarks>
         private void BindCommandAssistViews(CommandAssistBarViewModel? viewModel)
         {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                Dispatcher.UIThread.Post(() => BindCommandAssistViews(viewModel));
+                return;
+            }
+
             if (!ReferenceEquals(_boundCommandAssistViewModel, viewModel))
             {
                 if (_boundCommandAssistViewModel != null)
@@ -1087,8 +1123,22 @@ namespace NovaTerminal.Controls
             UpdateCommandAssistOverlayPlacement();
         }
 
+        /// <summary>
+        /// Points the two overlay views at permanently-hidden view-models when the feature is off.
+        /// </summary>
+        /// <remarks>
+        /// Marshalled for the same reason as <see cref="BindCommandAssistViews"/>: it writes
+        /// <c>DataContext</c>, and <see cref="InitializeCommandAssist"/> - its only caller - runs
+        /// wherever the first Command Assist entry point happened to be.
+        /// </remarks>
         private void ClearCommandAssistBindings()
         {
+            if (!Dispatcher.UIThread.CheckAccess())
+            {
+                Dispatcher.UIThread.Post(ClearCommandAssistBindings);
+                return;
+            }
+
             if (_boundCommandAssistViewModel != null)
             {
                 _boundCommandAssistViewModel.PropertyChanged -= OnCommandAssistViewModelPropertyChanged;
@@ -3892,7 +3942,21 @@ namespace NovaTerminal.Controls
             // never open and grid-truth query state would be dead on arrival. The early-out is
             // therefore gone, and the repaint cost -- one dispatcher hop per prompt paint, doing an
             // idempotent bool set and a marker observation -- is the price of the gate.
-            _ = _shellIntegrationEventDispatcher.EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent));
+            //
+            // Faults are logged rather than dropped. This dispatch is fire-and-forget, so an exception
+            // anywhere in the handler used to vanish into an unobserved Task - which is how a
+            // cross-thread Avalonia write inside Command Assist initialization could break the assist
+            // overlay's content with no error anywhere (the post-3a blank-overlay regression, fixed in
+            // BindCommandAssistViews). One log line is the difference between that and a mystery.
+            _ = _shellIntegrationEventDispatcher
+                .EnqueueAsync(() => HandleShellIntegrationEventAsync(shellEvent))
+                .ContinueWith(
+                    static task => TerminalLogger.Log(
+                        LogLevel.Error,
+                        "Shell integration event dispatch failed: " + task.Exception),
+                    CancellationToken.None,
+                    TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
         }
 
         /// <summary>
