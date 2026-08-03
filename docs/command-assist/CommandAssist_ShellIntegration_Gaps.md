@@ -197,7 +197,7 @@ is never consulted as a query. What degraded mode costs, concretely:
 - **no passive suggestions.** With no query the path provider has no command token and no
   path-shaped fragment to work from, so it returns nothing. Degraded passive suggestions are empty
   by construction rather than by a special case.
-- **no help token from the command line.** `Ctrl+Alt+H` with nothing selected finds nothing.
+- **no help token from the command line.** `Ctrl+Shift+H` with nothing selected finds nothing.
   Explain-selection still works, because a selection is an explicit input the grid is not needed
   for, and Fix still works, because it analyses the command that failed rather than the one being
   typed.
@@ -331,6 +331,31 @@ out — a command run on another host is still in the list, below the fold — a
 `CommandAssistSuggestionEngine` like every other ranking rule. The recall pool was widened from 5 to
 200 candidates at the same time, because a store that hands over five rows, all from whichever pane ran
 a command last, gives the engine nothing to reorder.
+
+Three honest edges in that scoping, all found in the PR #290 review:
+
+- **the host id is the configured `Profile.SshHost` spelling, verbatim.** Not resolved, not canonicalised
+  — so the same machine reached as `10.0.0.5` and as `build.example` occupies two contexts and the two
+  panes do not share a band. Resolution would be a network call on a ranking path and would move under
+  DHCP; the fallback (an unknown context is not a context, so pure recency) is unhelpful rather than
+  wrong. Full band table in `CommandAssist.md` §6.
+- **pinning a snippet is worth +50 on the text-query path too**, not only on the empty-query one. A
+  pinned snippet satisfies both affinity terms by definition (it has no host and no profile of its own to
+  compare), so it collects the same-context 30 and same-profile 20 on top of its own pin boost of 40.
+  Deliberate, and bounded by the text-match tiers still dominating.
+- **an unpinned snippet sits in the same-profile band (+200)**: above cross-context history, below this
+  host's own. With more same-context rows than the popup shows it is below the fold, and pinning is the
+  answer. Chosen over "snippets always first" in the review; the dead `+8` nudge it replaced put snippets
+  below every command the user had ever run once.
+
+**One caveat about the popup and the mouse.** The popup surface is opaque to hit testing, and since the
+PR #290 review it also swallows right- and middle-clicks (they would otherwise open the pane context menu
+over the list, or paste into the shell beneath it). The cost is that an application on the *primary*
+screen which has enabled mouse reporting does not see clicks that land on the popup rectangle — the
+overlay is not a terminal surface and cannot forward them. Alt-screen apps are unaffected because the
+assist surface is hidden there outright; the exposure is a primary-screen program doing its own mouse
+tracking (`less`, a full-screen-less TUI) while an assist popup happens to be open over it. `Esc`
+dismisses.
 
 ### Overlay anchoring after Phase 2a
 

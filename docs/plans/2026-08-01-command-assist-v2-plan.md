@@ -271,14 +271,19 @@ Tasks:
 6. Settings UI group: master, history + Clear history button (`IHistoryStore.ClearAsync` finally called), shell integration, passive bubble. **Phase 3b.**
 7. Perf benchmark (new, spec §12 targets): first-paint <16 ms, incremental <30 ms, no typing jank; wire into CI as a regression guard. **Phase 3b.**
 
-Phase 3a also shipped three things that were not tasks here at all, because they are the reports:
+Phase 3a also shipped four things that were not tasks here at all — the three owner reports, plus the
+insertion narrowing they forced:
 
 - **`Enter` accepts while browsing.** Accept was `Ctrl+Enter`-only, so `Ctrl+R` → arrow → `Enter`
   submitted the (empty) line and the submission reset dismissed the popup: nothing inserted, surface
   gone. `Enter` is now assist-owned in exactly one state — popup open, row selected, mode Suggest or
-  Search — and falls through to the shell when the insertion is refused, so a refusal is never a dead
-  key. Documented in `CommandAssist.md` §14, which was rewritten to describe shipped reality (the
-  Phase 6 task line asking for that is correspondingly smaller now).
+  Search, overlay actually rendered — and falls through to the shell when the insertion is refused, so a
+  refusal is never a dead key. Documented in `CommandAssist.md` §14, which was rewritten to describe
+  shipped reality (the Phase 6 task line asking for that is correspondingly smaller now).
+  The PR #290 review added two conditions to this: the rendered-overlay term (a passive popup the pane had
+  hidden or dimmed could otherwise own `Enter` at zero pixels) and the arrow asymmetry — `Down` browses
+  suggestions while typing, `Up` stays the shell's history recall, and both arrows are owned only in an
+  open list or on a surface the user summoned.
 - **Explicit intent is never hidden.** `ShouldSuppressConservativeRemoteAssist` hid the overlay
   outright on short markless-SSH panes whose prompt sat high in the pane — and a split makes both
   panes short. It applied to `Ctrl+R` as readily as to a passive bubble, which is the "does not show

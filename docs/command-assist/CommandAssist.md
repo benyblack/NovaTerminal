@@ -243,6 +243,45 @@ score =
 
 Do not overfit early. Keep ranking explainable.
 
+### Shipped: context scoping and the empty-query bands (V2 Phase 3a, revised in the PR #290 review)
+
+`CommandAssistSuggestionEngine` has two paths, and the difference matters more than any individual
+weight.
+
+With **a text query** the context terms are nudges: same-context is worth 30, same-profile 20, same cwd
+12, against text-match tiers of prefix 120 / token prefix 70 / contains 25 / subsequence 12. What the
+user typed decides the order; affinity breaks ties. A partition here would rank a same-host subsequence
+match above a local prefix match, which reads as the list ignoring the query.
+
+With **no query** (`Ctrl+R`, or an explicit bubble at an empty prompt) there is nothing to match on, so
+the same terms partition instead. In descending order:
+
+| Band | Boost | What is in it |
+| --- | --- | --- |
+| This context, this profile | 1000 + 200 | History from this host (or local history on a local pane) run under this profile. |
+| This context | 1000 | History from this host, other profiles. Pinned snippets ride here too: pinning means "in scope everywhere", and a snippet has no host to compare. |
+| Snippets and same profile | 200 | **Unpinned snippets**, and history from this profile that ran somewhere else. |
+| Everything else | ~1–6 | Frequency and recency only: other hosts, other machines. |
+
+Nothing is filtered out — a command you remember running elsewhere is still in the list, below the fold,
+because that is why a shared history exists.
+
+**Why unpinned snippets sit in the same-profile band.** They are user-authored text somebody chose to
+save, which is worth more than another machine's recency; they are not evidence about *this* host, which
+is what the top band is for. The trade-off is stated rather than hidden: with more same-context history
+rows than the popup shows, an unpinned snippet is below the fold, and pinning (`Ctrl+Shift+P`) is the
+one-keystroke answer. The alternative — hoisting every snippet above this host's own history — makes the
+list say "snippets first" for users who never asked for that.
+
+**What "this context" means, and the one spelling trap in it.** On a remote pane it is the host id; on a
+local pane it is "not on somebody else's machine" (there is no local host id to compare). The host id is
+**the configured `Profile.SshHost` string, verbatim** — not a resolved address, not a canonical name. So
+two profiles pointing at the same box as `10.0.0.5` and `build.example` do not share a band, and neither
+do `build` and `build.example`. That is a deliberate consequence of using configuration rather than
+resolution (resolution is a network call on a ranking path, and it changes under DHCP), and it fails in
+the safe direction: an unrecognised context is not a context, so the list falls back to recency, which
+is unhelpful rather than wrong.
+
 ---
 
 ## 7. Data model
@@ -484,28 +523,54 @@ still refers to it.
 | --- | --- | --- |
 | `Ctrl+Space` | app | Toggle the explicit assist session for the focused pane. |
 | `Ctrl+R` | app | Open history search (popup, recency list scoped to this pane's context). |
-| `Ctrl+Alt+H` | app | Help for the command on the line, or for the selection. |
-| `Up` / `Down` | assist, while a surface is visible | Move the selection; opens the popup on the first move. |
-| `Enter` | **assist, while the popup is open with a row selected**; otherwise the shell | Insert the selected suggestion. See below. |
+| `Ctrl+Shift+H` | app | Help for the command on the line, or for the selection. |
+| `Down` | assist, while a surface is visible | Move the selection down; opens the popup on the first move. |
+| `Up` | assist while the popup is open, or on a surface the user summoned; **otherwise the shell** | Move the selection up. See below. |
+| `Enter` | **assist, while the popup is open with a row selected and the overlay is actually rendered**; otherwise the shell | Insert the selected suggestion. See below. |
 | `Ctrl+Enter` | assist, while a surface is visible | Insert the selected suggestion. Works in every state, including Help and Fix. |
 | `Esc` | assist, while a surface is visible | Dismiss. |
 | `Tab` | **always the shell** | Shell completion. Command Assist never takes it. |
 | `Ctrl+Shift+P` | assist when a row can be pinned, otherwise falls through | Pin/unpin the selected row. (Collides with the command palette; Phase 3b moves it.) |
 
 Mouse, in the popup: hover highlights, a single click selects, and a double click — or a click on the
-row that is already selected — inserts. The row list scrolls.
+row that is already selected — inserts. The row list scrolls. Right-click and middle-click are
+swallowed by the popup: neither means anything to the list, and left to bubble they would open the pane
+context menu over it or paste into the shell underneath.
+
+**`Down` browses suggestions while typing; `Up` remains shell history.** The entry into the row list is
+one-directional in the passive states — the typing bubble and the bubble-only Fix hint, the two surfaces
+the user did not ask for. `Down` has no meaning at a shell prompt, so taking it costs nothing; `Up` is
+history recall in every shell there is, and taking it cost a great deal: the assist consumed the key,
+opened its popup as a side effect of clamping the selection to row 0, and the `Enter` that followed
+inserted a suggestion instead of submitting the command. This matches fish and PSReadLine, where
+history recall is `Up`'s and nothing takes it.
+
+Once the popup is open, `Up` and `Down` both navigate it, in every mode — the user is demonstrably in
+the list. `Up` at the top row is a no-op that opens nothing and arms nothing. And on a surface the user
+summoned by name (`Ctrl+Space`, `Ctrl+R`, Help, a confident Fix popup) both arrows are assist-owned from
+the first keypress, because there the list *is* what was asked for.
 
 **The `Enter` rule, precisely.** `Enter` is Command Assist's only when *all* of: a surface is visible,
-the popup is open, a row is selected, and the mode is Suggest or Search. In Suggest mode that state is
-only reachable by the user having moved the selection, and in Search mode only because they pressed
-`Ctrl+R`; typing closes the popup, so the ordinary type-a-command-and-press-`Enter` flow never reaches
-it. Help and Fix are excluded — their rows are documentation and diagnoses rather than a command line
-being composed, and a Fix popup is on screen right after a submission, where the next `Enter` is most
-likely aimed at the shell.
+the popup is open, a row is selected, the mode is Suggest or Search, and the pane's overlay host is
+genuinely rendered (visible, non-zero opacity). In Suggest mode that state is only reachable by the user
+having moved the selection, and in Search mode only because they pressed `Ctrl+R`; typing closes the
+popup, so the ordinary type-a-command-and-press-`Enter` flow never reaches it. Help and Fix are
+excluded — their rows are documentation and diagnoses rather than a command line being composed, and a
+Fix popup is on screen right after a submission, where the next `Enter` is most likely aimed at the
+shell.
+
+The rendered-overlay term is not redundant with visibility. `TerminalPane` hides the overlay host on its
+own authority when the conservative anchor check produces no layout, and dims it to zero opacity while a
+placement correction settles; both bypasses are waived only for a *user-requested* surface, and a
+passive popup is not one. Without the term, a passive popup on a short markless-SSH pane could own
+`Enter` at zero pixels — nothing on screen, and the command line silently not submitting. The hint strip
+reads the same predicate, so it stops promising `Enter` at the same moment.
 
 Only a *completely unmodified* `Enter` is taken. `Shift+Enter` is a newline in several line editors,
 and under the kitty keyboard protocol's disambiguate tier every modified `Enter` is a distinct `CSI u`
-sequence the shell may act on.
+sequence the shell may act on. "Unmodified" includes `Meta` (Windows/Super/Cmd): it is mapped across the
+App boundary for no other reason than this rule, since a dropped modifier makes `Win+Enter` look
+unmodified to the router while the pane sees it for what it is.
 
 If the insertion is refused (the line cannot be read, a keystroke is still unechoed, the cursor is
 mid-line, the text was pasted), `Enter` is *not* consumed and reaches the shell, which submits as it
