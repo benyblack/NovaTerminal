@@ -19,13 +19,29 @@ namespace NovaTerminal.CommandAssist.Models;
 /// table entry cannot forget to set it.
 /// </para>
 /// </param>
+/// <param name="UnresolvedCommandToken">
+/// The name the shell could not resolve, but <em>only</em> when that name is the command line's own
+/// first token. <see langword="null"/> otherwise, including for every recogniser that is not
+/// command-not-found.
+/// <para>
+/// <strong>Dogfood round 4, item 4a.</strong> It exists to carry one fact to
+/// <c>IHistoryStore.TryMarkInvalidCommandsByFirstTokenAsync</c>, which flags every older history entry
+/// beginning with the same word. The "only when it is the first token" restriction is the whole safety
+/// argument: <c>npm run build</c> can raise a command-not-found for a token that is not <c>npm</c>, and
+/// propagating <em>that</em> by first token would suppress every <c>npm</c> line the user has ever run.
+/// The recogniser already computes the distinction (it needs it to decide whether the fix rewrites the
+/// command or replaces a word inside it); this publishes it rather than recomputing it downstream from
+/// less information.
+/// </para>
+/// </param>
 public sealed record CommandFixSuggestion(
     string Title,
     string SuggestedCommand,
     string? Description,
     double Confidence,
     IReadOnlyList<string>? Badges = null,
-    string? RecognizerId = null)
+    string? RecognizerId = null,
+    string? UnresolvedCommandToken = null)
 {
     /// <summary>
     /// Whether a recogniser in the table stood behind this, as opposed to the fallback guess.

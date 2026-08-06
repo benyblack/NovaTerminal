@@ -501,6 +501,136 @@ public sealed class JsonlHistoryStoreTests : IDisposable
     private static string Serialize(CommandHistoryEntry entry)
         => JsonSerializer.Serialize(entry, CommandAssistJsonLinesContext.Default.CommandHistoryEntry);
 
+    // ---------------------------- retroactive typo flagging (dogfood round 4, item 4)
+
+    /// <summary>
+    /// The owner's case. Three <c>gti</c> lines captured before the flag existed, all unflagged; he
+    /// reproduces the typo once and every one of them is suppressed, without his having to retype the
+    /// other two.
+    /// </summary>
+    [Fact]
+    public async Task TryMarkInvalidCommandsByFirstTokenAsync_FlagsEveryOlderEntryWithTheSameFirstToken()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("gti status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        await store.AppendAsync(CreateEntry("gti log --oneline", DateTimeOffset.Parse("2026-03-01T10:01:00+00:00")));
+        await store.AppendAsync(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:02:00+00:00")));
+
+        int flagged = await store.TryMarkInvalidCommandsByFirstTokenAsync("gti");
+
+        Assert.Equal(2, flagged);
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+        Assert.All(
+            entries.Where(entry => entry.CommandText.StartsWith("gti", StringComparison.Ordinal)),
+            entry => Assert.True(entry.IsInvalidCommand));
+
+        // And nothing else moved: `git status` is a different program that happens to share a prefix.
+        Assert.False(entries.Single(entry => entry.CommandText == "git status").IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// The sweep survives a reload, because it is written as superseding records rather than held in
+    /// memory - a flag the next launch forgets is not a suppression.
+    /// </summary>
+    [Fact]
+    public async Task TryMarkInvalidCommandsByFirstTokenAsync_PersistsAcrossStoreInstances()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("gti status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+
+        await store.TryMarkInvalidCommandsByFirstTokenAsync("gti");
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+        Assert.True(entries.Single().IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// Case-insensitive, matching how <c>CommandAssistSuggestionEngine</c> groups history: if the
+    /// grouping treats two spellings as one row, the suppression has to reach both or the row survives.
+    /// </summary>
+    [Fact]
+    public async Task TryMarkInvalidCommandsByFirstTokenAsync_MatchesCaseInsensitively()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("GTI status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+
+        Assert.Equal(1, await store.TryMarkInvalidCommandsByFirstTokenAsync("gti"));
+    }
+
+    /// <summary>
+    /// Idempotent, and it says so in its return value: a user who mistypes the same word twice must not
+    /// pay for a second pass of writes.
+    /// </summary>
+    [Fact]
+    public async Task TryMarkInvalidCommandsByFirstTokenAsync_SkipsEntriesAlreadyFlagged()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("gti status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        await store.TryMarkInvalidCommandsByFirstTokenAsync("gti");
+
+        int lineCount = (await File.ReadAllLinesAsync(_historyPath)).Length;
+
+        Assert.Equal(0, await store.TryMarkInvalidCommandsByFirstTokenAsync("gti"));
+        Assert.Equal(lineCount, (await File.ReadAllLinesAsync(_historyPath)).Length);
+    }
+
+    [Fact]
+    public async Task TryMarkInvalidCommandsByFirstTokenAsync_WithABlankToken_DoesNothing()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("gti status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+
+        Assert.Equal(0, await store.TryMarkInvalidCommandsByFirstTokenAsync("   "));
+        Assert.False((await store.GetRecentAsync(10)).Single().IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// The load-time backfill: an exit-127 line written before the flag existed comes back flagged,
+    /// because the information was on disk the whole time and was simply not being read.
+    /// </summary>
+    [Fact]
+    public async Task Load_BackfillsTheInvalidFlagForExitCode127()
+    {
+        // Written through the store so the line on disk is a real one - and with the flag left at its
+        // default, which is exactly what a pre-flag record deserialises to.
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("gti status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"), exitCode: 127));
+        await store.AppendAsync(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:01:00+00:00"), exitCode: 0));
+        await store.AppendAsync(CreateEntry("dotnet test", DateTimeOffset.Parse("2026-03-01T10:02:00+00:00"), exitCode: 1));
+
+        IReadOnlyList<CommandHistoryEntry> entries = await CreateStore().GetRecentAsync(10);
+
+        Assert.True(entries.Single(entry => entry.CommandText == "gti status").IsInvalidCommand);
+
+        // Exactly the live capture rule and no wider: a command that ran and failed is not a typo.
+        Assert.False(entries.Single(entry => entry.CommandText == "git status").IsInvalidCommand);
+        Assert.False(entries.Single(entry => entry.CommandText == "dotnet test").IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// A never-completed entry has no exit code at all, and an absent code is not a 127.
+    /// </summary>
+    [Fact]
+    public async Task Load_DoesNotBackfillAnEntryWithNoExitCode()
+    {
+        JsonlHistoryStore store = CreateStore();
+        await store.AppendAsync(CreateEntry("gti status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"), exitCode: null));
+
+        Assert.False((await CreateStore().GetRecentAsync(10)).Single().IsInvalidCommand);
+    }
+
+    [Theory]
+    [InlineData("gti status", "gti")]
+    [InlineData("   gti   status", "gti")]
+    [InlineData("gti", "gti")]
+    [InlineData("", "")]
+    [InlineData("   ", "")]
+    public void FirstToken_IsTheLeadingWord(string commandText, string expected)
+    {
+        Assert.Equal(expected, CommandHistoryEntry.FirstToken(commandText));
+    }
+
     private static CommandHistoryEntry CreateEntry(
         string commandText,
         DateTimeOffset? executedAt = null,

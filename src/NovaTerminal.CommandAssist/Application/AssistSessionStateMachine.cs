@@ -356,6 +356,50 @@ internal sealed class AssistSessionStateMachine
     public void Dismiss() => State = AssistSessionState.Hidden;
 
     /// <summary>
+    /// Escape's first stage in the passive flow: closes an uninvited popup and leaves the bubble it
+    /// grew out of on screen. Returns <see langword="false"/> - changing nothing - in every other
+    /// state, which is the caller's signal to fall through to <see cref="DismissForCurrentCommand"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Dogfood round 4, item 3.</strong> The passive flow reaches its popup by one keystroke -
+    /// <c>Down</c> on a bubble the user did not ask for - and Escape used to undo far more than that
+    /// one keystroke: it hid everything <em>and</em> took
+    /// <see cref="IsPassiveSurfaceSuppressed"/>, so the suggestion was gone for the rest of the command
+    /// line. The owner reported it as "Esc kills everything". A key that enters a surface and a key
+    /// that leaves it should be inverses, so <c>Down</c> now has one.
+    /// </para>
+    /// <para>
+    /// <strong><see cref="AssistSessionState.PassivePopup"/> only, deliberately.</strong> The other
+    /// popups are all surfaces the user summoned by name - <c>Ctrl+Space</c>, <c>Ctrl+R</c>, Help, a
+    /// confident Fix - and for those Escape means "I am done with the thing I asked for", so closing
+    /// outright is the answer they already give and the one every other list in the product gives.
+    /// Staging them would cost a second keypress to close something the user opened deliberately and
+    /// would make Escape's meaning depend on which surface happened to be up.
+    /// <see cref="AssistSessionState.FixPopup"/> is out for the same reason even though
+    /// <see cref="AssistSessionState.FixHint"/> can reach it: a Fix popup is on screen after a command
+    /// failed, where the user's next act is far more likely to be "clear this" than "show me less of
+    /// it".
+    /// </para>
+    /// <para>
+    /// Nothing else is touched. In particular this does <em>not</em> set
+    /// <see cref="IsPassiveSurfaceSuppressed"/> - the whole point is that the suggestion survives - and
+    /// it does not clear the selection, so the bubble goes on describing the row the user browsed to
+    /// and the insert chord goes on inserting that same row.
+    /// </para>
+    /// </remarks>
+    public bool TryCollapsePopupToBubble()
+    {
+        if (State != AssistSessionState.PassivePopup)
+        {
+            return false;
+        }
+
+        State = AssistSessionState.PassiveBubble;
+        return true;
+    }
+
+    /// <summary>
     /// The user dismissed the surface with Escape: hide it, and keep the passive bubble down for the
     /// rest of this command line.
     /// </summary>

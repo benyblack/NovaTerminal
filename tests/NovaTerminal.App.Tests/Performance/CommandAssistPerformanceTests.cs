@@ -464,6 +464,9 @@ public sealed class CommandAssistPerformanceTests
         public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
+        public Task<int> TryMarkInvalidCommandsByFirstTokenAsync(string firstToken, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromResult(false);
     }

@@ -269,4 +269,108 @@ public sealed class CommandAssistInsertionPlannerTests
         Assert.True(created);
         Assert.Equal(expected, textToSend);
     }
+
+    // ------------------------------------------- inline predictions (dogfood round 4, item 1)
+
+    /// <summary>
+    /// A line the reader classified as "typed prefix, then a ghost": the whole painted line, the cursor
+    /// at the end of the typed part, and the flag set.
+    /// </summary>
+    private static AssistQuerySnapshot Ghosted(string typed, string ghost) =>
+        new(typed + ghost, typed.Length, IsMultiline: false, RightPromptTrimmed: false, TextAfterCursorIsGhost: true);
+
+    /// <summary>
+    /// The bug the owner hit, at the layer it is fixed. With a prediction painted past the cursor the
+    /// line reads as usable again, because a prediction is not text the user typed - it lives in the
+    /// shell's suggestion buffer, never in its input buffer, and the next keystroke recomputes it.
+    /// </summary>
+    [Fact]
+    public void GhostSuffix_MakesTheLineUsableAsATypedPrefix()
+    {
+        AssistQuerySnapshot line = Ghosted("docke", "r ps -a");
+
+        Assert.True(line.IsUsableAsTypedPrefix);
+        Assert.Equal("docke", line.TypedPrefix);
+    }
+
+    /// <summary>
+    /// And the delta is computed against the typed characters, not against the whole painted line. This
+    /// is the assertion that catches the half-fix: flip <c>TypedPrefix</c> back to <c>Text</c> in the
+    /// planner and the suffix comes out empty or wrong, because the prediction the shell guessed is not
+    /// the suggestion the user picked.
+    /// </summary>
+    [Fact]
+    public void GhostSuffix_IsMeasuredAgainstTheTypedCharactersOnly()
+    {
+        bool created = CommandAssistInsertionPlanner.TryCreateInsertion(
+            Ghosted("docke", "r ps -a"),
+            selectedCommand: "docker compose up",
+            out string? textToSend);
+
+        Assert.True(created);
+        Assert.Equal("r compose up", textToSend);
+    }
+
+    /// <summary>
+    /// One typed character and a full-line prediction - the shape a fresh prompt produces on the first
+    /// keystroke, and the one that used to refuse hardest.
+    /// </summary>
+    [Fact]
+    public void GhostSuffix_WorksFromASingleTypedCharacter()
+    {
+        bool created = CommandAssistInsertionPlanner.TryCreateInsertion(
+            Ghosted("d", "ocker compose up"),
+            selectedCommand: "docker ps",
+            out string? textToSend);
+
+        Assert.True(created);
+        Assert.Equal("ocker ps", textToSend);
+    }
+
+    /// <summary>
+    /// The typed part still has to be a prefix of the suggestion. The ghost widens which lines are
+    /// readable; it does not weaken what makes an append correct.
+    /// </summary>
+    [Fact]
+    public void GhostSuffix_StillRefusesWhenTheTypedTextIsNotAPrefix()
+    {
+        Assert.False(CommandAssistInsertionPlanner.TryCreateInsertion(
+            Ghosted("kubect", "l get pods"),
+            selectedCommand: "docker ps",
+            out string? textToSend));
+
+        Assert.Null(textToSend);
+    }
+
+    /// <summary>
+    /// A multiline entry is refused whatever the flag says. The two facts are independent - the flag
+    /// describes the region past the cursor, and a continuation prompt is text before it that the user
+    /// never typed - so the multiline term is kept as its own conjunct rather than folded in.
+    /// </summary>
+    [Fact]
+    public void GhostSuffix_DoesNotOverrideTheMultilineRefusal()
+    {
+        var line = new AssistQuerySnapshot(
+            "git commit\n> ",
+            CursorOffset: 10,
+            IsMultiline: true,
+            RightPromptTrimmed: false,
+            TextAfterCursorIsGhost: true);
+
+        Assert.False(line.IsUsableAsTypedPrefix);
+    }
+
+    /// <summary>
+    /// Without the flag nothing changes: a mid-line cursor refuses exactly as it did before this round.
+    /// The flag is the reader's proof, and no proof means no licence.
+    /// </summary>
+    [Fact]
+    public void WithoutTheGhostFlag_AMidLineCursorStillRefuses()
+    {
+        AssistQuerySnapshot line = Line("docker ps -a", cursorOffset: 5);
+
+        Assert.False(line.IsUsableAsTypedPrefix);
+        Assert.Equal("docker ps -a", line.TypedPrefix);
+        Assert.False(CommandAssistInsertionPlanner.TryCreateInsertion(line, "docker compose up", out _));
+    }
 }

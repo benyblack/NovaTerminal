@@ -1131,4 +1131,251 @@ public class GridQueryReaderTests
         Assert.True(GridQueryReader.TryReadTextEndingAtCursor(s.Buffer, 2, out _));
         Assert.False(s.Buffer.Lock.IsReadLockHeld);
     }
+
+    // ------------------------------------------------- inline predictions (ghost suffixes)
+
+    // PSReadLine's shipped InlinePredictionColor. Index 238 of the xterm-256 greyscale ramp.
+    private const string DimGrey = "\x1b[38;5;238m";
+
+    // A truecolour mid-grey, for the same job on a terminal configured with RGB colours.
+    private const string DimGreyRgb = "\x1b[38;2;106;106;106m";
+
+    private const string Italic = "\x1b[3m";
+    private const string Faint = "\x1b[2m";
+    private const string Green = "\x1b[32m";
+    private const string Yellow = "\x1b[33m";
+    private const string White = "\x1b[97m";
+    private const string Reset = "\x1b[0m";
+
+    /// <summary>Moves the cursor left, which is how a line editor parks it in front of its prediction.</summary>
+    private static string Left(int n) => $"\x1b[{n}D";
+
+    [Fact]
+    public void DimGreySuffixAfterPlainTypedText_IsGhost()
+    {
+        // Exactly what PSReadLine paints: the typed characters, the prediction in its own colour,
+        // then the cursor moved back to the end of what the user actually typed.
+        var s = new Session()
+            .Prompt()
+            .Write("docke")
+            .Write(DimGrey + "r ps -a" + Reset)
+            .Write(Left(7));
+
+        var line = s.Read();
+
+        Assert.Equal("docker ps -a", line.Text);
+        Assert.Equal(5, line.CursorOffset);
+        Assert.True(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void DimGreySuffixGivenAsTruecolour_IsGhost()
+    {
+        // The palette form and the RGB form are the same colour arriving by different routes, and
+        // the rule must not be able to tell them apart - a terminal profile decides which one the
+        // shell emits, and the user did not choose it.
+        var s = new Session()
+            .Prompt()
+            .Write("git st")
+            .Write(DimGreyRgb + "atus" + Reset)
+            .Write(Left(4));
+
+        var line = s.Read();
+
+        Assert.Equal("git status", line.Text);
+        Assert.Equal(6, line.CursorOffset);
+        Assert.True(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void ItalicSuffixInTheDefaultColour_IsGhost()
+    {
+        // Italic alone is enough to be recessive: several PSReadLine themes recess the prediction
+        // with the attribute rather than with a colour, and the owner's screenshot has both.
+        var s = new Session()
+            .Prompt()
+            .Write("doc")
+            .Write(Italic + "ker ps" + Reset)
+            .Write(Left(6));
+
+        var line = s.Read();
+
+        Assert.True(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void FaintSuffix_IsGhost()
+    {
+        var s = new Session()
+            .Prompt()
+            .Write("doc")
+            .Write(Faint + "ker ps" + Reset)
+            .Write(Left(6));
+
+        Assert.True(s.Read().TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void SyntaxHighlightedTypedTextWithADimGreySuffix_IsGhost()
+    {
+        // The typed region is styled too - PSReadLine colours the command and its parameters
+        // differently - so the rule cannot be "the suffix differs from the cell before the cursor".
+        // The suffix's colour appears nowhere in the typed region, which is the test that holds.
+        var s = new Session()
+            .Prompt()
+            .Write(Green + "git" + Reset)
+            .Write(" ")
+            .Write(Yellow + "com" + Reset)
+            .Write(DimGrey + "mit -m \"wip\"" + Reset)
+            .Write(Left(12));
+
+        var line = s.Read();
+
+        Assert.Equal("git commit -m \"wip\"", line.Text);
+        Assert.Equal(7, line.CursorOffset);
+        Assert.True(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void OneTypedCharacterWithAFullLinePrediction_IsGhost()
+    {
+        // The case the two-character ranking floor made visible: one keystroke, and the whole rest
+        // of the line is the shell's guess.
+        var s = new Session()
+            .Prompt()
+            .Write("d")
+            .Write(DimGrey + "ocker compose up" + Reset)
+            .Write(Left(16));
+
+        var line = s.Read();
+
+        Assert.Equal(1, line.CursorOffset);
+        Assert.True(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void CursorMovedBackThroughUnstyledTypedText_IsNotGhost()
+    {
+        // Home, then Right five times. The text to the right is the user's, and appending to it
+        // would splice a suggestion into the middle of their line.
+        var s = new Session()
+            .Prompt()
+            .Write("echo hello")
+            .Write(Left(5));
+
+        var line = s.Read();
+
+        Assert.Equal("echo hello", line.Text);
+        Assert.Equal(5, line.CursorOffset);
+        Assert.False(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void CursorMovedBackToATokenBoundaryInSyntaxHighlightedText_IsNotGhost()
+    {
+        // The case that makes the recessive-style test load-bearing rather than belt-and-braces.
+        // The suffix here is uniform (one argument, one colour) and its colour appears nowhere in
+        // the typed region (the command has its own), so every other condition of the rule is
+        // satisfied - and it is still the user's own text, sitting to the right of a cursor they
+        // moved. Only "the suffix is painted in a recessive style" rejects it.
+        var s = new Session()
+            .Prompt()
+            .Write(Green + "echo" + Reset)
+            .Write(" ")
+            .Write(White + "hello" + Reset)
+            .Write(Left(5));
+
+        var line = s.Read();
+
+        Assert.Equal("echo hello", line.Text);
+        Assert.Equal(5, line.CursorOffset);
+        Assert.False(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void SuffixOfMixedStyles_IsNotGhost()
+    {
+        // A prediction is painted in one write and one colour. Two colours past the cursor is
+        // something else, whatever it is, and "whatever it is" resolves to "not a prediction".
+        var s = new Session()
+            .Prompt()
+            .Write("doc")
+            .Write(DimGrey + "ker" + Reset)
+            .Write(White + " ps" + Reset)
+            .Write(Left(6));
+
+        var line = s.Read();
+
+        Assert.Equal(3, line.CursorOffset);
+        Assert.False(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void SuffixWhoseStyleAlsoAppearsInTheTypedRegion_IsNotGhost()
+    {
+        // A user who types in the same dim grey the prediction would use. Uniform and recessive,
+        // but not distinguishable from what they typed - so the reader declines to guess.
+        var s = new Session()
+            .Prompt()
+            .Write(DimGrey + "echo" + Reset)
+            .Write(" ")
+            .Write(DimGrey + "hello" + Reset)
+            .Write(Left(5));
+
+        var line = s.Read();
+
+        Assert.Equal(5, line.CursorOffset);
+        Assert.False(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void CursorAtTheStartOfTheLine_IsNeverGhost()
+    {
+        // Home on a line the user composed. Nothing was typed to the left of the cursor, so the
+        // "appears nowhere in the typed region" test has no region to run against and would pass
+        // vacuously; a shell offers no prediction for an empty line, so the tie goes to "not a
+        // prediction".
+        var s = new Session()
+            .Prompt()
+            .Write(DimGrey + "echo hello" + Reset)
+            .Write(Left(10));
+
+        var line = s.Read();
+
+        Assert.Equal(0, line.CursorOffset);
+        Assert.False(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void CursorAtTheEndOfTheLine_IsNeverGhost()
+    {
+        // Nothing past the cursor to classify. The flag is about the region, not about the line.
+        var line = new Session().Prompt().Write("git status").Read();
+
+        Assert.Equal(line.Text.Length, line.CursorOffset);
+        Assert.False(line.TextAfterCursorIsGhost);
+    }
+
+    [Fact]
+    public void GhostSuffixSpanningASoftWrap_IsGhost()
+    {
+        // A long prediction wraps like any other painted text, and the suffix's cells continue on
+        // the next row. The style scan follows the span rather than the row.
+        //
+        // The cursor is repositioned absolutely rather than with CUB: backwards cursor movement does
+        // not cross a row boundary, which is exactly why a line editor uses CUP after a wrap.
+        // "$ " puts the mark at column 2, so the end of "doc" is column 5 - row 1, column 6 in the
+        // 1-based coordinates CUP takes.
+        var s = new Session(cols: 20)
+            .Prompt()
+            .Write("doc")
+            .Write(DimGrey + "ker compose up --detach" + Reset)
+            .Write("\x1b[1;6H");
+
+        var line = s.Read();
+
+        Assert.Equal("docker compose up --detach", line.Text);
+        Assert.Equal(3, line.CursorOffset);
+        Assert.True(line.TextAfterCursorIsGhost);
+    }
 }

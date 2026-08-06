@@ -49,11 +49,28 @@ namespace NovaTerminal.VT
     /// viewport row). Shifts under scrollback eviction like any other current-space row index.
     /// </param>
     /// <param name="EndRow">Last row of the span, same addressing space as <paramref name="StartRow"/>.</param>
+    /// <param name="TextAfterCursorIsGhost">
+    /// True when the cells between <paramref name="CursorOffset"/> and the end of
+    /// <paramref name="Text"/> were recognised as a shell's inline prediction - PSReadLine's
+    /// <c>InlineView</c> suggestion, fish's autosuggestion - painted past the cursor rather than as
+    /// text the user typed and moved back through. The characters are still in
+    /// <paramref name="Text"/>: this reports what they are, it does not remove them, because a
+    /// consumer that wants the whole painted line (history, display) still wants them. A consumer
+    /// that wants a <i>typed prefix</i> should take <paramref name="Text"/> up to
+    /// <paramref name="CursorOffset"/> when this is set.
+    /// <para>
+    /// Always <see langword="false"/> when the cursor is at the end of the text (there is nothing
+    /// past it to classify) and when the entry is multiline. The classification rule, and the
+    /// argument for why it errs towards <see langword="false"/>, are on
+    /// <c>GridQueryReader.IsGhostSuffix</c>.
+    /// </para>
+    /// </param>
     public readonly record struct GridCommandLine(
         string Text,
         int CursorOffset,
         bool IsMultiline,
         bool RightPromptTrimmed,
         int StartRow,
-        int EndRow);
+        int EndRow,
+        bool TextAfterCursorIsGhost = false);
 }

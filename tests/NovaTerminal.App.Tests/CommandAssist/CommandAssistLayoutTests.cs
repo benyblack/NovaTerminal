@@ -136,10 +136,12 @@ public sealed class CommandAssistLayoutTests
     }
 
     /// <summary>
-    /// The shortcut hint's middle rung: keys without verbs, so the suggestion keeps its width.
+    /// The shortcut hint's middle rung: keys without verbs, so the suggestion keeps its width - and
+    /// since dogfood round 4 the browse clause goes with them, so the one chord the user cannot guess
+    /// survives a rung longer than the one they can. See <c>CommandAssistBarViewModel.BuildHintText</c>.
     /// </summary>
     [Fact]
-    public void CommandAssistBarViewModel_WhenTheHintIsTerse_DropsTheVerbsAndKeepsTheKeys()
+    public void CommandAssistBarViewModel_WhenTheHintIsTerse_KeepsInsertAndDropsTheRest()
     {
         var vm = new CommandAssistBarViewModel
         {
@@ -149,7 +151,7 @@ public sealed class CommandAssistLayoutTests
         };
 
         Assert.True(vm.Bubble.ShowShortcutHint);
-        Assert.Equal("Up/Down  |  Ctrl+Enter  |  Esc", vm.Bubble.ShortcutHintText);
+        Assert.Equal("Ctrl+Enter  |  Esc", vm.Bubble.ShortcutHintText);
 
         // The popup has room and is unaffected: it is where the shortcuts are still taught.
         Assert.Equal(CommandAssistBarViewModel.IdleHintText, vm.Popup.ShortcutHintText);
@@ -1580,5 +1582,110 @@ public sealed class CommandAssistLayoutTests
             CommandAssistHistoryEnabled = true
         };
         pane.ApplySettings(settings);
+    }
+
+    // ------------------------- hint collapse order and the integration glyph (dogfood round 4)
+
+    private static CommandAssistBarViewModel PassiveBubble(AssistHintDetail detail) =>
+        new()
+        {
+            IsVisible = true,
+            ModeLabel = "Suggest",
+            QueryText = "doc",
+            TopSuggestionText = "docker ps",
+            BubbleHintDetail = detail
+        };
+
+    /// <summary>
+    /// At full width the strip advertises everything, insert included. This is the rung the owner's
+    /// wide panes get, and the clause he could not find has to be on it.
+    /// </summary>
+    [Fact]
+    public void BubbleHint_AtFullDetail_AdvertisesBrowseAndInsert()
+    {
+        string hint = PassiveBubble(AssistHintDetail.Full).Bubble.ShortcutHintText;
+
+        Assert.Contains("Down browse", hint);
+        Assert.Contains("Ctrl+Enter insert", hint);
+        Assert.Contains("Esc close", hint);
+    }
+
+    /// <summary>
+    /// The collapse order, and the assertion that fails if it is put back the way it was: browse is
+    /// shed a rung before insert. <c>Down</c> is discoverable by pressing an arrow key at a prompt;
+    /// <c>Ctrl+Enter</c> is discoverable nowhere, which is why the owner never found it.
+    /// </summary>
+    [Fact]
+    public void BubbleHint_AtTerseDetail_KeepsInsertAndDropsBrowse()
+    {
+        string hint = PassiveBubble(AssistHintDetail.Terse).Bubble.ShortcutHintText;
+
+        Assert.Contains("Ctrl+Enter", hint);
+        Assert.Contains("Esc", hint);
+        Assert.DoesNotContain("Down", hint);
+    }
+
+    /// <summary>
+    /// The one case where browse comes back at the terse rung: there is no insertion to advertise, so
+    /// dropping browse too would leave a strip that only says "Esc".
+    /// </summary>
+    [Fact]
+    public void BubbleHint_AtTerseDetailWithNoInsertionAvailable_FallsBackToBrowse()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            InsertionAvailableProbe = () => false,
+            IsVisible = true,
+            ModeLabel = "Suggest",
+            TopSuggestionText = "docker ps",
+            BubbleHintDetail = AssistHintDetail.Terse
+        };
+
+        string hint = vm.Bubble.ShortcutHintText;
+
+        Assert.DoesNotContain("Ctrl+Enter", hint);
+        Assert.Contains("Down", hint);
+        Assert.Contains("Esc", hint);
+    }
+
+    /// <summary>
+    /// The chip is exempt from the collapse in its glyph form: at every rung, including the one that
+    /// hides the hint strip entirely, exactly one of the two forms is on screen. The owner went a whole
+    /// round of dogfooding without seeing this indicator once, because the old rule dropped it whole.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistHintDetail.Full, true, false)]
+    [InlineData(AssistHintDetail.Terse, false, true)]
+    [InlineData(AssistHintDetail.Hidden, false, true)]
+    public void IntegrationIndicator_IsAlwaysOnScreenInOneFormOrTheOther(
+        AssistHintDetail detail,
+        bool expectLabel,
+        bool expectGlyph)
+    {
+        CommandAssistBarViewModel vm = PassiveBubble(detail);
+        vm.IsShellIntegrationLive = true;
+
+        Assert.Equal(expectLabel, vm.Bubble.ShowIntegrationStatus);
+        Assert.Equal(expectGlyph, vm.Bubble.ShowIntegrationGlyph);
+        Assert.NotEqual(vm.Bubble.ShowIntegrationStatus, vm.Bubble.ShowIntegrationGlyph);
+
+        // Whichever form is up, the sentence behind it is the same one hover away.
+        Assert.Equal(CommandAssistBarViewModel.IntegratedStatusTooltip, vm.Bubble.IntegrationStatusTooltip);
+    }
+
+    /// <summary>The glyph is the same fact as the label: filled for integrated, hollow for basic.</summary>
+    [Theory]
+    [InlineData(true, CommandAssistBarViewModel.IntegratedStatusGlyph, CommandAssistBarViewModel.IntegratedStatusText)]
+    [InlineData(false, CommandAssistBarViewModel.BasicStatusGlyph, CommandAssistBarViewModel.BasicStatusText)]
+    public void IntegrationGlyph_TracksTheSameStateAsTheLabel(
+        bool isLive,
+        string expectedGlyph,
+        string expectedLabel)
+    {
+        CommandAssistBarViewModel vm = PassiveBubble(AssistHintDetail.Terse);
+        vm.IsShellIntegrationLive = isLive;
+
+        Assert.Equal(expectedGlyph, vm.Bubble.IntegrationGlyphText);
+        Assert.Equal(expectedLabel, vm.Bubble.IntegrationStatusText);
     }
 }

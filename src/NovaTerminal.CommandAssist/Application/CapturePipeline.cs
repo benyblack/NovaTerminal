@@ -53,7 +53,7 @@ internal sealed class CapturePipeline
     /// exactly as it does for a command that ran and failed. That gap is why the flag has a second
     /// source - see <see cref="MarkLastCommandInvalidAsync"/>.
     /// </remarks>
-    internal const int CommandNotFoundExitCode = 127;
+    internal const int CommandNotFoundExitCode = CommandHistoryEntry.CommandNotFoundExitCode;
 
     private string? _pendingEntryId;
     private string? _pendingCommandText;
@@ -226,7 +226,15 @@ internal sealed class CapturePipeline
     /// previous line arrived after the next had been typed.
     /// </para>
     /// </remarks>
-    public async Task MarkLastCommandInvalidAsync()
+    /// <param name="unresolvedCommandToken">
+    /// The name the shell could not resolve when the recogniser established it is the command's own
+    /// first token, or <see langword="null"/>. Non-null propagates the classification to every older
+    /// history entry starting with that word - see
+    /// <c>IHistoryStore.TryMarkInvalidCommandsByFirstTokenAsync</c>. This is what makes the flag reach
+    /// the owner's pre-existing <c>gti status</c> entries, which were captured before the flag existed
+    /// and would otherwise have needed the typo retyped once per distinct line to suppress.
+    /// </param>
+    public async Task MarkLastCommandInvalidAsync(string? unresolvedCommandToken = null)
     {
         string? entryId = _lastCompletedEntryId;
         if (string.IsNullOrWhiteSpace(entryId))
@@ -237,6 +245,14 @@ internal sealed class CapturePipeline
         try
         {
             await _historyStore.TryMarkInvalidCommandAsync(entryId);
+
+            // After the entry itself, and in the same best-effort block: the just-captured entry is the
+            // one the user can see the consequence of, so it is flagged first and a failure in the
+            // sweep cannot cost it.
+            if (!string.IsNullOrWhiteSpace(unresolvedCommandToken))
+            {
+                await _historyStore.TryMarkInvalidCommandsByFirstTokenAsync(unresolvedCommandToken!);
+            }
         }
         catch
         {

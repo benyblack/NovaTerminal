@@ -67,7 +67,11 @@ public static class CommandAssistInsertionPlanner
             return false;
         }
 
-        string text = line.Text;
+        // TypedPrefix, not Text: on a line whose tail the reader classified as an inline prediction the
+        // two differ, and measuring the delta against Text would compute it against the shell's guess -
+        // sending nothing when the prediction happens to match the suggestion, and refusing whenever it
+        // does not. The ghost is display-only; the typed characters are the line.
+        string text = line.TypedPrefix;
         if (text.Length == 0)
         {
             // An empty line is a fact here, not an absence of one: the grid was read and the line

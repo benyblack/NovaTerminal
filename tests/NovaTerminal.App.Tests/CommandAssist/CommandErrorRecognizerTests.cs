@@ -89,6 +89,42 @@ public sealed class CommandErrorRecognizerTests
     }
 
     /// <summary>
+    /// Every command-not-found fix publishes the unresolved name, on every shell, because the name is
+    /// what the retroactive history sweep is keyed on (dogfood round 4, item 4a).
+    /// </summary>
+    [Theory]
+    [InlineData("pwsh", PwshNotRecognized)]
+    [InlineData("powershell", WindowsPowerShellNotRecognized)]
+    [InlineData("cmd", CmdNotRecognized)]
+    [InlineData("bash", BashCommandNotFound)]
+    [InlineData("zsh", ZshCommandNotFound)]
+    [InlineData("fish", FishUnknownCommand)]
+    public async Task ACommandNotFound_PublishesTheUnresolvedName(string shell, string output)
+    {
+        IReadOnlyList<CommandFixSuggestion> result = await Analyze("gti status", 127, shell, output);
+
+        Assert.All(
+            result.Where(item => item.IsCommandNotFound),
+            item => Assert.Equal("gti", item.UnresolvedCommandToken));
+    }
+
+    /// <summary>
+    /// And it is withheld when the unresolved name came from inside the command rather than from the
+    /// command position. This is the conjunct that keeps the sweep from flagging every <c>npm</c> line
+    /// in a user's history because one script it ran was missing a tool.
+    /// </summary>
+    [Fact]
+    public async Task ACommandNotFoundRaisedFromInsideTheCommand_WithholdsTheUnresolvedName()
+    {
+        IReadOnlyList<CommandFixSuggestion> result =
+            await Analyze("npm run build", 127, "bash", "/usr/bin/bash: line 1: rimraf: command not found");
+
+        Assert.All(
+            result.Where(item => item.IsCommandNotFound),
+            item => Assert.Null(item.UnresolvedCommandToken));
+    }
+
+    /// <summary>
     /// The transposition case is why the distance metric has a transposition term at all: under
     /// plain Levenshtein <c>gti</c> is two edits from <c>git</c>, which is outside the budget a
     /// three-character token gets, and the most recognisable typo in the world would produce

@@ -22,6 +22,8 @@ public sealed class CommandAssistBubbleViewModel : INotifyPropertyChanged
     private string _integrationStatusText = string.Empty;
     private string _integrationStatusTooltip = string.Empty;
     private bool _showIntegrationStatus;
+    private string _integrationGlyphText = string.Empty;
+    private bool _showIntegrationGlyph;
 
     public bool IsVisible
     {
@@ -136,13 +138,51 @@ public sealed class CommandAssistBubbleViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Whether the chip is rendered. Follows the same width budget as the hint strip: it is chrome,
-    /// and chrome yields to content.
+    /// Whether the <em>labelled</em> chip is rendered. Follows the same width budget as the hint strip:
+    /// it is chrome, and chrome yields to content. When this is false the chip does not disappear - it
+    /// degrades to <see cref="IntegrationGlyphText"/>.
     /// </summary>
     public bool ShowIntegrationStatus
     {
         get => _showIntegrationStatus;
         set => SetField(ref _showIntegrationStatus, value);
+    }
+
+    /// <summary>
+    /// The one-character stand-in for the labelled chip: a filled dot for an integrated session, a
+    /// hollow one for a basic session.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Dogfood round 4, item 5.</strong> The chip was added last round and the owner never saw
+    /// it once, because the two places it lived were both places he was not: the popup footer, which
+    /// only exists while a popup is open, and a bubble slot that the progressive hint collapse dropped
+    /// at his pane width. A status indicator that is only visible at wide widths reports on sessions
+    /// that were never in doubt.
+    /// </para>
+    /// <para>
+    /// So the glyph is exempt from the collapse. It can afford to be: one character costs less width
+    /// than the space between two hint clauses, which is the reason the labelled form had to yield in
+    /// the first place. It carries the same tooltip as the chip, so the full sentence is still one
+    /// hover away, and it is the same fact in the same colour - the degradation is of the label, not of
+    /// the signal.
+    /// </para>
+    /// </remarks>
+    public string IntegrationGlyphText
+    {
+        get => _integrationGlyphText;
+        set => SetField(ref _integrationGlyphText, value);
+    }
+
+    /// <summary>
+    /// Whether the glyph stands in for the chip. Exactly the negation of
+    /// <see cref="ShowIntegrationStatus"/>: one of the two forms is always on screen, never both and
+    /// never neither.
+    /// </summary>
+    public bool ShowIntegrationGlyph
+    {
+        get => _showIntegrationGlyph;
+        set => SetField(ref _showIntegrationGlyph, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

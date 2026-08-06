@@ -528,10 +528,19 @@ public sealed class CommandAssistController
     }
 
     /// <summary>
-    /// The user pressed Escape. Takes the surface down, and keeps the passive bubble down for the rest
-    /// of this command line.
+    /// The user pressed Escape. In the passive flow this is staged: the first press closes the popup
+    /// back to the bubble it came from, and the second takes the surface down and keeps it down for the
+    /// rest of this command line.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// <strong>The staging (dogfood round 4, item 3).</strong> <c>Down</c> opens the passive popup in
+    /// one keystroke, so Escape needs to be able to undo one keystroke; before this it undid the whole
+    /// command line's worth of assist, and the owner's report was that Escape "kills everything". The
+    /// scope of the first stage is <see cref="AssistSessionStateMachine.TryCollapsePopupToBubble"/>,
+    /// which is passive-popup-only - the surfaces the user summoned by name still close outright on the
+    /// first press. The second press lands here as an ordinary bubble Escape, unchanged.
+    /// </para>
     /// <para>
     /// The per-command scope is V2 Phase 3b's, and it is what makes the passive bubble dismissible in
     /// any useful sense: before it, Escape hid a surface the next keystroke rebuilt. Explicit surfaces
@@ -565,6 +574,16 @@ public sealed class CommandAssistController
             }
 
             return false;
+        }
+
+        // Stage one: an uninvited popup collapses back to its bubble. Nothing else moves - the rows,
+        // the selection and the visibility all survive, which is what makes the suggestion still be
+        // there afterwards. No CancelPending either: a refresh already on its way is still wanted by
+        // the bubble that stays on screen.
+        if (_state.TryCollapsePopupToBubble())
+        {
+            ViewModel.IsPopupOpen = false;
+            return true;
         }
 
         _suggestionOrchestrator.CancelPending();
@@ -782,9 +801,20 @@ public sealed class CommandAssistController
         //
         // Best-effort and deliberately not awaited into the surface decision below: failing to mark a
         // typo must not also cost the user the fix suggestion for it.
-        if (fixes.Any(item => item.IsCommandNotFound))
+        //
+        // The token is threaded too, when the recogniser found the unresolved name in the command
+        // position: the classification is a fact about the name rather than about this one execution,
+        // so it is applied to every older entry that starts with it (dogfood round 4, item 4a). Without
+        // that, the owner's history - captured before the flag existed - kept offering him every
+        // `gti status` he had ever run until he retyped each one.
+        CommandFixSuggestion[] notFound = fixes.Where(item => item.IsCommandNotFound).ToArray();
+        if (notFound.Length > 0)
         {
-            await _capturePipeline.MarkLastCommandInvalidAsync();
+            string? unresolvedToken = notFound
+                .Select(item => item.UnresolvedCommandToken)
+                .FirstOrDefault(token => !string.IsNullOrWhiteSpace(token));
+
+            await _capturePipeline.MarkLastCommandInvalidAsync(unresolvedToken);
         }
 
         // Kept symmetrical with Help even though neither Fix branch below can currently render it:

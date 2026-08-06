@@ -39,6 +39,20 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     /// <summary>The chip text for a session with no marks: capture is heuristic and Fix has no output tail.</summary>
     internal const string BasicStatusText = "basic";
 
+    /// <summary>
+    /// The collapsed form of the integrated chip. A filled dot, chosen over a letter or an icon glyph
+    /// because it renders in every monospace font a terminal user is plausibly running and carries no
+    /// language.
+    /// </summary>
+    internal const string IntegratedStatusGlyph = "●";
+
+    /// <summary>
+    /// The collapsed form of the basic chip: the same dot, hollow. The pair reads as one indicator with
+    /// two states rather than as two unrelated marks, which is the point - "basic" is a mode, not a
+    /// fault, so it gets the same shape rather than a warning sign.
+    /// </summary>
+    internal const string BasicStatusGlyph = "○";
+
     internal const string IntegratedStatusTooltip =
         "Shell integration is live: commands, exit codes and working directories come from the shell itself.";
 
@@ -547,10 +561,16 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
         Bubble.IntegrationStatusText = text;
         Bubble.IntegrationStatusTooltip = tooltip;
+        Bubble.IntegrationGlyphText = IsShellIntegrationLive ? IntegratedStatusGlyph : BasicStatusGlyph;
 
-        // Chrome, so it goes at the same width the hint strip goes: the chip answers a question the
-        // user asks once a session, and the suggestion answers one they are asking right now.
-        Bubble.ShowIntegrationStatus = BubbleHintDetail == AssistHintDetail.Full;
+        // The *label* is chrome and goes at the same width the hint strip goes: it answers a question
+        // the user asks once a session, and the suggestion answers one they are asking right now. The
+        // indicator itself does not go, it shrinks to a dot - see
+        // CommandAssistBubbleViewModel.IntegrationGlyphText for why the previous rule (drop it whole)
+        // meant the owner never saw it at all.
+        bool showLabel = BubbleHintDetail == AssistHintDetail.Full;
+        Bubble.ShowIntegrationStatus = showLabel;
+        Bubble.ShowIntegrationGlyph = !showLabel;
 
         Popup.IntegrationStatusText = text;
         Popup.IntegrationStatusTooltip = tooltip;
@@ -576,6 +596,15 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     /// keyboard's most load-bearing promise; removing it there would make the strip flicker between two
     /// shapes on a browse.
     /// </para>
+    /// <para>
+    /// <strong>Browse is shed before insert (dogfood round 4, item 2).</strong> The terse rung used to
+    /// keep all three clauses and merely drop their verbs, which is the right trade when the three are
+    /// equally learnable and they are not. The owner's report was "no way to put it": he had found
+    /// <c>Down</c> - pressing an arrow key at a prompt is a free experiment anyone runs - and had not
+    /// found the insert chord, which nothing else in a terminal teaches and which no amount of poking
+    /// discovers. So the clause that survives one rung longer is the one the surface cannot be used
+    /// without. The full rung still advertises both.
+    /// </para>
     /// </remarks>
     private string BuildHintText(bool acceptOnEnterArmed, bool isSelectionUpOwned, bool isInsertionAvailable, bool terse)
     {
@@ -594,10 +623,12 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
         if (terse)
         {
-            // Keys only. Every clause keeps its meaning - the keys are the information and the verbs
-            // were the padding - at roughly half the width.
+            // Keys only, and browse dropped: at this width the strip has room for the action and the
+            // exit, and the action is the one the user cannot guess. When the line cannot be appended
+            // to there is no action to advertise, so browse comes back rather than leaving a strip
+            // that only says "Esc".
             return isInsertionAvailable
-                ? $"{browse}  |  {labels.Insert}  |  {labels.Dismiss}"
+                ? $"{labels.Insert}  |  {labels.Dismiss}"
                 : $"{browse}  |  {labels.Dismiss}";
         }
 

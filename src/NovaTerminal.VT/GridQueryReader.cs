@@ -75,6 +75,14 @@ namespace NovaTerminal.VT
     /// for why, and for what consumers may do with it.
     /// </para>
     /// <para>
+    /// <b>Inline predictions.</b> A shell that paints a suggestion past the cursor (PSReadLine's
+    /// <c>InlineView</c>, fish's autosuggestion) puts real cells on the grid that the user never
+    /// typed. The reader still returns them - it reports what is painted - but it also classifies
+    /// them, in <see cref="GridCommandLine.TextAfterCursorIsGhost"/>, using the one signal the grid
+    /// carries: the cells' style. See <c>IsGhostSuffix</c> for the rule and for why every ambiguity
+    /// in it resolves to "not a prediction".
+    /// </para>
+    /// <para>
     /// <b>Known limitation: multiline entries read from an earlier line.</b> The span stops at
     /// the end of the cursor's logical line, so if the user arrows <i>up</i> inside a
     /// continuation entry the reader returns that line alone with
@@ -245,6 +253,16 @@ namespace NovaTerminal.VT
             bool isMultiline = false;
             bool rightPromptTrimmed = false;
 
+            // Style bookkeeping for the ghost-suffix rule (see IsGhostSuffix). Collected in the same
+            // walk that builds the text because the mapping from a text offset back to the cell it
+            // came from is exactly what a second pass would have to reconstruct.
+            var typedStyles = new List<CellStyle>(4);
+            bool pastCursor = false;
+            int typedGlyphs = 0;
+            int suffixGlyphs = 0;
+            bool suffixIsUniform = true;
+            CellStyle suffixStyle = default;
+
             for (int row = startRow; row <= endRow; row++)
             {
                 int firstCol = row == startRow ? mark.Column : 0;
@@ -267,21 +285,55 @@ namespace NovaTerminal.VT
                     if (isCursorRow && col == cursorTextCol)
                     {
                         cursorOffset = text.Length;
+                        pastCursor = true;
                     }
 
-                    if (buffer.GetCellAbsolute(col, row).IsWideContinuation)
+                    TerminalCell cell = buffer.GetCellAbsolute(col, row);
+                    if (cell.IsWideContinuation)
                     {
                         continue; // trailing half of a double-width cell
                     }
 
                     string grapheme = buffer.GetGraphemeAbsolute(col, row);
-                    text.Append(string.IsNullOrEmpty(grapheme) || grapheme == "\0" ? " " : grapheme);
+                    bool isBlankGlyph = string.IsNullOrEmpty(grapheme) || grapheme == "\0" || grapheme == " ";
+                    text.Append(isBlankGlyph ? " " : grapheme);
+
+                    // A space paints no foreground, so it votes on neither region's style. Counting it
+                    // would make every gap between two words of a prediction look like a style change.
+                    if (isBlankGlyph)
+                    {
+                        continue;
+                    }
+
+                    CellStyle style = CellStyle.From(cell);
+                    if (pastCursor)
+                    {
+                        if (suffixGlyphs == 0)
+                        {
+                            suffixStyle = style;
+                        }
+                        else if (!suffixStyle.Equals(style))
+                        {
+                            suffixIsUniform = false;
+                        }
+
+                        suffixGlyphs++;
+                    }
+                    else
+                    {
+                        typedGlyphs++;
+                        if (!typedStyles.Contains(style))
+                        {
+                            typedStyles.Add(style);
+                        }
+                    }
                 }
 
                 if (isCursorRow && cursorOffset < 0)
                 {
                     // Cursor at (or past) the end of the row's content.
                     cursorOffset = text.Length;
+                    pastCursor = true;
                 }
 
                 if (!isLastRow && !wrapped)
@@ -298,14 +350,185 @@ namespace NovaTerminal.VT
 
             TrimBlankTail(text, cursorOffset);
 
+            bool textAfterCursorIsGhost =
+                cursorOffset < text.Length &&
+                !isMultiline &&
+                IsGhostSuffix(typedGlyphs, typedStyles, suffixGlyphs, suffixIsUniform, in suffixStyle);
+
             result = new GridCommandLine(
                 Text: text.ToString(),
                 CursorOffset: cursorOffset,
                 IsMultiline: isMultiline,
                 RightPromptTrimmed: rightPromptTrimmed,
                 StartRow: startRow,
-                EndRow: endRow);
+                EndRow: endRow,
+                TextAfterCursorIsGhost: textAfterCursorIsGhost);
             return true;
+        }
+
+        /// <summary>
+        /// Palette index 8 - "bright black", the classic dark grey.
+        /// </summary>
+        internal const int BrightBlackPaletteIndex = 8;
+
+        /// <summary>First index of the xterm-256 greyscale ramp. PSReadLine's shipped
+        /// <c>InlinePredictionColor</c> is <c>ESC[38;5;238m</c>, which sits inside it.</summary>
+        internal const int GreyscaleRampStart = 232;
+
+        /// <summary>Last index of the xterm-256 greyscale ramp.</summary>
+        internal const int GreyscaleRampEnd = 255;
+
+        /// <summary>
+        /// How far an RGB foreground's channels may spread and still count as grey. A prediction
+        /// colour given as a truecolour value is a neutral grey; 24 tolerates the slightly-warm greys
+        /// some themes use without admitting an actual hue.
+        /// </summary>
+        internal const int MaxGreyChannelSpread = 24;
+
+        /// <summary>
+        /// The brightest channel an RGB foreground may have and still count as recessive. Without
+        /// this, white (<c>#FFFFFF</c>) - which is grey by the spread test and is the single most
+        /// common foreground on a command line - would qualify.
+        /// </summary>
+        internal const int MaxRecessiveChannel = 160;
+
+        /// <summary>
+        /// Whether the cells between the cursor and the end of the line are a shell's inline
+        /// prediction painted past the cursor rather than text the user typed and arrowed back through.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Why this exists.</b> PSReadLine's inline prediction (<c>PredictionSource
+        /// HistoryAndPlugin</c> + <c>PredictionViewStyle InlineView</c>, on by default for pwsh 7
+        /// users) is painted into the grid as real cells to the right of the cursor. Nothing in the
+        /// VT data model records "these cells are not input", so before this rule the reader
+        /// reported <c>Text</c> running past <c>CursorOffset</c> and every consumer that needed a
+        /// typed prefix - insertion above all - had to refuse. On a shell with predictions on that is
+        /// <i>every</i> prompt, so accept never worked at all. The colour is the only signal on the
+        /// grid that separates the two readings, so the colour is what this reads.
+        /// </para>
+        /// <para>
+        /// <b>The rule.</b> The suffix is classified as a ghost only when all five hold:
+        /// </para>
+        /// <list type="number">
+        /// <item><description><b>Something was typed.</b> At least one non-blank cell before the
+        /// cursor. A cursor at offset 0 with text to its right is <c>Home</c> pressed on a line the
+        /// user composed, and a shell shows no prediction for an empty line, so the ambiguity resolves
+        /// against ghosting.</description></item>
+        /// <item><description><b>The suffix is non-empty</b> - at least one non-blank cell past the
+        /// cursor.</description></item>
+        /// <item><description><b>The suffix is uniform.</b> Every non-blank cell past the cursor
+        /// carries one style. A prediction is painted in a single colour in one write; a line the
+        /// user typed and arrowed back through keeps its syntax highlighting, which changes at every
+        /// token boundary.</description></item>
+        /// <item><description><b>The suffix's style appears nowhere in the typed region.</b> The
+        /// typed region is normally styled too - PSReadLine colours commands, parameters, strings and
+        /// operators differently - so "different from the cell before the cursor" is not enough. This
+        /// is the whole-region test.</description></item>
+        /// <item><description><b>The suffix's style is recessive</b> - faint, italic, or a dim grey
+        /// foreground. See <see cref="IsRecessiveStyle"/>.</description></item>
+        /// </list>
+        /// <para>
+        /// <b>Why condition 5 is not redundant, which is the part worth keeping.</b> Conditions 1-4
+        /// alone accept a case they must not: type <c>echo hello</c>, press <c>Home</c>, then
+        /// <c>Right</c> five times. The typed region is <c>echo</c> in the command colour, the suffix
+        /// is <c>hello</c> in the argument colour - uniform, and absent from the typed region. Under
+        /// conditions 1-4 that reads as a ghost, and an append would splice text into the middle of
+        /// the user's line. Requiring the suffix style to be visually recessive costs nothing on the
+        /// case this feature exists for (a prediction is dim grey by construction: that is how the
+        /// user is meant to tell it apart from what they typed) and rules out every syntax-highlight
+        /// colour, which are chosen to be legible.
+        /// </para>
+        /// <para>
+        /// <b>The failure direction is deliberate.</b> A prediction colour this does not recognise -
+        /// a user who rebound <c>InlinePredictionColor</c> to something vivid - reads as "not a
+        /// ghost", and insertion refuses exactly as it did before. That is one keystroke of
+        /// convenience lost. The opposite error edits the command line the user is about to run.
+        /// When in doubt, not a ghost.
+        /// </para>
+        /// </remarks>
+        private static bool IsGhostSuffix(
+            int typedGlyphs,
+            List<CellStyle> typedStyles,
+            int suffixGlyphs,
+            bool suffixIsUniform,
+            in CellStyle suffixStyle)
+        {
+            return typedGlyphs > 0 &&
+                   suffixGlyphs > 0 &&
+                   suffixIsUniform &&
+                   !typedStyles.Contains(suffixStyle) &&
+                   IsRecessiveStyle(in suffixStyle);
+        }
+
+        /// <summary>
+        /// Whether a style is one a shell would paint a suggestion in rather than one it would paint
+        /// the user's own input in: faint, italic, or a dim grey foreground.
+        /// </summary>
+        /// <remarks>
+        /// The default foreground is never recessive - it is what unstyled input is painted in, and it
+        /// is the one colour a prediction cannot use without becoming indistinguishable from the line.
+        /// </remarks>
+        private static bool IsRecessiveStyle(in CellStyle style)
+        {
+            if (style.IsFaint || style.IsItalic)
+            {
+                return true;
+            }
+
+            if (style.IsDefaultForeground)
+            {
+                return false;
+            }
+
+            if (style.IsPaletteForeground)
+            {
+                long index = style.Foreground & 0xFFFF;
+                return index == BrightBlackPaletteIndex ||
+                       (index >= GreyscaleRampStart && index <= GreyscaleRampEnd);
+            }
+
+            int r = (int)((style.Foreground >> 16) & 0xFF);
+            int g = (int)((style.Foreground >> 8) & 0xFF);
+            int b = (int)(style.Foreground & 0xFF);
+            int max = Math.Max(r, Math.Max(g, b));
+            int min = Math.Min(r, Math.Min(g, b));
+
+            return max - min <= MaxGreyChannelSpread && max <= MaxRecessiveChannel;
+        }
+
+        /// <summary>
+        /// The part of a cell's appearance the ghost rule compares: foreground identity plus the two
+        /// attributes a shell uses to recess text.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// Deliberately coarse. <c>Bold</c>, <c>Underline</c>, <c>Inverse</c> and the background are
+        /// all excluded, so two runs that differ only in one of those compare <i>equal</i> - and
+        /// comparing equal is the conservative answer, because condition 4 of
+        /// <see cref="IsGhostSuffix"/> then finds the suffix style in the typed region and refuses.
+        /// Adding attributes would make style classes finer, which makes "appears nowhere in the typed
+        /// region" easier to satisfy and the classification more eager. The rule is written to be hard
+        /// to satisfy.
+        /// </para>
+        /// <para>
+        /// The foreground is normalised: a cell flagged <c>DefaultForeground</c> carries an
+        /// unspecified <c>Fg</c> value, so it is folded to zero and told apart by the flag.
+        /// </para>
+        /// </remarks>
+        private readonly record struct CellStyle(
+            uint Foreground,
+            bool IsPaletteForeground,
+            bool IsDefaultForeground,
+            bool IsItalic,
+            bool IsFaint)
+        {
+            public static CellStyle From(in TerminalCell cell) => new(
+                Foreground: cell.IsDefaultForeground ? 0u : cell.Fg,
+                IsPaletteForeground: cell.IsPaletteForeground,
+                IsDefaultForeground: cell.IsDefaultForeground,
+                IsItalic: cell.IsItalic,
+                IsFaint: cell.IsFaint);
         }
 
         /// <summary>

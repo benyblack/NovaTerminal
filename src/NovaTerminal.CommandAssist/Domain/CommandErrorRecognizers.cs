@@ -131,6 +131,11 @@ public static partial class CommandErrorRecognizers
 
         bool tokenIsTheCommand = string.Equals(token, signal.PrimaryToken, StringComparison.OrdinalIgnoreCase);
 
+        // Published only when the unresolved name is the command line's own first token. See
+        // CommandFixSuggestion.UnresolvedCommandToken: the consumer flags every history entry starting
+        // with this word, so a token that came from inside the command must not be carried.
+        string? unresolvedCommandToken = tokenIsTheCommand ? token : null;
+
         string? corrected = FixKnownCommands.TryCorrect(token, out int distance);
         if (corrected != null)
         {
@@ -166,6 +171,17 @@ public static partial class CommandErrorRecognizers
                 Description: "The shell searched PATH and found nothing by that name.",
                 Confidence: Explanatory,
                 Badges: ["Fix", "PATH"]));
+        }
+
+        // Stamped once at the exit rather than at each construction, for the reason RecognizerId is
+        // stamped centrally: a fix added to this method later would otherwise silently omit it, and the
+        // omission is invisible (the typo suppression just quietly stops reaching older entries).
+        if (unresolvedCommandToken != null)
+        {
+            for (int i = 0; i < results.Count; i++)
+            {
+                results[i] = results[i] with { UnresolvedCommandToken = unresolvedCommandToken };
+            }
         }
 
         return results;
