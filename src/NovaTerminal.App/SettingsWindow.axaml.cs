@@ -101,6 +101,28 @@ namespace NovaTerminal
             var tabs = this.FindControl<TabControl>("MainTabs");
             if (tabs != null) tabs.SelectedIndex = initialTab;
 
+            // Keep the two sidebar list boxes in sync with the tab control. The previous single
+            // list box drove selection via a direct SelectedIndex binding; that breaks once the
+            // sidebar is split (InterfaceNav holds tabs 0-2, AssistantNav holds tabs 3-4), so
+            // route everything through this small dispatcher instead.
+            var interfaceNav = this.FindControl<ListBox>("InterfaceNav");
+            var assistantNav = this.FindControl<ListBox>("AssistantNav");
+            if (tabs != null && interfaceNav != null && assistantNav != null)
+            {
+                tabs.SelectionChanged += (_, _) => SyncSidebarFromTabs(tabs, interfaceNav, assistantNav);
+                interfaceNav.SelectionChanged += (_, _) =>
+                {
+                    if (interfaceNav.SelectedIndex < 0) return;
+                    tabs.SelectedIndex = interfaceNav.SelectedIndex;
+                };
+                assistantNav.SelectionChanged += (_, _) =>
+                {
+                    if (assistantNav.SelectedIndex < 0) return;
+                    tabs.SelectedIndex = assistantNav.SelectedIndex + 3;
+                };
+                SyncSidebarFromTabs(tabs, interfaceNav, assistantNav);
+            }
+
             // Settings editor is local-profiles only; SSH connections are managed in Connection Manager.
             _profilesList = BuildLocalProfilesForEditor(_settings.Profiles);
             _settings.DefaultProfileId = ResolveDefaultLocalProfileId(_settings.DefaultProfileId, _profilesList);
@@ -830,6 +852,34 @@ namespace NovaTerminal
                         break;
                     }
                 }
+            }
+        }
+
+        /// <summary>
+        /// Mirror the current tab control selection into the two sidebar list boxes.
+        /// InterfaceNav owns tabs 0-2 (Appearance / Profiles / Shortcuts), AssistantNav owns
+        /// tabs 3-4 (Command Assist / Agent Access). The exact other list box is cleared so
+        /// only one item ever reads as selected.
+        /// </summary>
+        private static void SyncSidebarFromTabs(TabControl tabs, ListBox interfaceNav, ListBox assistantNav)
+        {
+            var idx = tabs.SelectedIndex;
+            if (idx < 0)
+            {
+                interfaceNav.SelectedIndex = -1;
+                assistantNav.SelectedIndex = -1;
+                return;
+            }
+
+            if (idx < 3)
+            {
+                interfaceNav.SelectedIndex = idx;
+                assistantNav.SelectedIndex = -1;
+            }
+            else
+            {
+                interfaceNav.SelectedIndex = -1;
+                assistantNav.SelectedIndex = idx - 3;
             }
         }
 

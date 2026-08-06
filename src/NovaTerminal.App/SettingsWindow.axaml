@@ -280,10 +280,9 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="0,16,0,16" Spacing="0">
                         <TextBlock Classes="SectionHeader" Text="INTERFACE" Margin="14,0,14,8"/>
-                        <ListBox Name="SideNav"
+                        <ListBox Name="InterfaceNav"
                                  Classes="SideNav"
-                                 SelectionMode="Single"
-                                 SelectedIndex="{Binding #MainTabs.SelectedIndex, Mode=TwoWay}">
+                                 SelectionMode="Single">
                             <ListBoxItem>
                                 <Grid ColumnDefinitions="20,*">
                                     <TextBlock Grid.Column="0" Text="◐" FontSize="13" Foreground="{StaticResource NtBlue}" VerticalAlignment="Center"/>
@@ -300,6 +299,24 @@
                                 <Grid ColumnDefinitions="20,*">
                                     <TextBlock Grid.Column="0" Text="⌘" FontSize="13" Foreground="{StaticResource NtFg3}" VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="1" Text="Shortcuts" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                            </ListBoxItem>
+                        </ListBox>
+
+                        <TextBlock Classes="SectionHeader" Text="ASSISTANT" Margin="14,18,14,8"/>
+                        <ListBox Name="AssistantNav"
+                                 Classes="SideNav"
+                                 SelectionMode="Single">
+                            <ListBoxItem>
+                                <Grid ColumnDefinitions="20,*">
+                                    <TextBlock Grid.Column="0" Text="❯" FontFamily="{StaticResource NtMono}" FontSize="13" Foreground="{StaticResource NtFg3}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Command Assist" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                                </Grid>
+                            </ListBoxItem>
+                            <ListBoxItem>
+                                <Grid ColumnDefinitions="20,*">
+                                    <TextBlock Grid.Column="0" Text="◌" FontSize="13" Foreground="{StaticResource NtFg3}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Agent Access" Margin="6,0,0,0" VerticalAlignment="Center"/>
                                 </Grid>
                             </ListBoxItem>
                         </ListBox>
@@ -565,117 +582,6 @@
 
                             <Grid ColumnDefinitions="*,360">
                                 <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Command assistant"/>
-                                    <TextBlock Classes="RowDesc" Text="Inline suggestions from shell integration."/>
-                                </StackPanel>
-                                <CheckBox Name="CommandAssistToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Suggestion bubble while typing"/>
-                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="After two characters, show the best matching command from your history just above the prompt. Esc hides it for the rest of the command. Turn this off to keep the assistant silent until you ask for it with Ctrl+Space or Ctrl+R."/>
-                                </StackPanel>
-                                <CheckBox Name="CommandAssistPassiveBubbleToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Remember commands"/>
-                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Record the commands you run so they can be suggested and searched with Ctrl+R. Only what the shell echoed on screen is recorded, so a password typed at a hidden prompt is never captured, and common secret-bearing arguments (--password, tokens, bearer headers) are redacted before anything is written. Other secrets typed as part of a visible command are not. With this off the assistant still suggests file paths and explains failures - it just stops writing history."/>
-                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Suspect something sensitive is in there? Clear history erases every recorded command, including anything carried over from an older version of Nova."/>
-                                    <TextBlock Name="CommandAssistHistoryStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="10">
-                                    <Button Name="BtnClearCommandAssistHistory" Classes="Pill" Content="Clear history"/>
-                                    <CheckBox Name="CommandAssistHistoryToggle" Classes="Toggle" Content="" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Grid>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Shell integration"/>
-                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Let Nova instrument local shells it starts, so it knows where the prompt is, what you typed, and how each command exited. Without it the assistant falls back to guessing from the screen."/>
-                                </StackPanel>
-                                <CheckBox Name="CommandAssistShellIntegrationToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <!--
-                                Snippet management (V2 Phase 4b, Phase 4 task 4). Until now a snippet
-                                could only be created by pinning a suggestion and could never be
-                                renamed or deleted at all. The list is built in code-behind rather
-                                than data-bound, following the shortcut-bindings panel above it: this
-                                window has no view-model layer, and inventing one for four fields
-                                would make this the only bound section in it.
-                            -->
-                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Saved snippets"/>
-                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Commands you pinned with Ctrl+Shift+S, plus anything you add here. They show up in the assistant's popup alongside your history. Edit a name or a command in place - changes save when you leave the box."/>
-                                    <TextBlock Name="CommandAssistSnippetStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="10">
-                                    <Button Name="BtnAddCommandAssistSnippet" Classes="Pill" Content="Add snippet"/>
-                                </StackPanel>
-                            </Grid>
-                            <StackPanel Name="CommandAssistSnippetsPanel" Margin="24,10,0,0" Spacing="0"/>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <Grid ColumnDefinitions="*,360">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Remote shell integration"/>
-                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Nova cannot install shell integration over SSH. Copy the snippet for the remote shell, paste it on the host, and the command assistant works there too: history, suggestions read from the prompt line, exit codes and prompt-anchored placement. Filesystem path suggestions stay off for remote sessions - they would list the local disk."/>
-                                    <TextBlock Name="RemoteShellIntegrationStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
-                                </StackPanel>
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
-                                    <ComboBox Name="RemoteShellIntegrationShellList" MinWidth="150"/>
-                                    <Button Name="BtnCopyRemoteShellIntegration" Classes="Pill" Content="Copy snippet"/>
-                                </StackPanel>
-                            </Grid>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <Grid ColumnDefinitions="*,360">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Agent access (observe)"/>
-                                    <TextBlock Classes="RowDesc" Text="Allow AI agents on this machine to read terminal sessions (screen and scrollback). Read-only: agents cannot type or open sessions. Screen content may include sensitive output."/>
-                                </StackPanel>
-                                <CheckBox Name="AgentAccessObserveToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Agent replay export"/>
-                                    <TextBlock Classes="RowDesc" Text="Additionally allow agents to export a session's recent output as a replay file. Exports contain output and window resizes only — never anything you type. Requires Agent access (observe)."/>
-                                </StackPanel>
-                                <CheckBox Name="AgentReplayExportToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Agent screenshots"/>
-                                    <TextBlock Classes="RowDesc" Text="Additionally allow agents to render a session to a PNG image. A picture shows everything drawn in the pane, including inline images. Every capture is shown in the agent activity journal. Requires Agent access (observe)."/>
-                                </StackPanel>
-                                <CheckBox Name="AgentScreenshotToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
-                                <StackPanel Grid.Column="0" Spacing="2">
-                                    <TextBlock Classes="RowLabel" Text="Agent access (act)"/>
-                                    <TextBlock Classes="RowDesc" Text="Additionally allow agents to type into, open, and close terminal sessions. SSH connections must also be allowlisted individually. Every action is shown in the agent activity journal. Requires Agent access (observe)."/>
-                                </StackPanel>
-                                <CheckBox Name="AgentAccessActToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
-                            </Grid>
-                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
-
-                            <Grid ColumnDefinitions="*,360">
-                                <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Classes="RowLabel" Text="Long command notifications"/>
                                     <TextBlock Classes="RowDesc" Text="Show a toast when a command that ran at least 30 seconds finishes in a pane you're not looking at."/>
                                 </StackPanel>
@@ -899,6 +805,141 @@
                             </StackPanel>
 
                             <StackPanel Name="ShortcutBindingsPanel" Spacing="10"/>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ┌──── Command Assist ────┐ -->
+                <TabItem Header="Command Assist">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="32,28,32,28" Spacing="0">
+
+                            <StackPanel Margin="0,0,0,24">
+                                <TextBlock Classes="H1" Text="Command Assist"/>
+                                <TextBlock Classes="Subtitle" Margin="0,4,0,0" Text="Inline suggestions, history, snippets, and remote shell integration."/>
+                            </StackPanel>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Command assistant"/>
+                                    <TextBlock Classes="RowDesc" Text="Inline suggestions from shell integration."/>
+                                </StackPanel>
+                                <CheckBox Name="CommandAssistToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Suggestion bubble while typing"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="After two characters, show the best matching command from your history just above the prompt. Esc hides it for the rest of the command. Turn this off to keep the assistant silent until you ask for it with Ctrl+Space or Ctrl+R."/>
+                                </StackPanel>
+                                <CheckBox Name="CommandAssistPassiveBubbleToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Remember commands"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Record the commands you run so they can be suggested and searched with Ctrl+R. Only what the shell echoed on screen is recorded, so a password typed at a hidden prompt is never captured, and common secret-bearing arguments (--password, tokens, bearer headers) are redacted before anything is written. Other secrets typed as part of a visible command are not. With this off the assistant still suggests file paths and explains failures - it just stops writing history."/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Suspect something sensitive is in there? Clear history erases every recorded command, including anything carried over from an older version of Nova."/>
+                                    <TextBlock Name="CommandAssistHistoryStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="10">
+                                    <Button Name="BtnClearCommandAssistHistory" Classes="Pill" Content="Clear history"/>
+                                    <CheckBox Name="CommandAssistHistoryToggle" Classes="Toggle" Content="" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Shell integration"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Let Nova instrument local shells it starts, so it knows where the prompt is, what you typed, and how each command exited. Without it the assistant falls back to guessing from the screen."/>
+                                </StackPanel>
+                                <CheckBox Name="CommandAssistShellIntegrationToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <!--
+                                Snippet management (V2 Phase 4b, Phase 4 task 4). Until now a snippet
+                                could only be created by pinning a suggestion and could never be
+                                renamed or deleted at all. The list is built in code-behind rather
+                                than data-bound, following the shortcut-bindings panel above it: this
+                                window has no view-model layer, and inventing one for four fields
+                                would make this the only bound section in it.
+                            -->
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Saved snippets"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Commands you pinned with Ctrl+Shift+S, plus anything you add here. They show up in the assistant's popup alongside your history. Edit a name or a command in place - changes save when you leave the box."/>
+                                    <TextBlock Name="CommandAssistSnippetStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="10">
+                                    <Button Name="BtnAddCommandAssistSnippet" Classes="Pill" Content="Add snippet"/>
+                                </StackPanel>
+                            </Grid>
+                            <StackPanel Name="CommandAssistSnippetsPanel" Margin="24,10,0,0" Spacing="0"/>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Remote shell integration"/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Nova cannot install shell integration over SSH. Copy the snippet for the remote shell, paste it on the host, and the command assistant works there too: history, suggestions read from the prompt line, exit codes and prompt-anchored placement. Filesystem path suggestions stay off for remote sessions - they would list the local disk."/>
+                                    <TextBlock Name="RemoteShellIntegrationStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
+                                    <ComboBox Name="RemoteShellIntegrationShellList" MinWidth="150"/>
+                                    <Button Name="BtnCopyRemoteShellIntegration" Classes="Pill" Content="Copy snippet"/>
+                                </StackPanel>
+                            </Grid>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ┌──── Agent Access ────┐ -->
+                <TabItem Header="Agent Access">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="32,28,32,28" Spacing="0">
+
+                            <StackPanel Margin="0,0,0,24">
+                                <TextBlock Classes="H1" Text="Agent Access"/>
+                                <TextBlock Classes="Subtitle" Margin="0,4,0,0" Text="Permissions for AI agents on this machine to read, capture, or act on your terminal sessions."/>
+                            </StackPanel>
+
+                            <Grid ColumnDefinitions="*,360">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Agent access (observe)"/>
+                                    <TextBlock Classes="RowDesc" Text="Allow AI agents on this machine to read terminal sessions (screen and scrollback). Read-only: agents cannot type or open sessions. Screen content may include sensitive output."/>
+                                </StackPanel>
+                                <CheckBox Name="AgentAccessObserveToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Agent replay export"/>
+                                    <TextBlock Classes="RowDesc" Text="Additionally allow agents to export a session's recent output as a replay file. Exports contain output and window resizes only — never anything you type. Requires Agent access (observe)."/>
+                                </StackPanel>
+                                <CheckBox Name="AgentReplayExportToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Agent screenshots"/>
+                                    <TextBlock Classes="RowDesc" Text="Additionally allow agents to render a session to a PNG image. A picture shows everything drawn in the pane, including inline images. Every capture is shown in the agent activity journal. Requires Agent access (observe)."/>
+                                </StackPanel>
+                                <CheckBox Name="AgentScreenshotToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Border BorderBrush="{StaticResource NtHairline}" BorderThickness="0,0,0,1" Margin="0,14,0,14"/>
+
+                            <Grid ColumnDefinitions="*,360" Margin="24,0,0,0">
+                                <StackPanel Grid.Column="0" Spacing="2">
+                                    <TextBlock Classes="RowLabel" Text="Agent access (act)"/>
+                                    <TextBlock Classes="RowDesc" Text="Additionally allow agents to type into, open, and close terminal sessions. SSH connections must also be allowlisted individually. Every action is shown in the agent activity journal. Requires Agent access (observe)."/>
+                                </StackPanel>
+                                <CheckBox Name="AgentAccessActToggle" Grid.Column="1" Classes="Toggle" Content="" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
