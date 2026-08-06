@@ -646,6 +646,69 @@ public sealed class AssistSessionStateMachineTests
         Assert.False(machine.IsUserRequestedSurface);
     }
 
+    // -------------------------------------------- staged Escape (dogfood round 4, item 3)
+
+    /// <summary>
+    /// The first stage, and the only state it applies in. <c>Down</c> on an uninvited bubble opens the
+    /// passive popup in one keystroke, so Escape has to be able to undo one keystroke.
+    /// </summary>
+    [Fact]
+    public void TryCollapsePopupToBubble_FromAPassivePopup_ReturnsToTheBubble()
+    {
+        AssistSessionStateMachine machine = CreateInState(AssistSessionState.PassivePopup);
+
+        Assert.True(machine.TryCollapsePopupToBubble());
+        Assert.Equal(AssistSessionState.PassiveBubble, machine.State);
+
+        // The whole point: the suggestion survives the first Escape, so the passive path is not
+        // suppressed and a refresh may still run.
+        Assert.False(machine.IsPassiveSurfaceSuppressed);
+        Assert.True(machine.AllowsPassiveSuggestions);
+    }
+
+    /// <summary>
+    /// Every other state declines and is left exactly where it was, so the caller falls through to the
+    /// ordinary dismissal. The surfaces the user summoned by name close on the first press, which is
+    /// what Escape means everywhere else in the product.
+    /// </summary>
+    [Theory]
+    [InlineData(AssistSessionState.Hidden)]
+    [InlineData(AssistSessionState.PassiveBubble)]
+    [InlineData(AssistSessionState.ExplicitBubble)]
+    [InlineData(AssistSessionState.ExplicitPopup)]
+    [InlineData(AssistSessionState.HistorySearch)]
+    [InlineData(AssistSessionState.Help)]
+    [InlineData(AssistSessionState.FixHint)]
+    [InlineData(AssistSessionState.FixPopup)]
+    public void TryCollapsePopupToBubble_InEveryOtherState_DeclinesAndChangesNothing(AssistSessionState state)
+    {
+        AssistSessionStateMachine machine = CreateInState(state);
+
+        Assert.False(machine.TryCollapsePopupToBubble());
+        Assert.Equal(state, machine.State);
+    }
+
+    /// <summary>
+    /// The two stages in sequence: popup to bubble, then bubble to gone-for-this-command. The second
+    /// press is an ordinary Escape and takes the suppression the first deliberately did not.
+    /// </summary>
+    [Fact]
+    public void StagedEscape_TakesTwoPressesToSuppressThePassiveSurface()
+    {
+        AssistSessionStateMachine machine = CreateInState(AssistSessionState.PassivePopup);
+
+        Assert.True(machine.TryCollapsePopupToBubble());
+        Assert.Equal(AssistSessionState.PassiveBubble, machine.State);
+        Assert.False(machine.IsPassiveSurfaceSuppressed);
+
+        Assert.False(machine.TryCollapsePopupToBubble());
+        machine.DismissForCurrentCommand();
+
+        Assert.Equal(AssistSessionState.Hidden, machine.State);
+        Assert.True(machine.IsPassiveSurfaceSuppressed);
+        Assert.False(machine.AllowsPassiveSuggestions);
+    }
+
     private static AssistSessionStateMachine CreateInState(AssistSessionState state)
     {
         var machine = new AssistSessionStateMachine();
