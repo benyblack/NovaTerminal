@@ -1580,13 +1580,23 @@ namespace NovaTerminal.Controls
             {
                 if (_boundCommandAssistViewModel != null)
                 {
-                    _boundCommandAssistViewModel.Bubble.ShowQueryText = !layout.UseCompactBubbleLayout;
+                    // The width budget only. Whether the query is worth showing at a width that could
+                    // hold it is the view-model's call - Fix mode declines it - so this sets the
+                    // permission rather than the outcome. See CommandAssistBarViewModel.AllowBubbleQueryText.
+                    _boundCommandAssistViewModel.AllowBubbleQueryText = !layout.UseCompactBubbleLayout;
 
-                    // Same rule, same reason, one more casualty of a 280 px bubble: the hint strip's Auto
-                    // column beat the summary's * column at the width a split SSH pane produces, so the
-                    // one thing the bubble exists to show was squeezed out by a legend for it
-                    // (PR #290 review). The popup footer still carries the shortcuts.
-                    _boundCommandAssistViewModel.Bubble.ShowShortcutHint = !layout.UseCompactBubbleLayout;
+                    // Same rule, same reason, one more casualty of a narrow bubble: the hint strip's
+                    // Auto column beat the summary's * column at the width a split SSH pane produces,
+                    // so the one thing the bubble exists to show was squeezed out by a legend for it
+                    // (PR #290 review). Since the UX-polish round the collapse has a middle rung -
+                    // keys without verbs - because the owner's pane was wider than the compact
+                    // threshold and still could not fit both. The popup footer always carries the
+                    // full shortcuts.
+                    _boundCommandAssistViewModel.BubbleHintDetail = layout.UseCompactBubbleLayout
+                        ? AssistHintDetail.Hidden
+                        : layout.UseTerseBubbleHint
+                            ? AssistHintDetail.Terse
+                            : AssistHintDetail.Full;
                 }
 
                 CommandAssistBubble.Width = layout.BubbleRect.Width;

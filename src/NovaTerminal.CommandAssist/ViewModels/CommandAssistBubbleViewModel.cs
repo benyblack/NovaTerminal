@@ -18,6 +18,10 @@ public sealed class CommandAssistBubbleViewModel : INotifyPropertyChanged
     private string _shortcutHintText = CommandAssistBarViewModel.IdleHintText;
     private bool _showQueryText = true;
     private bool _showShortcutHint = true;
+    private bool _isSummaryContinuation;
+    private string _integrationStatusText = string.Empty;
+    private string _integrationStatusTooltip = string.Empty;
+    private bool _showIntegrationStatus;
 
     public bool IsVisible
     {
@@ -71,6 +75,74 @@ public sealed class CommandAssistBubbleViewModel : INotifyPropertyChanged
     {
         get => _showShortcutHint;
         set => SetField(ref _showShortcutHint, value);
+    }
+
+    /// <summary>
+    /// Whether <see cref="SummaryText"/> is the tail of a suggestion whose head is already on screen
+    /// as <see cref="QueryText"/>, and should therefore be drawn butted up against it.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The fish-style completion, and it is the single biggest win in the readability fix.</strong>
+    /// The owner's bubble read <c>Suggest | dock | doc...</c>: the summary column was repeating the
+    /// three characters he had already typed and then running out of room for the part he had not.
+    /// When the top suggestion extends the query, the query <em>is</em> the head of the answer, so the
+    /// summary only has to carry the tail - which roughly doubles the useful width of the column at no
+    /// cost, because nothing was lost. Rendered as <c>doc</c> in white followed immediately by
+    /// <c>ker compose up</c> in the suggestion colour, it reads as one string, which is what every
+    /// shell with inline autosuggestion has trained people to expect.
+    /// </para>
+    /// <para>
+    /// Only ever set when the query is actually being rendered - see
+    /// <c>CommandAssistBarViewModel.SyncPresentationState</c>. Showing a bare tail with its head
+    /// suppressed by the compact layout would be gibberish.
+    /// </para>
+    /// </remarks>
+    public bool IsSummaryContinuation
+    {
+        get => _isSummaryContinuation;
+        set => SetField(ref _isSummaryContinuation, value);
+    }
+
+    /// <summary>
+    /// The session's shell-integration state as a one-word chip: "integrated" or "basic".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The owner-approved addition to this round. "Is the shell integration script actually working?"
+    /// was previously answerable only by running a command and seeing whether anything was captured,
+    /// which is a poor way to learn that the answer is no. The state was already known - it is
+    /// <c>AssistSessionContext.IsShellIntegrationLive</c>, the same disjunction the capture pipeline
+    /// gates on - and simply had no way to reach the screen.
+    /// </para>
+    /// <para>
+    /// Deliberately tiny and deliberately not an alert. A markless session is a supported,
+    /// working configuration - <c>cmd.exe</c> is never going to emit OSC 133 - so "basic" is a
+    /// statement of which mode you are in, not a warning that something is broken. The full sentence
+    /// lives in <see cref="IntegrationStatusTooltip"/>.
+    /// </para>
+    /// </remarks>
+    public string IntegrationStatusText
+    {
+        get => _integrationStatusText;
+        set => SetField(ref _integrationStatusText, value);
+    }
+
+    /// <summary>The sentence behind <see cref="IntegrationStatusText"/>, shown on hover.</summary>
+    public string IntegrationStatusTooltip
+    {
+        get => _integrationStatusTooltip;
+        set => SetField(ref _integrationStatusTooltip, value);
+    }
+
+    /// <summary>
+    /// Whether the chip is rendered. Follows the same width budget as the hint strip: it is chrome,
+    /// and chrome yields to content.
+    /// </summary>
+    public bool ShowIntegrationStatus
+    {
+        get => _showIntegrationStatus;
+        set => SetField(ref _showIntegrationStatus, value);
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
