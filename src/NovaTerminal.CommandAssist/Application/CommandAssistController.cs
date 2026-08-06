@@ -105,6 +105,12 @@ public sealed class CommandAssistController
     /// </remarks>
     private bool _isInsertionAvailable = true;
 
+    /// <summary>
+    /// The clock the relative-time captions are rendered against. Overridable so the buckets in
+    /// <see cref="AssistRelativeTime"/> can be tested without waiting for time to pass.
+    /// </summary>
+    internal Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
+
     public CommandAssistController(
         IHistoryStore historyStore,
         ISecretsFilter secretsFilter,
@@ -768,6 +774,19 @@ public sealed class CommandAssistController
         CommandAssistMode mode = _modeRouter.ChooseModeForFailure(highestConfidence);
         IReadOnlyList<AssistSuggestion> suggestions = _resultBuilder.BuildFixSuggestions(fixes);
 
+        // The typo suppression's second signal (UX-polish round, issue 5). Exit code 127 is handled in
+        // CapturePipeline where the completion patch already lands, but PowerShell reports 1 for an
+        // unresolved name, so on Windows the only thing that knows a typo happened is the recogniser
+        // that just read "The term 'gti' is not recognized" out of the output tail. Thread it back to
+        // the entry the pipeline captured for this very command, before anything can offer it again.
+        //
+        // Best-effort and deliberately not awaited into the surface decision below: failing to mark a
+        // typo must not also cost the user the fix suggestion for it.
+        if (fixes.Any(item => item.IsCommandNotFound))
+        {
+            await _capturePipeline.MarkLastCommandInvalidAsync();
+        }
+
         // Kept symmetrical with Help even though neither Fix branch below can currently render it:
         // reaching Fix mode requires a confidence >= 0.8, which requires at least one row, and the
         // Suggest branch returns early when there are none. That was true of "No likely local fix
@@ -789,7 +808,11 @@ public sealed class CommandAssistController
             return true;
         }
 
-        if (suggestions.Count == 0)
+        // The noise floor (UX-polish round, issue 4). This used to be `suggestions.Count == 0`, i.e.
+        // every failing command in the session got a bubble whatever the ladder had managed to infer.
+        // See CommandAssistModeRouter.ShouldSurfacePassiveFix for what "actionable" means and why the
+        // suppressed rows are still reachable by an explicit Ctrl+Space.
+        if (!_modeRouter.ShouldSurfacePassiveFix(fixes))
         {
             return false;
         }
@@ -951,6 +974,7 @@ public sealed class CommandAssistController
         // grid, so this is also where the surface catches up with edits no keystroke reported.
         _isInsertionAvailable = outcome.InsertionAppearsAvailable;
         ViewModel.QueryText = outcome.Query;
+        PublishSessionStatus();
 
         // A ranking pass shows the user's own history, snippets and paths - nothing licensed. If a
         // Help surface left a credit behind, this is where it goes.
@@ -1027,6 +1051,21 @@ public sealed class CommandAssistController
         return true;
     }
 
+    /// <summary>
+    /// Republishes the session facts the surface displays about itself, as opposed to about its rows.
+    /// </summary>
+    /// <remarks>
+    /// Today that is just the integration chip. Pulled from
+    /// <see cref="AssistSessionContext.IsShellIntegrationLive"/> at publish time rather than pushed
+    /// when it changes, for the reason the hint-strip probes give: the flag moves on marker
+    /// observations deep in the capture path, and a pushed copy would be stale at whichever call site
+    /// forgot to update it.
+    /// </remarks>
+    private void PublishSessionStatus()
+    {
+        ViewModel.IsShellIntegrationLive = _context.IsShellIntegrationLive;
+    }
+
     private AssistSuggestion? GetSelectedSuggestion()
     {
         return ViewModel.SelectedIndex >= 0 && ViewModel.SelectedIndex < _suggestions.Count
@@ -1076,7 +1115,17 @@ public sealed class CommandAssistController
         }
     }
 
-    private static string BuildMetadataText(AssistSuggestion suggestion)
+    /// <summary>
+    /// The metadata caption under a row: where it ran, how long ago, and how it ended.
+    /// </summary>
+    /// <remarks>
+    /// The timestamp is relative since the UX-polish round. <c>Used 2026-08-04 15:23</c> made the
+    /// reader do arithmetic to answer the only question a <c>Ctrl+R</c> row raises, and it was the
+    /// one field that could have made the new recency ordering legible. See
+    /// <see cref="AssistRelativeTime"/>. The directory stays: it is the other half of the placement,
+    /// and the "Same dir" badge is a boolean where this is the actual path.
+    /// </remarks>
+    private string BuildMetadataText(AssistSuggestion suggestion)
     {
         List<string> parts = new();
         if (!string.IsNullOrWhiteSpace(suggestion.WorkingDirectory))
@@ -1086,7 +1135,7 @@ public sealed class CommandAssistController
 
         if (suggestion.LastUsedAt.HasValue)
         {
-            parts.Add($"Used {suggestion.LastUsedAt.Value:yyyy-MM-dd HH:mm}");
+            parts.Add(AssistRelativeTime.Format(suggestion.LastUsedAt.Value, Clock()));
         }
 
         if (suggestion.ExitCode.HasValue)
@@ -1118,6 +1167,7 @@ public sealed class CommandAssistController
         // SuggestionRefreshOutcome.InsertionAppearsAvailable - which is also the answer for Fix, published
         // after the line was submitted with the lifecycle gate already shut.
         _isInsertionAvailable = TryReadQuerySnapshot()?.IsUsableAsTypedPrefix ?? true;
+        PublishSessionStatus();
         ViewModel.ModeLabel = mode.ToString();
 
         // Help and Fix put their subject in the query field: the command Help was asked about, the

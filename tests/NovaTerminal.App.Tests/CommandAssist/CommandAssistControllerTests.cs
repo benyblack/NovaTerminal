@@ -182,14 +182,28 @@ public sealed class CommandAssistControllerTests
         Assert.Equal(AssistSuggestionType.Fix, controller.Suggestions[0].Type);
     }
 
+    /// <summary>
+    /// A recognised insight that is confident enough to be worth saying, but not enough to interrupt,
+    /// gets the bubble and not the popup.
+    /// </summary>
+    /// <remarks>
+    /// The middle band: a recogniser matched, so it surfaces, but the confidence is under the 0.8 that
+    /// opens the popup over whatever the user types next.
+    /// </remarks>
     [Fact]
-    public async Task HandleCommandFailureAsync_WhenInsightIsLowConfidence_DoesNotAutoOpenFixMode()
+    public async Task HandleCommandFailureAsync_WhenInsightIsRecognizedButNotConfident_ShowsTheBubbleWithoutThePopup()
     {
         var controller = CreateController(
             errorInsightService: new RecordingErrorInsightService(
-                [new CommandFixSuggestion("Maybe try something else", "git status", "Low confidence.", 0.2, ["Fix"])]));
+                [new CommandFixSuggestion(
+                    "Run it with elevated privileges",
+                    "sudo apt install ripgrep",
+                    "The operation needs privileges the current user does not have.",
+                    CommandErrorRecognizers.Plausible,
+                    ["Fix"],
+                    RecognizerId: "permission-denied")]));
 
-        bool opened = await controller.HandleCommandFailureAsync(CreateFailureContext("gti status", 1, "command failed"));
+        bool opened = await controller.HandleCommandFailureAsync(CreateFailureContext("apt install ripgrep", 1, "Permission denied"));
 
         Assert.False(opened);
         Assert.True(controller.ViewModel.IsVisible);
@@ -199,20 +213,170 @@ public sealed class CommandAssistControllerTests
         Assert.Contains(controller.Suggestions, item => item.Type == AssistSuggestionType.Fix);
     }
 
+    /// <summary>
+    /// The noise floor: an insight nothing in the recogniser table stood behind shows nothing at all.
+    /// </summary>
+    /// <remarks>
+    /// The owner's "fix comes sometimes when it is not needed", in the shape he actually hit it -
+    /// a zsh builtin that ran, printed something no recogniser models, and exited non-zero, answered
+    /// with a name-similarity guess. Before the UX-polish round the only condition here was "the list
+    /// is non-empty", so every non-zero exit in the session produced a bubble.
+    /// </remarks>
+    [Fact]
+    public async Task HandleCommandFailureAsync_WhenTheBestInsightIsAGuess_ShowsNothing()
+    {
+        var controller = CreateController(
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion(
+                    "Did you mean printf?",
+                    "printf -l $precmd_functions",
+                    "The command failed for a reason this terminal does not recognise.",
+                    CommandErrorRecognizers.Explanatory,
+                    ["Fix", "Typo"])]));
+
+        bool opened = await controller.HandleCommandFailureAsync(
+            CreateFailureContext("print -l $precmd_functions", 1, "command failed"));
+
+        Assert.False(opened);
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.False(controller.ViewModel.IsPopupOpen);
+    }
+
+    /// <summary>
+    /// An unrecognised guess does not auto-surface however confident it claims to be.
+    /// </summary>
+    /// <remarks>
+    /// The reason the gate is provenance rather than confidence. The service's no-output fallback
+    /// publishes a one-edit correction at <see cref="CommandErrorRecognizers.Likely"/> - above any
+    /// threshold that would still admit a real explanation - on the strength of nothing but name
+    /// similarity.
+    /// </remarks>
+    [Fact]
+    public async Task HandleCommandFailureAsync_WhenTheInsightIsAnUnrecognizedGuess_ShowsNothing()
+    {
+        var controller = CreateController(
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion(
+                    "Did you mean git?",
+                    "git status",
+                    "No output was captured for this command, so this is a name-similarity guess only.",
+                    CommandErrorRecognizers.Likely,
+                    ["Fix", "Typo"])]));
+
+        bool opened = await controller.HandleCommandFailureAsync(CreateFailureContext("gti status", 1, null));
+
+        Assert.False(opened);
+        Assert.False(controller.ViewModel.IsVisible);
+    }
+
     [Fact]
     public async Task MoveSelectionDown_WhenLowConfidenceFixAffordanceIsVisible_OpensPopup()
     {
         var controller = CreateController(
             errorInsightService: new RecordingErrorInsightService(
-                [new CommandFixSuggestion("Maybe try git status", "git status", "Low confidence.", 0.2, ["Fix"])]));
+                [new CommandFixSuggestion(
+                    "Run it with elevated privileges",
+                    "sudo apt install ripgrep",
+                    "The operation needs privileges the current user does not have.",
+                    CommandErrorRecognizers.Plausible,
+                    ["Fix"],
+                    RecognizerId: "permission-denied")]));
 
-        await controller.HandleCommandFailureAsync(CreateFailureContext("gti status", 1, "command failed"));
+        await controller.HandleCommandFailureAsync(CreateFailureContext("apt install ripgrep", 1, "Permission denied"));
 
         bool moved = controller.MoveSelectionDown();
 
         Assert.True(moved);
         Assert.True(controller.ViewModel.IsPopupOpen);
         Assert.True(controller.ViewModel.Popup.IsVisible);
+    }
+
+    /// <summary>
+    /// The end-to-end typo suppression: a recognised command-not-found marks the entry that was just
+    /// captured, so the next keystroke does not get it offered back.
+    /// </summary>
+    /// <remarks>
+    /// This is the PowerShell path, where the exit code is 1 and carries no information - the only
+    /// thing that knows a typo happened is the recogniser that read the output tail. See
+    /// <c>CommandHistoryEntry.IsInvalidCommand</c>.
+    /// </remarks>
+    [Fact]
+    public async Task HandleCommandFailureAsync_WhenTheFailureIsCommandNotFound_FlagsTheCapturedEntry()
+    {
+        var store = new InMemoryHistoryStore();
+        var controller = CreateController(
+            historyStore: store,
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion(
+                    "Did you mean git?",
+                    "git status",
+                    "Closest local match.",
+                    CommandErrorRecognizers.NearCertain,
+                    ["Fix", "Typo"],
+                    RecognizerId: "command-not-found")]));
+
+        await controller.HandleEnterAsync("gti status");
+        await controller.HandleCommandFinishedAsync(1);
+
+        Assert.False(Assert.Single(store.Entries).IsInvalidCommand);
+
+        await controller.HandleCommandFailureAsync(
+            CreateFailureContext("gti status", 1, "gti : The term 'gti' is not recognized as a name of a cmdlet"));
+
+        Assert.True(Assert.Single(store.Entries).IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// A failure that is not a name-resolution failure leaves the entry alone.
+    /// </summary>
+    [Fact]
+    public async Task HandleCommandFailureAsync_WhenTheFailureIsNotCommandNotFound_LeavesTheEntryOffered()
+    {
+        var store = new InMemoryHistoryStore();
+        var controller = CreateController(
+            historyStore: store,
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion(
+                    "Set an upstream for this branch",
+                    "git push -u origin main",
+                    "The branch has no upstream.",
+                    CommandErrorRecognizers.ToolNamedTheFix,
+                    ["Fix"],
+                    RecognizerId: "git-no-upstream")]));
+
+        await controller.HandleEnterAsync("git push");
+        await controller.HandleCommandFinishedAsync(128);
+        await controller.HandleCommandFailureAsync(
+            CreateFailureContext("git push", 128, "fatal: The current branch main has no upstream branch."));
+
+        Assert.False(Assert.Single(store.Entries).IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// The Fix bubble's headline is the suggestion, and the failed command is not echoed into it.
+    /// </summary>
+    [Fact]
+    public async Task HandleCommandFailureAsync_PutsTheSuggestionInTheBubbleAndNotTheFailedCommand()
+    {
+        var controller = CreateController(
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion(
+                    "Did you mean git?",
+                    "git status",
+                    "Closest local match.",
+                    CommandErrorRecognizers.NearCertain,
+                    ["Fix", "Typo"],
+                    RecognizerId: "command-not-found")]));
+
+        await controller.HandleCommandFailureAsync(
+            CreateFailureContext("gti status", 127, "command not found"));
+
+        // The popup keeps the failed command as its caption - there is room for both there.
+        Assert.Equal("gti status", controller.ViewModel.QueryText);
+
+        // The bubble does not, and its summary is the fix rather than the failure.
+        Assert.False(controller.ViewModel.Bubble.ShowQueryText);
+        Assert.Equal("Did you mean git?", controller.ViewModel.Bubble.SummaryText);
     }
 
     [Fact]
@@ -1757,7 +1921,19 @@ public sealed class CommandAssistControllerTests
             return needleIndex == needle.Length;
         }
 
-        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+        public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
+        {
+            int index = _entries.FindIndex(x => x.Id == entryId);
+            if (index < 0)
+            {
+                return Task.FromResult(false);
+            }
+
+            _entries[index] = _entries[index] with { IsInvalidCommand = true };
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
         {
             int index = _entries.FindIndex(x => x.Id == entryId);
             if (index < 0)
@@ -1768,7 +1944,10 @@ public sealed class CommandAssistControllerTests
             _entries[index] = _entries[index] with
             {
                 ExitCode = exitCode,
-                DurationMs = durationMs ?? _entries[index].DurationMs
+                DurationMs = durationMs ?? _entries[index].DurationMs,
+
+                // Latching, like the real store: see IHistoryStore.TryUpdateExecutionResultAsync.
+                IsInvalidCommand = _entries[index].IsInvalidCommand || isInvalidCommand
             };
             return Task.FromResult(true);
         }
@@ -1815,7 +1994,10 @@ public sealed class CommandAssistControllerTests
                 cancellationToken);
         }
 
-        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+        public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromResult(false);
 
         public Task WaitForLastSearchAsync() => _lastSearchTask;
@@ -1835,7 +2017,10 @@ public sealed class CommandAssistControllerTests
         public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CommandHistoryEntry>>(Array.Empty<CommandHistoryEntry>());
 
-        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+        public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromException<bool>(new InvalidOperationException("simulated write failure"));
     }
 

@@ -62,6 +62,104 @@ public sealed class CommandAssistModeRouterTests
         Assert.Equal(CommandAssistMode.Suggest, mode);
     }
 
+    // ------------------------------------------------ UX-polish round: the Fix noise floor
+
+    /// <summary>
+    /// Anything a recogniser stood behind may surface, at every confidence the table publishes.
+    /// </summary>
+    /// <remarks>
+    /// The 0.40 case is the one that matters and the one an earlier draft of this floor got wrong:
+    /// <c>Explanatory</c> is what the table uses for a recognised failure with no single command to
+    /// run, and <c>git status</c> outside a working tree - "This directory is not inside a Git
+    /// repository" - is exactly what the feature is for.
+    /// </remarks>
+    [Theory]
+    [InlineData(0.95)]
+    [InlineData(0.7)]
+    [InlineData(0.55)]
+    [InlineData(0.4)]
+    public void ShouldSurfacePassiveFix_ForAnythingTheTableRecognized_IsTrue(double confidence)
+    {
+        var router = new CommandAssistModeRouter();
+
+        Assert.True(router.ShouldSurfacePassiveFix(
+            [Fix("This directory is not inside a Git repository", confidence, recognizerId: "git-not-a-repository")]));
+    }
+
+    /// <summary>
+    /// An uninformed guess does not interrupt however confident it is about itself.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This is the mutation check for the floor.</strong> Dropping <c>IsRecognized</c> from
+    /// <c>ShouldSurfacePassiveFix</c> lets every one of these back onto the screen and fails here.
+    /// </para>
+    /// <para>
+    /// The 0.70 row is the important one: it is the no-output name-similarity guess, priced above any
+    /// confidence threshold that would still admit a real explanation, which is why provenance rather
+    /// than confidence is the gate.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(0.7)]
+    [InlineData(0.55)]
+    [InlineData(0.4)]
+    public void ShouldSurfacePassiveFix_ForAnUnrecognizedGuess_IsFalse(double confidence)
+    {
+        var router = new CommandAssistModeRouter();
+
+        Assert.False(router.ShouldSurfacePassiveFix([Fix("Did you mean git?", confidence, recognizerId: null)]));
+    }
+
+    /// <summary>
+    /// One recognised row carries a list that also holds guesses.
+    /// </summary>
+    [Fact]
+    public void ShouldSurfacePassiveFix_WhenAnyRowWasRecognized_IsTrue()
+    {
+        var router = new CommandAssistModeRouter();
+
+        Assert.True(router.ShouldSurfacePassiveFix(
+        [
+            Fix("Did you mean git?", 0.7, recognizerId: null),
+            Fix("Run it with ./", 0.7, recognizerId: "command-not-found")
+        ]));
+    }
+
+    /// <summary>
+    /// A list of nothing but guesses stays down, however many of them there are.
+    /// </summary>
+    [Fact]
+    public void ShouldSurfacePassiveFix_WhenEveryRowIsAGuess_IsFalse()
+    {
+        var router = new CommandAssistModeRouter();
+
+        Assert.False(router.ShouldSurfacePassiveFix(
+        [
+            Fix("Did you mean git?", 0.7, recognizerId: null),
+            Fix("Did you mean gh?", 0.55, recognizerId: null)
+        ]));
+    }
+
+    [Fact]
+    public void ShouldSurfacePassiveFix_WithNoInsights_IsFalse()
+    {
+        var router = new CommandAssistModeRouter();
+
+        Assert.False(router.ShouldSurfacePassiveFix([]));
+    }
+
+    private static CommandFixSuggestion Fix(string title, double confidence, string? recognizerId)
+    {
+        return new CommandFixSuggestion(
+            Title: title,
+            SuggestedCommand: "git status",
+            Description: null,
+            Confidence: confidence,
+            Badges: ["Fix"],
+            RecognizerId: recognizerId);
+    }
+
     [Theory]
     [InlineData("git status", "git")]
     [InlineData("Get-ChildItem -Force", "Get-ChildItem")]
