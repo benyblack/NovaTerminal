@@ -469,6 +469,12 @@ namespace NovaTerminal.Controls
             _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
+            // Record the requested command NOW, not only once the session starts. Until
+            // InitializeSessionCore ran, the shell lived solely in this lambda's closure,
+            // while ShellCommand — the property the OnAttachedToVisualTree fallback,
+            // Reconnect() and session persistence all read — was still string.Empty. Any of
+            // those reaching the pane first therefore lost the requested shell entirely.
+            ShellCommand = shell ?? string.Empty;
             TermView.Ready += (c, r) => InitializeSession(shell, null, c, r);
             SetupCommon(initialSettings);
             StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
@@ -486,6 +492,10 @@ namespace NovaTerminal.Controls
             _sshDiagnosticsLevel = SshDiagnosticsLevel.None;
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
+            // See the single-argument overload: the requested command must be observable
+            // before the session starts, or the attach-time fallback spawns an empty one.
+            ShellCommand = shell ?? string.Empty;
+            ShellArgs = args ?? string.Empty;
             TermView.Ready += (c, r) => InitializeSession(shell, null, c, r, args);
             SetupCommon(initialSettings);
             StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
@@ -515,6 +525,10 @@ namespace NovaTerminal.Controls
             Buffer = new TerminalBuffer(80, 24);
             TermView.SetBuffer(Buffer);
             TermView.ShellOverride = profile.ShellOverride;
+            // As above: keep the profile's command visible to the attach-time fallback,
+            // Reconnect() and persistence before the first session exists.
+            ShellCommand = profile.Command ?? string.Empty;
+            ShellArgs = profile.Arguments ?? string.Empty;
             TermView.Ready += (c, r) => InitializeSession(profile.Command, profile, c, r);
             SetupCommon(useInitialSettings ? initialSettings : null);
             StartupPerformanceTracker.Current?.TryMarkCheckpoint("TerminalPane.Ctor.AfterSetupCommon");
@@ -2532,8 +2546,18 @@ namespace NovaTerminal.Controls
             if (cw > 0) Parser!.CellWidth = cw;
             if (ch > 0) Parser!.CellHeight = ch;
 
-            // Setup Session
-            string effectiveShell = shell ?? ShellHelper.GetDefaultShell();
+            // Setup Session.
+            //
+            // Deliberately IsNullOrWhiteSpace, not `??`: an EMPTY command is just as
+            // unspawnable as a null one, and it is the value that actually reaches here in
+            // practice. `ShellCommand` starts out as string.Empty and is fed straight back
+            // into this method by the OnAttachedToVisualTree fallback and by Reconnect(),
+            // and a restored pane whose persisted Command was empty arrives the same way.
+            // With `??` all of those spawned "", which the native layer resolved to the
+            // first %PATH% *directory* and reported as "Access is denied" against a path the
+            // user never typed. The default shell is always spawnable, so preferring it over
+            // a blank is strictly better than failing.
+            string effectiveShell = string.IsNullOrWhiteSpace(shell) ? ShellHelper.GetDefaultShell() : shell;
             string args = explicitArgs ?? profile?.Arguments ?? "";
             InitializeSessionCore(effectiveShell, args, profile, cols, rows);
         }
