@@ -55,6 +55,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# pwsh (PowerShell 7+) only, as the shebang says. The body uses $IsWindows and multi-segment
+# Join-Path, neither of which exists in Windows PowerShell 5.1: run it as
+# `powershell -File scripts/run-sidecar.ps1` and the first Join-Path below dies with
+# "A positional parameter cannot be found that accepts argument 'NovaTerminal.App'" - a message
+# with no connection to the actual requirement. Worse, $IsWindows is simply $null under 5.1, so
+# a script that got past the Join-Paths would silently take the non-Windows branches. Refuse up
+# front and name the fix.
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    Write-Error "[sidecar] This script requires PowerShell 7+ (pwsh); Windows PowerShell 5.1 is not supported. Run: pwsh -File scripts/run-sidecar.ps1"
+    exit 1
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 # Build path segments with Join-Path (no embedded separators) so they're correct on every OS.
 $appProject = Join-Path $repoRoot 'src' 'NovaTerminal.App'

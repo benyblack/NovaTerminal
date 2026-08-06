@@ -409,6 +409,60 @@ namespace NovaTerminal.Pty
         private int _cols;
         private int _rows;
 
+        /// Message for a spawn attempt with no command. Shared with the tests so the
+        /// contract is asserted, not re-typed.
+        internal const string EmptyCommandMessage =
+            "Cannot start a terminal session: no shell command was supplied.";
+
+        /// <summary>
+        /// Rejects a command that is empty or whitespace, before it reaches the native layer.
+        /// </summary>
+        /// <remarks>
+        /// An empty command is not a spawn failure the OS reports usefully. On Windows,
+        /// portable-pty resolves the program name by joining it onto each %PATH% entry
+        /// (cmdbuilder.rs <c>search_path</c>) and taking the first candidate that *exists* —
+        /// and <c>Path::join("")</c> of a directory is that directory, which exists. So an
+        /// empty command resolves to the first directory on %PATH% and CreateProcessW is
+        /// asked to execute a folder, failing with "Access is denied. (os error 5)". The
+        /// reported command line is then a %PATH% entry the user never typed, which sends
+        /// debugging in entirely the wrong direction (it named a VMware directory in the
+        /// original report). Fail here, where the message can say what is actually wrong.
+        /// </remarks>
+        internal static string ValidateShellCommand(string? shellCommand)
+        {
+            if (string.IsNullOrWhiteSpace(shellCommand))
+            {
+                throw new ArgumentException(EmptyCommandMessage, nameof(shellCommand));
+            }
+
+            return RejectEmbeddedNuls(shellCommand, nameof(shellCommand))!;
+        }
+
+        /// <summary>
+        /// Rejects a string carrying an embedded NUL before it is marshalled to the native side.
+        /// </summary>
+        /// <remarks>
+        /// Every string on this boundary is marshalled as <see cref="UnmanagedType.LPUTF8Str"/>,
+        /// i.e. a NUL-terminated C string, and Rust reads it back with
+        /// <c>CStr::from_ptr</c> — which stops at the FIRST NUL. An embedded NUL therefore
+        /// cannot be detected on the Rust side at all: it silently truncates, and the child
+        /// is spawned with a command/cwd that is a prefix of what the caller asked for. This
+        /// is the only place the whole string is still visible, so it is the only place the
+        /// check can be made.
+        /// </remarks>
+        internal static string? RejectEmbeddedNuls(string? value, string parameterName)
+        {
+            if (value != null && value.IndexOf('\0') >= 0)
+            {
+                throw new ArgumentException(
+                    $"Cannot start a terminal session: {parameterName} contains an embedded NUL character, " +
+                    "which would be silently truncated when passed to the native PTY layer.",
+                    parameterName);
+            }
+
+            return value;
+        }
+
         /// The PTY read call, injectable so tests can drive the read loop's failure
         /// handling. `pty_read` returns the byte count, 0 for EOF, or a negative value for
         /// any error - see MaxConsecutiveReadErrors.
@@ -451,6 +505,21 @@ namespace NovaTerminal.Pty
             IReadOnlyDictionary<string, string>? environmentOverrides,
             PtyReadDelegate? readFromPty)
         {
+            // Validate before anything else: everything below either marshals these strings
+            // to the native layer or derives from them. A bad value must fail here with a
+            // message that names the problem, not deep inside CreateProcessW.
+            shellCommand = ValidateShellCommand(shellCommand);
+            args = RejectEmbeddedNuls(args, nameof(args));
+            cwd = RejectEmbeddedNuls(cwd, nameof(cwd));
+            if (environmentOverrides != null)
+            {
+                foreach (var kv in environmentOverrides)
+                {
+                    RejectEmbeddedNuls(kv.Key, "environment variable name");
+                    RejectEmbeddedNuls(kv.Value, $"the value of environment variable '{kv.Key}'");
+                }
+            }
+
             _readFromPty = readFromPty ?? Native.pty_read;
             ShellCommand = shellCommand;
             ShellArguments = args;

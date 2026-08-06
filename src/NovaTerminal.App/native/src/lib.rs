@@ -614,6 +614,31 @@ fn parse_env_overrides(envs: *const c_char) -> Vec<(String, String)> {
     out
 }
 
+/// Reported when a spawn is asked to run nothing.
+///
+/// Worth spelling out because the OS-level symptom is actively misleading. On Windows,
+/// portable-pty resolves the program name by joining it onto each `%PATH%` entry and taking
+/// the first candidate that *exists* (`cmdbuilder.rs::search_path`) -- and joining an empty
+/// name onto a directory yields that directory, which exists. `CreateProcessW` is then asked
+/// to execute a folder and fails with `Access is denied. (os error 5)`, naming a `%PATH%`
+/// entry the caller never mentioned. Refuse before that happens, and say so.
+const EMPTY_COMMAND_ERROR: &str =
+    "cmd was empty: refusing to spawn. An empty program name resolves to the first PATH \
+     directory, which the OS then rejects with a misleading 'Access is denied'.";
+
+/// `Some(reason)` when the command cannot be spawned as given, `None` to attempt it.
+///
+/// Whitespace counts as empty: `CommandBuilder::new("  ")` is no more runnable than
+/// `CommandBuilder::new("")`, and a stray space is exactly what a hand-edited settings or
+/// session file produces.
+fn reject_unspawnable_command(cmd: &str) -> Option<&'static str> {
+    if cmd.trim().is_empty() {
+        Some(EMPTY_COMMAND_ERROR)
+    } else {
+        None
+    }
+}
+
 /// Decide whether to bypass the Windows `PSEUDOCONSOLE_PASSTHROUGH` spawn path.
 ///
 /// Passthrough silently drops a child's direct stdout writes (e.g. PowerShell 7's
@@ -678,6 +703,12 @@ fn pty_spawn_impl(
         }
         CStr::from_ptr(cmd).to_string_lossy()
     };
+    // Before either spawn path: both the ConPTY passthrough and portable-pty build a command
+    // line from this string, and neither treats "nothing to run" as an error of its own.
+    if let Some(reason) = reject_unspawnable_command(cmd_str.as_ref()) {
+        set_last_error(reason);
+        return std::ptr::null_mut();
+    }
     let args_str = unsafe {
         if args.is_null() {
             None
@@ -1291,6 +1322,39 @@ mod last_error_tests {
         let (rc, message) = read_last_error(128);
         assert!(rc > 0);
         assert_eq!(message, "cmd was null");
+    }
+
+    // An empty command used to reach CreateProcessW, which resolved it to the first %PATH%
+    // directory and reported "Access is denied" against a path nobody asked for. The spawn
+    // must fail here instead, with a message that names the real problem.
+    #[test]
+    fn empty_cmd_is_rejected_before_the_os_sees_it() {
+        let _guard = crate::handle_test_lock();
+        for blank in ["", "   ", "\t"] {
+            let c_cmd = CString::new(blank).unwrap();
+            let state = pty_spawn(c_cmd.as_ptr(), std::ptr::null(), std::ptr::null(), 80, 24);
+            assert!(state.is_null(), "spawning {blank:?} should fail");
+
+            let (rc, message) = read_last_error(512);
+            assert!(rc > 0, "expected a message for {blank:?}, got rc={rc}");
+            assert!(
+                message.contains("cmd was empty"),
+                "message should name the empty command; got: {message}"
+            );
+            // The OS was never asked, so nothing it says can appear here. (The message
+            // *mentions* the denial it prevents, hence matching on the API name and the
+            // errno rather than on the phrase.)
+            assert!(
+                !message.contains("CreateProcessW") && !message.contains("os error 5"),
+                "the OS should never have been asked; got: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_real_command_is_not_rejected_as_empty() {
+        assert_eq!(reject_unspawnable_command("cmd.exe"), None);
+        assert_eq!(reject_unspawnable_command(" cmd.exe "), None);
     }
 
     #[test]
