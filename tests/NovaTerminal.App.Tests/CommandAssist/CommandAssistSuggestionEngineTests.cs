@@ -48,6 +48,240 @@ public sealed class CommandAssistSuggestionEngineTests
         Assert.Equal("Helper detail", suggestion.Description);
     }
 
+    // ---------------------------------------------- UX-polish round: recency-first empty query
+
+    /// <summary>
+    /// The owner's exact complaint, as a test: the command he ran seconds ago must outrank the one he
+    /// ran five times last week.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// His screenshot had <c>vim .env</c> and <c>git pull</c> at the top, badged "Frequent", from a
+    /// directory he was no longer in - while the commands he had just run sat below the fold. The old
+    /// empty-query score was <c>1 + min(frequency,5) + bands</c> with recency only a tiebreak on exact
+    /// equality, so five repetitions (1006) beat anything run once (1002) no matter when.
+    /// </para>
+    /// <para>
+    /// <strong>This is the mutation check for the ordering.</strong> Reverting
+    /// <c>CommandAssistSuggestionEngine</c> to score frequency on the empty-query path puts
+    /// <c>vim .env</c> first and fails here.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void GetSuggestions_WithAnEmptyQuery_RanksTheMostRecentCommandAboveTheMostFrequentOne()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-06T12:00:00+00:00");
+        var engine = new CommandAssistSuggestionEngine(clock: () => now);
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: "/srv/app",
+            ShellKind: "bash",
+            ProfileId: "profile-1",
+            IncludePathSuggestions: false);
+
+        // Five runs of the same old command, and one run of a fresh one - the shape of his history.
+        var history = Enumerable
+            .Range(0, 5)
+            .Select(i => CreateEntry(
+                "vim .env",
+                executedAt: now.AddDays(-4).AddMinutes(i),
+                workingDirectory: "/root/apps/agent1"))
+            .Append(CreateEntry(
+                "docker compose up -d",
+                executedAt: now.AddSeconds(-20),
+                workingDirectory: "/srv/app"))
+            .ToArray();
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 5);
+
+        Assert.Equal("docker compose up -d", results[0].DisplayText);
+        Assert.Equal("vim .env", results[1].DisplayText);
+    }
+
+    /// <summary>
+    /// Frequency survives as a tiebreak between two rows of the same age, which is all it is now for.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_WithAnEmptyQuery_UsesFrequencyOnlyToBreakARecencyTie()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-06T12:00:00+00:00");
+        DateTimeOffset sameMoment = now.AddMinutes(-5);
+        var engine = new CommandAssistSuggestionEngine(clock: () => now);
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: "/srv/app",
+            ShellKind: "bash",
+            ProfileId: "profile-1",
+            IncludePathSuggestions: false);
+
+        var history = new[]
+        {
+            CreateEntry("make test", executedAt: sameMoment, workingDirectory: "/srv/app"),
+            CreateEntry("make build", executedAt: sameMoment.AddMinutes(-30), workingDirectory: "/srv/app"),
+            CreateEntry("make test", executedAt: sameMoment, workingDirectory: "/srv/app")
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 5);
+
+        Assert.Equal("make test", results[0].DisplayText);
+        Assert.Equal(2, results[0].Frequency);
+    }
+
+    /// <summary>
+    /// The same-directory bonus is worth half an hour of recency: enough to lift the directory's own
+    /// recent work, not enough to bury something the user ran moments ago somewhere else.
+    /// </summary>
+    /// <remarks>
+    /// Both halves are asserted deliberately. A cwd <em>band</em> would satisfy the first and fail the
+    /// second, and would reproduce the owner's complaint with a different signal in the driving seat -
+    /// see <c>CommandAssistSuggestionEngine.EmptyQuerySameDirectoryRecencyBonus</c>.
+    /// </remarks>
+    [Fact]
+    public void GetSuggestions_WithAnEmptyQuery_TreatsSameDirectoryAsARecencyBonusNotABand()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-06T12:00:00+00:00");
+        var engine = new CommandAssistSuggestionEngine(clock: () => now);
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: "/srv/app",
+            ShellKind: "bash",
+            ProfileId: "profile-1",
+            IncludePathSuggestions: false);
+
+        // The same-dir entry is older, but by less than the bonus, so it wins.
+        var lifts = new[]
+        {
+            CreateEntry("npm run dev", executedAt: now.AddMinutes(-20), workingDirectory: "/srv/app"),
+            CreateEntry("tail -f /var/log/syslog", executedAt: now.AddMinutes(-5), workingDirectory: "/var/log")
+        };
+
+        Assert.Equal("npm run dev", engine.GetSuggestions(lifts, context, maxResults: 5)[0].DisplayText);
+
+        // The same-dir entry is older by more than the bonus, so recency wins and the bonus does not
+        // become a band.
+        var doesNotLift = new[]
+        {
+            CreateEntry("npm run dev", executedAt: now.AddHours(-3), workingDirectory: "/srv/app"),
+            CreateEntry("tail -f /var/log/syslog", executedAt: now.AddMinutes(-5), workingDirectory: "/var/log")
+        };
+
+        Assert.Equal("tail -f /var/log/syslog", engine.GetSuggestions(doesNotLift, context, maxResults: 5)[0].DisplayText);
+    }
+
+    /// <summary>
+    /// The badges explain the placement, in the order the sort applied the signals.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_BadgesTheRowWithWhatPutItThere()
+    {
+        DateTimeOffset now = DateTimeOffset.Parse("2026-08-06T12:00:00+00:00");
+        var engine = new CommandAssistSuggestionEngine(clock: () => now);
+        var context = new CommandAssistQueryContext(
+            Input: string.Empty,
+            WorkingDirectory: "/srv/app",
+            ShellKind: "bash",
+            ProfileId: "profile-1",
+            IncludePathSuggestions: false);
+
+        var history = new[]
+        {
+            CreateEntry("docker ps", executedAt: now.AddMinutes(-2), workingDirectory: "/srv/app"),
+            CreateEntry("docker ps", executedAt: now.AddMinutes(-3), workingDirectory: "/srv/app"),
+            CreateEntry("apt update", executedAt: now.AddDays(-2), workingDirectory: "/etc")
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 5);
+
+        AssistSuggestion recent = Assert.Single(results, x => x.DisplayText == "docker ps");
+        Assert.Equal(["Recent", "Same dir", "Frequent", "Worked"], recent.Badges);
+
+        AssistSuggestion old = Assert.Single(results, x => x.DisplayText == "apt update");
+        Assert.DoesNotContain("Recent", old.Badges);
+        Assert.DoesNotContain("Same dir", old.Badges);
+    }
+
+    // ---------------------------------------------- UX-polish round: typos are never suggested
+
+    /// <summary>
+    /// The owner typed <c>gti status</c>, it was captured, and the terminal offered it straight back.
+    /// </summary>
+    /// <remarks>
+    /// <strong>This is the mutation check for the invalid-command flag.</strong> Dropping the
+    /// <c>Where(x =&gt; !x.IsInvalidCommand)</c> filter in <c>BuildHistorySuggestions</c> makes
+    /// <c>gti status</c> the top suggestion for <c>gt</c> again and fails here.
+    /// </remarks>
+    [Fact]
+    public void GetSuggestions_NeverOffersACommandTheShellCouldNotResolve()
+    {
+        var engine = new CommandAssistSuggestionEngine();
+        var context = new CommandAssistQueryContext(
+            Input: "gt",
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1",
+            IncludePathSuggestions: false);
+
+        var history = new[]
+        {
+            CreateEntry("gti status", exitCode: 127, isInvalidCommand: true),
+            CreateEntry("git status", exitCode: 0)
+        };
+
+        IReadOnlyList<AssistSuggestion> results = engine.GetSuggestions(history, context, maxResults: 5);
+
+        Assert.DoesNotContain(results, x => x.DisplayText == "gti status");
+        Assert.Contains(results, x => x.DisplayText == "git status");
+    }
+
+    /// <summary>
+    /// Excluded on every path, including an explicit search for the typo's own text.
+    /// </summary>
+    /// <remarks>
+    /// The alternative - hide it in the passive bubble, keep it in an explicit <c>Ctrl+R</c> search -
+    /// was considered and rejected. There is no query for which the honest answer is a misspelling,
+    /// and a user who types <c>gti</c> looking for what went wrong wants the scrollback, not an offer
+    /// to run it again.
+    /// </remarks>
+    [Fact]
+    public void GetSuggestions_ExcludesInvalidCommandsFromExplicitSearchToo()
+    {
+        var engine = new CommandAssistSuggestionEngine();
+        var context = new CommandAssistQueryContext(
+            Input: "gti",
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1",
+            IncludePathSuggestions: false);
+
+        var history = new[] { CreateEntry("gti status", exitCode: 127, isInvalidCommand: true) };
+
+        Assert.Empty(engine.GetSuggestions(history, context, maxResults: 5));
+    }
+
+    /// <summary>
+    /// An unflagged entry with the same text still ranks: the filter is per entry, not per command
+    /// name, so installing the thing you kept mistyping brings it back.
+    /// </summary>
+    [Fact]
+    public void GetSuggestions_WhenTheSameTextLaterSucceeds_OffersTheGoodEntry()
+    {
+        var engine = new CommandAssistSuggestionEngine();
+        var context = new CommandAssistQueryContext(
+            Input: "gti",
+            WorkingDirectory: @"C:\repo",
+            ShellKind: "pwsh",
+            ProfileId: "profile-1",
+            IncludePathSuggestions: false);
+
+        var history = new[]
+        {
+            CreateEntry("gti status", exitCode: 127, isInvalidCommand: true),
+            CreateEntry("gti status", exitCode: 0)
+        };
+
+        Assert.Contains(engine.GetSuggestions(history, context, maxResults: 5), x => x.DisplayText == "gti status");
+    }
+
     [Fact]
     public void GetSuggestions_PinnedSnippetRanksAboveHistoryWithSimilarMatch()
     {
@@ -601,14 +835,16 @@ public sealed class CommandAssistSuggestionEngineTests
         string commandText,
         string? profileId = "profile-1",
         DateTimeOffset? executedAt = null,
-        int? exitCode = 0)
+        int? exitCode = 0,
+        string? workingDirectory = @"C:\repo",
+        bool isInvalidCommand = false)
     {
         return new CommandHistoryEntry(
             Id: Guid.NewGuid().ToString("N"),
             CommandText: commandText,
             ExecutedAt: executedAt ?? DateTimeOffset.Parse("2026-03-01T10:00:00+00:00"),
             ShellKind: "pwsh",
-            WorkingDirectory: @"C:\repo",
+            WorkingDirectory: workingDirectory,
             ProfileId: profileId,
             SessionId: "session-1",
             HostId: null,
@@ -616,7 +852,8 @@ public sealed class CommandAssistSuggestionEngineTests
             IsRemote: false,
             IsRedacted: false,
             Source: CommandCaptureSource.Heuristic,
-            DurationMs: null);
+            DurationMs: null,
+            IsInvalidCommand: isInvalidCommand);
     }
 
     private static CommandSnippet CreateSnippet(string name, string commandText, bool isPinned)
