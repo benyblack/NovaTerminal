@@ -45,6 +45,7 @@
                 <ColumnDefinition Width="*" MinWidth="150"/>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
             <TextBlock x:Name="BubbleModeLabelText"
@@ -75,8 +76,12 @@
                 The integration chip (owner-approved addition). Deliberately the quietest thing on the
                 row: it answers "is the shell integration script working?" once per session and then
                 has nothing further to say, so it is sized and coloured to be findable rather than
-                noticed. Dropped before the hint strip's last rung, because it is the more skippable
-                of the two.
+                noticed.
+
+                The labelled form yields at the same width the hint strip's verbs do; what replaces it
+                is BubbleIntegrationGlyph below rather than nothing. See
+                CommandAssistBubbleViewModel.IntegrationGlyphText - dropping it whole is why the owner
+                never saw this chip once in a round of dogfooding.
             -->
             <Border Grid.Column="3"
                     x:Name="BubbleIntegrationChip"
@@ -114,6 +119,22 @@
                        FontSize="11"
                        VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis"/>
+
+            <!--
+                The collapse-exempt integration indicator. Last column, so it is the one thing whose
+                position does not move as the rest of the row gives up width, and it is one character
+                wide - less than the gap between two hint clauses, which is what makes exempting it
+                affordable. Same tooltip as the labelled chip; exactly one of the two is ever visible.
+            -->
+            <TextBlock Grid.Column="5"
+                       x:Name="BubbleIntegrationGlyph"
+                       Text="{Binding IntegrationGlyphText}"
+                       IsVisible="{Binding ShowIntegrationGlyph}"
+                       ToolTip.Tip="{Binding IntegrationStatusTooltip}"
+                       Margin="8,0,0,0"
+                       Foreground="#8B96A5"
+                       FontSize="10"
+                       VerticalAlignment="Center"/>
         </Grid>
     </Border>
 </UserControl>
