@@ -327,6 +327,80 @@ public sealed class CommandAssistControllerTests
     }
 
     /// <summary>
+    /// The retroactive half (dogfood round 4, item 4a). The owner's history already held <c>gti</c>
+    /// lines from before the flag existed; reproducing the typo once has to suppress all of them, not
+    /// just the line he happened to retype.
+    /// </summary>
+    /// <remarks>
+    /// The old entries are seeded unflagged and with an exit code that carries nothing - which is
+    /// exactly what a PowerShell capture from before this round looks like on disk, and why the
+    /// load-time 127 backfill cannot reach them.
+    /// </remarks>
+    [Fact]
+    public async Task HandleCommandFailureAsync_WhenTheFailureIsCommandNotFound_FlagsOlderEntriesWithTheSameFirstToken()
+    {
+        var store = new InMemoryHistoryStore();
+        store.Seed(
+            CreateEntry("gti log --oneline", DateTimeOffset.Parse("2026-02-01T10:00:00+00:00")),
+            CreateEntry("git status", DateTimeOffset.Parse("2026-02-01T10:01:00+00:00")));
+
+        var controller = CreateController(
+            historyStore: store,
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion(
+                    "Did you mean git?",
+                    "git status",
+                    "Closest local match.",
+                    CommandErrorRecognizers.NearCertain,
+                    ["Fix", "Typo"],
+                    RecognizerId: "command-not-found",
+                    UnresolvedCommandToken: "gti")]));
+
+        await controller.HandleEnterAsync("gti status");
+        await controller.HandleCommandFinishedAsync(1);
+        await controller.HandleCommandFailureAsync(
+            CreateFailureContext("gti status", 1, "gti : The term 'gti' is not recognized as a name of a cmdlet"));
+
+        Assert.Equal(new[] { "gti" }, store.FirstTokenSweeps);
+        Assert.True(store.Entries.Single(entry => entry.CommandText == "gti status").IsInvalidCommand);
+        Assert.True(store.Entries.Single(entry => entry.CommandText == "gti log --oneline").IsInvalidCommand);
+
+        // The name is what was learned about, not the prefix: `git` is untouched.
+        Assert.False(store.Entries.Single(entry => entry.CommandText == "git status").IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// No sweep when the unresolved name is not the command's own first token. A
+    /// <c>command not found</c> raised from inside <c>npm run build</c> names something that is not
+    /// <c>npm</c>, and flagging by first token there would suppress every <c>npm</c> line the user has.
+    /// </summary>
+    [Fact]
+    public async Task HandleCommandFailureAsync_WhenTheUnresolvedNameIsNotTheCommand_DoesNotSweepByFirstToken()
+    {
+        var store = new InMemoryHistoryStore();
+        store.Seed(CreateEntry("npm run test", DateTimeOffset.Parse("2026-02-01T10:00:00+00:00")));
+
+        var controller = CreateController(
+            historyStore: store,
+            errorInsightService: new RecordingErrorInsightService(
+                [new CommandFixSuggestion(
+                    "'rimraf' is not installed or not on PATH",
+                    "where rimraf",
+                    "The shell searched PATH and found nothing by that name.",
+                    CommandErrorRecognizers.Explanatory,
+                    ["Fix", "PATH"],
+                    RecognizerId: "command-not-found")]));
+
+        await controller.HandleEnterAsync("npm run build");
+        await controller.HandleCommandFinishedAsync(1);
+        await controller.HandleCommandFailureAsync(
+            CreateFailureContext("npm run build", 1, "rimraf: command not found"));
+
+        Assert.Empty(store.FirstTokenSweeps);
+        Assert.False(store.Entries.Single(entry => entry.CommandText == "npm run test").IsInvalidCommand);
+    }
+
+    /// <summary>
     /// A failure that is not a name-resolution failure leaves the entry alone.
     /// </summary>
     [Fact]
@@ -808,6 +882,25 @@ public sealed class CommandAssistControllerTests
             historyStore: new InMemoryHistoryStore(),
             suggestionEngine: suggestionEngine,
             grid: grid);
+
+        // Warm the caller-thread path before timing it. Everything NotifyInputActivity does on the
+        // calling thread - the state transition, the view-model writes and the hint-strip rebuild they
+        // trigger, and queueing the pass - is identical for a below-floor line; what differs happens
+        // inside the pass's Task.Run, on a worker, after this method has already returned. So this JITs
+        // exactly the code the stopwatch measures and none of the code it is measuring *for*.
+        //
+        // Without it the assertion was a cold-start JIT budget wearing a latency test's name: measured
+        // at 122-134 ms for the first call and 0 ms for every call after it, on a path that never waits
+        // for the engine at all. It passed only while the JIT happened to fit under 100 ms, and any
+        // change that grew this call graph - dogfood round 4 grew it by a few view-model writes -
+        // failed it without slowing anything down.
+        //
+        // The teeth are unaffected: the engine cannot be reached from a below-floor line (the pass
+        // returns at MinPassiveQueryLength before touching the store or the engine), so a regression
+        // that made the caller await the 250 ms engine would still show up on the timed call below.
+        grid.SetLine("c");
+        controller.NotifyInputActivity();
+
         grid.SetLine("cd ./d");
         var stopwatch = Stopwatch.StartNew();
 
@@ -1841,9 +1934,13 @@ public sealed class CommandAssistControllerTests
     private sealed class InMemoryHistoryStore : IHistoryStore
     {
         private readonly List<CommandHistoryEntry> _entries = new();
+        private readonly List<string> _firstTokenSweeps = new();
         private int _searchCount;
 
         public IReadOnlyList<CommandHistoryEntry> Entries => _entries;
+
+        /// <summary>Every retroactive first-token sweep the controller asked for, in order.</summary>
+        public IReadOnlyList<string> FirstTokenSweeps => _firstTokenSweeps;
 
         /// <summary>
         /// How many times the recall gate was queried. Lets a test assert that a refresh never
@@ -1933,6 +2030,29 @@ public sealed class CommandAssistControllerTests
             return Task.FromResult(true);
         }
 
+        public Task<int> TryMarkInvalidCommandsByFirstTokenAsync(string firstToken, CancellationToken cancellationToken = default)
+        {
+            _firstTokenSweeps.Add(firstToken);
+
+            int flagged = 0;
+            for (int i = 0; i < _entries.Count; i++)
+            {
+                if (_entries[i].IsInvalidCommand ||
+                    !string.Equals(
+                        CommandHistoryEntry.FirstToken(_entries[i].CommandText),
+                        firstToken,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                _entries[i] = _entries[i] with { IsInvalidCommand = true };
+                flagged++;
+            }
+
+            return Task.FromResult(flagged);
+        }
+
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
         {
             int index = _entries.FindIndex(x => x.Id == entryId);
@@ -1997,6 +2117,9 @@ public sealed class CommandAssistControllerTests
         public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
 
+        public Task<int> TryMarkInvalidCommandsByFirstTokenAsync(string firstToken, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
+
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromResult(false);
 
@@ -2019,6 +2142,9 @@ public sealed class CommandAssistControllerTests
 
         public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
+
+        public Task<int> TryMarkInvalidCommandsByFirstTokenAsync(string firstToken, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
 
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromException<bool>(new InvalidOperationException("simulated write failure"));

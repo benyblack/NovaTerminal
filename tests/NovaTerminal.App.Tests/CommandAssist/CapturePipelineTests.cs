@@ -662,9 +662,13 @@ public sealed class CapturePipelineTests
     {
         private readonly List<CommandHistoryEntry> _entries = new();
         private readonly List<string> _patchedEntryIds = new();
+        private readonly List<string> _firstTokenSweeps = new();
 
         public IReadOnlyList<CommandHistoryEntry> Entries => _entries;
         public IReadOnlyList<string> PatchedEntryIds => _patchedEntryIds;
+
+        /// <summary>Every first-token sweep the pipeline asked for, in order.</summary>
+        public IReadOnlyList<string> FirstTokenSweeps => _firstTokenSweeps;
 
         public Task AppendAsync(CommandHistoryEntry entry, CancellationToken cancellationToken = default)
         {
@@ -694,6 +698,29 @@ public sealed class CapturePipelineTests
 
             _entries[index] = _entries[index] with { IsInvalidCommand = true };
             return Task.FromResult(true);
+        }
+
+        public Task<int> TryMarkInvalidCommandsByFirstTokenAsync(string firstToken, CancellationToken cancellationToken = default)
+        {
+            _firstTokenSweeps.Add(firstToken);
+
+            int flagged = 0;
+            for (int i = 0; i < _entries.Count; i++)
+            {
+                if (_entries[i].IsInvalidCommand ||
+                    !string.Equals(
+                        CommandHistoryEntry.FirstToken(_entries[i].CommandText),
+                        firstToken,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                _entries[i] = _entries[i] with { IsInvalidCommand = true };
+                flagged++;
+            }
+
+            return Task.FromResult(flagged);
         }
 
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
@@ -732,6 +759,9 @@ public sealed class CapturePipelineTests
 
         public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
+
+        public Task<int> TryMarkInvalidCommandsByFirstTokenAsync(string firstToken, CancellationToken cancellationToken = default)
+            => Task.FromException<int>(new InvalidOperationException("simulated write failure"));
 
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromException<bool>(new InvalidOperationException("simulated write failure"));

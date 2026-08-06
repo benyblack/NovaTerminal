@@ -292,6 +292,72 @@ public sealed class JsonlHistoryStore : IHistoryStore
             cancellationToken);
     }
 
+    /// <remarks>
+    /// <para>
+    /// One superseding record per newly-flagged entry, appended like any other patch, so the format
+    /// and the last-write-wins load rule are unchanged. Entries already carrying the flag are skipped
+    /// rather than rewritten: the common case after the first run is that this finds nothing to do, and
+    /// it must not turn into a file rewrite every time a user retypes the same typo.
+    /// </para>
+    /// <para>
+    /// <strong>Case-insensitive, matching the ranking engine.</strong>
+    /// <c>CommandAssistSuggestionEngine</c> groups history by <c>CommandText</c> under
+    /// <c>OrdinalIgnoreCase</c>, so <c>GTI status</c> and <c>gti status</c> are already one row there.
+    /// Flagging under <c>Ordinal</c> would leave the group's other spelling unflagged and the row would
+    /// still be offered - the suppression has to be at least as wide as the grouping or it does not
+    /// suppress anything. The cost is a case-sensitive filesystem where <c>Foo</c> and <c>foo</c> are
+    /// genuinely different programs, and there the user has already told us <em>one</em> of them does
+    /// not resolve.
+    /// </para>
+    /// </remarks>
+    public async Task<int> TryMarkInvalidCommandsByFirstTokenAsync(
+        string firstToken,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(firstToken))
+        {
+            return 0;
+        }
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            Dictionary<string, CommandHistoryEntry> index = await EnsureLoadedUnsafeAsync(cancellationToken);
+
+            List<CommandHistoryEntry> targets = index.Values
+                .Where(entry => !entry.IsInvalidCommand &&
+                                string.Equals(
+                                    CommandHistoryEntry.FirstToken(entry.CommandText),
+                                    firstToken,
+                                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (targets.Count == 0)
+            {
+                return 0;
+            }
+
+            foreach (CommandHistoryEntry entry in targets)
+            {
+                CommandHistoryEntry updated = entry with { IsInvalidCommand = true };
+
+                // Disk first, then the index, for the same reason as AppendAsync. Per entry rather
+                // than in a batch: a write that fails partway leaves the entries it did reach flagged
+                // on disk and in memory, which is a smaller wrong answer than an index that claims
+                // flags the file does not have.
+                await AppendLineUnsafeAsync(updated, cancellationToken);
+                index[entry.Id] = updated;
+            }
+
+            await CompactIfNeededUnsafeAsync(cancellationToken);
+            return targets.Count;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private async Task<bool> TryPatchAsync(
         string entryId,
         Func<CommandHistoryEntry, CommandHistoryEntry> patch,
@@ -503,7 +569,7 @@ public sealed class JsonlHistoryStore : IHistoryStore
                 }
 
                 // Last write wins: a superseding record patches the entry it shares an id with.
-                index[entry.Id] = entry;
+                index[entry.Id] = BackfillInvalidCommand(entry);
             }
         }
         catch (IOException)
@@ -516,6 +582,38 @@ public sealed class JsonlHistoryStore : IHistoryStore
 
         return (index, lineCount, sawCorruptLine, false);
     }
+
+    /// <summary>
+    /// Applies the exit-code half of the command-not-found classification to an entry read off disk
+    /// that predates the flag.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Dogfood round 4, item 4b.</strong> <c>IsInvalidCommand</c> is written at capture time,
+    /// so every line recorded before it existed came back <see langword="false"/> however it had
+    /// failed - including the exit-127 lines whose classification needs no recogniser and no output at
+    /// all. The information was on disk the whole time and simply was not being read.
+    /// </para>
+    /// <para>
+    /// <strong>Exactly the live rule, applied retroactively.</strong> The capture path flags on
+    /// <c>exitCode == 127</c> with no shell test (see
+    /// <c>CapturePipeline.IsCommandNotFoundExit</c>), so this does too. Deliberately not made cleverer
+    /// than its live counterpart: a backfill that flagged more than a fresh capture would have flagged
+    /// is a rule the user cannot have observed the product following, and a program that genuinely
+    /// exits 127 loses a suggestion either way. PowerShell's unresolved names report 1 and are not
+    /// reachable from here at all - the retroactive path
+    /// (<see cref="TryMarkInvalidCommandsByFirstTokenAsync"/>) is what covers those, the next time the
+    /// user reproduces one.
+    /// </para>
+    /// <para>
+    /// In memory only. Nothing is written back, so a load costs no I/O and the derivation stays
+    /// idempotent; compaction persists it if and when it rewrites the file for its own reasons.
+    /// </para>
+    /// </remarks>
+    private static CommandHistoryEntry BackfillInvalidCommand(CommandHistoryEntry entry) =>
+        !entry.IsInvalidCommand && entry.ExitCode == CommandHistoryEntry.CommandNotFoundExitCode
+            ? entry with { IsInvalidCommand = true }
+            : entry;
 
     private async Task AppendLineUnsafeAsync(CommandHistoryEntry entry, CancellationToken cancellationToken)
     {

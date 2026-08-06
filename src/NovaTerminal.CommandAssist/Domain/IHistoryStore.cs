@@ -46,5 +46,31 @@ public interface IHistoryStore
     /// </remarks>
     Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Marks every stored entry whose command line starts with <paramref name="firstToken"/> as a
+    /// command the shell could not resolve, and reports how many were newly flagged.
+    /// </summary>
+    /// <param name="firstToken">
+    /// The unresolved program name, compared against <c>CommandHistoryEntry.FirstToken</c> of each
+    /// entry. Blank does nothing.
+    /// </param>
+    /// <remarks>
+    /// <para>
+    /// <strong>Dogfood round 4, item 4a.</strong> The per-entry flag only ever described the entry the
+    /// classification arrived with, so a history written before the flag existed - which is every
+    /// user's history, and was certainly the owner's - kept every one of its typos eligible. Learning
+    /// that <c>gti</c> is not a program is a fact about the name, not about one execution of it, so it
+    /// applies to every line that starts with that name.
+    /// </para>
+    /// <para>
+    /// <strong>The caller must have established that the unresolved name is the command's own first
+    /// token.</strong> A <c>command not found</c> raised from inside <c>npm run build</c> names a token
+    /// that is not <c>npm</c>, and flagging by first token there would suppress every <c>npm</c> line
+    /// in the user's history. See <c>CommandFixSuggestion.UnresolvedCommandToken</c>, which is only
+    /// populated when the recogniser found the missing name in the command position.
+    /// </para>
+    /// </remarks>
+    Task<int> TryMarkInvalidCommandsByFirstTokenAsync(string firstToken, CancellationToken cancellationToken = default);
+
     Task ClearAsync(CancellationToken cancellationToken = default);
 }

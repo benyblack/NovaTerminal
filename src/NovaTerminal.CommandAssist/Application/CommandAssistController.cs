@@ -801,9 +801,20 @@ public sealed class CommandAssistController
         //
         // Best-effort and deliberately not awaited into the surface decision below: failing to mark a
         // typo must not also cost the user the fix suggestion for it.
-        if (fixes.Any(item => item.IsCommandNotFound))
+        //
+        // The token is threaded too, when the recogniser found the unresolved name in the command
+        // position: the classification is a fact about the name rather than about this one execution,
+        // so it is applied to every older entry that starts with it (dogfood round 4, item 4a). Without
+        // that, the owner's history - captured before the flag existed - kept offering him every
+        // `gti status` he had ever run until he retyped each one.
+        CommandFixSuggestion[] notFound = fixes.Where(item => item.IsCommandNotFound).ToArray();
+        if (notFound.Length > 0)
         {
-            await _capturePipeline.MarkLastCommandInvalidAsync();
+            string? unresolvedToken = notFound
+                .Select(item => item.UnresolvedCommandToken)
+                .FirstOrDefault(token => !string.IsNullOrWhiteSpace(token));
+
+            await _capturePipeline.MarkLastCommandInvalidAsync(unresolvedToken);
         }
 
         // Kept symmetrical with Help even though neither Fix branch below can currently render it:
