@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.Providers;
+using NovaTerminal.CommandAssist.Providers.Local;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using NovaTerminal.CommandAssist.ViewModels;
 
@@ -49,9 +51,25 @@ public sealed class CommandAssistController
     private readonly SuggestionOrchestrator _suggestionOrchestrator;
     private readonly List<AssistSuggestion> _suggestions = new();
     private readonly Action<Action> _dispatch;
-    private readonly ICommandDocsProvider _commandDocsProvider;
-    private readonly IRecipeProvider _recipeProvider;
-    private readonly IErrorInsightService _errorInsightService;
+
+    /// <summary>
+    /// The AI content-provider seam (V2 Phase 5). Every Help row and every Fix row on the surface
+    /// came through here, including the ones the two local heuristics produce.
+    /// </summary>
+    /// <remarks>
+    /// The controller no longer holds an <c>ICommandDocsProvider</c>, an <c>IRecipeProvider</c> or an
+    /// <c>IErrorInsightService</c>: it holds providers. That is the whole point of the phase - the
+    /// path a future AI provider would travel is the path the local heuristics travel today, so it is
+    /// exercised on every Help and every Fix rather than on the day a remote provider first ships.
+    /// </remarks>
+    private readonly AssistContentProviderRegistry _contentProviders;
+
+    /// <summary>
+    /// The one place raw session text becomes text a provider may see. See
+    /// <see cref="AssistContentRequestFactory"/> and <see cref="RedactedText"/>.
+    /// </summary>
+    private readonly AssistContentRequestFactory _requestFactory;
+
     private readonly CommandAssistModeRouter _modeRouter;
     private readonly CommandAssistResultBuilder _resultBuilder;
     private readonly Func<bool> _renderedSurfaceProbe;
@@ -101,15 +119,16 @@ public sealed class CommandAssistController
         Func<bool>? renderedSurfaceProbe = null,
         Action<Action>? dispatch = null,
         TimeSpan? passiveRefreshDebounce = null,
-        Func<TimeSpan, CancellationToken, Task>? refreshDelay = null)
+        Func<TimeSpan, CancellationToken, Task>? refreshDelay = null,
+        AssistContentProviderRegistry? contentProviders = null)
     {
         HistoryStore = historyStore;
         SecretsFilter = secretsFilter;
         SuggestionEngine = suggestionEngine;
         SnippetStore = snippetStore;
-        _commandDocsProvider = commandDocsProvider ?? new EmptyCommandDocsProvider();
-        _recipeProvider = recipeProvider ?? new EmptyRecipeProvider();
-        _errorInsightService = errorInsightService ?? new EmptyErrorInsightService();
+        _requestFactory = new AssistContentRequestFactory(secretsFilter);
+        _contentProviders = contentProviders ??
+            BuildLocalProviderRegistry(commandDocsProvider, recipeProvider, errorInsightService);
         _modeRouter = modeRouter ?? new CommandAssistModeRouter();
         _resultBuilder = resultBuilder ?? new CommandAssistResultBuilder();
 
@@ -141,6 +160,45 @@ public sealed class CommandAssistController
             ApplyRefreshOutcome,
             passiveRefreshDebounce,
             refreshDelay);
+    }
+
+    /// <summary>
+    /// Wraps whichever local services the host supplied as content providers.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The three legacy service interfaces stay on the constructor rather than being replaced by a
+    /// registry parameter, so that every existing caller - the pane, twenty-odd test helpers - keeps
+    /// compiling and keeps meaning the same thing. A host that wants to compose the seam itself
+    /// (which is what the AI milestone will do, at <c>CommandAssistServices</c>) passes
+    /// <c>contentProviders</c> and these are ignored.
+    /// </para>
+    /// <para>
+    /// <strong>A missing service registers no provider, rather than an empty one.</strong> The three
+    /// <c>Empty*Provider</c> stubs this replaced turned "nothing is configured" into "we looked and
+    /// found nothing", which are different sentences to a user - see <see cref="AssistEmptyStates"/>.
+    /// In the shipped app both are always present; the distinction is reachable for a host that
+    /// composes the controller without them.
+    /// </para>
+    /// </remarks>
+    private static AssistContentProviderRegistry BuildLocalProviderRegistry(
+        ICommandDocsProvider? commandDocsProvider,
+        IRecipeProvider? recipeProvider,
+        IErrorInsightService? errorInsightService)
+    {
+        var providers = new List<IAssistContentProvider>(2);
+
+        if (commandDocsProvider != null || recipeProvider != null)
+        {
+            providers.Add(new LocalCommandKnowledgeProvider(commandDocsProvider, recipeProvider));
+        }
+
+        if (errorInsightService != null)
+        {
+            providers.Add(new LocalErrorInsightProvider(errorInsightService));
+        }
+
+        return new AssistContentProviderRegistry(providers);
     }
 
     public IHistoryStore HistoryStore { get; }
@@ -622,40 +680,64 @@ public sealed class CommandAssistController
         CommandAssistContextSnapshot snapshot = _context.CreateSnapshot(
             effectiveQuery,
             selectedText);
-        var helpQuery = new CommandHelpQuery(
-            RawInput: snapshot.QueryText,
-            CommandToken: snapshot.RecognizedCommand,
-            ShellKind: snapshot.ShellKind,
-            WorkingDirectory: snapshot.WorkingDirectory,
-            SelectedText: snapshot.SelectedText,
-            SessionId: snapshot.SessionId);
 
-        IReadOnlyList<CommandHelpItem> docs = await _commandDocsProvider.GetHelpAsync(helpQuery);
-        IReadOnlyList<CommandHelpItem> recipes = await _recipeProvider.GetRecipesAsync(helpQuery);
+        // The one Help-side crossing into the seam. Everything downstream - including the bundled
+        // catalogue - sees only what came out of the request factory.
+        AssistContentRequest request = _requestFactory.CreateHelpRequest(
+            AssistCapabilities.EnrichDocs,
+            commandText: snapshot.QueryText,
+            commandToken: snapshot.RecognizedCommand,
+            shellKind: snapshot.ShellKind,
+            workingDirectory: snapshot.WorkingDirectory,
+            selectedText: snapshot.SelectedText,
+            sessionId: snapshot.SessionId,
+            isRemote: _context.IsRemote);
+
+        IReadOnlyList<AssistContentResult> results = await _contentProviders.QueryAsync(request);
+
+        // Docs before recipes across the whole chain, not per provider: the popup groups by row type
+        // and always has, so a second provider's doc row belongs with the first's rather than after
+        // its examples.
+        IReadOnlyList<CommandHelpItem> docs = results.SelectMany(result => result.Docs).ToArray();
+        IReadOnlyList<CommandHelpItem> recipes = results.SelectMany(result => result.Recipes).ToArray();
         IReadOnlyList<AssistSuggestion> suggestions = _resultBuilder.BuildCombined(
             Array.Empty<AssistSuggestion>(),
             docs,
             recipes,
             Array.Empty<CommandFixSuggestion>());
 
-        // Read after the awaits, never before. The catalogue's licence line is the catalogue's own
-        // `attribution` field, so it exists only once the asset has been parsed - and the two calls
-        // above are exactly what parses it. Asked through an optional interface rather than a
-        // constructor parameter so that a docs provider with nothing to credit (the empty default, a
-        // test fake, a future Phase 5 provider chain) simply does not implement it and the footer
-        // stays empty, instead of every provider having to carry a null it never sets.
-        string? attribution = (_commandDocsProvider as ICommandKnowledgeAttributionSource)?.Attribution;
+        // First credit wins, matching provider order. A result carries its own attribution, so the
+        // credit cannot outlive or precede the content it belongs to - which is what the old "read
+        // the docs provider's property after the awaits" dance was working around.
+        string? attribution = results
+            .Select(result => result.Attribution)
+            .FirstOrDefault(line => !string.IsNullOrWhiteSpace(line));
+
+        string emptyStateText = _contentProviders.HasProviderFor(AssistCapabilities.EnrichDocs)
+            ? AssistEmptyStates.NoLocalHelp
+            : AssistEmptyStates.ForMissingProvider(AssistCapabilities.EnrichDocs);
 
         _dispatch(() => ApplyHelperSuggestions(
             _modeRouter.ChooseModeForHelpRequest(),
             effectiveQuery,
             suggestions,
-            "No local help found.",
+            emptyStateText,
             openPopup: true,
             attribution: attribution));
 
         return true;
     }
+
+    /// <summary>
+    /// Whether anything is configured to answer <paramref name="capability"/>.
+    /// </summary>
+    /// <remarks>
+    /// The question an empty state asks, exposed because a future Settings page and a future
+    /// Ask-AI entry point both need it before they render anything. See
+    /// <see cref="AssistEmptyStates"/> for what is and is not reachable in the shipped UI today.
+    /// </remarks>
+    public bool HasContentProviderFor(AssistCapabilities capability)
+        => _contentProviders.HasProviderFor(capability);
 
     public async Task<bool> ExplainSelectionAsync(string? selectedText)
     {
@@ -675,10 +757,26 @@ public sealed class CommandAssistController
             return false;
         }
 
-        IReadOnlyList<CommandFixSuggestion> fixes = await _errorInsightService.AnalyzeAsync(context);
-        double highestConfidence = fixes.Count == 0 ? 0 : fixes.Max(item => item.Confidence);
+        // The one Fix-side crossing into the seam. The pane already redacted the output tail at the
+        // VT boundary; the factory redacts everything again regardless, because a guarantee that
+        // depends on the caller having remembered is not one. See RedactedText.
+        AssistContentRequest request = _requestFactory.CreateFixRequest(context, _context.SessionId);
+        IReadOnlyList<AssistContentResult> results = await _contentProviders.QueryAsync(request);
+        CommandFixSuggestion[] fixes = results.SelectMany(result => result.Fixes).ToArray();
+
+        double highestConfidence = fixes.Length == 0 ? 0 : fixes.Max(item => item.Confidence);
         CommandAssistMode mode = _modeRouter.ChooseModeForFailure(highestConfidence);
         IReadOnlyList<AssistSuggestion> suggestions = _resultBuilder.BuildFixSuggestions(fixes);
+
+        // Kept symmetrical with Help even though neither Fix branch below can currently render it:
+        // reaching Fix mode requires a confidence >= 0.8, which requires at least one row, and the
+        // Suggest branch returns early when there are none. That was true of "No likely local fix
+        // found." before this phase too - the string has never been on screen. The right of the two
+        // is computed here rather than the wrong one being hard-coded, so a future router change
+        // shows the honest sentence instead of the convenient one.
+        string emptyStateText = _contentProviders.HasProviderFor(AssistCapabilities.SuggestFix)
+            ? AssistEmptyStates.NoLocalFix
+            : AssistEmptyStates.ForMissingProvider(AssistCapabilities.SuggestFix);
 
         if (mode == CommandAssistMode.Fix)
         {
@@ -686,7 +784,7 @@ public sealed class CommandAssistController
                 CommandAssistMode.Fix,
                 context.CommandText,
                 suggestions,
-                "No likely local fix found.",
+                emptyStateText,
                 openPopup: true));
             return true;
         }
@@ -700,7 +798,7 @@ public sealed class CommandAssistController
             CommandAssistMode.Fix,
             context.CommandText,
             suggestions,
-            "No likely local fix found.",
+            emptyStateText,
             openPopup: false));
         return false;
     }
@@ -1036,29 +1134,5 @@ public sealed class CommandAssistController
         _suggestions.AddRange(suggestions);
         ViewModel.SelectedIndex = suggestions.Count > 0 ? 0 : -1;
         SyncSuggestionViewModel();
-    }
-
-    private sealed class EmptyCommandDocsProvider : ICommandDocsProvider
-    {
-        public Task<IReadOnlyList<CommandHelpItem>> GetHelpAsync(CommandHelpQuery query, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult<IReadOnlyList<CommandHelpItem>>(Array.Empty<CommandHelpItem>());
-        }
-    }
-
-    private sealed class EmptyRecipeProvider : IRecipeProvider
-    {
-        public Task<IReadOnlyList<CommandHelpItem>> GetRecipesAsync(CommandHelpQuery query, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult<IReadOnlyList<CommandHelpItem>>(Array.Empty<CommandHelpItem>());
-        }
-    }
-
-    private sealed class EmptyErrorInsightService : IErrorInsightService
-    {
-        public Task<IReadOnlyList<CommandFixSuggestion>> AnalyzeAsync(CommandFailureContext context, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult<IReadOnlyList<CommandFixSuggestion>>(Array.Empty<CommandFixSuggestion>());
-        }
     }
 }

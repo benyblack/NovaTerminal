@@ -102,6 +102,35 @@ public class ProjectFileLayeringTests
         Assert.DoesNotContain(packages, p => p.StartsWith("Avalonia", StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    /// The V2 Phase 5 seam ships interfaces, not providers: no network code, no API clients. The
+    /// IL-level sibling (<c>CommandAssist_must_not_depend_on_networking</c>) catches code that calls
+    /// an HTTP type; this catches the package landing first, which is how it would actually arrive -
+    /// a PR that adds the client library and the provider in two commits, of which only the first
+    /// gets merged in a hurry.
+    /// </summary>
+    [Fact]
+    public void CommandAssist_csproj_must_have_no_networking_package_references()
+    {
+        string[] forbiddenPrefixes =
+        [
+            "System.Net",
+            "Microsoft.Extensions.Http",
+            "Grpc",
+            "RestSharp",
+            "Flurl",
+            "Refit",
+            "Azure.AI",
+            "OpenAI",
+            "Anthropic"
+        ];
+
+        var packages = PackageReferences("src/NovaTerminal.CommandAssist/NovaTerminal.CommandAssist.csproj");
+
+        Assert.DoesNotContain(packages, p =>
+            forbiddenPrefixes.Any(prefix => p.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)));
+    }
+
     [Fact]
     public void AgentHostContracts_csproj_must_have_no_project_references()
     {
