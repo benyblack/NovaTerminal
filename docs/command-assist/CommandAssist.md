@@ -568,6 +568,94 @@ Keep this out of renderer/VT core.
 - `ICommandDocsProvider`
 - `IShellIntegrationProvider`
 
+### AI content-provider seam (shipped, V2 Phase 5)
+
+`IAiAssistProvider` above shipped as `IAssistContentProvider`, in
+`src/NovaTerminal.CommandAssist/Providers/`. **The seam exists; no AI provider does.** There is no
+network code, no API client, no credential handling and no model selection anywhere in this
+assembly, and three architecture tests fail the build if any of that arrives.
+
+```csharp
+public interface IAssistContentProvider
+{
+    string Id { get; }                       // "local.command-knowledge" - the settings contract
+    string DisplayName { get; }
+    AssistCapabilities Capabilities { get; } // [Flags] Explain | SuggestFix | NlToCommand | EnrichDocs
+    bool RequiresExplicitOptIn { get; }      // true = can leave this machine
+    Task<AssistContentResult> QueryAsync(AssistContentRequest request, CancellationToken ct);
+}
+```
+
+**Every Help row and every Fix row on the surface comes through this.** The two local sources are
+adapters — `LocalCommandKnowledgeProvider` over the bundled catalogue and the help probe
+(`EnrichDocs`), `LocalErrorInsightProvider` over the recogniser table (`SuggestFix`) — so the path a
+remote provider would travel is exercised on every Help and every Fix today, rather than first
+being exercised on the day one ships. `CommandAssistController` holds an
+`AssistContentProviderRegistry` and no longer holds a docs, recipe or error-insight service.
+
+#### The redaction guarantee
+
+Nothing unredacted can reach a provider, and that is enforced structurally rather than by convention:
+
+- **`RedactedText` is the only type the request carries free text in.** It has no public
+  constructor, no conversion from `string`, and one `internal` factory that takes an
+  `ISecretsFilter` as a parameter. You cannot produce one without running a filter.
+- **`AssistContentRequest`'s constructor is `internal`.** A provider in another assembly - which is
+  where an AI provider will live - can neither mint redacted text nor fabricate a request around
+  text it obtained some other way.
+- **There is exactly one construction site**, `AssistContentRequestFactory`, so the guarantee is
+  audited by reading one file. `AssistSeamStructureTests` fails if a second one appears.
+- **No field is exempt.** Command text, output tail, selection and working directory all go through
+  the filter. What stays a plain scalar is not free text: shell kind (this app determined it), exit
+  code, `isRemote`, session id.
+- **Redaction is unconditional even where the caller already redacted.** The pane filters the output
+  tail at the VT boundary; the factory filters it again. A guarantee that holds only when every
+  upstream caller remembered is not a guarantee, and the second pass is idempotent.
+
+It does *not* claim the text is secret-free — that would need a perfect filter, and `SecretsFilter`
+is six patterns. It claims the filter ran, which is checkable, and improving the filter improves
+every request without touching the seam.
+
+#### Opt-in and the reserved settings shape
+
+Opt-in is an obligation the provider declares (`RequiresExplicitOptIn`), not a settings key that a
+provider registered on the wrong code path could walk around. `AssistProviderPolicy` is the gate and
+*is* the config shape a future milestone will deserialize into:
+
+```jsonc
+"commandAssistProviders": {
+  "suggestFix":  ["acme.cloud-fixes"],
+  "enrichDocs":  [],
+  "explain":     ["acme.cloud-explain"],
+  "nlToCommand": ["acme.cloud-nl2cmd"]
+}
+```
+
+**The key is deliberately not in `settings.json` yet.** With only local providers shipped every
+value of it would be the empty object, and a persisted setting that cannot change observable
+behavior is the phantom flag V2 Phase 3b deleted. Unknown keys are ignored on load, so the milestone
+that adds a provider adds the key in the same change that makes it mean something. Local providers
+are not listable: switching off the bundled catalogue is a way to break Help, not a privacy control.
+
+#### Empty states
+
+"We looked and found nothing" and "nothing is configured to look" are different sentences, and the
+registry can tell them apart:
+
+| Situation | Text |
+| --- | --- |
+| Help ran, catalogue and probe had nothing | `No local help found.` |
+| No `EnrichDocs` provider registered | `No help provider is configured.` |
+| No `SuggestFix` provider registered | `No fix provider is configured.` |
+| No `NlToCommand` / `Explain` provider | `AI assist is not configured.` |
+
+**Honest about reach.** In the shipped app every capability the UI can ask for has a local provider
+registered at the composition root, so the "not configured" strings are unreachable through the UI;
+they are reachable, and tested, for a controller composed without those providers. `NlToCommand` has
+no entry point and none was invented for it — a button that can only ever say "not configured" is a
+dead end being called a feature. The string exists so the milestone that adds the entry point has an
+answer ready.
+
 #### Pane/session integration
 - `ITerminalSessionContext`
 - `ITerminalInputObserver`

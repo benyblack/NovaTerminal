@@ -83,6 +83,12 @@ public interface IAssistContentProvider
 - Local heuristics (`HeuristicErrorInsightService`, `CommandKnowledgeService`) implement the same interface, so the orchestrator has one code path.
 - No network code, no API clients, no model selection in V2 — that is a separate milestone with its own design.
 
+**Shipped in V2 Phase 5** (`src/NovaTerminal.CommandAssist/Providers/`, documented in `CommandAssist.md` §8 and in the plan's Phase 5 section). Three points where the shipped seam is more specific than the sketch above, each because the sketch left a hole a reviewer would have found:
+
+- *"`SecretsFilter` runs before the seam, always"* is a **type**, not a discipline. `RedactedText` is the only shape the request carries free text in; it has no public constructor and its one factory takes an `ISecretsFilter` as a parameter, so there is no path from `string` to a provider that does not run the filter. `AssistContentRequestFactory` is the single construction site, pinned by an architecture test. No field is exempted for being structured enough — including cwd.
+- *"opt-in per capability in Settings"* landed as `IAssistContentProvider.RequiresExplicitOptIn` plus `AssistProviderPolicy`. A provider that can leave the machine declares that in its own type and is not queried until the policy names its id for that capability; local providers cannot be switched off, because that is a way to break Help rather than a privacy control. The settings *shape* is reserved and documented; the `settings.json` key is deliberately not added while every value of it would be the empty object.
+- *"empty states are part of V2 UI"* is true for the distinction (nothing configured vs. we looked and found nothing) and **not** true for `NlToCommand`, which has no user-reachable entry point in V2 and did not get one invented for it. The string exists and is tested; the affordance is the AI milestone's.
+
 ### Pillar 7 — Architecture
 
 - **Extract `NovaTerminal.CommandAssist` assembly** (#114). Blockers are exactly two files: `CommandAssistKeyRouter` (introduce an `AssistKey`/`AssistModifiers` abstraction mapped from `Avalonia.Input` at the App boundary) and `CommandAssistAnchorCalculator` (introduce plain geometry records). Domain, Models, Storage, ShellIntegration, ViewModels move as-is.
