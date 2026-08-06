@@ -668,6 +668,133 @@ public sealed class CommandAssistPassiveBubbleTests
         Assert.Single(history.Entries);
     }
 
+    // ------------------------------------- staged Escape and bubble accept (dogfood round 4)
+
+    /// <summary>
+    /// The owner's flow, both stages. <c>Down</c> opens the popup; the first Escape puts it away and
+    /// leaves the suggestion on screen; the second takes the suggestion down for the rest of the line.
+    /// </summary>
+    /// <remarks>
+    /// Before this round the first Escape did both at once, which is what "Esc kills everything for the
+    /// command" meant: one keystroke in, two commands' worth of assist out.
+    /// </remarks>
+    [Fact]
+    public async Task EscapeFromAPassivePopup_ReturnsToTheBubbleAndKeepsTheSuggestion()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+
+        Assert.True(controller.MoveSelectionDown());
+        Assert.True(controller.ViewModel.IsPopupOpen);
+
+        // Stage one.
+        Assert.True(controller.HandleEscape());
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.NotEmpty(controller.Suggestions);
+        Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
+
+        // Stage two: an ordinary bubble Escape.
+        Assert.True(controller.HandleEscape());
+        Assert.False(controller.ViewModel.IsVisible);
+        Assert.Empty(controller.Suggestions);
+    }
+
+    /// <summary>
+    /// And the second stage still suppresses for the rest of the command line - the staging adds a
+    /// press, it does not weaken what the press eventually does.
+    /// </summary>
+    [Fact]
+    public async Task TwoEscapesFromAPassivePopup_SuppressTheBubbleForTheRestOfTheCommand()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+
+        controller.MoveSelectionDown();
+        controller.HandleEscape();
+        controller.HandleEscape();
+
+        grid.SetLine("git");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+        await Task.Delay(50);
+
+        Assert.False(controller.ViewModel.IsVisible);
+    }
+
+    /// <summary>
+    /// One press is not enough. The suggestion is still there, so a keystroke after it keeps ranking -
+    /// which is the difference the staging exists to make.
+    /// </summary>
+    [Fact]
+    public async Task OneEscapeFromAPassivePopup_DoesNotSuppressTheBubble()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+
+        controller.MoveSelectionDown();
+        controller.HandleEscape();
+
+        grid.SetLine("git");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+        Assert.Equal("git status", controller.ViewModel.TopSuggestionText);
+    }
+
+    /// <summary>
+    /// The bubble's implicit selection: the row it is displaying is row 0, and the insert chord takes
+    /// it without the user going through the popup first. This is what "Ctrl+Enter accepts the
+    /// displayed top-1" means at the controller - the key router already routes Insert whenever any
+    /// surface is visible.
+    /// </summary>
+    [Fact]
+    public async Task PassiveBubble_OffersItsDisplayedRowToTheInsertChord()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        grid.SetLine("gi");
+        controller.NotifyInputActivity();
+        delay.ReleaseAll();
+        await WaitForAsync(() => controller.ViewModel.IsVisible);
+
+        // No popup, no arrow key, no explicit session - just the bubble the user was shown.
+        Assert.False(controller.ViewModel.IsPopupOpen);
+        Assert.Equal(0, controller.ViewModel.SelectedIndex);
+
+        Assert.True(controller.TryGetInsertionText(out string? insertionText));
+        Assert.Equal(controller.ViewModel.TopSuggestionText, insertionText);
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static CommandAssistController CreateController(
@@ -989,6 +1116,9 @@ public sealed class CommandAssistPassiveBubbleTests
 
         public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
             => Task.FromResult(false);
+
+        public Task<int> TryMarkInvalidCommandsByFirstTokenAsync(string firstToken, CancellationToken cancellationToken = default)
+            => Task.FromResult(0);
 
         public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromResult(false);

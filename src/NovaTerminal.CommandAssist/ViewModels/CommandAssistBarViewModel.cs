@@ -576,6 +576,15 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     /// keyboard's most load-bearing promise; removing it there would make the strip flicker between two
     /// shapes on a browse.
     /// </para>
+    /// <para>
+    /// <strong>Browse is shed before insert (dogfood round 4, item 2).</strong> The terse rung used to
+    /// keep all three clauses and merely drop their verbs, which is the right trade when the three are
+    /// equally learnable and they are not. The owner's report was "no way to put it": he had found
+    /// <c>Down</c> - pressing an arrow key at a prompt is a free experiment anyone runs - and had not
+    /// found the insert chord, which nothing else in a terminal teaches and which no amount of poking
+    /// discovers. So the clause that survives one rung longer is the one the surface cannot be used
+    /// without. The full rung still advertises both.
+    /// </para>
     /// </remarks>
     private string BuildHintText(bool acceptOnEnterArmed, bool isSelectionUpOwned, bool isInsertionAvailable, bool terse)
     {
@@ -594,10 +603,12 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
         if (terse)
         {
-            // Keys only. Every clause keeps its meaning - the keys are the information and the verbs
-            // were the padding - at roughly half the width.
+            // Keys only, and browse dropped: at this width the strip has room for the action and the
+            // exit, and the action is the one the user cannot guess. When the line cannot be appended
+            // to there is no action to advertise, so browse comes back rather than leaving a strip
+            // that only says "Esc".
             return isInsertionAvailable
-                ? $"{browse}  |  {labels.Insert}  |  {labels.Dismiss}"
+                ? $"{labels.Insert}  |  {labels.Dismiss}"
                 : $"{browse}  |  {labels.Dismiss}";
         }
 
