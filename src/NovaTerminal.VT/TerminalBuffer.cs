@@ -132,6 +132,65 @@ namespace NovaTerminal.VT
         // Thread safety
         public readonly System.Threading.ReaderWriterLockSlim Lock = new System.Threading.ReaderWriterLockSlim(System.Threading.LockRecursionPolicy.NoRecursion);
 
+        // ── Reflow-tracked shell-integration marks ───────────────────────────────
+        //
+        // Why the buffer holds these rather than the consumer that captured them: a
+        // reflowing (width-changing) resize rebuilds the whole absolute-row coordinate
+        // space, and the *only* place that knows where a given cell moved to is the
+        // reflow itself. A holder outside the buffer can do nothing but notice that its
+        // Generation went stale and throw the mark away — which is exactly the bug this
+        // slot exists to fix: PSReadLine repaints the input line on a resize but does not
+        // re-run the prompt function, so no fresh OSC 133;B ever arrives and the mark
+        // stays dead for the rest of that command line.
+        //
+        // Registering the mark here lets TerminalBuffer.ReflowEngine re-anchor it the same
+        // way it already re-anchors the cursor, the saved cursors and inline images: by
+        // logical-line index plus offset-in-logical-line. The mark comes out of the reflow
+        // with fresh Row/Column/AbsoluteRow *and* the fresh Generation, so the generation
+        // contract is untouched — every reader still refuses a mark whose epoch does not
+        // match, and there simply is no stale epoch to refuse any more.
+        //
+        // A mark the reflow cannot place (its line was trimmed away, the offset landed
+        // past the reflowed line, its row aged out) is cleared rather than guessed at,
+        // which lands the consumer back on today's behaviour: "no mark", never a wrong one.
+        private readonly object _trackedMarkGate = new();
+        private ShellIntegrationMark? _commandStartMark;
+        private ShellIntegrationMark? _commandOutputStartMark;
+
+        /// <summary>
+        /// The newest <c>OSC 133;B</c> mark (prompt end / start of the user's input), or
+        /// <see langword="null"/>. Re-anchored across a reflowing resize; see the field
+        /// comments above. Independently locked, so a reader never sees a torn record and
+        /// never has to hold <see cref="Lock"/> just to read it.
+        /// </summary>
+        public ShellIntegrationMark? CommandStartMark
+        {
+            get { lock (_trackedMarkGate) { return _commandStartMark; } }
+            set { lock (_trackedMarkGate) { _commandStartMark = value; } }
+        }
+
+        /// <summary>
+        /// Where the running command's output region begins (captured at <c>OSC 133;C</c>),
+        /// or <see langword="null"/>. Tracked for the same reason and by the same machinery
+        /// as <see cref="CommandStartMark"/>: a resize between <c>C</c> and <c>D</c> would
+        /// otherwise cost the failing command's captured output.
+        /// </summary>
+        public ShellIntegrationMark? CommandOutputStartMark
+        {
+            get { lock (_trackedMarkGate) { return _commandOutputStartMark; } }
+            set { lock (_trackedMarkGate) { _commandOutputStartMark = value; } }
+        }
+
+        /// <summary>Drops both tracked marks. Used when a session is replaced.</summary>
+        public void ClearTrackedShellMarks()
+        {
+            lock (_trackedMarkGate)
+            {
+                _commandStartMark = null;
+                _commandOutputStartMark = null;
+            }
+        }
+
         public TerminalBuffer(int cols, int rows)
         {
             Cols = cols;
