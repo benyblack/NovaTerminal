@@ -19,6 +19,16 @@ namespace NovaTerminal.Tests.CommandAssist;
 
 public sealed class CommandAssistLayoutTests
 {
+    /// <summary>
+    /// The fish-style split: when the suggestion extends the query, the bubble shows the query and
+    /// only the <em>tail</em> of the suggestion, which read together are the whole thing.
+    /// </summary>
+    /// <remarks>
+    /// This used to assert the summary was the full "git status" - i.e. that the bubble rendered
+    /// "git " and then "git status" beside it, repeating the three characters the user had already
+    /// typed and spending the width the round is trying to recover. See
+    /// <see cref="CommandAssistBubbleViewModel.IsSummaryContinuation"/>.
+    /// </remarks>
     [Fact]
     public void CommandAssistBarViewModel_MapsCompactBubbleState()
     {
@@ -33,7 +43,151 @@ public sealed class CommandAssistLayoutTests
         Assert.True(vm.Bubble.IsVisible);
         Assert.Equal("Suggest", vm.Bubble.ModeLabel);
         Assert.Equal("git ", vm.Bubble.QueryText);
+        Assert.True(vm.Bubble.ShowQueryText);
+        Assert.True(vm.Bubble.IsSummaryContinuation);
+        Assert.Equal("status", vm.Bubble.SummaryText);
+    }
+
+    /// <summary>
+    /// A suggestion that is not an extension of the query keeps its whole text in the summary.
+    /// </summary>
+    [Fact]
+    public void CommandAssistBarViewModel_WhenTheSuggestionDoesNotExtendTheQuery_KeepsTheWholeSummary()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            ModeLabel = "Suggest",
+            QueryText = "gti",
+            TopSuggestionText = "git status"
+        };
+
+        Assert.False(vm.Bubble.IsSummaryContinuation);
         Assert.Equal("git status", vm.Bubble.SummaryText);
+    }
+
+    /// <summary>
+    /// With the query column suppressed by the compact layout, the summary reverts to the full
+    /// suggestion: a bare tail with its head hidden would be gibberish.
+    /// </summary>
+    [Fact]
+    public void CommandAssistBarViewModel_WhenTheQueryIsHidden_DoesNotShowOnlyTheCompletionTail()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            ModeLabel = "Suggest",
+            QueryText = "git ",
+            TopSuggestionText = "git status",
+            AllowBubbleQueryText = false
+        };
+
+        Assert.False(vm.Bubble.ShowQueryText);
+        Assert.False(vm.Bubble.IsSummaryContinuation);
+        Assert.Equal("git status", vm.Bubble.SummaryText);
+    }
+
+    /// <summary>
+    /// The Fix bubble leads with the suggestion, not with the command that failed.
+    /// </summary>
+    /// <remarks>
+    /// The owner's screenshot read <c>Fix | print -l $precmd_functions | Di...</c>. The failed command
+    /// is already on screen in the scrollback; the fix for it is the only new information the bubble
+    /// carries, so it gets the width. See <c>CommandAssistBarViewModel.ApplyBubbleContent</c>.
+    /// </remarks>
+    [Fact]
+    public void CommandAssistBarViewModel_InFixMode_DoesNotEchoTheFailedCommand()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            ModeLabel = "Fix",
+            QueryText = "gti status",
+            TopSuggestionText = "Did you mean git?"
+        };
+
+        Assert.False(vm.Bubble.ShowQueryText);
+        Assert.False(vm.Bubble.IsSummaryContinuation);
+        Assert.Equal("Did you mean git?", vm.Bubble.SummaryText);
+    }
+
+    /// <summary>
+    /// Exactly one surface at a time: opening the popup takes the bubble down.
+    /// </summary>
+    /// <remarks>
+    /// The owner's screenshot had a "History | vim .env | Enter insert" bubble rendered below an open
+    /// History popup whose top row was the same <c>vim .env</c>. Both surfaces were bound and both
+    /// were visible, because the bubble followed <c>IsVisible</c> alone.
+    /// </remarks>
+    [Fact]
+    public void CommandAssistBarViewModel_WhenThePopupIsOpen_HidesTheBubble()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            ModeLabel = "History",
+            TopSuggestionText = "vim .env",
+            HasSuggestions = true,
+            IsPopupOpen = true
+        };
+
+        Assert.True(vm.Popup.IsVisible);
+        Assert.False(vm.Bubble.IsVisible);
+    }
+
+    /// <summary>
+    /// The shortcut hint's middle rung: keys without verbs, so the suggestion keeps its width.
+    /// </summary>
+    [Fact]
+    public void CommandAssistBarViewModel_WhenTheHintIsTerse_DropsTheVerbsAndKeepsTheKeys()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            ModeLabel = "Suggest",
+            BubbleHintDetail = AssistHintDetail.Terse
+        };
+
+        Assert.True(vm.Bubble.ShowShortcutHint);
+        Assert.Equal("Up/Down  |  Ctrl+Enter  |  Esc", vm.Bubble.ShortcutHintText);
+
+        // The popup has room and is unaffected: it is where the shortcuts are still taught.
+        Assert.Equal(CommandAssistBarViewModel.IdleHintText, vm.Popup.ShortcutHintText);
+    }
+
+    [Fact]
+    public void CommandAssistBarViewModel_WhenTheHintIsHidden_DropsTheStripEntirely()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            ModeLabel = "Suggest",
+            BubbleHintDetail = AssistHintDetail.Hidden
+        };
+
+        Assert.False(vm.Bubble.ShowShortcutHint);
+        Assert.False(vm.Bubble.ShowIntegrationStatus);
+    }
+
+    /// <summary>
+    /// The integration chip reports which capture mode the session is in.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "integrated")]
+    [InlineData(false, "basic")]
+    public void CommandAssistBarViewModel_PublishesTheIntegrationChip(bool isLive, string expected)
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            ModeLabel = "Suggest",
+            IsShellIntegrationLive = isLive
+        };
+
+        Assert.Equal(expected, vm.Bubble.IntegrationStatusText);
+        Assert.Equal(expected, vm.Popup.IntegrationStatusText);
+        Assert.True(vm.Bubble.ShowIntegrationStatus);
+        Assert.False(string.IsNullOrWhiteSpace(vm.Bubble.IntegrationStatusTooltip));
     }
 
     [Fact]
@@ -99,7 +253,11 @@ public sealed class CommandAssistLayoutTests
         Assert.NotNull(bubbleModeLabel);
         Assert.NotNull(popupDescription);
         Assert.Equal("Help", bubbleModeLabel.Text);
-        Assert.True(bubbleVm.IsVisible);
+
+        // One surface at a time (UX-polish round, issue 6). Help opens the popup, so the bubble
+        // stands down: it would otherwise render the same mode label, query and top suggestion the
+        // popup is already showing in full, directly above it.
+        Assert.False(bubbleVm.IsVisible);
         Assert.True(popupVm.IsVisible);
         Assert.Equal("Help", popupVm.ModeLabel);
         Assert.False(string.IsNullOrWhiteSpace(popupVm.SelectedDescriptionText));
@@ -1009,29 +1167,49 @@ public sealed class CommandAssistLayoutTests
 
     /// <summary>
     /// 280 px is the bubble-width floor <c>CalculateCommandAssistSurfaceSizing</c> clamps to, which is
-    /// what a split SSH pane lands on. At that width the hint strip's <c>Auto</c> column beat the
-    /// summary's <c>*</c> column outright: the shortcut legend rendered in full and the suggestion - the
-    /// only content in the bubble anyone reads - got what was left, which was nothing.
+    /// what a split SSH pane lands on. The suggestion must keep a readable column there whether or not
+    /// the hint strip is on screen.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>What this test used to assert, and why it was the wrong shape.</strong> It measured
+    /// that <em>collapsing</em> the hint gave the summary its width back, with a negative control
+    /// requiring the un-collapsed case to be less than half as wide - i.e. it pinned the existence of
+    /// the squeeze as much as the remedy, and was satisfied as long as hiding the hint helped. The
+    /// owner then ran into the squeeze at a width above the collapse threshold, where nothing was
+    /// hidden and the suggestion was ellipsised to <c>doc...</c> anyway.
+    /// </para>
+    /// <para>
+    /// So the invariant is now the floor itself: the content column has a <c>MinWidth</c> that the
+    /// chrome cannot take, and the hint is what overflows instead. The old negative control is
+    /// deliberately inverted - the two measurements must now be <em>close</em>, because the hint no
+    /// longer decides how much of the suggestion the user can read.
+    /// </para>
+    /// </remarks>
     [AvaloniaFact]
-    public void CommandAssistBubbleView_AtTheNarrowBubbleFloor_CollapsingTheHintGivesTheSummaryItsWidth()
+    public void CommandAssistBubbleView_AtTheNarrowBubbleFloor_TheSummaryKeepsItsMinimumWidth()
     {
         const double bubbleWidth = 280;
 
-        double squeezed = MeasureBubbleSummaryWidth(showShortcutHint: true, bubbleWidth);
-        double collapsed = MeasureBubbleSummaryWidth(showShortcutHint: false, bubbleWidth);
+        // The MinWidth on the content column, less the margin that separates it from the query.
+        const double summaryFloor = 150 - 10;
 
-        // 40% is the honest floor rather than a round half: the mode label and the column spacing are
-        // real content too, and at 280 px they are most of the rest of the bubble.
+        double withHint = MeasureBubbleSummaryWidth(showShortcutHint: true, bubbleWidth);
+        double withoutHint = MeasureBubbleSummaryWidth(showShortcutHint: false, bubbleWidth);
+
         Assert.True(
-            collapsed >= bubbleWidth * 0.4,
-            $"With the hint collapsed the summary should keep a usable share of the bubble, but had " +
-            $"{collapsed:F0} of {bubbleWidth:F0} (with the hint shown: {squeezed:F0}).");
+            withHint >= summaryFloor,
+            $"The suggestion must keep its floor with the hint strip on screen, but had {withHint:F0} px " +
+            $"of {bubbleWidth:F0} (floor {summaryFloor:F0}). This is the owner's 'doc...' bubble.");
         Assert.True(
-            squeezed < collapsed * 0.5,
-            $"The negative control failed: the hint must actually be what squeezes the summary, but it " +
-            $"had {squeezed:F0} px with the hint shown against {collapsed:F0} px without it. Either the " +
-            "layout changed or this test no longer measures the reported bug.");
+            withoutHint >= summaryFloor,
+            $"The suggestion must keep its floor with the hint strip collapsed too, but had " +
+            $"{withoutHint:F0} px of {bubbleWidth:F0} (floor {summaryFloor:F0}).");
+        Assert.True(
+            withHint >= withoutHint * 0.6,
+            $"The hint strip must no longer decide how much of the suggestion is readable, but the " +
+            $"summary had {withHint:F0} px with it and {withoutHint:F0} px without it. Chrome is " +
+            "supposed to overflow before content does.");
     }
 
     /// <summary>
@@ -1355,6 +1533,12 @@ public sealed class CommandAssistLayoutTests
         pane.OpenCommandAssistHelp();
         CommandAssistBarViewModel vm = Assert.IsType<CommandAssistBarViewModel>(pane.CommandAssistViewModel);
         vm.IsVisible = true;
+
+        // Help opens the popup, and since the UX-polish round an open popup takes the bubble down -
+        // exactly one surface at a time. These are bubble-placement tests, so they close it: the
+        // state under test is "a bubble is on screen and has to be put somewhere", which is what a
+        // passive Suggest surface looks like. See CommandAssistBarViewModel.SyncPresentationState.
+        vm.IsPopupOpen = false;
         Assert.True(vm.Bubble.IsVisible);
         return vm;
     }

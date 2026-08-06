@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Collections.ObjectModel;
 using System.Runtime.CompilerServices;
+using NovaTerminal.CommandAssist.Models;
 
 namespace NovaTerminal.CommandAssist.ViewModels;
 
@@ -32,6 +33,18 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     /// </remarks>
     internal const string PassiveHintText = "Down browse  |  Ctrl+Enter insert  |  Esc close";
 
+    /// <summary>The chip text for a session whose shell is emitting OSC 133 marks.</summary>
+    internal const string IntegratedStatusText = "integrated";
+
+    /// <summary>The chip text for a session with no marks: capture is heuristic and Fix has no output tail.</summary>
+    internal const string BasicStatusText = "basic";
+
+    internal const string IntegratedStatusTooltip =
+        "Shell integration is live: commands, exit codes and working directories come from the shell itself.";
+
+    internal const string BasicStatusTooltip =
+        "No shell integration on this session. Command Assist still works, but history is captured heuristically and failing commands have no output to diagnose.";
+
     private AssistShortcutHintLabels _shortcutHintLabels = AssistShortcutHintLabels.Default;
     private bool _isVisible;
     private string _modeLabel = "Suggest";
@@ -46,6 +59,9 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     private bool _showEmptyState;
     private bool _isPopupOpen;
     private string _attributionText = string.Empty;
+    private AssistHintDetail _bubbleHintDetail = AssistHintDetail.Full;
+    private bool _isShellIntegrationLive;
+    private bool _allowBubbleQueryText = true;
 
     public CommandAssistBarViewModel()
     {
@@ -347,6 +363,87 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// How much of the shortcut hint the bubble has room for. Set by the host from the pane width.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Progressive collapse, because the hint must lose before the content does.</strong>
+    /// Previously this was a single boolean: the hint took its full width until the compact threshold
+    /// and then vanished. Between those two states lies the width the owner was actually running at,
+    /// where an <c>Auto</c> hint column quietly ate the suggestion down to six characters. The middle
+    /// rung drops the words and keeps the keys - the strip's job at that width is to remind, not to
+    /// teach, and the popup footer still teaches.
+    /// </para>
+    /// <para>
+    /// Only the bubble's strip collapses. The popup has room and keeps the full text.
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// Whether the bubble has room to show the query alongside the suggestion. Host-set from the
+    /// compact-layout decision; the bubble may still suppress it for a reason of its own (Fix mode).
+    /// </summary>
+    /// <remarks>
+    /// The width budget and the editorial judgement are two different questions, and this is the
+    /// first. The host knows how wide the bubble is; only <see cref="ApplyBubbleContent"/> knows
+    /// whether the query is worth the space at that width.
+    /// </remarks>
+    public bool AllowBubbleQueryText
+    {
+        get => _allowBubbleQueryText;
+        set
+        {
+            if (_allowBubbleQueryText == value)
+            {
+                return;
+            }
+
+            _allowBubbleQueryText = value;
+            OnPropertyChanged();
+            SyncPresentationState();
+        }
+    }
+
+    public AssistHintDetail BubbleHintDetail
+    {
+        get => _bubbleHintDetail;
+        set
+        {
+            if (_bubbleHintDetail == value)
+            {
+                return;
+            }
+
+            _bubbleHintDetail = value;
+            OnPropertyChanged();
+            SyncPresentationState();
+        }
+    }
+
+    /// <summary>
+    /// Whether this session's shell is emitting OSC 133 marks. Drives the integration chip.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors <c>AssistSessionContext.IsShellIntegrationLive</c>, republished by
+    /// <c>CommandAssistController</c> whenever it refreshes the surface. See
+    /// <see cref="CommandAssistBubbleViewModel.IntegrationStatusText"/>.
+    /// </remarks>
+    public bool IsShellIntegrationLive
+    {
+        get => _isShellIntegrationLive;
+        set
+        {
+            if (_isShellIntegrationLive == value)
+            {
+                return;
+            }
+
+            _isShellIntegrationLive = value;
+            OnPropertyChanged();
+            SyncPresentationState();
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     /// <summary>
@@ -364,15 +461,28 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
 
         bool isSelectionUpOwned = SelectionUpOwnedProbe?.Invoke() ?? true;
         bool isInsertionAvailable = InsertionAvailableProbe?.Invoke() ?? true;
-        string hintText = BuildHintText(acceptOnEnterArmed, isSelectionUpOwned, isInsertionAvailable);
+        string hintText = BuildHintText(acceptOnEnterArmed, isSelectionUpOwned, isInsertionAvailable, terse: false);
+        string bubbleHintText = BubbleHintDetail == AssistHintDetail.Terse
+            ? BuildHintText(acceptOnEnterArmed, isSelectionUpOwned, isInsertionAvailable, terse: true)
+            : hintText;
 
-        Bubble.IsVisible = IsVisible;
+        // Exactly one surface at a time (UX-polish round, issue 6). The bubble used to follow
+        // IsVisible alone while the popup followed IsVisible && IsPopupOpen, so opening the popup put
+        // both on screen: the owner's screenshot has a "History | vim .env | Enter insert" bubble
+        // rendered below an open History popup whose first row is the same `vim .env`. Two surfaces
+        // saying the same thing is not twice the information.
+        //
+        // The popup wins, rather than the bubble becoming a caption attached to it. The popup already
+        // renders the mode, the query, every row including the one the bubble was summarising, and a
+        // footer hint with room for the full text - so a caption would have nothing left to say that
+        // is not directly above it. Hiding one surface is also the change that cannot introduce a new
+        // layout to get wrong at a narrow width, which is what the rest of this round is about.
+        Bubble.IsVisible = IsVisible && !IsPopupOpen;
         Bubble.ModeLabel = ModeLabel;
-        Bubble.QueryText = QueryText;
-        Bubble.ShortcutHintText = hintText;
-        Bubble.SummaryText = !string.IsNullOrWhiteSpace(TopSuggestionText)
-            ? TopSuggestionText
-            : EmptyStateText;
+        Bubble.ShortcutHintText = bubbleHintText;
+        Bubble.ShowShortcutHint = BubbleHintDetail != AssistHintDetail.Hidden;
+        ApplyBubbleContent();
+        ApplyIntegrationStatus();
 
         Popup.ShortcutHintText = hintText;
         Popup.SelectedIndex = SelectedIndex;
@@ -387,6 +497,63 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         Popup.HasSuggestions = HasSuggestions;
         Popup.ShowEmptyState = ShowEmptyState;
         Popup.AttributionText = AttributionText;
+    }
+
+    /// <summary>
+    /// Decides what the bubble's two content columns say, and whether they are one string or two.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Fix mode does not echo the failed command (UX-polish round, issue 4a).</strong> The
+    /// owner's screenshot read <c>Fix | print -l $precmd_functions | Di...</c>: the headline was the
+    /// command he had just watched fail, and the one new thing on the row - what to do about it - was
+    /// truncated to two characters. Help and Fix both used to put their subject in the query field,
+    /// which is right for Help (the thing you asked about is the caption) and wrong for Fix (the thing
+    /// that failed is already on screen directly above, in the scrollback, in full). So Fix gives its
+    /// width to the suggestion. The popup still shows the failed command, where there is room for
+    /// both.
+    /// </para>
+    /// <para>
+    /// Everything else is the fish-style continuation described on
+    /// <see cref="CommandAssistBubbleViewModel.IsSummaryContinuation"/>.
+    /// </para>
+    /// </remarks>
+    private void ApplyBubbleContent()
+    {
+        string summary = !string.IsNullOrWhiteSpace(TopSuggestionText)
+            ? TopSuggestionText
+            : EmptyStateText;
+        string query = QueryText ?? string.Empty;
+
+        bool isFixMode = string.Equals(ModeLabel, nameof(CommandAssistMode.Fix), StringComparison.OrdinalIgnoreCase);
+        bool showQuery = AllowBubbleQueryText && !isFixMode && query.Length > 0;
+
+        // The tail is only legible while the head is on screen, so the continuation is conditioned on
+        // the query actually being rendered rather than merely being non-empty.
+        bool isContinuation = showQuery &&
+                              summary.Length > query.Length &&
+                              summary.StartsWith(query, StringComparison.Ordinal);
+
+        Bubble.QueryText = query;
+        Bubble.ShowQueryText = showQuery;
+        Bubble.IsSummaryContinuation = isContinuation;
+        Bubble.SummaryText = isContinuation ? summary[query.Length..] : summary;
+    }
+
+    private void ApplyIntegrationStatus()
+    {
+        string text = IsShellIntegrationLive ? IntegratedStatusText : BasicStatusText;
+        string tooltip = IsShellIntegrationLive ? IntegratedStatusTooltip : BasicStatusTooltip;
+
+        Bubble.IntegrationStatusText = text;
+        Bubble.IntegrationStatusTooltip = tooltip;
+
+        // Chrome, so it goes at the same width the hint strip goes: the chip answers a question the
+        // user asks once a session, and the suggestion answers one they are asking right now.
+        Bubble.ShowIntegrationStatus = BubbleHintDetail == AssistHintDetail.Full;
+
+        Popup.IntegrationStatusText = text;
+        Popup.IntegrationStatusTooltip = tooltip;
     }
 
     /// <summary>
@@ -410,22 +577,33 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     /// shapes on a browse.
     /// </para>
     /// </remarks>
-    private string BuildHintText(bool acceptOnEnterArmed, bool isSelectionUpOwned, bool isInsertionAvailable)
+    private string BuildHintText(bool acceptOnEnterArmed, bool isSelectionUpOwned, bool isInsertionAvailable, bool terse)
     {
         AssistShortcutHintLabels labels = _shortcutHintLabels;
 
         if (acceptOnEnterArmed)
         {
-            return $"{labels.Accept} insert  |  {labels.SelectionUp}/{labels.SelectionDown} browse  |  {labels.Dismiss} close";
+            return terse
+                ? $"{labels.Accept}  |  {labels.SelectionUp}/{labels.SelectionDown}  |  {labels.Dismiss}"
+                : $"{labels.Accept} insert  |  {labels.SelectionUp}/{labels.SelectionDown} browse  |  {labels.Dismiss} close";
         }
 
         string browse = isSelectionUpOwned
-            ? $"{labels.SelectionUp}/{labels.SelectionDown} browse"
-            : $"{labels.SelectionDown} browse";
+            ? $"{labels.SelectionUp}/{labels.SelectionDown}"
+            : $"{labels.SelectionDown}";
+
+        if (terse)
+        {
+            // Keys only. Every clause keeps its meaning - the keys are the information and the verbs
+            // were the padding - at roughly half the width.
+            return isInsertionAvailable
+                ? $"{browse}  |  {labels.Insert}  |  {labels.Dismiss}"
+                : $"{browse}  |  {labels.Dismiss}";
+        }
 
         return isInsertionAvailable
-            ? $"{browse}  |  {labels.Insert} insert  |  {labels.Dismiss} close"
-            : $"{browse}  |  {labels.Dismiss} close";
+            ? $"{browse} browse  |  {labels.Insert} insert  |  {labels.Dismiss} close"
+            : $"{browse} browse  |  {labels.Dismiss} close";
     }
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

@@ -37,6 +37,24 @@ public sealed class CommandAssistAnchorCalculator
     private const double MinimumPromptWidth = 120;
     private const double CompactBubbleWidthThreshold = 320;
     private const double CompactPaneWidthThreshold = 560;
+
+    /// <summary>
+    /// Below this bubble width the shortcut hint drops its verbs and keeps its key names.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The middle rung the UX-polish round added between "full hint" and "no hint". The compact
+    /// threshold at 320 was the only step there was, so every width from 321 px upwards got the full
+    /// ~200 px strip - and the bubble the owner was actually looking at is in that range, which is why
+    /// his suggestion was ellipsised to six characters while a legend for keys he already knew kept
+    /// its full width.
+    /// </para>
+    /// <para>
+    /// 420 is the point at which the strip, the mode label and a query stop leaving the content
+    /// column its 150 px floor. Above it everything fits and nothing needs to give.
+    /// </para>
+    /// </remarks>
+    private const double TerseBubbleHintWidthThreshold = 420;
     // Band ratios. Every one of these is a hedge against not knowing where the prompt is; a
     // mark-anchored request bypasses all of them (see the class remarks). They survive because
     // markless sessions still exist -- an un-instrumented remote, a shell with integration
@@ -64,6 +82,11 @@ public sealed class CommandAssistAnchorCalculator
         bool useCompactBubbleLayout = paneWidth <= CompactPaneWidthThreshold ||
                                       request.BubbleWidth > availableWidth ||
                                       bubbleWidth <= CompactBubbleWidthThreshold;
+
+        // The middle rung. Only meaningful when the hint is rendered at all, so it is deliberately
+        // not or-ed with the compact decision: compact already hides the strip outright.
+        bool useTerseBubbleHint = !useCompactBubbleLayout &&
+                                  bubbleWidth <= TerseBubbleHintWidthThreshold;
         bool usesMarkAnchor = request.HasMarkAnchor &&
                               request.VisibleRows > 0 &&
                               request.MarkVisualRow >= 0 &&
@@ -166,7 +189,8 @@ public sealed class CommandAssistAnchorCalculator
             popupDirection,
             usesPromptAnchor,
             useCompactBubbleLayout,
-            usesMarkAnchor);
+            usesMarkAnchor,
+            useTerseBubbleHint);
     }
 
     private static AssistRect CreatePromptRect(
@@ -416,7 +440,8 @@ public sealed record CommandAssistAnchorLayout(
     CommandAssistPopupDirection PopupDirection,
     bool UsesPromptAnchor,
     bool UseCompactBubbleLayout,
-    bool UsesMarkAnchor = false);
+    bool UsesMarkAnchor = false,
+    bool UseTerseBubbleHint = false);
 
 public enum CommandAssistPopupDirection
 {

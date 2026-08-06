@@ -5,31 +5,93 @@
              x:DataType="viewModels:CommandAssistBubbleViewModel"
              x:Class="NovaTerminal.CommandAssist.Views.CommandAssistBubbleView"
              IsVisible="{Binding IsVisible}">
+    <UserControl.Styles>
+        <!--
+            The gap between the query and the suggestion closes when the suggestion is the tail of the
+            query rather than a separate thing (fish-style completion). ColumnSpacing cannot express
+            "usually 10, sometimes 0", so the columns are butted together and every element carries its
+            own left margin, which one class then overrides. See
+            CommandAssistBubbleViewModel.IsSummaryContinuation.
+        -->
+        <Style Selector="TextBlock#BubbleSummaryText">
+            <Setter Property="Margin" Value="10,0,0,0"/>
+        </Style>
+        <Style Selector="TextBlock#BubbleSummaryText.continuation">
+            <Setter Property="Margin" Value="0"/>
+        </Style>
+    </UserControl.Styles>
     <Border Background="#CC202020"
             BorderBrush="#404040"
             BorderThickness="1"
             CornerRadius="8"
             Padding="10,6">
-        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+        <!--
+            Column priority is the whole point of this grid, and it used to be backwards.
+
+            The suggestion is the only thing in the bubble the user is reading; everything else is
+            chrome that explains it. Before the UX-polish round the suggestion sat in the one `*`
+            column with no floor while the mode label, the query and the hint strip all sat in `Auto`
+            columns that take their desired width first - so at the owner's pane width the suggestion
+            was the only thing that could shrink, and it shrank to `doc...`.
+
+            Now the content column has a MinWidth it never gives up, the query is capped so a long
+            failed command cannot crowd out the fix for it, and the hint strip collapses in two stages
+            before either (AssistHintDetail). Chrome yields to content, in that order.
+        -->
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto" MaxWidth="130"/>
+                <ColumnDefinition Width="*" MinWidth="150"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
             <TextBlock x:Name="BubbleModeLabelText"
                        Text="{Binding ModeLabel}"
                        Foreground="#8EC5FF"
                        FontWeight="SemiBold"
                        VerticalAlignment="Center"/>
+
             <TextBlock Grid.Column="1"
                        x:Name="BubbleQueryText"
                        Text="{Binding QueryText}"
                        IsVisible="{Binding ShowQueryText}"
+                       Margin="10,0,0,0"
                        Foreground="White"
                        FontFamily="Consolas"
                        VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis"/>
+
             <TextBlock x:Name="BubbleSummaryText"
                        Grid.Column="2"
+                       Classes.continuation="{Binding IsSummaryContinuation}"
                        Text="{Binding SummaryText}"
                        Foreground="#D7E8FF"
                        VerticalAlignment="Center"
                        TextTrimming="CharacterEllipsis"/>
+
+            <!--
+                The integration chip (owner-approved addition). Deliberately the quietest thing on the
+                row: it answers "is the shell integration script working?" once per session and then
+                has nothing further to say, so it is sized and coloured to be findable rather than
+                noticed. Dropped before the hint strip's last rung, because it is the more skippable
+                of the two.
+            -->
+            <Border Grid.Column="3"
+                    x:Name="BubbleIntegrationChip"
+                    IsVisible="{Binding ShowIntegrationStatus}"
+                    ToolTip.Tip="{Binding IntegrationStatusTooltip}"
+                    Margin="10,0,0,0"
+                    Background="#22FFFFFF"
+                    CornerRadius="4"
+                    Padding="5,1"
+                    VerticalAlignment="Center">
+                <TextBlock x:Name="BubbleIntegrationStatusText"
+                           Text="{Binding IntegrationStatusText}"
+                           Foreground="#8B96A5"
+                           FontSize="10"/>
+            </Border>
 
             <!--
                 The hint strip. Present on the view-model since M4.2 and never bound until V2 Phase 3a,
@@ -37,15 +99,16 @@
                 taught them rendered everything except them. Content is state-dependent (see
                 CommandAssistBarViewModel), so it never advertises a key the surface does not own.
 
-                It is also the lowest-priority content in the bubble, and the layout has to say so: this
-                is an Auto column next to the summary's *, so without a cap it wins every width argument
-                (PR #290 review). Collapsed outright in compact layout - the 280 px floor a split SSH
-                pane lands on - and capped otherwise so the summary keeps the remainder.
+                It is also the lowest-priority content in the bubble, and the layout has to say so.
+                Since the UX-polish round the collapse is progressive rather than all-or-nothing - full
+                text, then keys only, then gone - and the MaxWidth is the backstop for the case where
+                even the terse form is long because the user rebound the keys to something verbose.
             -->
             <TextBlock x:Name="BubbleShortcutHintText"
-                       Grid.Column="3"
+                       Grid.Column="4"
                        Text="{Binding ShortcutHintText}"
                        IsVisible="{Binding ShowShortcutHint}"
+                       Margin="10,0,0,0"
                        MaxWidth="240"
                        Foreground="#8B96A5"
                        FontSize="11"

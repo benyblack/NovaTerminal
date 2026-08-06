@@ -262,7 +262,40 @@ public sealed class JsonlHistoryStore : IHistoryStore
         }
     }
 
-    public async Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+    public async Task<bool> TryUpdateExecutionResultAsync(
+        string entryId,
+        int? exitCode,
+        long? durationMs,
+        CancellationToken cancellationToken = default,
+        bool isInvalidCommand = false)
+    {
+        return await TryPatchAsync(
+            entryId,
+            existing => existing with
+            {
+                ExitCode = exitCode,
+                DurationMs = durationMs ?? existing.DurationMs,
+
+                // Latching, never clearing. See the parameter docs on IHistoryStore: the exit-code
+                // signal and the recogniser signal arrive independently and in either order, so a
+                // patch that has nothing to say about the classification must leave it alone.
+                IsInvalidCommand = existing.IsInvalidCommand || isInvalidCommand
+            },
+            cancellationToken);
+    }
+
+    public async Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
+    {
+        return await TryPatchAsync(
+            entryId,
+            existing => existing with { IsInvalidCommand = true },
+            cancellationToken);
+    }
+
+    private async Task<bool> TryPatchAsync(
+        string entryId,
+        Func<CommandHistoryEntry, CommandHistoryEntry> patch,
+        CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken);
         try
@@ -273,11 +306,7 @@ public sealed class JsonlHistoryStore : IHistoryStore
                 return false;
             }
 
-            CommandHistoryEntry updated = existing with
-            {
-                ExitCode = exitCode,
-                DurationMs = durationMs ?? existing.DurationMs
-            };
+            CommandHistoryEntry updated = patch(existing);
 
             // Disk first, then the index, for the same reason as AppendAsync.
             await AppendLineUnsafeAsync(updated, cancellationToken);

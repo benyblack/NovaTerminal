@@ -187,8 +187,26 @@ public sealed class TerminalPaneCommandAssistShortcutTests
         await Task.Delay(50);
     }
 
+    /// <summary>
+    /// A non-zero exit with nothing readable behind it does not raise a surface.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>This assertion is inverted from what it used to be, and the inversion is the point of
+    /// the UX-polish round's issue 4.</strong> It previously asserted that any non-zero exit opened
+    /// Fix mode, which is precisely the behaviour the owner reported as "fix comes sometimes when it
+    /// is not needed". There is no output tail in this setup - nothing was painted on the grid - so
+    /// the insight service is on the bottom rung of its ladder and can only offer a name-similarity
+    /// guess. <c>CommandAssistModeRouter.ShouldSurfacePassiveFix</c> requires a recogniser to have
+    /// actually read something, so nothing surfaces.
+    /// </para>
+    /// <para>
+    /// The guess is still computed and still reachable: <c>Ctrl+Space</c> after the failure summons
+    /// it. What it no longer does is volunteer itself over every command that exits non-zero.
+    /// </para>
+    /// </remarks>
     [AvaloniaFact]
-    public async Task HandleCommandAssistCompletionAsync_WhenNonZeroExit_OpensFixModeForTrackedCommand()
+    public async Task HandleCommandAssistCompletionAsync_WhenNonZeroExitHasNoReadableOutput_StaysQuiet()
     {
         using var pane = new TerminalPane();
         ConfigureCommandAssist(pane);
@@ -198,8 +216,7 @@ public sealed class TerminalPaneCommandAssistShortcutTests
         await Task.Delay(50);
 
         CommandAssistBarViewModel vm = AssertViewModel(pane);
-        Assert.True(vm.IsVisible);
-        Assert.Equal("Fix", vm.ModeLabel);
+        Assert.False(vm.IsVisible);
     }
 
     [AvaloniaFact]

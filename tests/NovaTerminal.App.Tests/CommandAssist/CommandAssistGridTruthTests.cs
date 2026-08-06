@@ -600,7 +600,10 @@ public sealed class CommandAssistGridTruthTests
             return Task.FromResult(results);
         }
 
-        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+        public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromResult(false);
 
         public void Seed(params string[] commandTexts)

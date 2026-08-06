@@ -20,6 +20,8 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
     private int _selectedIndex = -1;
     private string _shortcutHintText = string.Empty;
     private string _attributionText = string.Empty;
+    private string _integrationStatusText = string.Empty;
+    private string _integrationStatusTooltip = string.Empty;
 
     public CommandAssistPopupViewModel(ObservableCollection<CommandAssistSuggestionItemViewModel> suggestions)
     {
@@ -36,6 +38,28 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
     {
         get => _modeLabel;
         set => SetField(ref _modeLabel, value);
+    }
+
+    /// <summary>
+    /// The session's shell-integration state, shown in the popup footer beside the shortcut hint.
+    /// </summary>
+    /// <remarks>
+    /// The popup carries the chip unconditionally where the bubble drops it at narrow widths: the
+    /// popup is a summoned surface with a footer already, so there is room, and it is the surface a
+    /// user is looking at when they wonder why the list is emptier than they expected. See
+    /// <see cref="CommandAssistBubbleViewModel.IntegrationStatusText"/>.
+    /// </remarks>
+    public string IntegrationStatusText
+    {
+        get => _integrationStatusText;
+        set => SetField(ref _integrationStatusText, value);
+    }
+
+    /// <summary>The sentence behind <see cref="IntegrationStatusText"/>, shown on hover.</summary>
+    public string IntegrationStatusTooltip
+    {
+        get => _integrationStatusTooltip;
+        set => SetField(ref _integrationStatusTooltip, value);
     }
 
     public string QueryText

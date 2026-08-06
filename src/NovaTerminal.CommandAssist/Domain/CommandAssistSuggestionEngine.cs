@@ -76,11 +76,60 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
     /// </remarks>
     internal const double TextQueryContextMatchBoost = 30;
 
-    private readonly IPathSuggestionProvider _pathSuggestionProvider;
+    /// <summary>
+    /// How much newer a same-directory entry is treated as being on the empty-query path.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The UX-polish round's central decision, and the reason it is a time rather than a
+    /// score.</strong> The owner's report was two complaints with one cause: "no history even after
+    /// integration" and "sorting I don't understand". Neither was a capture bug - the entries were
+    /// all there. The empty-query score was
+    /// <c>1 + min(frequency,5) + pinned + context + profile</c>, and recency was a
+    /// <c>ThenByDescending</c> that only fires on an exact score tie. So inside the same-host band the
+    /// only live term was frequency, capped at 5: <c>vim .env</c> run five times last week scored 1006
+    /// and beat the command he had run ten seconds earlier in the directory he was standing in, which
+    /// scored 1002. The list was a frequency chart wearing a history list's clothes, and it was
+    /// telling the truth about its own ordering - which is why no amount of staring at it explained
+    /// anything.
+    /// </para>
+    /// <para>
+    /// <strong>Recency-first, because that is what Ctrl+R means.</strong> Every shell's reverse
+    /// search walks backwards through time, and a user who presses it is asking "what did I just
+    /// do". Frequency answers a different question well enough that it earned its place in the
+    /// text-query ranking, where the user has already narrowed the field by typing; with an empty
+    /// query it is the only thing keeping last week at the top. So it moves to a tiebreak - applied
+    /// after recency rather than before it, which is why <see cref="AssistSuggestion.Frequency"/> is
+    /// a field on the row instead of a term in the score.
+    /// </para>
+    /// <para>
+    /// <strong>Why the directory boost is a time offset.</strong> The brief asks for a same-directory
+    /// boost "that can lift very-recent same-cwd entries" without frequency becoming a driver again.
+    /// Expressed as a score band, cwd would simply replace frequency as the thing that outranks
+    /// recency, and the identical complaint would come back in a new costume: a same-directory
+    /// command from last Tuesday would sit above one from thirty seconds ago in the directory next
+    /// door. Expressed as a <em>recency bonus</em> the two signals stay commensurable - a
+    /// same-directory entry is ranked as if it were half an hour newer than it is, so it wins against
+    /// anything staler than that and loses to anything fresher. Half an hour is roughly "the current
+    /// sitting": long enough that stepping into a directory brings its recent work with you, short
+    /// enough that a command you ran moments ago is never buried by one you ran this morning.
+    /// </para>
+    /// <para>
+    /// The context band from PR #290 is untouched and still applied first. This reorders
+    /// <em>within</em> it.
+    /// </para>
+    /// </remarks>
+    internal static readonly TimeSpan EmptyQuerySameDirectoryRecencyBonus = TimeSpan.FromMinutes(30);
 
-    public CommandAssistSuggestionEngine(IPathSuggestionProvider? pathSuggestionProvider = null)
+    private readonly IPathSuggestionProvider _pathSuggestionProvider;
+    private readonly Func<DateTimeOffset> _clock;
+
+    public CommandAssistSuggestionEngine(
+        IPathSuggestionProvider? pathSuggestionProvider = null,
+        Func<DateTimeOffset>? clock = null)
     {
         _pathSuggestionProvider = pathSuggestionProvider ?? new FileSystemPathSuggestionProvider();
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
     public IReadOnlyList<AssistSuggestion> GetSuggestions(
@@ -103,6 +152,7 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
         }
 
         string query = context.Input?.Trim() ?? string.Empty;
+        DateTimeOffset now = _clock();
         List<AssistSuggestion> results = new();
         if (context.IncludePathSuggestions)
         {
@@ -111,7 +161,7 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
 
         if (context.IncludeHistorySuggestions)
         {
-            results.AddRange(BuildHistorySuggestions(historyEntries, context, query));
+            results.AddRange(BuildHistorySuggestions(historyEntries, context, query, now));
         }
 
         if (context.IncludeSnippetSuggestions)
@@ -120,12 +170,51 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
         }
         bool hasPathSuggestions = results.Any(x => x.Type == AssistSuggestionType.Path);
 
+        if (string.IsNullOrWhiteSpace(query))
+        {
+            // The empty-query (Ctrl+R) order. The score now carries only the bands - context,
+            // profile, pin, snippet - and everything inside a band is decided by time, with the
+            // same-directory bonus folded into the timestamp. Frequency is the last word before the
+            // alphabetical stabiliser, which is the whole of the UX-polish reordering: see
+            // EmptyQuerySameDirectoryRecencyBonus.
+            return results
+                .OrderByDescending(x => ComputeEffectiveScore(x, hasPathSuggestions))
+                .ThenByDescending(x => ComputeEffectiveRecency(x, context))
+                .ThenByDescending(x => x.Frequency)
+                .ThenBy(x => x.DisplayText, StringComparer.OrdinalIgnoreCase)
+                .Take(maxResults)
+                .ToList();
+        }
+
+        // The text-query order is deliberately unchanged. With a query on the line the user has said
+        // what they are looking for, the text-match tiers dominate, and frequency is a legitimate
+        // signal for choosing between two rows that match equally well.
         return results
             .OrderByDescending(x => ComputeEffectiveScore(x, hasPathSuggestions))
             .ThenByDescending(x => x.LastUsedAt ?? DateTimeOffset.MinValue)
             .ThenBy(x => x.DisplayText, StringComparer.OrdinalIgnoreCase)
             .Take(maxResults)
             .ToList();
+    }
+
+    /// <summary>
+    /// The timestamp a row is ranked by on the empty-query path: when it actually ran, plus
+    /// <see cref="EmptyQuerySameDirectoryRecencyBonus"/> if it ran where the pane is standing now.
+    /// </summary>
+    private static DateTimeOffset ComputeEffectiveRecency(AssistSuggestion suggestion, CommandAssistQueryContext context)
+    {
+        DateTimeOffset lastUsed = suggestion.LastUsedAt ?? DateTimeOffset.MinValue;
+
+        // Guard the sentinel: adding to DateTimeOffset.MinValue is legal but would rank a row with no
+        // timestamp above a genuinely old one, which is backwards.
+        if (lastUsed == DateTimeOffset.MinValue)
+        {
+            return lastUsed;
+        }
+
+        return Matches(context.WorkingDirectory, suggestion.WorkingDirectory)
+            ? lastUsed + EmptyQuerySameDirectoryRecencyBonus
+            : lastUsed;
     }
 
     private static double ComputeEffectiveScore(AssistSuggestion suggestion, bool hasPathSuggestions)
@@ -141,9 +230,19 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
     private static IEnumerable<AssistSuggestion> BuildHistorySuggestions(
         IReadOnlyList<CommandHistoryEntry> historyEntries,
         CommandAssistQueryContext context,
-        string query)
+        string query,
+        DateTimeOffset now)
     {
         return historyEntries
+            // The typo exclusion (UX-polish round). An entry whose failure was classified as
+            // command-not-found is a keystroke record, not a command: the owner's `gti status` was
+            // captured, then offered straight back to him on the next `gt`. Filtered here rather
+            // than at capture so the provenance survives - and filtered before the grouping so a
+            // later, real `gti` (someone installs it) is a different entry and ranks normally.
+            //
+            // Every path, including an explicit text search. They are typos; there is no query for
+            // which the honest answer is one.
+            .Where(x => !x.IsInvalidCommand)
             .GroupBy(x => x.CommandText, StringComparer.OrdinalIgnoreCase)
             .Select(group =>
             {
@@ -175,11 +274,12 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
                 DisplayText: x.Latest.CommandText,
                 InsertText: x.Latest.CommandText,
                 Description: null,
-                Badges: BuildHistoryBadges(x.Latest, context, x.Frequency),
+                Badges: BuildHistoryBadges(x.Latest, context, x.Frequency, now),
                 Score: x.Score,
                 WorkingDirectory: x.Latest.WorkingDirectory,
                 LastUsedAt: x.Latest.ExecutedAt,
-                ExitCode: x.Latest.ExitCode));
+                ExitCode: x.Latest.ExitCode,
+                Frequency: x.Frequency));
     }
 
     private static IEnumerable<AssistSuggestion> BuildSnippetSuggestions(
@@ -263,11 +363,12 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
 
         if (string.IsNullOrWhiteSpace(query))
         {
-            // The empty-query (Ctrl+R) path. Recency is the tiebreak rather than a term here - see the
-            // ThenByDescending in GetSuggestions - so the context boosts are the only thing large
-            // enough to reorder the list, which is exactly what V2 Phase 3a wants them to do.
+            // The empty-query (Ctrl+R) path. The score is now purely the band - context, profile,
+            // pin - and carries no frequency term at all. Ordering inside a band is time, then
+            // frequency, and both live in the OrderBy chain in GetSuggestions so that recency is
+            // applied first. The frequency term that used to be here is what made the owner's list
+            // unreadable; see EmptyQuerySameDirectoryRecencyBonus for the full account.
             return 1 +
-                   Math.Min(frequency, 5) +
                    (isPinned ? 20 : 0) +
                    (isContextMatch ? EmptyQueryContextMatchBoost : 0) +
                    (isProfileMatch ? EmptyQueryProfileMatchBoost : 0);
@@ -331,17 +432,40 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
         return entry.IsRemote && Matches(context.HostId, entry.HostId);
     }
 
-    private static IReadOnlyList<string> BuildHistoryBadges(CommandHistoryEntry entry, CommandAssistQueryContext context, int frequency)
+    /// <summary>
+    /// The badges on a history row, in the order the ranking actually consulted the signals.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Badges are an explanation of the placement, so they have to be in the order the sort
+    /// applied them.</strong> The owner's screenshot had rows from a directory he had left, from a
+    /// week earlier, wearing "Frequent" - the badge was accurate and the ordering it described was
+    /// the thing he was complaining about. Now that the sort is recency, then directory, then
+    /// frequency, the badges read in that order too: "Recent" first because it is usually why the row
+    /// is where it is, "Same dir" next because it is the only other thing that can lift a row, and
+    /// "Frequent" demoted to the secondary signal it now is.
+    /// </para>
+    /// </remarks>
+    private static IReadOnlyList<string> BuildHistoryBadges(
+        CommandHistoryEntry entry,
+        CommandAssistQueryContext context,
+        int frequency,
+        DateTimeOffset now)
     {
         List<string> badges = new();
-        if (frequency > 1)
+        if (AssistRelativeTime.IsRecent(entry.ExecutedAt, now))
         {
-            badges.Add("Frequent");
+            badges.Add("Recent");
         }
 
         if (Matches(context.WorkingDirectory, entry.WorkingDirectory))
         {
-            badges.Add("Same cwd");
+            badges.Add("Same dir");
+        }
+
+        if (frequency > 1)
+        {
+            badges.Add("Frequent");
         }
 
         if (entry.ExitCode == 0)
@@ -362,7 +486,7 @@ public sealed class CommandAssistSuggestionEngine : ISuggestionEngine
 
         if (Matches(context.WorkingDirectory, snippet.WorkingDirectory))
         {
-            badges.Add("Same cwd");
+            badges.Add("Same dir");
         }
 
         return badges;

@@ -461,7 +461,10 @@ public sealed class CommandAssistPerformanceTests
             return Task.FromResult<IReadOnlyList<CommandHistoryEntry>>(_entries.Take(maxCandidates).ToArray());
         }
 
-        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+        public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromResult(false);
     }
 
