@@ -166,15 +166,46 @@ namespace NovaTerminal.Controls
         private readonly OrderedAsyncEventDispatcher _shellIntegrationEventDispatcher = new();
         private readonly CommandAssistAnchorCalculator _commandAssistAnchorCalculator = new();
 
-        // Newest OSC 133;B mark, written from the PTY read thread and read from the UI thread.
-        // A ShellIntegrationMark is five fields wide, so a plain nullable field could be torn
-        // across the two; the gate costs one uncontended lock per prompt.
-        private readonly object _commandStartMarkGate = new();
-        private ShellIntegrationMark? _latestCommandStartMark;
+        /// <summary>
+        /// Newest <c>OSC 133;B</c> mark (prompt end), written from the PTY read thread and read
+        /// from the UI thread. <see langword="null"/> when there is no live mark.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <b>Stored on the buffer, not in a field here.</b> A width-changing resize reflows the
+        /// buffer, which rebuilds the absolute-row coordinate space and bumps
+        /// <c>ScrollbackPages.Generation</c>; a mark held outside the buffer can only notice that
+        /// its epoch went stale and be discarded. That is the whole of the "the first prompt of a
+        /// session is dead" bug: PSReadLine repaints the input line on a resize but does not re-run
+        /// the prompt function, so no fresh <c>B</c> arrives and the pane is markless until the
+        /// user submits something. <see cref="TerminalBuffer.CommandStartMark"/> is re-anchored by
+        /// the reflow itself, which is the only code that knows where the marked cell moved to, and
+        /// it comes back carrying the new generation - so the generation contract is enforced
+        /// exactly as before and there is simply no stale epoch left to reject.
+        /// </para>
+        /// <para>
+        /// The buffer guards the slot with its own lock, which is what the pane's old
+        /// <c>_commandStartMarkGate</c> was for: a <see cref="ShellIntegrationMark"/> is five
+        /// fields wide and a plain nullable field could be torn across the two threads.
+        /// </para>
+        /// </remarks>
+        private ShellIntegrationMark? LatestCommandStartMark
+        {
+            get => Buffer?.CommandStartMark;
+            set
+            {
+                if (Buffer is { } buffer)
+                {
+                    buffer.CommandStartMark = value;
+                }
+            }
+        }
 
-        // Where the running command's output region begins, captured at OSC 133;C. Guarded by the
-        // same gate and for the same reason. See CaptureCommandOutputRegionStart.
-        private ShellIntegrationMark? _commandOutputRegionStart;
+        // Where the running command's output region begins (OSC 133;C) is
+        // TerminalBuffer.CommandOutputStartMark, on the buffer for the same reason as
+        // LatestCommandStartMark above: a resize between C and D would otherwise cost the failing
+        // command's captured output. The two call sites (CaptureCommandOutputRegionStart and
+        // TryCaptureFailureOutputTail) already hold a non-null buffer, so they read it directly.
 
         // The last output tail captured at OSC 133;D, already capped and already redacted. A test
         // seam only: the value the controller sees is passed as an argument, not read from here.
@@ -1345,11 +1376,7 @@ namespace NovaTerminal.Controls
         /// </remarks>
         private CommandAssistMarkAnchorHint? TryGetCommandAssistMarkAnchorHint()
         {
-            ShellIntegrationMark? mark;
-            lock (_commandStartMarkGate)
-            {
-                mark = _latestCommandStartMark;
-            }
+            ShellIntegrationMark? mark = LatestCommandStartMark;
 
             return mark is ShellIntegrationMark live
                 ? TermView.GetCommandAssistMarkAnchorHint(live)
@@ -2680,14 +2707,16 @@ namespace NovaTerminal.Controls
             {
                 // OSC 133;B == prompt end / start of user input. The mark position is the
                 // anchor Command Assist uses to read the live command line out of the grid.
-                // B rides inside the prompt string, so it is re-emitted on every repaint
-                // (resize, clear, zle reset-prompt) with fresh coordinates: keep the newest
-                // one rather than the first.
+                // B rides inside the prompt string, so it is re-emitted on every prompt the
+                // shell *prints* (a new prompt, clear, zle reset-prompt) with fresh
+                // coordinates: keep the newest one rather than the first. It is NOT re-emitted
+                // on a window resize - PSReadLine (measured on 2.3) repaints the input line
+                // without re-running the prompt function, and zsh/fish behave the same unless
+                // the user wired a resize hook. That is why the mark has to survive the reflow
+                // a resize triggers rather than waiting to be replaced; see
+                // TerminalBuffer.CommandStartMark, which is where this now lives.
                 NoteShellIntegrationMarkObserved();
-                lock (_commandStartMarkGate)
-                {
-                    _latestCommandStartMark = mark;
-                }
+                LatestCommandStartMark = mark;
 
                 _shellLifecycleTracker?.HandleCommandStarted(new ShellMarkPosition(
                     Row: mark.Row,
@@ -2734,15 +2763,11 @@ namespace NovaTerminal.Controls
                 // the final command text on. GridQueryReader.MaxSpanRows stays as a backstop for
                 // shells that emit B without a matching D, but it is no longer the only guard.
                 NoteShellIntegrationMarkObserved();
-                lock (_commandStartMarkGate)
-                {
-                    _latestCommandStartMark = null;
 
-                    // The output region ends here too. OnCommandFinished (above, same OSC 133;D)
-                    // has already read it; holding the mark past this point would let the *next*
-                    // failure read a region that starts inside this command's output.
-                    _commandOutputRegionStart = null;
-                }
+                // The output region ends here too. OnCommandFinished (above, same OSC 133;D)
+                // has already read it; holding the mark past this point would let the *next*
+                // failure read a region that starts inside this command's output.
+                Buffer?.ClearTrackedShellMarks();
 
                 _shellLifecycleTracker?.HandleCommandFinished(exitCode, durationMs);
 
@@ -2772,11 +2797,7 @@ namespace NovaTerminal.Controls
             // A restart or a profile switch reaches here; the pending line belonged to the shell
             // that is going away.
             _marklessSubmission.Reset();
-            lock (_commandStartMarkGate)
-            {
-                _latestCommandStartMark = null;
-                _commandOutputRegionStart = null;
-            }
+            Buffer?.ClearTrackedShellMarks();
 
             _lastFailureOutputTailForTest = null;
 
@@ -4114,11 +4135,7 @@ namespace NovaTerminal.Controls
                 return false;
             }
 
-            ShellIntegrationMark? mark;
-            lock (_commandStartMarkGate)
-            {
-                mark = _latestCommandStartMark;
-            }
+            ShellIntegrationMark? mark = buffer.CommandStartMark;
 
             return mark is ShellIntegrationMark live
                 && GridQueryReader.TryReadCommandLine(buffer, live, out line);
@@ -4134,8 +4151,9 @@ namespace NovaTerminal.Controls
         /// Callable from any thread, and it is: the suggestion orchestrator invokes it from the
         /// worker its refresh pass runs on, deliberately, so the read lands behind the queue hop
         /// rather than on the keystroke that triggered it. Both things it touches are safe for
-        /// that - the mark is read under <c>_commandStartMarkGate</c> and
-        /// <see cref="GridQueryReader"/> takes the buffer's own read lock.
+        /// that - the mark is read under the buffer's tracked-mark lock (see
+        /// <see cref="TerminalBuffer.CommandStartMark"/>) and <see cref="GridQueryReader"/> takes
+        /// the buffer's own read lock.
         /// </para>
         /// <para>
         /// The span's <c>StartRow</c>/<c>EndRow</c> are dropped rather than carried across. Nothing
@@ -4188,19 +4206,12 @@ namespace NovaTerminal.Controls
                 return;
             }
 
-            ShellIntegrationMark? commandLineMark;
-            lock (_commandStartMarkGate)
-            {
-                commandLineMark = _latestCommandStartMark;
-            }
+            ShellIntegrationMark? commandLineMark = buffer.CommandStartMark;
 
             bool captured = CommandOutputReader.TryCaptureOutputStart(
                 buffer, commandLineMark, out ShellIntegrationMark outputStart);
 
-            lock (_commandStartMarkGate)
-            {
-                _commandOutputRegionStart = captured ? outputStart : null;
-            }
+            buffer.CommandOutputStartMark = captured ? outputStart : null;
         }
 
         /// <summary>
@@ -4240,11 +4251,7 @@ namespace NovaTerminal.Controls
                 return null;
             }
 
-            ShellIntegrationMark? outputStart;
-            lock (_commandStartMarkGate)
-            {
-                outputStart = _commandOutputRegionStart;
-            }
+            ShellIntegrationMark? outputStart = buffer.CommandOutputStartMark;
 
             if (outputStart is not ShellIntegrationMark region)
             {
