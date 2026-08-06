@@ -102,7 +102,14 @@ namespace NovaTerminal.Shell
                     ProfileId = pane.Profile?.Id.ToString(),
                     SshProfileId = pane.Profile?.Type == ConnectionType.SSH ? pane.Profile.Id.ToString() : null,
                     PaneId = pane.PaneId.ToString(),
-                    Command = pane.ShellCommand,
+                    // Never persist a blank command. A pane that has not started a session
+                    // yet reports ShellCommand == string.Empty, and writing that out produced
+                    // a session file whose leaf said "run nothing" — which the restore below
+                    // then faithfully tried to run, spawning an empty command on every
+                    // subsequent launch and re-saving the same blank on exit. Storing null
+                    // instead makes the leaf explicitly command-less, which restore reads as
+                    // "use the default shell".
+                    Command = string.IsNullOrWhiteSpace(pane.ShellCommand) ? null : pane.ShellCommand,
                     Arguments = pane.ShellArgs
                 };
             }
@@ -313,8 +320,17 @@ namespace NovaTerminal.Shell
                 }
                 else
                 {
-                    // Fallback to command args if profile missing
-                    pane = new TerminalPane(node.Command ?? "cmd.exe", node.Arguments ?? "", settings);
+                    // Fallback to command args if profile missing.
+                    //
+                    // IsNullOrWhiteSpace, not `??`: session files written before the capture
+                    // above learned to skip blanks contain "Command": "", and `??` does not
+                    // fire for an empty string — so the pane was constructed with "" and
+                    // spawned nothing. Those files are still on disk, so this reads them
+                    // correctly rather than relying on the capture fix alone.
+                    pane = new TerminalPane(
+                        string.IsNullOrWhiteSpace(node.Command) ? ShellHelper.GetDefaultShell() : node.Command,
+                        node.Arguments ?? "",
+                        settings);
                 }
 
                 if (!string.IsNullOrWhiteSpace(node.PaneId) && Guid.TryParse(node.PaneId, out var paneId))
