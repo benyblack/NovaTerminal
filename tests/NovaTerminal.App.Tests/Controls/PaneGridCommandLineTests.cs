@@ -86,4 +86,48 @@ public class PaneGridCommandLineTests
         Assert.True(pane.TryGetGridCommandLine(out GridCommandLine next));
         Assert.Equal("ls", next.Text);
     }
+
+    [AvaloniaFact]
+    public void AResizeOnTheFirstPromptDoesNotCostTheMark()
+    {
+        // The whole of the "first prompt of a session is dead" report. A width change reflows
+        // the buffer, which rebuilds the absolute-row coordinate space and bumps
+        // ScrollbackPages.Generation - and a resize does NOT make the shell re-emit OSC 133;B
+        // (PSReadLine 2.3 repaints the input line without re-running the prompt function). So
+        // the pane went markless for the rest of that command line: no passive bubble, no
+        // grid-truth query, no structured capture. Since sizing the window is the first thing a
+        // user does with a new one, it looked like the first prompt specifically.
+        //
+        // The mark now lives on the buffer and the reflow re-anchors it; nothing about the
+        // generation check was relaxed. See NovaTerminal.VT.Tests.ShellMarkReflowTests.
+        using var pane = new TerminalPane();
+        pane.CreateAndWireParser();
+
+        pane.Parser!.Process("\x1b]133;A\x07user@host:~$ " + PromptEnd + "ec");
+        Assert.True(pane.TryGetGridCommandLine(out _));
+
+        pane.Buffer!.Resize(60, 24);
+
+        Assert.True(pane.TryGetGridCommandLine(out GridCommandLine line));
+        Assert.Equal("ec", line.Text);
+        Assert.Equal(2, line.CursorOffset);
+    }
+
+    [AvaloniaFact]
+    public void AResizeAfterCommandCompletionStillLeavesNoMark()
+    {
+        // The re-anchoring must not resurrect a mark OSC 133;D dropped: between one command's
+        // end and the next prompt there is no input line, and "no mark" is the honest answer.
+        using var pane = new TerminalPane();
+        pane.CreateAndWireParser();
+
+        pane.Parser!.Process("\x1b]133;A\x07$ " + PromptEnd + "git status");
+        pane.Parser!.Process(CommandExecuted);
+        pane.Parser!.Process("\r\n On branch main\r\n");
+        pane.Parser!.Process(CommandFinished);
+
+        pane.Buffer!.Resize(60, 24);
+
+        Assert.False(pane.TryGetGridCommandLine(out _));
+    }
 }

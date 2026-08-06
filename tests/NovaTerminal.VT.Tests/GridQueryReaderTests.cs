@@ -572,11 +572,19 @@ public class GridQueryReaderTests
     }
 
     [Fact]
-    public void ReflowingResize_IsRefused()
+    public void ReflowingResize_RefusesAMarkCopyTakenBeforeIt()
     {
-        // A width change re-wraps every logical line and rebuilds the scrollback store, so the
-        // mark's coordinates describe a layout that no longer exists. Benign in practice: every
-        // shell repaints its prompt after a resize, and the repaint carries a fresh B.
+        // A width change re-wraps every logical line and rebuilds the scrollback store, so a
+        // *copy* of the mark taken before it describes a layout that no longer exists, and the
+        // generation check is the only thing that can tell. This Session holds exactly such a
+        // copy (it never publishes to the buffer), so this stays refused.
+        //
+        // What is NOT true, and what the comment here used to claim, is that this is benign
+        // because "every shell repaints its prompt after a resize". Measured on PSReadLine 2.3:
+        // a resize repaints the *input line* and does not re-run the prompt function, so no
+        // fresh B arrives and the session stays markless for the rest of that command line. The
+        // fix is to re-anchor the buffer's own copy inside the reflow rather than to relax
+        // anything here; see NovaTerminal.VT.Tests.ShellMarkReflowTests.
         var s = new Session(cols: 40, rows: 6).Prompt().Write("git status");
 
         s.Buffer.Resize(24, 6);

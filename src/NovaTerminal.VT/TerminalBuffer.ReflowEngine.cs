@@ -22,11 +22,28 @@ namespace NovaTerminal.VT
             private int _cursorCol;
             private readonly Func<string, int> _getGraphemeWidth;
 
+            // Shell-integration marks carried across the reflow. See TerminalBuffer's
+            // CommandStartMark for why they live on the buffer at all. Each is remapped by
+            // logical-line index + offset-in-logical-line, exactly like the cursor and the
+            // saved cursors, and cleared when it cannot be placed.
+            private ShellIntegrationMark? _commandStartMark;
+            private ShellIntegrationMark? _commandOutputStartMark;
+
+            // The values read at construction, kept so Apply can compare-and-swap. The parser
+            // runs on the PTY thread and can land a fresh OSC 133;B while the reflow is working;
+            // writing the re-anchored old mark over it would leave the readers pointing at the
+            // previous prompt with perfectly valid-looking coordinates, which is worse than the
+            // bug being fixed. If the slot moved under us, the newer mark wins untouched.
+            private readonly ShellIntegrationMark? _observedCommandStartMark;
+            private readonly ShellIntegrationMark? _observedCommandOutputStartMark;
+
             public ReflowEngineContext(TerminalBuffer source)
             {
                 _savedCursors = source._savedCursors;
                 _viewport = source._viewport;
                 _scrollback = source._scrollback;
+                _commandStartMark = _observedCommandStartMark = source.CommandStartMark;
+                _commandOutputStartMark = _observedCommandOutputStartMark = source.CommandOutputStartMark;
                 _history = new List<TerminalRow>(_scrollback.Count + source.Rows);
                 _maxScrollbackBytes = source.MaxScrollbackBytes;
                 _images = source._images;
@@ -50,6 +67,93 @@ namespace NovaTerminal.VT
                 target._scrollback = _scrollback;
                 target._cursorRow = _cursorRow;
                 target._cursorCol = _cursorCol;
+                if (target.CommandStartMark == _observedCommandStartMark)
+                {
+                    target.CommandStartMark = _commandStartMark;
+                }
+
+                if (target.CommandOutputStartMark == _observedCommandOutputStartMark)
+                {
+                    target.CommandOutputStartMark = _commandOutputStartMark;
+                }
+            }
+
+            /// <summary>
+            /// Physical row index (scrollback rows + viewport row) a tracked mark currently
+            /// names, or <c>-1</c> when the mark is not a live main-screen mark.
+            /// </summary>
+            /// <remarks>
+            /// <c>AbsoluteRow - TotalRowsEvicted</c> rather than <c>Row</c>: eviction may have
+            /// shifted the row since capture, and the absolute form is the one that survives it.
+            /// An alt-screen mark shares no numbering with the main screen the reflow rebuilds,
+            /// and a mark from another epoch is already meaningless, so both are refused here
+            /// rather than mapped to a plausible wrong row.
+            /// </remarks>
+            private int GetTrackedMarkPhysicalRow(ShellIntegrationMark? mark)
+            {
+                // Not gated on _isAltScreen: the reflow rebuilds the *main* screen even when the
+                // alt screen is the one on display (Resize swaps it in), and a main-screen mark
+                // names main-screen content either way.
+                if (mark is not ShellIntegrationMark live || live.IsAltScreen)
+                {
+                    return -1;
+                }
+
+                if (live.Generation != _scrollback.Generation)
+                {
+                    return -1;
+                }
+
+                long derived = live.AbsoluteRow - _scrollback.TotalRowsEvicted;
+                if (derived < 0 || derived > int.MaxValue)
+                {
+                    return -1;
+                }
+
+                return (int)derived;
+            }
+
+            /// <summary>
+            /// Rebuilds a tracked mark from the row/column the reflow placed it at, or returns
+            /// <see langword="null"/> when it could not be placed.
+            /// </summary>
+            /// <param name="newPhysRow">Index into the reflowed row list, or <c>-1</c>.</param>
+            /// <param name="newPhysCol">Column within that row.</param>
+            /// <param name="discardedRows">
+            /// Rows the rebuilt scrollback evicted while being refilled. Subtracting it converts
+            /// a reflowed-row index into the buffer's current addressing space, which is the same
+            /// conversion the image re-anchoring below performs.
+            /// </param>
+            private ShellIntegrationMark? RebuildTrackedMark(
+                ShellIntegrationMark? original, int newPhysRow, int newPhysCol, int discardedRows, int newCols)
+            {
+                if (original is not ShellIntegrationMark live || newPhysRow < 0)
+                {
+                    return null;
+                }
+
+                int row = newPhysRow - discardedRows;
+                if (row < 0)
+                {
+                    return null; // the marked line was discarded while the scrollback was rebuilt
+                }
+
+                // A mark parked one past the last column has no cell to name once the row is
+                // re-wrapped; refusing is the same answer the readers would give.
+                if (newPhysCol < 0 || newPhysCol >= newCols)
+                {
+                    return null;
+                }
+
+                return live with
+                {
+                    Row = row,
+                    Column = newPhysCol,
+                    // TotalRowsEvicted of the rebuilt store is exactly discardedRows, so
+                    // AbsoluteRow = discardedRows + row collapses to the reflowed index.
+                    AbsoluteRow = newPhysRow,
+                    Generation = _scrollback.Generation,
+                };
             }
 
             private int GetGraphemeWidth(string textElement)
@@ -84,6 +188,17 @@ namespace NovaTerminal.VT
                     int absAltSavedIdx = _scrollback.Count + _savedCursors.Alt.Row;
                     int altSavedLogicalIdx = -1;
                     int altSavedInLogicalOffset = -1;
+
+                    // Shell-integration marks ride through on the same (logical line, offset)
+                    // identity the cursors use. -1 means "not a live main-screen mark", which
+                    // short-circuits every tracking branch below and leaves the slot cleared.
+                    int absCommandStartIdx = GetTrackedMarkPhysicalRow(_commandStartMark);
+                    int commandStartLogicalIdx = -1;
+                    int commandStartInLogicalOffset = -1;
+
+                    int absOutputStartIdx = GetTrackedMarkPhysicalRow(_commandOutputStartMark);
+                    int outputStartLogicalIdx = -1;
+                    int outputStartInLogicalOffset = -1;
 
                     // 2. Physical Extraction with Padding Trim
 
@@ -168,6 +283,18 @@ namespace NovaTerminal.VT
                         {
                             altSavedLogicalIdx = logicalLines.Count;
                             altSavedInLogicalOffset = (logicalCellsCount - currentLogStart) + _savedCursors.Alt.Col;
+                        }
+
+                        if (i == absCommandStartIdx && _commandStartMark is ShellIntegrationMark cs)
+                        {
+                            commandStartLogicalIdx = logicalLines.Count;
+                            commandStartInLogicalOffset = (logicalCellsCount - currentLogStart) + cs.Column;
+                        }
+
+                        if (i == absOutputStartIdx && _commandOutputStartMark is ShellIntegrationMark os)
+                        {
+                            outputStartLogicalIdx = logicalLines.Count;
+                            outputStartInLogicalOffset = (logicalCellsCount - currentLogStart) + os.Column;
                         }
 
                         int validLen = physRow.Cells.Length;
@@ -274,6 +401,21 @@ namespace NovaTerminal.VT
                             if (i == absCursorPhysicalIdx && _cursorCol > validLen)
                             {
                                 validLen = _cursorCol;
+                            }
+
+                            // Same rule for a tracked shell mark: an OSC 133;B on a prompt whose
+                            // tail is blank (every prompt that ends in a space, once the line is
+                            // empty) would otherwise have its column trimmed out of the logical
+                            // stream and the mark would be dropped by a resize that changed
+                            // nothing about where the prompt ends.
+                            if (i == absCommandStartIdx && _commandStartMark is ShellIntegrationMark csPad && csPad.Column > validLen)
+                            {
+                                validLen = csPad.Column;
+                            }
+
+                            if (i == absOutputStartIdx && _commandOutputStartMark is ShellIntegrationMark osPad && osPad.Column > validLen)
+                            {
+                                validLen = osPad.Column;
                             }
                         }
 
@@ -437,6 +579,10 @@ namespace NovaTerminal.VT
                     int newMainSavedPhysCol = -1;
                     int newAltSavedPhysRow = -1;
                     int newAltSavedPhysCol = -1;
+                    int newCommandStartPhysRow = -1;
+                    int newCommandStartPhysCol = -1;
+                    int newOutputStartPhysRow = -1;
+                    int newOutputStartPhysCol = -1;
                     int historyRowCount = 0; // Tracks physical rows generated from original history
                     var newStartFlowIndices = new int[logicalLines.Count];
 
@@ -503,6 +649,8 @@ namespace NovaTerminal.VT
                             if (i == cursorLogicalIdx) { newCursorPhysRow = allFlowedRows.Count; newCursorPhysCol = 0; }
                             if (i == mainSavedLogicalIdx) { newMainSavedPhysRow = allFlowedRows.Count; newMainSavedPhysCol = 0; }
                             if (i == altSavedLogicalIdx) { newAltSavedPhysRow = allFlowedRows.Count; newAltSavedPhysCol = 0; }
+                            if (i == commandStartLogicalIdx) { newCommandStartPhysRow = allFlowedRows.Count; newCommandStartPhysCol = 0; }
+                            if (i == outputStartLogicalIdx) { newOutputStartPhysRow = allFlowedRows.Count; newOutputStartPhysCol = 0; }
                             allFlowedRows.Add(new TerminalRow(newCols, Theme.Foreground, Theme.Background));
                         }
                         else
@@ -553,6 +701,24 @@ namespace NovaTerminal.VT
                                     {
                                         newAltSavedPhysRow = allFlowedRows.Count;
                                         newAltSavedPhysCol = altSavedInLogicalOffset - processed;
+                                    }
+                                }
+
+                                if (i == commandStartLogicalIdx)
+                                {
+                                    if (commandStartInLogicalOffset >= processed && commandStartInLogicalOffset < processed + newCols)
+                                    {
+                                        newCommandStartPhysRow = allFlowedRows.Count;
+                                        newCommandStartPhysCol = commandStartInLogicalOffset - processed;
+                                    }
+                                }
+
+                                if (i == outputStartLogicalIdx)
+                                {
+                                    if (outputStartInLogicalOffset >= processed && outputStartInLogicalOffset < processed + newCols)
+                                    {
+                                        newOutputStartPhysRow = allFlowedRows.Count;
+                                        newOutputStartPhysCol = outputStartInLogicalOffset - processed;
                                     }
                                 }
 
@@ -624,6 +790,14 @@ namespace NovaTerminal.VT
 
                     int discardedRows = (int)newScrollback.TotalRowsEvicted;
                     _scrollback = newScrollback;
+
+                    // Re-anchor the shell-integration marks now that the new store exists: the
+                    // rebuild reads _scrollback.Generation, which must be the *new* epoch. A mark
+                    // the flow could not place comes back null.
+                    _commandStartMark = RebuildTrackedMark(
+                        _commandStartMark, newCommandStartPhysRow, newCommandStartPhysCol, discardedRows, newCols);
+                    _commandOutputStartMark = RebuildTrackedMark(
+                        _commandOutputStartMark, newOutputStartPhysRow, newOutputStartPhysCol, discardedRows, newCols);
 
                     // Fill viewport
                     // If vpCount < newRows (Growth), we will have empty space at the bottom (Top Anchoring).
@@ -746,6 +920,10 @@ namespace NovaTerminal.VT
                 {
                     TerminalLogger.Error("Reflow failed; buffer reset to a clean state. " + ex);
                     // Failsafe: if reflow crashes, we just reset the buffer to a clean state to avoid permanent hang
+                    // The content the marks named is gone with it, so they go too - a mark pointing
+                    // into a blank buffer would resolve to a plausible row holding nothing.
+                    _commandStartMark = null;
+                    _commandOutputStartMark = null;
                     _scrollback = new ScrollbackPages(newCols, _sharedPagePool, _maxScrollbackBytes);
                     _viewport = new TerminalRow[newRows];
                     for (int i = 0; i < newRows; i++) _viewport[i] = new TerminalRow(newCols, Theme.Foreground, Theme.Background);

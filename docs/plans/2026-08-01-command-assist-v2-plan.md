@@ -345,9 +345,37 @@ One thing found rather than built, recorded so it is not re-discovered: **"No li
 
 ## Phase 6 — Flag flip
 
+**Step 1's blocker is cleared.** Phase 3b dogfooding found that the *first prompt of a local `pwsh`
+session was fully degraded* — no passive bubble, no grid-truth query, no structured capture — with
+everything working from the second prompt on. That was the last pre-flag-flip item, and it is fixed.
+
+Root cause, from live probe logging rather than from reading: the first `OSC 133;B` **is** recorded,
+on time, against a tracker armed before the first byte (so the two standing hypotheses were half
+right and half wrong — the mark is not lost, and the ordering was never the problem). What kills it
+is the resize the user makes as soon as the window is up: a width change reflows the buffer, which
+rebuilds the absolute-row coordinate space and bumps `ScrollbackPages.Generation`, and every reader
+correctly refuses a mark from a dead epoch. The assumption that made that refusal look benign —
+written into `ShellIntegrationMark`'s own remarks — was that "every shell re-prints its prompt after
+a resize, and the repaint carries a fresh B". **It does not:** measured on PSReadLine 2.3, a resize
+repaints the *input line* without re-running the prompt function. So the session went markless for
+the rest of that command line and only recovered at the next real prompt. The "first prompt" framing
+is a symptom of when people resize, not a property of the first prompt.
+
+The fix does **not** relax the generation check, which is the only guard against a confidently wrong
+row. The buffer now owns the live marks (`TerminalBuffer.CommandStartMark` /
+`CommandOutputStartMark`) and the reflow **re-anchors** them by logical-line index plus
+offset-in-logical-line — the same mapping it already applies to the cursor, the saved cursors and
+inline images — so a mark comes out of a reflow with new coordinates *and* the new generation, and
+there is no stale epoch left to reject. A caller holding its own pre-reflow copy is still refused,
+and `GridQueryReaderTests.ReflowingResize_RefusesAMarkCopyTakenBeforeIt` pins that. Caveats
+(unplaceable marks are cleared not guessed at, `CSI 3J` still kills the mark, alt-screen marks are
+never re-anchored, the write-back is a compare-and-swap against a concurrent fresh `B`) are in the
+gaps doc under "Added In V2 Phase 6 prep". Verified live on `pwsh` before and after; the other three
+shells share the VT code path and are not installed on the dev box.
+
 1. Verify all six re-enable criteria from the design doc, plus the one item Phase 1 carried here:
    smoke scenarios 1–8 re-validated. (Phase 1's other carried item, task 7's markless capture-only
-   accumulator, landed in Phase 1d.)
+   accumulator, landed in Phase 1d. The first-prompt blocker above is cleared.)
 2. Update `CommandAssistDefaultDisabledTests` → `CommandAssistDefaultEnabledTests`; flip `TerminalSettings.CommandAssistEnabled = true`; changelog + docs refresh (`CommandAssist.md` rewritten to match V2 reality, §14 keyboard table fixed).
 3. New smoke checklist executed on Windows + Unix-over-SSH; record results in `docs/command-assist/`.
 

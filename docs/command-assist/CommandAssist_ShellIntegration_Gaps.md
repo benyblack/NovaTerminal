@@ -494,6 +494,77 @@ With a tracker armed, both that patch and the structured `CommandFinished` patch
 same entry; the first clears the pending id and the second silently does nothing, losing the
 duration. It is now keyed on whether the tracker is armed at all.
 
+## Added In V2 Phase 6 prep — marks survive a reflowing resize
+
+**The bug.** A local `pwsh` session's *first* prompt was fully degraded: no passive bubble, no
+grid-truth query, no structured capture — and everything worked from the second prompt on. Two
+hypotheses were on the table (the mark being invalidated after capture, or the tracker being armed
+too late). Instrumented live, it was the first, and the mechanism is worth writing down because the
+"first prompt" framing is a symptom, not the rule.
+
+**Measured timeline** (probe logging on a real `pwsh` pane, isolated `NOVATERM_APPDATA_ROOT`):
+
+```
+t=233ms  InitializeSession cols=138 rows=45          (buffer generation 3)
+t=239ms  ArmShellIntegrationTracker                  (H2 ruled out: armed before any byte)
+t=868ms  OSC 133;B  abs=0 gen=3  bufGen=3            (H1's premise ruled out: the mark IS recorded)
+t=4168ms Buffer.Resize 138x45 -> 170x54 reflow=True  (the user sizes the window)
+         ScrollbackPages.Clear gen 3 -> 4
+         new ScrollbackPages gen=5
+t=4400ms GridQueryReader REJECT generation markGen=3 bufGen=5
+```
+
+A width change rebuilds the scrollback store, which bumps `ScrollbackPages.Generation`, and every
+reader (`GridQueryReader`, `ShellMarkAnchorResolver`, `CommandOutputReader`) refuses a mark whose
+epoch no longer matches. That refusal is *correct* — a pre-reflow `AbsoluteRow` resolves to a
+plausible but wrong row, and nothing downstream can tell.
+
+**What was wrong was the assumption underneath it.** `ShellIntegrationMark`'s own remarks said the
+refusal was benign "because every shell re-prints its prompt after a resize, and the prompt itself
+carries the B mark". It does not. Measured on PSReadLine 2.3 (and noted as an aside during the
+PR #293 review before anyone connected it to this): **a resize repaints the input line and does not
+re-run the prompt function**, so no fresh `B` is emitted. The session therefore stayed markless for
+the whole of that command line and only recovered when the user submitted something and got a real
+new prompt. Because sizing the window is the first thing anyone does with a new one, the failure
+presented as "the first prompt is dead" — but the real rule is *any* reflowing resize between a `B`
+and the next prompt, at any point in the session.
+
+**The fix keeps the generation contract intact.** Loosening the check was rejected outright: it is
+the only thing standing between a consumer and a confidently wrong row. Instead the buffer now owns
+the live marks (`TerminalBuffer.CommandStartMark`, `TerminalBuffer.CommandOutputStartMark`) and the
+reflow **re-anchors** them, by logical-line index plus offset-in-logical-line — the same mapping it
+already applies to the cursor, the saved cursors and inline images. A re-anchored mark comes back
+with new `Row`/`Column`/`AbsoluteRow` *and* the new `Generation`, so there is no stale epoch left to
+reject. A caller holding its own pre-reflow copy is still refused, and there is a test that says so.
+
+**Caveats, all deliberate:**
+
+- **A mark the reflow cannot place is cleared, not guessed at.** Its logical line was trimmed away,
+  its offset landed past the re-wrapped line, or the rebuilt scrollback discarded its row. The
+  consumer then sees "no mark", which is exactly the pre-fix behaviour for that case.
+- **`ScrollbackPages.Clear()` from `CSI 3J` / `RIS` / the user's clear-buffer action still kills the
+  mark**, and should: the content it named is gone. Only the reflow path re-anchors, because only
+  the reflow knows where the content moved to.
+- **Alt-screen marks are never re-anchored.** The alt screen shares no row numbering with the main
+  screen the reflow rebuilds; mapping one across would invent a position.
+- **The failsafe branch clears both marks.** If the reflow throws, the buffer is reset to a clean
+  state and a mark pointing into it would resolve to a plausible row holding nothing.
+- **The re-anchor is a compare-and-swap.** The parser can land a fresh `B` on the PTY thread while
+  the reflow is working; writing the re-anchored older mark over it would leave readers anchored to
+  the previous prompt with perfectly valid-looking coordinates. If the slot moved, the newer mark
+  wins untouched.
+- **Not verified on zsh/fish/bash.** The fix is in the VT layer and is shell-agnostic — it repairs
+  whatever mark the buffer is holding, whoever emitted it, and a shell that *does* re-emit `B` on
+  resize simply overwrites the re-anchored one with an equivalent. Only `pwsh` is installed on the
+  dev box, so "verified on one shell, and the other three share the code path" is the honest claim.
+  Windows PowerShell shares PSReadLine with `pwsh` and therefore shares the symptom.
+
+**Unrelated observation, recorded not fixed.** The first command of a session is sometimes written
+to history twice — once by the heuristic path at `Enter` and once by the structured path at
+`OSC 133;C` — because `CapturePipeline`'s double-capture guard depends on the heuristic append
+having completed (`_pendingEntryId` set) before `C` is dispatched, and on the first command those
+two race. Reproduced live before and after this change, so it is pre-existing and independent of it.
+
 ## Current Limitations
 - shell integration **injection** is local-only; SSH launch plans skip provider injection
   because env-var overrides do not propagate across SSH. As of Phase 2a a remote that emits
