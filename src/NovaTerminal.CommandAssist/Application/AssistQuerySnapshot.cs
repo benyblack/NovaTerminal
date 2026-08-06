@@ -39,11 +39,19 @@ namespace NovaTerminal.CommandAssist.Application;
 /// part of it that may not be what the user typed. Diagnostic only - see
 /// <see cref="IsUsableAsTypedPrefix"/> for why insertion does not branch on it.
 /// </param>
+/// <param name="TextAfterCursorIsGhost">
+/// The characters between <paramref name="CursorOffset"/> and the end of <paramref name="Text"/> are a
+/// shell's inline prediction painted past the cursor (PSReadLine's <c>InlineView</c>, fish's
+/// autosuggestion), not text the user typed. They are still present in <paramref name="Text"/> - this
+/// says what they are. See <c>NovaTerminal.VT.GridQueryReader.IsGhostSuffix</c> for the rule that sets
+/// it and <see cref="TypedPrefix"/> for the projection that acts on it.
+/// </param>
 public readonly record struct AssistQuerySnapshot(
     string Text,
     int CursorOffset,
     bool IsMultiline,
-    bool RightPromptTrimmed)
+    bool RightPromptTrimmed,
+    bool TextAfterCursorIsGhost = false)
 {
     /// <summary>
     /// Whether <see cref="Text"/> may be treated as a prefix the user typed and left the cursor at
@@ -84,9 +92,40 @@ public readonly record struct AssistQuerySnapshot(
     /// Windows PowerShell 5.1 leaves it painted. Same prompt, same shell family, opposite behaviour -
     /// which is what the owner saw.
     /// </para>
+    /// <para>
+    /// <strong>An inline prediction no longer counts as "the cursor is not at the end" (dogfood round
+    /// 4).</strong> The cursor test asks one question - would appending land text in the middle of what
+    /// the user typed - and a prediction painted past the cursor is not something the user typed. It is
+    /// display-only: the characters live in the shell's suggestion buffer, never in its input buffer, and
+    /// typing one more character makes the line editor recompute or discard them. So appending a suffix
+    /// over a ghost is exactly as safe as appending to a line with nothing after the cursor at all, and
+    /// <see cref="TextAfterCursorIsGhost"/> is the reader having <em>proved</em> which of the two
+    /// readings the cells are. Before this, "prediction" and "mid-line cursor" were indistinguishable and
+    /// refusing both was the only safe answer - which on pwsh with predictions on (the default) meant
+    /// refusing on every prompt, i.e. accept never worked. The proof, and the argument for why the
+    /// classification errs towards <see langword="false"/>, are on
+    /// <c>NovaTerminal.VT.GridQueryReader.IsGhostSuffix</c>. When the reader is not sure, the flag is
+    /// clear and this refuses exactly as it always did.
+    /// </para>
     /// </remarks>
     public bool IsUsableAsTypedPrefix =>
-        !IsMultiline && CursorOffset == Text.Length;
+        !IsMultiline && (CursorOffset == Text.Length || TextAfterCursorIsGhost);
+
+    /// <summary>
+    /// The part of <see cref="Text"/> the user actually typed: the whole line normally, and everything
+    /// left of the cursor when the reader proved the rest is a ghost.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This is what a suffix-append insertion must be computed against, and it is deliberately distinct
+    /// from both of its neighbours. <see cref="Text"/> includes the prediction, so appending against it
+    /// would compute a delta against the shell's guess. <see cref="TextBeforeCursor"/> always truncates
+    /// at the cursor, which is right for ranking but wrong for insertion on a mid-line cursor, where the
+    /// text to the right is real and the append must be refused rather than measured. This truncates
+    /// only on the proof, and <see cref="IsUsableAsTypedPrefix"/> gates the rest.
+    /// </para>
+    /// </remarks>
+    public string TypedPrefix => TextAfterCursorIsGhost ? TextBeforeCursor : Text;
 
     /// <summary>
     /// <see cref="Text"/> up to the cursor: what the user has actually put on the line to the left of

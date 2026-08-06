@@ -4202,7 +4202,8 @@ namespace NovaTerminal.Controls
                     Text: line.Text,
                     CursorOffset: line.CursorOffset,
                     IsMultiline: line.IsMultiline,
-                    RightPromptTrimmed: line.RightPromptTrimmed)
+                    RightPromptTrimmed: line.RightPromptTrimmed,
+                    TextAfterCursorIsGhost: line.TextAfterCursorIsGhost)
                 : null;
         }
 
