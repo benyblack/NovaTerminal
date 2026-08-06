@@ -133,6 +133,65 @@ public class LayeringTests
             $"CommandAssist must stay UI-toolkit-free. Offenders: {Join(result.FailingTypeNames)}");
     }
 
+    /// <summary>
+    /// The V2 Phase 5 AI seam defines <c>IAssistContentProvider</c> without shipping a provider, and
+    /// the design doc asks for this test by name: "no network code, no API clients, no model
+    /// selection in V2". The risk it guards is not that someone writes an HTTP client on purpose - it
+    /// is that "just fetch the tldr page if it is missing" or "just check for an update" arrives as a
+    /// two-line convenience inside a class nobody thinks of as networking, and the assembly that
+    /// holds the user's command history and the redaction filter quietly gains the ability to leave
+    /// the machine.
+    /// </summary>
+    /// <remarks>
+    /// When an AI provider is eventually built it does <em>not</em> relax this: it goes in its own
+    /// assembly behind <c>IAssistContentProvider</c>, which is what the seam is for. This test
+    /// failing is the signal that a milestone skipped that step.
+    /// </remarks>
+    [Fact]
+    public void CommandAssist_must_not_depend_on_networking()
+    {
+        var result = Types.InAssembly(CommandAssist)
+            .Should()
+            .NotHaveDependencyOnAny(
+                "System.Net",
+                "System.Net.Http",
+                "System.Net.Sockets",
+                "System.Net.WebSockets",
+                "System.Net.Security",
+                "System.Net.NetworkInformation",
+                "Microsoft.Extensions.Http",
+                "Grpc",
+                "RestSharp",
+                "Flurl",
+                "Refit")
+            .GetResult();
+
+        Assert.True(result.IsSuccessful,
+            $"CommandAssist must contain no networking code (V2 Phase 5 exit criterion). " +
+            $"Offenders: {Join(result.FailingTypeNames)}");
+    }
+
+    /// <summary>
+    /// The IL sibling above only sees types the compiler actually emitted a reference to. A
+    /// <c>using System.Net.Http;</c> with no live call site, or a package reference added ahead of
+    /// the code that will use it, leaves no type dependency and would pass there. The assembly
+    /// reference table catches the edge itself.
+    /// </summary>
+    [Fact]
+    public void CommandAssist_assembly_references_no_networking_assemblies()
+    {
+        string[] offenders = CommandAssist.GetReferencedAssemblies()
+            .Select(reference => reference.Name ?? string.Empty)
+            .Where(name =>
+                name.StartsWith("System.Net", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("Microsoft.Extensions.Http", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("Grpc", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+        Assert.True(offenders.Length == 0,
+            $"CommandAssist must not reference networking assemblies. Offenders: {Join(offenders)}");
+    }
+
     [Fact]
     public void No_production_assembly_references_test_assemblies()
     {
