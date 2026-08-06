@@ -354,7 +354,10 @@ public sealed class AssistShortcutBindingTests
         public Task<IReadOnlyList<NovaTerminal.CommandAssist.Models.CommandHistoryEntry>> SearchAsync(string query, int maxCandidates, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<NovaTerminal.CommandAssist.Models.CommandHistoryEntry>>(Array.Empty<NovaTerminal.CommandAssist.Models.CommandHistoryEntry>());
 
-        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+        public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromResult(false);
     }
 }

@@ -93,7 +93,15 @@ public sealed class HeuristicErrorInsightService : IErrorInsightService
             IReadOnlyList<CommandFixSuggestion> matched = recognizer.Analyze(signal);
             if (matched.Count > 0)
             {
-                suggestions.AddRange(matched);
+                // Stamped here rather than inside each recogniser: the id is a fact about which table
+                // entry spoke, the recognisers are pure functions of the signal that do not know their
+                // own name, and a new entry cannot forget a step it does not perform. Downstream this
+                // is what separates a read of the output from a guess about the name - see
+                // CommandFixSuggestion.RecognizerId.
+                foreach (CommandFixSuggestion suggestion in matched)
+                {
+                    suggestions.Add(suggestion with { RecognizerId = recognizer.Id });
+                }
             }
         }
 

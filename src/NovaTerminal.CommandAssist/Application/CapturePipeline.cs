@@ -45,8 +45,31 @@ internal sealed class CapturePipeline
     private readonly ISecretsFilter _secretsFilter;
     private readonly AssistSessionContext _context;
 
+    /// <summary>
+    /// The exit code every POSIX shell uses for "I could not find that program".
+    /// </summary>
+    /// <remarks>
+    /// bash, zsh and fish all report it; PowerShell does not, and reports 1 for an unresolved name
+    /// exactly as it does for a command that ran and failed. That gap is why the flag has a second
+    /// source - see <see cref="MarkLastCommandInvalidAsync"/>.
+    /// </remarks>
+    internal const int CommandNotFoundExitCode = 127;
+
     private string? _pendingEntryId;
     private string? _pendingCommandText;
+
+    /// <summary>
+    /// The entry the most recently finished command was written to, retained after the completion
+    /// patch has cleared <see cref="_pendingEntryId"/>.
+    /// </summary>
+    /// <remarks>
+    /// It exists for one caller and one ordering problem. The Fix-time recogniser is what identifies a
+    /// PowerShell command-not-found, and it runs <em>after</em> <c>CommandFinished</c> has already
+    /// patched the exit code and released the pending id; without somewhere to remember which entry
+    /// that was, the classification would arrive with nothing to apply itself to. Cleared when a new
+    /// command is captured, so a late classification can never be applied to the wrong entry.
+    /// </remarks>
+    private string? _lastCompletedEntryId;
 
     /// <summary>
     /// Whether the current prompt cycle has already contributed a structured history entry.
@@ -143,6 +166,10 @@ internal sealed class CapturePipeline
             await _historyStore.AppendAsync(entry);
             _pendingEntryId = entry.Id;
             _pendingCommandText = NormalizeCommandText(trimmed);
+
+            // A new command supersedes any classification still owed to the previous one. Without
+            // this, a Fix analysis that arrived late could mark the wrong entry as a typo.
+            _lastCompletedEntryId = null;
         }
         catch
         {
@@ -163,15 +190,62 @@ internal sealed class CapturePipeline
             return;
         }
 
+        _lastCompletedEntryId = pendingEntryId;
+
         try
         {
-            await _historyStore.TryUpdateExecutionResultAsync(pendingEntryId, exitCode, durationMs: null);
+            await _historyStore.TryUpdateExecutionResultAsync(
+                pendingEntryId,
+                exitCode,
+                durationMs: null,
+                isInvalidCommand: IsCommandNotFoundExit(exitCode));
         }
         catch
         {
             // History metadata enrichment is best-effort only.
         }
     }
+
+    /// <summary>
+    /// Records that the command behind the most recent entry was one the shell could not resolve, so
+    /// nothing may offer it back as a suggestion.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Called by <c>CommandAssistController.HandleCommandFailureAsync</c> when the recogniser table
+    /// classified the failure as <c>command-not-found</c>. It is the PowerShell half of the signal:
+    /// see <see cref="CommandNotFoundExitCode"/> for why the exit code cannot carry it there, and
+    /// <c>CommandHistoryEntry.IsInvalidCommand</c> for why the entry is flagged rather than deleted.
+    /// </para>
+    /// <para>
+    /// <strong>Only ever the completed entry, never the pending one.</strong> A failure analysis is
+    /// always preceded by the completion that reported the exit code - that is what tells the host a
+    /// command failed at all - so the completed entry is the right target by construction. Falling
+    /// back to the pending entry would buy nothing and would risk the one outcome worse than
+    /// suggesting a typo: silently suppressing a command that works, because an analysis of the
+    /// previous line arrived after the next had been typed.
+    /// </para>
+    /// </remarks>
+    public async Task MarkLastCommandInvalidAsync()
+    {
+        string? entryId = _lastCompletedEntryId;
+        if (string.IsNullOrWhiteSpace(entryId))
+        {
+            return;
+        }
+
+        try
+        {
+            await _historyStore.TryMarkInvalidCommandAsync(entryId);
+        }
+        catch
+        {
+            // Best-effort like every other write here: failing to suppress a typo must not take down
+            // the Fix suggestion the user is about to be shown for it.
+        }
+    }
+
+    private static bool IsCommandNotFoundExit(int? exitCode) => exitCode == CommandNotFoundExitCode;
 
     /// <summary>
     /// Consumes a shell-integration event: records what it proves about the session, then runs the
@@ -291,6 +365,10 @@ internal sealed class CapturePipeline
             _pendingEntryId = entry.Id;
             _pendingCommandText = normalizedCommandText;
             _structuredEntryWrittenThisCycle = true;
+
+            // See the same line in CaptureSubmissionAsync: a new command retires the previous one's
+            // right to a late classification.
+            _lastCompletedEntryId = null;
         }
         catch
         {
@@ -312,7 +390,12 @@ internal sealed class CapturePipeline
 
         try
         {
-            await _historyStore.TryUpdateExecutionResultAsync(pendingEntryId, shellEvent.ExitCode, durationMs);
+            await _historyStore.TryUpdateExecutionResultAsync(
+                pendingEntryId,
+                shellEvent.ExitCode,
+                durationMs,
+                isInvalidCommand: IsCommandNotFoundExit(shellEvent.ExitCode));
+            _lastCompletedEntryId = pendingEntryId;
             _pendingEntryId = null;
             _pendingCommandText = null;
         }

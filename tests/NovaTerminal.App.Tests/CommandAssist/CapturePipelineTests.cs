@@ -530,6 +530,105 @@ public sealed class CapturePipelineTests
         Assert.Empty(store.Entries);
     }
 
+    // ------------------------------------- UX-polish round: typos are flagged, never deleted
+
+    /// <summary>
+    /// Exit 127 is the POSIX shells' way of saying "no such command", and it is enough on its own.
+    /// </summary>
+    [Fact]
+    public async Task CompleteSubmissionAsync_WhenTheExitCodeIs127_FlagsTheEntryAsAnInvalidCommand()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, _) = CreatePipeline();
+        await pipeline.CaptureSubmissionAsync("gti status", isSubmissionSuppressed: false);
+
+        await pipeline.CompleteSubmissionAsync(127);
+
+        CommandHistoryEntry entry = Assert.Single(store.Entries);
+        Assert.True(entry.IsInvalidCommand);
+
+        // Flagged, not deleted: the record of what was run stays truthful.
+        Assert.Equal("gti status", entry.CommandText);
+        Assert.Equal(127, entry.ExitCode);
+    }
+
+    [Fact]
+    public async Task CommandFinished_WhenTheExitCodeIs127_FlagsTheStructuredEntryToo()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, AssistSessionContext context) = CreatePipeline();
+        context.SetShellIntegrationEnabled(true);
+        await pipeline.HandleShellIntegrationEventAsync(Accepted("gti status"));
+
+        await pipeline.HandleShellIntegrationEventAsync(Finished(127, TimeSpan.FromMilliseconds(12)));
+
+        Assert.True(Assert.Single(store.Entries).IsInvalidCommand);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task CompleteSubmissionAsync_ForAnOrdinaryExitCode_DoesNotFlagTheEntry(int exitCode)
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, _) = CreatePipeline();
+        await pipeline.CaptureSubmissionAsync("git push", isSubmissionSuppressed: false);
+
+        await pipeline.CompleteSubmissionAsync(exitCode);
+
+        Assert.False(Assert.Single(store.Entries).IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// The PowerShell half: exit 1 tells us nothing, so the Fix recogniser's classification arrives
+    /// afterwards and patches the entry the completion has already released.
+    /// </summary>
+    [Fact]
+    public async Task MarkLastCommandInvalidAsync_AfterCompletion_FlagsTheEntryTheCompletionReleased()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, _) = CreatePipeline();
+        await pipeline.CaptureSubmissionAsync("gti status", isSubmissionSuppressed: false);
+        await pipeline.CompleteSubmissionAsync(1);
+
+        Assert.False(Assert.Single(store.Entries).IsInvalidCommand);
+
+        await pipeline.MarkLastCommandInvalidAsync();
+
+        Assert.True(Assert.Single(store.Entries).IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// With nothing completed there is no target, and a pending command is explicitly not one.
+    /// </summary>
+    [Fact]
+    public async Task MarkLastCommandInvalidAsync_WithNothingCompleted_FlagsNothing()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, _) = CreatePipeline();
+        await pipeline.CaptureSubmissionAsync("gti status", isSubmissionSuppressed: false);
+
+        await pipeline.MarkLastCommandInvalidAsync();
+
+        Assert.False(Assert.Single(store.Entries).IsInvalidCommand);
+    }
+
+    /// <summary>
+    /// A late classification may never land on a command the user has since run.
+    /// </summary>
+    /// <remarks>
+    /// The failure mode this rules out is the worst one available: silently suppressing a command
+    /// that works, because an analysis of the previous line arrived after the next had been typed.
+    /// </remarks>
+    [Fact]
+    public async Task MarkLastCommandInvalidAsync_AfterANewCommandWasCaptured_FlagsNeitherEntry()
+    {
+        (CapturePipeline pipeline, InMemoryHistoryStore store, _) = CreatePipeline();
+        await pipeline.CaptureSubmissionAsync("gti status", isSubmissionSuppressed: false);
+        await pipeline.CompleteSubmissionAsync(1);
+        await pipeline.CaptureSubmissionAsync("git status", isSubmissionSuppressed: false);
+
+        await pipeline.MarkLastCommandInvalidAsync();
+
+        Assert.DoesNotContain(store.Entries, x => x.IsInvalidCommand);
+    }
+
     private static (CapturePipeline Pipeline, InMemoryHistoryStore Store, AssistSessionContext Context) CreatePipeline()
     {
         var store = new InMemoryHistoryStore();
@@ -585,7 +684,19 @@ public sealed class CapturePipelineTests
         public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxCandidates, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CommandHistoryEntry>>(_entries.Take(maxCandidates).ToList());
 
-        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+        public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
+        {
+            int index = _entries.FindIndex(x => x.Id == entryId);
+            if (index < 0)
+            {
+                return Task.FromResult(false);
+            }
+
+            _entries[index] = _entries[index] with { IsInvalidCommand = true };
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
         {
             int index = _entries.FindIndex(x => x.Id == entryId);
             if (index < 0)
@@ -597,7 +708,10 @@ public sealed class CapturePipelineTests
             _entries[index] = _entries[index] with
             {
                 ExitCode = exitCode,
-                DurationMs = durationMs ?? _entries[index].DurationMs
+                DurationMs = durationMs ?? _entries[index].DurationMs,
+
+                // Latching, like the real store: see IHistoryStore.TryUpdateExecutionResultAsync.
+                IsInvalidCommand = _entries[index].IsInvalidCommand || isInvalidCommand
             };
             return Task.FromResult(true);
         }
@@ -616,7 +730,10 @@ public sealed class CapturePipelineTests
         public Task<IReadOnlyList<CommandHistoryEntry>> SearchAsync(string query, int maxResults, CancellationToken cancellationToken = default)
             => Task.FromResult<IReadOnlyList<CommandHistoryEntry>>(Array.Empty<CommandHistoryEntry>());
 
-        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default)
+        public Task<bool> TryMarkInvalidCommandAsync(string entryId, CancellationToken cancellationToken = default)
+            => Task.FromResult(false);
+
+        public Task<bool> TryUpdateExecutionResultAsync(string entryId, int? exitCode, long? durationMs, CancellationToken cancellationToken = default, bool isInvalidCommand = false)
             => Task.FromException<bool>(new InvalidOperationException("simulated write failure"));
     }
 }
