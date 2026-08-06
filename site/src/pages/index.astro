@@ -1,0 +1,28 @@
+---
+import Base from '../layouts/Base.astro';
+import Hero from '../components/Hero.astro';
+import Highlights from '../components/Highlights.astro';
+import Screenshots from '../components/Screenshots.astro';
+import Features from '../components/Features.astro';
+import HowItWorks from '../components/HowItWorks.astro';
+import AgentHost from '../components/AgentHost.astro';
+import Install from '../components/Install.astro';
+import Developers from '../components/Developers.astro';
+
+const description =
+  'NovaTerminal — a modern, cross-platform terminal emulator focused on correctness, performance, and predictability. Built on .NET 10, Avalonia, Skia, and a Rust PTY.';
+---
+
+<Base
+  title="NovaTerminal"
+  description={description}
+>
+  <Hero />
+  <Highlights />
+  <Screenshots />
+  <Features />
+  <HowItWorks />
+  <AgentHost />
+  <Install />
+  <Developers />
+</Base>

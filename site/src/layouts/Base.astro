@@ -1,0 +1,82 @@
+---
+import '../styles/global.css';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+export interface Props {
+  title: string;
+  description: string;
+  /** Optional canonical URL override; defaults to Astro.site + current path. */
+  canonical?: string;
+  /** OG image path relative to /public (e.g. "/og.png"). */
+  ogImage?: string;
+}
+
+const {
+  title,
+  description,
+  canonical,
+  ogImage = '/og.svg',
+} = Astro.props;
+
+const siteName = 'NovaTerminal';
+const fullTitle = title === siteName ? title : `${title} — ${siteName}`;
+const canonicalUrl =
+  canonical ?? new URL(Astro.url.pathname, Astro.site).toString();
+// `Astro.site` is origin-only; the path prefix is exposed by Astro as the
+// `import.meta.env.BASE_URL` Vite env. Combine the two so OG / favicon /
+// sitemap references resolve on the project Pages site
+// (e.g. `/NovaTerminal/og.svg`).
+const basePrefix = (import.meta.env.BASE_URL ?? '/').endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const ogImagePath = `${basePrefix}${ogImage.replace(/^\//, '')}`;
+const ogImageUrl = new URL(ogImagePath, Astro.site).toString();
+---
+
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href={`${basePrefix}favicon.svg`} />
+    <link rel="apple-touch-icon" href={`${basePrefix}favicon.svg`} />
+    <meta name="theme-color" content="#11161d" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={ogImageUrl} />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImageUrl} />
+
+    <link rel="sitemap" href={`${basePrefix}sitemap-index.xml`} />
+  </head>
+  <body class="flex min-h-screen flex-col antialiased">
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-nova-600 focus:px-3 focus:py-2 focus:text-sm focus:text-white"
+    >
+      Skip to content
+    </a>
+    <Nav />
+    <main id="main" class="flex-1">
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>

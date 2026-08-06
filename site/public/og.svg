@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#11161d"/>
+      <stop offset="1" stop-color="#0a0f17"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0" stop-color="#3a9eff"/>
+      <stop offset="1" stop-color="#1a54b6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#3a9eff" stop-opacity="0.25"/>
+      <stop offset="1" stop-color="#3a9eff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="600" cy="220" r="320" fill="url(#glow)"/>
+
+  <!-- Brand mark -->
+  <g transform="translate(96, 96)">
+    <rect width="72" height="72" rx="16" fill="url(#brand)"/>
+    <path
+      d="M22 56 l14 -16 l-14 -16 M40 56 h18"
+      fill="none"
+      stroke="#11161d"
+      stroke-width="6"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+
+  <!-- Wordmark -->
+  <text x="200" y="146" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="44" font-weight="600" fill="#e4e7eb">
+    NovaTerminal
+  </text>
+
+  <!-- Headline -->
+  <text x="96" y="320" font-family="Inter, ui-sans-serif, system-ui" font-size="76" font-weight="700" fill="#ffffff">
+    A terminal you can trust.
+  </text>
+
+  <!-- Subhead -->
+  <text x="96" y="400" font-family="Inter, ui-sans-serif, system-ui" font-size="32" font-weight="400" fill="#9aa5b1">
+    Cross-platform · GPU-rendered · VT-conformant
+  </text>
+
+  <!-- Pills -->
+  <g transform="translate(96, 470)" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#cbd2d9">
+    <g>
+      <rect x="0" y="0" width="120" height="40" rx="20" fill="#1f2933" stroke="#323f4b"/>
+      <text x="60" y="26" text-anchor="middle">.NET 10</text>
+    </g>
+    <g transform="translate(140, 0)">
+      <rect x="0" y="0" width="120" height="40" rx="20" fill="#1f2933" stroke="#323f4b"/>
+      <text x="60" y="26" text-anchor="middle">Avalonia</text>
+    </g>
+    <g transform="translate(280, 0)">
+      <rect x="0" y="0" width="80" height="40" rx="20" fill="#1f2933" stroke="#323f4b"/>
+      <text x="40" y="26" text-anchor="middle">Skia</text>
+    </g>
+    <g transform="translate(380, 0)">
+      <rect x="0" y="0" width="80" height="40" rx="20" fill="#1f2933" stroke="#323f4b"/>
+      <text x="40" y="26" text-anchor="middle">Rust</text>
+    </g>
+  </g>
+
+  <!-- URL -->
+  <text x="96" y="580" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="22" fill="#5dbcff">
+    github.com/benyblack/NovaTerminal
+  </text>
+</svg>

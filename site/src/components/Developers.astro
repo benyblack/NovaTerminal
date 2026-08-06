@@ -1,0 +1,161 @@
+---
+const repoUrl = 'https://github.com/benyblack/NovaTerminal';
+
+const programs = [
+  {
+    title: 'Agent host program',
+    status: 'Strategic direction',
+    body:
+      'A session-facing MCP surface so AI agents can observe, query status of, and — with explicit, separate permission — act inside live terminal sessions. Threat model and direction are public.',
+    links: [
+      { href: `${repoUrl}/blob/main/docs/agent-host/DIRECTION.md`, label: 'Direction' },
+      {
+        href: `${repoUrl}/blob/main/docs/agent-host/2026-07-12-acting-threat-model.md`,
+        label: 'Acting threat model',
+      },
+    ],
+  },
+  {
+    title: 'VT conformance program',
+    status: 'CI gated',
+    body:
+      'Every supported VT/ANSI feature is tracked in a matrix; a dedicated CI lane regenerates the report and fails on regressions. Ghostty gap tracking keeps the matrix honest.',
+    links: [
+      { href: `${repoUrl}/blob/main/docs/vt_coverage_matrix.md`, label: 'VT coverage matrix' },
+      {
+        href: `${repoUrl}/blob/main/docs/ghostty-gaps/vt_conformance_tooling.md`,
+        label: 'Conformance tooling',
+      },
+    ],
+  },
+  {
+    title: 'Native SSH',
+    status: 'Experimental · opt-in',
+    body:
+      'Cross-platform SSH client (experimental, opt-in) with VT correctness, resize coalescing, dynamic forwarding, keepalive, and runtime password memory.',
+    links: [
+      { href: `${repoUrl}/blob/main/docs/SSH_ROADMAP.md`, label: 'SSH roadmap' },
+    ],
+  },
+  {
+    title: 'Rendering performance contract',
+    status: 'Ongoing guardrail',
+    body:
+      'Snapshot-only rendering boundary, replay parity, seam safety under fractional DPI, and conservative perf ceilings enforced by CI.',
+    links: [
+      { href: `${repoUrl}/blob/main/docs/RENDERING_PERF_CONTRACT.md`, label: 'Perf contract' },
+    ],
+  },
+];
+
+const lanes = [
+  { name: 'VT.Tests', kind: 'Deterministic' },
+  { name: 'Rendering.Tests', kind: 'Deterministic' },
+  { name: 'Platform.Tests', kind: 'Deterministic' },
+  { name: 'McpServer.Tests', kind: 'Deterministic' },
+  { name: 'App.Tests', kind: 'Avalonia Headless' },
+  { name: 'Architecture.Tests', kind: 'NetArchTest (IL + ns)' },
+  { name: 'Benchmarks', kind: 'SharpFuzz / libFuzzer' },
+  { name: 'ExternalSuites', kind: 'vttest / native SSH' },
+];
+---
+
+<section
+  id="developers"
+  class="section border-b border-ink-900/60"
+  aria-labelledby="dev-title"
+>
+  <div class="container-prose">
+    <div class="max-w-3xl">
+      <span class="eyebrow">For developers</span>
+      <h2
+        id="dev-title"
+        class="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl"
+      >
+        Correctness culture, enforced.
+      </h2>
+      <p class="lede mt-4 max-w-2xl">
+        NovaTerminal has a strong correctness culture — terminal core
+        invariants are enforced and automated tests gate changes. If you
+        care about that, you'll feel at home here.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-4 lg:grid-cols-2">
+      {
+        programs.map((prog) => (
+          <article class="card h-full">
+            <div class="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 class="text-base font-semibold text-white">
+                {prog.title}
+              </h3>
+              <span class="font-mono text-[10px] uppercase tracking-wider text-nova-300">
+                {prog.status}
+              </span>
+            </div>
+            <p class="mt-3 text-sm leading-relaxed text-ink-300">
+              {prog.body}
+            </p>
+            <ul class="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+              {prog.links.map((link) => (
+                <li>
+                  <a
+                    href={link.href}
+                    class="text-nova-300 hover:text-nova-200"
+                  >
+                    {link.label} →
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))
+      }
+    </div>
+
+    <div class="mt-12 rounded-2xl border border-ink-800 bg-ink-900/40 p-6 sm:p-8">
+      <h3 class="text-xl font-semibold text-white sm:text-2xl">
+        Test lanes
+      </h3>
+      <p class="mt-2 text-sm leading-relaxed text-ink-300">
+        NovaTerminal splits tests into focused, deterministic lanes. The
+        blocking CI lane is fast and runs on every PR; the long-running
+        lanes (replay parity, render metrics, golden PNG) run on
+        schedule.
+      </p>
+      <ul class="mt-6 grid gap-2 sm:grid-cols-2">
+        {
+          lanes.map((lane) => (
+            <li class="flex items-center justify-between gap-3 rounded-md border border-ink-800 bg-ink-950/40 px-3 py-2 text-sm">
+              <span class="font-mono text-nova-200">
+                {lane.name}
+              </span>
+              <span class="text-xs text-ink-400">{lane.kind}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <div
+      class="mt-12 flex flex-col items-start gap-4 rounded-2xl border border-nova-500/30 bg-gradient-to-br from-nova-900/40 to-ink-900/40 p-6 sm:flex-row sm:items-center sm:justify-between sm:p-8"
+    >
+      <div>
+        <h3 class="text-xl font-semibold text-white sm:text-2xl">
+          Want to contribute?
+        </h3>
+        <p class="mt-2 max-w-2xl text-sm leading-relaxed text-ink-200">
+          See <a href={`${repoUrl}/blob/main/CONTRIBUTING.md`} class="text-white underline decoration-nova-400/60 underline-offset-4 hover:decoration-nova-200">CONTRIBUTING.md</a> for the workflow and
+          {' '}<a href={`${repoUrl}/tree/main/docs/reviews`} class="text-white underline decoration-nova-400/60 underline-offset-4 hover:decoration-nova-200">docs/reviews</a> for periodic deep code reviews with the current known-issues backlog.
+        </p>
+      </div>
+      <a
+        href={`${repoUrl}`}
+        class="btn-primary shrink-0"
+      >
+        Open the repo
+        <span aria-hidden="true">→</span>
+      </a>
+    </div>
+  </div>
+</section>

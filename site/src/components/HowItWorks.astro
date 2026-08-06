@@ -1,0 +1,151 @@
+---
+const layers = [
+  {
+    name: 'App (UI)',
+    detail: 'Avalonia window, themes, settings, orchestration',
+    color: 'from-nova-500 to-nova-700',
+  },
+  {
+    name: 'Platform',
+    detail: 'Input, paths, process, SSH — shared runtime primitives',
+    color: 'from-nova-600 to-nova-800',
+  },
+  {
+    name: 'VT',
+    detail: 'Frame-agnostic parser + cell-based buffer (zero references)',
+    color: 'from-nova-400 to-nova-600',
+  },
+  {
+    name: 'Rendering',
+    detail: 'SkiaSharp text shaping, GPU glyph cache, snapshot boundary',
+    color: 'from-nova-500 to-nova-700',
+  },
+  {
+    name: 'Pty',
+    detail: 'OS integration + PTY sessions (raw bytes only, no VT)',
+    color: 'from-nova-600 to-nova-800',
+  },
+  {
+    name: 'Replay',
+    detail: 'Deterministic session recording and playback',
+    color: 'from-nova-400 to-nova-600',
+  },
+];
+
+const flows = [
+  {
+    title: 'Bytes become cells',
+    body:
+      'The PTY layer delivers raw bytes from the shell. The VT parser turns them into typed cells in a frame-agnostic buffer. The renderer snapshots that buffer at frame boundaries — never more often.',
+  },
+  {
+    title: 'Snapshots stay pixel-stable',
+    body:
+      'Rendering is gated by a performance contract: same buffer state, same pixels, every time. Replay parity is a first-class test, not a best-effort log.',
+  },
+  {
+    title: 'Conformance is enforced',
+    body:
+      'A dedicated CI lane regenerates the VT/ANSI conformance report on every change and fails on regressions. Ghostty gap tracking keeps the matrix honest.',
+  },
+];
+---
+
+<section
+  id="how-it-works"
+  class="section border-b border-ink-900/60"
+  aria-labelledby="how-title"
+>
+  <div class="container-prose">
+    <div class="max-w-3xl">
+      <span class="eyebrow">How it works</span>
+      <h2
+        id="how-title"
+        class="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl"
+      >
+        A small, acyclic core. A wide, replaceable surface.
+      </h2>
+      <p class="lede mt-4 max-w-2xl">
+        NovaTerminal is organized into focused class libraries with an
+        acyclic dependency graph. The architecture invariants are
+        <span class="text-white">enforced</span> by
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">NovaTerminal.Architecture.Tests</code> at IL, csproj, and namespace level — not aspirational.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-10 lg:grid-cols-12">
+      <div class="lg:col-span-7">
+        <h3
+          class="text-sm font-semibold uppercase tracking-wider text-ink-400"
+        >
+          Module graph
+        </h3>
+        <ol class="mt-4 space-y-2.5" role="list">
+          {
+            layers.map((layer, i) => (
+              <li
+                class="flex items-center gap-4 rounded-lg border border-ink-800 bg-ink-900/40 p-4"
+              >
+                <span
+                  class={
+                    'grid h-9 w-9 shrink-0 place-items-center rounded-md bg-gradient-to-br text-ink-950 font-mono text-sm font-semibold ' +
+                    layer.color
+                  }
+                  aria-hidden="true"
+                >
+                  {String(i + 1).padStart(2, '0')}
+                </span>
+                <div class="min-w-0">
+                  <p class="font-mono text-sm font-semibold text-white">
+                    {layer.name}
+                  </p>
+                  <p class="mt-0.5 text-xs leading-relaxed text-ink-400">
+                    {layer.detail}
+                  </p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+        <p class="mt-4 text-xs leading-relaxed text-ink-500">
+          Enforced invariants: <code class="text-nova-300">VT</code> is a leaf
+          with zero project references;
+          <code class="text-nova-300">Pty</code> must <em>not</em> depend on
+          <code class="text-nova-300">VT</code>;
+          <code class="text-nova-300">Replay</code> and
+          <code class="text-nova-300">Rendering</code> reference exactly
+          <code class="text-nova-300">VT</code>; no production assembly
+          references test libraries.
+        </p>
+      </div>
+
+      <div class="lg:col-span-5">
+        <h3
+          class="text-sm font-semibold uppercase tracking-wider text-ink-400"
+        >
+          Data flow
+        </h3>
+        <ol class="mt-4 space-y-4" role="list">
+          {
+            flows.map((flow, i) => (
+              <li class="card">
+                <p class="flex items-center gap-2 text-sm font-semibold text-white">
+                  <span
+                    class="grid h-5 w-5 place-items-center rounded-full bg-nova-500/15 font-mono text-[10px] text-nova-300"
+                    aria-hidden="true"
+                  >
+                    {i + 1}
+                  </span>
+                  {flow.title}
+                </p>
+                <p class="mt-2 text-sm leading-relaxed text-ink-300">
+                  {flow.body}
+                </p>
+              </li>
+            ))
+          }
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>

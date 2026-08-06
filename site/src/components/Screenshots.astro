@@ -1,0 +1,73 @@
+---
+// Astro's `base` config prefixes Vite-managed assets automatically, but
+// `public/` references are passed through unchanged. We resolve them
+// against `import.meta.env.BASE_URL` so the deployed site works on the
+// project Pages URL (`/NovaTerminal/...`) without changing the source.
+const basePrefix = (import.meta.env.BASE_URL ?? '/').endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const images = [
+  { src: `${basePrefix}screenshots/screen-1.png`, alt: 'NovaTerminal showing a multi-pane session with a code editor and a build pane' },
+  { src: `${basePrefix}screenshots/screen-2.png`, alt: 'NovaTerminal with the command palette open and a profile switcher' },
+  { src: `${basePrefix}screenshots/screen-3.png`, alt: 'A fullscreen TUI application running inside NovaTerminal' },
+  { src: `${basePrefix}screenshots/screen-4.png`, alt: 'NovaTerminal with the search overlay and tabs panel visible' },
+  { src: `${basePrefix}screenshots/screen-5.png`, alt: 'NovaTerminal showing inline graphics rendered in the terminal grid' },
+];
+---
+
+<section
+  id="screenshots"
+  class="section border-b border-ink-900/60 bg-ink-950/40"
+  aria-labelledby="screenshots-title"
+>
+  <div class="container-prose">
+    <div class="max-w-3xl">
+      <span class="eyebrow">In the wild</span>
+      <h2
+        id="screenshots-title"
+        class="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl"
+      >
+        Built for the way you actually work.
+      </h2>
+      <p class="lede mt-4 max-w-2xl">
+        From quick REPL sessions to fullscreen TUIs, NovaTerminal keeps the
+        same predictable behavior across operating systems.
+      </p>
+    </div>
+
+    <div
+      class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-6"
+      role="list"
+    >
+      {
+        images.map((img, idx) => (
+          <figure
+            class={
+              'group relative overflow-hidden rounded-xl border border-ink-800 bg-ink-900/50 shadow-xl shadow-black/30 ' +
+              (idx === 0
+                ? 'sm:col-span-2 lg:col-span-4 lg:row-span-2'
+                : 'lg:col-span-2')
+            }
+            role="listitem"
+          >
+            <img
+              src={img.src}
+              alt={img.alt}
+              loading="lazy"
+              decoding="async"
+              class="aspect-video w-full object-cover object-top transition duration-500 group-hover:scale-[1.02]"
+            />
+            <figcaption
+              class="pointer-events-none absolute inset-x-0 bottom-0
+                bg-gradient-to-t from-ink-950/95 via-ink-950/40 to-transparent
+                px-4 py-3 text-xs text-ink-200 opacity-0 transition
+                group-hover:opacity-100"
+            >
+              {img.alt}
+            </figcaption>
+          </figure>
+        ))
+      }
+    </div>
+  </div>
+</section>
