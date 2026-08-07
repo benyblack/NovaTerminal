@@ -283,6 +283,48 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             File.ReadAllText(dest).Replace("\r\n", "\n").TrimEnd('\n'));
     }
 
+    /// <summary>
+    /// FishInstaller_WritesTheSnippetIntoConfD deliberately runs the *installer* (POSIX sh) under
+    /// bash, because the installer itself is sh - but that means nothing in the suite exercises the
+    /// fish one-liner *wrapper* (<c>set -l __nova_t (mktemp); ...</c>) through a real fish. A bad
+    /// quote, an operator precedence slip, or an accidental <c>$(...)</c> where <c>(...)</c> is
+    /// required would ship undetected. This test runs the actual generated one-liner through
+    /// <c>fish -c</c>, mirroring <see cref="RunInstaller"/>'s bash equivalent.
+    /// </summary>
+    [Fact]
+    public void FishOneLiner_RunsUnderRealFish()
+    {
+        string? fish = ShellHarness.FindFish();
+        if (fish is null)
+        {
+            Assert.Skip("fish not found on this system");
+        }
+
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.Fish);
+
+        var startInfo = new ProcessStartInfo(fish)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add(command);
+        startInfo.Environment["HOME"] = HomeForShell;
+
+        using Process process = Process.Start(startInfo)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "fish one-liner did not finish within 30s");
+
+        string dest = Path.Combine(_home, ".config", "fish", "conf.d", "nova-shell-integration.fish");
+        Assert.True(File.Exists(dest), $"fish snippet not written. output:\n{output}");
+        Assert.Equal(
+            RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish).TrimEnd('\n'),
+            File.ReadAllText(dest).Replace("\r\n", "\n").TrimEnd('\n'));
+        Assert.Contains("nova:", output, StringComparison.Ordinal);
+    }
+
     // ---- the live shell is untouched -------------------------------------------------------------
 
     /// <summary>
