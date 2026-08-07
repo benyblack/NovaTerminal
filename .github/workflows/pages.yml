@@ -8,12 +8,6 @@ on:
   # Allows you to trigger this workflow manually from the Actions tab.
   workflow_dispatch:
 
-# Required for `actions/deploy-pages` to publish to the Pages environment.
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 # Avoid two deploys racing when pushes land close together; cancel in-flight
 # runs for the same ref and let the latest commit publish.
 concurrency:
@@ -22,6 +16,11 @@ concurrency:
 
 jobs:
   build:
+    # Scoped per job so the `deploy` job only gets the permissions it needs.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -36,7 +35,10 @@ jobs:
 
       - name: Install dependencies
         working-directory: site
-        run: npm ci
+        # `--ignore-scripts` is safe here: site/ has no native build step
+        # (no postinstall hooks), and skipping lifecycle scripts keeps the
+        # install surface small.
+        run: npm ci --ignore-scripts
 
       - name: Sync screenshots into public/
         working-directory: site
@@ -69,6 +71,9 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
