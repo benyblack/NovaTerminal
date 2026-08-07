@@ -37,6 +37,19 @@ public static class AssistEmptyStates
     /// <summary>A command failed and no recogniser matched it. The pre-Phase-5 string.</summary>
     public const string NoLocalFix = "No likely local fix found.";
 
+    /// <summary>
+    /// History search was filtered down to nothing by the command line the user is typing.
+    /// </summary>
+    /// <remarks>
+    /// The one entry here that belongs to the ranking pass rather than to a content provider, and it
+    /// only became reachable when typing started filtering the <c>Ctrl+R</c> list instead of closing
+    /// it. Without it, narrowing past the last match leaves an open popup containing nothing, which
+    /// reads as the surface having broken rather than as the search having no answer. It is kept
+    /// beside the others because it answers the same question they do - what does a surface say when
+    /// it has nothing to show - and splitting one string out would cost a second home for it.
+    /// </remarks>
+    public const string NoHistoryMatch = "No matching commands in history.";
+
     /// <summary>Nothing is registered to answer documentation questions.</summary>
     public const string NoHelpProvider = "No help provider is configured.";
 

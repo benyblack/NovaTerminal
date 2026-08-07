@@ -178,8 +178,17 @@ internal sealed class AssistSessionStateMachine
     /// reachable by the user having moved the selection (<c>Up</c>/<c>Down</c> or a click - see
     /// <see cref="OpenPopupForSelection"/>, the only transition that opens a Suggest popup), and in
     /// Search mode it is reachable only because the user pressed <c>Ctrl+R</c>. Typing never reaches
-    /// it: <see cref="ObserveTypedInput"/> closes the popup, so the ordinary
+    /// it from the passive flow: <see cref="ObserveTypedInput"/> closes the popup, so the ordinary
     /// type-a-command-and-press-Enter flow is untouched and <c>Enter</c> stays shell-owned there.
+    /// </para>
+    /// <para>
+    /// <strong>Typing inside history search keeps it armed, and that is the point.</strong> Since
+    /// typing no longer leaves <see cref="AssistSessionState.HistorySearch"/>, the popup and its
+    /// selection survive a filter keystroke, so <c>Enter</c> goes on inserting the highlighted row
+    /// while the user narrows the list. That is what <c>Ctrl+R</c> means everywhere else - the match
+    /// is what <c>Enter</c> takes - and it is the state the user is demonstrably in, having summoned a
+    /// list of history entries and then described which one. <c>Escape</c> is the way back to a
+    /// shell-owned <c>Enter</c>, exactly as it is for the row list opened by <c>Ctrl+R</c> alone.
     /// </para>
     /// <para>
     /// Help and Fix are excluded even when their popup is open with a row selected. Their rows are
@@ -279,9 +288,38 @@ internal sealed class AssistSessionStateMachine
 
     /// <summary>
     /// The user typed into the shell. Returns to Suggest mode with the popup closed, preserving
-    /// whether this is an explicit session - typing on after a history search stays explicit.
+    /// whether this is an explicit session - except in <see cref="AssistSessionState.HistorySearch"/>,
+    /// where typing is the filter and the session stays where it is.
     /// </summary>
     /// <remarks>
+    /// <para>
+    /// <strong>History search keeps itself, and this is a policy reversal.</strong> Phase 0c had this
+    /// transition drop <see cref="AssistSessionState.HistorySearch"/> to
+    /// <see cref="AssistSessionState.ExplicitBubble"/>, on the reading that typing is a return to the
+    /// Suggest scope with the explicitness carried along - <c>ObserveTypedInput_ReturnsToSuggestPreservingExplicitness</c>
+    /// pinned exactly that. What it meant in the user's hands was that <c>Ctrl+R</c> followed by a
+    /// single character closed the popup: the owner's report is "when Ctrl+R shows history, if I type
+    /// it just hides that instead of searching". Every shell's reverse-search and every fuzzy finder
+    /// does the opposite - the list stays up and narrows - and there is nothing else the keystroke
+    /// could plausibly have meant, because the user summoned a list of history entries and then began
+    /// describing which one.
+    /// </para>
+    /// <para>
+    /// The explicitness the old transition was protecting is not lost, it is stronger: staying in
+    /// <see cref="AssistSessionState.HistorySearch"/> is still an <see cref="IsExplicitSession"/> and
+    /// still an <see cref="IsUserRequestedSurface"/>, so everything the old ExplicitBubble bought
+    /// (history and snippets in scope, a surface no placement heuristic may hide, immunity from the
+    /// per-command Escape suppression) holds, and the mode the user asked for holds too.
+    /// </para>
+    /// <para>
+    /// Nothing about where the keystroke <em>goes</em> changes: the character is not search-box input,
+    /// it reaches the shell like any other, and the query the refreshed ranking reads is the command
+    /// line the shell painted (<see cref="AssistQuerySnapshot.TextBeforeCursor"/>). Backspace arrives
+    /// here as the same event and narrows the query back the same way. The passive flow and the
+    /// helper states are untouched: typing out of Help or Fix still drops to a passive bubble, which
+    /// is right, because there the keystroke is the user moving on from content they asked to read
+    /// rather than refining it.
+    /// </para>
     /// <para>
     /// <strong>Known weakness, accepted rather than fixed:</strong> one keystroke after a paste
     /// clears <see cref="IsCurrentSubmissionSuppressed"/>, so "paste a command, add a character,
@@ -306,6 +344,14 @@ internal sealed class AssistSessionStateMachine
     public void ObserveTypedInput()
     {
         IsCurrentSubmissionSuppressed = false;
+
+        // Typing in history search is the search. Written as an early return rather than folded into
+        // the ternary because IsExplicitSession is true here too, so the ternary cannot express it.
+        if (State == AssistSessionState.HistorySearch)
+        {
+            return;
+        }
+
         State = IsExplicitSession ? AssistSessionState.ExplicitBubble : AssistSessionState.PassiveBubble;
     }
 

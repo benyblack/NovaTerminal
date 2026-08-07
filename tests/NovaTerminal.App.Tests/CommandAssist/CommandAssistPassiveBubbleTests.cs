@@ -612,6 +612,47 @@ public sealed class CommandAssistPassiveBubbleTests
         Assert.Equal(0, delay.RequestCount);
     }
 
+    /// <summary>
+    /// Typing <em>inside</em> history search is debounced, unlike the <c>Ctrl+R</c> that opened it.
+    /// </summary>
+    /// <remarks>
+    /// The two halves of the rule meeting in one surface. Opening is a single deliberate act with
+    /// nothing to coalesce, so it is instant; the characters that follow are keystrokes like any others
+    /// - each one costs a grid read, a store recall and a ranking pass - so a burst produces one pass,
+    /// not one per character. Nothing special was needed to get this: the filter refresh is queued as
+    /// typing-triggered, so it rides the coalescing the passive path already had.
+    /// </remarks>
+    [Fact]
+    public async Task TypingInHistorySearch_IsDebouncedLikePassiveTyping()
+    {
+        var history = new RecordingHistoryStore();
+        history.Seed("git status");
+        var grid = new FakeGrid();
+        var delay = new GatedDelay();
+        CommandAssistController controller = CreateController(history, grid, delay);
+
+        controller.OpenHistorySearch();
+        await WaitForAsync(() => controller.Suggestions.Count > 0);
+        Assert.Equal(0, delay.RequestCount);
+        Assert.Equal(1, history.SearchCount);
+
+        foreach (string line in new[] { "g", "gi", "git" })
+        {
+            grid.SetLine(line);
+            controller.NotifyInputActivity();
+        }
+
+        // Every one of them is still sitting in the debounce: the store has seen nothing since the
+        // recency recall the open asked for.
+        Assert.Equal(1, history.SearchCount);
+        delay.ReleaseAll();
+
+        await WaitForAsync(() => controller.ViewModel.QueryText == "git");
+        Assert.Equal(3, delay.RequestCount);
+        Assert.Equal(2, history.SearchCount);
+        Assert.Equal(new[] { "git" }, history.SearchQueries);
+    }
+
     // ------------------------------------------------------------------ gating decoupled (task 3)
 
     /// <summary>

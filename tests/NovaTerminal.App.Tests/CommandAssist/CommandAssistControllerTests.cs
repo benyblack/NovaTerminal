@@ -1,6 +1,7 @@
 using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.CommandAssist.Domain;
 using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.Providers;
 using NovaTerminal.CommandAssist.ShellIntegration.Contracts;
 using System.Diagnostics;
 
@@ -993,6 +994,20 @@ public sealed class CommandAssistControllerTests
     /// be swallowed by an insertion. The disarm is structural - typing closes the popup - and this pins
     /// it because the consequence of losing it is the user's Enter not running their command.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The browse this starts from is a Suggest one (<c>Ctrl+Space</c> then <c>Down</c>), where it used
+    /// to be a <c>Ctrl+R</c> one. That is not an incidental rewrite: typing in history search no longer
+    /// closes the popup, so the structural disarm this test is named for does not happen there - and
+    /// must not, because in a reverse search the accept key taking the highlighted match is the whole
+    /// interaction. See <c>TypingInHistorySearch_KeepsEnterArmedOnTheNewTopRow</c> for that side, and
+    /// <c>Escape_DisarmsEnter</c> for the key that does hand <c>Enter</c> back to the shell there.
+    /// </para>
+    /// <para>
+    /// The flow this protects - type a command, browse a suggestion, keep typing, press Enter to run
+    /// what you typed - is unchanged and is the one that would cost the user a submitted command.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task TypingAfterABrowse_DisarmsEnterAgain()
     {
@@ -1003,7 +1018,7 @@ public sealed class CommandAssistControllerTests
         var grid = new FakeGrid();
         var controller = CreateController(historyStore, grid: grid);
 
-        controller.OpenHistorySearch();
+        controller.ToggleAssist();
         await historyStore.WaitForSearchSettledAsync();
         await WaitForConditionAsync(() => controller.Suggestions.Count > 1);
         controller.MoveSelectionDown();
@@ -1013,6 +1028,232 @@ public sealed class CommandAssistControllerTests
         controller.NotifyInputActivity();
 
         Assert.False(controller.IsAcceptOnEnterArmed);
+    }
+
+    // ------------------------------ typing filters history search instead of closing it
+
+    /// <summary>
+    /// The owner's report: "when Ctrl+R shows history, if I type it just hides that instead of
+    /// searching". Typing now narrows the list in place, which is what every shell's reverse search and
+    /// every fuzzy finder does.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Mutation check:</strong> put the <c>HistorySearch -> ExplicitBubble</c> transition back
+    /// in <c>AssistSessionStateMachine.ObserveTypedInput</c> and this fails on the popup assertion -
+    /// the rows still narrow, because an explicit Suggest session ranks history too, but the surface
+    /// the user was reading is gone.
+    /// </para>
+    /// <para>
+    /// The keystroke is not search-box input and there is no search box: the character reaches the
+    /// shell, the shell paints it, and the query the pass ranks on is read back off the grid. That is
+    /// why this test moves the fake grid rather than handing the controller any text.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public async Task TypingInHistorySearch_FiltersTheRowsAndKeepsThePopupOpen()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("git stash", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")),
+            CreateEntry("npm run build", DateTimeOffset.Parse("2026-03-01T09:58:00+00:00")));
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
+
+        controller.OpenHistorySearch();
+        await WaitForConditionAsync(() => controller.Suggestions.Count == 3);
+
+        grid.SetLine("git");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "git" &&
+                                          controller.Suggestions.Count == 2);
+
+        Assert.Equal(AssistSessionState.HistorySearch, controller.SessionState);
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.Popup.IsVisible);
+        Assert.Equal("History", controller.ViewModel.ModeLabel);
+        Assert.DoesNotContain(controller.Suggestions, row => row.InsertText == "npm run build");
+    }
+
+    /// <summary>
+    /// Backspace is the same event and widens the list back out. Nothing tells Command Assist that a
+    /// character was deleted rather than added - the grid simply says the line is shorter now.
+    /// </summary>
+    [Fact]
+    public async Task BackspaceInHistorySearch_WidensTheRowsAgain()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("git stash", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")));
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
+
+        controller.OpenHistorySearch();
+        await WaitForConditionAsync(() => controller.Suggestions.Count == 2);
+
+        grid.SetLine("git status");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "git status" &&
+                                          controller.Suggestions.Count == 1);
+
+        grid.SetLine("git st");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "git st" &&
+                                          controller.Suggestions.Count == 2);
+
+        Assert.Equal(AssistSessionState.HistorySearch, controller.SessionState);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+    }
+
+    /// <summary>
+    /// Erasing the line back to nothing leaves the user where <c>Ctrl+R</c> put them - the recency list,
+    /// still open - rather than closing the surface they never asked to close.
+    /// </summary>
+    [Fact]
+    public async Task ErasingTheLineInHistorySearch_FallsBackToTheRecencyList()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("npm run build", DateTimeOffset.Parse("2026-03-01T09:58:00+00:00")));
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
+
+        controller.OpenHistorySearch();
+        await WaitForConditionAsync(() => controller.Suggestions.Count == 2);
+
+        grid.SetLine("git");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.Suggestions.Count == 1);
+
+        // Ctrl+U, or one backspace too many. Either way the grid says the line is empty.
+        grid.SetLine(string.Empty);
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText.Length == 0 &&
+                                          controller.Suggestions.Count == 2);
+
+        Assert.Equal(AssistSessionState.HistorySearch, controller.SessionState);
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.False(controller.ViewModel.ShowEmptyState);
+    }
+
+    /// <summary>
+    /// Every query change resets the highlight to the top row, fzf-style: the rows are a different list
+    /// than the one the old index pointed into, so keeping the index would move the highlight to an
+    /// unrelated command.
+    /// </summary>
+    [Fact]
+    public async Task TypingInHistorySearch_ResetsTheSelectionToTheTopRow()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("git stash", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")),
+            CreateEntry("npm run build", DateTimeOffset.Parse("2026-03-01T09:57:00+00:00")));
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
+
+        controller.OpenHistorySearch();
+        await WaitForConditionAsync(() => controller.Suggestions.Count == 3);
+        controller.MoveSelectionDown();
+        controller.MoveSelectionDown();
+        Assert.Equal(2, controller.ViewModel.SelectedIndex);
+
+        grid.SetLine("git st");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "git st" &&
+                                          controller.Suggestions.Count == 2);
+
+        Assert.Equal(0, controller.ViewModel.SelectedIndex);
+        Assert.Equal(controller.Suggestions[0].DisplayText, controller.ViewModel.TopSuggestionText);
+    }
+
+    /// <summary>
+    /// The accept key follows the filtering: it stays armed on whatever the new top row is, which is
+    /// what makes "Ctrl+R, type a few characters, press Enter" work the way every shell teaches.
+    /// </summary>
+    [Fact]
+    public async Task TypingInHistorySearch_KeepsEnterArmedOnTheNewTopRow()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("npm run build", DateTimeOffset.Parse("2026-03-01T09:58:00+00:00")));
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
+
+        controller.OpenHistorySearch();
+        await WaitForConditionAsync(() => controller.Suggestions.Count == 2);
+
+        grid.SetLine("npm");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "npm" &&
+                                          controller.Suggestions.Count == 1);
+
+        Assert.True(controller.IsAcceptOnEnterArmed);
+        Assert.True(controller.TryGetInsertionText(out string? insertionText));
+        Assert.Equal("npm run build", insertionText);
+    }
+
+    /// <summary>
+    /// Narrowing past the last match keeps the popup open and says why. An open list containing nothing
+    /// reads as the surface having broken; the sentence is what makes it read as the search having no
+    /// answer.
+    /// </summary>
+    [Fact]
+    public async Task TypingInHistorySearch_WithNoMatches_KeepsThePopupOpenAndSaysSo()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")));
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
+
+        controller.OpenHistorySearch();
+        await WaitForConditionAsync(() => controller.Suggestions.Count == 1);
+
+        grid.SetLine("qqq");
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "qqq" &&
+                                          controller.Suggestions.Count == 0);
+
+        Assert.Equal(AssistSessionState.HistorySearch, controller.SessionState);
+        Assert.True(controller.ViewModel.IsVisible);
+        Assert.True(controller.ViewModel.IsPopupOpen);
+        Assert.True(controller.ViewModel.ShowEmptyState);
+        Assert.Equal(AssistEmptyStates.NoHistoryMatch, controller.ViewModel.Popup.EmptyStateText);
+        Assert.False(controller.IsAcceptOnEnterArmed);
+    }
+
+    /// <summary>
+    /// The query is the text left of the cursor, so PSReadLine's inline prediction cannot filter the
+    /// list to its own guess. The same rule as PR #293's blocker 1, now reachable from Search mode
+    /// because Search mode is where a keystroke lands.
+    /// </summary>
+    [Fact]
+    public async Task TypingInHistorySearch_RanksOnTheTextBeforeTheCursor()
+    {
+        var historyStore = new InMemoryHistoryStore();
+        historyStore.Seed(
+            CreateEntry("npm run build", DateTimeOffset.Parse("2026-03-01T10:00:00+00:00")),
+            CreateEntry("git status", DateTimeOffset.Parse("2026-03-01T09:59:00+00:00")));
+        var grid = new FakeGrid();
+        var controller = CreateController(historyStore, grid: grid);
+
+        controller.OpenHistorySearch();
+        await WaitForConditionAsync(() => controller.Suggestions.Count == 2);
+
+        // The user typed `np`; the shell painted `npm run build` and left the cursor after the two
+        // characters that are actually theirs.
+        grid.SetLine("npm run build", cursorOffset: 2);
+        controller.NotifyInputActivity();
+        await WaitForConditionAsync(() => controller.ViewModel.QueryText == "np");
+
+        Assert.Equal("np", controller.ViewModel.QueryText);
+        Assert.Equal(AssistSessionState.HistorySearch, controller.SessionState);
     }
 
     /// <summary>Escape disarms too: there is no row to accept once the surface is gone.</summary>

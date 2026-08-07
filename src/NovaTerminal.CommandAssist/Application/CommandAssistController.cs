@@ -352,6 +352,18 @@ public sealed class CommandAssistController
     /// Backspace deliberately has no separate entry point and no "is there anything to delete"
     /// guard. Whether the line got shorter is the grid's business.
     /// </para>
+    /// <para>
+    /// <strong>History search filters rather than closing.</strong> A keystroke used to mean the same
+    /// thing in every mode - drop to a Suggest bubble with the popup shut - and in
+    /// <c>Ctrl+R</c> that read as the surface being dismissed by the first character of the thing the
+    /// user opened it to look for (the owner's report: "when Ctrl+R shows history, if I type it just
+    /// hides that instead of searching"). In Search mode the surface now stands still and the
+    /// refresh does the work: <see cref="AssistSessionStateMachine.ObserveTypedInput"/> keeps the
+    /// state, so <see cref="QueueRefreshSuggestions"/> re-ranks the history-only Search scope against
+    /// the query the pass reads off the grid. The keystroke still reaches the shell - there is no
+    /// search box, and the query is the command line - so the debounce that coalesces passive typing
+    /// applies here too.
+    /// </para>
     /// </remarks>
     public void NotifyInputActivity()
     {
@@ -361,6 +373,21 @@ public sealed class CommandAssistController
         }
 
         _state.ObserveTypedInput();
+
+        if (_state.Mode == CommandAssistMode.Search)
+        {
+            // Held rather than merely left alone. Nothing else in this method can reach a Search
+            // session (an explicit surface is exempt from the passive suppression below, and its
+            // visibility does not depend on the rows a refresh happens to produce), so stating the
+            // invariant here is what keeps a filter keystroke from ever being the thing that takes
+            // the popup down. The label is deliberately not rewritten: it was decided when the
+            // surface opened, from a grid read this path must not repeat per keystroke.
+            ViewModel.IsPopupOpen = true;
+            ViewModel.IsVisible = true;
+            QueueRefreshSuggestions(isTypingTriggered: true);
+            return;
+        }
+
         ViewModel.ModeLabel = "Suggest";
         ViewModel.IsPopupOpen = false;
 
@@ -1018,9 +1045,21 @@ public sealed class CommandAssistController
         {
             _suggestions.Clear();
             _suggestions.AddRange(outcome.Suggestions);
+
+            // Reset to the top row on every pass, fzf-style. The rows are a different list than the
+            // one the old selection indexed into, so carrying the index over would move the highlight
+            // to an unrelated command; index 0 is the best match for what the user has typed so far,
+            // which is the row they mean if they stop typing and press the accept key.
             ViewModel.SelectedIndex = _suggestions.Count > 0 ? 0 : -1;
-            ViewModel.EmptyStateText = string.Empty;
-            ViewModel.ShowEmptyState = false;
+
+            // The empty state a filtered history search needs: see AssistEmptyStates.NoHistoryMatch.
+            // Only with a query - a Search pass that read no query at all is the degraded recency list,
+            // and "no matching commands" would blame the user's typing for a markless session.
+            bool isEmptyHistorySearch = outcome.RequestedMode == CommandAssistMode.Search &&
+                                        _suggestions.Count == 0 &&
+                                        !string.IsNullOrEmpty(outcome.Query);
+            ViewModel.EmptyStateText = isEmptyHistorySearch ? AssistEmptyStates.NoHistoryMatch : string.Empty;
+            ViewModel.ShowEmptyState = isEmptyHistorySearch;
             SyncSuggestionViewModel();
         }
 
