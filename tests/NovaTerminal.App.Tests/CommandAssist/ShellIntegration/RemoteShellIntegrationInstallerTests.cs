@@ -179,6 +179,74 @@ public sealed class RemoteShellIntegrationInstallerTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void PowerShellInstaller_IsExactlyOneLine()
+    {
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.PowerShell);
+
+        Assert.DoesNotContain("\n", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", command, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Pure .NET: a remote pwsh on Windows has no base64 or gzip on PATH, and its `cat` is an alias
+    /// for Get-Content - which is exactly why the old `cat &gt; file` recipe could not work there.
+    /// </summary>
+    [Fact]
+    public void PowerShellInstaller_UsesNoExternalTools()
+    {
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.PowerShell);
+
+        Assert.Contains("[Convert]::FromBase64String(", command, StringComparison.Ordinal);
+        Assert.Contains("GZipStream", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("base64 -d", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("gzip", command, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The call operator, not dot-sourcing: a child scope is what keeps the installer out of the
+    /// user's session. A stray `. $__nova_t` here would reintroduce exactly what the design gave up.
+    /// </summary>
+    [Fact]
+    public void PowerShellInstaller_InvokesTheScriptInAChildScope()
+    {
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.PowerShell);
+
+        Assert.Contains("& $__nova_t", command, StringComparison.Ordinal);
+        Assert.DoesNotContain(". $__nova_t", command, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PowerShellInstaller_PayloadDecodesToTheInstallerScript()
+    {
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.PowerShell);
+        string payload = Regex.Match(command, @"FromBase64String\('([^']*)'\)").Groups[1].Value;
+
+        Assert.Matches("^[A-Za-z0-9+/=]+$", payload);
+        Assert.Equal(
+            RemoteShellIntegrationSnippets.BuildInstallerScript(
+                RemoteShellIntegrationShell.PowerShell),
+            Decompress(payload));
+    }
+
+    /// <summary>
+    /// The here-string terminator is <c>'@</c> at the start of a line. A snippet line beginning with
+    /// it would end the string early and turn the rest of the snippet into code.
+    /// </summary>
+    [Fact]
+    public void PowerShellSnippet_DoesNotCollideWithTheHereStringTerminator()
+    {
+        string snippet = RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell);
+
+        Assert.DoesNotContain(
+            snippet.Split('\n'),
+            line => line.StartsWith("'@", StringComparison.Ordinal));
+    }
+
     internal static string Decompress(string base64)
     {
         byte[] raw = Convert.FromBase64String(base64);

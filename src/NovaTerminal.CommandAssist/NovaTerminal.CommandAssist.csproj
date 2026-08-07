@@ -25,6 +25,8 @@
                       LogicalName="NovaTerminal.CommandAssist.ShellIntegration.Remote.nova-install.sh" />
     <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\install\nova-install-fish.sh"
                       LogicalName="NovaTerminal.CommandAssist.ShellIntegration.Remote.nova-install-fish.sh" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\assets\shell-integration\install\nova-install.ps1"
+                      LogicalName="NovaTerminal.CommandAssist.ShellIntegration.Remote.nova-install.ps1" />
   </ItemGroup>
 
   <!-- Bundled offline command-knowledge catalogue (V2 Phase 4b, closes #250). Generated from a

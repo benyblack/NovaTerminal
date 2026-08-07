@@ -365,4 +365,75 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         Assert.Contains("probe-dest=[]", output, StringComparison.Ordinal);
         Assert.Contains("probe-temp=[]", output, StringComparison.Ordinal);
     }
+
+    // ---- powershell ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// The PowerShell installer, run by a real pwsh with both of its parameters redirected into the
+    /// temp HOME. The parameters are the only reason this is testable: <c>$PROFILE</c> resolves
+    /// under the developer's Documents directory and cannot be redirected by an environment variable.
+    /// </summary>
+    [Fact]
+    public void PowerShellInstaller_WritesTheSnippetAndPatchesTheProfileOnce()
+    {
+        string? pwsh = FindPwsh();
+        if (pwsh is null)
+        {
+            Assert.Skip("pwsh not found on this system");
+        }
+
+        string installerPath = Path.Combine(_home, "nova-install.ps1");
+        File.WriteAllText(
+            installerPath,
+            RemoteShellIntegrationSnippets.BuildInstallerScript(
+                RemoteShellIntegrationShell.PowerShell),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        string profilePath = Path.Combine(_home, "profile.ps1");
+        string output = RunPwsh(pwsh, installerPath, profilePath) + RunPwsh(pwsh, installerPath, profilePath);
+
+        string dest = Path.Combine(_home, ".nova-shell-integration.ps1");
+        Assert.True(File.Exists(dest), $"snippet not written. output:\n{output}");
+        Assert.Equal(
+            RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.PowerShell).TrimEnd('\n'),
+            File.ReadAllText(dest).Replace("\r\n", "\n").TrimEnd('\n'));
+        Assert.Equal(1, CountLoaderLines(File.ReadAllText(profilePath)));
+        Assert.Contains("already present", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? FindPwsh()
+    {
+        string? pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (pathEnv is null) return null;
+        string exe = OperatingSystem.IsWindows() ? "pwsh.exe" : "pwsh";
+        foreach (string dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string candidate = Path.Combine(dir, exe);
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
+    }
+
+    private string RunPwsh(string pwsh, string installerPath, string profilePath)
+    {
+        var startInfo = new ProcessStartInfo(pwsh)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-NonInteractive");
+        startInfo.ArgumentList.Add("-File");
+        startInfo.ArgumentList.Add(installerPath);
+        startInfo.ArgumentList.Add("-ProfilePath");
+        startInfo.ArgumentList.Add(profilePath);
+        startInfo.ArgumentList.Add("-DestDir");
+        startInfo.ArgumentList.Add(_home);
+
+        using Process process = Process.Start(startInfo)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(60_000), "pwsh installer did not finish within 60s");
+        return output;
+    }
 }

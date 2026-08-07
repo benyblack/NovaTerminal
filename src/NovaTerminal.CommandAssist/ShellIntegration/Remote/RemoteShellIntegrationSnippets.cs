@@ -160,6 +160,10 @@ public static class RemoteShellIntegrationSnippets
                 """
                 set -l __nova_t (mktemp); printf %s '@@BLOB@@' | base64 -d | gzip -dc > $__nova_t; sh $__nova_t fish; rm -f $__nova_t; set -e __nova_t
                 """,
+            RemoteShellIntegrationShell.PowerShell =>
+                """
+                $__nova_t=[IO.Path]::GetTempPath()+[Guid]::NewGuid().ToString('N')+'.ps1'; $__nova_g=[IO.Compression.GZipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String('@@BLOB@@')),[IO.Compression.CompressionMode]::Decompress); $__nova_o=[IO.File]::Create($__nova_t); $__nova_g.CopyTo($__nova_o); $__nova_o.Dispose(); $__nova_g.Dispose(); & $__nova_t; Remove-Item $__nova_t; Remove-Variable __nova_t,__nova_g,__nova_o
+                """,
             _ => throw new ArgumentOutOfRangeException(nameof(shell), shell, "No installer ships for this shell."),
         };
 
@@ -191,15 +195,22 @@ public static class RemoteShellIntegrationSnippets
         SnippetDescriptor descriptor = Get(shell);
         string template = ReadResource(descriptor.InstallerFileName);
 
-        const string Delimiter = "__NOVA_SNIPPET_EOF__";
+        // The delimiter that would end the embedded literal early: a heredoc terminator for the sh
+        // installers, the here-string terminator for the PowerShell one. A snippet line starting
+        // with it would truncate the installed file - or, in PowerShell, turn the remainder of the
+        // snippet into code.
+        string delimiter = shell == RemoteShellIntegrationShell.PowerShell
+            ? "'@"
+            : "__NOVA_SNIPPET_EOF__";
+
         foreach (string line in snippet.Split('\n'))
         {
-            if (line.StartsWith(Delimiter, StringComparison.Ordinal))
+            if (line.StartsWith(delimiter, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException(
-                    $"Snippet '{descriptor.FileName}' contains a line starting with the installer's " +
-                    $"heredoc delimiter '{Delimiter}', which would truncate the installed file. " +
-                    "Rename the delimiter in the installer template.");
+                    $"Snippet '{descriptor.FileName}' contains a line starting with '{delimiter}', " +
+                    "the installer template's terminator, which would truncate the installed file. " +
+                    "Rename the terminator in the installer template.");
             }
         }
 
