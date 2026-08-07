@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Reflection;
 using System.Text;
 
@@ -61,18 +62,21 @@ public static class RemoteShellIntegrationSnippets
         {
             [RemoteShellIntegrationShell.BashOrZsh] = new(
                 FileName: "nova-shell-integration.sh",
+                InstallerFileName: "nova-install.sh",
                 DisplayName: "bash / zsh",
                 RemotePath: "~/.nova-shell-integration.sh",
                 LoaderLine: "[ -f ~/.nova-shell-integration.sh ] && . ~/.nova-shell-integration.sh",
                 LoaderTarget: "~/.bashrc (bash) or ~/.zshrc (zsh)"),
             [RemoteShellIntegrationShell.Fish] = new(
                 FileName: "nova-shell-integration.fish",
+                InstallerFileName: "nova-install-fish.sh",
                 DisplayName: "fish",
                 RemotePath: "~/.config/fish/conf.d/nova-shell-integration.fish",
                 LoaderLine: null,
                 LoaderTarget: null),
             [RemoteShellIntegrationShell.PowerShell] = new(
                 FileName: "nova-shell-integration.ps1",
+                InstallerFileName: "nova-install.ps1",
                 DisplayName: "PowerShell",
                 RemotePath: "~/.nova-shell-integration.ps1",
                 LoaderLine: ". ~/.nova-shell-integration.ps1",
@@ -106,33 +110,126 @@ public static class RemoteShellIntegrationSnippets
     public static string? GetLoaderTarget(RemoteShellIntegrationShell shell) => Get(shell).LoaderTarget;
 
     /// <summary>
-    /// The snippet text, exactly as shipped. This is what the Settings "Copy snippet" action puts on
-    /// the clipboard: the whole file, install instructions included in its header comment, so a user
-    /// who pastes it into <c>cat &gt; ...</c> and forgets the rest can read what to do next out of
-    /// the file they just wrote.
+    /// The snippet text, exactly as shipped, backing the "Copy plain snippet" action. This is the
+    /// whole file, install instructions included in its header comment, so a user who pastes it into
+    /// <c>cat &gt; ...</c> and forgets the rest can read what to do next out of the file they just
+    /// wrote.
     /// </summary>
     /// <remarks>
     /// Line endings are normalized to LF. The snippet is destined for a POSIX shell (or a pwsh that
     /// does not care), and a CRLF that survives a Windows checkout with
     /// <c>core.autocrlf=true</c> would give bash <c>$'\r': command not found</c> on every line.
     /// </remarks>
-    public static string Read(RemoteShellIntegrationShell shell)
+    public static string Read(RemoteShellIntegrationShell shell) => ReadResource(Get(shell).FileName);
+
+    /// <summary>
+    /// The one-line command Settings' "Copy installer" action puts on the clipboard.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// One line, because one line is one history entry and one prompt cycle. The 300-line paste this
+    /// replaced flooded the scrollback, was slow to redraw in any shell with syntax highlighting,
+    /// left the rc edit as a manual step users forget, and on a Windows remote could not work at all
+    /// (<c>cat</c> there is an alias for <c>Get-Content</c>, so <c>cat &gt; file</c> has no input).
+    /// </para>
+    /// <para>
+    /// The payload is gzip+base64: 6.4 KB instead of 17.0 KB for the bash/zsh snippet, and base64's
+    /// alphabet contains no shell metacharacter, so the single quotes around it can never need
+    /// escaping. It decodes to an installer script that runs as a <em>child process</em> - the live
+    /// shell is never sourced into, and the shell's identity reaches the installer as an argument
+    /// the live shell expanded.
+    /// </para>
+    /// <para>
+    /// This reverses the argument the class used to make against generated installers, which was
+    /// that a blob cannot be read before it runs. It is answered instead by the installers being
+    /// reviewable files under <c>assets/shell-integration/install/</c> and by
+    /// <see cref="Read"/> still backing a "Copy plain snippet" action in the same row.
+    /// </para>
+    /// </remarks>
+    public static string BuildInstallerCommand(RemoteShellIntegrationShell shell)
+    {
+        string blob = Compress(BuildInstallerScript(shell));
+
+        string template = shell switch
+        {
+            RemoteShellIntegrationShell.BashOrZsh =>
+                """
+                __nova_t=$(mktemp 2>/dev/null || printf /tmp/nova-si.%s "$$"); printf %s '@@BLOB@@' | base64 -d 2>/dev/null | gzip -dc 2>/dev/null > "$__nova_t"; if [ -s "$__nova_t" ]; then sh "$__nova_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "nova: install failed - this host needs base64 and gzip"; fi; rm -f "$__nova_t"; unset __nova_t
+                """,
+            _ => throw new ArgumentOutOfRangeException(nameof(shell), shell, "No installer ships for this shell."),
+        };
+
+        return template.Replace("@@BLOB@@", blob, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The installer script the one-liner's payload decodes to: the template for
+    /// <paramref name="shell"/> with its snippet substituted in.
+    /// </summary>
+    /// <remarks>
+    /// Internal because the round-trip test needs the expectation. The delimiter guard is not
+    /// defensive noise: a snippet line that collided with the heredoc terminator would silently
+    /// truncate the installed file rather than fail, and the failure would surface on the user's
+    /// remote host rather than here.
+    /// </remarks>
+    internal static string BuildInstallerScript(RemoteShellIntegrationShell shell) =>
+        BuildInstallerScript(shell, ReadResource(Get(shell).FileName));
+
+    /// <summary>
+    /// <see cref="BuildInstallerScript(RemoteShellIntegrationShell)"/> with the snippet supplied.
+    /// </summary>
+    /// <remarks>
+    /// The overload exists for the delimiter-guard test: no shipped snippet collides, and one that
+    /// did would be a bug found on a user's remote host rather than here.
+    /// </remarks>
+    internal static string BuildInstallerScript(RemoteShellIntegrationShell shell, string snippet)
     {
         SnippetDescriptor descriptor = Get(shell);
-        string resourceName = ResourcePrefix + descriptor.FileName;
+        string template = ReadResource(descriptor.InstallerFileName);
+
+        const string Delimiter = "__NOVA_SNIPPET_EOF__";
+        foreach (string line in snippet.Split('\n'))
+        {
+            if (line.StartsWith(Delimiter, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Snippet '{descriptor.FileName}' contains a line starting with the installer's " +
+                    $"heredoc delimiter '{Delimiter}', which would truncate the installed file. " +
+                    "Rename the delimiter in the installer template.");
+            }
+        }
+
+        return template.Replace("@@NOVA_SNIPPET@@", snippet.TrimEnd('\n'), StringComparison.Ordinal);
+    }
+
+    private static string ReadResource(string fileName)
+    {
+        string resourceName = ResourcePrefix + fileName;
 
         using Stream? stream = typeof(RemoteShellIntegrationSnippets).Assembly
             .GetManifestResourceStream(resourceName);
         if (stream == null)
         {
             throw new InvalidOperationException(
-                $"Embedded shell-integration snippet '{resourceName}' is missing from " +
+                $"Embedded shell-integration resource '{resourceName}' is missing from " +
                 $"{typeof(RemoteShellIntegrationSnippets).Assembly.GetName().Name}. It is embedded " +
                 "from assets/shell-integration/ by NovaTerminal.CommandAssist.csproj.");
         }
 
         using var reader = new StreamReader(stream, Encoding.UTF8);
         return reader.ReadToEnd().Replace("\r\n", "\n");
+    }
+
+    private static string Compress(string text)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(text);
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            gzip.Write(bytes, 0, bytes.Length);
+        }
+
+        return Convert.ToBase64String(output.ToArray());
     }
 
     /// <summary>
@@ -192,6 +289,7 @@ public static class RemoteShellIntegrationSnippets
 
     private sealed record SnippetDescriptor(
         string FileName,
+        string InstallerFileName,
         string DisplayName,
         string RemotePath,
         string? LoaderLine,
