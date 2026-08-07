@@ -1553,12 +1553,19 @@ namespace NovaTerminal
                 }
 
                 await clipboard.SetTextAsync(RemoteShellIntegrationSnippets.BuildInstallerCommand(shell));
+
+                string? loaderLine = RemoteShellIntegrationSnippets.GetLoaderLine(shell);
+                string writeDescription = loaderLine != null
+                    ? $"It writes {RemoteShellIntegrationSnippets.GetRemotePath(shell)} and adds the loader " +
+                      "line to your rc file if it isn't already there."
+                    : $"It writes {RemoteShellIntegrationSnippets.GetRemotePath(shell)}, which is sourced " +
+                      "automatically, so there is nothing else to add.";
+
                 ShowRemoteShellIntegrationStatus(
                     status,
                     $"Copied the installer for {RemoteShellIntegrationSnippets.GetDisplayName(shell)}. " +
-                    "Paste it at the remote prompt and press Enter - one line, one history entry. It writes " +
-                    $"{RemoteShellIntegrationSnippets.GetRemotePath(shell)} and adds the loader line to your " +
-                    "config file if it isn't already there.");
+                    "Paste it at the remote prompt and press Enter - one line, one history entry. " +
+                    writeDescription);
             }
             catch (Exception ex)
             {
