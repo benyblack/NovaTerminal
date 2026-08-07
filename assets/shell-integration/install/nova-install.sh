@@ -47,7 +47,7 @@ if [ -z "$__nova_rc" ]; then
     echo "nova: could not tell which shell you use - add this line to your rc file:"
     echo "nova:   $__nova_loader"
 elif [ -f "$__nova_rc" ] && grep -q 'nova-shell-integration' "$__nova_rc" 2>/dev/null; then
-    echo "nova: loader line already in $__nova_rc_display - unchanged"
+    echo "nova: loader line already present in $__nova_rc_display - unchanged"
 else
     printf '%s\n' "$__nova_loader" >> "$__nova_rc"
     echo "nova: added loader line to $__nova_rc_display"
