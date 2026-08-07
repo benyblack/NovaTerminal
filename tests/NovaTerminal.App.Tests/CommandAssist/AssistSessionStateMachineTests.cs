@@ -179,17 +179,45 @@ public sealed class AssistSessionStateMachineTests
         Assert.Equal(AssistSessionState.FixHint, tentative.State);
     }
 
+    /// <summary>
+    /// Typing returns every state to Suggest, carrying the explicitness with it - except history
+    /// search, which typing <em>is</em>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>The HistorySearch row changed, and the row it replaced was a shipped bug.</strong> This
+    /// table used to say <c>HistorySearch -> ExplicitBubble</c>, under the name
+    /// <c>ObserveTypedInput_ReturnsToSuggestPreservingExplicitness</c>: Phase 0c read a keystroke as
+    /// "the user is composing a command again", and preserved the one thing it thought was worth
+    /// keeping from a <c>Ctrl+R</c> session, its explicitness. What the user saw was the history popup
+    /// vanishing on the first character of the thing they had opened it to look for - the owner's
+    /// report, verbatim: "when Ctrl+R shows history, if I type it just hides that instead of
+    /// searching".
+    /// </para>
+    /// <para>
+    /// The old row's intent survives, re-expressed rather than dropped: explicitness was never lost by
+    /// typing and still is not, because <see cref="AssistSessionState.HistorySearch"/> is itself an
+    /// explicit session (see <c>IsExplicitSession_IsDerivedFromState</c> above, which is where that
+    /// property is now pinned for this state). Staying put is the stronger form of the same guarantee -
+    /// the session keeps both its explicitness and the mode the user asked for.
+    /// </para>
+    /// <para>
+    /// Every other row is deliberately untouched, and the Help and Fix rows are the ones to be careful
+    /// about: typing out of a helper surface is the user moving on from content they asked to read, not
+    /// refining it, so those still drop to a passive bubble.
+    /// </para>
+    /// </remarks>
     [Theory]
     [InlineData(AssistSessionState.Hidden, AssistSessionState.PassiveBubble)]
     [InlineData(AssistSessionState.PassiveBubble, AssistSessionState.PassiveBubble)]
     [InlineData(AssistSessionState.PassivePopup, AssistSessionState.PassiveBubble)]
     [InlineData(AssistSessionState.ExplicitBubble, AssistSessionState.ExplicitBubble)]
     [InlineData(AssistSessionState.ExplicitPopup, AssistSessionState.ExplicitBubble)]
-    [InlineData(AssistSessionState.HistorySearch, AssistSessionState.ExplicitBubble)]
+    [InlineData(AssistSessionState.HistorySearch, AssistSessionState.HistorySearch)]
     [InlineData(AssistSessionState.Help, AssistSessionState.PassiveBubble)]
     [InlineData(AssistSessionState.FixHint, AssistSessionState.PassiveBubble)]
     [InlineData(AssistSessionState.FixPopup, AssistSessionState.PassiveBubble)]
-    public void ObserveTypedInput_ReturnsToSuggestPreservingExplicitness(
+    public void ObserveTypedInput_ReturnsToSuggestPreservingExplicitness_ExceptInHistorySearch(
         AssistSessionState state,
         AssistSessionState expected)
     {
@@ -198,7 +226,15 @@ public sealed class AssistSessionStateMachineTests
         machine.ObserveTypedInput();
 
         Assert.Equal(expected, machine.State);
+
+        // The half of the old name that did not change: whatever typing did to the state, an explicit
+        // session is still explicit afterwards.
+        if (CreateInState(state).IsExplicitSession)
+        {
+            Assert.True(machine.IsExplicitSession);
+        }
     }
+
 
     [Theory]
     [InlineData(AssistSessionState.Hidden)]
@@ -400,20 +436,45 @@ public sealed class AssistSessionStateMachineTests
     }
 
     /// <summary>
-    /// The one path that has to survive the split: Ctrl+R, then keep typing. The session stays
-    /// explicit, which is what widens the suggestion scope back out to history and snippets.
+    /// The one path that has to survive the split: <c>Ctrl+R</c>, then keep typing. The session stays
+    /// explicit - and now stays in Search, because typing after <c>Ctrl+R</c> is the search.
     /// </summary>
+    /// <remarks>
+    /// The original of this test asserted <c>ExplicitBubble</c> and <c>Suggest</c>, which is what the
+    /// Phase 0c transition produced and what the owner saw as the popup closing on the first character
+    /// he typed. Its intent - "explicitness survives typing" - is asserted below in its own right
+    /// rather than through the state that used to carry it; see
+    /// <c>ObserveTypedInput_ReturnsToSuggestPreservingExplicitness_ExceptInHistorySearch</c> for the
+    /// table row and the reasoning.
+    /// </remarks>
     [Fact]
-    public void HistorySearch_ThenTyping_StaysAnExplicitSession()
+    public void HistorySearch_ThenTyping_StaysAnExplicitHistorySearch()
     {
         var machine = new AssistSessionStateMachine();
 
         machine.OpenSearch();
         machine.ObserveTypedInput();
 
-        Assert.Equal(AssistSessionState.ExplicitBubble, machine.State);
+        // Was ExplicitBubble/Suggest. The assertion that changed is the mode, and it changed because
+        // "keep typing after Ctrl+R" means "narrow this list", not "start composing a command": see
+        // AssistSessionStateMachine.ObserveTypedInput.
+        Assert.Equal(AssistSessionState.HistorySearch, machine.State);
+        Assert.Equal(CommandAssistMode.Search, machine.Mode);
+
+        // The properties the old assertions were standing in for, asserted directly. Explicitness is
+        // what widens the ranking scope and exempts the surface from the passive Escape suppression;
+        // being user-requested is what stops a placement heuristic hiding it. Both held before this
+        // change and both still hold, which is the whole of what the old expectation was protecting.
         Assert.True(machine.IsExplicitSession);
-        Assert.Equal(CommandAssistMode.Suggest, machine.Mode);
+        Assert.True(machine.IsUserRequestedSurface);
+        Assert.True(machine.AllowsSuggestionRefresh);
+        Assert.True(machine.AllowsPassiveSuggestions);
+
+        // Backspace arrives as the same event, and a query erased back to nothing is still a search:
+        // the surface stays up showing the recency list rather than closing under the user.
+        machine.ObserveTypedInput();
+
+        Assert.Equal(AssistSessionState.HistorySearch, machine.State);
     }
 
     // ------------------------------- passive suppression has to end somehow (PR #293, blocker 2)
