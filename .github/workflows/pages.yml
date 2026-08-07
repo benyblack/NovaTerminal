@@ -47,13 +47,15 @@ jobs:
       - name: Build
         working-directory: site
         env:
-          # `ASTRO_SITE` is the canonical origin (no path). Defaults to
-          # the project Pages URL.
-          ASTRO_SITE: ${{ vars.ASTRO_SITE || 'https://benyblack.github.io' }}
+          # `ASTRO_SITE` is the canonical origin (no path). The sentinel
+          # `__default__` means "fall back to the project Pages URL".
+          # Set to an empty string to deploy at a custom-domain origin
+          # (the config treats empty as "use whatever was passed").
+          ASTRO_SITE: ${{ vars.ASTRO_SITE || '__default__' }}
           # `ASTRO_BASE` is the path prefix Astro applies to every page
-          # and asset. Defaults to `/NovaTerminal` for the project site.
-          # Set to empty for a custom-domain deployment with no prefix.
-          ASTRO_BASE: ${{ vars.ASTRO_BASE || '/NovaTerminal' }}
+          # and asset. Set to an empty string for a custom-domain
+          # deployment with no path prefix.
+          ASTRO_BASE: ${{ vars.ASTRO_BASE || '__default__' }}
         run: npm run build
 
       - name: Configure Pages

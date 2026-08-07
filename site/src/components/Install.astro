@@ -1,22 +1,30 @@
 ---
+// Release asset names follow the workflow in `.github/workflows/release.yml`:
+// `NovaTerminal-{rid}-{tag}.zip` (e.g. `NovaTerminal-linux-x64-v0.3.0.zip`).
+// The Windows winget package id lives in
+// `packaging/winget/0.3.0/benyblack.NovaTerminal.yaml`.
 const releases = [
   {
     platform: 'Windows',
     arch: 'x64',
-    asset: 'novaterminal-win-x64.zip',
-    cmd: 'winget install NovaTerminal.NovaTerminal',
+    asset: 'NovaTerminal-win-x64-<tag>.zip',
+    cmd: 'winget install benyblack.NovaTerminal',
   },
   {
     platform: 'Linux',
     arch: 'x64',
-    asset: 'novaterminal-linux-x64.tar.gz',
-    cmd: 'tar -xzf novaterminal-linux-x64.tar.gz && sudo install -m 0755 novaterminal /usr/local/bin/',
+    asset: 'NovaTerminal-linux-x64-<tag>.zip',
+    cmd:
+      'unzip NovaTerminal-linux-x64-<tag>.zip\n' +
+      'chmod +x NovaTerminal && ./NovaTerminal',
   },
   {
     platform: 'macOS',
     arch: 'arm64',
-    asset: 'novaterminal-osx-arm64.tar.gz',
-    cmd: 'tar -xzf novaterminal-osx-arm64.tar.gz && sudo install -m 0755 NovaTerminal.app /Applications/',
+    asset: 'NovaTerminal-osx-arm64-<tag>.zip',
+    cmd:
+      'unzip NovaTerminal-osx-arm64-<tag>.zip\n' +
+      'open NovaTerminal.app',
   },
 ];
 
@@ -67,7 +75,7 @@ const buildSteps = [
         GitHub release assets ship as Native AOT bundles for
         <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">win-x64</code>,
         <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">linux-x64</code>, and
-        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">osx-arm64</code>. Every release runs the gating unit-test lane on all three OSes before any bundle is published.
+        <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">osx-arm64</code>. Every release runs the gating unit-test lane on all three OSes before any bundle is published. Replace <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">&lt;tag&gt;</code> with the version you downloaded.
       </p>
     </div>
 
@@ -75,7 +83,7 @@ const buildSteps = [
       {
         releases.map((rel) => (
           <article class="card h-full">
-            <div class="flex items-baseline justify-between">
+            <div class="flex items-baseline justify-between gap-2">
               <h3 class="text-base font-semibold text-white">
                 {rel.platform}
               </h3>
@@ -85,15 +93,18 @@ const buildSteps = [
               Native AOT, self-contained. Download from
               {' '}
               <a
-                href="https://github.com/benyblack/NovaTerminal/releases"
+                href="https://github.com/benyblack/NovaTerminal/releases/latest"
                 rel="noopener"
                 class="text-nova-300"
               >
-                the releases page
+                the latest release
               </a>
               .
             </p>
-            <pre class="code-block mt-4 text-xs leading-relaxed"><code>{rel.cmd}</code></pre>
+            <p class="mt-2 font-mono text-[11px] text-ink-400">
+              {rel.asset}
+            </p>
+            <pre class="code-block mt-3 text-xs leading-relaxed"><code>{rel.cmd}</code></pre>
           </article>
         ))
       }

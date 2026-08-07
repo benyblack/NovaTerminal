@@ -4,10 +4,20 @@ import sitemap from '@astrojs/sitemap';
 
 // `site` is the canonical origin (no trailing path) used for the sitemap
 // and OpenGraph URLs. `base` is the path prefix Astro adds to every page
-// and asset. For a project Pages site, set ASTRO_BASE to the repo name
-// (e.g. `/NovaTerminal`). For a custom domain, leave ASTRO_BASE empty.
-const site = process.env.ASTRO_SITE ?? 'https://benyblack.github.io';
-const base = process.env.ASTRO_BASE ?? '/NovaTerminal';
+// and asset. Defaults assume a project Pages site at `/NovaTerminal/`.
+// The sentinel `__default__` (substituted by the workflow when the
+// variable is unset) means "use the default". An empty value means
+// "explicitly no prefix" — used for custom-domain deployments.
+const DEFAULT_SITE = 'https://benyblack.github.io';
+const DEFAULT_BASE = '/NovaTerminal';
+const USE_DEFAULT = '__default__';
+const resolveEnv = (name, fallback) => {
+  const v = process.env[name];
+  if (v === undefined || v === USE_DEFAULT) return fallback;
+  return v;
+};
+const site = resolveEnv('ASTRO_SITE', DEFAULT_SITE);
+const base = resolveEnv('ASTRO_BASE', DEFAULT_BASE);
 
 // https://astro.build/config
 export default defineConfig({

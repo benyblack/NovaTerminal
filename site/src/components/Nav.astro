@@ -8,6 +8,9 @@ const navLinks = [
 ];
 
 const repoUrl = 'https://github.com/benyblack/NovaTerminal';
+// Use the configured base so the home link lands on the deployed site
+// even when served from a project Pages path (`/NovaTerminal/`).
+const homeHref = import.meta.env.BASE_URL ?? '/';
 ---
 
 <header
@@ -17,7 +20,7 @@ const repoUrl = 'https://github.com/benyblack/NovaTerminal';
     class="container-prose flex h-16 items-center justify-between gap-6"
   >
     <a
-      href="/"
+      href={homeHref}
       class="flex items-center gap-2.5 text-white hover:text-white"
       aria-label="NovaTerminal home"
     >
