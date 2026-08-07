@@ -1,0 +1,189 @@
+---
+const groups = [
+  {
+    title: 'Terminal core',
+    eyebrow: 'Correctness',
+    body: 'A frame-agnostic VT/ANSI parser and cell-based buffer, measured against a conformance matrix and replay parity tests.',
+    items: [
+      'VT / ANSI parsing measured against a conformance matrix',
+      'Alternate screen support (vim, less, htop)',
+      'Scrollback buffer with deterministic replay',
+      'Stable resize & reflow',
+      'Cell-based buffer model',
+      'Thread-safe, crash-resistant PTY backend',
+    ],
+  },
+  {
+    title: 'User interface',
+    eyebrow: 'Productivity',
+    body: 'A modern UI for people who live in the terminal: tabs, splits, command palette, search, profiles, and live settings — no restart required.',
+    items: [
+      'Tabs, split panes, and workspace templates',
+      'Command palette (Ctrl+Shift+P) and tab list',
+      'Search overlay with regex support',
+      'Profiles for local and SSH sessions',
+      'Themes, fonts, and font sizing',
+      'Live settings — no restart required',
+    ],
+  },
+  {
+    title: 'Graphics & inline images',
+    eyebrow: 'Protocols',
+    body: 'First-class inline graphics so charts, plots, and previews land where you expect them — alongside prompts, not in a separate viewer.',
+    items: [
+      'Sixel graphics (verified with libsixel, lsix, gnuplot)',
+      'iTerm2 inline images (verified with imgcat, test_iterm2.py)',
+      'Kitty graphics protocol (native on Linux/macOS, tunneled on Windows)',
+      'Proper ConPTY synchronization — images render inline with prompts',
+    ],
+  },
+  {
+    title: 'Native SSH',
+    eyebrow: 'Remote',
+    body: 'Cross-platform SSH built for VT correctness and the realities of fullscreen TUIs.',
+    items: [
+      'SSH profiles with platform-vault credential storage',
+      'Keepalive and dynamic port forwarding',
+      'Coalesced resize handling for vim, htop, tmux',
+      'Disconnect state surfaced in the terminal pane',
+      'Runtime password memory (opt-in, session-scoped)',
+    ],
+  },
+];
+
+const parity = [
+  { label: 'VT interpretation', ok: true },
+  { label: 'Buffer state', ok: true },
+  { label: 'Wrapping & reflow', ok: true },
+  { label: 'Search semantics', ok: true },
+  { label: 'Window chrome (per-OS)', ok: false },
+  { label: 'Blur & transparency (per-OS)', ok: false },
+  { label: 'Global hotkeys (per-OS)', ok: false },
+  { label: 'Credential storage backends (per-OS)', ok: false },
+];
+---
+
+<section
+  id="features"
+  class="section border-b border-ink-900/60"
+  aria-labelledby="features-title"
+>
+  <div class="container-prose">
+    <div class="max-w-3xl">
+      <span class="eyebrow">Features</span>
+      <h2
+        id="features-title"
+        class="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl"
+      >
+        Everything you expect, and a few things you don't.
+      </h2>
+      <p class="lede mt-4 max-w-2xl">
+        NovaTerminal is feature-complete for everyday work, and ships with
+        capabilities most terminals don't have — replay-driven debugging,
+        conformance-tested VT, and an opt-in agent host.
+      </p>
+    </div>
+
+    <div class="mt-14 space-y-16">
+      {
+        groups.map((group) => (
+          <div class="grid gap-8 lg:grid-cols-12 lg:items-start">
+            <div class="lg:col-span-4">
+              <span class="text-xs font-semibold uppercase tracking-wider text-nova-300">
+                {group.eyebrow}
+              </span>
+              <h3 class="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+                {group.title}
+              </h3>
+              <p class="mt-3 text-sm leading-relaxed text-ink-300">
+                {group.body}
+              </p>
+            </div>
+            <ul class="lg:col-span-8 grid gap-2 sm:grid-cols-2">
+              {group.items.map((item) => (
+                <li class="flex items-start gap-2.5 text-sm text-ink-200">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="mt-0.5 h-4 w-4 shrink-0 text-nova-400"
+                    aria-hidden="true"
+                  >
+                    <path d="M5 12l5 5L20 7" />
+                  </svg>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+
+    <div
+      class="mt-16 rounded-2xl border border-ink-800 bg-ink-900/40 p-6 sm:p-8"
+      aria-labelledby="parity-title"
+    >
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3
+            id="parity-title"
+            class="text-xl font-semibold tracking-tight text-white sm:text-2xl"
+          >
+            Cross-platform parity, by design
+          </h3>
+          <p class="mt-2 text-sm leading-relaxed text-ink-300">
+            NovaTerminal guarantees identical terminal behavior across
+            Windows, Linux, and macOS. Platform-specific differences are
+            limited to the OS surface.
+          </p>
+        </div>
+      </div>
+      <ul class="mt-6 grid gap-2 sm:grid-cols-2">
+        {
+          parity.map((row) => (
+            <li class="flex items-center gap-3 rounded-md border border-ink-800 bg-ink-950/40 px-3 py-2 text-sm">
+              <span
+                class={
+                  'grid h-5 w-5 place-items-center rounded-full ' +
+                  (row.ok
+                    ? 'bg-emerald-500/15 text-emerald-300'
+                    : 'bg-amber-500/15 text-amber-300')
+                }
+                aria-hidden="true"
+              >
+                {row.ok ? (
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    class="h-3 w-3"
+                  >
+                    <path d="M5 12l5 5L20 7" />
+                  </svg>
+                ) : (
+                  <span class="block h-1.5 w-1.5 rounded-full bg-amber-300" />
+                )}
+              </span>
+              <span class="text-ink-200">{row.label}</span>
+              <span
+                class={
+                  'ml-auto text-xs ' +
+                  (row.ok ? 'text-emerald-300' : 'text-amber-300')
+                }
+              >
+                {row.ok ? 'identical' : 'OS-specific'}
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</section>

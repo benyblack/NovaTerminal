@@ -1,0 +1,179 @@
+---
+const repoUrl = 'https://github.com/benyblack/NovaTerminal';
+
+const tiers = [
+  {
+    name: 'Repo / dev-companion',
+    alwaysOn: true,
+    description:
+      'Read-only, offline tools. Project docs, VT/ANSI conformance data, and JSON validators for themes, SSH profiles, and settings.',
+    capabilities: [
+      'Project documentation queries',
+      'VT/ANSI conformance lookups',
+      'Config validators (themes, SSH, settings)',
+    ],
+  },
+  {
+    name: 'Observe',
+    alwaysOn: false,
+    description:
+      'Opt-in. List sessions, read screens, capture scrollback, wait for events, export replay. Screenshots have their own sub-toggle and are journaled.',
+    capabilities: [
+      'list_sessions',
+      'read_screen',
+      'read_scrollback',
+      'wait_for_events',
+      'export_replay',
+      'capture_screen',
+    ],
+  },
+  {
+    name: 'Act',
+    alwaysOn: false,
+    description:
+      'A separate opt-in on top of Observe. Send input, spawn, and close sessions. SSH targets require a per-profile allowlist. Every call — allowed or denied — is journaled in-app.',
+    capabilities: [
+      'send_input',
+      'spawn_session',
+      'close_session',
+      'Per-profile SSH allowlist',
+      'In-app activity journal',
+    ],
+  },
+];
+---
+
+<section
+  id="agent-host"
+  class="section border-b border-ink-900/60 bg-gradient-to-b from-ink-950 via-ink-950 to-ink-900/40"
+  aria-labelledby="agent-host-title"
+>
+  <div class="container-prose">
+    <div class="max-w-3xl">
+      <span class="eyebrow">Agent access (MCP)</span>
+      <h2
+        id="agent-host-title"
+        class="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl"
+      >
+        A terminal your AI agent can sit beside — not behind your back.
+      </h2>
+      <p class="lede mt-4 max-w-2xl">
+        A local, stdio
+        <a href="https://modelcontextprotocol.io" rel="noopener">Model Context Protocol</a>
+        server (<code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">NovaTerminal.McpServer</code>) exposes NovaTerminal to Claude Code, Claude Desktop, VS Code, and other MCP clients. The default surface is read-only; everything
+        that touches a live session is opt-in, layered, and journaled.
+      </p>
+    </div>
+
+    <div class="mt-12 grid gap-4 lg:grid-cols-3">
+      {
+        tiers.map((tier) => (
+          <article class="card relative h-full">
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="text-base font-semibold text-white">
+                {tier.name}
+              </h3>
+              <span
+                class={
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ' +
+                  (tier.alwaysOn
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-amber-500/30 bg-amber-500/10 text-amber-300')
+                }
+              >
+                <span
+                  class={
+                    'h-1.5 w-1.5 rounded-full ' +
+                    (tier.alwaysOn ? 'bg-emerald-400' : 'bg-amber-400')
+                  }
+                  aria-hidden="true"
+                />
+                {tier.alwaysOn ? 'On by default' : 'Opt-in'}
+              </span>
+            </div>
+            <p class="mt-3 text-sm leading-relaxed text-ink-300">
+              {tier.description}
+            </p>
+            <ul class="mt-5 space-y-2 border-t border-ink-800 pt-4 text-sm">
+              {tier.capabilities.map((cap) => (
+                <li class="flex items-start gap-2 text-ink-200">
+                  <span
+                    class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400"
+                    aria-hidden="true"
+                  />
+                  <span class="font-mono text-xs">{cap}</span>
+                </li>
+              ))}
+            </ul>
+          </article>
+        ))
+      }
+    </div>
+
+    <div class="mt-12 grid gap-6 lg:grid-cols-12">
+      <div class="lg:col-span-7">
+        <h3
+          class="text-sm font-semibold uppercase tracking-wider text-ink-400"
+        >
+          Register the server with Claude Code
+        </h3>
+        <p class="mt-2 text-sm leading-relaxed text-ink-300">
+          Build the server first, then point your MCP client at the compiled
+          DLL — never <code class="rounded bg-ink-800/60 px-1.5 py-0.5 text-nova-200">dotnet run</code>, which corrupts the stdio stream.
+        </p>
+        <pre class="code-block mt-4"><code><span class="text-ink-500"># Build</span>
+scripts/build.ps1 build -c Release src/NovaTerminal.McpServer
+
+<span class="text-ink-500"># Register with Claude Code</span>
+claude mcp add novaterminal -- \
+  dotnet "&lt;path-to-repo&gt;/src/NovaTerminal.McpServer/bin/Release/net10.0/NovaTerminal.McpServer.dll"</code></pre>
+        <p class="mt-3 text-xs text-ink-500">
+          For Claude Desktop or VS Code, add the same
+          <code class="text-nova-300">command</code>/<code
+            class="text-nova-300">args</code
+          > to the client's MCP config.
+        </p>
+      </div>
+      <div class="lg:col-span-5">
+        <h3
+          class="text-sm font-semibold uppercase tracking-wider text-ink-400"
+        >
+          Safety model
+        </h3>
+        <ul class="mt-4 space-y-3 text-sm text-ink-200">
+          <li class="flex items-start gap-2.5">
+            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400" aria-hidden="true"></span>
+            <span>
+              Both opt-in toggles off ⇒ no live endpoint at all.
+            </span>
+          </li>
+          <li class="flex items-start gap-2.5">
+            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400" aria-hidden="true"></span>
+            <span>
+              Acting on SSH requires a per-profile allowlist.
+            </span>
+          </li>
+          <li class="flex items-start gap-2.5">
+            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400" aria-hidden="true"></span>
+            <span>
+              Every acting call — allowed or denied — is journaled in-app.
+            </span>
+          </li>
+          <li class="flex items-start gap-2.5">
+            <span class="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-nova-400" aria-hidden="true"></span>
+            <span>
+              Replay exports never include input — typed keys are not retained.
+            </span>
+          </li>
+        </ul>
+        <a
+          href={`${repoUrl}/blob/main/docs/agent-host/2026-07-12-acting-threat-model.md`}
+          class="mt-4 inline-flex items-center gap-1.5 text-sm text-nova-300 hover:text-nova-200"
+        >
+          Read the acting threat model
+          <span aria-hidden="true">→</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>

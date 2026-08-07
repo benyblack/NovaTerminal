@@ -1,0 +1,151 @@
+---
+const trustPills = [
+  'Windows',
+  'Linux',
+  'macOS',
+  '.NET 10',
+  'Avalonia',
+  'Skia',
+  'Rust',
+];
+const repoUrl = 'https://github.com/benyblack/NovaTerminal';
+---
+
+<section
+  class="relative overflow-hidden border-b border-ink-900/60"
+  aria-labelledby="hero-title"
+>
+  <!-- Decorative grid background. -->
+  <div
+    class="pointer-events-none absolute inset-0 -z-10 bg-hero-grid"
+    aria-hidden="true"
+  >
+  </div>
+  <div
+    class="pointer-events-none absolute inset-x-0 top-0 -z-10 h-px
+      bg-gradient-to-r from-transparent via-nova-500/60 to-transparent"
+    aria-hidden="true"
+  >
+  </div>
+
+  <div
+    class="container-prose grid items-center gap-12 py-20 sm:py-28 lg:grid-cols-12 lg:gap-16"
+  >
+    <div class="lg:col-span-7">
+      <span class="eyebrow">
+        <span class="pill-dot"></span>
+        v0.x · Under active development
+      </span>
+      <h1
+        id="hero-title"
+        class="mt-6 text-balance text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl"
+      >
+        A terminal you can <span class="text-nova-300">trust</span>.
+      </h1>
+      <p class="lede mt-6 max-w-2xl text-pretty">
+        NovaTerminal is a modern, cross-platform terminal emulator focused on
+        <span class="text-white">correctness, performance, and
+        predictability</span> — built on .NET 10, Avalonia, and a Rust-backed
+        PTY. Same input, same output, every time.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a href="#install" class="btn-primary">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="h-4 w-4"
+            aria-hidden="true"
+          >
+            <path d="M12 3v12"></path>
+            <path d="m7 10 5 5 5-5"></path>
+            <path d="M5 21h14"></path>
+          </svg>
+          <span>Download</span>
+        </a>
+        <a
+          href={repoUrl}
+          class="btn-secondary"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            class="h-4 w-4"
+            aria-hidden="true"
+          >
+            <path
+              d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2.13c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.04 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.41-5.25 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.68.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"
+            ></path>
+          </svg>
+          <span>View on GitHub</span>
+        </a>
+        <a href="#how-it-works" class="btn-ghost">How it works →</a>
+      </div>
+
+      <ul class="mt-10 flex flex-wrap gap-2" aria-label="Tech stack">
+        {
+          trustPills.map((pill) => (
+            <li class="pill">
+              <span class="pill-dot"></span>
+              {pill}
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <!-- Right side: a stylised terminal frame preview. -->
+    <div class="lg:col-span-5">
+      <div
+        class="overflow-hidden rounded-2xl border border-ink-800 bg-ink-950 shadow-2xl shadow-black/40"
+      >
+        <div
+          class="flex items-center justify-between border-b border-ink-800 bg-ink-900/70 px-4 py-2.5"
+        >
+          <div class="flex items-center gap-1.5">
+            <span class="h-2.5 w-2.5 rounded-full bg-rose-500/80"></span>
+            <span class="h-2.5 w-2.5 rounded-full bg-amber-400/80"></span>
+            <span class="h-2.5 w-2.5 rounded-full bg-emerald-500/80"></span>
+          </div>
+          <span class="font-mono text-xs text-ink-400">
+            ~/projects/novaterminal
+          </span>
+          <span class="w-12 text-right text-xs text-ink-500">zsh</span>
+        </div>
+        <div class="space-y-1.5 p-5 font-mono text-sm leading-relaxed">
+          <p class="text-ink-400">$ git log --oneline --graph</p>
+          <p class="text-ink-200">
+            <span class="text-emerald-400">*</span> feat(mcp): observe toggle
+            <span class="text-ink-500">#298</span>
+          </p>
+          <p class="text-ink-200">
+            <span class="text-emerald-400">*</span> fix(vt): SGR italic
+            conformance
+            <span class="text-ink-500">#295</span>
+          </p>
+          <p class="text-ink-200">
+            <span class="text-emerald-400">*</span> perf(skia): glyph cache
+            warm
+            <span class="text-ink-500">#291</span>
+          </p>
+          <p class="text-ink-200">
+            <span class="text-emerald-400">*</span> docs: agent host
+            direction
+            <span class="text-ink-500">#289</span>
+          </p>
+          <p class="text-ink-500">$ <span class="animate-pulse">▍</span></p>
+        </div>
+      </div>
+      <p
+        class="mt-3 text-center text-xs text-ink-500 lg:text-left"
+        aria-hidden="true"
+      >
+        Same input, same pixels — every frame.
+      </p>
+    </div>
+  </div>
+</section>

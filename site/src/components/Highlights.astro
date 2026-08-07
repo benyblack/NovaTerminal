@@ -1,0 +1,114 @@
+---
+const items = [
+  {
+    title: 'Deterministic rendering',
+    body:
+      'Same input → same output. Always. Enables reliable testing, replay, and bug reports you can actually reproduce.',
+    icon: 'beaker',
+  },
+  {
+    title: 'Replay-driven debugging',
+    body:
+      'Record terminal sessions and replay them with pixel-level consistency. When something goes wrong, you can step through it frame by frame.',
+    icon: 'film',
+  },
+  {
+    title: 'VT correctness first',
+    body:
+      'Built with conformance and standards in mind — not best-effort rendering. A CI lane measures every supported VT/ANSI feature.',
+    icon: 'check',
+  },
+  {
+    title: 'GPU-accelerated rendering',
+    body:
+      'Smooth, modern pipeline using Skia with a snapshot-only rendering boundary and conservative perf ceilings enforced by CI.',
+    icon: 'bolt',
+  },
+  {
+    title: 'Extensible architecture',
+    body:
+      'Acyclic, focused class libraries with enforced invariants. Designed for future workflows: cloud, automation, AI-assisted tooling.',
+    icon: 'cube',
+  },
+  {
+    title: 'Built for AI agents',
+    body:
+      'An opt-in MCP server lets Claude Code and other agents observe your live terminal sessions — and, behind a separate opt-in, drive them.',
+    icon: 'sparkles',
+  },
+];
+
+const iconPaths: Record<string, string> = {
+  beaker:
+    'M9 3h6M10 3v6.5L4.5 19a2 2 0 0 0 1.7 3h11.6a2 2 0 0 0 1.7-3L14 9.5V3',
+  film:
+    'M3 4h18v16H3zM3 8h18M3 12h18M3 16h18M7 4v16M17 4v16',
+  check: 'M5 12l5 5L20 7',
+  bolt: 'M13 2 4 14h7l-1 8 9-12h-7z',
+  cube:
+    'M12 3 3 7.5v9L12 21l9-4.5v-9L12 3zM3 7.5 12 12l9-4.5M12 12v9',
+  sparkles:
+    'M12 3v4M12 17v4M3 12h4M17 12h4M5.5 5.5l2.8 2.8M15.7 15.7l2.8 2.8M5.5 18.5l2.8-2.8M15.7 8.3l2.8-2.8',
+};
+---
+
+<section
+  id="highlights"
+  class="section border-b border-ink-900/60"
+  aria-labelledby="highlights-title"
+>
+  <div class="container-prose">
+    <div class="max-w-3xl">
+      <span class="eyebrow">Why NovaTerminal</span>
+      <h2
+        id="highlights-title"
+        class="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl"
+      >
+        Most terminals optimize for speed or features. <br
+          class="hidden sm:inline"
+        />We optimize for behavior.
+      </h2>
+      <p class="lede mt-4 max-w-2xl text-pretty">
+        Terminal correctness is enforced by automated tests, not guesswork. The
+        renderer is gated by performance contracts, the parser is measured
+        against a conformance matrix, and replay parity prevents silent
+        behavioral drift.
+      </p>
+    </div>
+
+    <div
+      class="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      role="list"
+    >
+      {
+        items.map((item) => (
+          <div class="feature-card" role="listitem">
+            <div class="flex items-start gap-3">
+              <span
+                class="grid h-9 w-9 shrink-0 place-items-center rounded-lg
+                  border border-ink-800 bg-ink-900/70 text-nova-300"
+                aria-hidden="true"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="h-4.5 w-4.5"
+                >
+                  <path d={iconPaths[item.icon]} />
+                </svg>
+              </span>
+              <div>
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+              </div>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

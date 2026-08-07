@@ -1,0 +1,83 @@
+name: Deploy site to GitHub Pages
+
+on:
+  # Runs on pushes to the default branch (e.g. `main`). Change `main` below
+  # to your default branch name if it differs.
+  push:
+    branches: [main]
+  # Allows you to trigger this workflow manually from the Actions tab.
+  workflow_dispatch:
+
+# Avoid two deploys racing when pushes land close together; cancel in-flight
+# runs for the same ref and let the latest commit publish.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Scoped per job so the `deploy` job only gets the permissions it needs.
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install dependencies
+        working-directory: site
+        # `--ignore-scripts` is safe here: site/ has no native build step
+        # (no postinstall hooks), and skipping lifecycle scripts keeps the
+        # install surface small.
+        run: npm ci --ignore-scripts
+
+      - name: Sync screenshots into public/
+        working-directory: site
+        # `prebuild` already runs this, but invoke it explicitly so a
+        # future maintainer can re-run just this step during debugging.
+        run: npm run sync:assets
+
+      - name: Build
+        working-directory: site
+        env:
+          # `ASTRO_SITE` is the canonical origin (no path). The sentinel
+          # `__default__` means "fall back to the project Pages URL".
+          # Set to an empty string to deploy at a custom-domain origin
+          # (the config treats empty as "use whatever was passed").
+          ASTRO_SITE: ${{ vars.ASTRO_SITE || '__default__' }}
+          # `ASTRO_BASE` is the path prefix Astro applies to every page
+          # and asset. Set to an empty string for a custom-domain
+          # deployment with no path prefix.
+          ASTRO_BASE: ${{ vars.ASTRO_BASE || '__default__' }}
+        run: npm run build
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

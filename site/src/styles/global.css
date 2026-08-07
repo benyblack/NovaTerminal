@@ -1,0 +1,163 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+ * Base layer
+ * ------------------------------------------------------------------------- */
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --content-max-width: 72rem;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    /* Slight overscroll bounce to make long pages feel grounded. */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-ink-950 text-ink-100 font-sans;
+    background-image: radial-gradient(
+        circle at top,
+        rgba(58, 158, 255, 0.08),
+        transparent 45%
+      ),
+      radial-gradient(
+        circle at 80% 30%,
+        rgba(31, 127, 245, 0.05),
+        transparent 55%
+      );
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-nova-500/30 text-white;
+  }
+
+  /* Headings default to a tighter, more terminal-friendly rhythm. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-semibold tracking-tight text-white;
+  }
+
+  a {
+    @apply text-nova-300 transition-colors;
+  }
+
+  a:hover {
+    @apply text-nova-200;
+  }
+
+  /* Anchor-offset so the sticky nav doesn't cover section headings. */
+  :where(h2, h3)[id] {
+    scroll-margin-top: 5rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Components
+ * ------------------------------------------------------------------------- */
+
+@layer components {
+  .container-prose {
+    @apply mx-auto w-full max-w-7xl px-6 sm:px-8;
+  }
+
+  .eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full border border-ink-800
+      bg-ink-900/60 px-3 py-1 text-xs font-medium uppercase tracking-wider
+      text-nova-300;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md px-4
+      py-2.5 text-sm font-medium transition focus:outline-none focus-visible:ring-2
+      focus-visible:ring-nova-400 focus-visible:ring-offset-2
+      focus-visible:ring-offset-ink-950;
+  }
+
+  .btn-primary {
+    @apply btn bg-nova-500 text-white shadow-lg shadow-nova-900/40
+      hover:bg-nova-400;
+  }
+
+  .btn-secondary {
+    @apply btn border border-ink-700 bg-ink-900/60 text-ink-100
+      hover:border-ink-500 hover:bg-ink-800;
+  }
+
+  .btn-ghost {
+    @apply btn text-ink-200 hover:bg-ink-800/60;
+  }
+
+  .card {
+    @apply rounded-xl border border-ink-800 bg-ink-900/50 p-6 shadow-xl
+      shadow-black/20 transition hover:border-ink-700;
+  }
+
+  .feature-card {
+    @apply card flex h-full flex-col;
+  }
+
+  .feature-card h3 {
+    @apply text-base font-semibold text-white;
+  }
+
+  .feature-card p {
+    @apply mt-2 text-sm leading-relaxed text-ink-300;
+  }
+
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-ink-800
+      bg-ink-900/70 px-2.5 py-1 text-xs font-medium text-ink-200;
+  }
+
+  .pill-dot {
+    @apply h-1.5 w-1.5 rounded-full bg-nova-400;
+  }
+
+  .code-block {
+    @apply overflow-x-auto rounded-lg border border-ink-800 bg-ink-950/80
+      p-4 font-mono text-sm leading-relaxed text-ink-100;
+  }
+
+  .section {
+    @apply py-20 sm:py-24;
+  }
+
+  .section-tight {
+    @apply py-12 sm:py-16;
+  }
+
+  .lede {
+    @apply text-lg leading-relaxed text-ink-300 sm:text-xl;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Utilities
+ * ------------------------------------------------------------------------- */
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  .border-gradient {
+    background:
+      linear-gradient(var(--background, #11161d), var(--background, #11161d))
+        padding-box,
+      linear-gradient(135deg, #1f7ff5, #5dbcff) border-box;
+    border: 1px solid transparent;
+  }
+}
