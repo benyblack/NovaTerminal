@@ -27,9 +27,11 @@
 
 # The remote shell-integration snippets (V2 Phase 2b) are pasted onto a remote POSIX host, so a CRLF
 # working tree would put `$'\r': command not found` on every line of the file the user just wrote.
-# `*.sh` above already covers one of the three. `RemoteShellIntegrationSnippets.Read` normalizes as
-# well, so this is belt and braces for anyone reading the files out of the tree directly.
-assets/shell-integration/*   text eol=lf
+# `*.sh` above already covers most of them. `RemoteShellIntegrationSnippets.Read` normalizes as
+# well, so this is belt and braces for anyone reading the files out of the tree directly. `**`
+# rather than `*`: the installers under `assets/shell-integration/install/` are a directory deeper,
+# and nova-install.ps1 has no other rule declaring it LF.
+assets/shell-integration/**   text eol=lf
 
 # Rust sources: LF, matching cargo/rustfmt convention and the crates' own history.
 *.rs        text eol=lf

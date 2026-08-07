@@ -168,6 +168,123 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         Assert.Equal(1, CountLoaderLines(File.ReadAllText(BashrcPath)));
     }
 
+    /// <summary>
+    /// A `.bashrc` with no trailing newline is common (many editors don't add one). The append must
+    /// not land on the same line as the user's last line - it must first ensure the file ends in a
+    /// newline, then add the loader on its own line. A regression here breaks the user's last rc line
+    /// AND leaves the loader unreadable by the shell, on a remote host, while the installer still
+    /// reports success.
+    /// </summary>
+    [Fact]
+    public void Installer_BashrcWithoutTrailingNewline_PreservesLastLineAndAddsLoaderOnItsOwnLine()
+    {
+        File.WriteAllText(
+            BashrcPath,
+            "export FOO=bar",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        string output = RunInstaller();
+
+        string expectedLoader = RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!;
+        string rc = File.ReadAllText(BashrcPath).Replace("\r\n", "\n");
+        Assert.Equal($"export FOO=bar\n{expectedLoader}\n", rc);
+        Assert.Equal(1, CountLoaderLines(rc));
+        Assert.Contains("nova: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
+    }
+
+    // ---- shell selection -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Every other behavioural test drives the bash arm via <c>${BASH_VERSION:+bash}</c>. This test
+    /// invokes the installer directly with an explicit "zsh" argument (the same technique
+    /// <see cref="FishInstaller_WritesTheSnippetIntoConfD"/> uses for fish) so the <c>zsh)</c> case
+    /// arm is actually exercised: it must patch <c>~/.zshrc</c>, not <c>~/.bashrc</c>.
+    /// </summary>
+    [Fact]
+    public void Installer_WithZshArgument_PatchesZshrcNotBashrc()
+    {
+        string? bash = ShellHarness.FindBash();
+        if (bash is null)
+        {
+            Assert.Skip("bash not found on this system");
+        }
+
+        string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(
+            RemoteShellIntegrationShell.BashOrZsh);
+        string installerPath = Path.Combine(_home, "nova-install.sh");
+        File.WriteAllText(installerPath, installer, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        var startInfo = new ProcessStartInfo(bash)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(installerPath.Replace('\\', '/'));
+        startInfo.ArgumentList.Add("zsh");
+        startInfo.Environment["HOME"] = HomeForShell;
+
+        using Process process = Process.Start(startInfo)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "installer did not finish within 30s");
+
+        string zshrcPath = Path.Combine(_home, ".zshrc");
+        Assert.True(File.Exists(zshrcPath), $"~/.zshrc not created. output:\n{output}");
+        Assert.False(File.Exists(BashrcPath), "~/.bashrc should not be touched when zsh is selected");
+        Assert.Contains(
+            RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
+            File.ReadAllText(zshrcPath),
+            StringComparison.Ordinal);
+        Assert.Contains("nova: added loader line to ~/.zshrc", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The <c>*)</c> arm: no argument and an unrecognized/unset <c>$SHELL</c>. The installer cannot
+    /// silently do nothing here - it must tell the user it could not tell which shell they use and
+    /// print the loader line for them to add by hand, and it must not create either rc file.
+    /// </summary>
+    [Fact]
+    public void Installer_WithUnrecognizedShell_TellsTheUserAndPrintsTheLoaderLine()
+    {
+        string? bash = ShellHarness.FindBash();
+        if (bash is null)
+        {
+            Assert.Skip("bash not found on this system");
+        }
+
+        string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(
+            RemoteShellIntegrationShell.BashOrZsh);
+        string installerPath = Path.Combine(_home, "nova-install.sh");
+        File.WriteAllText(installerPath, installer, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        var startInfo = new ProcessStartInfo(bash)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(installerPath.Replace('\\', '/'));
+        startInfo.ArgumentList.Add(string.Empty);
+        startInfo.Environment["HOME"] = HomeForShell;
+        // Override whatever $SHELL the test machine happens to have so the fallback resolves to
+        // something the case statement's zsh)/bash) arms cannot match, deterministically reaching *).
+        startInfo.Environment["SHELL"] = "/bin/nonsense-shell";
+
+        using Process process = Process.Start(startInfo)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "installer did not finish within 30s");
+
+        Assert.Contains("nova: could not tell which shell you use", output, StringComparison.Ordinal);
+        Assert.Contains(
+            RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
+            output,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(BashrcPath), "~/.bashrc should not be created when the shell is unknown");
+        Assert.False(
+            File.Exists(Path.Combine(_home, ".zshrc")),
+            "~/.zshrc should not be created when the shell is unknown");
+    }
+
     // ---- failure ---------------------------------------------------------------------------------
 
     /// <summary>
@@ -330,7 +447,8 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     /// <summary>
     /// The design's central promise: the installer runs as a child, so nothing it defines can reach
     /// the shell that pasted the line. Asserted by checking the calling shell afterwards for the
-    /// installer's own variables and for the snippet's marker function.
+    /// installer's own variables, <c>__nova_dest</c> and <c>__nova_t</c> - not the snippet, which this
+    /// probe does not source and so cannot say anything about.
     /// </summary>
     [Fact]
     public void Installer_LeavesNothingBehindInTheCallingShell()
@@ -399,6 +517,91 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             File.ReadAllText(dest).Replace("\r\n", "\n").TrimEnd('\n'));
         Assert.Equal(1, CountLoaderLines(File.ReadAllText(profilePath)));
         Assert.Contains("already present", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The PowerShell equivalent of
+    /// <see cref="Installer_BashrcWithoutTrailingNewline_PreservesLastLineAndAddsLoaderOnItsOwnLine"/>:
+    /// <c>Add-Content</c> against a profile that does not end in a newline concatenates the loader
+    /// onto the user's last line instead of appending it as its own line.
+    /// </summary>
+    [Fact]
+    public void PowerShellInstaller_ProfileWithoutTrailingNewline_PreservesLastLineAndAddsLoaderOnItsOwnLine()
+    {
+        string? pwsh = FindPwsh();
+        if (pwsh is null)
+        {
+            Assert.Skip("pwsh not found on this system");
+        }
+
+        string installerPath = Path.Combine(_home, "nova-install.ps1");
+        File.WriteAllText(
+            installerPath,
+            RemoteShellIntegrationSnippets.BuildInstallerScript(
+                RemoteShellIntegrationShell.PowerShell),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        string profilePath = Path.Combine(_home, "profile.ps1");
+        File.WriteAllText(profilePath, "$x = 1", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        string output = RunPwsh(pwsh, installerPath, profilePath);
+
+        string expectedLoader = RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.PowerShell)!;
+        string profile = File.ReadAllText(profilePath).Replace("\r\n", "\n");
+        Assert.Equal($"$x = 1\n{expectedLoader}\n", profile);
+        Assert.Contains("nova: added loader line", output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <see cref="PowerShellInstaller_WritesTheSnippetAndPatchesTheProfileOnce"/> invokes the
+    /// installer via <c>-File</c>, which parses the script as its own document and never exercises
+    /// the generated one-liner's own syntax - the wrapper that decodes and runs it. This parses (but
+    /// does not execute, to avoid touching the developer's real <c>$PROFILE</c>) the actual generated
+    /// <see cref="RemoteShellIntegrationSnippets.BuildInstallerCommand"/> string for the PowerShell
+    /// shell through <see cref="System.Management.Automation.Language.Parser.ParseInput"/> in a real
+    /// pwsh, so a quoting or precedence slip in the wrapper template would fail here.
+    /// </summary>
+    [Fact]
+    public void PowerShellOneLiner_ParsesWithoutErrors()
+    {
+        string? pwsh = FindPwsh();
+        if (pwsh is null)
+        {
+            Assert.Skip("pwsh not found on this system");
+        }
+
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.PowerShell);
+        string commandPath = Path.Combine(_home, "nova-install-oneliner.txt");
+        File.WriteAllText(commandPath, command, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        string parseScript =
+            "$__cmd = Get-Content -LiteralPath '" + commandPath.Replace('\\', '/') + "' -Raw\n" +
+            "$__tokens = $null\n" +
+            "$__errors = $null\n" +
+            "[void][System.Management.Automation.Language.Parser]::ParseInput($__cmd, [ref]$__tokens, [ref]$__errors)\n" +
+            "if ($__errors.Count -gt 0) {\n" +
+            "    $__errors | ForEach-Object { [Console]::Error.WriteLine($_.ToString()) }\n" +
+            "    exit 1\n" +
+            "} else {\n" +
+            "    exit 0\n" +
+            "}\n";
+
+        var startInfo = new ProcessStartInfo(pwsh)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add("-NoProfile");
+        startInfo.ArgumentList.Add("-NonInteractive");
+        startInfo.ArgumentList.Add("-Command");
+        startInfo.ArgumentList.Add(parseScript);
+
+        using Process process = Process.Start(startInfo)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "parse check did not finish within 30s");
+        Assert.True(process.ExitCode == 0, $"one-liner failed to parse:\n{output}\ncommand:\n{command}");
     }
 
     private static string? FindPwsh()

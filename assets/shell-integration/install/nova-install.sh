@@ -49,6 +49,13 @@ if [ -z "$__nova_rc" ]; then
 elif [ -f "$__nova_rc" ] && grep -q 'nova-shell-integration' "$__nova_rc" 2>/dev/null; then
     echo "nova: loader line already present in $__nova_rc_display - unchanged"
 else
+    # A rc file that does not end in a newline (common - many editors don't add one) would
+    # otherwise get the loader line concatenated onto its last line instead of appended as its
+    # own line. Guarded for the common case where the file does not exist yet: tail on a missing
+    # file prints nothing to stdout, so this is a no-op and >> below creates it.
+    if [ -f "$__nova_rc" ] && [ -n "$(tail -c1 "$__nova_rc" 2>/dev/null)" ]; then
+        printf '\n' >> "$__nova_rc"
+    fi
     printf '%s\n' "$__nova_loader" >> "$__nova_rc"
     echo "nova: added loader line to $__nova_rc_display"
 fi
