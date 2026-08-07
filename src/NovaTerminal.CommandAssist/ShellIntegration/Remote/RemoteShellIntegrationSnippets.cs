@@ -156,6 +156,10 @@ public static class RemoteShellIntegrationSnippets
                 """
                 __nova_t=$(mktemp 2>/dev/null || printf /tmp/nova-si.%s "$$"); printf %s '@@BLOB@@' | base64 -d 2>/dev/null | gzip -dc 2>/dev/null > "$__nova_t"; if [ -s "$__nova_t" ]; then sh "$__nova_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "nova: install failed - this host needs base64 and gzip"; fi; rm -f "$__nova_t"; unset __nova_t
                 """,
+            RemoteShellIntegrationShell.Fish =>
+                """
+                set -l __nova_t (mktemp); printf %s '@@BLOB@@' | base64 -d | gzip -dc > $__nova_t; sh $__nova_t fish; rm -f $__nova_t; set -e __nova_t
+                """,
             _ => throw new ArgumentOutOfRangeException(nameof(shell), shell, "No installer ships for this shell."),
         };
 

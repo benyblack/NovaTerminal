@@ -110,6 +110,7 @@ public sealed class RemoteShellIntegrationInstallerTests
     /// <summary>And no shipped snippet collides, which is why the guard never fires in practice.</summary>
     [Theory]
     [InlineData(RemoteShellIntegrationShell.BashOrZsh)]
+    [InlineData(RemoteShellIntegrationShell.Fish)]
     public void NoSnippet_CollidesWithTheInstallerDelimiter(RemoteShellIntegrationShell shell)
     {
         string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(shell);
@@ -117,6 +118,65 @@ public sealed class RemoteShellIntegrationInstallerTests
 
         Assert.Contains("__NOVA_SNIPPET_EOF__", installer, StringComparison.Ordinal);
         Assert.DoesNotContain("__NOVA_SNIPPET_EOF__", snippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FishInstaller_IsExactlyOneLine()
+    {
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.Fish);
+
+        Assert.DoesNotContain("\n", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("\r", command, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// fish syntax, not sh: <c>set -l</c> and <c>(mktemp)</c> rather than <c>$(mktemp)</c>. Pasting
+    /// an sh one-liner into fish fails on the first command substitution.
+    /// </summary>
+    [Fact]
+    public void FishInstaller_UsesFishSyntax()
+    {
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.Fish);
+
+        Assert.Contains("set -l __nova_t (mktemp)", command, StringComparison.Ordinal);
+        Assert.Contains("set -e __nova_t", command, StringComparison.Ordinal);
+        Assert.DoesNotContain("$(mktemp)", command, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FishInstaller_PayloadDecodesToTheInstallerScript()
+    {
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.Fish);
+        string payload = Regex.Match(command, @"printf %s '([^']*)'").Groups[1].Value;
+
+        Assert.Equal(
+            RemoteShellIntegrationSnippets.BuildInstallerScript(RemoteShellIntegrationShell.Fish),
+            Decompress(payload));
+    }
+
+    /// <summary>
+    /// The fish installer is POSIX sh carrying fish content: the wrapper must not have been written
+    /// in fish by mistake, and the payload must be the fish snippet.
+    /// </summary>
+    [Fact]
+    public void FishInstaller_IsPosixShCarryingTheFishSnippet()
+    {
+        string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(
+            RemoteShellIntegrationShell.Fish);
+
+        Assert.StartsWith("#!/bin/sh", installer, StringComparison.Ordinal);
+        Assert.Contains(
+            RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish).TrimEnd('\n'),
+            installer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            RemoteShellIntegrationSnippets.GetRemotePath(RemoteShellIntegrationShell.Fish)
+                .Replace("~/", string.Empty, StringComparison.Ordinal),
+            installer,
+            StringComparison.Ordinal);
     }
 
     internal static string Decompress(string base64)

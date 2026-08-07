@@ -239,6 +239,50 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         Assert.Contains(result.Events, e => e.Kind == "D" && e.DecodedFinish.exitCode == 0);
     }
 
+    // ---- fish -------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The fish installer is POSIX sh, so it is exercised under bash: the payload it writes is fish
+    /// content, but nothing about running the installer needs fish present. That the fish snippet
+    /// itself works is FishShellIntegrationTests' job.
+    /// </summary>
+    [Fact]
+    public void FishInstaller_WritesTheSnippetIntoConfD()
+    {
+        string? bash = ShellHarness.FindBash();
+        if (bash is null)
+        {
+            Assert.Skip("bash not found on this system");
+        }
+
+        // Run the fish installer's payload directly: the fish one-liner is fish syntax, which bash
+        // cannot parse, and what is under test here is the installer it decodes to.
+        string installer = RemoteShellIntegrationSnippets.BuildInstallerScript(
+            RemoteShellIntegrationShell.Fish);
+        string installerPath = Path.Combine(_home, "nova-install-fish.sh");
+        File.WriteAllText(installerPath, installer, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        var startInfo = new ProcessStartInfo(bash)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(installerPath.Replace('\\', '/'));
+        startInfo.ArgumentList.Add("fish");
+        startInfo.Environment["HOME"] = HomeForShell;
+
+        using Process process = Process.Start(startInfo)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "fish installer did not finish within 30s");
+
+        string dest = Path.Combine(_home, ".config", "fish", "conf.d", "nova-shell-integration.fish");
+        Assert.True(File.Exists(dest), $"fish snippet not written. output:\n{output}");
+        Assert.Equal(
+            RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish).TrimEnd('\n'),
+            File.ReadAllText(dest).Replace("\r\n", "\n").TrimEnd('\n'));
+    }
+
     // ---- the live shell is untouched -------------------------------------------------------------
 
     /// <summary>
