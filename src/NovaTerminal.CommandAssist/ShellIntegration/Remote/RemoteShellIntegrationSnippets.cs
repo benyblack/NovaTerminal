@@ -252,12 +252,18 @@ public static class RemoteShellIntegrationSnippets
     /// </summary>
     /// <remarks>
     /// <para>
-    /// The clipboard carries the snippet itself rather than a generated one-line installer, and the
-    /// instructions are shown rather than pasted. A generated installer would have to be a heredoc
-    /// (which fish cannot parse), a base64 blob (which the user cannot read before running), or a
-    /// download (which needs a URL the app does not have). Handing over the file and telling the
-    /// user where to put it is the version with no hidden machinery, and the snippet repeats these
-    /// same steps in its own header comment so they survive the trip to the remote host.
+    /// This is the secondary path. The primary one is <see cref="BuildInstallerCommand"/>, and these
+    /// instructions belong to the "Copy plain snippet" action beside it.
+    /// </para>
+    /// <para>
+    /// The class used to argue against a generated installer on the grounds that a base64 blob
+    /// cannot be read before it is run. That objection was real and is now met differently: the
+    /// installers are reviewable files under <c>assets/shell-integration/install/</c>, and this
+    /// readable path is still one click away in the same row. What the 300-line paste cost was not
+    /// worth keeping - a flooded scrollback, a slow paste in any shell with syntax highlighting, an
+    /// rc edit left to the user, and a PowerShell recipe that could not work on a Windows remote at
+    /// all, where <c>cat</c> is an alias for <c>Get-Content</c> and so <c>cat &gt; file</c> has no
+    /// input to read.
     /// </para>
     /// <para>
     /// <c>cat &gt; path</c> plus Ctrl-D rather than an editor: it is the one recipe that works on a

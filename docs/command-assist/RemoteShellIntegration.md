@@ -30,49 +30,35 @@ sidebar's problem and not this one.
 ## Install
 
 Settings → **Command assistant** → **Remote shell integration**: pick the remote shell, press
-**Copy snippet**. The whole snippet goes on your clipboard; the row then tells you the two commands
-to run. The snippet repeats the same instructions in its own header comment, so they survive the
-trip to the remote host.
+**Copy installer**, paste the one line at the prompt on that host, press Enter. It prints what it
+did:
 
-### bash and zsh
-
-One file covers both; it dispatches on `$BASH_VERSION` / `$ZSH_VERSION` when it loads.
-
-```sh
-cat > ~/.nova-shell-integration.sh
-# ...paste, then press Ctrl-D...
-
-# bash:
-echo '[ -f ~/.nova-shell-integration.sh ] && . ~/.nova-shell-integration.sh' >> ~/.bashrc
-# zsh:
-echo '[ -f ~/.nova-shell-integration.sh ] && . ~/.nova-shell-integration.sh' >> ~/.zshrc
+```
+nova: wrote ~/.nova-shell-integration.sh
+nova: added loader line to ~/.zshrc
+nova: run  . ~/.nova-shell-integration.sh  to enable it in this session,
+nova: or open a new Nova session to this host.
 ```
 
-Then open a new Nova session to that host.
+One line and one history entry, rather than the 300-line paste this replaced. The line decodes a
+gzipped copy of the snippet into a temp file, runs it as a **child process**, and deletes it. It
+never sources anything into your live shell: the shell's identity is expanded by your shell and
+handed to the installer as an argument, so it knows whether to patch `~/.bashrc` or `~/.zshrc`
+without touching your session. Running it twice changes nothing the second time — the loader line is
+added only if it isn't already there, including when you placed it by hand.
 
-### fish
+Integration starts with your next session to that host. The third line above is there if you want it
+sooner in the shell you pasted into.
 
-fish is not POSIX sh — `case`, `$-`, `local`, function and array syntax all differ — so it gets its
-own file rather than a branch in the sh one.
+fish needs no loader line at all: its snippet goes to `~/.config/fish/conf.d/`, which fish sources
+automatically.
 
-```fish
-mkdir -p ~/.config/fish/conf.d
-cat > ~/.config/fish/conf.d/nova-shell-integration.fish
-# ...paste, then press Ctrl-D...
-```
+### Placing the file yourself
 
-`conf.d` is auto-sourced, so there is no loader line to add.
-
-### PowerShell
-
-```powershell
-cat > ~/.nova-shell-integration.ps1
-# ...paste, then press Ctrl-D...
-Add-Content $PROFILE '. ~/.nova-shell-integration.ps1'
-```
-
-`$PROFILE`'s directory may not exist yet:
-`New-Item -ItemType Directory -Force -Path (Split-Path $PROFILE)`.
+**Copy plain snippet** puts the whole file on the clipboard instead, and the row tells you where it
+goes. That is the path for a dotfiles repo, `/etc/profile.d`, or reading the snippet before you
+trust it — the installers themselves are readable files in the repository under
+`assets/shell-integration/install/`.
 
 ## What the snippets promise
 

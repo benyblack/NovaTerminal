@@ -884,12 +884,13 @@
                             <Grid ColumnDefinitions="*,360">
                                 <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Classes="RowLabel" Text="Remote shell integration"/>
-                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Nova cannot install shell integration over SSH. Copy the snippet for the remote shell, paste it on the host, and the command assistant works there too: history, suggestions read from the prompt line, exit codes and prompt-anchored placement. Filesystem path suggestions stay off for remote sessions - they would list the local disk."/>
+                                    <TextBlock Classes="RowDesc" TextWrapping="Wrap" Text="Nova cannot install shell integration over SSH. Copy the one-line installer for the remote shell, paste it at the prompt on that host, and the command assistant works there too: history, suggestions read from the prompt line, exit codes and prompt-anchored placement. Filesystem path suggestions stay off for remote sessions - they would list the local disk."/>
                                     <TextBlock Name="RemoteShellIntegrationStatus" Classes="RowDesc" TextWrapping="Wrap" Text="" IsVisible="False"/>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
                                     <ComboBox Name="RemoteShellIntegrationShellList" MinWidth="150"/>
-                                    <Button Name="BtnCopyRemoteShellIntegration" Classes="Pill" Content="Copy snippet"/>
+                                    <Button Name="BtnCopyRemoteShellIntegration" Classes="Pill" Content="Copy installer"/>
+                                    <Button Name="BtnCopyRemoteShellIntegrationSnippet" Classes="Pill" Content="Copy plain snippet"/>
                                 </StackPanel>
                             </Grid>
                         </StackPanel>
