@@ -76,33 +76,36 @@
                                                 Classes.selected="{Binding IsSelected}"
                                                 Margin="0,1"
                                                 PointerPressed="OnSuggestionRowPointerPressed">
-                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                            <!--
+                                                One-line row (owner request, V2 row-density round):
+                                                the command text is the row. Time, cwd, exit code and
+                                                badge text used to stack three lines high here; all of
+                                                it survives, just in the detail panel this row feeds
+                                                (SelectedDescriptionText / SelectedMetadataText /
+                                                SelectedBadgesText on the popup view-model) rather than
+                                                repeated on every row. The one exception is Pinned: it
+                                                is the one fact that changes which rows exist rather
+                                                than merely describing the selected one, so it keeps a
+                                                single subtle glyph in the gutter instead of moving out
+                                                entirely.
+                                            -->
+                                            <Grid ColumnDefinitions="Auto,Auto,*">
                                                 <TextBlock Text="{Binding SelectionGlyph}"
                                                            Foreground="#8EC5FF"
                                                            Width="12"
-                                                           VerticalAlignment="Top"/>
-                                                <StackPanel Grid.Column="1"
-                                                            Spacing="1">
-                                                    <TextBlock Text="{Binding DisplayText}"
-                                                               Foreground="White"
-                                                               FontFamily="Consolas"
-                                                               TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding DescriptionText}"
-                                                               Foreground="#C8E1FF"
-                                                               FontSize="11"
-                                                               TextWrapping="Wrap"/>
-                                                    <TextBlock Text="{Binding MetadataText}"
-                                                               Foreground="#9CA3AF"
-                                                               FontSize="11"
-                                                               TextTrimming="CharacterEllipsis"/>
-                                                </StackPanel>
-                                                <TextBlock Grid.Column="2"
-                                                           Text="{Binding BadgesText}"
-                                                           Foreground="#C8E1FF"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="📌"
                                                            FontSize="11"
-                                                           HorizontalAlignment="Right"
-                                                           Margin="8,0,0,0"
-                                                           TextWrapping="Wrap"/>
+                                                           Width="16"
+                                                           VerticalAlignment="Center"
+                                                           IsVisible="{Binding IsPinned}"/>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding DisplayText}"
+                                                           Foreground="White"
+                                                           FontFamily="Consolas"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>
@@ -189,33 +192,36 @@
                                                 Classes.selected="{Binding IsSelected}"
                                                 Margin="0,1"
                                                 PointerPressed="OnSuggestionRowPointerPressed">
-                                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                            <!--
+                                                One-line row (owner request, V2 row-density round):
+                                                the command text is the row. Time, cwd, exit code and
+                                                badge text used to stack three lines high here; all of
+                                                it survives, just in the detail panel this row feeds
+                                                (SelectedDescriptionText / SelectedMetadataText /
+                                                SelectedBadgesText on the popup view-model) rather than
+                                                repeated on every row. The one exception is Pinned: it
+                                                is the one fact that changes which rows exist rather
+                                                than merely describing the selected one, so it keeps a
+                                                single subtle glyph in the gutter instead of moving out
+                                                entirely.
+                                            -->
+                                            <Grid ColumnDefinitions="Auto,Auto,*">
                                                 <TextBlock Text="{Binding SelectionGlyph}"
                                                            Foreground="#8EC5FF"
                                                            Width="12"
-                                                           VerticalAlignment="Top"/>
-                                                <StackPanel Grid.Column="1"
-                                                            Spacing="1">
-                                                    <TextBlock Text="{Binding DisplayText}"
-                                                               Foreground="White"
-                                                               FontFamily="Consolas"
-                                                               TextTrimming="CharacterEllipsis"/>
-                                                    <TextBlock Text="{Binding DescriptionText}"
-                                                               Foreground="#C8E1FF"
-                                                               FontSize="11"
-                                                               TextWrapping="Wrap"/>
-                                                    <TextBlock Text="{Binding MetadataText}"
-                                                               Foreground="#9CA3AF"
-                                                               FontSize="11"
-                                                               TextTrimming="CharacterEllipsis"/>
-                                                </StackPanel>
-                                                <TextBlock Grid.Column="2"
-                                                           Text="{Binding BadgesText}"
-                                                           Foreground="#C8E1FF"
+                                                           VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1"
+                                                           Text="📌"
                                                            FontSize="11"
-                                                           HorizontalAlignment="Right"
-                                                           Margin="8,0,0,0"
-                                                           TextWrapping="Wrap"/>
+                                                           Width="16"
+                                                           VerticalAlignment="Center"
+                                                           IsVisible="{Binding IsPinned}"/>
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding DisplayText}"
+                                                           Foreground="White"
+                                                           FontFamily="Consolas"
+                                                           VerticalAlignment="Center"
+                                                           TextTrimming="CharacterEllipsis"/>
                                             </Grid>
                                         </Border>
                                     </DataTemplate>

@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using NovaTerminal.CommandAssist.Models;
@@ -53,6 +54,21 @@ public sealed class CommandAssistSuggestionItemViewModel : INotifyPropertyChange
     public string MetadataText { get; }
 
     public AssistSuggestionType Type { get; }
+
+    /// <summary>
+    /// Whether this row carries the "Pinned" badge.
+    /// </summary>
+    /// <remarks>
+    /// Row density (owner request, V2 row-density round) moved every other per-row caption -
+    /// description, metadata, the full badge line - into the detail panel only, since the popup's
+    /// <see cref="BadgesText"/> is no longer rendered on the row itself. Pinned is the one exception:
+    /// it changes which rows are worth a second look while browsing, not just what the reader learns
+    /// about the row already selected, so it earns a single glyph in the row rather than a trip to the
+    /// detail panel. Derived from <see cref="BadgesText"/> rather than a new constructor parameter, so
+    /// every existing call site - and every "Pinned" badge origin in
+    /// <c>CommandAssistSuggestionEngine.BuildSnippetBadges</c> - stays the single source of truth.
+    /// </remarks>
+    public bool IsPinned => BadgesText.Contains("Pinned", StringComparison.Ordinal);
 
     public bool IsSelected
     {
