@@ -374,8 +374,12 @@ gaps doc under "Added In V2 Phase 6 prep". Verified live on `pwsh` before and af
 shells share the VT code path and are not installed on the dev box.
 
 1. Verify all six re-enable criteria from the design doc, plus the one item Phase 1 carried here:
-   smoke scenarios 1–8 re-validated. (Phase 1's other carried item, task 7's markless capture-only
+   the smoke checklist re-validated. (Phase 1's other carried item, task 7's markless capture-only
    accumulator, landed in Phase 1d. The first-prompt blocker above is cleared.)
+   The V2 checklist is `docs/command-assist/CommandAssist_SmokeTest_Scenarios_2026-08-11.md`:
+   10 scenarios, run as two passes (Windows/local pwsh, and Unix over SSH). Note that "scenarios
+   1–8" as written here was wrong twice over — the V1 document it referred to has 14 scenarios,
+   not 8, and two of them (3 and 10) are inverted or misnamed under V2 rather than merely stale.
 2. Update `CommandAssistDefaultDisabledTests` → `CommandAssistDefaultEnabledTests`; flip `TerminalSettings.CommandAssistEnabled = true`; changelog + docs refresh (`CommandAssist.md` rewritten to match V2 reality, §14 keyboard table fixed).
 3. New smoke checklist executed on Windows + Unix-over-SSH; record results in `docs/command-assist/`.
 
