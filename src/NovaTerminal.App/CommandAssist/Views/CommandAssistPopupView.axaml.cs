@@ -72,9 +72,9 @@ public partial class CommandAssistPopupView : UserControl
     /// </summary>
     /// <remarks>
     /// Needed because the row list is an <c>ItemsControl</c> rather than a selecting control: nothing
-    /// else knows that one of its children is special. Both list instances are asked, because the
-    /// compact and expanded layouts are separate subtrees and only one of them is realized at a time -
-    /// the unrealized one has no container for the index and answers null, which is the no-op.
+    /// else knows that one of its children is special. One list, since UX round 7 collapsed the
+    /// compact and expanded layouts into a single template - this used to ask both and let the
+    /// unrealized one answer null.
     /// </remarks>
     private void BringSelectedRowIntoView()
     {
@@ -85,7 +85,6 @@ public partial class CommandAssistPopupView : UserControl
         }
 
         BringIntoView(PopupSuggestionsList, index);
-        BringIntoView(PopupCompactSuggestionsList, index);
     }
 
     private static void BringIntoView(ItemsControl? list, int index)

@@ -244,8 +244,32 @@ namespace NovaTerminal.Controls
         private const double CommandAssistBubbleHeight = 36;
         private const double CommandAssistPopupWidth = 520;
         private const double CommandAssistPopupHeight = 220;
-        private const double CompactPopupWidthThreshold = 420;
-        private const double CompactPopupHeightThreshold = 180;
+
+        // ---- Content-sized popup height (UX round 7).
+        //
+        // Every number below is read off CommandAssistPopupView.axaml rather than tuned by eye, and
+        // CommandAssistLayoutTests.TerminalPane_PopupHeightEstimate_MatchesTheRenderedTemplate
+        // measures the real control against them - so a template change that invalidates the estimate
+        // fails in the suite instead of showing up as a popup with a gap under its last row.
+        //
+        // Chrome, top to bottom:
+        //   outer Border BorderThickness 1, twice                            2
+        //   outer Border Padding 12, twice                                  24
+        //   root Grid RowSpacing 10, two gaps between its three rows        20
+        //   header line (mode label / query at the default font size)       19
+        //   results Border Padding 8, twice                                 16
+        //   footer line (FontSize 11)                                       15
+        private const double CommandAssistPopupChromeHeight = 96;
+
+        // One row: a default-size line box (19) inside Border Padding "4,2" (4) and Margin "0,1" (2).
+        private const double CommandAssistPopupRowHeight = 25;
+
+        // The attribution credit, when there is one: StackPanel Spacing 3 plus one 10pt line.
+        private const double CommandAssistPopupAttributionHeight = 19;
+
+        // The "no matches" popup is a caption, not a list, and gets one line's worth of body rather
+        // than the tall empty box a fixed 220 produced.
+        private const int CommandAssistPopupEmptyStateRows = 1;
         private const double ConservativeRemotePromptBandStartRatio = 0.55;
         private const int ConservativeRemoteMinVisibleRows = 8;
         private const double ConservativeRemoteShortPaneHeightThreshold = 300;
@@ -1312,7 +1336,10 @@ namespace NovaTerminal.Controls
             bool hasMarkAnchor = markHint.HasValue;
             float fallbackCellHeight = TermView.Metrics.CellHeight > 0 ? TermView.Metrics.CellHeight : 18;
             int fallbackVisibleRows = TermView.Rows > 0 ? TermView.Rows : 1;
-            CommandAssistSurfaceSizing sizing = CalculateCommandAssistSurfaceSizing(paneWidth, paneHeight);
+            CommandAssistSurfaceSizing sizing = CalculateCommandAssistSurfaceSizing(
+                paneWidth,
+                paneHeight,
+                ReadCommandAssistPopupContentSize());
             bool hasReliablePromptAnchor = IsCommandAssistPromptAnchorReliable(promptHint, hasMarkAnchor);
             float anchorCellHeight = markHint?.CellHeight ?? promptHint?.CellHeight ?? fallbackCellHeight;
             int hintCursorRow = promptHint?.VisibleCursorVisualRow ?? 0;
@@ -1521,17 +1548,94 @@ namespace NovaTerminal.Controls
             return true;
         }
 
-        private static CommandAssistSurfaceSizing CalculateCommandAssistSurfaceSizing(double paneWidth, double paneHeight)
+        /// <summary>
+        /// Reads the popup's current contents off the bound view-model, for the height estimate.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// The row count comes from <c>CommandAssistBarViewModel.SuggestionCount</c> rather than from
+        /// <c>Suggestions.Count</c>, and that is what makes the placement re-run at all. A placement
+        /// pass is triggered by <see cref="OnCommandAssistViewModelPropertyChanged"/>, which listens to
+        /// the bar view-model; the collection is rebuilt without any property on it changing, so
+        /// before the count was published a <c>Ctrl+R</c> filter that went from six rows to two left
+        /// the popup at its six-row height. Reading the same property the notification came from also
+        /// means the two can never disagree.
+        /// </para>
+        /// <para>
+        /// Not the popup view-model's copy: the pane holds the bar view-model, and the bar publishes
+        /// to the popup <em>after</em> raising its own change - so a read through the popup during
+        /// that notification would be one pass stale.
+        /// </para>
+        /// </remarks>
+        private CommandAssistPopupContentSize ReadCommandAssistPopupContentSize()
+        {
+            CommandAssistBarViewModel? viewModel = _boundCommandAssistViewModel;
+            if (viewModel == null)
+            {
+                return new CommandAssistPopupContentSize(0, false, false);
+            }
+
+            return new CommandAssistPopupContentSize(
+                viewModel.SuggestionCount,
+                viewModel.ShowEmptyState,
+                !string.IsNullOrWhiteSpace(viewModel.AttributionText));
+        }
+
+        private static CommandAssistSurfaceSizing CalculateCommandAssistSurfaceSizing(
+            double paneWidth,
+            double paneHeight,
+            CommandAssistPopupContentSize content)
         {
             double bubbleWidth = Math.Clamp(paneWidth * 0.44, 280, CommandAssistBubbleWidth);
             double popupWidth = Math.Clamp(paneWidth * 0.58, 360, CommandAssistPopupWidth);
-            double popupHeight = Math.Clamp(paneHeight * 0.45, 160, CommandAssistPopupHeight);
+            double popupHeight = EstimateCommandAssistPopupHeight(content, paneHeight);
 
             return new CommandAssistSurfaceSizing(
                 BubbleWidth: bubbleWidth,
                 BubbleHeight: CommandAssistBubbleHeight,
                 PopupWidth: popupWidth,
                 PopupHeight: popupHeight);
+        }
+
+        /// <summary>
+        /// How tall the popup wants to be for the rows it is about to show.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// <strong>Why the height is estimated up front instead of measured.</strong> The obvious
+        /// shrink-to-fit - <c>Height = NaN</c> with a <c>MaxHeight</c> cap - is wrong here, and
+        /// silently so. <c>CommandAssistAnchorCalculator.CreatePopupRect</c> places an upward popup by
+        /// subtracting the <em>requested</em> height from the bubble's top edge, and the pane applies
+        /// the result as <c>Margin.Top</c> inside a top-aligned grid. An auto-sized popup asked for
+        /// 220 and drawn at 120 would therefore hang 100 px above the prompt, attached to nothing.
+        /// Feeding the desired height into the request instead keeps the popup a fixed rectangle -
+        /// one that happens to be exactly the size of its contents - and every placement rule
+        /// downstream keeps working unchanged.
+        /// </para>
+        /// <para>
+        /// The estimate is allowed to be a little generous and must never be short: too tall leaves a
+        /// few pixels of card under the last row, too short clips it. The clamp keeps the old
+        /// <c>paneHeight * 0.45</c> ceiling, so a long list behaves exactly as it did and scrolls.
+        /// </para>
+        /// </remarks>
+        internal static double EstimateCommandAssistPopupHeight(CommandAssistPopupContentSize content, double paneHeight)
+        {
+            int rows = content.ShowEmptyState
+                ? CommandAssistPopupEmptyStateRows
+                : Math.Max(1, content.RowCount);
+
+            double desired = CommandAssistPopupChromeHeight + (rows * CommandAssistPopupRowHeight);
+            if (content.HasAttribution)
+            {
+                desired += CommandAssistPopupAttributionHeight;
+            }
+
+            // The floor is one row's worth of popup, not the old 160: a single-row Ctrl+R answer that
+            // reserved 160 px was most of the box the owner asked us to stop drawing.
+            double floor = CommandAssistPopupChromeHeight + CommandAssistPopupRowHeight;
+            double ceiling = Math.Max(floor, Math.Clamp(paneHeight * 0.45, floor, CommandAssistPopupHeight));
+
+            return Math.Clamp(desired, floor, ceiling);
         }
 
         private void UpdateCommandAssistOverlayPlacement()
@@ -1613,13 +1717,6 @@ namespace NovaTerminal.Controls
 
             if (CommandAssistPopup != null)
             {
-                if (_boundCommandAssistViewModel != null)
-                {
-                    _boundCommandAssistViewModel.Popup.UseCompactLayout =
-                        layout.PopupRect.Width <= CompactPopupWidthThreshold ||
-                        layout.PopupRect.Height <= CompactPopupHeightThreshold;
-                }
-
                 CommandAssistPopup.Width = layout.PopupRect.Width;
                 CommandAssistPopup.Height = layout.PopupRect.Height;
                 CommandAssistPopup.MinHeight = layout.PopupRect.Height;
@@ -4384,6 +4481,20 @@ namespace NovaTerminal.Controls
             double BubbleHeight,
             double PopupWidth,
             double PopupHeight);
+
+        /// <summary>
+        /// The three facts about the popup's contents that change how tall it needs to be.
+        /// </summary>
+        /// <remarks>
+        /// Internal, and a parameter rather than something
+        /// <see cref="EstimateCommandAssistPopupHeight"/> reads off the bound view-model, so the
+        /// height rule is a pure function the suite can drive across row counts without a pane, a
+        /// session or a render pass.
+        /// </remarks>
+        internal readonly record struct CommandAssistPopupContentSize(
+            int RowCount,
+            bool ShowEmptyState,
+            bool HasAttribution);
 
         private sealed class TestRemoteDirectoryBrowserService : IRemoteDirectoryBrowserService
         {

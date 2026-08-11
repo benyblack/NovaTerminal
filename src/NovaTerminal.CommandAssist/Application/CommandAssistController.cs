@@ -1094,6 +1094,7 @@ public sealed class CommandAssistController
         ViewModel.EmptyStateText = string.Empty;
         ViewModel.ShowEmptyState = false;
         ViewModel.HasSuggestions = false;
+        ViewModel.SuggestionCount = 0;
         ViewModel.AttributionText = string.Empty;
         ViewModel.Suggestions.Clear();
         _suggestions.Clear();
@@ -1159,7 +1160,15 @@ public sealed class CommandAssistController
                 badgesText: string.Join("  ", suggestion.Badges),
                 metadataText: BuildMetadataText(suggestion),
                 isSelected: i == ViewModel.SelectedIndex,
-                type: suggestion.Type));
+                type: suggestion.Type,
+
+                // The query the rows were ranked against, so each row can point at the run of text
+                // that earned its place. Read off the view-model rather than passed in, because both
+                // entry points write it there first - ApplyRefreshOutcome from the ranking pass,
+                // ApplyHelperSuggestions from the Help/Fix subject - and a second parameter would be
+                // one more thing for a future third entry point to forget.
+                queryText: ViewModel.QueryText,
+                exitCode: suggestion.ExitCode));
         }
 
         SyncSelectionState();
@@ -1177,6 +1186,12 @@ public sealed class CommandAssistController
         ViewModel.SelectedMetadataText = selected == null ? string.Empty : BuildMetadataText(selected);
         ViewModel.SelectedDescriptionText = selected?.Description ?? string.Empty;
         ViewModel.HasSuggestions = _suggestions.Count > 0;
+
+        // Published from here rather than from SyncSuggestionViewModel because this is the one
+        // method both row-changing and selection-changing paths end in, and the setter ignores a
+        // repeat - so a selection move costs nothing and a re-rank that happens to return the same
+        // number of rows does not re-place the popup.
+        ViewModel.SuggestionCount = _suggestions.Count;
 
         for (int i = 0; i < ViewModel.Suggestions.Count; i++)
         {

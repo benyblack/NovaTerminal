@@ -1,15 +1,18 @@
 using NovaTerminal.Shell;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Layout;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using System.Collections.ObjectModel;
 using NovaTerminal.CommandAssist.Application;
 using NovaTerminal.Controls;
 using NovaTerminal.CommandAssist.Models;
+using NovaTerminal.CommandAssist.Providers;
 using NovaTerminal.CommandAssist.ViewModels;
 using NovaTerminal.CommandAssist.Views;
 using NovaTerminal.Platform;
@@ -250,10 +253,13 @@ public sealed class CommandAssistLayoutTests
         var popupVm = Assert.IsType<CommandAssistPopupViewModel>(popupView.DataContext);
 
         var bubbleModeLabel = bubbleView.FindControl<TextBlock>("BubbleModeLabelText");
-        var popupDescription = popupView.FindControl<TextBlock>("PopupSelectedDescriptionTextBlock");
+
+        // The footer line, not the detail panel's description block: UX round 7 folded description,
+        // badges and metadata into one composed string and deleted the panel that showed them apart.
+        var popupFooter = popupView.FindControl<TextBlock>("PopupSelectedFooterText");
 
         Assert.NotNull(bubbleModeLabel);
-        Assert.NotNull(popupDescription);
+        Assert.NotNull(popupFooter);
         Assert.Equal("Help", bubbleModeLabel.Text);
 
         // One surface at a time (UX-polish round, issue 6). Help opens the popup, so the bubble
@@ -1090,8 +1096,24 @@ public sealed class CommandAssistLayoutTests
         Assert.Equal(layout.PopupRect.Top, popupView.Margin.Top, precision: 1);
     }
 
+    /// <summary>
+    /// A narrow pane gets the same popup a wide one does: one row list, full width, no side panel.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This replaces <c>TerminalPane_WhenPopupIsNarrow_UsesCompactPopupLayout</c>. That test asserted
+    /// the compact layout hid the detail panel at 420 px, which was a real behaviour until UX round 7
+    /// deleted the panel at every width. With nothing left for the flag to switch between, both the
+    /// flag and the second template went; the property worth pinning now is that the narrow case has
+    /// no second template to diverge - the same named list is realized, and it is the whole body.
+    /// </para>
+    /// <para>
+    /// Driven through the real pane rather than a bare view because the deleted flag was written from
+    /// <c>UpdateCommandAssistOverlayPlacement</c>: it is the placement path that has to stop caring.
+    /// </para>
+    /// </remarks>
     [AvaloniaFact]
-    public async Task TerminalPane_WhenPopupIsNarrow_UsesCompactPopupLayout()
+    public async Task TerminalPane_WhenPopupIsNarrow_StillUsesTheSingleFullWidthRowList()
     {
         using var pane = new TerminalPane
         {
@@ -1109,10 +1131,11 @@ public sealed class CommandAssistLayoutTests
 
         CommandAssistPopupView popupView = Assert.IsType<CommandAssistPopupView>(pane.FindControl<CommandAssistPopupView>("CommandAssistPopup"));
         CommandAssistPopupViewModel vm = Assert.IsType<CommandAssistPopupViewModel>(popupView.DataContext);
-        Border detailPanel = Assert.IsType<Border>(popupView.FindControl<Border>("PopupDetailPanel"));
 
-        Assert.True(vm.UseCompactLayout);
-        Assert.False(detailPanel.IsVisible);
+        Assert.Null(popupView.FindControl<Border>("PopupDetailPanel"));
+        Assert.Null(popupView.FindControl<Border>("PopupCompactPanel"));
+        Assert.NotNull(popupView.FindControl<ItemsControl>("PopupSuggestionsList"));
+        Assert.True(vm.HasSuggestions, "A popup with no rows would make the layout assertion vacuous.");
     }
 
     [AvaloniaFact]
@@ -1362,7 +1385,7 @@ public sealed class CommandAssistLayoutTests
     }
 
     [AvaloniaFact]
-    public void CommandAssistPopupView_BindsResultListAndDetailState()
+    public void CommandAssistPopupView_BindsResultListAndFooterState()
     {
         var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>
         {
@@ -1378,8 +1401,8 @@ public sealed class CommandAssistLayoutTests
         {
             IsVisible = true,
             ModeLabel = "Help",
-            TopSuggestionText = "git status",
             SelectedDescriptionText = "Show working tree state.",
+            SelectedFooterText = @"Show working tree state.  |  History  |  C:\repo",
             HasSuggestions = true
         };
         var view = new CommandAssistPopupView
@@ -1388,20 +1411,31 @@ public sealed class CommandAssistLayoutTests
         };
 
         var modeLabel = view.FindControl<TextBlock>("PopupModeLabelText");
-        var description = view.FindControl<TextBlock>("PopupSelectedDescriptionTextBlock");
+        var footer = view.FindControl<TextBlock>("PopupSelectedFooterText");
         var list = view.FindControl<ItemsControl>("PopupSuggestionsList");
 
         Assert.NotNull(modeLabel);
-        Assert.NotNull(description);
+        Assert.NotNull(footer);
         Assert.NotNull(list);
         Assert.True(view.IsVisible);
         Assert.Equal("Help", modeLabel.Text);
-        Assert.Equal("Show working tree state.", description.Text);
+        Assert.Equal(@"Show working tree state.  |  History  |  C:\repo", footer.Text);
         Assert.Single(vm.Suggestions);
     }
 
+    /// <summary>
+    /// The detail panel is gone at every width, and so is the second row template it justified.
+    /// </summary>
+    /// <remarks>
+    /// This replaces <c>CommandAssistPopupView_WhenCompactLayout_HidesDetailPane</c>, which asserted
+    /// the compact flag hid the panel. Both the panel and the flag were deleted in UX round 7 (owner
+    /// request): with the rows running full width there was nothing for the compact template to do
+    /// differently, and a flag that selects between two identical outcomes is a phantom. Asserting
+    /// the named controls are absent is what keeps a well-meaning revert from quietly reintroducing
+    /// them - <c>FindControl</c> returning null is the only signature their absence has.
+    /// </remarks>
     [AvaloniaFact]
-    public void CommandAssistPopupView_WhenCompactLayout_HidesDetailPane()
+    public void CommandAssistPopupView_HasNoDetailPanelAndOneRowTemplate()
     {
         var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>
         {
@@ -1417,19 +1451,66 @@ public sealed class CommandAssistLayoutTests
         {
             IsVisible = true,
             ModeLabel = "Help",
-            TopSuggestionText = "git status",
-            SelectedDescriptionText = "Show working tree state.",
-            HasSuggestions = true,
-            UseCompactLayout = true
+            HasSuggestions = true
         };
         var view = new CommandAssistPopupView
         {
             DataContext = vm
         };
 
-        Border detailPanel = Assert.IsType<Border>(view.FindControl<Border>("PopupDetailPanel"));
+        Assert.Null(view.FindControl<Border>("PopupDetailPanel"));
+        Assert.Null(view.FindControl<Border>("PopupCompactPanel"));
+        Assert.Null(view.FindControl<ItemsControl>("PopupCompactSuggestionsList"));
+        Assert.NotNull(view.FindControl<ItemsControl>("PopupSuggestionsList"));
+    }
 
-        Assert.False(detailPanel.IsVisible);
+    /// <summary>
+    /// With the panel gone, the row list is the popup's whole body width.
+    /// </summary>
+    /// <remarks>
+    /// The old layout gave the rows a <c>3*</c> of a <c>3*,2*</c> grid - 60% of the body, less a 12 px
+    /// gap - which is what ellipsised commands that had room to spare beside them. "Full width" is
+    /// asserted as a fraction of the card rather than an exact number so the padding constants stay
+    /// free to move; 0.85 is comfortably above anything the two-column grid could have produced.
+    /// </remarks>
+    [AvaloniaFact]
+    public void CommandAssistPopupView_RowListSpansTheFullBodyWidth()
+    {
+        const double popupWidth = 520;
+
+        CommandAssistPopupViewModel vm = CreatePopulatedPopupViewModel();
+        var view = new CommandAssistPopupView
+        {
+            DataContext = vm,
+            Width = popupWidth,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+
+        var window = new Window
+        {
+            Content = view,
+            Width = popupWidth + 80,
+            Height = 300
+        };
+
+        try
+        {
+            window.Show();
+            RelayoutTo(window, view, new Size(popupWidth + 80, 300));
+
+            ItemsControl list = Assert.IsType<ItemsControl>(view.FindControl<ItemsControl>("PopupSuggestionsList"));
+
+            Assert.True(
+                list.Bounds.Width >= popupWidth * 0.85,
+                $"The row list arranged to {list.Bounds.Width:F0} px of a {popupWidth:F0} px popup. " +
+                "The detail panel took 40% of the body; if the rows are back under that share, the " +
+                "two-column grid has returned.");
+        }
+        finally
+        {
+            window.Close();
+        }
     }
 
     [AvaloniaFact]
@@ -1687,5 +1768,757 @@ public sealed class CommandAssistLayoutTests
 
         Assert.Equal(expectedGlyph, vm.Bubble.IntegrationGlyphText);
         Assert.Equal(expectedLabel, vm.Bubble.IntegrationStatusText);
+    }
+
+    // ------------------------- UX round 7: one footer line
+
+    /// <summary>
+    /// The footer is one composed string: description, then badges, then metadata.
+    /// </summary>
+    [Fact]
+    public void PopupFooter_JoinsDescriptionBadgesAndMetadata()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            IsPopupOpen = true,
+            ModeLabel = "History",
+            SelectedDescriptionText = "Show working tree state.",
+            SelectedBadgesText = "History  Same dir",
+            SelectedMetadataText = @"C:\repo  |  2 min ago  |  Exit 0"
+        };
+
+        Assert.Equal(
+            @"Show working tree state.  |  History  Same dir  |  C:\repo  |  2 min ago  |  Exit 0",
+            vm.Popup.SelectedFooterText);
+    }
+
+    /// <summary>
+    /// Missing parts are dropped, not joined through: no leading, trailing or doubled separator.
+    /// </summary>
+    /// <remarks>
+    /// The common case, not an edge case. A history row has no description and a snippet has no
+    /// metadata, so a naive three-way join would open most Ctrl+R footers with "  |  ".
+    /// </remarks>
+    [Theory]
+    [InlineData("", "History", @"C:\repo", @"History  |  C:\repo")]
+    [InlineData("Show it.", "", @"C:\repo", @"Show it.  |  C:\repo")]
+    [InlineData("Show it.", "History", "", "Show it.  |  History")]
+    [InlineData("", "", @"C:\repo", @"C:\repo")]
+    public void PopupFooter_OmitsTheEmptyParts(
+        string description,
+        string badges,
+        string metadata,
+        string expected)
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            IsPopupOpen = true,
+            SelectedDescriptionText = description,
+            SelectedBadgesText = badges,
+            SelectedMetadataText = metadata
+        };
+
+        Assert.Equal(expected, vm.Popup.SelectedFooterText);
+    }
+
+    /// <summary>
+    /// With nothing selected the footer is empty, not a bare pair of separators.
+    /// </summary>
+    [Fact]
+    public void PopupFooter_WithNothingSelected_IsEmpty()
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            IsPopupOpen = true,
+            ModeLabel = "History"
+        };
+
+        Assert.Equal(string.Empty, vm.Popup.SelectedFooterText);
+    }
+
+    /// <summary>
+    /// The squeeze order: the metadata trims, the hint strip and the dot never do.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The owner's call, and the reverse of a content-first instinct. The footer is the only place
+    /// <c>Enter</c> and <c>Esc</c> are taught, and a legend cut off at the ellipsis has stopped being
+    /// a legend; a working directory cut short still says which machine and roughly where.
+    /// </para>
+    /// <para>
+    /// Measured against the hint's own unconstrained desired width rather than against a pixel
+    /// number, so re-binding the shortcut keys to something longer does not make this test lie. The
+    /// metadata is asserted to have actually been squeezed, or the whole thing would pass on a popup
+    /// wide enough for everything.
+    /// </para>
+    /// </remarks>
+    [AvaloniaFact]
+    public void PopupFooter_WhenTheFooterIsTight_TrimsTheMetadataAndNotTheHints()
+    {
+        const double popupWidth = 360;
+
+        CommandAssistPopupViewModel vm = CreatePopulatedPopupViewModel();
+        vm.SelectedFooterText =
+            @"Show the working tree status.  |  History  Same dir  |  C:\very\long\working\directory\that\keeps\going  |  2 minutes ago  |  Exit 0";
+        vm.ShortcutHintText = CommandAssistBarViewModel.BrowseHintText;
+
+        var view = new CommandAssistPopupView
+        {
+            DataContext = vm,
+            Width = popupWidth,
+            Height = 220,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+
+        var window = new Window
+        {
+            Content = view,
+            Width = popupWidth + 80,
+            Height = 300
+        };
+
+        try
+        {
+            window.Show();
+            RelayoutTo(window, view, new Size(popupWidth + 80, 300));
+
+            TextBlock hint = Assert.IsType<TextBlock>(view.FindControl<TextBlock>("PopupShortcutHintText"));
+            TextBlock footer = Assert.IsType<TextBlock>(view.FindControl<TextBlock>("PopupSelectedFooterText"));
+            TextBlock glyph = Assert.IsType<TextBlock>(view.FindControl<TextBlock>("PopupIntegrationGlyph"));
+
+            var unconstrainedHint = new TextBlock
+            {
+                Text = hint.Text,
+                FontSize = hint.FontSize,
+                FontFamily = hint.FontFamily
+            };
+            unconstrainedHint.Measure(Size.Infinity);
+
+            Assert.True(
+                hint.Bounds.Width >= unconstrainedHint.DesiredSize.Width - 0.5,
+                $"The hint strip arranged to {hint.Bounds.Width:F0} px but wants " +
+                $"{unconstrainedHint.DesiredSize.Width:F0} px, so it has been squeezed. The hints are " +
+                "the one thing in this footer that must never give up a character.");
+            Assert.True(glyph.Bounds.Width > 0, "The integration dot must survive the squeeze too.");
+            Assert.True(
+                footer.Bounds.Width < unconstrainedHint.DesiredSize.Width * 3,
+                $"The metadata arranged to {footer.Bounds.Width:F0} px in a {popupWidth:F0} px popup, " +
+                "which is not tight enough for this test to be measuring a squeeze at all.");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// The popup's integration indicator is the bubble's dot, not the old labelled chip - and the
+    /// sentence behind it is still there for hover and for a screen reader.
+    /// </summary>
+    [Theory]
+    [InlineData(true, CommandAssistBarViewModel.IntegratedStatusGlyph, CommandAssistBarViewModel.IntegratedStatusTooltip)]
+    [InlineData(false, CommandAssistBarViewModel.BasicStatusGlyph, CommandAssistBarViewModel.BasicStatusTooltip)]
+    public void PopupIntegrationIndicator_IsTheBubblesDotWithTheSameTooltip(
+        bool isLive,
+        string expectedGlyph,
+        string expectedTooltip)
+    {
+        var vm = new CommandAssistBarViewModel
+        {
+            IsVisible = true,
+            IsPopupOpen = true,
+            ModeLabel = "History",
+            IsShellIntegrationLive = isLive
+        };
+
+        Assert.Equal(expectedGlyph, vm.Popup.IntegrationGlyphText);
+        Assert.Equal(expectedGlyph, vm.Bubble.IntegrationGlyphText);
+        Assert.Equal(expectedTooltip, vm.Popup.IntegrationStatusTooltip);
+
+        // The word is no longer rendered, but it is still published: it is what the tooltip and the
+        // accessible name are built from, and dropping it would make the dot unnameable.
+        Assert.False(string.IsNullOrWhiteSpace(vm.Popup.IntegrationStatusText));
+    }
+
+    /// <summary>The rendered footer carries the dot and its tooltip, and no chip.</summary>
+    [AvaloniaFact]
+    public void CommandAssistPopupView_RendersTheIntegrationDotAndNotTheChip()
+    {
+        CommandAssistPopupViewModel vm = CreatePopulatedPopupViewModel();
+        vm.IntegrationGlyphText = CommandAssistBarViewModel.BasicStatusGlyph;
+        vm.IntegrationStatusTooltip = CommandAssistBarViewModel.BasicStatusTooltip;
+
+        var view = new CommandAssistPopupView
+        {
+            DataContext = vm
+        };
+
+        Assert.Null(view.FindControl<Border>("PopupIntegrationChip"));
+
+        TextBlock glyph = Assert.IsType<TextBlock>(view.FindControl<TextBlock>("PopupIntegrationGlyph"));
+        Assert.Equal(CommandAssistBarViewModel.BasicStatusGlyph, glyph.Text);
+        Assert.Equal(CommandAssistBarViewModel.BasicStatusTooltip, ToolTip.GetTip(glyph));
+    }
+
+    /// <summary>
+    /// The licence credit keeps its own wrapped line under the footer, untrimmed.
+    /// </summary>
+    /// <remarks>
+    /// Pinned because the footer rearrangement is exactly the kind of change that would sweep it into
+    /// the ellipsised column. A credit cut off at the ellipsis is not a credit, and this one is a
+    /// CC-BY-SA obligation rather than a nicety.
+    /// </remarks>
+    [AvaloniaFact]
+    public void CommandAssistPopupView_KeepsTheAttributionOnItsOwnWrappedLine()
+    {
+        CommandAssistPopupViewModel vm = CreatePopulatedPopupViewModel();
+        vm.AttributionText = "Command examples from tldr-pages, CC-BY-SA 4.0.";
+
+        var view = new CommandAssistPopupView
+        {
+            DataContext = vm
+        };
+
+        TextBlock attribution = Assert.IsType<TextBlock>(view.FindControl<TextBlock>("PopupAttributionText"));
+
+        Assert.True(attribution.IsVisible);
+        Assert.Equal(TextWrapping.Wrap, attribution.TextWrapping);
+        Assert.Equal(TextTrimming.None, attribution.TextTrimming);
+        Assert.Equal("Command examples from tldr-pages, CC-BY-SA 4.0.", attribution.Text);
+    }
+
+    // ------------------------- UX round 7: matched-substring highlight
+
+    /// <summary>
+    /// Where the highlight lands, across every boundary the query can hit.
+    /// </summary>
+    /// <remarks>
+    /// The subsequence case is the interesting one. The matcher scores <c>gs</c> against
+    /// <c>git status</c> on its subsequence path, which has no contiguous run to point at; the row
+    /// answers "no highlight" rather than inventing a span the matcher never used.
+    /// </remarks>
+    [Theory]
+    [InlineData("git status", "", -1, 0)]                 // no query: nothing typed, nothing to point at
+    [InlineData("git status", "git", 0, 3)]               // at index 0
+    [InlineData("git status", "status", 4, 6)]            // at the end
+    [InlineData("git status", "tat", 5, 3)]               // in the middle
+    [InlineData("git status", "GIT", 0, 3)]               // typed uppercase, row lowercase
+    [InlineData("Get-ChildItem", "get", 0, 3)]            // typed lowercase, row uppercase
+    [InlineData("git", "git status", -1, 0)]              // query longer than the row
+    [InlineData("git status", "docker", -1, 0)]           // no match at all
+    [InlineData("git status", "gs", -1, 0)]               // subsequence only: no contiguous run
+    [InlineData("git status", "   ", -1, 0)]              // whitespace-only query
+    [InlineData("git status", "git ", 0, 3)]              // trailing space trimmed, as the matcher does
+    public void SuggestionRow_HighlightsTheMatchedRun(
+        string displayText,
+        string query,
+        int expectedStart,
+        int expectedLength)
+    {
+        var row = new CommandAssistSuggestionItemViewModel(
+            displayText: displayText,
+            descriptionText: string.Empty,
+            badgesText: string.Empty,
+            metadataText: string.Empty,
+            isSelected: false,
+            type: AssistSuggestionType.History,
+            queryText: query);
+
+        Assert.Equal(expectedStart, row.HighlightStart);
+        Assert.Equal(expectedLength, row.HighlightLength);
+    }
+
+    /// <summary>
+    /// The control turns the span into runs, and keeps trimming on the whole line.
+    /// </summary>
+    [Fact]
+    public void MatchHighlightTextBlock_SplitsIntoBeforeMatchAndAfter()
+    {
+        Assert.Equal(("git ", "sta", "tus"), MatchHighlightTextBlock.SplitForHighlight("git status", 4, 3));
+        Assert.Equal((string.Empty, "git", " status"), MatchHighlightTextBlock.SplitForHighlight("git status", 0, 3));
+        Assert.Equal(("git ", "status", string.Empty), MatchHighlightTextBlock.SplitForHighlight("git status", 4, 6));
+        Assert.Null(MatchHighlightTextBlock.SplitForHighlight("git status", -1, 0));
+        Assert.Null(MatchHighlightTextBlock.SplitForHighlight("git status", 4, 0));
+        Assert.Null(MatchHighlightTextBlock.SplitForHighlight(string.Empty, 0, 3));
+
+        // The span outlives the text by a frame when the two bindings update independently.
+        Assert.Null(MatchHighlightTextBlock.SplitForHighlight("git", 4, 6));
+        Assert.Null(MatchHighlightTextBlock.SplitForHighlight("git status", 8, 6));
+    }
+
+    /// <summary>
+    /// The rendered inlines: three runs for a match in the middle, one for no match.
+    /// </summary>
+    /// <remarks>
+    /// Asserted on the inlines rather than on pixels because the runs are the thing: a single
+    /// <c>TextBlock</c> laying out three runs is what keeps <c>TextTrimming</c> working on the whole
+    /// command, which a three-<c>TextBlock</c> <c>StackPanel</c> would have broken.
+    /// </remarks>
+    [AvaloniaFact]
+    public void MatchHighlightTextBlock_BuildsInlineRunsForTheSpan()
+    {
+        var highlight = new SolidColorBrush(Colors.Aqua);
+        var block = new MatchHighlightTextBlock
+        {
+            SourceText = "git status",
+            HighlightStart = 4,
+            HighlightLength = 3,
+            HighlightBrush = highlight,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+
+        Assert.Equal(new[] { "git ", "sta", "tus" }, RunTexts(block));
+        Assert.Same(highlight, Assert.IsType<Run>(block.Inlines![1]).Foreground);
+
+        // Only the matched run is emphasised. The others carry no explicit brush, which is what lets
+        // them inherit the row's foreground - including the dim a failed row applies.
+        Assert.False(
+            ReferenceEquals(highlight, Assert.IsType<Run>(block.Inlines[0]).Foreground),
+            "The run before the match must not take the highlight brush.");
+        Assert.False(
+            ReferenceEquals(highlight, Assert.IsType<Run>(block.Inlines[2]).Foreground),
+            "The run after the match must not take the highlight brush.");
+        Assert.Equal(TextTrimming.CharacterEllipsis, block.TextTrimming);
+
+        // A match at index 0 has no "before", so it is two runs and not three with a blank.
+        block.HighlightStart = 0;
+        block.HighlightLength = 3;
+        Assert.Equal(new[] { "git", " status" }, RunTexts(block));
+
+        // No match: the whole string, one run, still trimmed as one line.
+        block.HighlightStart = -1;
+        block.HighlightLength = 0;
+        Assert.Equal(new[] { "git status" }, RunTexts(block));
+
+        // And the text can change out from under a stale span without throwing or highlighting.
+        block.SourceText = "ls";
+        Assert.Equal(new[] { "ls" }, RunTexts(block));
+    }
+
+    private static string[] RunTexts(MatchHighlightTextBlock block)
+    {
+        return block.Inlines!.OfType<Run>().Select(run => run.Text ?? string.Empty).ToArray();
+    }
+
+    // ------------------------- UX round 7: failed rows are dimmed
+
+    /// <summary>
+    /// Which exit codes count as a failure. Null is not one of them.
+    /// </summary>
+    /// <remarks>
+    /// A snippet has never run and a markless session never learned how its commands ended; dimming
+    /// either would be the row claiming knowledge the product does not have.
+    /// </remarks>
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(0, false)]
+    [InlineData(1, true)]
+    [InlineData(127, true)]
+    [InlineData(-1, true)]
+    public void SuggestionRow_HasFailedOnlyForANonZeroExitCode(int? exitCode, bool expected)
+    {
+        var row = new CommandAssistSuggestionItemViewModel(
+            displayText: "git status",
+            descriptionText: string.Empty,
+            badgesText: string.Empty,
+            metadataText: string.Empty,
+            isSelected: false,
+            type: AssistSuggestionType.History,
+            exitCode: exitCode);
+
+        Assert.Equal(expected, row.HasFailed);
+    }
+
+    /// <summary>
+    /// A failed row is dimmer than a healthy one, and a failed row that is also <em>selected</em> is
+    /// legible again - dimmer than healthy, brighter than an unselected failure.
+    /// </summary>
+    /// <remarks>
+    /// The three-way ordering is the assertion, not the hexes: it is what says the failure is still
+    /// readable as a failure while the row Enter is about to act on is still readable at all. Pinning
+    /// the numbers instead would fail on any palette change without saying which property broke.
+    /// </remarks>
+    [AvaloniaFact]
+    public void CommandAssistPopupView_DimsFailedRowsAndKeepsTheSelectedOneLegible()
+    {
+        var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>
+        {
+            FailedRow("git push", isSelected: false),
+            FailedRow("git rebase -i", isSelected: true),
+            new(
+                displayText: "git status",
+                descriptionText: string.Empty,
+                badgesText: string.Empty,
+                metadataText: string.Empty,
+                isSelected: false,
+                type: AssistSuggestionType.History,
+                exitCode: 0)
+        };
+        var vm = new CommandAssistPopupViewModel(suggestions)
+        {
+            IsVisible = true,
+            ModeLabel = "History",
+            HasSuggestions = true
+        };
+        var view = new CommandAssistPopupView
+        {
+            DataContext = vm,
+            Width = 520,
+            Height = 220,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+
+        var window = new Window
+        {
+            Content = view,
+            Width = 600,
+            Height = 300
+        };
+
+        try
+        {
+            window.Show();
+            RelayoutTo(window, view, new Size(600, 300));
+
+            List<MatchHighlightTextBlock> rows = view.GetVisualDescendants()
+                .OfType<MatchHighlightTextBlock>()
+                .ToList();
+            Assert.Equal(3, rows.Count);
+
+            double failed = Luminance(rows[0].Foreground);
+            double failedAndSelected = Luminance(rows[1].Foreground);
+            double healthy = Luminance(rows[2].Foreground);
+
+            Assert.True(
+                failed < healthy,
+                $"A failed row must be dimmer than a healthy one, but measured {failed:F0} against {healthy:F0}.");
+            Assert.True(
+                failedAndSelected > failed,
+                $"A failed row that is selected must climb back out of the dim, but measured " +
+                $"{failedAndSelected:F0} against {failed:F0}. This is the row Enter acts on.");
+            Assert.True(
+                failedAndSelected < healthy,
+                $"...without becoming indistinguishable from a healthy row: measured " +
+                $"{failedAndSelected:F0} against {healthy:F0}.");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    private static CommandAssistSuggestionItemViewModel FailedRow(string displayText, bool isSelected) =>
+        new(
+            displayText: displayText,
+            descriptionText: string.Empty,
+            badgesText: string.Empty,
+            metadataText: string.Empty,
+            isSelected: isSelected,
+            type: AssistSuggestionType.History,
+            exitCode: 1);
+
+    /// <summary>
+    /// Rec. 601 luma, which is close enough to "how bright does this look".
+    /// </summary>
+    /// <remarks>
+    /// Typed as <c>ISolidColorBrush</c>, not <c>SolidColorBrush</c>: a brush that arrives from a style
+    /// setter is the immutable variant, so an exact-type assertion would fail on the styled rows this
+    /// is here to measure.
+    /// </remarks>
+    private static double Luminance(IBrush? brush)
+    {
+        Color color = Assert.IsAssignableFrom<ISolidColorBrush>(brush).Color;
+        return (0.299 * color.R) + (0.587 * color.G) + (0.114 * color.B);
+    }
+
+    // ------------------------- UX round 7: the popup is as tall as its rows
+
+    /// <summary>
+    /// The height grows a row at a time, stops at a floor, and stops at the old ceiling.
+    /// </summary>
+    [Fact]
+    public void PopupHeightEstimate_TracksTheRowCountBetweenAFloorAndTheOldCeiling()
+    {
+        double one = TerminalPane.EstimateCommandAssistPopupHeight(
+            new TerminalPane.CommandAssistPopupContentSize(1, false, false), paneHeight: 1000);
+        double two = TerminalPane.EstimateCommandAssistPopupHeight(
+            new TerminalPane.CommandAssistPopupContentSize(2, false, false), paneHeight: 1000);
+        double five = TerminalPane.EstimateCommandAssistPopupHeight(
+            new TerminalPane.CommandAssistPopupContentSize(5, false, false), paneHeight: 1000);
+        double fifty = TerminalPane.EstimateCommandAssistPopupHeight(
+            new TerminalPane.CommandAssistPopupContentSize(50, false, false), paneHeight: 1000);
+        double none = TerminalPane.EstimateCommandAssistPopupHeight(
+            new TerminalPane.CommandAssistPopupContentSize(0, false, false), paneHeight: 1000);
+
+        Assert.True(two > one, $"Two rows must be taller than one, but measured {two:F0} and {one:F0}.");
+        Assert.True(five > two, $"Five rows must be taller than two, but measured {five:F0} and {two:F0}.");
+        Assert.Equal(one, none);
+        Assert.Equal(220, fifty, precision: 1);
+        Assert.True(one < 220, $"A one-row popup must be shorter than the old fixed 220, but was {one:F0}.");
+    }
+
+    /// <summary>
+    /// The empty-state popup is a caption, not a tall empty box.
+    /// </summary>
+    [Fact]
+    public void PopupHeightEstimate_ForTheEmptyState_IsTheFloor()
+    {
+        double empty = TerminalPane.EstimateCommandAssistPopupHeight(
+            new TerminalPane.CommandAssistPopupContentSize(0, ShowEmptyState: true, HasAttribution: false),
+            paneHeight: 1000);
+        double oneRow = TerminalPane.EstimateCommandAssistPopupHeight(
+            new TerminalPane.CommandAssistPopupContentSize(1, false, false), paneHeight: 1000);
+
+        Assert.Equal(oneRow, empty);
+        Assert.True(empty < 220, $"The 'no matches' popup must not be the old 220 px box, but was {empty:F0}.");
+    }
+
+    /// <summary>A short pane still wins: the old paneHeight * 0.45 ceiling is unchanged.</summary>
+    [Fact]
+    public void PopupHeightEstimate_OnAShortPane_StaysUnderTheProportionalCeiling()
+    {
+        double onAShortPane = TerminalPane.EstimateCommandAssistPopupHeight(
+            new TerminalPane.CommandAssistPopupContentSize(50, false, false), paneHeight: 320);
+
+        Assert.True(
+            onAShortPane <= 320 * 0.45 + 0.001,
+            $"A 50-row list on a 320 px pane asked for {onAShortPane:F0} px, over the 45% ceiling.");
+    }
+
+    /// <summary>
+    /// The estimate is measured against the real template, which is what keeps it honest.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Every constant behind <c>EstimateCommandAssistPopupHeight</c> is read off
+    /// <c>CommandAssistPopupView.axaml</c> - paddings, the border, the row spacing, the row's own
+    /// padding and margin. Constants derived from a template drift the moment the template does, and
+    /// the symptom is subtle: a few pixels of empty card under the last row, or a clipped footer.
+    /// So this arranges the actual control at its natural height and compares.
+    /// </para>
+    /// <para>
+    /// The estimate must never be <em>short</em> - that clips - and is allowed to be a few pixels
+    /// generous. If this fails, re-derive the constants from the template rather than widening the
+    /// tolerance.
+    /// </para>
+    /// <para>
+    /// Row counts stop at four because five rows plus chrome exceeds the 220 px ceiling, where the
+    /// estimate is supposed to stop tracking the content and the list is supposed to scroll. The
+    /// clamp itself is pinned separately, in
+    /// <see cref="PopupHeightEstimate_TracksTheRowCountBetweenAFloorAndTheOldCeiling"/>.
+    /// </para>
+    /// <para>
+    /// The empty state is measured at two widths, and that is not redundancy. Its body is one wrapping
+    /// <c>TextBlock</c>, so whether it fits on one line is a function of the popup's width and of how
+    /// long the string is - and the estimate budgets exactly one line for it. 360 px is the floor
+    /// <c>CalculateCommandAssistSurfaceSizing</c> clamps the popup to, so it is the width at which a
+    /// future empty-state string would wrap first. The longest one currently shipped
+    /// (<see cref="AssistEmptyStates.NoHistoryMatch"/>) is the one under test, so a new string longer
+    /// than it fails here rather than on the owner's screen.
+    /// </para>
+    /// </remarks>
+    [AvaloniaTheory]
+    [InlineData(1, false, false, 520)]
+    [InlineData(2, false, false, 520)]
+    [InlineData(3, false, false, 520)]
+    [InlineData(4, false, false, 520)]
+    [InlineData(2, false, true, 520)]
+    [InlineData(0, true, false, 520)]
+    [InlineData(0, true, false, 360)]
+    public void PopupHeightEstimate_MatchesTheRenderedTemplate(
+        int rowCount,
+        bool showEmptyState,
+        bool hasAttribution,
+        double popupWidth)
+    {
+        const double tolerance = 8;
+
+        var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>();
+        for (int i = 0; i < rowCount; i++)
+        {
+            suggestions.Add(new CommandAssistSuggestionItemViewModel(
+                displayText: $"git commit --message \"row {i}\"",
+                descriptionText: string.Empty,
+                badgesText: string.Empty,
+                metadataText: string.Empty,
+                isSelected: i == 0,
+                type: AssistSuggestionType.History));
+        }
+
+        var vm = new CommandAssistPopupViewModel(suggestions)
+        {
+            IsVisible = true,
+            ModeLabel = "History",
+            QueryText = "git",
+            SelectedFooterText = @"C:\repo  |  2 min ago  |  Exit 0",
+            ShortcutHintText = CommandAssistBarViewModel.BrowseHintText,
+            AttributionText = hasAttribution ? "Command examples from tldr-pages, CC-BY-SA 4.0." : string.Empty,
+
+            // The longest shipped empty-state string, so this measures the worst case the product can
+            // currently produce rather than a convenient short one.
+            EmptyStateText = showEmptyState ? AssistEmptyStates.NoHistoryMatch : string.Empty,
+            ShowEmptyState = showEmptyState,
+            HasSuggestions = !showEmptyState
+        };
+
+        string what = showEmptyState
+            ? $"the empty state at {popupWidth:F0} px"
+            : $"{rowCount} row(s)";
+
+        double measured = MeasureNaturalPopupHeight(vm, popupWidth);
+        double estimated = TerminalPane.EstimateCommandAssistPopupHeight(
+            new TerminalPane.CommandAssistPopupContentSize(rowCount, showEmptyState, hasAttribution),
+            paneHeight: 2000);
+
+        Assert.True(
+            estimated >= measured,
+            $"The estimate for {what} was {estimated:F1} px but the template needs {measured:F1} px, " +
+            "so the popup would clip. Re-derive the chrome and row constants in TerminalPane from " +
+            "CommandAssistPopupView.axaml - and if this is the empty state, check whether the string " +
+            "has grown long enough to wrap onto a second line, which the one-line budget does not cover.");
+        Assert.True(
+            estimated - measured <= tolerance,
+            $"The estimate for {what} was {estimated:F1} px against a measured {measured:F1} px, " +
+            $"which is {estimated - measured:F1} px of empty card under the content " +
+            $"(tolerance {tolerance:F0}).");
+    }
+
+    /// <summary>
+    /// Placement re-runs when the row count changes, not only on resize or a visibility flip.
+    /// </summary>
+    /// <remarks>
+    /// This is the half that makes the content-sized popup actually shrink in use. Ctrl+R re-ranks on
+    /// every keystroke, so the popup goes from a full list to two rows without the pane resizing or
+    /// the surface being reopened; before the count was published, nothing told the pane to re-place.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task TerminalPane_WhenTheRowCountChanges_RepositionsThePopupAtTheNewHeight()
+    {
+        using var pane = new TerminalPane
+        {
+            Width = 900,
+            Height = 500
+        };
+        ConfigureCommandAssist(pane);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+        await AtAnIntegratedPromptAsync(pane, "Get-ChildItem");
+        pane.OpenCommandAssistHelp();
+        await Task.Delay(50);
+        pane.Measure(new Size(900, 500));
+        pane.Arrange(new Rect(0, 0, 900, 500));
+
+        CommandAssistPopupView popupView = Assert.IsType<CommandAssistPopupView>(pane.FindControl<CommandAssistPopupView>("CommandAssistPopup"));
+        CommandAssistBarViewModel vm = Assert.IsType<CommandAssistBarViewModel>(pane.CommandAssistViewModel);
+
+        vm.SuggestionCount = 5;
+        double tall = popupView.Height;
+        double tallTop = popupView.Margin.Top;
+
+        vm.SuggestionCount = 1;
+        double shortened = popupView.Height;
+        double shortenedTop = popupView.Margin.Top;
+
+        Assert.True(
+            shortened < tall,
+            $"Dropping from five rows to one left the popup at {shortened:F0} px against {tall:F0}. " +
+            "Nothing re-ran placement, so a Ctrl+R filter keeps the box it opened with.");
+        Assert.True(
+            shortenedTop > tallTop,
+            $"The shorter popup must stay attached to the prompt, so its top moves down from " +
+            $"{tallTop:F0} to {shortenedTop:F0}. An unmoved top is a popup floating away from the bubble.");
+    }
+
+    /// <summary>
+    /// Arranges the popup at its natural height and returns it.
+    /// </summary>
+    /// <remarks>
+    /// Hosted in a window with no explicit height and top alignment, so the measured value is what the
+    /// template wants rather than what a test told it to be.
+    /// </remarks>
+    private static double MeasureNaturalPopupHeight(CommandAssistPopupViewModel vm, double width)
+    {
+        var view = new CommandAssistPopupView
+        {
+            DataContext = vm,
+            Width = width,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top
+        };
+
+        var window = new Window
+        {
+            Content = view,
+            Width = width + 80,
+            Height = 600
+        };
+
+        try
+        {
+            window.Show();
+            RelayoutTo(window, view, new Size(width + 80, 600));
+            Assert.True(view.Bounds.Height > 0, "The popup arranged to nothing, so there is no height to compare.");
+            return view.Bounds.Height;
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>Three history rows and a filled footer - the popup as a user actually sees it.</summary>
+    private static CommandAssistPopupViewModel CreatePopulatedPopupViewModel()
+    {
+        var suggestions = new ObservableCollection<CommandAssistSuggestionItemViewModel>
+        {
+            new(
+                displayText: "git status --short",
+                descriptionText: "Show the working tree status.",
+                badgesText: "History",
+                metadataText: @"C:\repo  |  2 min ago  |  Exit 0",
+                isSelected: true,
+                type: AssistSuggestionType.History,
+                queryText: "git",
+                exitCode: 0),
+            new(
+                displayText: "git commit --amend",
+                descriptionText: "Rewrite the most recent commit.",
+                badgesText: "History",
+                metadataText: @"C:\repo  |  yesterday  |  Exit 0",
+                isSelected: false,
+                type: AssistSuggestionType.History,
+                queryText: "git",
+                exitCode: 0),
+            new(
+                displayText: "git push --force-with-lease",
+                descriptionText: "Update the remote branch safely.",
+                badgesText: "History",
+                metadataText: @"C:\repo  |  last week  |  Exit 1",
+                isSelected: false,
+                type: AssistSuggestionType.History,
+                queryText: "git",
+                exitCode: 1)
+        };
+
+        return new CommandAssistPopupViewModel(suggestions)
+        {
+            IsVisible = true,
+            ModeLabel = "History",
+            QueryText = "git",
+            SelectedDescriptionText = "Show the working tree status.",
+            SelectedBadgesText = "History",
+            SelectedMetadataText = @"C:\repo  |  2 min ago  |  Exit 0",
+            SelectedFooterText = @"Show the working tree status.  |  History  |  C:\repo  |  2 min ago  |  Exit 0",
+            HasSuggestions = true,
+            ShortcutHintText = CommandAssistBarViewModel.BrowseHintText,
+            IntegrationGlyphText = CommandAssistBarViewModel.BasicStatusGlyph,
+            IntegrationStatusText = CommandAssistBarViewModel.BasicStatusText,
+            IntegrationStatusTooltip = CommandAssistBarViewModel.BasicStatusTooltip
+        };
     }
 }

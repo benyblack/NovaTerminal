@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using NovaTerminal.CommandAssist.Models;
 
@@ -69,6 +70,7 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
     private string _selectedMetadataText = string.Empty;
     private string _selectedDescriptionText = string.Empty;
     private string _emptyStateText = string.Empty;
+    private int _suggestionCount;
     private bool _hasSuggestions;
     private bool _showEmptyState;
     private bool _isPopupOpen;
@@ -307,6 +309,46 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// How many rows the popup is showing. Published so the pane can size the popup to its content.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A property rather than a <c>CollectionChanged</c> subscription on <see cref="Suggestions"/>,
+    /// because the controller rebuilds that collection with a <c>Clear</c> followed by N <c>Add</c>s:
+    /// a listener would see N+1 notifications per ranking pass, each one re-running placement, and
+    /// <c>Ctrl+R</c> re-ranks on every keystroke. This fires once per pass at most.
+    /// </para>
+    /// <para>
+    /// The change gate is <em>not</em> what keeps placement cheap, and it should not be read that way.
+    /// <see cref="QueryText"/>, <see cref="ModeLabel"/> and <see cref="AttributionText"/> each publish
+    /// their own change, and <c>TerminalPane.OnCommandAssistViewModelPropertyChanged</c> re-places on
+    /// any property of this view-model - so the ordinary keystroke, where the query moved and the row
+    /// count happened not to, re-places anyway. What this property adds is the one case none of the
+    /// others cover: the row count changing with nothing else moving, which is a change in the popup's
+    /// height that would otherwise go unannounced.
+    /// </para>
+    /// <para>
+    /// The count and not the collection: nothing downstream needs the rows, only how many there are,
+    /// and a value type cannot be mistaken for a live view of a list that is about to be rebuilt.
+    /// </para>
+    /// </remarks>
+    public int SuggestionCount
+    {
+        get => _suggestionCount;
+        set
+        {
+            if (_suggestionCount == value)
+            {
+                return;
+            }
+
+            _suggestionCount = value;
+            OnPropertyChanged();
+            SyncPresentationState();
+        }
+    }
+
     public bool HasSuggestions
     {
         get => _hasSuggestions;
@@ -503,14 +545,38 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         Popup.IsVisible = IsVisible && IsPopupOpen;
         Popup.ModeLabel = ModeLabel;
         Popup.QueryText = QueryText;
-        Popup.TopSuggestionText = TopSuggestionText;
         Popup.SelectedBadgesText = SelectedBadgesText;
         Popup.SelectedMetadataText = SelectedMetadataText;
         Popup.SelectedDescriptionText = SelectedDescriptionText;
+        Popup.SelectedFooterText = BuildSelectedFooterText();
         Popup.EmptyStateText = EmptyStateText;
         Popup.HasSuggestions = HasSuggestions;
         Popup.ShowEmptyState = ShowEmptyState;
         Popup.AttributionText = AttributionText;
+    }
+
+    /// <summary>
+    /// Joins whatever the surface knows about the selected row into the popup's single footer line.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Description first, then badges, then metadata: least to most mechanical, so the clause the
+    /// reader is most likely to want survives the ellipsis. Empty parts are dropped rather than
+    /// joined through, because a line that opens with a separator reads as content that failed to
+    /// load. With every part empty - no selection, or a row that carries nothing - the result is the
+    /// empty string, and the footer renders nothing rather than a bare "  |  ".
+    /// </para>
+    /// <para>
+    /// The separator is the one <c>CommandAssistController.BuildMetadataText</c> already uses inside
+    /// the metadata clause, so the whole line reads as one list rather than as two nested ones.
+    /// </para>
+    /// </remarks>
+    internal string BuildSelectedFooterText()
+    {
+        return string.Join(
+            "  |  ",
+            new[] { SelectedDescriptionText, SelectedBadgesText, SelectedMetadataText }
+                .Where(part => !string.IsNullOrWhiteSpace(part)));
     }
 
     /// <summary>
@@ -572,7 +638,12 @@ public sealed class CommandAssistBarViewModel : INotifyPropertyChanged
         Bubble.ShowIntegrationStatus = showLabel;
         Bubble.ShowIntegrationGlyph = !showLabel;
 
+        // The popup takes the collapsed form unconditionally. Its footer is one line shared by the
+        // metadata, the hint strip and this, and the label is the clause with the least to say per
+        // pixel; the dot keeps the indicator on screen at every width, which is the property the
+        // bubble's own collapse exists to protect.
         Popup.IntegrationStatusText = text;
+        Popup.IntegrationGlyphText = IsShellIntegrationLive ? IntegratedStatusGlyph : BasicStatusGlyph;
         Popup.IntegrationStatusTooltip = tooltip;
     }
 
