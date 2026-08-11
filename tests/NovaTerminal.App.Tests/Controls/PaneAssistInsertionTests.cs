@@ -273,6 +273,13 @@ public class PaneAssistInsertionTests
         fixture.PressCtrlEnter();
 
         Assert.Empty(fixture.Session.Sent);
+
+        // Asserted by content as well as by emptiness. This fixture is in Ctrl+R, which is exactly the
+        // scope where an accept erases the typed query - and the pane cannot see how long that query
+        // is here. A regression that let a replace through in a degraded session would show up as
+        // deletes on the wire, so the deletes are named rather than left to Assert.Empty to imply.
+        Assert.DoesNotContain(fixture.Session.Sent, sent => sent.Contains('\u007f'));
+
         Assert.True(fixture.ViewModel.IsVisible);
         Assert.True(fixture.ViewModel.HasSuggestions);
     }
@@ -387,6 +394,12 @@ public class PaneAssistInsertionTests
     /// shell family, opposite outcome - and <c>cmd.exe</c> failed at the same time for the entirely
     /// separate reason above, which is what made one report out of two bugs.
     /// </para>
+    /// <para>
+    /// The expected bytes are a replace rather than the suffix because this fixture opens the list with
+    /// <c>Ctrl+R</c>: six deletes for <c>git st</c> and then the whole command. That is the
+    /// history-search rule, not a property of this prompt shape - what this test is for is still the
+    /// right prompt, and the trim floor at the cursor is why the deletes cannot reach the badge.
+    /// </para>
     /// </remarks>
     [AvaloniaFact]
     public async Task OnAPromptWithARightAlignedBadge_EnterInsertsInsteadOfSubmitting()
@@ -394,7 +407,7 @@ public class PaneAssistInsertionTests
         using var fixture = await Fixture.AtAPromptWithARightAlignedBadgeAsync("git st", history: "git status");
 
         Assert.True(fixture.PressEnter());
-        Assert.Equal("atus", Assert.Single(fixture.Session.Sent));
+        Assert.Equal("\u007f\u007f\u007f\u007f\u007f\u007fgit status", Assert.Single(fixture.Session.Sent));
     }
 
     /// <summary>
@@ -469,7 +482,10 @@ public class PaneAssistInsertionTests
 
         fixture.PressCtrlEnter();
 
-        Assert.Equal("atus", Assert.Single(fixture.Session.Sent));
+        // Six deletes and the whole command: this fixture is in Ctrl+R history search, where an accept
+        // replaces the typed query. The bug under test is still the grid read - a build with the
+        // padding-run regression refuses here and sends nothing at all.
+        Assert.Equal("\u007f\u007f\u007f\u007f\u007f\u007fgit status", Assert.Single(fixture.Session.Sent));
     }
 
     /// <summary>The same prompt through the <c>Enter</c> path, which is how the owner met it.</summary>
@@ -479,7 +495,7 @@ public class PaneAssistInsertionTests
         using var fixture = await Fixture.AtAPsReadLineRenderedPromptAsync("git st", history: "git status");
 
         Assert.True(fixture.PressEnter());
-        Assert.Equal("atus", Assert.Single(fixture.Session.Sent));
+        Assert.Equal("\u007f\u007f\u007f\u007f\u007f\u007fgit status", Assert.Single(fixture.Session.Sent));
     }
 
     /// <summary>
@@ -487,9 +503,11 @@ public class PaneAssistInsertionTests
     /// and it is empty.
     /// </summary>
     /// <remarks>
-    /// The worst case of the same bug and the one that produced the report. The planner's empty-line
-    /// fast path needs <c>Text</c> to be empty; a row of blanks instead took the prefix branch, where
-    /// no suggestion starts with a hundred spaces.
+    /// The worst case of the same bug and the one that produced the report. The planner's arithmetic
+    /// needs <c>Text</c> to be empty to plan a bare send; a row of blanks instead read as a hundred
+    /// typed spaces, which no suggestion starts with and which a replace would have tried to erase.
+    /// The bytes are unchanged by the replace style precisely because the line is empty: zero deletes,
+    /// whole command.
     /// </remarks>
     [AvaloniaFact]
     public async Task OnAnEmptyPromptPsReadLineHasRendered_EnterSendsTheWholeCommand()
@@ -498,6 +516,84 @@ public class PaneAssistInsertionTests
 
         Assert.True(fixture.PressEnter());
         Assert.Equal("git status", Assert.Single(fixture.Session.Sent));
+    }
+
+    // ------------------- replace-on-accept in explicit history search (the #304 follow-up)
+
+    /// <summary>
+    /// <strong>The reported bug, end to end through the real pane.</strong> Type <c>git</c>, press
+    /// <c>Ctrl+R</c>, highlight <c>echo git-alpha</c> - a row the subsequence filter matched - and press
+    /// <c>Enter</c>. Before this the planner refused, <c>Enter</c> fell through to the shell, and the
+    /// shell ran <c>git</c>.
+    /// </summary>
+    /// <remarks>
+    /// <c>Assert.Single</c> matters as much as the value. The deletes and the text go out in one
+    /// <c>SendInput</c> because <c>Parser.OnResponse</c> writes to the same session from the parse
+    /// thread: two calls would leave a window for a device-report reply to land between erasing the
+    /// user's line and putting the command back on it.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task InHistorySearch_EnterOnANonPrefixRowErasesTheQueryAndSendsTheCommand()
+    {
+        using var fixture = await Fixture.AtAnIntegratedHistorySearchAsync("git", history: "echo git-alpha");
+
+        Assert.True(fixture.PressEnter());
+        Assert.Equal("\u007f\u007f\u007fecho git-alpha", Assert.Single(fixture.Session.Sent));
+    }
+
+    /// <summary>
+    /// <strong>The scoping pin.</strong> The same prompt and the same row, reached through the assist
+    /// toggle instead of <c>Ctrl+R</c>: Suggest mode is still strictly additive, so a non-prefix row
+    /// refuses, <c>Enter</c> falls through to the shell, and nothing goes out.
+    /// </summary>
+    /// <remarks>
+    /// If this starts failing, replace has leaked out of history search - which is a bug in the change,
+    /// not a stale expectation. It is the counterpart of the test above and they share everything except
+    /// which key opened the list.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task InSuggestMode_EnterOnANonPrefixRowStillRefuses()
+    {
+        using var fixture = await Fixture.AtAnIntegratedPromptAsync("git", history: "echo git-alpha");
+
+        Assert.True(fixture.PressDown());
+        Assert.True(fixture.ViewModel.IsAcceptOnEnterArmed);
+
+        Assert.False(fixture.PressEnter());
+        Assert.Empty(fixture.Session.Sent);
+    }
+
+    /// <summary>
+    /// The echo gate is armed by the accept itself. Everything the pane just sent is in flight, so the
+    /// grid is behind the shell until it comes back - and the next accept must refuse rather than
+    /// measure against a line the shell has already left.
+    /// </summary>
+    /// <remarks>
+    /// Missing before this change, and latent even under the additive rule: two fast <c>Ctrl+Enter</c>s
+    /// computed the second delta against the pre-insertion line. Under replace the same gap is a count
+    /// taken against the wrong line, which erases the wrong number of characters.
+    /// </remarks>
+    [AvaloniaFact]
+    public async Task AfterASuccessfulAccept_TheEchoGateIsArmed()
+    {
+        using var fixture = await Fixture.AtAnIntegratedHistorySearchAsync("git", history: "echo git-alpha");
+
+        Assert.False(fixture.Pane.HasUnechoedInput);
+
+        Assert.True(fixture.PressEnter());
+
+        Assert.True(fixture.Pane.HasUnechoedInput);
+    }
+
+    /// <summary>A pointer accept in history search produces exactly the bytes <c>Enter</c> does.</summary>
+    [AvaloniaFact]
+    public async Task InHistorySearch_PointerAcceptSendsTheSameBytesAsEnter()
+    {
+        using var fixture = await Fixture.AtAnIntegratedHistorySearchAsync("git", history: "echo git-alpha");
+
+        fixture.Pane.OnCommandAssistSuggestionPointerAccepted(0);
+
+        Assert.Equal("\u007f\u007f\u007fecho git-alpha", Assert.Single(fixture.Session.Sent));
     }
 
     // ---------------------------------------------------------------- mouse (V2 Phase 3a)
@@ -578,6 +674,29 @@ public class PaneAssistInsertionTests
 
             // An explicit session is what widens the suggestion scope back out to history.
             fixture.Pane.ToggleCommandAssist();
+            await fixture.WaitForAsync(() => fixture.ViewModel.TopSuggestionText == history);
+            return fixture;
+        }
+
+        /// <summary>
+        /// The same instrumented prompt, but with the list opened by <c>Ctrl+R</c> rather than by the
+        /// assist toggle - i.e. in the one scope where an accept replaces the typed query.
+        /// </summary>
+        /// <remarks>
+        /// Deliberately a sibling of <see cref="AtAnIntegratedPromptAsync"/> rather than a flag on it:
+        /// the pair exists so that a scoping test can hold the prompt, the typed text and the row
+        /// constant and vary only which key opened the list.
+        /// </remarks>
+        public static async Task<Fixture> AtAnIntegratedHistorySearchAsync(string commandLine, string history)
+        {
+            Fixture fixture = await CreateAsync(history);
+            fixture.Pane.ArmShellIntegrationTracker();
+            fixture.Pane.CreateAndWireParser();
+            fixture.Pane.Parser!.Process(PromptStart + "$ " + PromptEnd + commandLine);
+
+            await Task.Delay(50);
+
+            fixture.Pane.OpenCommandAssistHistorySearch();
             await fixture.WaitForAsync(() => fixture.ViewModel.TopSuggestionText == history);
             return fixture;
         }

@@ -98,6 +98,11 @@ public class PaneGridTruthDesyncTests
     /// what the user will run - but it is no longer a prefix an append can extend, and the snapshot
     /// says so.
     /// </summary>
+    /// <remarks>
+    /// Replace refuses on the same read, and for a sharper reason: its deletes run leftwards from the
+    /// cursor, so a replace here would eat <c>git sta</c>, leave <c>tus</c> behind, and insert the
+    /// command in front of the survivor.
+    /// </remarks>
     [AvaloniaFact]
     public async Task AfterAnArrowKey_TheTextIsUnchangedButItIsNoLongerAnAppendableParent()
     {
@@ -111,6 +116,11 @@ public class PaneGridTruthDesyncTests
         Assert.Equal(7, line?.CursorOffset);
         Assert.False(line?.IsUsableAsTypedPrefix);
         Assert.False(CommandAssistInsertionPlanner.TryCreateInsertion(line, "git status --short", out _));
+        Assert.False(CommandAssistInsertionPlanner.TryCreatePlan(
+            line,
+            "git status --short",
+            CommandAssistInsertionStyle.ReplaceTypedPrefix,
+            out _));
     }
 
     /// <summary>

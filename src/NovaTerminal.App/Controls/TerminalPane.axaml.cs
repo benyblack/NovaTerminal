@@ -2426,6 +2426,15 @@ namespace NovaTerminal.Controls
         /// the original window open. It cannot go the other way: output that has been parsed is
         /// output that is in the grid.
         /// </para>
+        /// <para>
+        /// <strong>That window is wider than it was, and is a known follow-up.</strong> Under the
+        /// additive rule a read taken inside it produced <c>git staatus</c> - a wrong append. Under
+        /// <see cref="CommandAssistInsertionStyle.ReplaceTypedPrefix"/> it produces a wrong
+        /// <em>count</em>, so the deletes stop one character short and the command lands against the
+        /// survivor. Same pre-existing hole, larger blast radius; closing it needs a signal that
+        /// distinguishes "the bytes I sent came back" from "some output arrived", which the parser
+        /// does not offer today.
+        /// </para>
         /// </remarks>
         internal void NoteInputAwaitingEcho() => _hasUnechoedInput = true;
 
@@ -2499,8 +2508,20 @@ namespace NovaTerminal.Controls
                 return false;
             }
 
-            if (!CommandAssistInsertionPlanner.TryCreateInsertion(existingQuery, insertionText, out string? textToSend) ||
-                string.IsNullOrEmpty(textToSend))
+            // The style is session state, so the controller answers it rather than the pane guessing
+            // from what happens to be on screen: accepting a row out of explicit Ctrl+R history search
+            // replaces the typed filter, and every other surface stays strictly additive. See
+            // CommandAssistController.AcceptReplacesTypedQuery.
+            CommandAssistInsertionStyle style = _commandAssistController.AcceptReplacesTypedQuery
+                ? CommandAssistInsertionStyle.ReplaceTypedPrefix
+                : CommandAssistInsertionStyle.Append;
+
+            // The emptiness guard is on the *plan*, not on a string. A plan of pure deletes with no
+            // text would read as non-empty to string.IsNullOrEmpty and would erase the user's line for
+            // nothing; a plan with neither is the no-op the planner promises never to return, and this
+            // is where that promise is checked rather than trusted.
+            if (!CommandAssistInsertionPlanner.TryCreatePlan(existingQuery, insertionText, style, out CommandAssistInsertionPlan plan) ||
+                (plan.BackspaceCount == 0 && plan.TextToSend.Length == 0))
             {
                 return false;
             }
@@ -2517,7 +2538,25 @@ namespace NovaTerminal.Controls
             // is still holding a line it can no longer describe, and Ctrl+Enter is the one key the
             // interceptor deliberately does not poison on (Command Assist owns it).
             _marklessSubmission.Poison();
-            Session.SendInput(textToSend);
+
+            // One SendInput, and that is a requirement rather than tidiness. Each call UTF-8 encodes
+            // and enqueues one byte[] onto the session's single-consumer writer thread, and
+            // Parser.OnResponse writes to that same session from the *parse* thread (device-report
+            // replies, which ConPTY and Clink both provoke). Two calls would leave a window in which a
+            // reply could be interleaved between the deletes and the text - i.e. between erasing the
+            // user's line and putting the command back on it.
+            //
+            // \x7f (DEL) is this codebase's backspace byte on the wire; see TerminalView's key
+            // handling. No bracketed paste for either half: bracketed content is literal by
+            // definition, so a DEL inside it would be inserted as a character rather than executed as
+            // an erase.
+            Session.SendInput(new string('\x7f', plan.BackspaceCount) + plan.TextToSend);
+
+            // The grid is now behind the shell by everything we just sent, and the next accept must
+            // not be planned against it. Omitting this was a latent bug even under the additive rule
+            // (two fast Ctrl+Enters would compute the second delta against a pre-insertion line); under
+            // replace it is the difference between a stale count and an erased command line.
+            NoteInputAwaitingEcho();
             return true;
         }
 
@@ -2568,6 +2607,18 @@ namespace NovaTerminal.Controls
         /// every condition, so an accepted row is typed into that program instead. That is what typing
         /// the command by hand would also have done, and it is visible either way; the alternative -
         /// refusing forever in every un-instrumented session - is the bug being fixed.
+        /// </para>
+        /// <para>
+        /// <strong>Unchanged by the replace style, and deliberately so.</strong> The synthetic snapshot
+        /// below has <c>Text == ""</c>, so its typed prefix is empty and a replace plans zero deletes:
+        /// the degraded path is bit-identical under both styles, and no new gate is needed here. The
+        /// reason it needs none is worth stating, because the obvious instinct is to add one. Replace
+        /// needs a <em>count</em>, which is strictly more than append needed; in a markless session the
+        /// pane can prove <em>whether</em> the line is empty but never <em>how many</em> characters a
+        /// non-empty line holds - and the only markless case where the count is knowable is the case
+        /// where it is zero, which is exactly the case where the two styles already agree. So there is
+        /// nothing for an extra gate to catch. <c>CommandAssistGridTruthTests</c> and
+        /// <c>PaneAssistInsertionTests</c> both pin the degraded refusal under the replace style.
         /// </para>
         /// </remarks>
         private AssistQuerySnapshot? TryReadInsertionQuerySnapshot()

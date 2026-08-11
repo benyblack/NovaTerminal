@@ -149,7 +149,14 @@ public sealed class CommandAssistController
             // advertise unconditionally and the passive bubble no longer owns.
             AcceptOnEnterProbe = () => IsAcceptOnEnterArmed,
             SelectionUpOwnedProbe = () => IsSelectionUpOwned,
-            InsertionAvailableProbe = () => _isInsertionAvailable
+
+            // Two terms, because there are two ways an accept can refuse and the strip must not
+            // promise a key for either. The first is the line: the last ranking pass recorded whether
+            // the command line was one an insertion can be measured against. The second is the row,
+            // and it is per-selection rather than per-pass, which is why it is evaluated here rather
+            // than folded into _isInsertionAvailable - SyncPresentationState runs on every
+            // SelectedIndex write, so browsing re-asks the question.
+            InsertionAvailableProbe = () => _isInsertionAvailable && SelectedRowCanBeInserted()
         };
         _dispatch = dispatch ?? (action => action());
         _capturePipeline = new CapturePipeline(historyStore, secretsFilter, _context);
@@ -242,6 +249,89 @@ public sealed class CommandAssistController
         ViewModel.IsVisible &&
         _renderedSurfaceProbe() &&
         _state.AllowsAcceptOnEnter(ViewModel.IsPopupOpen, GetSelectedSuggestion() != null);
+
+    /// <summary>
+    /// Whether accepting a row means "replace what the user typed with it" rather than "extend what
+    /// the user typed into it".
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// True in Search mode - explicit <c>Ctrl+R</c> history search - and nowhere else. There the
+    /// characters on the command line are a <em>filter over the list</em>, so the row the user picked
+    /// is the command they want, whether or not it happens to start with what they typed; every
+    /// reverse-search and fuzzy finder resolves the accept the same way. In Suggest mode the same
+    /// characters are the start of a command the user is composing, so an accept may only extend
+    /// them, and in Help and Fix there is nothing to replace. See
+    /// <c>CommandAssistInsertionPlanner</c> for what each answer costs and which refusals survive
+    /// both.
+    /// </para>
+    /// <para>
+    /// Exposed as the decision rather than as a <c>Mode</c> property, matching the rest of this file
+    /// (<see cref="IsAcceptOnEnterArmed"/>, <see cref="IsSelectionUpOwned"/>,
+    /// <see cref="IsUserRequestedSurface"/>): the App gets the answer to a question it has, not the
+    /// state to derive it from. <see cref="SessionState"/> stays <c>internal</c> - the App is
+    /// deliberately not on this assembly's <c>InternalsVisibleTo</c> list - so a public member here is
+    /// the only way the pane can know, and making it this one keeps the rule in a single place.
+    /// </para>
+    /// <para>
+    /// No visibility or rendered-surface term, unlike <see cref="IsAcceptOnEnterArmed"/>. This does
+    /// not decide <em>whether</em> an accept happens - the routing predicates and the planner's own
+    /// refusals do that - only what an accept that has already been authorised means.
+    /// </para>
+    /// </remarks>
+    public bool AcceptReplacesTypedQuery => _state.Mode == CommandAssistMode.Search;
+
+    /// <summary>
+    /// Whether the highlighted row is one an insertion can send at all: rows carrying a line break are
+    /// not.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>CommandAssistInsertionPlanner</c> refuses a row containing <c>\n</c> or <c>\r</c> for both
+    /// styles, because <c>SendInput</c> writes raw bytes with no bracketed paste on this path - the
+    /// newline would <em>submit</em> the line rather than land in it, and under replace it would submit
+    /// against a line just erased. A multi-line snippet is the row that reaches that refusal in
+    /// practice (see <c>SnippetEditor.ResolveName</c>, which exists for pasted multi-line commands).
+    /// </para>
+    /// <para>
+    /// The refusal is right; a refusal the hint strip has already promised is not. Without this term
+    /// the strip advertises "insert" on a multi-line snippet, and the insert chord - which consumes the
+    /// key whether or not anything was sent - becomes a dead key with no feedback. The strip's own
+    /// rule is that under-promising is fine and promising a key that does nothing is worse than
+    /// showing no strip at all.
+    /// </para>
+    /// <para>
+    /// This reaches the conditional half of the strip only - the bubble, where the insert chord is the
+    /// advertised action. <c>CommandAssistBarViewModel.BuildHintText</c> keeps the clause
+    /// unconditionally once <c>Enter</c> is armed, by an existing and deliberate decision (arming
+    /// already requires an open popup with a selected row, and dropping the clause there would make the
+    /// strip flicker between two shapes while browsing). So a multi-line row browsed in an open popup
+    /// still shows "insert" and still refuses; that is the pre-existing shape of every refusal on the
+    /// armed path, not something this term regressed.
+    /// </para>
+    /// <para>
+    /// Deliberately narrower than filtering multi-line rows out of the ranked list. The list is also a
+    /// browse surface - in <c>Ctrl+R</c> it is the user's own history, which they asked to see - and
+    /// making entries vanish with no explanation trades a legible disabled hint for an illegible
+    /// absence. Pin, unpin, Explain and the detail panel all keep working on the row.
+    /// </para>
+    /// <para>
+    /// No selection reads as insertable, matching the probe's own null-means-available convention:
+    /// with nothing highlighted there is no row to disqualify, and
+    /// <see cref="IsAcceptOnEnterArmed"/> already governs that case.
+    /// </para>
+    /// </remarks>
+    private bool SelectedRowCanBeInserted()
+    {
+        AssistSuggestion? selected = GetSelectedSuggestion();
+        if (selected == null)
+        {
+            return true;
+        }
+
+        string insertText = selected.InsertText ?? string.Empty;
+        return insertText.IndexOf('\n') < 0 && insertText.IndexOf('\r') < 0;
+    }
 
     /// <summary>
     /// Whether <c>Up</c> currently belongs to Command Assist rather than to the shell's history recall.
