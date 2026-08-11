@@ -51,6 +51,36 @@ public sealed class AssistSessionStateMachineTests
         Assert.Equal(expected, CreateInState(state).Mode);
     }
 
+    /// <summary>
+    /// The state axis of <c>CommandAssistController.AcceptReplacesTypedQuery</c>: accepting a row
+    /// replaces what the user typed in explicit history search and nowhere else.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The controller's property is <c>Mode == Search</c>, so this is that predicate evaluated over the
+    /// whole state space - which is worth stating separately from
+    /// <see cref="Mode_IsDerivedFromState"/> even though it follows from it. What a future reader will
+    /// be tempted to change is the <em>scope of replace</em> ("surely an explicit Suggest session should
+    /// replace too"), and this is the row they have to edit to do it. The controller-side wiring is
+    /// pinned by <c>CommandAssistGridTruthTests.AcceptReplacesTypedQuery_IsTrueOnlyForExplicitHistorySearch</c>,
+    /// and the behavioural consequence by <c>PaneAssistInsertionTests.InSuggestMode_EnterOnANonPrefixRowStillRefuses</c>.
+    /// </para>
+    /// </remarks>
+    [Theory]
+    [InlineData(AssistSessionState.Hidden, false)]
+    [InlineData(AssistSessionState.PassiveBubble, false)]
+    [InlineData(AssistSessionState.PassivePopup, false)]
+    [InlineData(AssistSessionState.ExplicitBubble, false)]
+    [InlineData(AssistSessionState.ExplicitPopup, false)]
+    [InlineData(AssistSessionState.HistorySearch, true)]
+    [InlineData(AssistSessionState.Help, false)]
+    [InlineData(AssistSessionState.FixHint, false)]
+    [InlineData(AssistSessionState.FixPopup, false)]
+    public void AcceptReplacesTypedQuery_IsTrueOnlyInHistorySearch(AssistSessionState state, bool expected)
+    {
+        Assert.Equal(expected, CreateInState(state).Mode == CommandAssistMode.Search);
+    }
+
     [Theory]
     [InlineData(AssistSessionState.Hidden, false)]
     [InlineData(AssistSessionState.PassiveBubble, false)]

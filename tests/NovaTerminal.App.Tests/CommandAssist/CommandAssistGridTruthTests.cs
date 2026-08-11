@@ -354,10 +354,123 @@ public sealed class CommandAssistGridTruthTests
     }
 
     /// <summary>
+    /// <strong>The scope of replace-on-accept, as the controller reports it.</strong> Only an explicit
+    /// history search means "the typed characters are a filter, so take the row whole"; every Suggest
+    /// surface goes on meaning "extend what I have typed".
+    /// </summary>
+    /// <remarks>
+    /// The state-space half of this - that <see cref="AssistSessionState.HistorySearch"/> is the only
+    /// state mapping to <c>Search</c>, for all nine states - is pinned by
+    /// <c>AssistSessionStateMachineTests.AcceptReplacesTypedQuery_IsTrueOnlyInHistorySearch</c>. This is
+    /// the wiring: that the controller's public answer follows the real transitions the App drives.
+    /// </remarks>
+    [Fact]
+    public async Task AcceptReplacesTypedQuery_IsTrueOnlyForExplicitHistorySearch()
+    {
+        var harness = Harness.Create(seed: new[] { "git status" });
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("git");
+
+        Assert.False(harness.Controller.AcceptReplacesTypedQuery);
+
+        harness.Controller.ToggleAssist();
+        await harness.WaitForConditionAsync(() => harness.Controller.Suggestions.Count > 0);
+        Assert.False(harness.Controller.AcceptReplacesTypedQuery);
+
+        harness.Controller.OpenHistorySearch();
+        await harness.WaitForConditionAsync(() => harness.Controller.Suggestions.Count > 0);
+        Assert.True(harness.Controller.AcceptReplacesTypedQuery);
+
+        // An accept closes the session, and a closed session is a Suggest one again - so a stale
+        // "replace" cannot outlive the surface that justified it.
+        Assert.True(harness.Controller.TryAcceptSelection(out _));
+        Assert.False(harness.Controller.AcceptReplacesTypedQuery);
+    }
+
+    /// <summary>
+    /// And it survives typing, which is the whole point of PR #304: a filter keystroke narrows the list
+    /// without leaving <see cref="AssistSessionState.HistorySearch"/>, so the accept that follows still
+    /// takes the row whole rather than reverting to an append halfway through a search.
+    /// </summary>
+    [Fact]
+    public async Task AcceptReplacesTypedQuery_SurvivesTypingInsideHistorySearch()
+    {
+        var harness = Harness.Create(seed: new[] { "echo git-alpha" });
+        await harness.PromptReadyAsync();
+
+        harness.Controller.OpenHistorySearch();
+        await harness.WaitForConditionAsync(() => harness.Controller.Suggestions.Count > 0);
+        Assert.True(harness.Controller.AcceptReplacesTypedQuery);
+
+        harness.Grid.SetLine("git");
+        harness.Controller.NotifyInputActivity();
+        await harness.WaitForQueryAsync("git");
+
+        Assert.Equal(AssistSessionState.HistorySearch, harness.Controller.SessionState);
+        Assert.True(harness.Controller.AcceptReplacesTypedQuery);
+    }
+
+    /// <summary>
+    /// <strong>The hint strip stops advertising insert on a row the planner is going to refuse.</strong>
+    /// A row carrying a line break cannot be sent - the newline would submit rather than insert - so
+    /// the bubble drops the clause instead of promising a chord that consumes the key and does nothing.
+    /// </summary>
+    /// <remarks>
+    /// The row itself stays in the list and stays browsable; only the promise goes. See
+    /// <c>CommandAssistController.SelectedRowCanBeInserted</c> for why that is the trade, and why the
+    /// clause survives on the armed (<c>Enter</c>) path regardless.
+    /// </remarks>
+    [Fact]
+    public async Task AMultiLineRowIsNotAdvertisedAsInsertable()
+    {
+        var harness = Harness.Create(seed: new[] { "echo one\necho two" });
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("echo");
+
+        harness.Controller.ToggleAssist();
+        await harness.WaitForConditionAsync(() => harness.Controller.Suggestions.Count > 0);
+
+        // The bubble, not the popup: the popup's strip is the armed path, where the clause is
+        // unconditional by an older decision.
+        Assert.False(harness.Controller.ViewModel.IsPopupOpen);
+        Assert.Contains('\n', harness.Controller.Suggestions[0].InsertText);
+        Assert.DoesNotContain(" insert", harness.Controller.ViewModel.Bubble.ShortcutHintText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The control for the test above: the same surface with an ordinary single-line row still
+    /// advertises the chord. Without this, "no insert clause" would be satisfied by a strip that never
+    /// shows one.
+    /// </summary>
+    [Fact]
+    public async Task ASingleLineRowIsStillAdvertisedAsInsertable()
+    {
+        var harness = Harness.Create(seed: new[] { "echo one" });
+        await harness.PromptReadyAsync();
+        harness.Grid.SetLine("echo");
+
+        harness.Controller.ToggleAssist();
+        await harness.WaitForConditionAsync(() => harness.Controller.Suggestions.Count > 0);
+
+        Assert.False(harness.Controller.ViewModel.IsPopupOpen);
+        Assert.Contains(" insert", harness.Controller.ViewModel.Bubble.ShortcutHintText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// The other half of the degraded-Search decision: you can browse the rows, but nothing may be
     /// spliced into a command line nobody can see. The planner is what refuses; this pins that the
     /// controller hands it a null snapshot rather than an empty-string stand-in.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <strong>Both styles, and the replace half is the load-bearing one.</strong> This is a
+    /// <c>Ctrl+R</c> session, so <see cref="CommandAssistController.AcceptReplacesTypedQuery"/> is true
+    /// here and an accept that got through would erase characters rather than only add them. Replace
+    /// also needs strictly more than append did - a <em>count</em> - and there is nothing to count from
+    /// a snapshot that does not exist. This test is the whole argument for why no new degraded-mode gate
+    /// was added anywhere for the replace style: the refusal it already had covers it.
+    /// </para>
+    /// </remarks>
     [Fact]
     public async Task Degraded_SelectingAHistoryRowYieldsNoInsertionPlan()
     {
@@ -368,6 +481,7 @@ public sealed class CommandAssistGridTruthTests
 
         Assert.True(harness.Controller.TryGetInsertionText(out string? selected));
         Assert.Equal("git status", selected);
+        Assert.True(harness.Controller.AcceptReplacesTypedQuery);
 
         Assert.Null(harness.Controller.TryReadQuerySnapshot());
         Assert.False(CommandAssistInsertionPlanner.TryCreateInsertion(
@@ -375,6 +489,13 @@ public sealed class CommandAssistGridTruthTests
             selected,
             out string? textToSend));
         Assert.Null(textToSend);
+
+        Assert.False(CommandAssistInsertionPlanner.TryCreatePlan(
+            harness.Controller.TryReadQuerySnapshot(),
+            selected,
+            CommandAssistInsertionStyle.ReplaceTypedPrefix,
+            out CommandAssistInsertionPlan plan));
+        Assert.Equal(default, plan);
     }
 
     /// <summary>
