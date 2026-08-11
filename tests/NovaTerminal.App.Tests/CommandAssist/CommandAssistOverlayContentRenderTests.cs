@@ -275,13 +275,18 @@ public sealed class CommandAssistOverlayContentRenderTests
 
         WithRenderedView(view, 520, 220, (bitmap, rendered) =>
         {
-            // The same two regions the positive guard measures, measured the same way. Deliberately not
-            // the whole card: the border and the rounded corners are ink by any definition, and a
-            // negative control that has to exclude them is not measuring what the positive one measures.
-            // The mode label is left out because with no data context it has no text and therefore no
+            // Two regions the positive guard measures, measured the same way. Deliberately not the
+            // whole card: the border and the rounded corners are ink by any definition, and a negative
+            // control that has to exclude them is not measuring what the positive one measures. The
+            // mode label is left out because with no data context it has no text and therefore no
             // width at all - a different, cruder symptom that RegionOf rejects outright.
+            //
+            // The hint strip is left out for the same reason since UX round 7: the one-line footer
+            // put it in an Auto column so that it can never be squeezed, which also means it has no
+            // width when it has no text. The footer's metadata column is the star one, so it keeps
+            // its width while staying genuinely blank - which is exactly what this control needs.
             AssertRegionIsBlank(bitmap, rendered, "PopupSuggestionsList", "the suggestion row list");
-            AssertRegionIsBlank(bitmap, rendered, "PopupShortcutHintText", "the popup hint strip");
+            AssertRegionIsBlank(bitmap, rendered, "PopupSelectedFooterText", "the popup footer metadata");
         });
     }
 
@@ -317,14 +322,15 @@ public sealed class CommandAssistOverlayContentRenderTests
             IsVisible = true,
             ModeLabel = "History",
             QueryText = "git",
-            TopSuggestionText = "git status --short",
             SelectedDescriptionText = "Show the working tree status.",
             SelectedBadgesText = "History",
             SelectedMetadataText = @"C:\repo | used today",
+            SelectedFooterText = @"Show the working tree status.  |  History  |  C:\repo | used today",
             HasSuggestions = true,
             ShowEmptyState = false,
             ShortcutHintText = CommandAssistBarViewModel.BrowseHintText,
-            UseCompactLayout = false
+            IntegrationGlyphText = CommandAssistBarViewModel.BasicStatusGlyph,
+            IntegrationStatusTooltip = CommandAssistBarViewModel.BasicStatusTooltip
         };
     }
 

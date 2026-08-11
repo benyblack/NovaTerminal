@@ -1,10 +1,18 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:viewModels="clr-namespace:NovaTerminal.CommandAssist.ViewModels;assembly=NovaTerminal.CommandAssist"
+             xmlns:controls="clr-namespace:NovaTerminal.Controls;assembly=NovaTerminal"
              x:CompileBindings="True"
              x:DataType="viewModels:CommandAssistPopupViewModel"
              x:Class="NovaTerminal.CommandAssist.Views.CommandAssistPopupView"
              IsVisible="{Binding IsVisible}">
+    <!--
+        The controls: xmlns says assembly=NovaTerminal, not NovaTerminal.App. The project is
+        NovaTerminal.App but its AssemblyName is NovaTerminal, and clr-namespace resolves against the
+        assembly name. Spelled out rather than left to default to "the current assembly", because this
+        file lives under CommandAssist/ with an x:Class in the CommandAssist namespace, so which
+        assembly is "current" is the least obvious thing on the page.
+    -->
     <UserControl.Styles>
         <!--
             Row visuals. Hover is pure CSS-style state, so pointer feedback costs no code: the
@@ -24,6 +32,35 @@
         </Style>
         <Style Selector="Border.assistRow.selected">
             <Setter Property="Background" Value="#332F6FEB"/>
+        </Style>
+
+        <!--
+            Failed rows are dimmed, and that is the whole treatment (UX round 7). It replaces the
+            "Exit 1" clause the row used to hand to the detail panel: while scanning a history list
+            the reader does not need the number, they need the row to be less interesting than the
+            ones beside it. No strikethrough either - the command is still perfectly runnable, it
+            just did not work last time.
+
+            Foreground is set through these styles rather than on the control, because a local value
+            beats a style and the dim would then never apply.
+        -->
+        <Style Selector="Border.assistRow controls|MatchHighlightTextBlock">
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="HighlightBrush" Value="#8EC5FF"/>
+        </Style>
+        <Style Selector="Border.assistRow.failed controls|MatchHighlightTextBlock">
+            <Setter Property="Foreground" Value="#8B96A5"/>
+            <Setter Property="HighlightBrush" Value="#6E8DB5"/>
+        </Style>
+        <!--
+            Selected *and* failed. Without this rung the dim would land on the one row Enter is about
+            to act on, over a highlight fill that already lowers its contrast - so the least legible
+            row on screen would be the active one. It stays dimmer than a healthy row, so the failure
+            is still readable as a failure.
+        -->
+        <Style Selector="Border.assistRow.failed.selected controls|MatchHighlightTextBlock">
+            <Setter Property="Foreground" Value="#C3CBD6"/>
+            <Setter Property="HighlightBrush" Value="#8EC5FF"/>
         </Style>
     </UserControl.Styles>
     <!--
@@ -56,222 +93,127 @@
                            TextTrimming="CharacterEllipsis"/>
             </Grid>
 
-            <Grid Grid.Row="1"
-                  ColumnDefinitions="3*,2*"
-                  ColumnSpacing="12"
-                  IsVisible="{Binding UseExpandedLayout}">
-                <Border Background="#22101010"
-                        CornerRadius="6"
-                        Padding="8">
-                    <Grid>
-                        <ScrollViewer x:Name="PopupSuggestionsScroller"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      VerticalScrollBarVisibility="Auto"
-                                      IsVisible="{Binding HasSuggestions}">
-                            <ItemsControl x:Name="PopupSuggestionsList"
-                                          ItemsSource="{Binding Suggestions}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="viewModels:CommandAssistSuggestionItemViewModel">
-                                        <Border Classes="assistRow"
-                                                Classes.selected="{Binding IsSelected}"
-                                                Margin="0,1"
-                                                PointerPressed="OnSuggestionRowPointerPressed">
-                                            <!--
-                                                One-line row (owner request, V2 row-density round):
-                                                the command text is the row. Time, cwd, exit code and
-                                                badge text used to stack three lines high here; all of
-                                                it survives, just in the detail panel this row feeds
-                                                (SelectedDescriptionText / SelectedMetadataText /
-                                                SelectedBadgesText on the popup view-model) rather than
-                                                repeated on every row. The one exception is Pinned: it
-                                                is the one fact that changes which rows exist rather
-                                                than merely describing the selected one, so it keeps a
-                                                single subtle glyph in the gutter instead of moving out
-                                                entirely.
-                                            -->
-                                            <Grid ColumnDefinitions="Auto,Auto,*">
-                                                <TextBlock Text="{Binding SelectionGlyph}"
-                                                           Foreground="#8EC5FF"
-                                                           Width="12"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock Grid.Column="1"
-                                                           Text="📌"
-                                                           FontSize="11"
-                                                           Width="16"
-                                                           VerticalAlignment="Center"
-                                                           IsVisible="{Binding IsPinned}"/>
-                                                <TextBlock Grid.Column="2"
-                                                           Text="{Binding DisplayText}"
-                                                           Foreground="White"
-                                                           FontFamily="Consolas"
-                                                           VerticalAlignment="Center"
-                                                           TextTrimming="CharacterEllipsis"/>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
+            <!--
+                The whole body is the row list (owner request, UX round 7). There used to be a
+                two-column grid here, with a detail panel taking 40% of the width to restate the
+                selected row and its captions while the rows had 60% and ellipsised commands that
+                would have fitted in the space the restatement was using. The captions now live on
+                one footer line, and the rows get the width.
 
-                        <TextBlock x:Name="PopupEmptyStateTextBlock"
-                                   Text="{Binding EmptyStateText}"
-                                   Foreground="#9CA3AF"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   IsVisible="{Binding ShowEmptyState}"
-                                   TextWrapping="Wrap"/>
-                    </Grid>
-                </Border>
-
-                <Border x:Name="PopupDetailPanel"
-                        Grid.Column="1"
-                        Background="#1C151515"
-                        CornerRadius="6"
-                        Padding="8"
-                        IsVisible="{Binding UseExpandedLayout}">
-                    <StackPanel Spacing="4">
-                        <TextBlock Text="{Binding TopSuggestionText}"
-                                   Foreground="White"
-                                   FontFamily="Consolas"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock x:Name="PopupSelectedDescriptionTextBlock"
-                                   Text="{Binding SelectedDescriptionText}"
-                                   Foreground="#C8E1FF"
-                                   FontSize="11"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="{Binding SelectedBadgesText}"
-                                   Foreground="#C8E1FF"
-                                   FontSize="11"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="{Binding SelectedMetadataText}"
-                                   Foreground="#9CA3AF"
-                                   FontSize="11"
-                                   TextWrapping="Wrap"/>
-                    </StackPanel>
-                </Border>
-            </Grid>
-
+                Deleting the panel also deleted the reason there were two row templates: the compact
+                variant existed only to drop the detail panel on a narrow pane, so with the panel gone
+                the two were the same markup twice and the flag choosing between them chose between
+                identical outcomes. Both are gone rather than left behind as a no-op switch.
+            -->
             <Border Grid.Row="1"
-                    x:Name="PopupCompactPanel"
+                    x:Name="PopupResultsPanel"
                     Background="#22101010"
                     CornerRadius="6"
-                    Padding="8"
-                    IsVisible="{Binding UseCompactLayout}">
-                <Grid RowDefinitions="Auto,*"
-                      RowSpacing="8">
-                    <StackPanel Spacing="4"
-                                IsVisible="{Binding HasSuggestions}">
-                        <TextBlock Text="{Binding TopSuggestionText}"
-                                   Foreground="White"
-                                   FontFamily="Consolas"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="{Binding SelectedDescriptionText}"
-                                   Foreground="#C8E1FF"
-                                   FontSize="11"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="{Binding SelectedBadgesText}"
-                                   Foreground="#C8E1FF"
-                                   FontSize="11"
-                                   TextWrapping="Wrap"/>
-                        <TextBlock Text="{Binding SelectedMetadataText}"
-                                   Foreground="#9CA3AF"
-                                   FontSize="11"
-                                   TextWrapping="Wrap"/>
-                    </StackPanel>
+                    Padding="8">
+                <Grid>
+                    <ScrollViewer x:Name="PopupSuggestionsScroller"
+                                  HorizontalScrollBarVisibility="Disabled"
+                                  VerticalScrollBarVisibility="Auto"
+                                  IsVisible="{Binding HasSuggestions}">
+                        <ItemsControl x:Name="PopupSuggestionsList"
+                                      ItemsSource="{Binding Suggestions}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="viewModels:CommandAssistSuggestionItemViewModel">
+                                    <Border Classes="assistRow"
+                                            Classes.selected="{Binding IsSelected}"
+                                            Classes.failed="{Binding HasFailed}"
+                                            Margin="0,1"
+                                            PointerPressed="OnSuggestionRowPointerPressed">
+                                        <!--
+                                            One-line row: the command text is the row. Time, cwd, exit
+                                            code and badge text used to stack three lines high here;
+                                            all of it survives on the footer line that describes
+                                            whichever row is selected. Two facts stay on the row
+                                            itself, because both change which rows are worth a second
+                                            look rather than merely describing the selected one - the
+                                            pin glyph, and the dim that says this command failed.
+                                        -->
+                                        <Grid ColumnDefinitions="Auto,Auto,*">
+                                            <TextBlock Text="{Binding SelectionGlyph}"
+                                                       Foreground="#8EC5FF"
+                                                       Width="12"
+                                                       VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="📌"
+                                                       FontSize="11"
+                                                       Width="16"
+                                                       VerticalAlignment="Center"
+                                                       IsVisible="{Binding IsPinned}"/>
+                                            <controls:MatchHighlightTextBlock
+                                                       Grid.Column="2"
+                                                       Classes="rowCommandText"
+                                                       SourceText="{Binding DisplayText}"
+                                                       HighlightStart="{Binding HighlightStart}"
+                                                       HighlightLength="{Binding HighlightLength}"
+                                                       FontFamily="Consolas"
+                                                       VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
 
-                    <Grid Grid.Row="1">
-                        <ScrollViewer x:Name="PopupCompactSuggestionsScroller"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      VerticalScrollBarVisibility="Auto"
-                                      IsVisible="{Binding HasSuggestions}">
-                            <ItemsControl x:Name="PopupCompactSuggestionsList"
-                                          ItemsSource="{Binding Suggestions}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="viewModels:CommandAssistSuggestionItemViewModel">
-                                        <Border Classes="assistRow"
-                                                Classes.selected="{Binding IsSelected}"
-                                                Margin="0,1"
-                                                PointerPressed="OnSuggestionRowPointerPressed">
-                                            <!--
-                                                One-line row (owner request, V2 row-density round):
-                                                the command text is the row. Time, cwd, exit code and
-                                                badge text used to stack three lines high here; all of
-                                                it survives, just in the detail panel this row feeds
-                                                (SelectedDescriptionText / SelectedMetadataText /
-                                                SelectedBadgesText on the popup view-model) rather than
-                                                repeated on every row. The one exception is Pinned: it
-                                                is the one fact that changes which rows exist rather
-                                                than merely describing the selected one, so it keeps a
-                                                single subtle glyph in the gutter instead of moving out
-                                                entirely.
-                                            -->
-                                            <Grid ColumnDefinitions="Auto,Auto,*">
-                                                <TextBlock Text="{Binding SelectionGlyph}"
-                                                           Foreground="#8EC5FF"
-                                                           Width="12"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock Grid.Column="1"
-                                                           Text="📌"
-                                                           FontSize="11"
-                                                           Width="16"
-                                                           VerticalAlignment="Center"
-                                                           IsVisible="{Binding IsPinned}"/>
-                                                <TextBlock Grid.Column="2"
-                                                           Text="{Binding DisplayText}"
-                                                           Foreground="White"
-                                                           FontFamily="Consolas"
-                                                           VerticalAlignment="Center"
-                                                           TextTrimming="CharacterEllipsis"/>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </ScrollViewer>
-
-                        <TextBlock Text="{Binding EmptyStateText}"
-                                   Foreground="#9CA3AF"
-                                   HorizontalAlignment="Center"
-                                   VerticalAlignment="Center"
-                                   IsVisible="{Binding ShowEmptyState}"
-                                   TextWrapping="Wrap"/>
-                    </Grid>
+                    <TextBlock x:Name="PopupEmptyStateTextBlock"
+                               Text="{Binding EmptyStateText}"
+                               Foreground="#9CA3AF"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               IsVisible="{Binding ShowEmptyState}"
+                               TextWrapping="Wrap"/>
                 </Grid>
             </Border>
 
             <!--
-                Footer. The hint strip is always there; the attribution line appears under it only
-                when the rows on screen carry a licence that has to be credited - today that is the
-                tldr-derived command catalogue in Help mode (V2 Phase 4b). Wrapped rather than
-                trimmed, because a credit cut off at the ellipsis is not a credit.
+                Footer. One line: what the selected row is, then the hint strip, then the integration
+                dot - with the attribution line under it when the rows on screen carry a licence that
+                has to be credited, today the tldr-derived command catalogue in Help mode (V2 Phase
+                4b). The credit wraps rather than trims, because a credit cut off at the ellipsis is
+                not a credit.
+
+                The squeeze order is deliberate and is the reverse of a "content first" instinct. The
+                metadata takes the star column and is the only thing that trims; the hints and the dot
+                are Auto and never give up a character. This footer is the only place Enter and Esc
+                are taught, and a legend that ellipsises is not a legend - whereas a working directory
+                cut short still says which machine and roughly where.
             -->
             <StackPanel Grid.Row="2" Spacing="3">
-                <Grid ColumnDefinitions="*,Auto">
-                    <TextBlock x:Name="PopupShortcutHintText"
-                               Text="{Binding ShortcutHintText}"
-                               Foreground="#8B96A5"
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                    <TextBlock x:Name="PopupSelectedFooterText"
+                               Text="{Binding SelectedFooterText}"
+                               Foreground="#9CA3AF"
                                FontSize="11"
                                VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis"/>
 
+                    <TextBlock Grid.Column="1"
+                               x:Name="PopupShortcutHintText"
+                               Text="{Binding ShortcutHintText}"
+                               Foreground="#8B96A5"
+                               FontSize="11"
+                               VerticalAlignment="Center"/>
+
                     <!--
-                        The integration chip, mirroring the bubble's. The popup keeps it at every
-                        width: this is the surface someone is looking at when a Ctrl+R list is
-                        shorter than they expected, and "basic" is very often the answer to why.
+                        The integration indicator, in the bubble's collapsed form. It was a labelled
+                        chip here until the footer became one line; the word was the clause with the
+                        least to say per pixel, and the dot keeps the indicator on screen at every
+                        width - which is the point, since this is the surface someone is looking at
+                        when a Ctrl+R list is shorter than they expected and "basic" is the answer.
+                        The word survives as the tooltip, which is also what a screen reader gets.
                     -->
-                    <Border Grid.Column="1"
-                            x:Name="PopupIntegrationChip"
-                            ToolTip.Tip="{Binding IntegrationStatusTooltip}"
-                            Margin="8,0,0,0"
-                            Background="#22FFFFFF"
-                            CornerRadius="4"
-                            Padding="5,1"
-                            VerticalAlignment="Center">
-                        <TextBlock x:Name="PopupIntegrationStatusText"
-                                   Text="{Binding IntegrationStatusText}"
-                                   Foreground="#8B96A5"
-                                   FontSize="10"/>
-                    </Border>
+                    <TextBlock Grid.Column="2"
+                               x:Name="PopupIntegrationGlyph"
+                               Text="{Binding IntegrationGlyphText}"
+                               ToolTip.Tip="{Binding IntegrationStatusTooltip}"
+                               Foreground="#8B96A5"
+                               FontSize="10"
+                               VerticalAlignment="Center"/>
                 </Grid>
                 <TextBlock x:Name="PopupAttributionText"
                            Text="{Binding AttributionText}"

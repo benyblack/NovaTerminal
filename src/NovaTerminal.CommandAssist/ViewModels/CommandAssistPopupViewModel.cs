@@ -9,18 +9,18 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
     private bool _isVisible;
     private string _modeLabel = "Suggest";
     private string _queryText = string.Empty;
-    private string _topSuggestionText = string.Empty;
     private string _selectedBadgesText = string.Empty;
     private string _selectedMetadataText = string.Empty;
     private string _selectedDescriptionText = string.Empty;
+    private string _selectedFooterText = string.Empty;
     private string _emptyStateText = string.Empty;
     private bool _hasSuggestions;
     private bool _showEmptyState;
-    private bool _useCompactLayout;
     private int _selectedIndex = -1;
     private string _shortcutHintText = string.Empty;
     private string _attributionText = string.Empty;
     private string _integrationStatusText = string.Empty;
+    private string _integrationGlyphText = string.Empty;
     private string _integrationStatusTooltip = string.Empty;
 
     public CommandAssistPopupViewModel(ObservableCollection<CommandAssistSuggestionItemViewModel> suggestions)
@@ -41,18 +41,35 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// The session's shell-integration state, shown in the popup footer beside the shortcut hint.
+    /// The session's shell-integration state in words. No longer rendered in the popup - the footer
+    /// shows <see cref="IntegrationGlyphText"/> - but still the accessible name behind the dot.
     /// </summary>
     /// <remarks>
-    /// The popup carries the chip unconditionally where the bubble drops it at narrow widths: the
-    /// popup is a summoned surface with a footer already, so there is room, and it is the surface a
-    /// user is looking at when they wonder why the list is emptier than they expected. See
-    /// <see cref="CommandAssistBubbleViewModel.IntegrationStatusText"/>.
+    /// The label lost its place when the popup footer became one line (UX round 7): the metadata, the
+    /// hint strip and the indicator now share a strip that used to carry the hint strip alone, and a
+    /// five-to-ten character word that answers a once-per-session question is exactly the thing that
+    /// gives its width up first. The indicator itself does not go, it shrinks to the dot - the same
+    /// collapse the bubble already makes, for the same reason. See
+    /// <see cref="CommandAssistBubbleViewModel.IntegrationGlyphText"/>.
     /// </remarks>
     public string IntegrationStatusText
     {
         get => _integrationStatusText;
         set => SetField(ref _integrationStatusText, value);
+    }
+
+    /// <summary>
+    /// The one-character form of the integration indicator, and the only form the popup renders.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately the bubble's glyph pair rather than a second vocabulary: the two surfaces are
+    /// alternatives to each other, never on screen together, so a user who learns the hollow dot on
+    /// one must not meet a different mark for the same state on the other.
+    /// </remarks>
+    public string IntegrationGlyphText
+    {
+        get => _integrationGlyphText;
+        set => SetField(ref _integrationGlyphText, value);
     }
 
     /// <summary>The sentence behind <see cref="IntegrationStatusText"/>, shown on hover.</summary>
@@ -68,11 +85,10 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
         set => SetField(ref _queryText, value);
     }
 
-    public string TopSuggestionText
-    {
-        get => _topSuggestionText;
-        set => SetField(ref _topSuggestionText, value);
-    }
+    // The popup used to carry a TopSuggestionText of its own, relayed from the bar view-model. It was
+    // the headline of the detail panel; with the panel gone (UX round 7) and the rows running full
+    // width, the selected row *is* that string, and a second copy of it had no renderer and no reader.
+    // CommandAssistBarViewModel.TopSuggestionText stays - it still drives the bubble summary.
 
     public string SelectedBadgesText
     {
@@ -92,6 +108,30 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
         set => SetField(ref _selectedDescriptionText, value);
     }
 
+    /// <summary>
+    /// Everything the footer says about the selected row, already joined into one line.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A derived view of <see cref="SelectedDescriptionText"/>, <see cref="SelectedBadgesText"/> and
+    /// <see cref="SelectedMetadataText"/>, composed in exactly one place -
+    /// <c>CommandAssistBarViewModel.SyncPresentationState</c> - rather than assembled out of three
+    /// bindings in the XAML. Three <c>TextBlock</c>s in a row cannot share one ellipsis: each would
+    /// trim independently, so a long working directory would clip its own segment while the badge
+    /// beside it kept every character. One string trims once, at the end, which is what a reader
+    /// expects from a line that ran out of room.
+    /// </para>
+    /// <para>
+    /// The three sources stay: the bubble reads them, and they are what the controller actually
+    /// knows. This is the popup's rendering of them, not a replacement for them.
+    /// </para>
+    /// </remarks>
+    public string SelectedFooterText
+    {
+        get => _selectedFooterText;
+        set => SetField(ref _selectedFooterText, value);
+    }
+
     public string EmptyStateText
     {
         get => _emptyStateText;
@@ -109,24 +149,6 @@ public sealed class CommandAssistPopupViewModel : INotifyPropertyChanged
         get => _showEmptyState;
         set => SetField(ref _showEmptyState, value);
     }
-
-    public bool UseCompactLayout
-    {
-        get => _useCompactLayout;
-        set
-        {
-            if (_useCompactLayout == value)
-            {
-                return;
-            }
-
-            _useCompactLayout = value;
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UseCompactLayout)));
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(UseExpandedLayout)));
-        }
-    }
-
-    public bool UseExpandedLayout => !UseCompactLayout;
 
     /// <summary>
     /// Which row is selected, or <c>-1</c>. The rows carry their own <c>IsSelected</c> for rendering;
