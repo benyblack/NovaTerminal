@@ -1,5 +1,17 @@
 # Command Assist Smoke Test Scenarios
 
+> **SUPERSEDED - do not run this document.** It describes Command Assist V1. The V2 rebuild
+> (PRs #276-#308) replaced the behaviour it checks. Use
+> `CommandAssist_SmokeTest_Scenarios_2026-08-11.md` instead.
+>
+> Two entries here do not merely go stale, they invert. **Scenario 3** asserts that passive
+> typing shows nothing, which V2 deliberately reversed in Phase 3b (#293) - a working build
+> now shows a bubble after two characters, so following scenario 3 reads a correct build as
+> broken. **Scenario 10** names `Ctrl+Shift+P` for pin, which is now unconditionally the
+> command palette; pin moved to `Ctrl+Shift+S` in the same PR.
+>
+> Kept for history, and because the V2 document is written as a diff against it.
+
 Date: 2026-03-14
 Scope: Shell-first Tab behavior, explicit history mode, local path suggestions, and AOT parity.
 
