@@ -50,6 +50,27 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     private string BashrcPath => Path.Combine(_home, ".bashrc");
 
     /// <summary>Runs the pasted one-liner under a non-interactive bash and returns its output.</summary>
+    /// <remarks>
+    /// The one-liner goes into a file that bash is pointed at, rather than into <c>bash -c</c>.
+    /// Git Bash's MSYS runtime rebuilds argv from the Windows command line and caps it just under
+    /// 8192 characters - measured here: 8100, 8150 and 8180 all arrive whole, 8190, 8191, 8200 and
+    /// 8300 all fail hard with <c>unexpected EOF while looking for matching quote</c>. It is a
+    /// clean error, not a silent truncation, but it is indistinguishable from a quoting bug in the
+    /// generated command, which is how it first presented.
+    /// </remarks>
+    /// <remarks>
+    /// Worth recording why this changed: the payload-length check added for the truncation
+    /// diagnosis grew the bash/zsh one-liner from 7721 to 8688 characters, which crossed that cap.
+    /// <c>-c</c> worked before the check and cannot carry the line after it - a second, quieter
+    /// cost of the check, alongside the ~300 bytes that kept it off the fish arm.
+    /// </remarks>
+    /// <remarks>
+    /// Nothing is lost by the move. <c>bash -c &lt;string&gt;</c> was never a tty paste either, so no
+    /// tty behaviour was under test; bash parses a one-line script file identically; <c>$0</c> and
+    /// <c>$@</c> are unused by the one-liner; "it is exactly one line" is pinned in
+    /// RemoteShellIntegrationInstallerTests; and the real PTY path is still covered by
+    /// <see cref="AfterInstalling_ANewInteractiveShell_EmitsTheLifecycle"/>.
+    /// </remarks>
     /// <param name="pathOverride">
     /// Replaces <c>PATH</c> for the child. On real Linux bash this alone hides <c>base64</c> and
     /// <c>gzip</c>; kept for that platform even though it is not sufficient on Git Bash - see
@@ -80,14 +101,16 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             command = "base64() { return 1; }; gzip() { return 1; }; " + command;
         }
 
+        string pastePath = Path.Combine(_home, "paste.sh");
+        File.WriteAllText(pastePath, command + "\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
         var startInfo = new ProcessStartInfo(bash)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add(command);
+        startInfo.ArgumentList.Add(pastePath.Replace('\\', '/'));
         startInfo.Environment["HOME"] = HomeForShell;
         if (pathOverride is not null)
         {
@@ -105,6 +128,50 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     private static int CountLoaderLines(string rcContent) => rcContent
         .Split('\n')
         .Count(line => line.Contains("nova-shell-integration", StringComparison.Ordinal));
+
+    /// <summary>
+    /// Runs the decoded installer script directly under bash, with an explicit shell argument, and
+    /// returns its output and exit status.
+    /// </summary>
+    /// <remarks>
+    /// The script rather than the one-liner, because the one-liner's exit status is its cleanup's:
+    /// it ends in <c>unset</c>/<c>rm -f</c> so that nothing is left behind in the calling shell,
+    /// and those succeed whatever the installer did. The installer's own status is the thing worth
+    /// asserting on, and it is what a user piping this into <c>sh</c> would see.
+    /// </remarks>
+    private (string Output, int ExitCode) RunInstallerScript(string shellArgument, string? shellEnv = null)
+    {
+        string? bash = ShellHarness.FindBash();
+        if (bash is null)
+        {
+            Assert.Skip("bash not found on this system");
+        }
+
+        string installerPath = Path.Combine(_home, "nova-install.sh");
+        File.WriteAllText(
+            installerPath,
+            RemoteShellIntegrationSnippets.BuildInstallerScript(RemoteShellIntegrationShell.BashOrZsh),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        var startInfo = new ProcessStartInfo(bash)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(installerPath.Replace('\\', '/'));
+        startInfo.ArgumentList.Add(shellArgument);
+        startInfo.Environment["HOME"] = HomeForShell;
+        if (shellEnv is not null)
+        {
+            startInfo.Environment["SHELL"] = shellEnv;
+        }
+
+        using Process process = Process.Start(startInfo)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "installer did not finish within 30s");
+        return (output, process.ExitCode);
+    }
 
     // ---- the happy path -------------------------------------------------------------------------
 
@@ -166,6 +233,37 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         RunInstaller();
 
         Assert.Equal(1, CountLoaderLines(File.ReadAllText(BashrcPath)));
+    }
+
+    /// <summary>
+    /// A rc file whose only mention of the snippet is inside a comment is not an installation. A
+    /// bare substring match reads it as one, prints "already present - unchanged", writes nothing,
+    /// and the feature never works - and the user has no reason to look again, because the
+    /// installer said it was already done.
+    /// </summary>
+    /// <remarks>
+    /// Not a hypothetical: the natural way to turn this off is to comment the loader line out, and
+    /// `# see ~/.nova-shell-integration.sh` is a plausible note to leave next to something else.
+    /// The marker stays the file name (so a hand-typed loader variant still counts) but is anchored
+    /// to a non-comment position on the line.
+    /// </remarks>
+    [Fact]
+    public void Installer_MentionOnlyInsideAComment_StillAddsTheLoaderLine()
+    {
+        File.WriteAllText(
+            BashrcPath,
+            "# I disabled nova-shell-integration on purpose\n",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        string output = RunInstaller();
+
+        string rc = File.ReadAllText(BashrcPath).Replace("\r\n", "\n");
+        Assert.Contains(
+            RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
+            rc,
+            StringComparison.Ordinal);
+        Assert.Contains("nova: added loader line to ~/.bashrc", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("already present", output, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -311,7 +409,159 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string output = RunInstaller(pathOverride: emptyDir.Replace('\\', '/'), shadowDecodeTools: true);
 
         Assert.Contains("nova: install failed", output, StringComparison.Ordinal);
+        Assert.Contains("base64", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("cut short", output, StringComparison.Ordinal);
         Assert.False(File.Exists(SnippetPath), "snippet written despite a failed decode");
+    }
+
+    /// <summary>
+    /// What a canonical-mode tty cut actually does: the shell rejects the line on the unterminated
+    /// quote and none of the installer runs.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// B3's whole premise is truncation, so the suite truncates. <c>N_TTY_BUF_SIZE</c> is 4096 and
+    /// a tty in canonical mode discards the rest of a longer line, so this feeds the shell exactly
+    /// the first 4095 bytes of the real generated command.
+    /// </para>
+    /// <para>
+    /// This asserts what happens, not what would be convenient. The payload literal opens at byte 9
+    /// and closes past 7500, so the cut always lands inside the quoted blob and takes the closing
+    /// quote with it - the payload-length check is unreachable for a tail cut and no <c>nova:</c>
+    /// line is ever printed. The check earns its place on mid-stream byte loss instead, where the
+    /// tail arrives and the middle does not. Getting this wrong in the other direction is the
+    /// failure this test exists to prevent: a future edit that made the guard *look* reachable
+    /// here, and a message promising a diagnosis the user will never see.
+    /// </para>
+    /// <para>
+    /// pwsh behaves the same way for the same reason - <c>The string is missing the terminator:
+    /// '.</c> - and is not run here only because it needs no shell-specific proof beyond this one.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Installer_TruncatedAtTheCanonicalTtyLimit_FailsInTheShellBeforeAnyOfOurCodeRuns()
+    {
+        string? bash = ShellHarness.FindBash();
+        if (bash is null)
+        {
+            Assert.Skip("bash not found on this system");
+        }
+
+        string command = RemoteShellIntegrationSnippets.BuildInstallerCommand(
+            RemoteShellIntegrationShell.BashOrZsh);
+        Assert.True(command.Length > 4096, "the one-liner fits in one canonical-mode line; this test is moot");
+
+        string cutPath = Path.Combine(_home, "cut-paste.sh");
+        File.WriteAllText(
+            cutPath,
+            command[..4095] + "\n",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        var startInfo = new ProcessStartInfo(bash)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        startInfo.ArgumentList.Add(cutPath.Replace('\\', '/'));
+        startInfo.Environment["HOME"] = HomeForShell;
+
+        using Process process = Process.Start(startInfo)!;
+        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
+        Assert.True(process.WaitForExit(30_000), "truncated paste did not finish within 30s");
+
+        Assert.NotEqual(0, process.ExitCode);
+        Assert.DoesNotContain("nova:", output, StringComparison.Ordinal);
+        Assert.False(File.Exists(SnippetPath), $"snippet written from a truncated paste. output:\n{output}");
+        Assert.False(File.Exists(BashrcPath), $"~/.bashrc written from a truncated paste. output:\n{output}");
+    }
+
+    /// <summary>
+    /// The rc file cannot be written. The installer must not claim it added the loader line.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// A directory in the rc file's place is the cheapest reproduction; the real ones are a
+    /// root-owned or <c>chattr +i</c> rc file, a read-only <c>$HOME</c> (NFS, a container), and a
+    /// full disk. In all of them <c>&gt;&gt;</c> fails, the shell prints the real error and carries
+    /// on, and an unchecked append then prints "added loader line" over the top of it. The user is
+    /// told it worked, gets no marks, and the installer's own report sends them looking in the
+    /// right file for a line that was never written.
+    /// </para>
+    /// <para>
+    /// Three things are asserted because any one of them alone can pass while the bug is present:
+    /// no success claim, a printed loader line the user can place by hand, and a non-zero status
+    /// for anything driving this from a script.
+    /// </para>
+    /// </remarks>
+    [Fact]
+    public void Installer_WhenTheRcFileCannotBeWritten_SaysSoAndExitsNonZero()
+    {
+        Directory.CreateDirectory(BashrcPath);
+
+        (string output, int exitCode) = RunInstallerScript("bash");
+
+        Assert.DoesNotContain("nova: added loader line", output, StringComparison.Ordinal);
+        Assert.Contains("nova: could not write ~/.bashrc", output, StringComparison.Ordinal);
+        Assert.Contains(
+            RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.BashOrZsh)!,
+            output,
+            StringComparison.Ordinal);
+        Assert.NotEqual(0, exitCode);
+    }
+
+    /// <summary>
+    /// The same failure against a rc file that exists and has no trailing newline, which is the
+    /// path that goes through the <em>second</em> append - the <c>printf '\n'</c> that keeps the
+    /// loader off the end of the user's last line. Unguarded, that one fails, execution continues,
+    /// and the loader append then fails too and prints success anyway.
+    /// </summary>
+    /// <remarks>
+    /// Read-only permissions rather than a directory, because a directory takes the
+    /// <c>[ -f ]</c>-false path and never reaches the newline fix. Skipped where the append
+    /// succeeds anyway - root ignores the mode bits, and Git Bash's chmod does not map onto
+    /// Windows ACLs - and the skip is decided by trying it rather than by guessing the platform.
+    /// </remarks>
+    [Fact]
+    public void Installer_WhenTheRcFileWithoutTrailingNewlineIsReadOnly_SaysSoAndExitsNonZero()
+    {
+        File.WriteAllText(
+            BashrcPath,
+            "export FOO=bar",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(BashrcPath, UnixFileMode.UserRead);
+        }
+
+        bool appendWasRefused;
+        try
+        {
+            File.AppendAllText(BashrcPath, "\n");
+            appendWasRefused = false;
+        }
+        catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+        {
+            appendWasRefused = true;
+        }
+
+        if (!appendWasRefused)
+        {
+            Assert.Skip("this process can append to a read-only file (root, or Windows ACLs)");
+        }
+
+        (string output, int exitCode) = RunInstallerScript("bash");
+
+        if (!OperatingSystem.IsWindows())
+        {
+            // Restore write so Dispose can delete the temp HOME.
+            File.SetUnixFileMode(BashrcPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+
+        Assert.DoesNotContain("nova: added loader line", output, StringComparison.Ordinal);
+        Assert.Contains("nova: could not write ~/.bashrc", output, StringComparison.Ordinal);
+        Assert.NotEqual(0, exitCode);
+        Assert.Equal("export FOO=bar", File.ReadAllText(BashrcPath));
     }
 
     // ---- and afterwards, the marks flow ----------------------------------------------------------
@@ -408,6 +658,12 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     /// required would ship undetected. This test runs the actual generated one-liner through
     /// <c>fish -c</c>, mirroring <see cref="RunInstaller"/>'s bash equivalent.
     /// </summary>
+    /// <remarks>
+    /// The output assertions are specific on purpose. <c>Assert.Contains("nova:")</c> would pass on
+    /// every failure message the installer has, including a false claim of success - which is the
+    /// exact hole that let the fish status lie survive its own fix. So: the success line in full,
+    /// no "install failed" of any kind, and nothing fish itself complained about.
+    /// </remarks>
     [Fact]
     public void FishOneLiner_RunsUnderRealFish()
     {
@@ -439,7 +695,20 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         Assert.Equal(
             RemoteShellIntegrationSnippets.Read(RemoteShellIntegrationShell.Fish).TrimEnd('\n'),
             File.ReadAllText(dest).Replace("\r\n", "\n").TrimEnd('\n'));
-        Assert.Contains("nova:", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "nova: wrote ~/.config/fish/conf.d/nova-shell-integration.fish",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "nova: conf.d is sourced automatically - there is nothing to add to a config file.",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("install failed", output, StringComparison.Ordinal);
+        // fish prefixes its own diagnostics with "fish:", and none of the installer's four output
+        // lines contains that string. Without this, a wrapper that errored on the redirect and then
+        // degraded `sh $__nova_t fish` to `sh fish` would still leave the assertions above green
+        // on a host where a previous run had already written conf.d.
+        Assert.DoesNotContain("fish:", output, StringComparison.Ordinal);
     }
 
     // ---- the live shell is untouched -------------------------------------------------------------
@@ -464,7 +733,12 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         string probe =
             command +
             "; echo \"probe-dest=[${__nova_dest-}]\"" +
-            "; echo \"probe-temp=[${__nova_t-}]\"";
+            "; echo \"probe-temp=[${__nova_t-}]\"" +
+            "; echo \"probe-blob=[${__nova_b-}]\"";
+
+        // Via a file, not -c: see RunInstaller's remarks on Git Bash's 8191-character argv cap.
+        string probePath = Path.Combine(_home, "probe.sh");
+        File.WriteAllText(probePath, probe + "\n", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         var startInfo = new ProcessStartInfo(bash)
         {
@@ -472,8 +746,7 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
             RedirectStandardError = true,
             UseShellExecute = false,
         };
-        startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add(probe);
+        startInfo.ArgumentList.Add(probePath.Replace('\\', '/'));
         startInfo.Environment["HOME"] = HomeForShell;
 
         using Process process = Process.Start(startInfo)!;
@@ -482,6 +755,9 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
 
         Assert.Contains("probe-dest=[]", output, StringComparison.Ordinal);
         Assert.Contains("probe-temp=[]", output, StringComparison.Ordinal);
+        // The payload now lands in a variable rather than being piped straight from a literal, so
+        // there is a ~7 KB string to clean up as well.
+        Assert.Contains("probe-blob=[]", output, StringComparison.Ordinal);
     }
 
     // ---- powershell ---------------------------------------------------------------------------
@@ -553,6 +829,95 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
     }
 
     /// <summary>
+    /// The PowerShell half of
+    /// <see cref="Installer_WhenTheRcFileCannotBeWritten_SaysSoAndExitsNonZero"/>. <c>Add-Content</c>
+    /// defaults to <c>-ErrorAction Continue</c>: it reports the error and lets the script run on to
+    /// print "added loader line" over the top of it.
+    /// </summary>
+    [Fact]
+    public void PowerShellInstaller_WhenTheProfileCannotBeWritten_SaysSoAndExitsNonZero()
+    {
+        string? pwsh = FindPwsh();
+        if (pwsh is null)
+        {
+            Assert.Skip("pwsh not found on this system");
+        }
+
+        string installerPath = WritePowerShellInstaller();
+        string profilePath = Path.Combine(_home, "profile.ps1");
+        Directory.CreateDirectory(profilePath);
+
+        (string output, int exitCode) = RunPwshWithExitCode(pwsh, installerPath, profilePath);
+
+        Assert.DoesNotContain("nova: added loader line", output, StringComparison.Ordinal);
+        Assert.Contains("nova: could not write", output, StringComparison.Ordinal);
+        Assert.Contains(
+            RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.PowerShell)!,
+            output,
+            StringComparison.Ordinal);
+        Assert.NotEqual(0, exitCode);
+    }
+
+    /// <summary>
+    /// The PowerShell half of <see cref="Installer_MentionOnlyInsideAComment_StillAddsTheLoaderLine"/>.
+    /// <c>#</c> is PowerShell's comment character too, so <c>-SimpleMatch</c> anywhere in the file
+    /// reads a commented-out attempt as an installation.
+    /// </summary>
+    [Fact]
+    public void PowerShellInstaller_MentionOnlyInsideAComment_StillAddsTheLoaderLine()
+    {
+        string? pwsh = FindPwsh();
+        if (pwsh is null)
+        {
+            Assert.Skip("pwsh not found on this system");
+        }
+
+        string installerPath = WritePowerShellInstaller();
+        string profilePath = Path.Combine(_home, "profile.ps1");
+        File.WriteAllText(
+            profilePath,
+            "# I disabled nova-shell-integration on purpose\n",
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+        string output = RunPwsh(pwsh, installerPath, profilePath);
+
+        Assert.Contains(
+            RemoteShellIntegrationSnippets.GetLoaderLine(RemoteShellIntegrationShell.PowerShell)!,
+            File.ReadAllText(profilePath).Replace("\r\n", "\n"),
+            StringComparison.Ordinal);
+        Assert.Contains("nova: added loader line", output, StringComparison.Ordinal);
+        Assert.DoesNotContain("already present", output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The installer names the profile it patched. It used to print the literal string
+    /// <c>$PROFILE</c> - single-quoted, so never expanded - which on a host where the user has more
+    /// than one profile path says nothing about which file to go and look at. The sh installer names
+    /// the real file; this one must too.
+    /// </summary>
+    [Fact]
+    public void PowerShellInstaller_NamesTheProfileItPatched()
+    {
+        string? pwsh = FindPwsh();
+        if (pwsh is null)
+        {
+            Assert.Skip("pwsh not found on this system");
+        }
+
+        string installerPath = WritePowerShellInstaller();
+        string profilePath = Path.Combine(_home, "profile.ps1");
+
+        string output = RunPwsh(pwsh, installerPath, profilePath) + RunPwsh(pwsh, installerPath, profilePath);
+
+        Assert.DoesNotContain("$PROFILE", output, StringComparison.Ordinal);
+        Assert.Contains($"nova: added loader line to {profilePath}", output, StringComparison.Ordinal);
+        Assert.Contains(
+            $"nova: loader line already present in {profilePath}",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// <see cref="PowerShellInstaller_WritesTheSnippetAndPatchesTheProfileOnce"/> invokes the
     /// installer via <c>-File</c>, which parses the script as its own document and never exercises
     /// the generated one-liner's own syntax - the wrapper that decodes and runs it. This parses (but
@@ -617,7 +982,13 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         return null;
     }
 
-    private string RunPwsh(string pwsh, string installerPath, string profilePath)
+    private string RunPwsh(string pwsh, string installerPath, string profilePath) =>
+        RunPwshWithExitCode(pwsh, installerPath, profilePath).Output;
+
+    private (string Output, int ExitCode) RunPwshWithExitCode(
+        string pwsh,
+        string installerPath,
+        string profilePath)
     {
         var startInfo = new ProcessStartInfo(pwsh)
         {
@@ -637,6 +1008,17 @@ public sealed class RemoteInstallerIntegrationTests : IDisposable
         using Process process = Process.Start(startInfo)!;
         string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
         Assert.True(process.WaitForExit(60_000), "pwsh installer did not finish within 60s");
-        return output;
+        return (output, process.ExitCode);
+    }
+
+    private string WritePowerShellInstaller()
+    {
+        string installerPath = Path.Combine(_home, "nova-install.ps1");
+        File.WriteAllText(
+            installerPath,
+            RemoteShellIntegrationSnippets.BuildInstallerScript(
+                RemoteShellIntegrationShell.PowerShell),
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        return installerPath;
     }
 }

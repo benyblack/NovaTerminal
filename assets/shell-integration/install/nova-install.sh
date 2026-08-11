@@ -43,22 +43,41 @@ esac
 
 __nova_loader='[ -f ~/.nova-shell-integration.sh ] && . ~/.nova-shell-integration.sh'
 
+__nova_status=0
+
 if [ -z "$__nova_rc" ]; then
     echo "nova: could not tell which shell you use - add this line to your rc file:"
     echo "nova:   $__nova_loader"
-elif [ -f "$__nova_rc" ] && grep -q 'nova-shell-integration' "$__nova_rc" 2>/dev/null; then
+# '^[^#]*' rather than a bare substring match: the marker is the file name, so a hand-typed
+# variant of the loader line still counts, but a rc file whose only mention is a comment - a
+# previous attempt commented out, or a note to self - must not be read as "already installed"
+# and left without a loader line while the installer reports success.
+elif [ -f "$__nova_rc" ] && grep -q '^[^#]*nova-shell-integration' "$__nova_rc" 2>/dev/null; then
     echo "nova: loader line already present in $__nova_rc_display - unchanged"
 else
     # A rc file that does not end in a newline (common - many editors don't add one) would
     # otherwise get the loader line concatenated onto its last line instead of appended as its
     # own line. Guarded for the common case where the file does not exist yet: tail on a missing
     # file prints nothing to stdout, so this is a no-op and >> below creates it.
+    #
+    # Both appends are status-checked. A rc file the user cannot write - root-owned, chattr +i,
+    # a read-only $HOME on NFS or in a container, a full disk - makes >> fail while the shell
+    # carries on to the next command, so an unchecked append prints "added loader line" over the
+    # top of the real error and sends the user looking in the right file for a line that was
+    # never written.
+    __nova_appended=1
     if [ -f "$__nova_rc" ] && [ -n "$(tail -c1 "$__nova_rc" 2>/dev/null)" ]; then
-        printf '\n' >> "$__nova_rc"
+        printf '\n' >> "$__nova_rc" || __nova_appended=
     fi
-    printf '%s\n' "$__nova_loader" >> "$__nova_rc"
-    echo "nova: added loader line to $__nova_rc_display"
+    if [ -n "$__nova_appended" ] && printf '%s\n' "$__nova_loader" >> "$__nova_rc"; then
+        echo "nova: added loader line to $__nova_rc_display"
+    else
+        echo "nova: could not write $__nova_rc_display - add this line to it by hand:"
+        echo "nova:   $__nova_loader"
+        __nova_status=1
+    fi
 fi
 
 echo "nova: run  . ~/.nova-shell-integration.sh  to enable it in this session,"
 echo "nova: or open a new Nova session to this host."
+exit $__nova_status

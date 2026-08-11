@@ -40,18 +40,55 @@ nova: run  . ~/.nova-shell-integration.sh  to enable it in this session,
 nova: or open a new Nova session to this host.
 ```
 
-One line and one history entry, rather than the 300-line paste this replaced. The line decodes a
+One line and one history entry, rather than a 300-line paste. The line decodes a
 gzipped copy of the snippet into a temp file, runs it as a **child process**, and deletes it. It
 never sources anything into your live shell: the shell's identity is expanded by your shell and
 handed to the installer as an argument, so it knows whether to patch `~/.bashrc` or `~/.zshrc`
 without touching your session. Running it twice changes nothing the second time — the loader line is
-added only if it isn't already there, including when you placed it by hand.
+added only if it isn't already there, including when you placed it by hand. A line that only
+*mentions* the file inside a comment does not count as already there.
+
+If it cannot write your rc file — root-owned, `chattr +i`, a read-only `$HOME`, a full disk — it
+says so, prints the loader line for you to add by hand, and exits non-zero. It never reports a
+change it did not make.
 
 Integration starts with your next session to that host. The third line above is there if you want it
 sooner in the shell you pasted into.
 
 fish needs no loader line at all: its snippet goes to `~/.config/fish/conf.d/`, which fish sources
 automatically.
+
+### The 4096-byte paste limit
+
+The one line is about 8.5 KB for bash/zsh and for pwsh. A tty in **canonical mode** discards
+everything past 4096 bytes of a single line (`N_TTY_BUF_SIZE`), so on those hosts those two lines do
+not survive the paste. fish's is under 4 KB (its snippet is a third the size) and is not affected.
+
+Interactive bash, zsh and fish put the tty in raw mode — readline, ZLE, fish's own reader — so a
+normal SSH session to a normal login shell is fine, which is the case you will hit almost every
+time. Canonical mode is what you get at `docker exec -it <c> sh`, on busybox/Alpine `ash`, with
+`dash` as `/bin/sh`, on serial and IPMI consoles, and in pwsh without PSReadLine.
+
+**What it looks like when it happens.** The base64 payload starts at byte 9 or 10 of the line and
+runs past byte 7500, so a cut at 4096 always lands in the middle of it and takes the closing quote
+with it. Your shell therefore rejects the line outright — nothing of Nova's runs, nothing is
+written, and there is no `nova:` message:
+
+```
+bash: unexpected EOF while looking for matching `''
+```
+
+bash and zsh may instead sit at a `>` continuation prompt waiting for the quote to be closed; press
+Ctrl-C. pwsh says `The string is missing the terminator: '.`
+
+The fix on such a host is **Copy plain snippet**, or paste the one line into a file and run the
+file.
+
+The one-liner *does* carry its own payload length and check it before decoding, but that guard is
+for a different failure: bytes lost from the **middle** of the line while the end still arrives — a
+flaky link, a multiplexer dropping a chunk of a paste. There it reports `nova: install failed - the
+pasted line was cut short (N of M payload characters)` instead of blaming `base64`/`gzip` for a
+decode failure they did not cause.
 
 ### Placing the file yourself
 
@@ -135,6 +172,27 @@ path reads the parser's mark directly and predates the switch having a remote me
 
 ## Threat model
 
+**What you are pasting.** The installer line carries the whole snippet inline, gzipped and
+base64-encoded. There is no `curl`, no `wget`, no URL and no network fetch: nothing is downloaded at
+paste time, so there is no window between copying the line and running it in which a server, a CDN,
+a DNS answer or a TLS interception could substitute different content, and it works on a host with
+no outbound network at all. That is a real property and it is worth having.
+
+It is also the whole of the mitigation, and it is worth being plain about what it does not cover.
+What you paste is an ~8 KB opaque blob, and there is nothing on the remote host — or in the pasted
+line — that lets you check it against the reviewable sources in `assets/shell-integration/install/`
+and `assets/shell-integration/`. There is no checksum you can compare, because a checksum shipped
+alongside the blob by the same build is not evidence. You are trusting the Nova build that produced
+the clipboard contents, exactly as much as you would trust a script it downloaded for you, minus the
+network. Pasting opaque blobs into production servers is a habit worth being deliberate about, and
+this feature does encourage it.
+
+If that trade is wrong for a particular host, **Copy plain snippet** puts the readable file on the
+clipboard instead. It is the same content, in a form you can read before you run it and diff against
+the repository, and the rest of what the installer does is two commands you can do by hand: write
+the file, add one loader line to your rc file (the exact line is in the row next to the button, and
+above in this page).
+
 **What an instrumented remote session lets the far end do.** OSC 133 marks are bytes on the pane's
 output stream, and nothing about a byte stream says who wrote it. On an SSH session that means the
 remote host — or anything running on it, or anything that can get output onto that stream — can
@@ -180,6 +238,23 @@ once there is a second reason to touch the suggestion row rendering.
 
 ## Troubleshooting
 
+- **The paste produced an unmatched-quote error, or the shell sits at a `>` prompt.** The host's tty
+  is in canonical mode and cut the line at 4096 bytes — see
+  [The 4096-byte paste limit](#the-4096-byte-paste-limit). Nothing was written; nothing of Nova's
+  ran.
+- **`nova: install failed - the pasted line was cut short`.** Different failure: the line arrived
+  but with bytes missing from the middle. Retry the paste; if it keeps happening the transport is
+  dropping data.
+- **`nova: install failed - this host needs a working base64 and gzip`.** This one means what it
+  says — the host could not decode the payload (on bash/zsh and pwsh its length was checked first,
+  so it did arrive whole).
+  busybox and coreutils both provide `base64` and `gzip`; a hardened `$PATH` that hides them is the
+  other common cause. Use **Copy plain snippet** if you would rather not install anything.
+- **`nova: install failed - mktemp could not create a temp file`.** No `mktemp` on the host, or
+  `$TMPDIR` is unwritable or mounted `noexec`. There is deliberately no fallback temp path: a
+  predictable name in `/tmp` is a symlink attack on a shared host.
+- **`nova: could not write ~/.bashrc - add this line to it by hand`.** The snippet was written; only
+  the rc edit failed. Add the line it printed, or fix the rc file's permissions and re-run.
 - **Nothing changed.** Marks only take effect on a *new* session; sourcing the snippet into a shell
   Nova is already attached to works, but the prompt has to repaint at least once for `B` to land.
 - **Suggestions appear but history stays empty.** Check `CommandAssistHistoryEnabled`; capture is

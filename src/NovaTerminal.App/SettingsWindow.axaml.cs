@@ -1533,9 +1533,9 @@ namespace NovaTerminal
         /// The primary action: one line the user pastes at the remote prompt.
         /// </summary>
         /// <remarks>
-        /// The status text describes what the paste does rather than what the user must do next,
-        /// because after this change there is no next step - the installer writes the snippet and
-        /// patches the rc file itself. It deliberately does not promise the current session becomes
+        /// The status text describes what the paste does rather than what the user must do next:
+        /// the installer writes the snippet and patches the rc file itself, so there is no next
+        /// step to describe. It deliberately does not promise the current session becomes
         /// integrated: the installer runs as a child process and never touches the live shell, so
         /// marks arrive with the next session.
         /// </remarks>

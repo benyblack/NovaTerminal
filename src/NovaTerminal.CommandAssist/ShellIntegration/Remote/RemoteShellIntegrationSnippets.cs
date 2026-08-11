@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
@@ -127,23 +128,90 @@ public static class RemoteShellIntegrationSnippets
     /// </summary>
     /// <remarks>
     /// <para>
-    /// One line, because one line is one history entry and one prompt cycle. The 300-line paste this
-    /// replaced flooded the scrollback, was slow to redraw in any shell with syntax highlighting,
-    /// left the rc edit as a manual step users forget, and on a Windows remote could not work at all
-    /// (<c>cat</c> there is an alias for <c>Get-Content</c>, so <c>cat &gt; file</c> has no input).
+    /// One line, because one line is one history entry and one prompt cycle. The alternative - the
+    /// user pastes the 300-line snippet itself - floods the scrollback, is slow to redraw in any
+    /// shell with syntax highlighting, leaves the rc edit as a manual step users forget, and on a
+    /// Windows remote cannot work at all (<c>cat</c> there is an alias for <c>Get-Content</c>, so
+    /// <c>cat &gt; file</c> has no input). That path is still one click away as "Copy plain
+    /// snippet"; it is just not the default.
     /// </para>
     /// <para>
-    /// The payload is gzip+base64: 6.4 KB instead of 17.0 KB for the bash/zsh snippet, and base64's
-    /// alphabet contains no shell metacharacter, so the single quotes around it can never need
-    /// escaping. It decodes to an installer script that runs as a <em>child process</em> - the live
-    /// shell is never sourced into, and the shell's identity reaches the installer as an argument
-    /// the live shell expanded.
+    /// The payload is gzip+base64, roughly half the bytes of the installer script it decodes to,
+    /// and base64's alphabet contains no shell metacharacter, so the single quotes around it can
+    /// never need escaping. Exact sizes are not quoted here because they move with every snippet
+    /// edit; <c>Installer_StaysWithinItsLengthBudget</c> in RemoteShellIntegrationInstallerTests is
+    /// where the current measurement lives. It decodes to an installer script that runs as a
+    /// <em>child process</em> - the live shell is never sourced into, and the shell's identity
+    /// reaches the installer as an argument the live shell expanded.
     /// </para>
     /// <para>
-    /// This reverses the argument the class used to make against generated installers, which was
-    /// that a blob cannot be read before it runs. It is answered instead by the installers being
-    /// reviewable files under <c>assets/shell-integration/install/</c> and by
-    /// <see cref="Read"/> still backing a "Copy plain snippet" action in the same row.
+    /// A base64 blob cannot be read before it runs, which is a real objection to shipping one. It
+    /// is answered by what the blob contains: a gzipped copy of a reviewable file under
+    /// <c>assets/shell-integration/install/</c>, and nothing else - plus <see cref="Read"/> still
+    /// backing a "Copy plain snippet" action in the same row for a user who would rather place the
+    /// file themselves. See docs/command-assist/RemoteShellIntegration.md for what that does and
+    /// does not buy.
+    /// </para>
+    /// <para>
+    /// <b>The temp file comes from <c>mktemp</c> or the install does not happen.</b> There is no
+    /// fallback path. The obvious one - <c>printf /tmp/nova-si.%s "$$"</c> - was tried and removed:
+    /// <c>mktemp</c> gives 0600 and <c>O_EXCL</c>, that name gives neither. <c>$$</c> is visible in
+    /// <c>ps</c>, so the path is predictable, and <c>&gt;</c> follows symlinks and leaves an
+    /// existing file's mode and owner alone. On a shared host another local user can pre-create it
+    /// 0666 and rewrite the contents between the redirect and <c>sh "$__nova_t"</c> - code
+    /// execution as the victim - or point it at <c>~/.bashrc</c> and have the redirect truncate
+    /// that instead, no race required. A safe fallback would need <c>set -C</c> plus an
+    /// unpredictable name, which is more machinery than a rarely-taken path is worth; failing with
+    /// a message naming <c>mktemp</c> is the whole of the recovery story.
+    /// </para>
+    /// <para>
+    /// <b>The bash/zsh and pwsh arms carry their own payload length and check it before decoding.</b>
+    /// What that catches is <em>mid-stream byte loss</em>: a flaky link, a multiplexer dropping a
+    /// chunk of a paste, anything that removes bytes from the middle while the tail still arrives.
+    /// Without it the shortened payload reaches the decoder and the only symptom is a decode
+    /// failure, which the installer would have to blame on missing <c>base64</c>/<c>gzip</c> -
+    /// sending the user to install coreutils on a host that already has them.
+    /// </para>
+    /// <para>
+    /// It deliberately does <em>not</em> catch a canonical-mode tty cut, and cannot. The line is
+    /// over 4 KB and <c>N_TTY_BUF_SIZE</c> is 4096, so a tty in canonical mode
+    /// (<c>docker exec -it c sh</c>, busybox <c>ash</c>, <c>dash</c> as <c>/bin/sh</c>, serial and
+    /// IPMI consoles, pwsh without PSReadLine) discards everything past 4096 bytes of the line. But
+    /// the payload literal opens at byte 9 (bash) or 10 (pwsh) and closes past 7500, so a tail cut
+    /// at 4096 always lands <em>inside</em> the quoted blob and takes the closing quote with it:
+    /// bash answers <c>unexpected EOF while looking for matching '</c> and pwsh
+    /// <c>The string is missing the terminator: '.</c>, and none of our code runs at all. There is
+    /// no arrangement of a tail truncation that leaves the guard reachable. Interactive bash, zsh
+    /// and fish read in raw mode via readline/ZLE and never hit this, which is why pasting by hand
+    /// always works.
+    /// </para>
+    /// <para>
+    /// The <b>fish</b> arm has no length check. Its payload is a third the size and the whole line
+    /// fits under 4096, so it is the one arm that cannot be truncated by a tty in the first place -
+    /// and the check is 300-odd bytes of the headroom that makes that true. Its other guards
+    /// (<c>mktemp</c>, the decode status, both failure messages) are the same as bash's.
+    /// </para>
+    /// <para>
+    /// The decode branch is chosen on the <em>pipeline's exit status</em>, not on the temp file
+    /// being non-empty. <c>gzip -dc</c> writes what it managed to inflate before it fails, so a
+    /// corrupt payload leaves a non-empty, syntactically broken installer that <c>[ -s ]</c> would
+    /// wave through and <c>sh</c> would then run: an unterminated heredoc writes a truncated
+    /// snippet, the installer reports "wrote", appends the loader line, and every future shell on
+    /// that host sources a broken file.
+    /// </para>
+    /// <para>
+    /// The pwsh arm's <c>&amp; $__nova_t</c> sits <em>outside</em> the decode's <c>try</c>, gated on a
+    /// success flag. Inside it, a terminating error raised by the installer script itself would be
+    /// caught by the decode's handler and reported as "the payload did not unpack" - a diagnosis
+    /// about the blob for a failure that had nothing to do with it.
+    /// </para>
+    /// <para>
+    /// <c>base64 -d</c> is the GNU spelling. macOS's <c>/usr/bin/base64</c> predating Ventura only
+    /// accepts <c>-D</c>, so the sh and fish arms probe with a four-character test vector once and
+    /// fall back. A <c>-d ||</c> <c>-D</c> retry on the real payload is not an option: the first
+    /// attempt would already have consumed stdin. The variable holds the bare letter and the dash
+    /// is concatenated at the call site, so that fish's <c>set</c> never sees a value that looks
+    /// like one of its own options.
     /// </para>
     /// </remarks>
     public static string BuildInstallerCommand(RemoteShellIntegrationShell shell)
@@ -154,20 +222,22 @@ public static class RemoteShellIntegrationSnippets
         {
             RemoteShellIntegrationShell.BashOrZsh =>
                 """
-                __nova_t=$(mktemp 2>/dev/null || printf /tmp/nova-si.%s "$$"); printf %s '@@BLOB@@' | base64 -d 2>/dev/null | gzip -dc 2>/dev/null > "$__nova_t"; if [ -s "$__nova_t" ]; then sh "$__nova_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "nova: install failed - this host needs base64 and gzip"; fi; rm -f "$__nova_t"; unset __nova_t
+                __nova_b='@@BLOB@@'; if [ ${#__nova_b} -ne @@BLOBLEN@@ ]; then echo "nova: install failed - the pasted line was cut short (${#__nova_b} of @@BLOBLEN@@ payload characters). A terminal in canonical mode drops everything past 4096 bytes of one line; use Copy plain snippet on this host."; elif __nova_t=$(mktemp); then __nova_d=d; printf %s Kg== | base64 -d >/dev/null 2>&1 || __nova_d=D; if printf %s "$__nova_b" | base64 "-$__nova_d" | gzip -dc > "$__nova_t"; then sh "$__nova_t" "${ZSH_VERSION:+zsh}${BASH_VERSION:+bash}"; else echo "nova: install failed - this host needs a working base64 and gzip to unpack the payload"; fi; rm -f "$__nova_t"; else echo "nova: install failed - mktemp could not create a temp file"; fi; unset __nova_b __nova_t __nova_d
                 """,
             RemoteShellIntegrationShell.Fish =>
                 """
-                set -l __nova_t (mktemp); printf %s '@@BLOB@@' | base64 -d | gzip -dc > $__nova_t; sh $__nova_t fish; rm -f $__nova_t; set -e __nova_t
+                set -l __nova_b '@@BLOB@@'; set -l __nova_t (mktemp); set -l __nova_d d; if test -z "$__nova_t"; echo "nova: install failed - mktemp could not create a temp file"; else; printf %s Kg== | base64 -d >/dev/null 2>&1; or set __nova_d D; if printf %s $__nova_b | base64 -$__nova_d | gzip -dc > $__nova_t; sh $__nova_t fish; else; echo "nova: install failed - this host needs a working base64 and gzip to unpack the payload"; end; rm -f $__nova_t; end; set -e __nova_b __nova_t __nova_d
                 """,
             RemoteShellIntegrationShell.PowerShell =>
                 """
-                $__nova_t=[IO.Path]::GetTempPath()+[Guid]::NewGuid().ToString('N')+'.ps1'; $__nova_g=[IO.Compression.GZipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String('@@BLOB@@')),[IO.Compression.CompressionMode]::Decompress); $__nova_o=[IO.File]::Create($__nova_t); $__nova_g.CopyTo($__nova_o); $__nova_o.Dispose(); $__nova_g.Dispose(); & $__nova_t; Remove-Item $__nova_t; Remove-Variable __nova_t,__nova_g,__nova_o
+                $__nova_b='@@BLOB@@'; if($__nova_b.Length -ne @@BLOBLEN@@){Write-Host "nova: install failed - the pasted line was cut short ($($__nova_b.Length) of @@BLOBLEN@@ payload characters). A console in canonical mode drops everything past 4096 bytes of one line; use Copy plain snippet on this host."}else{$__nova_t=[IO.Path]::GetTempPath()+[Guid]::NewGuid().ToString('N')+'.ps1'; try{$__nova_g=[IO.Compression.GZipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String($__nova_b)),[IO.Compression.CompressionMode]::Decompress); $__nova_o=[IO.File]::Create($__nova_t); $__nova_g.CopyTo($__nova_o); $__nova_o.Dispose(); $__nova_g.Dispose(); $__nova_ok=$true}catch{Write-Host "nova: install failed - the payload did not unpack: $($_.Exception.Message)"}finally{if($__nova_o){$__nova_o.Dispose()}; if($__nova_g){$__nova_g.Dispose()}}; if($__nova_ok){& $__nova_t}; Remove-Item $__nova_t -ErrorAction SilentlyContinue}; Remove-Variable __nova_b,__nova_t,__nova_g,__nova_o,__nova_ok -ErrorAction SilentlyContinue
                 """,
             _ => throw new ArgumentOutOfRangeException(nameof(shell), shell, "No installer ships for this shell."),
         };
 
-        return template.Replace("@@BLOB@@", blob, StringComparison.Ordinal);
+        return template
+            .Replace("@@BLOBLEN@@", blob.Length.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)
+            .Replace("@@BLOB@@", blob, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -253,17 +323,16 @@ public static class RemoteShellIntegrationSnippets
     /// <remarks>
     /// <para>
     /// This is the secondary path. The primary one is <see cref="BuildInstallerCommand"/>, and these
-    /// instructions belong to the "Copy plain snippet" action beside it.
+    /// instructions belong to the "Copy plain snippet" action beside it. It exists for the user who
+    /// wants to read the file before trusting it, or who is placing it from a dotfiles repo or
+    /// <c>/etc/profile.d</c> rather than pasting at a prompt - the one thing a base64 one-liner
+    /// cannot offer.
     /// </para>
     /// <para>
-    /// The class used to argue against a generated installer on the grounds that a base64 blob
-    /// cannot be read before it is run. That objection was real and is now met differently: the
-    /// installers are reviewable files under <c>assets/shell-integration/install/</c>, and this
-    /// readable path is still one click away in the same row. What the 300-line paste cost was not
-    /// worth keeping - a flooded scrollback, a slow paste in any shell with syntax highlighting, an
-    /// rc edit left to the user, and a PowerShell recipe that could not work on a Windows remote at
-    /// all, where <c>cat</c> is an alias for <c>Get-Content</c> and so <c>cat &gt; file</c> has no
-    /// input to read.
+    /// It is not the default because of what it costs when it is: a 300-line paste floods the
+    /// scrollback, is slow to redraw in any shell with syntax highlighting, leaves the rc edit to
+    /// the user, and on a Windows remote cannot work at all, where <c>cat</c> is an alias for
+    /// <c>Get-Content</c> and so <c>cat &gt; file</c> has no input to read.
     /// </para>
     /// <para>
     /// <c>cat &gt; path</c> plus Ctrl-D rather than an editor: it is the one recipe that works on a
