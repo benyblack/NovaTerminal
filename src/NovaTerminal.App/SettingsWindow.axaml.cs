@@ -1497,9 +1497,10 @@ namespace NovaTerminal
         private void WireRemoteShellIntegrationRow()
         {
             var shellList = this.FindControl<ComboBox>("RemoteShellIntegrationShellList");
-            var copyButton = this.FindControl<Button>("BtnCopyRemoteShellIntegration");
+            var copyInstallerButton = this.FindControl<Button>("BtnCopyRemoteShellIntegration");
+            var copySnippetButton = this.FindControl<Button>("BtnCopyRemoteShellIntegrationSnippet");
             var status = this.FindControl<TextBlock>("RemoteShellIntegrationStatus");
-            if (shellList == null || copyButton == null)
+            if (shellList == null || copyInstallerButton == null)
             {
                 return;
             }
@@ -1509,16 +1510,69 @@ namespace NovaTerminal
                 .ToList();
             shellList.SelectedIndex = 0;
 
-            copyButton.Click += async (_, _) =>
+            RemoteShellIntegrationShell SelectedShell()
             {
                 int index = Math.Clamp(
                     shellList.SelectedIndex,
                     0,
                     RemoteShellIntegrationSnippets.All.Count - 1);
-                await CopyRemoteShellIntegrationSnippetAsync(
-                    RemoteShellIntegrationSnippets.All[index],
-                    status);
-            };
+                return RemoteShellIntegrationSnippets.All[index];
+            }
+
+            copyInstallerButton.Click += async (_, _) =>
+                await CopyRemoteShellIntegrationInstallerAsync(SelectedShell(), status);
+
+            if (copySnippetButton != null)
+            {
+                copySnippetButton.Click += async (_, _) =>
+                    await CopyRemoteShellIntegrationSnippetAsync(SelectedShell(), status);
+            }
+        }
+
+        /// <summary>
+        /// The primary action: one line the user pastes at the remote prompt.
+        /// </summary>
+        /// <remarks>
+        /// The status text describes what the paste does rather than what the user must do next:
+        /// the installer writes the snippet and patches the rc file itself, so there is no next
+        /// step to describe. It deliberately does not promise the current session becomes
+        /// integrated: the installer runs as a child process and never touches the live shell, so
+        /// marks arrive with the next session.
+        /// </remarks>
+        private async System.Threading.Tasks.Task CopyRemoteShellIntegrationInstallerAsync(
+            RemoteShellIntegrationShell shell,
+            TextBlock? status)
+        {
+            try
+            {
+                var clipboard = TopLevel.GetTopLevel(this)?.Clipboard;
+                if (clipboard == null)
+                {
+                    ShowRemoteShellIntegrationStatus(status, "Clipboard is not available.");
+                    return;
+                }
+
+                await clipboard.SetTextAsync(RemoteShellIntegrationSnippets.BuildInstallerCommand(shell));
+
+                string? loaderLine = RemoteShellIntegrationSnippets.GetLoaderLine(shell);
+                string writeDescription = loaderLine != null
+                    ? $"It writes {RemoteShellIntegrationSnippets.GetRemotePath(shell)} and adds the loader " +
+                      "line to your rc file if it isn't already there."
+                    : $"It writes {RemoteShellIntegrationSnippets.GetRemotePath(shell)}, which is sourced " +
+                      "automatically, so there is nothing else to add.";
+
+                ShowRemoteShellIntegrationStatus(
+                    status,
+                    $"Copied the installer for {RemoteShellIntegrationSnippets.GetDisplayName(shell)}. " +
+                    "Paste it at the remote prompt and press Enter - one line, one history entry. " +
+                    writeDescription);
+            }
+            catch (Exception ex)
+            {
+                // Reported in the row rather than swallowed: the whole point of the affordance is
+                // that the user now has the installer, and silently not having it looks identical.
+                ShowRemoteShellIntegrationStatus(status, $"Could not copy the installer: {ex.Message}");
+            }
         }
 
         private async System.Threading.Tasks.Task CopyRemoteShellIntegrationSnippetAsync(
