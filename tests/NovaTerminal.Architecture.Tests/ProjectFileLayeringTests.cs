@@ -157,4 +157,30 @@ public class ProjectFileLayeringTests
         var refs = ProjectReferences("src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj");
         Assert.Equal(AgentHostContractsOnly, refs);
     }
+
+    /// <summary>
+    /// #310: panes must be hosted by the sideloaded ConPTY host, not the OS conhost.exe.
+    /// portable-pty only uses it when a <c>conpty.dll</c> sits next to the executable, and that
+    /// DLL only finds its server at <c>&lt;arch&gt;\OpenConsole.exe</c> — so both files have to be
+    /// in the app output. Losing them does not fail the build and does not fail any behavioural
+    /// test; it silently puts every session back on the console host whose crash killed the
+    /// user's shell in #310. The csproj's own VerifySideloadedConPtyHost target guards the
+    /// package layout, which is a different failure: this guards the copy items themselves.
+    /// </summary>
+    [Fact]
+    public void App_csproj_must_ship_the_sideloaded_conpty_host()
+    {
+        var path = Path.Combine(RepoRoot(), "src/NovaTerminal.App/NovaTerminal.App.csproj");
+        var doc = XDocument.Load(path);
+
+        var links = doc.Descendants("Content")
+            .Select(c => (string?)c.Element("Link") ?? string.Empty)
+            .Select(l => l.Replace('\\', '/'))
+            .ToArray();
+
+        Assert.Contains("conpty.dll", links);
+        Assert.Contains(links, l => l.EndsWith("/OpenConsole.exe", StringComparison.OrdinalIgnoreCase));
+
+        Assert.Contains("Microsoft.Windows.Console.ConPTY", PackageReferences("src/NovaTerminal.App/NovaTerminal.App.csproj"));
+    }
 }
