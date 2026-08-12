@@ -157,4 +157,51 @@ public class ProjectFileLayeringTests
         var refs = ProjectReferences("src/NovaTerminal.McpServer/NovaTerminal.McpServer.csproj");
         Assert.Equal(AgentHostContractsOnly, refs);
     }
+
+    /// <summary>
+    /// #310: panes must be hosted by the sideloaded ConPTY host, not the OS conhost.exe.
+    /// portable-pty only uses it when a <c>conpty.dll</c> sits next to the executable, and that
+    /// DLL only finds its server at <c>&lt;arch&gt;\OpenConsole.exe</c> — so both files have to be
+    /// in the app output. Losing them does not fail the build and does not fail any behavioural
+    /// test; it silently puts every session back on the console host whose crash killed the
+    /// user's shell in #310. The csproj's own VerifySideloadedConPtyHost target guards the
+    /// package layout, which is a different failure: this guards the copy items themselves.
+    /// </summary>
+    [Fact]
+    public void App_csproj_must_ship_the_sideloaded_conpty_host()
+    {
+        const string appCsproj = "src/NovaTerminal.App/NovaTerminal.App.csproj";
+        var doc = XDocument.Load(Path.Combine(RepoRoot(), appCsproj));
+
+        Assert.Contains("Microsoft.Windows.Console.ConPTY", PackageReferences(appCsproj));
+
+        // conpty.dll has to sit next to the exe (that is the only place portable-pty looks), and
+        // the hosts have to be declared per machine architecture, arm64 included: an x64 bundle
+        // started on Windows-on-ARM resolves the arm64 host, and win-x64 is the only Windows RID
+        // released.
+        var hostLinks = doc.Descendants("NovaRequiredConPtyHost")
+            .Select(e => ((string?)e.Element("Link") ?? string.Empty).Replace('\\', '/'))
+            .ToArray();
+        Assert.Contains("arm64/OpenConsole.exe", hostLinks);
+
+        var conPtyDll = doc.Descendants("Content")
+            .SingleOrDefault(c => ((string?)c.Element("Link") ?? string.Empty) == "conpty.dll");
+        Assert.NotNull(conPtyDll);
+
+        var hostCopy = doc.Descendants("Content")
+            .SingleOrDefault(c => ((string?)c.Attribute("Include") ?? string.Empty)
+                .Contains("@(NovaRequiredConPtyHost)", StringComparison.Ordinal));
+        Assert.NotNull(hostCopy);
+
+        // Both copy destinations, not just one: an output-only copy keeps every dev build working
+        // while the released bundle silently ships without a console host - which is #310 again,
+        // for users only.
+        foreach (var item in new[] { conPtyDll, hostCopy })
+        {
+            Assert.False(string.IsNullOrWhiteSpace((string?)item!.Element("CopyToOutputDirectory")),
+                $"Content '{(string?)item.Attribute("Include")}' must declare CopyToOutputDirectory.");
+            Assert.False(string.IsNullOrWhiteSpace((string?)item.Element("CopyToPublishDirectory")),
+                $"Content '{(string?)item.Attribute("Include")}' must declare CopyToPublishDirectory.");
+        }
+    }
 }

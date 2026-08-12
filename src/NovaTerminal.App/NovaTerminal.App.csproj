@@ -26,6 +26,13 @@
     <PackageReference Include="SkiaSharp.HarfBuzz" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
+    <!-- Sideloaded ConPTY host (#310). Nothing to compile against: we only want the native files
+         out of it, and the Content items further down place them by hand. The package's own
+         build/targets keys off $(PlatformTarget), which for this AnyCPU app is empty on a plain
+         build - so leaving it in charge would copy nothing. ExcludeAssets keeps it out entirely
+         rather than having its item copies race ours when a RID does set PlatformTarget. -->
+    <PackageReference Include="Microsoft.Windows.Console.ConPTY" GeneratePathProperty="true"
+      ExcludeAssets="all" PrivateAssets="all" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -225,6 +232,81 @@
         <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       </Content>
     </ItemGroup>
+  </Target>
+
+  <!-- Sideloaded ConPTY host (#310).
+
+       portable-pty loads the pseudoconsole entry points from a `conpty.dll` sitting next to the
+       executable and only falls back to kernel32's CreatePseudoConsole when it finds none
+       (portable-pty-0.9.0/src/win/psuedocon.rs `load_conpty`). That sideloaded DLL in turn spawns
+       `<its own directory>\<arch>\OpenConsole.exe` - hence the arch subfolder link below, which is
+       the layout the package itself uses.
+
+       Without these two files every pane is hosted by whatever conhost.exe the OS ships, bugs
+       included: opencode 1.18.x's exit crashed conhost 10.0.26100.8972 (integer divide by zero /
+       access violation), which tore down the pseudoconsole and killed the pane's pwsh with it -
+       the user saw a frozen pane and reported "I can't exit opencode". Windows Terminal and
+       WezTerm sideload their own host for exactly this reason. -->
+  <PropertyGroup>
+    <!-- Gate on the *target*, not the build host: `-r linux-x64` from a Windows machine must not
+         drop a Windows console host into the bundle, and `-r win-x64` is still Windows even when
+         cross-published. -->
+    <NovaTargetsWindows Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier.StartsWith('win'))</NovaTargetsWindows>
+    <NovaTargetsWindows Condition="'$(RuntimeIdentifier)' == ''">$([MSBuild]::IsOSPlatform('Windows'))</NovaTargetsWindows>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(NovaTargetsWindows)' == 'true'">
+    <NovaConPtyArch Condition="'$(NovaConPtyArch)' == '' and $(RuntimeIdentifier.EndsWith('arm64'))">arm64</NovaConPtyArch>
+    <NovaConPtyArch Condition="'$(NovaConPtyArch)' == '' and $(RuntimeIdentifier.EndsWith('x86'))">x86</NovaConPtyArch>
+    <NovaConPtyArch Condition="'$(NovaConPtyArch)' == '' and $(RuntimeIdentifier.EndsWith('x64'))">x64</NovaConPtyArch>
+    <!-- No RID (plain `build`): ship the host matching the machine doing the building. -->
+    <NovaConPtyArch Condition="'$(NovaConPtyArch)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</NovaConPtyArch>
+    <NovaConPtyDll>$(PkgMicrosoft_Windows_Console_ConPTY)\runtimes\win-$(NovaConPtyArch)\native\conpty.dll</NovaConPtyDll>
+    <NovaConPtyHostDir>$(PkgMicrosoft_Windows_Console_ConPTY)\build\native\runtimes\</NovaConPtyHostDir>
+  </PropertyGroup>
+
+  <!-- One host per machine architecture this build can *run on*, not one for the architecture it
+       was built for: conpty.dll resolves OpenConsole.exe by machine arch, so an x64 bundle started
+       on Windows-on-ARM needs the arm64 host or it quietly falls back to the OS conhost - and
+       win-x64 is the only Windows RID release.yml produces, so that is the bundle ARM64 users get.
+       This mirrors the package's own ConptyRequires*Host matrix in
+       build/Microsoft.Windows.Console.ConPTY.props. -->
+  <ItemGroup Condition="'$(NovaTargetsWindows)' == 'true'">
+    <NovaRequiredConPtyHost Include="$(NovaConPtyHostDir)arm64\OpenConsole.exe">
+      <Link>arm64\OpenConsole.exe</Link>
+    </NovaRequiredConPtyHost>
+    <NovaRequiredConPtyHost Include="$(NovaConPtyHostDir)x64\OpenConsole.exe"
+      Condition="'$(NovaConPtyArch)' == 'x64' or '$(NovaConPtyArch)' == 'x86'">
+      <Link>x64\OpenConsole.exe</Link>
+    </NovaRequiredConPtyHost>
+    <NovaRequiredConPtyHost Include="$(NovaConPtyHostDir)x86\OpenConsole.exe"
+      Condition="'$(NovaConPtyArch)' == 'x86'">
+      <Link>x86\OpenConsole.exe</Link>
+    </NovaRequiredConPtyHost>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(NovaTargetsWindows)' == 'true'">
+    <Content Include="$(NovaConPtyDll)" Condition="Exists('$(NovaConPtyDll)')">
+      <Link>conpty.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <!-- Link comes from the item declarations above. -->
+    <Content Include="@(NovaRequiredConPtyHost)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- A missing file here does not fail the build, it silently reverts every pane to the OS
+       conhost - the exact regression #310 is about. Fail loudly instead: the paths above are
+       package-layout assumptions, and a version bump is where they break. -->
+  <Target Name="VerifySideloadedConPtyHost" BeforeTargets="Build"
+    Condition="'$(NovaTargetsWindows)' == 'true'">
+    <Error Condition="!Exists('$(NovaConPtyDll)')"
+      Text="[ConPTY] Sideloaded conpty.dll not found at '$(NovaConPtyDll)'. Panes would fall back to the OS conhost.exe (see #310). Check the Microsoft.Windows.Console.ConPTY package layout/version." />
+    <Error Condition="!Exists('%(NovaRequiredConPtyHost.Identity)')"
+      Text="[ConPTY] Sideloaded OpenConsole.exe not found at '%(NovaRequiredConPtyHost.Identity)'. conpty.dll would fall back to the OS conhost.exe on that machine architecture (see #310). Check the Microsoft.Windows.Console.ConPTY package layout/version." />
   </Target>
 
   <ItemGroup>
