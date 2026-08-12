@@ -116,7 +116,9 @@ background pane today.
 ### Settings surface
 
 - `TerminalSettings.ShellExitPolicy = "Graceful"`, next to `PaneClosePolicy`.
-- A dropdown in `SettingsWindow` beside the existing pane-close policy control.
+- **settings.json only, no `SettingsWindow` control** — its sibling `PaneClosePolicy` has none
+  either, and matching that is better than growing the settings window for this. A UI control for
+  both policies together is reasonable follow-up work.
 - `SettingsTools` needs the documented-field row, the sample JSON entry, the enum-like-string list,
   and the writable-field list updated, or `SettingsToolsDriftGuardTests` fails.
 - An unrecognised value behaves as `"Graceful"`: this setting decides whether a pane disappears, and
