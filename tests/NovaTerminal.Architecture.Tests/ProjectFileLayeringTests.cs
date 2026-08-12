@@ -170,17 +170,38 @@ public class ProjectFileLayeringTests
     [Fact]
     public void App_csproj_must_ship_the_sideloaded_conpty_host()
     {
-        var path = Path.Combine(RepoRoot(), "src/NovaTerminal.App/NovaTerminal.App.csproj");
-        var doc = XDocument.Load(path);
+        const string appCsproj = "src/NovaTerminal.App/NovaTerminal.App.csproj";
+        var doc = XDocument.Load(Path.Combine(RepoRoot(), appCsproj));
 
-        var links = doc.Descendants("Content")
-            .Select(c => (string?)c.Element("Link") ?? string.Empty)
-            .Select(l => l.Replace('\\', '/'))
+        Assert.Contains("Microsoft.Windows.Console.ConPTY", PackageReferences(appCsproj));
+
+        // conpty.dll has to sit next to the exe (that is the only place portable-pty looks), and
+        // the hosts have to be declared per machine architecture, arm64 included: an x64 bundle
+        // started on Windows-on-ARM resolves the arm64 host, and win-x64 is the only Windows RID
+        // released.
+        var hostLinks = doc.Descendants("NovaRequiredConPtyHost")
+            .Select(e => ((string?)e.Element("Link") ?? string.Empty).Replace('\\', '/'))
             .ToArray();
+        Assert.Contains("arm64/OpenConsole.exe", hostLinks);
 
-        Assert.Contains("conpty.dll", links);
-        Assert.Contains(links, l => l.EndsWith("/OpenConsole.exe", StringComparison.OrdinalIgnoreCase));
+        var conPtyDll = doc.Descendants("Content")
+            .SingleOrDefault(c => ((string?)c.Element("Link") ?? string.Empty) == "conpty.dll");
+        Assert.NotNull(conPtyDll);
 
-        Assert.Contains("Microsoft.Windows.Console.ConPTY", PackageReferences("src/NovaTerminal.App/NovaTerminal.App.csproj"));
+        var hostCopy = doc.Descendants("Content")
+            .SingleOrDefault(c => ((string?)c.Attribute("Include") ?? string.Empty)
+                .Contains("@(NovaRequiredConPtyHost)", StringComparison.Ordinal));
+        Assert.NotNull(hostCopy);
+
+        // Both copy destinations, not just one: an output-only copy keeps every dev build working
+        // while the released bundle silently ships without a console host - which is #310 again,
+        // for users only.
+        foreach (var item in new[] { conPtyDll, hostCopy })
+        {
+            Assert.False(string.IsNullOrWhiteSpace((string?)item!.Element("CopyToOutputDirectory")),
+                $"Content '{(string?)item.Attribute("Include")}' must declare CopyToOutputDirectory.");
+            Assert.False(string.IsNullOrWhiteSpace((string?)item.Element("CopyToPublishDirectory")),
+                $"Content '{(string?)item.Attribute("Include")}' must declare CopyToPublishDirectory.");
+        }
     }
 }

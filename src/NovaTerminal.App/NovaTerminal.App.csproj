@@ -26,10 +26,11 @@
     <PackageReference Include="SkiaSharp.HarfBuzz" />
     <PackageReference Include="SkiaSharp.NativeAssets.Win32" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux" />
-    <!-- Sideloaded ConPTY host (#310). Nothing to compile against: we only want the two native
-         files out of it, and IncludeSideloadedConPtyHost below places them by hand. The package's
-         own build/targets keys off $(PlatformTarget), which is empty for this AnyCPU app, so it
-         would copy nothing - ExcludeAssets keeps it from running at all. -->
+    <!-- Sideloaded ConPTY host (#310). Nothing to compile against: we only want the native files
+         out of it, and the Content items further down place them by hand. The package's own
+         build/targets keys off $(PlatformTarget), which for this AnyCPU app is empty on a plain
+         build - so leaving it in charge would copy nothing. ExcludeAssets keeps it out entirely
+         rather than having its item copies race ours when a RID does set PlatformTarget. -->
     <PackageReference Include="Microsoft.Windows.Console.ConPTY" GeneratePathProperty="true"
       ExcludeAssets="all" PrivateAssets="all" />
   </ItemGroup>
@@ -261,8 +262,28 @@
     <!-- No RID (plain `build`): ship the host matching the machine doing the building. -->
     <NovaConPtyArch Condition="'$(NovaConPtyArch)' == ''">$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</NovaConPtyArch>
     <NovaConPtyDll>$(PkgMicrosoft_Windows_Console_ConPTY)\runtimes\win-$(NovaConPtyArch)\native\conpty.dll</NovaConPtyDll>
-    <NovaOpenConsoleExe>$(PkgMicrosoft_Windows_Console_ConPTY)\build\native\runtimes\$(NovaConPtyArch)\OpenConsole.exe</NovaOpenConsoleExe>
+    <NovaConPtyHostDir>$(PkgMicrosoft_Windows_Console_ConPTY)\build\native\runtimes\</NovaConPtyHostDir>
   </PropertyGroup>
+
+  <!-- One host per machine architecture this build can *run on*, not one for the architecture it
+       was built for: conpty.dll resolves OpenConsole.exe by machine arch, so an x64 bundle started
+       on Windows-on-ARM needs the arm64 host or it quietly falls back to the OS conhost - and
+       win-x64 is the only Windows RID release.yml produces, so that is the bundle ARM64 users get.
+       This mirrors the package's own ConptyRequires*Host matrix in
+       build/Microsoft.Windows.Console.ConPTY.props. -->
+  <ItemGroup Condition="'$(NovaTargetsWindows)' == 'true'">
+    <NovaRequiredConPtyHost Include="$(NovaConPtyHostDir)arm64\OpenConsole.exe">
+      <Link>arm64\OpenConsole.exe</Link>
+    </NovaRequiredConPtyHost>
+    <NovaRequiredConPtyHost Include="$(NovaConPtyHostDir)x64\OpenConsole.exe"
+      Condition="'$(NovaConPtyArch)' == 'x64' or '$(NovaConPtyArch)' == 'x86'">
+      <Link>x64\OpenConsole.exe</Link>
+    </NovaRequiredConPtyHost>
+    <NovaRequiredConPtyHost Include="$(NovaConPtyHostDir)x86\OpenConsole.exe"
+      Condition="'$(NovaConPtyArch)' == 'x86'">
+      <Link>x86\OpenConsole.exe</Link>
+    </NovaRequiredConPtyHost>
+  </ItemGroup>
 
   <ItemGroup Condition="'$(NovaTargetsWindows)' == 'true'">
     <Content Include="$(NovaConPtyDll)" Condition="Exists('$(NovaConPtyDll)')">
@@ -270,8 +291,8 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
-    <Content Include="$(NovaOpenConsoleExe)" Condition="Exists('$(NovaOpenConsoleExe)')">
-      <Link>$(NovaConPtyArch)\OpenConsole.exe</Link>
+    <!-- Link comes from the item declarations above. -->
+    <Content Include="@(NovaRequiredConPtyHost)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -284,8 +305,8 @@
     Condition="'$(NovaTargetsWindows)' == 'true'">
     <Error Condition="!Exists('$(NovaConPtyDll)')"
       Text="[ConPTY] Sideloaded conpty.dll not found at '$(NovaConPtyDll)'. Panes would fall back to the OS conhost.exe (see #310). Check the Microsoft.Windows.Console.ConPTY package layout/version." />
-    <Error Condition="!Exists('$(NovaOpenConsoleExe)')"
-      Text="[ConPTY] Sideloaded OpenConsole.exe not found at '$(NovaOpenConsoleExe)'. conpty.dll would fall back to the OS conhost.exe (see #310). Check the Microsoft.Windows.Console.ConPTY package layout/version." />
+    <Error Condition="!Exists('%(NovaRequiredConPtyHost.Identity)')"
+      Text="[ConPTY] Sideloaded OpenConsole.exe not found at '%(NovaRequiredConPtyHost.Identity)'. conpty.dll would fall back to the OS conhost.exe on that machine architecture (see #310). Check the Microsoft.Windows.Console.ConPTY package layout/version." />
   </Target>
 
   <ItemGroup>
