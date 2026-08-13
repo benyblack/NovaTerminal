@@ -43,10 +43,10 @@ public sealed class ShellExitPolicyTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("Sometimes")]
-    public void UnrecognisedPolicyBehavesAsGraceful(string? policy)
+    public void UnrecognisedPolicyBehavesAsNever(string? policy)
     {
-        // A typo in a hand-edited settings file must not silently mean "never tell me anything".
-        Assert.True(NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 0));
+        // A typo in a hand-edited settings file must not be more destructive than the default.
+        Assert.False(NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 0));
         Assert.False(NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
     }
 

@@ -57,7 +57,7 @@ namespace NovaTerminal.Shell
         // conservative choice until #313 lands, at which point the real exit status from the child process
         // can be captured (today a local PTY reports 0 for every exit, even when the console host crashed).
         // SSH panes ignore this and always keep their reconnect banner. Unrecognised values behave as
-        // "Graceful".
+        // "Never" — a typo must not be more destructive than the default.
         public string ShellExitPolicy { get; set; } = "Never";
         public System.Collections.Generic.Dictionary<string, string> Keybindings { get; set; } = new();
         public System.Collections.Generic.List<TabTemplateRule> TabTemplateRules { get; set; } = new();

@@ -15,7 +15,7 @@ Design: [`docs/plans/2026-08-12-dead-pane-indicator-design.md`](2026-08-12-dead-
 - **Build and test only through the wrappers:** `scripts/build.ps1 <args>` (PowerShell) or `scripts/build.sh <args>` (bash). A raw `dotnet build` hangs when stdout is captured. See CLAUDE.md.
 - **Never run the whole solution's tests** — that is 20–30 minutes of headless Avalonia. Run the one project, with a `--filter`.
 - The first build in a fresh worktree compiles the Rust natives via cargo (several minutes). Do not pass `SKIP_RUST_NATIVE_BUILD=1` for the test tasks here: `NovaTerminal.App.Tests` panes need `rusty_pty.dll` in the output.
-- **Setting name and values, exactly:** `ShellExitPolicy`, one of `"Never"`, `"Graceful"`, `"Always"`, default `"Never"`. Unrecognised values behave as `"Graceful"`.
+- **Setting name and values, exactly:** `ShellExitPolicy`, one of `"Never"`, `"Graceful"`, `"Always"`, default `"Never"`. Unrecognised values behave as `"Never"` (a typo must not be more destructive than the default).
 - **Banner text, exactly** (the exit-code line is omitted when the code is 0):
   ```
   [Shell exited]
@@ -140,7 +140,7 @@ In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, directly below `public stri
         // conservative choice until #313 lands, at which point the real exit status from the child process
         // can be captured (today a local PTY reports 0 for every exit, even when the console host crashed).
         // SSH panes ignore this and always keep their reconnect banner. Unrecognised values behave as
-        // "Graceful".
+        // "Never" — a typo must not be more destructive than the default.
         public string ShellExitPolicy { get; set; } = "Never";
 ```
 
@@ -165,9 +165,12 @@ In `src/NovaTerminal.App/MainWindow.axaml.cs`, directly above `internal static b
 
             if (policy.Equals("Never", StringComparison.OrdinalIgnoreCase)) return false;
             if (policy.Equals("Always", StringComparison.OrdinalIgnoreCase)) return true;
+            if (policy.Equals("Graceful", StringComparison.OrdinalIgnoreCase)) return exitCode == 0;
 
-            // "Graceful" and anything unrecognised.
-            return exitCode == 0;
+            // Fall-through: unrecognised or empty value behaves as the default "Never",
+            // because a typo in a hand-edited settings file must not be more destructive
+            // than the default. "Never" still tells the user via the exit banner.
+            return false;
         }
 ```
 

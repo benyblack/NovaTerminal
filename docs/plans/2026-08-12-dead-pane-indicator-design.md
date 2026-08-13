@@ -122,8 +122,8 @@ background pane today.
   both policies together is reasonable follow-up work.
 - `SettingsTools` needs the documented-field row, the sample JSON entry, the enum-like-string list,
   and the writable-field list updated, or `SettingsToolsDriftGuardTests` fails.
-- An unrecognised value behaves as `"Graceful"`: this setting decides whether a pane disappears, and
-  a typo in a hand-edited settings file must not silently mean "never tell me anything again".
+- An unrecognised value behaves as the default `"Never"`: a typo in a hand-edited settings file must
+  not be more destructive than the default, and `"Never"` still tells the user (it shows the banner).
 
 ### Default change: from Graceful to Never
 

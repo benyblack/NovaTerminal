@@ -3601,9 +3601,12 @@ namespace NovaTerminal
 
             if (policy.Equals("Never", StringComparison.OrdinalIgnoreCase)) return false;
             if (policy.Equals("Always", StringComparison.OrdinalIgnoreCase)) return true;
+            if (policy.Equals("Graceful", StringComparison.OrdinalIgnoreCase)) return exitCode == 0;
 
-            // "Graceful" and anything unrecognised.
-            return exitCode == 0;
+            // Fall-through: unrecognised or empty value behaves as the default "Never",
+            // because a typo in a hand-edited settings file must not be more destructive
+            // than the default. "Never" still tells the user via the exit banner.
+            return false;
         }
 
         internal static bool ShouldAutoAcceptRunningPaneClose(
