@@ -183,6 +183,27 @@ public sealed class MainWindowShellExitTests
         Assert.Contains("[Shell exited]", TerminalBufferText.Visible(fixture.BackgroundPane.Buffer!), StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Fix round 1 (#311 review finding): the <c>tab == null</c> branch of
+    /// <c>OnPaneProcessExited</c> — a pane that has already left the tree by the time its shell
+    /// exits — had no coverage. Detach the pane from its tab's <c>Content</c> before it exits so
+    /// <c>FindLogicalAncestorOfType&lt;TabItem&gt;()</c> resolves to null (the same mechanism
+    /// <c>ClosePaneAsync</c>'s own comment documents: a <c>ContentControl</c> sets/clears the
+    /// logical parent immediately on assignment), and confirm the pane still gets the banner
+    /// instead of silently going quiet.
+    /// </summary>
+    [AvaloniaFact]
+    public void CleanExit_WithNoAncestorTab_StillShowsTheBanner()
+    {
+        using var fixture = TwoTabFixture.Create();
+        fixture.BackgroundTab.Content = null;
+
+        fixture.BackgroundPane.HandleSessionExitForTesting(0);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains("[Shell exited]", TerminalBufferText.Visible(fixture.BackgroundPane.Buffer!), StringComparison.Ordinal);
+    }
+
     private sealed class TwoTabFixture : IDisposable
     {
         private TwoTabFixture(NovaTerminal.MainWindow window, TabControl tabs, TabItem selectedTab, TerminalPane backgroundPane)

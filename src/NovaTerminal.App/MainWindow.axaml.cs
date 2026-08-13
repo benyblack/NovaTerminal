@@ -2832,14 +2832,37 @@ namespace NovaTerminal
         /// #311: try to close a pane whose shell exited cleanly, and fall back to the banner when
         /// the close does not happen — a protected tab, an in-flight close, or a pane that has
         /// already left the tree. Every one of those paths has to end with a pane that says
-        /// something rather than a pane that silently ignores you.
+        /// something rather than a pane that silently ignores you. This runs fire-and-forget from
+        /// <see cref="OnPaneProcessExited"/>, so a throw here has no other observer: catch it,
+        /// log it the same way other unexpected UI-side failures in this file do, and still fall
+        /// back to the banner. There are three outcomes now: closed (nothing more to do), not
+        /// closed (banner), and threw (log + banner).
         /// </summary>
         private async Task HandlePaneExitCloseAsync(TerminalPane pane, int exitCode)
         {
-            bool closed = await ClosePaneAsync(pane, skipConfirm: true);
-            if (!closed)
+            bool closed;
+            try
+            {
+                closed = await ClosePaneAsync(pane, skipConfirm: true);
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Error($"[MainWindow] ClosePaneAsync failed while closing a pane whose shell exited (exit code {exitCode}): {ex.Message}");
+                closed = false;
+            }
+
+            if (closed)
+            {
+                return;
+            }
+
+            try
             {
                 pane.WriteLocalExitBanner(exitCode);
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Error($"[MainWindow] WriteLocalExitBanner failed for a pane whose shell exited (exit code {exitCode}): {ex.Message}");
             }
         }
 
