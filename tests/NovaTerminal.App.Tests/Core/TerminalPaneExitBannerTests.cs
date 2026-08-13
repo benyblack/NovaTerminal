@@ -1,6 +1,5 @@
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Controls;
-using NovaTerminal.Platform;
 using NovaTerminal.Shell;
 using NovaTerminal.Tests.Infra;
 

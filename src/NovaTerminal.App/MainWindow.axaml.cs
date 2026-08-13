@@ -2803,21 +2803,28 @@ namespace NovaTerminal
 
         private void OnPaneProcessExited(TerminalPane pane, int exitCode)
         {
+            // SSH panes write their own [SSH session disconnected] banner in HandleSessionExit and
+            // never auto-close, so there is nothing left to do for them here. This has to run
+            // before the tab==null branch below: an SSH pane that has already left the logical
+            // tree by the time its shell exits must not also get a local banner written on top of
+            // the one HandleSessionExit already wrote (#311 fix-wave finding B).
+            if (pane.Profile?.Type == ConnectionType.SSH) return;
+
             var tab = pane.FindLogicalAncestorOfType<TabItem>();
             if (tab == null)
             {
-                // No tab to close or mark; the pane still has to say what happened.
+                // No tab to close; the pane still has to say what happened.
                 pane.WriteLocalExitBanner(exitCode);
                 return;
             }
 
-            var state = GetOrCreateTabState(tab);
-            state.LastExitCode = exitCode;
-            QueueTabVisualRefresh(tab);
-
-            // SSH panes write their own [SSH session disconnected] banner in HandleSessionExit and
-            // never auto-close, so there is nothing left to do for them here.
-            if (pane.Profile?.Type == ConnectionType.SSH) return;
+            // Deliberately not recording exitCode on the tab's state here (#311 fix-wave finding
+            // A). Doing so lets the ✓/✖N tab-strip glyph render, but the only place that clears it
+            // — OnPaneCommandStarted — resolves its TabItem via the visual tree, which (like the
+            // comment on ClosePaneAsync explains) never resolves for a TabControl's Content, so
+            // the glyph would render once and then stick forever, including across a successful
+            // restart. The whole glyph story (set, clear, and telling a process-exit apart from a
+            // command-exit) is deferred to a follow-up issue; see #311.
 
             if (!ShouldClosePaneOnExit(_settings.ShellExitPolicy, isSsh: false, exitCode))
             {
@@ -3445,7 +3452,20 @@ namespace NovaTerminal
                 // (ContentControl sets the logical parent immediately on assignment, same
                 // mechanism the split-detection Parent check below already leans on).
                 var paneTab = paneToClose.FindLogicalAncestorOfType<TabItem>();
-                if (paneTab != null && _paneZoomStateByTab.ContainsKey(paneTab))
+                if (paneTab == null)
+                {
+                    // A zoomed tab's EnterPaneZoom replaces TabItem.Content with only the zoomed
+                    // pane, so the tab's original split Grid — and every non-zoomed sibling still
+                    // inside it — is detached from the logical tree and has no TabItem ancestor.
+                    // Falling through to the split branch below for such a pane would clear that
+                    // detached Grid's Children while its Parent is null: none of the promotion
+                    // branches match, and the sibling pane is silently orphaned with its shell
+                    // still running. Returning false here instead lets the caller fall back to a
+                    // banner (#311 fix-wave finding C).
+                    return false;
+                }
+
+                if (_paneZoomStateByTab.ContainsKey(paneTab))
                 {
                     ExitPaneZoom(paneTab, publishEvent: true);
                 }

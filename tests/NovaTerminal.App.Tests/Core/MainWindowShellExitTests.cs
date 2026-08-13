@@ -34,9 +34,23 @@ namespace NovaTerminal.Tests.Core;
 /// test did not help — the UI thread was stuck inside <c>ShowDialog</c> itself, so the timeout's
 /// continuation never got a turn. The actual, accurate blocker is exactly what round 1 described as
 /// unlikely — dismissing a real modal headlessly — not an inability to fake the session state. The
-/// declined branch remains uncovered here for that reason; the auto-accept half is covered instead
-/// (<see cref="ClosePaneAsync_WithConfirmationEnabled_AutoAcceptsWhenNoProcessIsRunning"/>), which at
-/// least proves the gate is consulted rather than unconditionally bypassed.
+/// declined branch remains uncovered here for that reason.
+///
+/// Fix round 3 (#311 final review finding D): round 1 added
+/// <c>ClosePaneAsync_WithConfirmationEnabled_AutoAcceptsWhenNoProcessIsRunning</c> to cover the
+/// auto-accept half of the <c>skipConfirm: false</c> path and claimed it "proves the gate is
+/// consulted rather than unconditionally bypassed." That claim does not hold: with
+/// <c>IsProcessRunning == false</c>, <c>ShouldAutoAcceptRunningPaneClose</c> auto-accepts, so the
+/// pane closes whether <c>ClosePaneAsync</c> actually calls <c>ShouldClosePaneAsync</c> or the
+/// <c>!skipConfirm &amp;&amp;</c> check were deleted outright — the test asserts the same
+/// <c>closed == true</c> / one-tab-remains outcome either way and cannot fail from that
+/// difference. Strengthening it would need a seam that observes whether the gate ran (a spy on
+/// <c>ShouldClosePaneAsync</c>, or a way to tell "gate ran and said yes" apart from "gate never
+/// ran"), which does not exist and is out of scope to add here. The test was deleted rather than
+/// kept as false coverage; the gate's own decision logic
+/// (<c>ShouldAutoAcceptRunningPaneClose</c>) already has direct coverage elsewhere (see
+/// <c>TabClosePolicyTests</c>), and the declined branch remains uncovered for the modal-deadlock
+/// reason described above.
 /// </remarks>
 public sealed class MainWindowShellExitTests
 {
@@ -100,28 +114,6 @@ public sealed class MainWindowShellExitTests
         Assert.False(fixture.IsTabZoomed(fixture.SplitTab), "ClosePaneAsync must exit zoom on the closed pane's own tab, not the selected one.");
         Assert.Contains(fixture.SplitTab, fixture.Tabs.Items.OfType<TabItem>());
         Assert.Same(fixture.Sibling, fixture.SplitTab.Content);
-    }
-
-    /// <summary>
-    /// Fix round 1 (#311 review finding): covers the confirmation gate on the
-    /// <c>skipConfirm: false</c> path, which the original test never touched at all (it always
-    /// passed <c>skipConfirm: true</c>). A restored pane in these tests never actually spawns a
-    /// shell (no real PTY is started unless the pane is attached to a live visual tree), so
-    /// <c>TerminalPane.IsProcessRunning</c> is false and <c>ShouldAutoAcceptRunningPaneClose</c>
-    /// auto-accepts without showing the confirmation dialog. That is the only half of this branch
-    /// reachable headlessly — see the class remarks for why the declined half is not covered here.
-    /// </summary>
-    [AvaloniaFact]
-    public async Task ClosePaneAsync_WithConfirmationEnabled_AutoAcceptsWhenNoProcessIsRunning()
-    {
-        using var fixture = TwoTabFixture.Create();
-        Assert.False(fixture.BackgroundPane.IsProcessRunning, "This test's premise is that no real shell is running.");
-
-        bool closed = await fixture.ClosePaneAsync(fixture.BackgroundPane, skipConfirm: false);
-
-        Assert.True(closed);
-        Assert.Single(fixture.Tabs.Items);
-        Assert.Same(fixture.SelectedTab, fixture.Tabs.Items[0]);
     }
 
     [AvaloniaFact]
