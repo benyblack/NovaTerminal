@@ -3490,6 +3490,27 @@ namespace NovaTerminal
             }
         }
 
+        /// <summary>
+        /// #311: whether a pane whose shell just exited should close itself. Protection and
+        /// close-in-progress guards deliberately live outside this decision — the caller attempts
+        /// the close and falls back to the banner if it does not happen, so that a pane which
+        /// cannot close still says something.
+        /// </summary>
+        internal static bool ShouldClosePaneOnExit(string? shellExitPolicy, bool isSsh, int exitCode)
+        {
+            // A dropped SSH session keeps its [Press Enter to reconnect] banner regardless: the
+            // remote end may have cost an MFA prompt or a jump host to reach.
+            if (isSsh) return false;
+
+            string policy = shellExitPolicy?.Trim() ?? string.Empty;
+
+            if (policy.Equals("Never", StringComparison.OrdinalIgnoreCase)) return false;
+            if (policy.Equals("Always", StringComparison.OrdinalIgnoreCase)) return true;
+
+            // "Graceful" and anything unrecognised.
+            return exitCode == 0;
+        }
+
         internal static bool ShouldAutoAcceptRunningPaneClose(
             bool isProcessRunning,
             bool hasActiveChildProcesses,
