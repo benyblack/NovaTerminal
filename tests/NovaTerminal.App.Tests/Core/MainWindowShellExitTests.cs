@@ -13,23 +13,29 @@ namespace NovaTerminal.Tests.Core;
 /// </summary>
 /// <remarks>
 /// Fix round 1 (#311 review finding): a reviewer flagged that this class, the only caller of
-/// <c>ClosePaneAsync</c>/<c>ClosePaneAsync</c>/<c>CloseActivePane</c> in the repo, exercised
-/// exactly one branch (single-leaf pane, background tab, <c>skipConfirm: true</c>), so the
-/// split-promotion and confirmation-gate paths the task brief protects had no actual regression
-/// coverage despite the report implying otherwise.
+/// <c>ClosePaneAsync</c>/<c>CloseActivePaneAsync</c> in the repo, exercised exactly one branch
+/// (single-leaf pane, background tab, <c>skipConfirm: true</c>), so the split-promotion and
+/// confirmation-gate paths the task brief protects had no actual regression coverage despite the
+/// report implying otherwise.
 ///
-/// The declined half of the confirmation gate (<c>skipConfirm: false</c> with a pane the policy
-/// would actually question) is deliberately NOT covered here. Reaching it requires
-/// <c>ShouldAutoAcceptRunningPaneClose</c> to return false, which for a non-SSH, non-WSL pane
-/// means it has active child processes or unsafe shell args — and once that gate is not
-/// auto-accepted, <c>ShowRunningProcessCloseConfirmationAsync</c> opens a real modal
-/// (<c>await dialog.ShowDialog(this)</c>) that only resolves when a button is clicked. Nothing in
-/// this headless suite can click that button, and there is no way to fake
-/// <c>HasActiveChildProcesses</c> true without either a real child process or a production-code
-/// seam that does not exist today, so driving the decline path would hang the test run rather than
-/// assert anything. The auto-accept half is covered instead
-/// (<see cref="ClosePaneAsync_WithConfirmationEnabled_AutoAcceptsWhenNoProcessIsRunning"/>), which
-/// at least proves the gate is consulted rather than unconditionally bypassed.
+/// Fix round 2 (#311 review finding): a second reviewer correctly pointed out that the round-1
+/// justification for skipping the declined confirmation branch was wrong — <c>TerminalPane.Session</c>
+/// (private setter) is reachable by reflection exactly like the private methods this file already
+/// invokes, so a fake session with <c>HasActiveChildProcesses = true</c> is entirely possible. That
+/// was tried: attach such a stub to a non-SSH, non-WSL pane and call <c>ClosePaneAsync</c> with
+/// <c>skipConfirm: false</c>. <c>ShouldAutoAcceptRunningPaneClose</c> does decline as expected, and
+/// control reaches <c>ShowRunningProcessCloseConfirmationAsync</c>'s <c>await dialog.ShowDialog(this)</c>
+/// — a real, modal <c>Window.ShowDialog</c> with no owner ever shown and no button for anything to
+/// click. That call did not return: the test process (<c>testhost.exe</c> and the app's own test
+/// host) sat alive and unresponsive well past when the run should have finished, confirmed by
+/// checking process start times and having to <c>Stop-Process -Force</c> both to reclaim the build
+/// output lock afterward. Even racing the close task against a <c>Task.Delay</c> timeout inside the
+/// test did not help — the UI thread was stuck inside <c>ShowDialog</c> itself, so the timeout's
+/// continuation never got a turn. The actual, accurate blocker is exactly what round 1 described as
+/// unlikely — dismissing a real modal headlessly — not an inability to fake the session state. The
+/// declined branch remains uncovered here for that reason; the auto-accept half is covered instead
+/// (<see cref="ClosePaneAsync_WithConfirmationEnabled_AutoAcceptsWhenNoProcessIsRunning"/>), which at
+/// least proves the gate is consulted rather than unconditionally bypassed.
 /// </remarks>
 public sealed class MainWindowShellExitTests
 {
@@ -62,7 +68,36 @@ public sealed class MainWindowShellExitTests
 
         Assert.True(closed);
         Assert.Equal(tabCountBefore, fixture.Tabs.Items.Count);
-        Assert.Same(fixture.SplitTab, fixture.Tabs.Items[fixture.Tabs.Items.IndexOf(fixture.SplitTab)]);
+        Assert.Contains(fixture.SplitTab, fixture.Tabs.Items.OfType<TabItem>());
+        Assert.Same(fixture.Sibling, fixture.SplitTab.Content);
+    }
+
+    /// <summary>
+    /// Fix round 2 (#311 review finding, item 1): the brief calls out that the zoom-exit at the
+    /// top of <c>ClosePaneAsync</c> changed from looking at the selected tab to looking at the
+    /// closed pane's own tab, and nothing exercised that line — every prior fixture here zooms
+    /// nothing. This drives the real production zoom path (<c>EnterPaneZoom</c>, the same method
+    /// <c>TogglePaneZoomForCurrentTab</c> calls) on the split tab, then selects a DIFFERENT tab
+    /// before closing: a selection-based zoom-exit (the old bug) would look at the wrong tab and
+    /// never clear the zoom or restore the split's Grid parentage, so the split-promotion below it
+    /// would silently fall through to closing the whole tab instead. A pane-tab-based zoom-exit
+    /// (the fix) clears it regardless of what happens to be selected.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task ClosePaneAsync_WhenItsTabIsZoomed_ExitsZoomForThatTabRegardlessOfSelection()
+    {
+        using var fixture = SplitPaneFixture.Create();
+        fixture.EnterZoomOnSplitTab();
+        Assert.True(fixture.IsTabZoomed(fixture.SplitTab), "Test setup failed: split tab did not enter zoom.");
+
+        // The old bug looked at the selected tab; make sure it is NOT the tab being closed.
+        fixture.Tabs.SelectedItem = fixture.OtherTab;
+
+        bool closed = await fixture.ClosePaneAsync(fixture.PaneToClose, skipConfirm: true);
+
+        Assert.True(closed);
+        Assert.False(fixture.IsTabZoomed(fixture.SplitTab), "ClosePaneAsync must exit zoom on the closed pane's own tab, not the selected one.");
+        Assert.Contains(fixture.SplitTab, fixture.Tabs.Items.OfType<TabItem>());
         Assert.Same(fixture.Sibling, fixture.SplitTab.Content);
     }
 
@@ -169,13 +204,15 @@ public sealed class MainWindowShellExitTests
             TabControl tabs,
             TabItem splitTab,
             TerminalPane paneToClose,
-            TerminalPane sibling)
+            TerminalPane sibling,
+            TabItem otherTab)
         {
             Window = window;
             Tabs = tabs;
             SplitTab = splitTab;
             PaneToClose = paneToClose;
             Sibling = sibling;
+            OtherTab = otherTab;
         }
 
         public NovaTerminal.MainWindow Window { get; }
@@ -184,11 +221,44 @@ public sealed class MainWindowShellExitTests
         public TerminalPane PaneToClose { get; }
         public TerminalPane Sibling { get; }
 
+        /// <summary>
+        /// An unrelated tab, present so the zoom-exit regression test can select it and prove
+        /// <c>ClosePaneAsync</c> resolves the zoom to close from the closed pane's own tab, not
+        /// from whatever tab happens to be selected.
+        /// </summary>
+        public TabItem OtherTab { get; }
+
         public Task<bool> ClosePaneAsync(TerminalPane pane, bool skipConfirm)
         {
             var method = typeof(NovaTerminal.MainWindow)
                 .GetMethod("ClosePaneAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
             return (Task<bool>)method.Invoke(Window, [pane, skipConfirm])!;
+        }
+
+        /// <summary>
+        /// Drives the actual production zoom path — the same private <c>EnterPaneZoom</c> method
+        /// <c>TogglePaneZoomForCurrentTab</c> calls — directly on <see cref="SplitTab"/>, without
+        /// requiring it to be the currently selected tab (the public toggle path only ever zooms
+        /// the selection).
+        /// </summary>
+        public void EnterZoomOnSplitTab()
+        {
+            var method = typeof(NovaTerminal.MainWindow)
+                .GetMethod("EnterPaneZoom", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var entered = (bool)method.Invoke(Window, [SplitTab, PaneToClose, true])!;
+            if (!entered)
+            {
+                throw new InvalidOperationException("EnterPaneZoom refused to zoom the split tab's pane.");
+            }
+        }
+
+        /// <summary>Reads the private <c>_paneZoomStateByTab</c> dictionary this file cannot see the type of.</summary>
+        public bool IsTabZoomed(TabItem tab)
+        {
+            var field = typeof(NovaTerminal.MainWindow)
+                .GetField("_paneZoomStateByTab", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var dictionary = (System.Collections.IDictionary)field.GetValue(Window)!;
+            return dictionary.Contains(tab);
         }
 
         public static SplitPaneFixture Create()
@@ -229,9 +299,22 @@ public sealed class MainWindowShellExitTests
                     Sizes = { "1*", "1*" }
                 }
             };
+            var otherTabSession = new TabSession
+            {
+                Title = "Other",
+                Root = new PaneNode
+                {
+                    Type = NodeType.Leaf,
+                    Command = "cmd.exe",
+                    Arguments = string.Empty,
+                    PaneId = Guid.NewGuid().ToString()
+                }
+            };
 
             TabItem splitTab = SessionManager.CreateRestoredTabItem(tabSession, settings)!;
             tabs.Items.Add(splitTab);
+            TabItem otherTab = SessionManager.CreateRestoredTabItem(otherTabSession, settings)!;
+            tabs.Items.Add(otherTab);
             tabs.SelectedItem = splitTab;
 
             // The production entry point for restored content — it is what wires the panes'
@@ -251,7 +334,7 @@ public sealed class MainWindowShellExitTests
                     $"Expected the split to restore exactly two panes, found {panes.Count}.");
             }
 
-            return new SplitPaneFixture(window, tabs, splitTab, panes[0], panes[1]);
+            return new SplitPaneFixture(window, tabs, splitTab, panes[0], panes[1], otherTab);
         }
 
         public void Dispose() => Window.Close();
