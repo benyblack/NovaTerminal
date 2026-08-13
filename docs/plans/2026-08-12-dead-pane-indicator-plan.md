@@ -35,6 +35,7 @@ Design: [`docs/plans/2026-08-12-dead-pane-indicator-design.md`](2026-08-12-dead-
 | `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs` | `WriteLocalExitBanner` | 2 |
 | `src/NovaTerminal.McpServer/Tools/SettingsTools.cs` | Agent-facing settings docs + validation | 5 |
 | `tests/NovaTerminal.App.Tests/Core/ShellExitPolicyTests.cs` (new) | Policy matrix | 1 |
+| `tests/NovaTerminal.App.Tests/Infra/TerminalBufferText.cs` (new) | Shared "what does the buffer show" test helper | 2 |
 | `tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs` (new) | Banner text | 2 |
 | `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs` (new) | Close targeting + end-to-end exit behaviour | 3, 4 |
 
@@ -188,21 +189,58 @@ The pane gains a way to say its shell is gone. Still not wired — only the new 
 
 **Files:**
 - Modify: `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs:3753` (next to `WriteSshDisconnectedBanner`)
+- Create: `tests/NovaTerminal.App.Tests/Infra/TerminalBufferText.cs`
 - Test: `tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs` (create)
 
 **Interfaces:**
 - Consumes: nothing from Task 1.
-- Produces: `internal void TerminalPane.WriteLocalExitBanner(int code)`.
+- Produces: `internal void TerminalPane.WriteLocalExitBanner(int code)`; `internal static string NovaTerminal.Tests.Infra.TerminalBufferText.Visible(TerminalBuffer buffer)` — Task 4's tests use it too.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the shared buffer-text helper**
 
-Create `tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs`. The `GetVisiblePlainText` helper is copied from `tests/NovaTerminal.App.Tests/Ssh/TerminalPaneSshDisconnectTests.cs`, where it is private:
+`TerminalPaneSshDisconnectTests` has this logic as a private static; Task 4 needs it as well, so it
+lands in one shared place rather than being copied a third time. Create
+`tests/NovaTerminal.App.Tests/Infra/TerminalBufferText.cs`:
+
+```csharp
+using NovaTerminal.VT;
+
+namespace NovaTerminal.Tests.Infra;
+
+/// <summary>
+/// What a pane actually shows: the viewport rendered as plain text, for asserting on banners and
+/// other terminal output. The buffer's viewport is private, hence the reflection.
+/// </summary>
+internal static class TerminalBufferText
+{
+    public static string Visible(TerminalBuffer buffer)
+    {
+        var field = typeof(TerminalBuffer).GetField(
+            "_viewport",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        var viewport = (TerminalRow[])field!.GetValue(buffer)!;
+        return string.Join("\n", viewport.Select(RowText)).TrimEnd();
+    }
+
+    private static string RowText(TerminalRow row)
+    {
+        char[] chars = row.Cells.Select(c => c.Character == '\0' ? ' ' : c.Character).ToArray();
+        return new string(chars).TrimEnd();
+    }
+}
+```
+
+Leave `TerminalPaneSshDisconnectTests` alone — migrating it is unrelated churn for this task.
+
+- [ ] **Step 2: Write the failing test**
+
+Create `tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs`:
 
 ```csharp
 using Avalonia.Headless.XUnit;
 using NovaTerminal.Controls;
 using NovaTerminal.Platform;
-using NovaTerminal.VT;
+using NovaTerminal.Tests.Infra;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -220,7 +258,7 @@ public sealed class TerminalPaneExitBannerTests
 
         pane.WriteLocalExitBanner(1);
 
-        string visibleText = GetVisiblePlainText(pane.Buffer!);
+        string visibleText = TerminalBufferText.Visible(pane.Buffer!);
         Assert.Contains("[Shell exited]", visibleText, StringComparison.Ordinal);
         Assert.Contains("[Exit code: 1]", visibleText, StringComparison.Ordinal);
         Assert.Contains("[Press Enter to restart]", visibleText, StringComparison.Ordinal);
@@ -233,7 +271,7 @@ public sealed class TerminalPaneExitBannerTests
 
         pane.WriteLocalExitBanner(0);
 
-        string visibleText = GetVisiblePlainText(pane.Buffer!);
+        string visibleText = TerminalBufferText.Visible(pane.Buffer!);
         Assert.Contains("[Shell exited]", visibleText, StringComparison.Ordinal);
         Assert.DoesNotContain("Exit code", visibleText, StringComparison.Ordinal);
         Assert.Contains("[Press Enter to restart]", visibleText, StringComparison.Ordinal);
@@ -254,7 +292,7 @@ public sealed class TerminalPaneExitBannerTests
 
         pane.HandleSessionExitForTesting(17);
 
-        string visibleText = GetVisiblePlainText(pane.Buffer!);
+        string visibleText = TerminalBufferText.Visible(pane.Buffer!);
         Assert.Contains("[SSH session disconnected]", visibleText, StringComparison.Ordinal);
         Assert.Contains("[Exit code: 17]", visibleText, StringComparison.Ordinal);
         Assert.Contains("[Press Enter to reconnect]", visibleText, StringComparison.Ordinal);
@@ -267,23 +305,10 @@ public sealed class TerminalPaneExitBannerTests
         Type = ConnectionType.Local,
         Command = "pwsh.exe"
     };
-
-    private static string GetVisiblePlainText(TerminalBuffer buffer)
-    {
-        var field = typeof(TerminalBuffer).GetField("_viewport", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var viewport = (TerminalRow[])field!.GetValue(buffer)!;
-        return string.Join("\n", viewport.Select(GetRowText)).TrimEnd();
-    }
-
-    private static string GetRowText(TerminalRow row)
-    {
-        char[] chars = row.Cells.Select(c => c.Character == '\0' ? ' ' : c.Character).ToArray();
-        return new string(chars).TrimEnd();
-    }
 }
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [ ] **Step 3: Run the test to verify it fails**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TerminalPaneExitBannerTests"
@@ -291,7 +316,7 @@ scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName
 
 Expected: compile error — `'TerminalPane' does not contain a definition for 'WriteLocalExitBanner'`.
 
-- [ ] **Step 3: Write the banner**
+- [ ] **Step 4: Write the banner**
 
 In `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`, directly below `WriteSshDisconnectedBanner`:
 
@@ -312,7 +337,7 @@ In `src/NovaTerminal.App/Controls/TerminalPane.axaml.cs`, directly below `WriteS
         }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 5: Run the tests to verify they pass**
 
 ```bash
 scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName~TerminalPaneExitBannerTests"
@@ -320,10 +345,10 @@ scripts/build.ps1 test tests/NovaTerminal.App.Tests --filter "FullyQualifiedName
 
 Expected: PASS, 3 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs
+git add src/NovaTerminal.App/Controls/TerminalPane.axaml.cs tests/NovaTerminal.App.Tests/Infra/TerminalBufferText.cs tests/NovaTerminal.App.Tests/Core/TerminalPaneExitBannerTests.cs
 git commit -m "feat(pane): banner for a local shell that exited (#311)"
 ```
 
@@ -604,7 +629,7 @@ git commit -m "refactor(panes): close the pane you name, not the selected one (#
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs`, inside the existing class, above the `TwoTabFixture` nested class. `GetVisiblePlainText`/`GetRowText` are the same helpers as Task 2 — copy them in as private statics of this class too:
+Add to `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs`, inside the existing class, above the `TwoTabFixture` nested class. Add `using NovaTerminal.Tests.Infra;` to the file's usings — `TerminalBufferText.Visible` is the shared helper Task 2 created:
 
 ```csharp
     [AvaloniaFact]
@@ -630,7 +655,7 @@ Add to `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs`, inside t
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(2, fixture.Tabs.Items.Count);
-        string visibleText = GetVisiblePlainText(fixture.BackgroundPane.Buffer!);
+        string visibleText = TerminalBufferText.Visible(fixture.BackgroundPane.Buffer!);
         Assert.Contains("[Shell exited]", visibleText, StringComparison.Ordinal);
         Assert.Contains("[Exit code: 1]", visibleText, StringComparison.Ordinal);
     }
@@ -645,7 +670,7 @@ Add to `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs`, inside t
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(2, fixture.Tabs.Items.Count);
-        string visibleText = GetVisiblePlainText(fixture.BackgroundPane.Buffer!);
+        string visibleText = TerminalBufferText.Visible(fixture.BackgroundPane.Buffer!);
         Assert.Contains("[Shell exited]", visibleText, StringComparison.Ordinal);
         Assert.DoesNotContain("Exit code", visibleText, StringComparison.Ordinal);
     }
@@ -663,7 +688,7 @@ Add to `tests/NovaTerminal.App.Tests/Core/MainWindowShellExitTests.cs`, inside t
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
         Assert.Equal(2, fixture.Tabs.Items.Count);
-        Assert.Contains("[Shell exited]", GetVisiblePlainText(fixture.BackgroundPane.Buffer!), StringComparison.Ordinal);
+        Assert.Contains("[Shell exited]", TerminalBufferText.Visible(fixture.BackgroundPane.Buffer!), StringComparison.Ordinal);
     }
 ```
 
