@@ -15,7 +15,7 @@ Design: [`docs/plans/2026-08-12-dead-pane-indicator-design.md`](2026-08-12-dead-
 - **Build and test only through the wrappers:** `scripts/build.ps1 <args>` (PowerShell) or `scripts/build.sh <args>` (bash). A raw `dotnet build` hangs when stdout is captured. See CLAUDE.md.
 - **Never run the whole solution's tests** — that is 20–30 minutes of headless Avalonia. Run the one project, with a `--filter`.
 - The first build in a fresh worktree compiles the Rust natives via cargo (several minutes). Do not pass `SKIP_RUST_NATIVE_BUILD=1` for the test tasks here: `NovaTerminal.App.Tests` panes need `rusty_pty.dll` in the output.
-- **Setting name and values, exactly:** `ShellExitPolicy`, one of `"Never"`, `"Graceful"`, `"Always"`, default `"Graceful"`. Unrecognised values behave as `"Graceful"`.
+- **Setting name and values, exactly:** `ShellExitPolicy`, one of `"Never"`, `"Graceful"`, `"Always"`, default `"Never"`. Unrecognised values behave as `"Graceful"`.
 - **Banner text, exactly** (the exit-code line is omitted when the code is 0):
   ```
   [Shell exited]
@@ -52,7 +52,7 @@ Pure function plus the setting that feeds it. Nothing is wired yet, so behaviour
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `TerminalSettings.ShellExitPolicy` (string, default `"Graceful"`); `internal static bool NovaTerminal.MainWindow.ShouldClosePaneOnExit(string? shellExitPolicy, bool isSsh, int exitCode)`.
+- Produces: `TerminalSettings.ShellExitPolicy` (string, default `"Never"`); `internal static bool NovaTerminal.MainWindow.ShouldClosePaneOnExit(string? shellExitPolicy, bool isSsh, int exitCode)`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -112,9 +112,11 @@ public sealed class ShellExitPolicyTests
     }
 
     [Fact]
-    public void DefaultSettingIsGraceful()
+    public void DefaultSettingIsNever()
     {
-        Assert.Equal("Graceful", new TerminalSettings().ShellExitPolicy);
+        // Until #313 lands and the real exit status can be captured, defaulting to Never
+        // is conservative: every dead local pane gets the banner with its Enter-to-restart hint.
+        Assert.Equal("Never", new TerminalSettings().ShellExitPolicy);
     }
 }
 ```
@@ -132,11 +134,14 @@ Expected: compile error — `'MainWindow' does not contain a definition for 'Sho
 In `src/NovaTerminal.App/Shell/TerminalSettings.cs`, directly below `public string PaneClosePolicy { get; set; } = "Confirm";`:
 
 ```csharp
-        // What happens to a pane when its shell exits (#311). "Never" always keeps the pane and
-        // shows the exit banner; "Graceful" (default) closes it on a clean exit (code 0) and keeps
-        // it otherwise; "Always" closes it whatever the code. SSH panes ignore this and always
-        // keep their reconnect banner. Unrecognised values behave as "Graceful".
-        public string ShellExitPolicy { get; set; } = "Graceful";
+        // What happens to a pane when its shell exits (#311). Three values: "Never" (default for now)
+        // always keeps the pane and shows the exit banner; "Graceful" closes it on a clean exit (code 0)
+        // and keeps it otherwise; "Always" closes it whatever the code. Default is "Never" — a
+        // conservative choice until #313 lands, at which point the real exit status from the child process
+        // can be captured (today a local PTY reports 0 for every exit, even when the console host crashed).
+        // SSH panes ignore this and always keep their reconnect banner. Unrecognised values behave as
+        // "Graceful".
+        public string ShellExitPolicy { get; set; } = "Never";
 ```
 
 - [ ] **Step 4: Add the decision**
@@ -816,7 +821,7 @@ Expected: FAIL — `KnownFields_AreExactlyTheSerializedSettings` and `StringFiel
 In `src/NovaTerminal.McpServer/Tools/SettingsTools.cs`, directly below the `PaneClosePolicy` row:
 
 ```
-        | `ShellExitPolicy` | string (enum-like) | "Never"/"Graceful"/"Always". Default "Graceful". What happens to a pane when its shell exits: keep it with a banner, close it on a clean exit, or always close it. SSH panes ignore this and always keep their reconnect banner. Type-checked only; unrecognised values behave as "Graceful". |
+        | `ShellExitPolicy` | string (enum-like) | "Never"/"Graceful"/"Always". Default "Never". What happens to a pane when its shell exits: keep it with a banner, close it on a clean exit, or always close it. Default is "Never" — a conservative choice until #313 lands and the real exit status from the child process can be captured. SSH panes ignore this and always keep their reconnect banner. Type-checked only; unrecognised values behave as "Graceful". |
 ```
 
 - [ ] **Step 3: Add the example entry**
@@ -824,7 +829,7 @@ In `src/NovaTerminal.McpServer/Tools/SettingsTools.cs`, directly below the `Pane
 Directly below `"PaneClosePolicy": "Confirm",` in the example JSON block:
 
 ```
-          "ShellExitPolicy": "Graceful",
+          "ShellExitPolicy": "Never",
 ```
 
 - [ ] **Step 4: Add it to both field lists**

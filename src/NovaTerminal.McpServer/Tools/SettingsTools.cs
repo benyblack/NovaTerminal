@@ -52,7 +52,7 @@ public static class SettingsTools
         | `AllowOsc52ClipboardWrite` | bool | Default true. Settings gate for OSC 52 clipboard **write** (issue #268). When false, a decoded OSC 52 write is not applied to the system clipboard. OSC 52 **read** (answering a query with real clipboard contents) is never implemented regardless of this setting — queries always get an empty-payload denial reply. |
         | `WheelLinesPerNotch` | number | > 0 (≤ 0 falls back to 3.0). Default 3.0. |
         | `PaneClosePolicy` | string (enum-like) | e.g. "Confirm", "Force". Type-checked only. |
-        | `ShellExitPolicy` | string (enum-like) | "Never"/"Graceful"/"Always". Default "Graceful". What happens to a pane when its shell exits: keep it with a banner, close it on a clean exit, or always close it. SSH panes ignore this and always keep their reconnect banner. Type-checked only; unrecognised values behave as "Graceful". |
+        | `ShellExitPolicy` | string (enum-like) | "Never"/"Graceful"/"Always". Default "Never". What happens to a pane when its shell exits: keep it with a banner, close it on a clean exit, or always close it. Default is "Never" — a conservative choice until #313 lands and the real exit status from the child process can be captured. SSH panes ignore this and always keep their reconnect banner. Type-checked only; unrecognised values behave as "Graceful". |
         | `QuakeModeEnabled` | bool | Default true. |
         | `GlobalHotkey` | string | Default "Alt+OemTilde". |
         | `ExperimentalNativeSshEnabled` | bool | Default false. |
@@ -111,7 +111,7 @@ public static class SettingsTools
           "AllowOsc52ClipboardWrite": true,
           "WheelLinesPerNotch": 3.0,
           "PaneClosePolicy": "Confirm",
-          "ShellExitPolicy": "Graceful",
+          "ShellExitPolicy": "Never",
           "Keybindings": { "Ctrl+Shift+C": "copy" },
           "TabTemplateRules": [],
           "BackgroundImagePath": "",

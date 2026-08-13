@@ -51,11 +51,14 @@ namespace NovaTerminal.Shell
         // high-resolution touchpads, which emit many sub-notch wheel events.
         public double WheelLinesPerNotch { get; set; } = 3.0;
         public string PaneClosePolicy { get; set; } = "Confirm";
-        // What happens to a pane when its shell exits (#311). "Never" always keeps the pane and
-        // shows the exit banner; "Graceful" (default) closes it on a clean exit (code 0) and keeps
-        // it otherwise; "Always" closes it whatever the code. SSH panes ignore this and always
-        // keep their reconnect banner. Unrecognised values behave as "Graceful".
-        public string ShellExitPolicy { get; set; } = "Graceful";
+        // What happens to a pane when its shell exits (#311). Three values: "Never" (default for now)
+        // always keeps the pane and shows the exit banner; "Graceful" closes it on a clean exit (code 0)
+        // and keeps it otherwise; "Always" closes it whatever the code. Default is "Never" — a
+        // conservative choice until #313 lands, at which point the real exit status from the child process
+        // can be captured (today a local PTY reports 0 for every exit, even when the console host crashed).
+        // SSH panes ignore this and always keep their reconnect banner. Unrecognised values behave as
+        // "Graceful".
+        public string ShellExitPolicy { get; set; } = "Never";
         public System.Collections.Generic.Dictionary<string, string> Keybindings { get; set; } = new();
         public System.Collections.Generic.List<TabTemplateRule> TabTemplateRules { get; set; } = new();
 

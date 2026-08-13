@@ -51,8 +51,10 @@ public sealed class ShellExitPolicyTests
     }
 
     [Fact]
-    public void DefaultSettingIsGraceful()
+    public void DefaultSettingIsNever()
     {
-        Assert.Equal("Graceful", new TerminalSettings().ShellExitPolicy);
+        // Until #313 lands and the real exit status can be captured, defaulting to Never
+        // is conservative: every dead local pane gets the banner with its Enter-to-restart hint.
+        Assert.Equal("Never", new TerminalSettings().ShellExitPolicy);
     }
 }

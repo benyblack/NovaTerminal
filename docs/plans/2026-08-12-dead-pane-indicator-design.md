@@ -37,14 +37,14 @@ None of it reached the screen. Three specifics:
 
 ## The behaviour contract
 
-`ShellExitPolicy` is a string setting, `"Never" | "Graceful" | "Always"`, default `"Graceful"`.
+`ShellExitPolicy` is a string setting, `"Never" | "Graceful" | "Always"`, default `"Never"`.
 
 | Pane | Exit | Policy | Behaviour |
 |---|---|---|---|
-| Local | 0 | `Graceful` (default) | Pane closes. Last pane in the tab closes the tab; last tab closes the window. |
-| Local | 0 | `Never` | Banner, pane stays. |
+| Local | 0 | `Never` (default) | Banner, pane stays. |
+| Local | 0 | `Graceful` (opt-in) | Pane closes. Last pane in the tab closes the tab; last tab closes the window. |
 | Local | non-zero, or host/PTY died | `Graceful`, `Never` | Banner, pane stays. |
-| Local | any | `Always` | Pane closes. |
+| Local | any | `Always` (opt-in) | Pane closes. |
 | SSH | any | any | Unchanged: existing SSH banner, Enter reconnects, never auto-closes. |
 
 Local banner text, mirroring the SSH one's shape (exit-code line omitted when the code is 0, as SSH
@@ -67,7 +67,8 @@ in the buffer and therefore in scrollback, `read_screen`, and replay exports).
   gone, and an unattended modal is the stuck state this issue is about. Same reasoning as the
   existing agent-initiated close.
 - **`exit` in the only tab quits the app.** `CloseTab` calls `Close()` when the last tab goes. This
-  matches every other terminal and is the accepted consequence of the `Graceful` default.
+  matches every other terminal and only happens under the opted-in `Graceful` policy; the default
+  `Never` keeps the pane for manual restart.
 
 ## Composition
 
@@ -115,7 +116,7 @@ background pane today.
 
 ### Settings surface
 
-- `TerminalSettings.ShellExitPolicy = "Graceful"`, next to `PaneClosePolicy`.
+- `TerminalSettings.ShellExitPolicy = "Never"`, next to `PaneClosePolicy`.
 - **settings.json only, no `SettingsWindow` control** — its sibling `PaneClosePolicy` has none
   either, and matching that is better than growing the settings window for this. A UI control for
   both policies together is reasonable follow-up work.
@@ -123,6 +124,17 @@ background pane today.
   and the writable-field list updated, or `SettingsToolsDriftGuardTests` fails.
 - An unrecognised value behaves as `"Graceful"`: this setting decides whether a pane disappears, and
   a typo in a hand-edited settings file must not silently mean "never tell me anything again".
+
+### Default change: from Graceful to Never
+
+This design was agreed with the default set to `"Graceful"`, but a maintainer decision changed it to
+`"Never"` before implementation. Reason: a local PTY reports exit code 0 for every session end —
+`RustPtySession` fires its exit notification with a hardcoded 0 on EOF. Because of this, `"Graceful"`
+(close on clean exit) cannot tell a clean `exit` from a shell that died because its console host
+crashed, which is exactly the failure #311 exists to announce. Defaulting to `"Never"` means every
+dead local pane gets the banner and its Enter-to-restart hint. `"Graceful"` remains available for
+anyone who opts in, and it becomes the right default once **#313** lands and the real exit status
+from the child process is plumbed through.
 
 ## Data flow
 
