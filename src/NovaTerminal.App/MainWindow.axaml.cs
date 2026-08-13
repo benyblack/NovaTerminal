@@ -2803,12 +2803,44 @@ namespace NovaTerminal
 
         private void OnPaneProcessExited(TerminalPane pane, int exitCode)
         {
-            var tab = pane.FindAncestorOfType<TabItem>();
-            if (tab == null) return;
+            var tab = pane.FindLogicalAncestorOfType<TabItem>();
+            if (tab == null)
+            {
+                // No tab to close or mark; the pane still has to say what happened.
+                pane.WriteLocalExitBanner(exitCode);
+                return;
+            }
 
             var state = GetOrCreateTabState(tab);
             state.LastExitCode = exitCode;
             QueueTabVisualRefresh(tab);
+
+            // SSH panes write their own [SSH session disconnected] banner in HandleSessionExit and
+            // never auto-close, so there is nothing left to do for them here.
+            if (pane.Profile?.Type == ConnectionType.SSH) return;
+
+            if (!ShouldClosePaneOnExit(_settings.ShellExitPolicy, isSsh: false, exitCode))
+            {
+                pane.WriteLocalExitBanner(exitCode);
+                return;
+            }
+
+            _ = HandlePaneExitCloseAsync(pane, exitCode);
+        }
+
+        /// <summary>
+        /// #311: try to close a pane whose shell exited cleanly, and fall back to the banner when
+        /// the close does not happen — a protected tab, an in-flight close, or a pane that has
+        /// already left the tree. Every one of those paths has to end with a pane that says
+        /// something rather than a pane that silently ignores you.
+        /// </summary>
+        private async Task HandlePaneExitCloseAsync(TerminalPane pane, int exitCode)
+        {
+            bool closed = await ClosePaneAsync(pane, skipConfirm: true);
+            if (!closed)
+            {
+                pane.WriteLocalExitBanner(exitCode);
+            }
         }
 
         private void OnPaneActionRequested(TerminalPane pane, PaneAction action)

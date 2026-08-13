@@ -4,6 +4,7 @@ using Avalonia.Headless.XUnit;
 using NovaTerminal.Controls;
 using NovaTerminal.Pty;
 using NovaTerminal.Shell;
+using NovaTerminal.Tests.Infra;
 
 namespace NovaTerminal.Tests.Core;
 
@@ -123,6 +124,65 @@ public sealed class MainWindowShellExitTests
         Assert.Same(fixture.SelectedTab, fixture.Tabs.Items[0]);
     }
 
+    [AvaloniaFact]
+    public void CleanExit_UnderGraceful_ClosesTheDyingPanesTab_AndLeavesTheSelectedOne()
+    {
+        using var fixture = TwoTabFixture.Create();
+        fixture.Settings.ShellExitPolicy = "Graceful";
+
+        fixture.BackgroundPane.HandleSessionExitForTesting(0);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        Assert.Single(fixture.Tabs.Items);
+        Assert.Same(fixture.SelectedTab, fixture.Tabs.Items[0]);
+    }
+
+    [AvaloniaFact]
+    public void NonZeroExit_UnderGraceful_KeepsThePaneAndShowsTheBanner()
+    {
+        using var fixture = TwoTabFixture.Create();
+        fixture.Settings.ShellExitPolicy = "Graceful";
+
+        fixture.BackgroundPane.HandleSessionExitForTesting(1);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(2, fixture.Tabs.Items.Count);
+        string visibleText = TerminalBufferText.Visible(fixture.BackgroundPane.Buffer!);
+        Assert.Contains("[Shell exited]", visibleText, StringComparison.Ordinal);
+        Assert.Contains("[Exit code: 1]", visibleText, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public void CleanExit_UnderNever_KeepsThePaneAndShowsTheBanner()
+    {
+        using var fixture = TwoTabFixture.Create();
+        fixture.Settings.ShellExitPolicy = "Never";
+
+        fixture.BackgroundPane.HandleSessionExitForTesting(0);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(2, fixture.Tabs.Items.Count);
+        string visibleText = TerminalBufferText.Visible(fixture.BackgroundPane.Buffer!);
+        Assert.Contains("[Shell exited]", visibleText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Exit code", visibleText, StringComparison.Ordinal);
+    }
+
+    [AvaloniaFact]
+    public void CleanExit_OnAProtectedTab_KeepsThePaneAndFallsBackToTheBanner()
+    {
+        // A dying shell must not be able to defeat tab protection — and a pane that cannot close
+        // still has to say something, which is the whole point of #311.
+        using var fixture = TwoTabFixture.Create();
+        fixture.Settings.ShellExitPolicy = "Graceful";
+        fixture.ProtectBackgroundTab();
+
+        fixture.BackgroundPane.HandleSessionExitForTesting(0);
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        Assert.Equal(2, fixture.Tabs.Items.Count);
+        Assert.Contains("[Shell exited]", TerminalBufferText.Visible(fixture.BackgroundPane.Buffer!), StringComparison.Ordinal);
+    }
+
     private sealed class TwoTabFixture : IDisposable
     {
         private TwoTabFixture(NovaTerminal.MainWindow window, TabControl tabs, TabItem selectedTab, TerminalPane backgroundPane)
@@ -137,6 +197,16 @@ public sealed class MainWindowShellExitTests
         public TabControl Tabs { get; }
         public TabItem SelectedTab { get; }
         public TerminalPane BackgroundPane { get; }
+        public TerminalSettings Settings { get; private init; } = null!;
+        public TabItem BackgroundTab { get; private init; } = null!;
+
+        public void ProtectBackgroundTab()
+        {
+            object state = typeof(NovaTerminal.MainWindow)
+                .GetMethod("GetOrCreateTabState", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(Window, [BackgroundTab])!;
+            state.GetType().GetProperty("IsProtected")!.SetValue(state, true);
+        }
 
         public Task<bool> ClosePaneAsync(TerminalPane pane, bool skipConfirm)
         {
@@ -159,7 +229,11 @@ public sealed class MainWindowShellExitTests
             TabItem selected = CreateTab(window, tabs, settings, "Selected");
             tabs.SelectedItem = selected;
 
-            return new TwoTabFixture(window, tabs, selected, (TerminalPane)background.Content!);
+            return new TwoTabFixture(window, tabs, selected, (TerminalPane)background.Content!)
+            {
+                Settings = settings,
+                BackgroundTab = background
+            };
         }
 
         private static TabItem CreateTab(NovaTerminal.MainWindow window, TabControl tabs, TerminalSettings settings, string title)
