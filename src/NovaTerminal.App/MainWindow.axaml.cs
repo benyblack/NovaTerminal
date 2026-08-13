@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.Controls.Primitives;
+using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
 using Avalonia.Controls.Presenters;
 using NovaTerminal.Shell;
@@ -3361,28 +3362,46 @@ namespace NovaTerminal
             _ = CloseActivePaneAsync();
         }
 
-        private async Task CloseActivePaneAsync(bool skipConfirm = false)
+        private Task CloseActivePaneAsync(bool skipConfirm = false)
         {
-            if (_closePaneInProgress || _currentPane == null) return;
+            if (_currentPane == null) return Task.CompletedTask;
+            return ClosePaneAsync(_currentPane, skipConfirm);
+        }
+
+        /// <summary>
+        /// Closes a specific pane, resolving everything from that pane rather than from the
+        /// selection. The distinction matters for #311: a shell can die in a background tab, and
+        /// the old selection-based fallback would have closed the tab the user was looking at.
+        /// Returns true when the pane (or its tab) actually went away — callers use that to fall
+        /// back to a banner when a protected tab or an in-flight close refuses.
+        /// </summary>
+        private async Task<bool> ClosePaneAsync(TerminalPane pane, bool skipConfirm = false)
+        {
+            if (_closePaneInProgress || pane == null) return false;
             _closePaneInProgress = true;
 
             try
             {
-                var paneToClose = _currentPane;
-                if (paneToClose == null) return;
-                if (TryGetSelectedTab(out var selectedTab) && _paneZoomStateByTab.ContainsKey(selectedTab))
+                var paneToClose = pane;
+                // FindAncestorOfType<TabItem> (visual tree) never resolves here: Avalonia's
+                // TabControl renders only the selected item's Content through its own
+                // PART_SelectedContentHost presenter, so a TabItem is never a visual ancestor of
+                // its own Content — selected or not. The logical tree is what's actually reliable
+                // (ContentControl sets the logical parent immediately on assignment, same
+                // mechanism the split-detection Parent check below already leans on).
+                var paneTab = paneToClose.FindLogicalAncestorOfType<TabItem>();
+                if (paneTab != null && _paneZoomStateByTab.ContainsKey(paneTab))
                 {
-                    ExitPaneZoom(selectedTab, publishEvent: true);
-                    paneToClose = _currentPane;
-                    if (paneToClose == null) return;
+                    ExitPaneZoom(paneTab, publishEvent: true);
                 }
-                // Agent-initiated close bypasses the confirmation dialog: an agent
-                // can't answer a modal, and the act opt-in + journal entry are the
-                // consent surface (A3 threat model).
+
+                // Agent-initiated and exit-driven closes bypass the confirmation dialog: an agent
+                // can't answer a modal, a dead shell has nothing left to lose, and an unattended
+                // prompt is the stuck state #311 is about.
                 if (!skipConfirm && !await ShouldClosePaneAsync(paneToClose))
                 {
                     FocusPaneTerminal(paneToClose, defer: true);
-                    return;
+                    return false;
                 }
 
                 // Check if we are in a split (Parent is Grid with multiple children/splitter)
@@ -3433,21 +3452,22 @@ namespace NovaTerminal
                         // 6. Focus Sibling
                         FocusFirstPane(sibling);
                         UpdatePaneAutomationLabels();
-                        if (TryGetSelectedTab(out selectedTab))
+                        if (paneTab != null)
                         {
-                            RefreshLayoutModelForTab(selectedTab);
-                            PublishPaneEvent(selectedTab, paneToClose, PaneAuditEventKind.Close);
+                            RefreshLayoutModelForTab(paneTab);
+                            PublishPaneEvent(paneTab, paneToClose, PaneAuditEventKind.Close);
                         }
-                        return;
+                        return true;
                     }
                 }
 
-                // Fallback: If not in a split, close the tab
-                var tabs = this.FindControl<TabControl>("Tabs");
-                if (tabs?.SelectedItem is TabItem ti)
+                // Fallback: If not in a split, close the pane's own tab.
+                if (paneTab != null)
                 {
-                    await CloseTabAsync(ti, skipProcessChecks: true);
+                    return await CloseTabAsync(paneTab, skipProcessChecks: true);
                 }
+
+                return false;
             }
             finally
             {
