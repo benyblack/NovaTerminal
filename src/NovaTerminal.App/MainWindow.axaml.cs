@@ -3527,22 +3527,15 @@ namespace NovaTerminal
                         // 6. Focus Sibling
                         FocusFirstPane(sibling);
                         UpdatePaneAutomationLabels();
-                        if (paneTab != null)
-                        {
-                            RefreshLayoutModelForTab(paneTab);
-                            PublishPaneEvent(paneTab, paneToClose, PaneAuditEventKind.Close);
-                        }
+                        RefreshLayoutModelForTab(paneTab);
+                        PublishPaneEvent(paneTab, paneToClose, PaneAuditEventKind.Close);
                         return true;
                     }
                 }
 
-                // Fallback: If not in a split, close the pane's own tab.
-                if (paneTab != null)
-                {
-                    return await CloseTabAsync(paneTab, skipProcessChecks: true);
-                }
-
-                return false;
+                // Fallback: If not in a split, close the pane's own tab. paneTab is non-null from
+                // the early return above, so there is no null branch left to guard here.
+                return await CloseTabAsync(paneTab, skipProcessChecks: true);
             }
             finally
             {
