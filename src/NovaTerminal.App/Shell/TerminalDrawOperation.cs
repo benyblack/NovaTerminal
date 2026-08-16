@@ -1789,6 +1789,11 @@ namespace NovaTerminal.Shell
         private float FromDevicePx(int px)
             => (float)(px / _renderScaling);
 
+        /// <inheritdoc cref="FromDevicePx(int)"/>
+        /// <remarks>For geometry that lands between pixels, such as the centreline of an odd-width stroke.</remarks>
+        private float FromDevicePxF(double px)
+            => (float)(px / _renderScaling);
+
         private float Snap(double logical)
             => (float)(Math.Round(logical * _renderScaling, MidpointRounding.AwayFromZero) / _renderScaling);
 
@@ -2577,64 +2582,55 @@ namespace NovaTerminal.Shell
             {
                 int halfW = Math.Max(1, (x2px - x1px) / 2);
                 int halfH = Math.Max(1, (y2px - y1px) / 2);
-                int insetPx = Math.Max(0, strokePx / 2);
-                int leftPx = x1px + insetPx;
-                int rightPx = x2px - insetPx;
-                int topPx = y1px + insetPx;
-                int bottomPx = y2px - insetPx;
-                if (rightPx <= leftPx || bottomPx <= topPx) return;
+                int strokeSlack = Math.Max(1, strokePx / 2);
 
-                int radiusPx = Math.Max(1, Math.Min(halfW, halfH) - Math.Max(1, strokePx / 2));
-                float strokeDip = FromDevicePx(Math.Max(1, strokePx));
+                // Half the smaller half-cell, so the straight runs still reach from the cell edge
+                // most of the way to the midpoint the way the ─ and │ primitives do. A radius of a
+                // whole half-cell turns the corner into a full-quadrant sweep that reads as a
+                // diagonal chamfer with a stepped notch where the two borders should meet.
+                int radiusCeiling = Math.Max(1, Math.Min(halfW, halfH) - strokeSlack);
+                int radiusPx = Math.Clamp(Math.Min(halfW, halfH) / 2, 1, radiusCeiling);
+
+                bool goesRight = (cornerSeg & SegRight) != 0;
+                bool goesDown = (cornerSeg & SegDown) != 0;
+                if (goesRight == ((cornerSeg & SegLeft) != 0)) return; // not one of the four arcs
+                if (goesDown == ((cornerSeg & SegUp) != 0)) return;
+
+                // The straight parts are the same grid-aligned fills the other box primitives use, so
+                // an arc cell joins its neighbours seamlessly.
+                if (goesRight) DrawHorizontal(xMidPx + radiusPx, x2px, yMidPx, strokePx);
+                else DrawHorizontal(x1px, xMidPx - radiusPx, yMidPx, strokePx);
+
+                if (goesDown) DrawVertical(yMidPx + radiusPx, y2px, xMidPx, strokePx);
+                else DrawVertical(y1px, yMidPx - radiusPx, xMidPx, strokePx);
+
+                // Centre of the stroke those fills produced: DrawHorizontal/DrawVertical span
+                // [c - strokePx/2, c - strokePx/2 + strokePx), which is offset by half a pixel from
+                // the midpoint for odd stroke widths. The arc has to ride the same centreline.
+                float hCenterY = yMidPx - (strokePx / 2) + (strokePx / 2f);
+                float vCenterX = xMidPx - (strokePx / 2) + (strokePx / 2f);
+                float arcStartX = goesRight ? xMidPx + radiusPx : xMidPx - radiusPx;
+                float arcEndY = goesDown ? yMidPx + radiusPx : yMidPx - radiusPx;
 
                 using var roundedPaint = new SKPaint
                 {
                     Color = color,
                     Style = SKPaintStyle.Stroke,
-                    IsAntialias = false,
-                    StrokeWidth = strokeDip,
+                    // The straight runs stay crisp because they are pixel fills; the curve is the one
+                    // part that needs coverage blending, or a small-radius turn is a visible staircase.
+                    IsAntialias = true,
+                    StrokeWidth = FromDevicePxF(Math.Max(1, strokePx)),
                     StrokeCap = SKStrokeCap.Butt,
                     StrokeJoin = SKStrokeJoin.Round
                 };
 
                 using var path = new SKPath();
-                switch (cornerSeg)
-                {
-                    case SegRight | SegDown: // ╭
-                        path.MoveTo(FromDevicePx(rightPx), FromDevicePx(yMidPx));
-                        path.LineTo(FromDevicePx(xMidPx + radiusPx), FromDevicePx(yMidPx));
-                        path.QuadTo(
-                            FromDevicePx(xMidPx + radiusPx), FromDevicePx(yMidPx + radiusPx),
-                            FromDevicePx(xMidPx), FromDevicePx(yMidPx + radiusPx));
-                        path.LineTo(FromDevicePx(xMidPx), FromDevicePx(bottomPx));
-                        break;
-                    case SegLeft | SegDown: // ╮
-                        path.MoveTo(FromDevicePx(leftPx), FromDevicePx(yMidPx));
-                        path.LineTo(FromDevicePx(xMidPx - radiusPx), FromDevicePx(yMidPx));
-                        path.QuadTo(
-                            FromDevicePx(xMidPx - radiusPx), FromDevicePx(yMidPx + radiusPx),
-                            FromDevicePx(xMidPx), FromDevicePx(yMidPx + radiusPx));
-                        path.LineTo(FromDevicePx(xMidPx), FromDevicePx(bottomPx));
-                        break;
-                    case SegLeft | SegUp: // ╯
-                        path.MoveTo(FromDevicePx(leftPx), FromDevicePx(yMidPx));
-                        path.LineTo(FromDevicePx(xMidPx - radiusPx), FromDevicePx(yMidPx));
-                        path.QuadTo(
-                            FromDevicePx(xMidPx - radiusPx), FromDevicePx(yMidPx - radiusPx),
-                            FromDevicePx(xMidPx), FromDevicePx(yMidPx - radiusPx));
-                        path.LineTo(FromDevicePx(xMidPx), FromDevicePx(topPx));
-                        break;
-                    case SegRight | SegUp: // ╰
-                        path.MoveTo(FromDevicePx(rightPx), FromDevicePx(yMidPx));
-                        path.LineTo(FromDevicePx(xMidPx + radiusPx), FromDevicePx(yMidPx));
-                        path.QuadTo(
-                            FromDevicePx(xMidPx + radiusPx), FromDevicePx(yMidPx - radiusPx),
-                            FromDevicePx(xMidPx), FromDevicePx(yMidPx - radiusPx));
-                        path.LineTo(FromDevicePx(xMidPx), FromDevicePx(topPx));
-                        break;
-                    default:
-                        return;
-                }
+                path.MoveTo(FromDevicePxF(arcStartX), FromDevicePxF(hCenterY));
+                // Control point on the corner vertex — where the two centrelines cross. Putting it on
+                // the arc's centre instead bows the curve away from the corner and past the diagonal.
+                path.QuadTo(
+                    FromDevicePxF(vCenterX), FromDevicePxF(hCenterY),
+                    FromDevicePxF(vCenterX), FromDevicePxF(arcEndY));
 
                 canvas.Save();
                 canvas.ClipRect(SKRect.Create(FromDevicePx(x1px), FromDevicePx(y1px), FromDevicePx(x2px - x1px), FromDevicePx(y2px - y1px)));
