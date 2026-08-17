@@ -56,6 +56,79 @@ namespace NovaTerminal.Pty
         /// process may still be alive; the *session* is what has failed.
         internal const int ReadFailureExitCode = -1;
 
+        // Child-exit watch (#313). Pipe EOF is not a reliable exit signal: with ConPTY the
+        // output pipe stays open while the console host lives, and the host outlives its
+        // client shell - measured at 159s and counting after a shell exited. A session that
+        // waited only for EOF therefore never learned that a shell had ended (clean `exit`
+        // or kill alike); it only learned that a host had *crashed*, which is why the pane
+        // in #311's own bug report sat there looking alive. So we poll the child's status
+        // and treat that as the authoritative exit signal, keeping EOF as a second trigger.
+        //
+        // 200 ms is a compromise: fast enough that a tab reacts to `exit` without a
+        // perceptible lag, slow enough to be free (one non-blocking status check per
+        // session per tick).
+        internal const int ChildExitPollIntervalMs = 200;
+
+        /// Grace given to the read loop to drain output the shell wrote just before exiting,
+        /// after the child is seen to be gone but before the read is cancelled. Without it a
+        /// command's final line can be cut off, since the child's death and the last bytes
+        /// arriving are a race.
+        internal const int ChildExitDrainGraceMs = 250;
+
+        private Thread? _exitWatchThread;
+
+        // Written once by the exit-watch thread, read by the read/process loops. Two fields
+        // rather than an int? so the read is atomic without a lock.
+        private int _childExitObserved;
+        private int _childExitCode;
+
+        /// True once the child shell has been observed to have exited. The read loop uses
+        /// this to stop counting read failures: once the shell is gone, a failing read is
+        /// the expected consequence of cancelling it, not a session failure worth reporting
+        /// as <see cref="ReadFailureExitCode"/>.
+        private bool ChildExitObserved => Volatile.Read(ref _childExitObserved) == 1;
+
+        /// Asks the native layer whether the child has exited and records its status if so.
+        /// Returns true when the child is gone.
+        ///
+        /// Called from the read loop's EOF and error branches, not only from the watcher,
+        /// because both can beat the watcher's next tick — and whoever gets there first
+        /// decides the reported code. A killed shell makes reads fail immediately, so the
+        /// read loop would otherwise hit its failure limit (20 x 50 ms) and report
+        /// <see cref="ReadFailureExitCode"/> about a second before the watcher could say what
+        /// actually happened. Asking here classifies "reads are failing because the shell is
+        /// gone" apart from "reads are failing while the shell lives" at the moment it
+        /// matters, rather than racing it.
+        private bool TryCaptureChildExit()
+        {
+            if (ChildExitObserved)
+            {
+                return true;
+            }
+
+            if (_handle.IsClosed || _handle.IsInvalid)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (Native.pty_try_get_exit_code(_handle, out int code) != 1)
+                {
+                    return false;
+                }
+
+                Volatile.Write(ref _childExitCode, code);
+                Volatile.Write(ref _childExitObserved, 1);
+                PtyLogger.Info($"[RustPtySession] Child exited with code {code}.");
+                return true;
+            }
+            catch (ObjectDisposedException)
+            {
+                return false; // handle released under us — Dispose owns the teardown
+            }
+        }
+
         // PowerShell post-launch init injection. Held so Dispose can observe the task's
         // failures instead of dropping them, and delete the script if the shell never
         // sourced it (the script deletes itself on the happy path). Both are written from
@@ -221,6 +294,11 @@ namespace NovaTerminal.Pty
 
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
             public static extern void pty_cancel_read(PtySafeHandle state);
+
+            // 1 = the child exited and exitCode is set, 0 = still running, -1 = unknown.
+            // Non-blocking; see the Rust doc comment for why EOF alone cannot be trusted.
+            [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+            public static extern int pty_try_get_exit_code(PtySafeHandle state, out int exitCode);
 
             // Raw overload used only by PtySafeHandle.ReleaseHandle().
             [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
@@ -585,9 +663,13 @@ namespace NovaTerminal.Pty
             _readLoopThread = new Thread(ReadLoop) { IsBackground = true, Name = $"PtyRead-{Id:N}" };
             _processLoopThread = new Thread(ProcessLoop) { IsBackground = true, Name = $"PtyProcess-{Id:N}" };
             _writeLoopThread = new Thread(WriteLoop) { IsBackground = true, Name = $"PtyWrite-{Id:N}" };
+            // Same dedicated-thread reasoning as the loops above; this one spends its life
+            // asleep, waking every ChildExitPollIntervalMs for one non-blocking status check.
+            _exitWatchThread = new Thread(ExitWatchLoop) { IsBackground = true, Name = $"PtyExitWatch-{Id:N}" };
             _readLoopThread.Start();
             _processLoopThread.Start();
             _writeLoopThread.Start();
+            _exitWatchThread.Start();
 
             // POST-LAUNCH INJECTION for PowerShell
             if (!skipPowerShellPostLaunchInit &&
@@ -818,12 +900,25 @@ namespace NovaTerminal.Pty
                     else if (read == 0) // EOF
                     {
                         PtyLogger.Info("[RustPtySession] EOF received.");
+                        // Learn the child's real status before unwinding, so an EOF that
+                        // followed a death reports that death's code rather than 0.
+                        TryCaptureChildExit();
                         break;
                     }
                     else // read < 0: error
                     {
                         // Reset decoder state on error to prevent corruption
                         _utf8Decoder.Reset();
+
+                        if (TryCaptureChildExit())
+                        {
+                            // The shell is gone: either the watcher cancelled this read, or the
+                            // shell was killed and the pipe failed before the watcher's next
+                            // tick (#313). Either way a failing read is the consequence, not a
+                            // session failure — counting it would report ReadFailureExitCode
+                            // and bury the child's real status.
+                            break;
+                        }
 
                         if (++consecutiveReadErrors >= MaxConsecutiveReadErrors)
                         {
@@ -913,6 +1008,64 @@ namespace NovaTerminal.Pty
             }
         }
 
+        /// Polls the child shell's status and turns its death into the session's exit
+        /// signal. See the ChildExitPollIntervalMs comment for why EOF cannot carry this.
+        ///
+        /// The loop does not notify the exit itself: it records the status, gives the read
+        /// loop a moment to drain what the shell wrote on its way out, then cancels the
+        /// read. The read loop unwinds, the process loop drains the queue, and the existing
+        /// single notification point reports the recorded code — so output still precedes
+        /// the exit event, exactly as on the EOF path.
+        private void ExitWatchLoop()
+        {
+            try
+            {
+                while (!_cts.Token.IsCancellationRequested)
+                {
+                    if (_handle.IsClosed || _handle.IsInvalid)
+                    {
+                        return;
+                    }
+
+                    if (TryCaptureChildExit())
+                    {
+                        // Let the tail of the shell's output arrive before we break the read.
+                        if (_cts.Token.WaitHandle.WaitOne(ChildExitDrainGraceMs))
+                        {
+                            return; // disposing anyway; Dispose owns the teardown
+                        }
+
+                        if (!_handle.IsClosed && !_handle.IsInvalid)
+                        {
+                            // The pipe may never EOF on its own (the console host is still
+                            // alive), so unblock the read the same way Dispose does.
+                            try { Native.pty_cancel_read(_handle); }
+                            catch (ObjectDisposedException) { /* raced Dispose */ }
+                        }
+                        return;
+                    }
+
+                    // status == 0 (running) or -1 (unknown, e.g. a state with neither a
+                    // process handle nor a Child): keep watching. A permanently unknown
+                    // status just means we fall back to the EOF trigger, as before.
+                    if (_cts.Token.WaitHandle.WaitOne(ChildExitPollIntervalMs))
+                    {
+                        return;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // Normal shutdown.
+            }
+            catch (Exception ex)
+            {
+                // Dedicated thread: an escape would crash the process. The cost of losing
+                // this watcher is the old behaviour (EOF-only detection), not a crash.
+                PtyLogger.Error($"[RustPtySession] ExitWatchLoop terminated by unhandled exception: {ex}");
+            }
+        }
+
         private void ProcessLoop()
         {
             try
@@ -933,7 +1086,9 @@ namespace NovaTerminal.Pty
                 // misbehaving subscriber can't take down the host; still notify exit below.
                 PtyLogger.Error($"[RustPtySession] ProcessLoop terminated by unhandled exception: {ex}");
             }
-            TryNotifyExit(0);
+            // The child's real status when the watcher observed it (#313); 0 otherwise, which
+            // is the pre-existing reading of "the stream ended and we know nothing more".
+            TryNotifyExit(ChildExitObserved ? Volatile.Read(ref _childExitCode) : 0);
         }
 
         public void SendInput(string input)
@@ -1060,6 +1215,15 @@ namespace NovaTerminal.Pty
                 PtyLogger.Warning("[RustPtySession] WriteLoop did not exit within join timeout.");
             }
 
+            // 4c. Join the exit watcher (#313). It only ever sleeps on the cancellation
+            //     token or makes one non-blocking call, so it unwinds on the Cancel above;
+            //     joining it before the handle is released keeps it from calling into a
+            //     closed handle (which it also guards against).
+            if (!(_exitWatchThread?.Join(DisposeJoinTimeout) ?? true))
+            {
+                PtyLogger.Warning("[RustPtySession] ExitWatchLoop did not exit within join timeout.");
+            }
+
             // 5. Release the handle. SafeHandle guarantees pty_close runs only once
             //    no pty_* call is in flight, so this is UAF-safe even if a join timed out.
             _handle.Dispose();
@@ -1076,7 +1240,9 @@ namespace NovaTerminal.Pty
             //    simply the position with no failure mode.
             CleanUpPowerShellInit();
 
-            TryNotifyExit(0);
+            // Last-resort notification for a session nobody else reported (first-caller-wins,
+            // so a real exit already observed upstream keeps its code).
+            TryNotifyExit(ChildExitObserved ? Volatile.Read(ref _childExitCode) : 0);
         }
 
         /// Observes the injection task's outcome and removes its script if the shell

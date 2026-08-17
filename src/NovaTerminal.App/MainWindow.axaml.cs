@@ -4,6 +4,7 @@ using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.Controls.Primitives;
+using Avalonia.LogicalTree;
 using Avalonia.VisualTree;
 using Avalonia.Controls.Presenters;
 using NovaTerminal.Shell;
@@ -2802,12 +2803,74 @@ namespace NovaTerminal
 
         private void OnPaneProcessExited(TerminalPane pane, int exitCode)
         {
-            var tab = pane.FindAncestorOfType<TabItem>();
-            if (tab == null) return;
+            // SSH panes write their own [SSH session disconnected] banner in HandleSessionExit and
+            // never auto-close, so there is nothing left to do for them here. This has to run
+            // before the tab==null branch below: an SSH pane that has already left the logical
+            // tree by the time its shell exits must not also get a local banner written on top of
+            // the one HandleSessionExit already wrote (#311 fix-wave finding B).
+            if (pane.Profile?.Type == ConnectionType.SSH) return;
 
-            var state = GetOrCreateTabState(tab);
-            state.LastExitCode = exitCode;
-            QueueTabVisualRefresh(tab);
+            var tab = pane.FindLogicalAncestorOfType<TabItem>();
+            if (tab == null)
+            {
+                // No tab to close; the pane still has to say what happened.
+                pane.WriteLocalExitBanner(exitCode);
+                return;
+            }
+
+            // Deliberately not recording exitCode on the tab's state here (#311 fix-wave finding
+            // A). Doing so lets the ✓/✖N tab-strip glyph render, but the only place that clears it
+            // — OnPaneCommandStarted — resolves its TabItem via the visual tree, which (like the
+            // comment on ClosePaneAsync explains) never resolves for a TabControl's Content, so
+            // the glyph would render once and then stick forever, including across a successful
+            // restart. The whole glyph story (set, clear, and telling a process-exit apart from a
+            // command-exit) is deferred to a follow-up issue; see #311.
+
+            if (!ShouldClosePaneOnExit(_settings.ShellExitPolicy, isSsh: false, exitCode))
+            {
+                pane.WriteLocalExitBanner(exitCode);
+                return;
+            }
+
+            _ = HandlePaneExitCloseAsync(pane, exitCode);
+        }
+
+        /// <summary>
+        /// #311: try to close a pane whose shell exited cleanly, and fall back to the banner when
+        /// the close does not happen — a protected tab, an in-flight close, or a pane that has
+        /// already left the tree. Every one of those paths has to end with a pane that says
+        /// something rather than a pane that silently ignores you. This runs fire-and-forget from
+        /// <see cref="OnPaneProcessExited"/>, so a throw here has no other observer: catch it,
+        /// log it the same way other unexpected UI-side failures in this file do, and still fall
+        /// back to the banner. There are three outcomes now: closed (nothing more to do), not
+        /// closed (banner), and threw (log + banner).
+        /// </summary>
+        private async Task HandlePaneExitCloseAsync(TerminalPane pane, int exitCode)
+        {
+            bool closed;
+            try
+            {
+                closed = await ClosePaneAsync(pane, skipConfirm: true);
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Error($"[MainWindow] ClosePaneAsync failed while closing a pane whose shell exited (exit code {exitCode}): {ex.Message}");
+                closed = false;
+            }
+
+            if (closed)
+            {
+                return;
+            }
+
+            try
+            {
+                pane.WriteLocalExitBanner(exitCode);
+            }
+            catch (Exception ex)
+            {
+                TerminalLogger.Error($"[MainWindow] WriteLocalExitBanner failed for a pane whose shell exited (exit code {exitCode}): {ex.Message}");
+            }
         }
 
         private void OnPaneActionRequested(TerminalPane pane, PaneAction action)
@@ -3361,28 +3424,59 @@ namespace NovaTerminal
             _ = CloseActivePaneAsync();
         }
 
-        private async Task CloseActivePaneAsync(bool skipConfirm = false)
+        private Task CloseActivePaneAsync(bool skipConfirm = false)
         {
-            if (_closePaneInProgress || _currentPane == null) return;
+            if (_currentPane == null) return Task.CompletedTask;
+            return ClosePaneAsync(_currentPane, skipConfirm);
+        }
+
+        /// <summary>
+        /// Closes a specific pane, resolving everything from that pane rather than from the
+        /// selection. The distinction matters for #311: a shell can die in a background tab, and
+        /// the old selection-based fallback would have closed the tab the user was looking at.
+        /// Returns true when the pane (or its tab) actually went away — callers use that to fall
+        /// back to a banner when a protected tab or an in-flight close refuses.
+        /// </summary>
+        private async Task<bool> ClosePaneAsync(TerminalPane pane, bool skipConfirm = false)
+        {
+            if (_closePaneInProgress || pane == null) return false;
             _closePaneInProgress = true;
 
             try
             {
-                var paneToClose = _currentPane;
-                if (paneToClose == null) return;
-                if (TryGetSelectedTab(out var selectedTab) && _paneZoomStateByTab.ContainsKey(selectedTab))
+                var paneToClose = pane;
+                // FindAncestorOfType<TabItem> (visual tree) never resolves here: Avalonia's
+                // TabControl renders only the selected item's Content through its own
+                // PART_SelectedContentHost presenter, so a TabItem is never a visual ancestor of
+                // its own Content — selected or not. The logical tree is what's actually reliable
+                // (ContentControl sets the logical parent immediately on assignment, same
+                // mechanism the split-detection Parent check below already leans on).
+                var paneTab = paneToClose.FindLogicalAncestorOfType<TabItem>();
+                if (paneTab == null)
                 {
-                    ExitPaneZoom(selectedTab, publishEvent: true);
-                    paneToClose = _currentPane;
-                    if (paneToClose == null) return;
+                    // A zoomed tab's EnterPaneZoom replaces TabItem.Content with only the zoomed
+                    // pane, so the tab's original split Grid — and every non-zoomed sibling still
+                    // inside it — is detached from the logical tree and has no TabItem ancestor.
+                    // Falling through to the split branch below for such a pane would clear that
+                    // detached Grid's Children while its Parent is null: none of the promotion
+                    // branches match, and the sibling pane is silently orphaned with its shell
+                    // still running. Returning false here instead lets the caller fall back to a
+                    // banner (#311 fix-wave finding C).
+                    return false;
                 }
-                // Agent-initiated close bypasses the confirmation dialog: an agent
-                // can't answer a modal, and the act opt-in + journal entry are the
-                // consent surface (A3 threat model).
+
+                if (_paneZoomStateByTab.ContainsKey(paneTab))
+                {
+                    ExitPaneZoom(paneTab, publishEvent: true);
+                }
+
+                // Agent-initiated and exit-driven closes bypass the confirmation dialog: an agent
+                // can't answer a modal, a dead shell has nothing left to lose, and an unattended
+                // prompt is the stuck state #311 is about.
                 if (!skipConfirm && !await ShouldClosePaneAsync(paneToClose))
                 {
                     FocusPaneTerminal(paneToClose, defer: true);
-                    return;
+                    return false;
                 }
 
                 // Check if we are in a split (Parent is Grid with multiple children/splitter)
@@ -3433,21 +3527,15 @@ namespace NovaTerminal
                         // 6. Focus Sibling
                         FocusFirstPane(sibling);
                         UpdatePaneAutomationLabels();
-                        if (TryGetSelectedTab(out selectedTab))
-                        {
-                            RefreshLayoutModelForTab(selectedTab);
-                            PublishPaneEvent(selectedTab, paneToClose, PaneAuditEventKind.Close);
-                        }
-                        return;
+                        RefreshLayoutModelForTab(paneTab);
+                        PublishPaneEvent(paneTab, paneToClose, PaneAuditEventKind.Close);
+                        return true;
                     }
                 }
 
-                // Fallback: If not in a split, close the tab
-                var tabs = this.FindControl<TabControl>("Tabs");
-                if (tabs?.SelectedItem is TabItem ti)
-                {
-                    await CloseTabAsync(ti, skipProcessChecks: true);
-                }
+                // Fallback: If not in a split, close the pane's own tab. paneTab is non-null from
+                // the early return above, so there is no null branch left to guard here.
+                return await CloseTabAsync(paneTab, skipProcessChecks: true);
             }
             finally
             {
@@ -3488,6 +3576,30 @@ namespace NovaTerminal
                 default:
                     return await ShowRunningProcessCloseConfirmationAsync("Closing this pane will terminate the running process.");
             }
+        }
+
+        /// <summary>
+        /// #311: whether a pane whose shell just exited should close itself. Protection and
+        /// close-in-progress guards deliberately live outside this decision — the caller attempts
+        /// the close and falls back to the banner if it does not happen, so that a pane which
+        /// cannot close still says something.
+        /// </summary>
+        internal static bool ShouldClosePaneOnExit(string? shellExitPolicy, bool isSsh, int exitCode)
+        {
+            // A dropped SSH session keeps its [Press Enter to reconnect] banner regardless: the
+            // remote end may have cost an MFA prompt or a jump host to reach.
+            if (isSsh) return false;
+
+            string policy = shellExitPolicy?.Trim() ?? string.Empty;
+
+            if (policy.Equals("Never", StringComparison.OrdinalIgnoreCase)) return false;
+            if (policy.Equals("Always", StringComparison.OrdinalIgnoreCase)) return true;
+            if (policy.Equals("Graceful", StringComparison.OrdinalIgnoreCase)) return exitCode == 0;
+
+            // Fall-through: unrecognised or empty value behaves as the default "Never",
+            // because a typo in a hand-edited settings file must not be more destructive
+            // than the default. "Never" still tells the user via the exit banner.
+            return false;
         }
 
         internal static bool ShouldAutoAcceptRunningPaneClose(

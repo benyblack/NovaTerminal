@@ -1059,6 +1059,80 @@ pub extern "C" fn pty_get_pid(state_ptr: *mut PtyState) -> c_int {
     })
 }
 
+/// Non-blocking check for "has the child shell exited, and with what status".
+///
+/// Returns 1 and writes `out_code` when the child has exited, 0 while it is still
+/// running, and -1 when the status cannot be determined (bad arguments, or a state
+/// that owns neither a process handle nor a `Child`).
+///
+/// This exists because pipe EOF is NOT a reliable exit signal on Windows: with
+/// ConPTY the output pipe stays open for as long as the console host lives, and the
+/// host outlives its client shell. A session that watched only for EOF therefore
+/// never noticed a shell exiting - it only noticed the host *crashing* (#313). The
+/// caller polls this instead, so a clean `exit` and a killed shell are both seen,
+/// with the shell's real status rather than an assumed 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn pty_try_get_exit_code(state_ptr: *mut PtyState, out_code: *mut c_int) -> c_int {
+    ffi_guard(-1, || {
+        if state_ptr.is_null() || out_code.is_null() {
+            return -1;
+        }
+        // Clone the Arc without consuming the caller's ref (same idiom as pty_read).
+        let state = unsafe {
+            let arc = Arc::from_raw(state_ptr);
+            let cloned = arc.clone();
+            let _ = Arc::into_raw(arc);
+            cloned
+        };
+
+        #[cfg(windows)]
+        {
+            // ConPTY passthrough path: we hold the child's process handle directly.
+            if let Ok(h_process_opt) = state.h_process.lock() {
+                if let Some(h_process) = *h_process_opt {
+                    unsafe {
+                        use windows_sys::Win32::System::Threading::{
+                            GetExitCodeProcess, WaitForSingleObject,
+                        };
+                        // Zero-timeout wait, not GetExitCodeProcess alone: a process may
+                        // legitimately exit with 259 (STILL_ACTIVE), which would read as
+                        // "still running" forever.
+                        const WAIT_OBJECT_0: u32 = 0;
+                        if WaitForSingleObject(h_process, 0) != WAIT_OBJECT_0 {
+                            return 0;
+                        }
+                        let mut code: u32 = 0;
+                        if GetExitCodeProcess(h_process, &mut code) == 0 {
+                            return -1;
+                        }
+                        *out_code = code as c_int;
+                        return 1;
+                    }
+                }
+            }
+        }
+
+        // portable-pty path (every platform): try_wait() is non-blocking, so the child
+        // lock is held only briefly and can never deadlock against pty_close.
+        if let Ok(mut child_opt) = state.child.lock() {
+            if let Some(child) = child_opt.as_mut() {
+                return match child.try_wait() {
+                    Ok(Some(status)) => {
+                        unsafe {
+                            *out_code = status.exit_code() as c_int;
+                        }
+                        1
+                    }
+                    Ok(None) => 0,
+                    Err(_) => -1,
+                };
+            }
+        }
+
+        -1
+    })
+}
+
 /// Unblock an in-flight `pty_read` so the caller's read thread can be joined.
 ///
 /// The blocked read holds `state.reader`'s lock, so we must NEVER touch `reader`
@@ -1181,6 +1255,124 @@ pub extern "C" fn pty_close(state_ptr: *mut PtyState) {
 
         // Drop logic handles the rest (reader, writer, master)
     })
+}
+
+#[cfg(test)]
+mod child_exit_tests {
+    use super::*;
+    use std::ffi::CString;
+
+    /// Types `exit 3` at a real shell and polls pty_try_get_exit_code until it reports the
+    /// exit with that status. This is the signal the managed side relies on instead of pipe
+    /// EOF, which never arrives while the ConPTY host outlives its client (#313) — and it is
+    /// the exact scenario from that bug: a shell ending because the user asked it to.
+    ///
+    /// The shell is driven by writing to it rather than by argv (`cmd.exe /c ...`), because
+    /// portable-pty quotes every argument and a quoted `"/c"` makes cmd.exe ignore the
+    /// switch and start interactively instead.
+    #[test]
+    fn reports_the_childs_real_exit_status() {
+        #[cfg(windows)]
+        let shell = "cmd.exe";
+        #[cfg(not(windows))]
+        let shell = "/bin/sh";
+
+        let shell_c = CString::new(shell).unwrap();
+        let state = pty_spawn(
+            shell_c.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            80,
+            24,
+        );
+        assert!(!state.is_null(), "spawn failed: {}", take_last_error_for_test());
+
+        // Alive before we ask it to leave: this is what makes the assertion below meaningful
+        // rather than "the status was 1 all along".
+        let mut code: c_int = i32::MIN;
+        assert_eq!(
+            pty_try_get_exit_code(state, &mut code),
+            0,
+            "a freshly spawned shell must report as running"
+        );
+
+        // Drain output while we wait, and answer the one device report a real terminal must
+        // answer. Without this the shell (Clink-hooked cmd.exe here) blocks forever on its
+        // startup `ESC[6n` cursor-position query and never reads the `exit` below — the same
+        // trap that silently stalls any PTY harness that only reads.
+        let state_addr = state as usize;
+        let reader = std::thread::spawn(move || {
+            let sp = state_addr as *mut PtyState;
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = pty_read(sp, buf.as_mut_ptr(), buf.len() as c_int);
+                if n <= 0 {
+                    return;
+                }
+                if buf[..n as usize].windows(4).any(|w| w == b"\x1b[6n") {
+                    let report = b"\x1b[1;1R";
+                    let _ = pty_write(sp, report.as_ptr(), report.len() as c_int);
+                }
+            }
+        });
+
+        let command = b"exit 3\r\n";
+        let written = pty_write(state, command.as_ptr(), command.len() as c_int);
+        assert_eq!(written, command.len() as c_int, "failed to write to the shell");
+
+        let mut status = 0;
+        // Generous: a cold shell on a loaded CI box takes a while to start, read and exit.
+        for _ in 0..300 {
+            status = pty_try_get_exit_code(state, &mut code);
+            if status == 1 {
+                break;
+            }
+            assert_eq!(status, 0, "status must be 'running' until it is 'exited'");
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        assert_eq!(status, 1, "child never reported an exit");
+        assert_eq!(code, 3, "the child's real status must be reported, not an assumed 0");
+
+        // Idempotent: the watcher may poll again before the managed side tears down.
+        let mut again: c_int = i32::MIN;
+        assert_eq!(pty_try_get_exit_code(state, &mut again), 1);
+        assert_eq!(again, 3);
+
+        // The pipe outlives the shell (that is the whole point), so the reader has to be
+        // broken out of rather than waited on.
+        pty_cancel_read(state);
+        let _ = reader.join();
+        pty_close(state);
+    }
+
+    #[test]
+    fn rejects_null_arguments() {
+        let mut code: c_int = 0;
+        assert_eq!(pty_try_get_exit_code(std::ptr::null_mut(), &mut code), -1);
+
+        // A live state with a null out-pointer must not be written through.
+        #[cfg(windows)]
+        let cmd = "cmd.exe";
+        #[cfg(not(windows))]
+        let cmd = "/bin/sh";
+        let cmd_c = CString::new(cmd).unwrap();
+        let state = pty_spawn(cmd_c.as_ptr(), std::ptr::null(), std::ptr::null(), 80, 24);
+        assert!(!state.is_null());
+        assert_eq!(pty_try_get_exit_code(state, std::ptr::null_mut()), -1);
+        pty_close(state);
+    }
+
+    /// Drains the thread-local channel so a spawn failure can be reported in the assert.
+    fn take_last_error_for_test() -> String {
+        let mut buf = vec![0i8; 512];
+        let rc = pty_last_error(buf.as_mut_ptr() as *mut c_char, buf.len() as c_int);
+        if rc <= 0 {
+            return "<no native error recorded>".to_string();
+        }
+        let bytes: Vec<u8> = buf.iter().take_while(|b| **b != 0).map(|b| *b as u8).collect();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
 }
 
 #[cfg(test)]

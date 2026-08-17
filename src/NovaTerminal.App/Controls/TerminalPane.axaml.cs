@@ -3760,6 +3760,21 @@ namespace NovaTerminal.Controls
         }
 
         /// <summary>
+        /// #311: a local pane whose shell exited. Same shape as the SSH banner — including
+        /// dropping the exit-code line when the code is 0 — because the restart it advertises is
+        /// the same mechanism: Enter on a dead session reaches <see cref="Reconnect"/>.
+        /// No interpolated value is caller- or remote-derived, so nothing needs sanitizing.
+        /// </summary>
+        internal void WriteLocalExitBanner(int code)
+        {
+            string exitCodeLine = code == 0
+                ? string.Empty
+                : $"[Exit code: {code}]\r\n";
+            WriteBanner(
+                $"\r\n[Shell exited]\r\n{exitCodeLine}[Press Enter to restart]\r\n");
+        }
+
+        /// <summary>
         /// Strips control characters (C0 incl. ESC, DEL, and C1) from interpolated banner values.
         /// Banner text is parsed as terminal input, so remote- or profile-derived values such as
         /// SSH/spawn error messages could otherwise smuggle escape sequences that move the cursor,
