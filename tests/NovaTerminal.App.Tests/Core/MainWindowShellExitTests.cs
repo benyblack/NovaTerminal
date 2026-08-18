@@ -188,6 +188,7 @@ public sealed class MainWindowShellExitTests
     public void CleanExit_WithNoAncestorTab_StillShowsTheBanner()
     {
         using var fixture = TwoTabFixture.Create();
+        fixture.Settings.ShellExitPolicy = "Graceful";
         fixture.BackgroundTab.Content = null;
 
         fixture.BackgroundPane.HandleSessionExitForTesting(0);
