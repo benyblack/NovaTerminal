@@ -236,8 +236,11 @@ public sealed class NativePortForwardSession : IDisposable
                     continue;
                 }
 
-                _ = Task.Run(() => PumpClientToSshAsync(state, cancellationToken));
-                _ = Task.Run(() => PumpSshToClientAsync(state, cancellationToken));
+                // Token passed to Task.Run as well as into the pump: once the session is being torn
+                // down there is no reason to schedule a pump at all, and it matches what the dynamic
+                // accept path already does for the same two calls.
+                _ = Task.Run(() => PumpClientToSshAsync(state, cancellationToken), cancellationToken);
+                _ = Task.Run(() => PumpSshToClientAsync(state, cancellationToken), cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
