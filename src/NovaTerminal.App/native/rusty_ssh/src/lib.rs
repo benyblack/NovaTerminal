@@ -4892,6 +4892,15 @@ mod connect_arg_encoding_tests {
 mod forward_channel_queue_tests {
     use super::*;
 
+    /// Snapshot of what a recording channel's writer task has seen.
+    ///
+    /// Poison-tolerant, like every other lock in this file: the crate deliberately recovers the guard
+    /// rather than propagating a poisoned lock (see the ffi_guard work), so that one panicking thread
+    /// cannot turn every later acquisition into a second panic. A test is no reason to break that.
+    fn seen_labels(seen: &Arc<Mutex<Vec<&'static str>>>) -> Vec<&'static str> {
+        seen.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// A forward channel whose "writer task" just records what it received, in order.
     fn recording_channel() -> (
         ForwardChannelHandle,
@@ -4911,7 +4920,10 @@ mod forward_channel_queue_tests {
                     ForwardWrite::Eof => "eof",
                     ForwardWrite::Close => "close",
                 };
-                task_seen.lock().unwrap().push(label);
+                task_seen
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(label);
                 if label == "close" {
                     break;
                 }
@@ -4946,7 +4958,7 @@ mod forward_channel_queue_tests {
         close_forward_channel(&channels, 7).await;
 
         finished.notified().await;
-        assert_eq!(vec!["data", "data", "eof", "close"], *seen.lock().unwrap());
+        assert_eq!(vec!["data", "data", "eof", "close"], seen_labels(&seen));
     }
 
     #[tokio::test]
@@ -4961,7 +4973,7 @@ mod forward_channel_queue_tests {
         write_forward_channel(&channels, 9, vec![2]).await;
 
         finished.notified().await;
-        assert_eq!(vec!["data", "close"], *seen.lock().unwrap());
+        assert_eq!(vec!["data", "close"], seen_labels(&seen));
         assert!(channels.lock().await.is_empty());
     }
 
@@ -4991,7 +5003,7 @@ mod forward_channel_queue_tests {
         drop(removed.writes);
 
         let _ = tokio::time::timeout(Duration::from_secs(5), finished.notified()).await;
-        assert_eq!(vec!["data", "data"], *seen.lock().unwrap());
+        assert_eq!(vec!["data", "data"], seen_labels(&seen));
     }
 
     #[tokio::test]
@@ -5004,8 +5016,8 @@ mod forward_channel_queue_tests {
         close_all_forward_channels(&channels).await;
 
         assert!(channels.lock().await.is_empty());
-        assert_eq!(vec!["close"], *first_seen.lock().unwrap());
-        assert_eq!(vec!["close"], *second_seen.lock().unwrap());
+        assert_eq!(vec!["close"], seen_labels(&first_seen));
+        assert_eq!(vec!["close"], seen_labels(&second_seen));
     }
 
     #[tokio::test(start_paused = true)]
