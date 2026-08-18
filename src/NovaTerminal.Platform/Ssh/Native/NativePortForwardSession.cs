@@ -16,6 +16,13 @@ public sealed class NativePortForwardSession : IDisposable
     /// </summary>
     private const int MaxQueuedOutboundBytesPerChannel = 1024 * 1024;
 
+    /// <summary>
+    /// How long to wait before retrying a forward-channel write the native side refused for want of
+    /// queue space. Polling because the FFI has no completion signal to await; short enough that it
+    /// costs throughput only while a forward is genuinely backed up.
+    /// </summary>
+    private static readonly TimeSpan ForwardWriteRetryDelay = TimeSpan.FromMilliseconds(5);
+
     private const byte SocksVersion5 = 0x05;
     private const byte SocksCommandConnect = 0x01;
     private const byte SocksAuthNoAuthentication = 0x00;
@@ -445,7 +452,15 @@ public sealed class NativePortForwardSession : IDisposable
                     break;
                 }
 
-                _interop.WriteChannel(_sessionHandle, channel.ChannelId, buffer.AsSpan(0, bytesRead));
+                // Retry rather than force the write through. A refusal means the native side already
+                // has more queued toward the remote than its budget allows, so the right response is
+                // to stop reading this socket — which is exactly what looping here does, and which
+                // lets TCP flow control throttle the local peer. Neither bytes nor the channel are
+                // sacrificed for a remote that is merely slow.
+                while (!_interop.TryWriteChannel(_sessionHandle, channel.ChannelId, buffer.AsSpan(0, bytesRead)))
+                {
+                    await Task.Delay(ForwardWriteRetryDelay, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

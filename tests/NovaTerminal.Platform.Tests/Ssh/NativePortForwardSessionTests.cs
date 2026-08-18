@@ -456,6 +456,81 @@ public sealed class NativePortForwardSessionTests
         Assert.DoesNotContain(channelId, interop.ClosedChannelIds);
     }
 
+    [Fact]
+    public async Task ClientToSshPump_RetriesRefusedWritesInsteadOfDroppingThem()
+    {
+        // The native side refuses a write when a forward channel is over its queued-byte budget
+        // toward the remote (Codex review on #325). The pump must treat that as "try again", not as
+        // "delivered": dropping the bytes would silently corrupt the proxied stream, and forcing them
+        // through would restore the unbounded queue the budget exists to prevent.
+        var interop = new BackpressuringNativeSshInterop(refusalsPerWrite: 3);
+        int listenPort = GetFreePort();
+
+        using var session = new NativePortForwardSession(
+            FakeHandle(26),
+            [CreateForward(listenPort, "svc.internal", 9003)],
+            interop);
+
+        using TcpClient client = await ConnectLoopbackAsync(listenPort);
+        await WaitUntilAsync(() => interop.OpenedChannelIds.Count == 1);
+
+        byte[] payload = Encoding.ASCII.GetBytes("bytes-that-must-survive-backpressure");
+        await client.GetStream().WriteAsync(payload);
+        await client.GetStream().FlushAsync();
+
+        await WaitUntilAsync(() => interop.WrittenBytes.Count >= payload.Length);
+
+        Assert.Equal(payload, interop.WrittenBytes.Take(payload.Length).ToArray());
+        // Refused attempts must not have been counted as delivered.
+        Assert.True(interop.RefusedAttempts >= 3, $"Expected the pump to absorb refusals; saw {interop.RefusedAttempts}.");
+    }
+
+    /// <summary>
+    /// Refuses the first <c>refusalsPerWrite</c> attempts of every distinct write, then accepts,
+    /// standing in for a native queue that is briefly over budget.
+    /// </summary>
+    private sealed class BackpressuringNativeSshInterop : FakeNativeSshInterop
+    {
+        private readonly int _refusalsPerWrite;
+        private readonly object _writeLock = new();
+        private readonly List<byte> _written = [];
+        private int _pendingRefusals;
+        private int _refusedAttempts;
+
+        public BackpressuringNativeSshInterop(int refusalsPerWrite)
+        {
+            _refusalsPerWrite = refusalsPerWrite;
+            _pendingRefusals = refusalsPerWrite;
+        }
+
+        public IReadOnlyList<byte> WrittenBytes
+        {
+            get { lock (_writeLock) { return _written.ToArray(); } }
+        }
+
+        public int RefusedAttempts
+        {
+            get { lock (_writeLock) { return _refusedAttempts; } }
+        }
+
+        public override bool TryWriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        {
+            lock (_writeLock)
+            {
+                if (_pendingRefusals > 0)
+                {
+                    _pendingRefusals--;
+                    _refusedAttempts++;
+                    return false;
+                }
+
+                _written.AddRange(data.ToArray());
+                _pendingRefusals = _refusalsPerWrite;
+                return true;
+            }
+        }
+    }
+
     private static PortForward CreateForward(int sourcePort, string destinationHost, int destinationPort)
     {
         return new PortForward
@@ -585,7 +660,8 @@ public sealed class NativePortForwardSessionTests
         Assert.True(predicate(), "Condition was not met before timeout.");
     }
 
-    private sealed class FakeNativeSshInterop : INativeSshInterop
+    // Not sealed: BackpressuringNativeSshInterop overrides only the write path.
+    private class FakeNativeSshInterop : INativeSshInterop
     {
         private readonly ConcurrentQueue<NativeSshEvent> _events = new();
         private int _nextChannelId = 100;
@@ -665,6 +741,13 @@ public sealed class NativePortForwardSessionTests
 
         public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
         {
+        }
+
+        // Declared (rather than left to the interface's default) so a derived fake can override it.
+        public virtual bool TryWriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        {
+            WriteChannel(sessionHandle, channelId, data);
+            return true;
         }
 
         public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId)

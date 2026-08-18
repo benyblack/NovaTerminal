@@ -63,8 +63,17 @@ The following checks still require manual validation against real SSH endpoints.
 - Forward-channel data reaching the local socket is queued per channel and written
   by a dedicated pump, in both the managed and Rust layers, so a forwarded port
   whose peer stops reading can no longer stall the session's terminal I/O
-  (issue #173 item 2). A channel that exceeds its 1 MB outbound budget is closed
-  rather than buffered without limit or truncated.
+  (issue #173 item 2).
+- Both directions are bounded at 1 MB per forward channel, but they resolve
+  overflow differently, because only one of them has anywhere to push back to:
+  - **Remote to local** (managed queue): over budget, the channel is closed.
+    Draining slower is not an option — the source is the shared SSH poll loop, and
+    stalling it is the bug being fixed.
+  - **Local to remote** (native queue): over budget,
+    `nova_ssh_channel_write` returns `NOVA_SSH_RESULT_WOULD_BLOCK` and the managed
+    pump retries. That stops it reading the local socket, so TCP flow control
+    throttles the local peer and nothing is dropped or closed for slowness alone.
+    `INativeSshInterop.TryWriteChannel` is the managed half of that contract.
 - Native backend now supports local and direct-host dynamic forwarding.
 - Remote forwarding remains unsupported in the native backend.
 - Dynamic forwarding through one-hop jump hosts remains follow-up work.
