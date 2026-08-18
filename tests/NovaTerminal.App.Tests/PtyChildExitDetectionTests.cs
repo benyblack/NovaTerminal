@@ -97,6 +97,26 @@ namespace NovaTerminal.Tests
 
         [Fact]
         [Trait("Category", "PtySmoke")]
+        public async Task ClosingALiveSessionDoesNotClaimTheStatusWasUnavailable()
+        {
+            // From the Codex review on #324: Dispose cancels the token before joining
+            // ProcessLoop, so the status resolver stops waiting almost immediately. Warning at
+            // that point would fire on every ordinary close of a running pane and drown the one
+            // case the warning exists for — a stream that ended with no status behind it.
+            using var log = PtyLogCapture.Attach();
+
+            using (var session = NewSession())
+            {
+                await WaitForPromptAsync(session);
+            } // Dispose: a normal close of a session whose shell is still alive.
+
+            await Task.Delay(200);
+
+            Assert.DoesNotContain("Child status unavailable", log.ToString(), StringComparison.Ordinal);
+        }
+
+        [Fact]
+        [Trait("Category", "PtySmoke")]
         public async Task ALiveShellIsNotReportedAsExited()
         {
             // The other half: the watcher must not manufacture an exit for a healthy session,

@@ -125,19 +125,22 @@ namespace NovaTerminal.Pty
                     return Volatile.Read(ref _childExitCode);
                 }
 
-                // Cancellation means the session is being torn down: stop waiting on a status
-                // nobody is going to read and let Dispose finish.
+                // Teardown, not an unavailable status: the session is being disposed, so nobody
+                // is waiting for this code and Dispose wants its join. Return without the
+                // warning below — Dispose cancels _cts before joining ProcessLoop, so warning
+                // here would fire on every ordinary close of a running pane and drown the one
+                // case the warning exists for (Codex review on #324).
                 if (_cts.IsCancellationRequested || _handle.IsClosed || _handle.IsInvalid)
                 {
-                    break;
+                    return 0;
                 }
 
                 Thread.Sleep(ChildStatusPollMs);
             }
 
-            // Deliberately loud: "the stream ended and we never learned why" used to be
-            // indistinguishable from "the shell exited cleanly", and that silence is what #323
-            // was about.
+            // Only a genuine deadline expiry gets here, and it is deliberately loud: "the stream
+            // ended and we never learned why" used to be indistinguishable from "the shell exited
+            // cleanly", and that silence is what #323 was about.
             PtyLogger.Warning(
                 $"[RustPtySession] Child status unavailable {ChildStatusWaitMs}ms after the stream ended; reporting 0.");
             return 0;
