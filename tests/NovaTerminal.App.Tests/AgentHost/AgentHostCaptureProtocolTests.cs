@@ -17,7 +17,16 @@ namespace NovaTerminal.AppTests.AgentHost;
 /// production <see cref="TerminalSnapshotRenderer"/> — the same path the golden
 /// PNG baselines pin down — with no window or visual tree involved, which is why
 /// these run headless.
+///
+/// In the GoldenPng collection (#317) because that is where every other test that boots the
+/// Avalonia headless platform lives, and the platform can only be booted once, by one thread.
+/// Left as [Fact] deliberately: these tests do named-pipe I/O, and moving them onto the
+/// framework's dispatcher thread with [AvaloniaFact] stalls any sweep that also runs the pane
+/// tests - an intermittent failure traded for a worse hang. Serialising them against the other
+/// Avalonia users is what removes the race; running them on that thread is not needed, since
+/// they want the font manager rather than a visual tree.
 /// </summary>
+[Collection("GoldenPng")]
 public class AgentHostCaptureProtocolTests : IDisposable
 {
     private readonly string _tempDir;

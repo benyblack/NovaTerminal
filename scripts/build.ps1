@@ -42,17 +42,30 @@ if ($verbs -contains $dotnetArgs[0]) {
     if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
         try {
-            $stale = @(Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" -ErrorAction Stop |
+            # Two families of leftover process lock this tree's build output:
+            #   * MCP servers, which clients respawn on the next tool call, and
+            #   * test hosts from an interrupted `test` run (testhost.exe, and xunit v3's
+            #     own <Project>.Tests.exe), which nothing respawns and which make the next
+            #     run fail with "file is in use" or sit there looking hung (#317).
+            # Scoped to this tree, so a run in one worktree never touches another's.
+            # Caveat worth knowing: a genuinely concurrent `test` run from THIS tree would
+            # be killed too. That is the accepted trade - the silent-lock failure mode cost
+            # hours of debugging, and NOVA_KEEP_STALE_HOSTS=1 opts out.
+            $keepStale = $env:NOVA_KEEP_STALE_HOSTS -eq '1'
+            $stale = @(Get-CimInstance Win32_Process -ErrorAction Stop |
                 Where-Object {
                     $_.CommandLine -and
-                    $_.CommandLine -like '*NovaTerminal.McpServer.dll*' -and
-                    $_.CommandLine -like "*$repoRoot*"
+                    $_.CommandLine -like "*$repoRoot*" -and
+                    (
+                        ($_.Name -eq 'dotnet.exe' -and $_.CommandLine -like '*NovaTerminal.McpServer.dll*') -or
+                        (-not $keepStale -and ($_.Name -eq 'testhost.exe' -or $_.Name -like '*.Tests.exe'))
+                    )
                 })
             foreach ($p in $stale) {
                 Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
             }
             if ($stale.Count -gt 0) {
-                Write-Output "build.ps1: killed $($stale.Count) stale NovaTerminal.McpServer process(es) locking bin outputs."
+                Write-Output "build.ps1: killed $($stale.Count) stale process(es) locking this tree's bin outputs: $(($stale | ForEach-Object { $_.Name }) -join ', ')."
             }
         } catch {
             Write-Output "build.ps1: stale-server sweep skipped ($($_.Exception.Message))"
