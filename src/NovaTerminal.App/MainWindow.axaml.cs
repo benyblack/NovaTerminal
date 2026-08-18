@@ -115,7 +115,6 @@ namespace NovaTerminal
             public bool HasActivity { get; set; }
             public bool HasBell { get; set; }
             public DateTime LastBellUtc { get; set; }
-            public int? LastExitCode { get; set; }
         }
 
         internal enum TabHeaderPointerAction
@@ -920,12 +919,6 @@ namespace NovaTerminal
                 {
                     label = $"{label} ⚠️";
                 }
-            }
-
-            if (state.LastExitCode.HasValue)
-            {
-                string statusGlyph = state.LastExitCode.Value == 0 ? " ✓" : $" ✖{state.LastExitCode.Value}";
-                label += statusGlyph;
             }
 
             if (state.HasBell)
@@ -2669,8 +2662,6 @@ namespace NovaTerminal
             pane.PaneActionRequested -= OnPaneActionRequested;
             pane.OutputReceived -= OnPaneOutputReceived;
             pane.BellReceived -= OnPaneBellReceived;
-            pane.CommandStarted -= OnPaneCommandStarted;
-            pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
             pane.LongCommandCompleted -= OnPaneLongCommandCompleted;
 
@@ -2680,8 +2671,6 @@ namespace NovaTerminal
             pane.PaneActionRequested += OnPaneActionRequested;
             pane.OutputReceived += OnPaneOutputReceived;
             pane.BellReceived += OnPaneBellReceived;
-            pane.CommandStarted += OnPaneCommandStarted;
-            pane.CommandFinished += OnPaneCommandFinished;
             pane.ProcessExited += OnPaneProcessExited;
             pane.LongCommandCompleted += OnPaneLongCommandCompleted;
         }
@@ -2695,8 +2684,6 @@ namespace NovaTerminal
             pane.PaneActionRequested -= OnPaneActionRequested;
             pane.OutputReceived -= OnPaneOutputReceived;
             pane.BellReceived -= OnPaneBellReceived;
-            pane.CommandStarted -= OnPaneCommandStarted;
-            pane.CommandFinished -= OnPaneCommandFinished;
             pane.ProcessExited -= OnPaneProcessExited;
             pane.LongCommandCompleted -= OnPaneLongCommandCompleted;
         }
@@ -2740,7 +2727,14 @@ namespace NovaTerminal
 
         private void OnPaneBellReceived(TerminalPane pane)
         {
-            var tab = pane.FindAncestorOfType<TabItem>();
+            // ResolveOwningTabForPane rather than a tree walk (#314): it carries the
+            // _paneOwnerTab cache and a rebuild fallback, so it also answers for a pane whose
+            // tab is currently zoomed — EnterPaneZoom detaches the tab's other panes from the
+            // logical tree, and a bell from one of those should still mark the tab. The previous
+            // FindAncestorOfType<TabItem> call was a visual-tree lookup that never resolved for
+            // any pane, so this handler returned here every time and the bell indicator had
+            // never once appeared.
+            var tab = ResolveOwningTabForPane(pane);
             if (tab == null) return;
 
             if (!TryGetSelectedTab(out var selectedTab) || selectedTab != tab)
@@ -2756,28 +2750,6 @@ namespace NovaTerminal
                 state.HasBell = true;
                 QueueTabVisualRefresh(tab);
             }
-        }
-
-        private void OnPaneCommandStarted(TerminalPane pane)
-        {
-            var tab = pane.FindAncestorOfType<TabItem>();
-            if (tab == null) return;
-
-            var state = GetOrCreateTabState(tab);
-            state.LastExitCode = null;
-            QueueTabVisualRefresh(tab);
-        }
-
-        private void OnPaneCommandFinished(TerminalPane pane, int? exitCode)
-        {
-            if (!exitCode.HasValue) return;
-
-            var tab = pane.FindAncestorOfType<TabItem>();
-            if (tab == null) return;
-
-            var state = GetOrCreateTabState(tab);
-            state.LastExitCode = exitCode.Value;
-            QueueTabVisualRefresh(tab);
         }
 
         private void OnPaneLongCommandCompleted(TerminalPane pane, string? commandText, int? exitCode, TimeSpan duration)
@@ -2818,13 +2790,13 @@ namespace NovaTerminal
                 return;
             }
 
-            // Deliberately not recording exitCode on the tab's state here (#311 fix-wave finding
-            // A). Doing so lets the ✓/✖N tab-strip glyph render, but the only place that clears it
-            // — OnPaneCommandStarted — resolves its TabItem via the visual tree, which (like the
-            // comment on ClosePaneAsync explains) never resolves for a TabControl's Content, so
-            // the glyph would render once and then stick forever, including across a successful
-            // restart. The whole glyph story (set, clear, and telling a process-exit apart from a
-            // command-exit) is deferred to a follow-up issue; see #311.
+            // The tab strip says nothing about exit codes, deliberately (#311, then #314). The
+            // ✓/✖N glyph it used to carry was written both per-command and on process exit and
+            // rendered identically, so a dead shell looked exactly like a failed command — and
+            // the only code that cleared it never ran, because it asked for its TabItem through
+            // the visual tree. #314 resolved that by deleting the glyph rather than reviving an
+            // ambiguous marker: a dead pane announces itself in the pane body instead. If a tab
+            // marker is ever wanted, it needs its own state and its own reset, not this one.
 
             if (!ShouldClosePaneOnExit(_settings.ShellExitPolicy, isSsh: false, exitCode))
             {
@@ -5888,7 +5860,21 @@ namespace NovaTerminal
             if (_activePaneByTab.TryGetValue(tabItem, out var pane))
             {
                 // Ignore stale mappings when pane was removed/disposed.
-                if (pane.FindAncestorOfType<TabItem>() == tabItem)
+                //
+                // The logical tree answers this, not the visual one (#319): MainWindow.axaml's
+                // TabControl template hosts content in PART_SelectedContentHost, a sibling of the
+                // header presenter, so a TabItem is never a *visual* ancestor of its own content
+                // and the old check compared null == tabItem — always false. Every call therefore
+                // discarded the cache and fell through to FindFirstPane below, so a split tab
+                // resolved its FIRST pane instead of the active one: leaving such a tab and
+                // returning activated the wrong pane, and CloseTabAsync attributed the close to
+                // the wrong pane in the agent journal.
+                //
+                // Zoom needs no special case: while a tab is zoomed its Content *is* the zoomed
+                // pane, so that pane validates here, and a cached non-zoomed pane correctly reads
+                // as stale — the fallback then returns the zoomed pane, which is the right answer
+                // while zoomed.
+                if (pane.FindLogicalAncestorOfType<TabItem>() == tabItem)
                 {
                     return pane;
                 }
