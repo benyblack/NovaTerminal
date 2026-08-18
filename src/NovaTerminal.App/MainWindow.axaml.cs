@@ -3568,9 +3568,11 @@ namespace NovaTerminal
             if (policy.Equals("Always", StringComparison.OrdinalIgnoreCase)) return true;
             if (policy.Equals("Graceful", StringComparison.OrdinalIgnoreCase)) return exitCode == 0;
 
-            // Fall-through: unrecognised or empty value behaves as the default "Never",
-            // because a typo in a hand-edited settings file must not be more destructive
-            // than the default. "Never" still tells the user via the exit banner.
+            // Fall-through: an unrecognised or empty value behaves as "Never", which is now more
+            // conservative than the default ("Graceful") rather than equal to it — deliberately. A
+            // typo in a hand-edited settings file must not be more destructive than what the user
+            // asked for, and keeping the pane is the recoverable outcome: "Never" still tells them
+            // what happened through the exit banner, whereas a closed pane cannot be un-closed.
             return false;
         }
 

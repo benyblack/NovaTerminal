@@ -45,16 +45,20 @@ public sealed class ShellExitPolicyTests
     [InlineData("Sometimes")]
     public void UnrecognisedPolicyBehavesAsNever(string? policy)
     {
-        // A typo in a hand-edited settings file must not be more destructive than the default.
+        // A typo in a hand-edited settings file must not be more destructive than the default,
+        // so the fall-through stays at Never even though the default is now Graceful: an
+        // unreadable policy keeps the pane rather than closing it.
         Assert.False(NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 0));
         Assert.False(NovaTerminal.MainWindow.ShouldClosePaneOnExit(policy, isSsh: false, exitCode: 1));
     }
 
     [Fact]
-    public void DefaultSettingIsNever()
+    public void DefaultSettingIsGraceful()
     {
-        // Until #313 lands and the real exit status can be captured, defaulting to Never
-        // is conservative: every dead local pane gets the banner with its Enter-to-restart hint.
-        Assert.Equal("Never", new TerminalSettings().ShellExitPolicy);
+        // The default waited on exit-code fidelity, and #313 (Windows) then #323 (Unix) delivered
+        // it: an exit code now really is the child's status rather than an assumed 0, so
+        // "cleanly" is something this policy can actually tell. A clean exit closes the pane and
+        // anything else keeps it with the Enter-to-restart banner.
+        Assert.Equal("Graceful", new TerminalSettings().ShellExitPolicy);
     }
 }
