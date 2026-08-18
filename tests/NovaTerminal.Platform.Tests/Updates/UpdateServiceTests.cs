@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Threading.Tasks;
 using NovaTerminal.Platform.Updates;
@@ -20,11 +21,18 @@ public sealed class UpdateServiceTests
         private readonly string? _staged;
         private readonly Exception? _throws;
 
-        public FakeUpdater(string? staged = null, bool installed = true, Exception? throws = null)
+        private readonly Exception? _applyThrows;
+
+        public FakeUpdater(
+            string? staged = null,
+            bool installed = true,
+            Exception? throws = null,
+            Exception? applyThrows = null)
         {
             _staged = staged;
             IsInstalled = installed;
             _throws = throws;
+            _applyThrows = applyThrows;
         }
 
         public bool IsInstalled { get; }
@@ -47,7 +55,9 @@ public sealed class UpdateServiceTests
         public Task ApplyAndRestartAsync()
         {
             ApplyCallCount++;
-            return Task.CompletedTask;
+            return _applyThrows is not null
+                ? Task.FromException(_applyThrows)
+                : Task.CompletedTask;
         }
     }
 
@@ -169,6 +179,51 @@ public sealed class UpdateServiceTests
         await svc.ApplyAsync();
 
         Assert.Equal(0, updater.ApplyCallCount);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_WhenUpdaterThrows_DoesNotPropagate()
+    {
+        // The title-bar button handler is `async void`, so an exception escaping here reaches
+        // Avalonia's dispatcher unhandled and can take down a window full of live panes. The
+        // palette caller discards the task instead, which would fail silently. Neither is an
+        // acceptable outcome for a failed update, so ApplyAsync swallows exactly like CheckAsync.
+        UpdateService svc = Create(
+            new FakeUpdater(staged: "1.2.3", applyThrows: new IOException("file in use")),
+            out _);
+        await svc.CheckAsync();
+
+        await svc.ApplyAsync(); // must not throw
+    }
+
+    [Fact]
+    public async Task ApplyAsync_WhenUpdaterThrows_LogsTheFailure()
+    {
+        UpdateService svc = Create(
+            new FakeUpdater(staged: "1.2.3", applyThrows: new IOException("file in use")),
+            out List<string> log);
+        await svc.CheckAsync();
+
+        await svc.ApplyAsync();
+
+        Assert.Single(log);
+        Assert.Contains("file in use", log[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_WhenApplyFails_StaysReadySoTheUserCanRetry()
+    {
+        // The package is still staged on disk after a failed apply, so clearing UpdateReady
+        // would hide a usable update behind a transient file lock.
+        UpdateService svc = Create(
+            new FakeUpdater(staged: "1.2.3", applyThrows: new IOException("file in use")),
+            out _);
+        await svc.CheckAsync();
+
+        await svc.ApplyAsync();
+
+        Assert.True(svc.UpdateReady);
+        Assert.Equal("1.2.3", svc.AvailableVersion);
     }
 
     [Fact]

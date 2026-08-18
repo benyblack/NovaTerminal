@@ -68,7 +68,18 @@ public sealed class UpdateService
         }
     }
 
-    /// <summary>Applies the staged update and restarts. A no-op when no update is ready.</summary>
+    /// <summary>
+    /// Applies the staged update and restarts. A no-op when no update is ready. Never throws,
+    /// for the same reason <see cref="CheckAsync"/> does not: the UI calls this from an
+    /// <c>async void</c> click handler, where an escaping exception reaches the dispatcher
+    /// unhandled and can take down a window full of live terminal sessions. Losing a user's
+    /// panes because an update could not be applied is a far worse outcome than not updating.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="UpdateReady"/> is deliberately left set on failure. The package is still
+    /// staged on disk, so a transient cause -- a locked file, a running child process -- should
+    /// not hide an update that will apply cleanly on the next attempt.
+    /// </remarks>
     public async Task ApplyAsync()
     {
         if (!UpdateReady)
@@ -76,6 +87,13 @@ public sealed class UpdateService
             return;
         }
 
-        await _updater.ApplyAndRestartAsync().ConfigureAwait(false);
+        try
+        {
+            await _updater.ApplyAndRestartAsync().ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _log("UpdateService.ApplyAsync failed: " + ex);
+        }
     }
 }
