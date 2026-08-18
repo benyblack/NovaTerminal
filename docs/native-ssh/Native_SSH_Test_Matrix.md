@@ -80,6 +80,18 @@ Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which s
   by a dedicated pump, in both the managed and Rust layers, so a forwarded port
   whose peer stops reading can no longer stall the session's terminal I/O
   (issue #173 item 2).
+- The native event queue itself is bounded (issue #173 item 1): data-bearing
+  events (terminal output, forward-channel data) share a 4 MiB budget — each
+  event charged its payload plus a flat per-event surcharge, so zero-length
+  data frames (which consume no SSH window and are never throttled by flow
+  control) cannot grow the queue's overhead unbounded either — and
+  at the budget the channel readers park instead of reading on — an unread russh
+  channel stops having its window replenished, so SSH flow control makes the
+  remote hold the stream. A `cat bigfile` against a stalled poll loop now caps
+  out at the budget plus one in-flight window instead of buffering the whole
+  stream. Control events (prompts, exit, close, forward open/EOF/close notices)
+  are exempt, so a full queue can never hold back the events that let the
+  managed side notice and act.
 - Both directions are bounded at 1 MB per forward channel, but they resolve
   overflow differently, because only one of them has anywhere to push back to:
   - **Remote to local** (managed queue): over budget, the channel is closed.
