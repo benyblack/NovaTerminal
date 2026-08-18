@@ -79,27 +79,40 @@ namespace NovaTerminal.Tests
 
             int? code = await WaitForExitAsync(session, TimeSpan.FromSeconds(30));
 
-            // What this test is for: the session notices, rather than sitting there believing a
-            // dead shell is alive. The *value* is asserted by TheShellsRealExitCodeIsReported,
-            // which uses `exit 42` and is meaningful on every platform.
+            // A killed shell must never be reported as a clean 0 — that is the whole point, on
+            // every platform. Windows reports -1 (what .NET's Process.Kill terminates with, and
+            // incidentally the same value as ReadFailureExitCode, a pre-existing collision that
+            // means the same thing to a user); Linux reports 1, which is what portable-pty maps a
+            // signal death to.
             //
-            // The code deliberately is not asserted cross-platform, and the first version of
-            // this test was wrong to try (it asserted non-zero and failed on ubuntu CI):
-            //   * Unix reports a signal death with WEXITSTATUS 0, so a SIGKILL'd shell
-            //     legitimately surfaces as 0 - indistinguishable here from a clean exit.
-            //   * On Windows .NET's Process.Kill terminates with -1, which also happens to be
-            //     RustPtySession.ReadFailureExitCode, so a managed-tool kill is
-            //     indistinguishable from "this session's reads failed". That collision predates
-            //     this test and means the same thing to a user either way.
+            // This assertion was briefly Windows-only, because on ubuntu it saw 0 and I read that
+            // as a platform quirk. It was not: EOF and death are simultaneous on Unix, so the
+            // single non-blocking status check lost the race and the notification fabricated a 0
+            // (#323). The weakened assertion was hiding the bug, which is why it is back to
+            // asserting the same thing everywhere — and why ubuntu CI is the run that proves it.
             Assert.NotNull(code);
+            Assert.NotEqual(0, code!.Value);
             Assert.False(session.IsProcessRunning, "a session whose shell was killed must not report itself as running");
+        }
 
-            if (OperatingSystem.IsWindows())
+        [Fact]
+        [Trait("Category", "PtySmoke")]
+        public async Task ClosingALiveSessionDoesNotClaimTheStatusWasUnavailable()
+        {
+            // From the Codex review on #324: Dispose cancels the token before joining
+            // ProcessLoop, so the status resolver stops waiting almost immediately. Warning at
+            // that point would fire on every ordinary close of a running pane and drown the one
+            // case the warning exists for — a stream that ended with no status behind it.
+            using var log = PtyLogCapture.Attach();
+
+            using (var session = NewSession())
             {
-                // Windows does carry a distinct status for a terminated process, so hold it to
-                // that: reporting a clean 0 here would be the old "assumed 0" bug returning.
-                Assert.NotEqual(0, code!.Value);
-            }
+                await WaitForPromptAsync(session);
+            } // Dispose: a normal close of a session whose shell is still alive.
+
+            await Task.Delay(200);
+
+            Assert.DoesNotContain("Child status unavailable", log.ToString(), StringComparison.Ordinal);
         }
 
         [Fact]
