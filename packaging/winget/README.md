@@ -29,9 +29,9 @@ packaging/winget/<version>/
 On a Windows machine with the winget client:
 
 ```powershell
-winget validate --manifest packaging\winget\0.3.0
+winget validate --manifest packaging\winget\0.4.0
 # Optional end-to-end install test in a throwaway context:
-winget install --manifest packaging\winget\0.3.0
+winget install --manifest packaging\winget\0.4.0
 ```
 
 `winget validate` checks schema and required fields offline. `winget install --manifest` downloads
@@ -57,7 +57,7 @@ $sha = (Get-FileHash "$env:TEMP\nova-winget\$asset" -Algorithm SHA256).Hash
 #    (Create the dir first and copy contents with a wildcard — `Copy-Item -Recurse`
 #    onto an existing dir nests the source folder instead of copying its contents.)
 New-Item -ItemType Directory -Force -Path packaging\winget\$ver | Out-Null
-Copy-Item packaging\winget\0.3.0\* packaging\winget\$ver
+Copy-Item packaging\winget\0.4.0\* packaging\winget\$ver
 # In each file: set PackageVersion: X.Y.Z
 # In the installer file: set the new InstallerUrl and InstallerSha256 ($url / $sha)
 # In the locale file: update ReleaseNotesUrl to the vX.Y.Z tag and refresh the description
@@ -78,11 +78,19 @@ on first launch of the unsigned exe; that resolves when code-signing lands (a se
 
 ## Notes / caveats
 
-- **Version vs. feature drift.** The `0.3.0` manifest describes NovaTerminal *as of that release*.
-  The agent-host surface (observe / status / act / replay export, milestones A1–A4) landed after
-  v0.3.0 and is unreleased at the time of writing; do not advertise those capabilities in a manifest
-  until the release actually contains them (cut a new `vX.Y.Z` first, then a matching manifest).
+- **Version vs. feature drift.** Each `<version>` manifest describes NovaTerminal *as of that
+  release*. The `0.4.0` set carries the `0.3.0` description verbatim — it was bumped for version,
+  URL and hash only. Do not advertise a capability in a manifest until the release actually
+  contains it (cut a new `vX.Y.Z` first, then a matching manifest).
 - **x64 only.** Releases currently publish `win-x64`. Add an `arm64` installer entry when the
   release workflow starts producing a `win-arm64` bundle.
-- **Auto-submission (optional follow-up).** A release-workflow step using `wingetcreate` with a
-  PAT can open the winget-pkgs PR automatically on each tag; kept manual for now.
+- **Auto-submission is wired but dormant.** `release.yml` has a `submit_winget` job that runs
+  `wingetcreate update` on each tag push. It self-skips when the `WINGET_PAT` repository secret is
+  absent, which is the state today — every release so far has logged
+  `WINGET_PAT not set; skipping winget-pkgs submission.` and reported success. A green Release run
+  therefore does **not** mean anything reached winget.
+- **The package is not in winget-pkgs yet.** `manifests/b/benyblack/NovaTerminal/` does not exist
+  upstream, so `winget install benyblack.NovaTerminal` does not work. Because `submit_winget` uses
+  `wingetcreate update`, which requires the package to already exist, it would fail even with the
+  secret set. Unblock in this order: run `submit-first-time.ps1` to open the bootstrap PR, wait for
+  it to merge, then set `WINGET_PAT` so subsequent tags auto-submit.
