@@ -75,6 +75,23 @@ namespace NovaTerminal.Pty
         /// arriving are a race.
         internal const int ChildExitDrainGraceMs = 250;
 
+        /// How long the exit notification waits for the child's status before giving up and
+        /// reporting 0 (#323).
+        ///
+        /// EOF is not proof that the status is available yet. On Unix the pty slave closes the
+        /// instant the shell dies, so EOF and death are simultaneous and the child has not been
+        /// reaped at that microsecond: measured on Ubuntu, portable-pty's try_wait() says "still
+        /// running" at 0 ms and reports the real status at ~20 ms. A single non-blocking attempt
+        /// therefore loses the race and the old fallback fabricated a clean 0 — so a killed shell
+        /// on Linux was indistinguishable from `exit`, which is the confusion #313 exists to
+        /// remove. Windows never showed it because the ConPTY host outlives its client, so the
+        /// pipe does not EOF and the watcher always had time.
+        ///
+        /// 500 ms is ~25x the observed window and only ever elapses when the status genuinely
+        /// cannot be determined, in which case the wait is the least of the problems.
+        internal const int ChildStatusWaitMs = 500;
+        private const int ChildStatusPollMs = 20;
+
         private Thread? _exitWatchThread;
 
         // Written once by the exit-watch thread, read by the read/process loops. Two fields
@@ -87,6 +104,44 @@ namespace NovaTerminal.Pty
         /// the expected consequence of cancelling it, not a session failure worth reporting
         /// as <see cref="ReadFailureExitCode"/>.
         private bool ChildExitObserved => Volatile.Read(ref _childExitObserved) == 1;
+
+        /// The status to report when the stream has ended: the child's real one, waited for
+        /// briefly if it is not available yet (#323), or 0 when it cannot be determined.
+        ///
+        /// Called from the one place that notifies a normal exit, so the EOF path, the
+        /// read-error path and the watcher all get the same treatment.
+        private int ResolveExitCodeForNotification()
+        {
+            if (ChildExitObserved)
+            {
+                return Volatile.Read(ref _childExitCode);
+            }
+
+            var deadline = DateTime.UtcNow.AddMilliseconds(ChildStatusWaitMs);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (TryCaptureChildExit())
+                {
+                    return Volatile.Read(ref _childExitCode);
+                }
+
+                // Cancellation means the session is being torn down: stop waiting on a status
+                // nobody is going to read and let Dispose finish.
+                if (_cts.IsCancellationRequested || _handle.IsClosed || _handle.IsInvalid)
+                {
+                    break;
+                }
+
+                Thread.Sleep(ChildStatusPollMs);
+            }
+
+            // Deliberately loud: "the stream ended and we never learned why" used to be
+            // indistinguishable from "the shell exited cleanly", and that silence is what #323
+            // was about.
+            PtyLogger.Warning(
+                $"[RustPtySession] Child status unavailable {ChildStatusWaitMs}ms after the stream ended; reporting 0.");
+            return 0;
+        }
 
         /// Asks the native layer whether the child has exited and records its status if so.
         /// Returns true when the child is gone.
@@ -1086,9 +1141,8 @@ namespace NovaTerminal.Pty
                 // misbehaving subscriber can't take down the host; still notify exit below.
                 PtyLogger.Error($"[RustPtySession] ProcessLoop terminated by unhandled exception: {ex}");
             }
-            // The child's real status when the watcher observed it (#313); 0 otherwise, which
-            // is the pre-existing reading of "the stream ended and we know nothing more".
-            TryNotifyExit(ChildExitObserved ? Volatile.Read(ref _childExitCode) : 0);
+            // The child's real status, waited for briefly if EOF got here first (#313, #323).
+            TryNotifyExit(ResolveExitCodeForNotification());
         }
 
         public void SendInput(string input)
@@ -1242,6 +1296,10 @@ namespace NovaTerminal.Pty
 
             // Last-resort notification for a session nobody else reported (first-caller-wins,
             // so a real exit already observed upstream keeps its code).
+            //
+            // No bounded wait here, unlike ProcessLoop (#323): reaching this line means the pane
+            // is being torn down, so the user is closing a tab and a snappy close matters more
+            // than an exit code nobody will look at.
             TryNotifyExit(ChildExitObserved ? Volatile.Read(ref _childExitCode) : 0);
         }
 
