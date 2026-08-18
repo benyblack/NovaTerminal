@@ -79,18 +79,27 @@ namespace NovaTerminal.Tests
 
             int? code = await WaitForExitAsync(session, TimeSpan.FromSeconds(30));
 
-            // Only "exited, and not the clean 0 it used to claim" is asserted here.
+            // What this test is for: the session notices, rather than sitting there believing a
+            // dead shell is alive. The *value* is asserted by TheShellsRealExitCodeIsReported,
+            // which uses `exit 42` and is meaningful on every platform.
             //
-            // The exact value cannot be: .NET's Process.Kill terminates with -1, which is
-            // also the value of RustPtySession.ReadFailureExitCode - so on Windows a
-            // managed-tool kill is genuinely indistinguishable from "this session's reads
-            // failed". That collision predates this change and is not worth a behaviour
-            // change here (both readings mean the same thing to a user: the shell is gone),
-            // but it is why this test asserts the fact of the exit while
-            // TheShellsRealExitCodeIsReported asserts the value.
+            // The code deliberately is not asserted cross-platform, and the first version of
+            // this test was wrong to try (it asserted non-zero and failed on ubuntu CI):
+            //   * Unix reports a signal death with WEXITSTATUS 0, so a SIGKILL'd shell
+            //     legitimately surfaces as 0 - indistinguishable here from a clean exit.
+            //   * On Windows .NET's Process.Kill terminates with -1, which also happens to be
+            //     RustPtySession.ReadFailureExitCode, so a managed-tool kill is
+            //     indistinguishable from "this session's reads failed". That collision predates
+            //     this test and means the same thing to a user either way.
             Assert.NotNull(code);
-            Assert.NotEqual(0, code!.Value);
             Assert.False(session.IsProcessRunning, "a session whose shell was killed must not report itself as running");
+
+            if (OperatingSystem.IsWindows())
+            {
+                // Windows does carry a distinct status for a terminated process, so hold it to
+                // that: reporting a clean 0 here would be the old "assumed 0" bug returning.
+                Assert.NotEqual(0, code!.Value);
+            }
         }
 
         [Fact]
