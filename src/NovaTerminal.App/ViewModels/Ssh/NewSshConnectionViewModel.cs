@@ -9,6 +9,7 @@ using System.Runtime.CompilerServices;
 using NovaTerminal.Platform;
 using NovaTerminal.VT;
 using NovaTerminal.Platform.Ssh.Models;
+using NovaTerminal.Platform.Ssh.Native;
 
 namespace NovaTerminal.ViewModels.Ssh;
 
@@ -52,6 +53,12 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
     {
         JumpHops = new ObservableCollection<SshJumpHop>();
         Forwards = new ObservableCollection<PortForward>();
+
+        // BackendWarning now reads these collections, so it has to be re-evaluated when they change —
+        // adding a remote forward to a native profile should surface the problem right away, not at
+        // save. Property setters raise it themselves; collection mutation has no setter to hook.
+        JumpHops.CollectionChanged += (_, _) => OnPropertyChanged(nameof(BackendWarning));
+        Forwards.CollectionChanged += (_, _) => OnPropertyChanged(nameof(BackendWarning));
     }
 
     public Guid? ProfileId
@@ -234,10 +241,29 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         set => SetField(ref _remoteShellKind, value);
     }
 
-    public string BackendWarning =>
-        BackendKind == SshBackendKind.Native && !ExperimentalNativeSshEnabled
-            ? "Native SSH is disabled globally. Enable ExperimentalNativeSshEnabled in settings or switch this profile back to OpenSSH."
-            : string.Empty;
+    public string BackendWarning
+    {
+        get
+        {
+            if (BackendKind != SshBackendKind.Native)
+            {
+                return string.Empty;
+            }
+
+            // Capability outranks the global toggle on purpose: if native could not serve this shape
+            // even with the toggle on, "enable ExperimentalNativeSshEnabled" sends the user down a
+            // dead end. Name the real blocker first.
+            NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(Forwards, JumpHops);
+            if (!capability.IsSupported)
+            {
+                return capability.Explanation;
+            }
+
+            return ExperimentalNativeSshEnabled
+                ? string.Empty
+                : "Native SSH is disabled globally. Enable ExperimentalNativeSshEnabled in settings or switch this profile back to OpenSSH.";
+        }
+    }
 
     public bool Validate()
     {
@@ -278,6 +304,21 @@ public sealed class NewSshConnectionViewModel : INotifyPropertyChanged
         {
             ValidationError = "ControlPersist seconds cannot be negative.";
             return false;
+        }
+
+        // A native profile whose shape the native backend cannot serve is a profile that can never
+        // connect — it used to save fine and then fail at connect time with a NotSupportedException
+        // banner. Refuse the save instead, and say which of the two fixes applies. Note this is
+        // independent of ExperimentalNativeSshEnabled: saving a native profile while the toggle is off
+        // stays allowed (the toggle is reversible; the shape is not).
+        if (BackendKind == SshBackendKind.Native)
+        {
+            NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(Forwards, JumpHops);
+            if (!capability.IsSupported)
+            {
+                ValidationError = capability.Explanation;
+                return false;
+            }
         }
 
         if (IsIdentityFileAuth && !string.IsNullOrWhiteSpace(IdentityFilePath))

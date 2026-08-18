@@ -19,3 +19,9 @@ tokio = { version = "1.48.0", features = ["fs", "io-util", "net", "rt", "sync", 
 # Wipes credential buffers on drop. Already present transitively via russh/ring;
 # declared directly because this crate uses Zeroizing in its own auth paths.
 zeroize = "1.8"
+
+[dev-dependencies]
+# `macros` for #[tokio::test]; `test-util` for start_paused, which lets the forward-channel teardown
+# test advance past FORWARD_CHANNEL_DRAIN_TIMEOUT instantly instead of sleeping two real seconds.
+# Dev-only: neither feature reaches the cdylib the app loads.
+tokio = { version = "1.48.0", features = ["macros", "rt", "test-util", "time"] }

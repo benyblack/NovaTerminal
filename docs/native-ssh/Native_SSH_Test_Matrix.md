@@ -56,6 +56,24 @@ The following checks still require manual validation against real SSH endpoints.
 - Native SSH remains opt-in through `TerminalSettings.ExperimentalNativeSshEnabled`.
 - `OpenSsh` remains the default backend for new profiles.
 - Native backend refusal is explicit when the global experimental toggle is disabled.
+- Profile shapes the native backend cannot serve (remote forwards, jump-hop chains)
+  are refused by `NativeSshCapability` at profile-save time as well as at connect
+  time, so such a profile can no longer be saved as `Native` and then fail on use.
+  See the rollout guidance in `docs/SSH_ROADMAP.md`.
+- Forward-channel data reaching the local socket is queued per channel and written
+  by a dedicated pump, in both the managed and Rust layers, so a forwarded port
+  whose peer stops reading can no longer stall the session's terminal I/O
+  (issue #173 item 2).
+- Both directions are bounded at 1 MB per forward channel, but they resolve
+  overflow differently, because only one of them has anywhere to push back to:
+  - **Remote to local** (managed queue): over budget, the channel is closed.
+    Draining slower is not an option — the source is the shared SSH poll loop, and
+    stalling it is the bug being fixed.
+  - **Local to remote** (native queue): over budget,
+    `nova_ssh_channel_write` returns `NOVA_SSH_RESULT_WOULD_BLOCK` and the managed
+    pump retries. That stops it reading the local socket, so TCP flow control
+    throttles the local peer and nothing is dropped or closed for slowness alone.
+    `INativeSshInterop.TryWriteChannel` is the managed half of that contract.
 - Native backend now supports local and direct-host dynamic forwarding.
 - Remote forwarding remains unsupported in the native backend.
 - Dynamic forwarding through one-hop jump hosts remains follow-up work.

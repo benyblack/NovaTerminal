@@ -291,4 +291,134 @@ public sealed class NewSshConnectionViewModelTests
 
         Assert.Equal(string.Empty, vm.BackendWarning);
     }
+
+    [Fact]
+    public void Validate_ForNativeProfileWithRemoteForward_FailsWithAnActionableError()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            UserName = "nova",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+        vm.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 8080,
+            DestinationHost = "svc.internal",
+            DestinationPort = 80
+        });
+
+        bool valid = vm.Validate();
+
+        Assert.False(valid);
+        Assert.Contains("remote forward", vm.ValidationError, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("OpenSSH", vm.ValidationError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Validate_ForNativeProfileWithJumpHopChain_Fails()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "target.internal",
+            UserName = "nova",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+        vm.JumpHops.Add(new SshJumpHop { Host = "jump-one.internal" });
+        vm.JumpHops.Add(new SshJumpHop { Host = "jump-two.internal" });
+
+        Assert.False(vm.Validate());
+        Assert.Contains("Multiple jump hops", vm.ValidationError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Validate_ForNativeProfileWithSupportedForwards_Succeeds()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            UserName = "nova",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+        vm.Forwards.Add(new PortForward { Kind = PortForwardKind.Local, SourcePort = 15000, DestinationHost = "svc", DestinationPort = 80 });
+        vm.Forwards.Add(new PortForward { Kind = PortForwardKind.Dynamic, SourcePort = 15001 });
+        vm.JumpHops.Add(new SshJumpHop { Host = "jump.internal" });
+
+        Assert.True(vm.Validate());
+        Assert.Equal(string.Empty, vm.ValidationError);
+    }
+
+    [Fact]
+    public void Validate_ForOpenSshProfileWithRemoteForward_Succeeds()
+    {
+        // The capability gate is native-only: remote forwards are a first-class OpenSSH feature.
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "openssh.internal",
+            UserName = "nova",
+            BackendKind = SshBackendKind.OpenSsh
+        };
+        vm.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 8080,
+            DestinationHost = "svc.internal",
+            DestinationPort = 80
+        });
+
+        Assert.True(vm.Validate());
+        Assert.Equal(string.Empty, vm.ValidationError);
+    }
+
+    [Fact]
+    public void BackendWarning_ForUnsupportedShape_NamesTheShapeRatherThanTheGlobalToggle()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            // Toggle off as well: enabling it would not make this profile connectable, so the warning
+            // must not send the user to settings.
+            ExperimentalNativeSshEnabled = false
+        };
+        vm.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 8080,
+            DestinationHost = "svc.internal",
+            DestinationPort = 80
+        });
+
+        Assert.Contains("remote forward", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("disabled globally", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void BackendWarning_IsRaisedWhenForwardsChange()
+    {
+        var vm = new NewSshConnectionViewModel
+        {
+            HostName = "native.internal",
+            BackendKind = SshBackendKind.Native,
+            ExperimentalNativeSshEnabled = true
+        };
+
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, args) => raised.Add(args.PropertyName);
+
+        vm.Forwards.Add(new PortForward
+        {
+            Kind = PortForwardKind.Remote,
+            SourcePort = 8080,
+            DestinationHost = "svc.internal",
+            DestinationPort = 80
+        });
+
+        Assert.Contains(nameof(NewSshConnectionViewModel.BackendWarning), raised);
+        Assert.Contains("remote forward", vm.BackendWarning, StringComparison.OrdinalIgnoreCase);
+    }
 }

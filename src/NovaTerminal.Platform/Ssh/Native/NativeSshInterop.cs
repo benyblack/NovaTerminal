@@ -21,6 +21,11 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     private const int ResultClosed = -3;
     private const int ResultCanceled = -6;
     private const int ResultPanic = -7;
+
+    // A forward channel is over its queued-byte budget toward the remote. Surfaced as a false return
+    // from TryWriteChannel, never as an exception: the caller is meant to retry, and that retry is
+    // what applies backpressure to the local socket it is reading from.
+    private const int ResultWouldBlock = -8;
     private static readonly NativeSftpTransferProgressCallback SftpTransferProgressCallback = OnNativeSftpTransferProgress;
     private static readonly IntPtr SftpTransferProgressCallbackPointer =
         Marshal.GetFunctionPointerForDelegate(SftpTransferProgressCallback);
@@ -445,24 +450,44 @@ public sealed partial class NativeSshInterop : INativeSshInterop
 
     public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
     {
+        // Callers that cannot handle backpressure get a loud failure rather than silent data loss:
+        // dropping bytes out of a forwarded stream corrupts it invisibly. Production callers use
+        // TryWriteChannel and retry.
+        if (!TryWriteChannel(sessionHandle, channelId, data))
+        {
+            throw new InvalidOperationException(
+                $"Native SSH channel {channelId} has no room for this write. Use TryWriteChannel and retry.");
+        }
+    }
+
+    public bool TryWriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
+    {
         if (sessionHandle is null || sessionHandle.IsInvalid || sessionHandle.IsClosed || channelId < 0)
         {
-            return;
+            return true;
         }
 
         byte[] payload = data.ToArray();
         try
         {
             int rc = NativeMethods.nova_ssh_channel_write(sessionHandle, checked((uint)channelId), payload, (nuint)payload.Length);
+
+            // Not an error, and nothing was consumed: the channel's queue toward the remote is full.
+            if (rc == ResultWouldBlock)
+            {
+                return false;
+            }
+
             if (rc is ResultOk or ResultInvalidArgument or ResultClosed)
             {
-                return;
+                return true;
             }
 
             throw new InvalidOperationException($"Native SSH channel write failed with result {rc}.");
         }
         catch (ObjectDisposedException)
         {
+            return true;
         }
     }
 

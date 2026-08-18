@@ -18,9 +18,12 @@ public sealed class JumpHostConnectPlan
     {
         ArgumentNullException.ThrowIfNull(profile);
 
-        if (profile.JumpHops.Count > 1)
+        // Defence in depth: NativeSshSession already refused this shape via NativeSshCapability, but
+        // the plan is constructible on its own. Share the wording so the two cannot drift.
+        NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(profile);
+        if (capability.Reason == NativeSshUnsupportedReason.MultipleJumpHops)
         {
-            throw new NotSupportedException("Multiple jump hops are not supported by the native SSH backend yet.");
+            throw new NotSupportedException(capability.Explanation);
         }
 
         return new JumpHostConnectPlan

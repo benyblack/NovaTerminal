@@ -358,6 +358,179 @@ public sealed class NativePortForwardSessionTests
             request.PortToConnect == 8443);
     }
 
+    [Fact]
+    public async Task HandleEvent_WithALocalPeerThatNeverReads_DoesNotBlockTheCaller()
+    {
+        // The regression this pins: HandleEvent used to write straight to the local socket from
+        // NativeSshSession's poll loop, so a forwarded port whose consumer stopped reading froze all
+        // terminal output for the session (#173 item 2). Sixteen megabytes at a peer that reads nothing
+        // is far past anything the kernel will buffer, so the old code would block here.
+        var interop = new FakeNativeSshInterop();
+        int listenPort = GetFreePort();
+
+        using var session = new NativePortForwardSession(
+            FakeHandle(23),
+            [CreateForward(listenPort, "svc.internal", 9000)],
+            interop);
+
+        using TcpClient client = await ConnectLoopbackAsync(listenPort);
+        client.ReceiveBufferSize = 1024;
+
+        await WaitUntilAsync(() => interop.OpenedChannelIds.Count == 1);
+        int channelId = interop.OpenedChannelIds[0];
+
+        byte[] chunk = new byte[64 * 1024];
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < 256; i++)
+        {
+            session.HandleEvent(NativeSshEvent.ForwardChannelData(channelId, chunk));
+        }
+
+        stopwatch.Stop();
+
+        // Real cost is microseconds; the ceiling is loose enough to survive a loaded CI runner while
+        // still failing outright on a blocking write.
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(10),
+            $"HandleEvent blocked for {stopwatch.Elapsed} while the local peer was not reading.");
+
+        // And the channel that could not keep up is closed rather than buffered without limit.
+        await WaitUntilAsync(() => interop.ClosedChannelIds.Contains(channelId));
+    }
+
+    [Fact]
+    public async Task ForwardChannelEof_ArrivesAfterTheDataQueuedAheadOfIt()
+    {
+        // EOF travels through the same queue as the data. Acting on it immediately would shut the send
+        // side down while bytes were still queued behind it, truncating the proxied stream.
+        var interop = new FakeNativeSshInterop();
+        int listenPort = GetFreePort();
+
+        using var session = new NativePortForwardSession(
+            FakeHandle(24),
+            [CreateForward(listenPort, "svc.internal", 9001)],
+            interop);
+
+        using TcpClient client = await ConnectLoopbackAsync(listenPort);
+        await WaitUntilAsync(() => interop.OpenedChannelIds.Count == 1);
+        int channelId = interop.OpenedChannelIds[0];
+
+        byte[] payload = Encoding.ASCII.GetBytes("forwarded-payload");
+        session.HandleEvent(NativeSshEvent.ForwardChannelData(channelId, payload));
+        session.HandleEvent(NativeSshEvent.ForwardChannelEof(channelId));
+
+        NetworkStream stream = client.GetStream();
+        byte[] received = await ReadExactlyAsync(stream, payload.Length, TimeSpan.FromSeconds(10));
+        Assert.Equal(payload, received);
+
+        // Only now may the peer see end-of-stream.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        int read = await stream.ReadAsync(new byte[1], cts.Token);
+        Assert.Equal(0, read);
+    }
+
+    [Fact]
+    public async Task ForwardChannelClosed_FlushesQueuedDataAndDoesNotCloseTheSshChannelAgain()
+    {
+        var interop = new FakeNativeSshInterop();
+        int listenPort = GetFreePort();
+
+        using var session = new NativePortForwardSession(
+            FakeHandle(25),
+            [CreateForward(listenPort, "svc.internal", 9002)],
+            interop);
+
+        using TcpClient client = await ConnectLoopbackAsync(listenPort);
+        await WaitUntilAsync(() => interop.OpenedChannelIds.Count == 1);
+        int channelId = interop.OpenedChannelIds[0];
+
+        byte[] payload = Encoding.ASCII.GetBytes("last-bytes-before-close");
+        session.HandleEvent(NativeSshEvent.ForwardChannelData(channelId, payload));
+        session.HandleEvent(NativeSshEvent.ForwardChannelClosed(channelId));
+
+        NetworkStream stream = client.GetStream();
+        byte[] received = await ReadExactlyAsync(stream, payload.Length, TimeSpan.FromSeconds(10));
+        Assert.Equal(payload, received);
+
+        // The SSH channel closed on its own; asking the native side to close it again would be wrong.
+        Assert.DoesNotContain(channelId, interop.ClosedChannelIds);
+    }
+
+    [Fact]
+    public async Task ClientToSshPump_RetriesRefusedWritesInsteadOfDroppingThem()
+    {
+        // The native side refuses a write when a forward channel is over its queued-byte budget
+        // toward the remote (Codex review on #325). The pump must treat that as "try again", not as
+        // "delivered": dropping the bytes would silently corrupt the proxied stream, and forcing them
+        // through would restore the unbounded queue the budget exists to prevent.
+        var interop = new BackpressuringNativeSshInterop(refusalsPerWrite: 3);
+        int listenPort = GetFreePort();
+
+        using var session = new NativePortForwardSession(
+            FakeHandle(26),
+            [CreateForward(listenPort, "svc.internal", 9003)],
+            interop);
+
+        using TcpClient client = await ConnectLoopbackAsync(listenPort);
+        await WaitUntilAsync(() => interop.OpenedChannelIds.Count == 1);
+
+        byte[] payload = Encoding.ASCII.GetBytes("bytes-that-must-survive-backpressure");
+        await client.GetStream().WriteAsync(payload);
+        await client.GetStream().FlushAsync();
+
+        await WaitUntilAsync(() => interop.WrittenBytes.Count >= payload.Length);
+
+        Assert.Equal(payload, interop.WrittenBytes.Take(payload.Length).ToArray());
+        // Refused attempts must not have been counted as delivered.
+        Assert.True(interop.RefusedAttempts >= 3, $"Expected the pump to absorb refusals; saw {interop.RefusedAttempts}.");
+    }
+
+    /// <summary>
+    /// Refuses the first <c>refusalsPerWrite</c> attempts of every distinct write, then accepts,
+    /// standing in for a native queue that is briefly over budget.
+    /// </summary>
+    private sealed class BackpressuringNativeSshInterop : FakeNativeSshInterop
+    {
+        private readonly int _refusalsPerWrite;
+        private readonly object _writeLock = new();
+        private readonly List<byte> _written = [];
+        private int _pendingRefusals;
+        private int _refusedAttempts;
+
+        public BackpressuringNativeSshInterop(int refusalsPerWrite)
+        {
+            _refusalsPerWrite = refusalsPerWrite;
+            _pendingRefusals = refusalsPerWrite;
+        }
+
+        public IReadOnlyList<byte> WrittenBytes
+        {
+            get { lock (_writeLock) { return _written.ToArray(); } }
+        }
+
+        public int RefusedAttempts
+        {
+            get { lock (_writeLock) { return _refusedAttempts; } }
+        }
+
+        public override bool TryWriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        {
+            lock (_writeLock)
+            {
+                if (_pendingRefusals > 0)
+                {
+                    _pendingRefusals--;
+                    _refusedAttempts++;
+                    return false;
+                }
+
+                _written.AddRange(data.ToArray());
+                _pendingRefusals = _refusalsPerWrite;
+                return true;
+            }
+        }
+    }
+
     private static PortForward CreateForward(int sourcePort, string destinationHost, int destinationPort)
     {
         return new PortForward
@@ -487,7 +660,8 @@ public sealed class NativePortForwardSessionTests
         Assert.True(predicate(), "Condition was not met before timeout.");
     }
 
-    private sealed class FakeNativeSshInterop : INativeSshInterop
+    // Not sealed: BackpressuringNativeSshInterop overrides only the write path.
+    private class FakeNativeSshInterop : INativeSshInterop
     {
         private readonly ConcurrentQueue<NativeSshEvent> _events = new();
         private int _nextChannelId = 100;
@@ -504,10 +678,18 @@ public sealed class NativePortForwardSessionTests
         private readonly object _collectionsLock = new();
         private readonly List<NativePortForwardOpenOptions> _openRequests = [];
         private readonly List<int> _closedChannelIds = [];
+        private readonly List<int> _openedChannelIds = [];
 
         public IReadOnlyList<NativePortForwardOpenOptions> OpenRequests
         {
             get { lock (_collectionsLock) { return _openRequests.ToArray(); } }
+        }
+
+        /// <summary>Ids handed out by <see cref="OpenDirectTcpIp"/>, so tests can address a channel
+        /// without assuming the counter's starting value.</summary>
+        public IReadOnlyList<int> OpenedChannelIds
+        {
+            get { lock (_collectionsLock) { return _openedChannelIds.ToArray(); } }
         }
 
         public IReadOnlyList<int> ClosedChannelIds
@@ -548,15 +730,24 @@ public sealed class NativePortForwardSessionTests
 
         public int OpenDirectTcpIp(NovaSshSafeHandle sessionHandle, NativePortForwardOpenOptions options)
         {
+            int channelId = Interlocked.Increment(ref _nextChannelId);
             lock (_collectionsLock)
             {
                 _openRequests.Add(options);
+                _openedChannelIds.Add(channelId);
             }
-            return Interlocked.Increment(ref _nextChannelId);
+            return channelId;
         }
 
         public void WriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
         {
+        }
+
+        // Declared (rather than left to the interface's default) so a derived fake can override it.
+        public virtual bool TryWriteChannel(NovaSshSafeHandle sessionHandle, int channelId, ReadOnlySpan<byte> data)
+        {
+            WriteChannel(sessionHandle, channelId, data);
+            return true;
         }
 
         public void SendChannelEof(NovaSshSafeHandle sessionHandle, int channelId)

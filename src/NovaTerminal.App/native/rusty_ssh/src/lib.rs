@@ -11,7 +11,7 @@ use std::io::Cursor;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Component, Path, PathBuf};
 use std::ptr;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, mpsc as std_mpsc};
 use std::thread;
 use std::time::Duration;
@@ -102,6 +102,15 @@ pub const NOVA_SSH_RESULT_CHANNEL_OPEN_FAILED: c_int = -4;
 pub const NOVA_SSH_RESULT_NOT_IMPLEMENTED: c_int = -5;
 pub const NOVA_SSH_RESULT_CANCELED: c_int = -6;
 pub const NOVA_SSH_RESULT_PANIC: c_int = -7;
+/// A forward channel has more data queued toward the remote than its budget allows. Not an error:
+/// the caller is expected to retry, which is what applies backpressure to the local socket it is
+/// reading from. Only nova_ssh_channel_write returns this.
+pub const NOVA_SSH_RESULT_WOULD_BLOCK: c_int = -8;
+
+/// Per-forward-channel ceiling on bytes queued toward the remote, mirroring the managed side's
+/// budget for the opposite direction. Reaching it makes nova_ssh_channel_write report
+/// NOVA_SSH_RESULT_WOULD_BLOCK rather than growing the queue without limit.
+const MAX_QUEUED_FORWARD_WRITE_BYTES: usize = 1024 * 1024;
 
 /// Runs an FFI body, converting any panic into `on_panic` instead of unwinding
 /// across the C boundary (which is undefined behavior). The body is asserted
@@ -196,6 +205,10 @@ struct SharedState {
     // aborted promptly instead of blocking `worker.join()` (and, transitively,
     // the .NET finalizer thread) indefinitely. See #155.
     closed_notify: tokio::sync::Notify,
+    // Bytes queued toward the remote per forward channel, so nova_ssh_channel_write can answer
+    // "would this block?" without touching the async side. A std Mutex, not tokio's: the reader is
+    // an FFI thread with no runtime under it. See forward_write_budget.
+    forward_write_budgets: Mutex<HashMap<u32, Arc<AtomicUsize>>>,
 }
 
 struct QueuedEvent {
@@ -204,6 +217,23 @@ struct QueuedEvent {
     status_code: i32,
     flags: u32,
 }
+
+/// One item for a forward channel's writer task, in the order the managed side asked for it.
+enum ForwardWrite {
+    Data(Vec<u8>),
+    Eof,
+    Close,
+}
+
+/// A live forward channel, represented by a queue into its writer task rather than by the channel's
+/// write half. The write half is owned by that task alone; nothing else can `await` it, which is what
+/// keeps a stalled forward from freezing the session worker's select loop.
+struct ForwardChannelHandle {
+    writes: mpsc::UnboundedSender<ForwardWrite>,
+    writer_task: tokio::task::JoinHandle<()>,
+}
+
+type ForwardChannels = Arc<tokio::sync::Mutex<HashMap<u32, ForwardChannelHandle>>>;
 
 /// A queued event's shape, without its payload. Lets the FFI report `payload_len` so the caller can
 /// size a buffer, without copying anything (#173 item 1).
@@ -529,7 +559,35 @@ impl SharedState {
             response_cv: Condvar::new(),
             closed: Mutex::new(false),
             closed_notify: tokio::sync::Notify::new(),
+            forward_write_budgets: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The queued-byte counter for one forward channel, or `None` if the channel is not (or no
+    /// longer) open. `None` means "do not throttle": an unknown id is either already torn down or was
+    /// never ours, and in both cases the write is a harmless no-op further down.
+    fn forward_write_budget(&self, channel_id: u32) -> Option<Arc<AtomicUsize>> {
+        self.forward_write_budgets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&channel_id)
+            .cloned()
+    }
+
+    fn register_forward_write_budget(&self, channel_id: u32, budget: Arc<AtomicUsize>) {
+        self.forward_write_budgets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(channel_id, budget);
+    }
+
+    /// Dropping the counter is what unblocks a managed pump that is retrying against a channel which
+    /// has since closed: the next write finds no budget, is accepted, and no-ops.
+    fn unregister_forward_write_budget(&self, channel_id: u32) {
+        self.forward_write_budgets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&channel_id);
     }
 
     fn is_closed(&self) -> bool {
@@ -928,13 +986,44 @@ pub extern "C" fn nova_ssh_channel_write(
             unsafe { std::slice::from_raw_parts(data, data_len) }.to_vec()
         };
 
-        send_command(
+        // Backpressure instead of unbounded queueing. Without this the caller can push data toward a
+        // remote that has stopped consuming it, and every payload accumulates in the per-channel
+        // writer queue until memory runs out. Reporting WOULD_BLOCK makes the caller stop reading its
+        // local socket, and TCP flow control throttles the local peer from there — no data is dropped
+        // and no channel is closed for being merely slow.
+        let budget = session.shared.forward_write_budget(channel_id);
+        if let Some(budget) = &budget {
+            // Check-then-add without a CAS loop: for a given channel only that channel's pump calls
+            // this, and the writer task only ever subtracts. So a concurrent release can make this
+            // admit a payload it would otherwise refuse — never the reverse.
+            let queued = budget.load(Ordering::Acquire);
+
+            // Always admit into an empty queue, even an oversized payload: refusing it forever would
+            // wedge a channel against a chunk nothing is actually blocking.
+            if queued > 0 && queued.saturating_add(bytes.len()) > MAX_QUEUED_FORWARD_WRITE_BYTES {
+                return NOVA_SSH_RESULT_WOULD_BLOCK;
+            }
+
+            budget.fetch_add(bytes.len(), Ordering::AcqRel);
+        }
+
+        let reserved = bytes.len();
+        let result = send_command(
             &session,
             WorkerCommand::WriteForwardChannel {
                 channel_id,
                 data: bytes,
             },
-        )
+        );
+
+        // Nothing will ever write these bytes, so nothing would ever release the reservation.
+        if result != NOVA_SSH_RESULT_OK {
+            if let Some(budget) = &budget {
+                budget.fetch_sub(reserved, Ordering::AcqRel);
+            }
+        }
+
+        result
     })
 }
 
@@ -2676,6 +2765,9 @@ fn join_remote_path(base: &str, child: &str) -> String {
 /// instead of a wall-clock timeout.
 const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// How long session teardown waits for forward-channel writer tasks to flush their close.
+const FORWARD_CHANNEL_DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
+
 async fn connect_tcp_with_timeout(host: &str, port: u16) -> anyhow::Result<tokio::net::TcpStream> {
     match tokio::time::timeout(
         TCP_CONNECT_TIMEOUT,
@@ -2875,17 +2967,21 @@ fn run_session(
                             .await;
                             let _ = reply.send(result);
                         }
+                        // These three only queue onto the target channel's writer task. They used to
+                        // `await` the write half here and propagate with `?`, which meant a single
+                        // failed forward-channel write tore down the entire session — terminal
+                        // included. A forward channel can now only take itself down.
                         Some(WorkerCommand::WriteForwardChannel { channel_id, data }) => {
-                            write_forward_channel(forward_channels.clone(), channel_id, data).await?;
+                            write_forward_channel(&forward_channels, channel_id, data).await;
                         }
                         Some(WorkerCommand::ForwardChannelEof { channel_id }) => {
-                            send_forward_channel_eof(forward_channels.clone(), channel_id).await?;
+                            send_forward_channel_eof(&forward_channels, channel_id).await;
                         }
                         Some(WorkerCommand::CloseForwardChannel { channel_id }) => {
-                            close_forward_channel(forward_channels.clone(), channel_id).await?;
+                            close_forward_channel(&forward_channels, channel_id).await;
                         }
                         Some(WorkerCommand::Close) | None => {
-                            close_all_forward_channels(forward_channels.clone()).await;
+                            close_all_forward_channels(&forward_channels).await;
                             let _ = channel.eof().await;
                             let _ = channel.close().await;
                             break;
@@ -2982,9 +3078,7 @@ fn coalesce_pending_resize_commands(
 
 async fn open_direct_tcpip_channel(
     session: &client::Handle<NovaClientHandler>,
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
+    forward_channels: ForwardChannels,
     shared: Arc<SharedState>,
     host_to_connect: String,
     port_to_connect: u32,
@@ -3002,10 +3096,62 @@ async fn open_direct_tcpip_channel(
 
     let channel_id = u32::from(channel.id());
     let (mut read_half, write_half) = channel.split();
-    forward_channels
-        .lock()
-        .await
-        .insert(channel_id, Arc::new(write_half));
+
+    // Writer task per forward channel. The session worker's select loop used to `await` the write
+    // half directly, so a remote that stopped reading a forwarded connection stalled the loop — and
+    // with it the shell channel's own reads and writes. Now the loop only queues, and blocking lives
+    // here where it can only hold up this one channel.
+    // The queue stays unbounded; the bound is enforced at the FFI door instead, where the caller can
+    // be told to retry (see nova_ssh_channel_write). This counter is that bound's state.
+    let write_budget = Arc::new(AtomicUsize::new(0));
+    shared.register_forward_write_budget(channel_id, write_budget.clone());
+
+    let (write_tx, mut write_rx) = mpsc::unbounded_channel::<ForwardWrite>();
+    let writer_budget = write_budget.clone();
+    let writer_shared = shared.clone();
+    let writer_task = tokio::spawn(async move {
+        // Ends when the sender is dropped (channel removed) after draining what is already queued.
+        while let Some(write) = write_rx.recv().await {
+            match write {
+                ForwardWrite::Data(data) => {
+                    let queued = data.len();
+                    let write_result = write_half.data(Cursor::new(data)).await;
+
+                    // Released whether or not the write succeeded: on failure the loop ends and the
+                    // budget goes away with the channel, but a stuck counter in between would make a
+                    // retrying caller spin against a channel that is already finished.
+                    writer_budget.fetch_sub(queued, Ordering::AcqRel);
+
+                    if write_result.is_err() {
+                        break;
+                    }
+                }
+                ForwardWrite::Eof => {
+                    if write_half.eof().await.is_err() {
+                        break;
+                    }
+                }
+                ForwardWrite::Close => {
+                    let _ = write_half.close().await;
+                    break;
+                }
+            }
+        }
+
+        // Every removal path ends this task — an explicit Close, a write failure, or the handle being
+        // dropped out of the map — so cleaning the budget up here covers all of them at once. It also
+        // has to happen: a leftover full counter would make a managed pump retry forever against a
+        // channel that no longer exists.
+        writer_shared.unregister_forward_write_budget(channel_id);
+    });
+
+    forward_channels.lock().await.insert(
+        channel_id,
+        ForwardChannelHandle {
+            writes: write_tx,
+            writer_task,
+        },
+    );
 
     let reader_shared = shared.clone();
     let reader_channels = forward_channels.clone();
@@ -3054,73 +3200,69 @@ async fn open_direct_tcpip_channel(
     Ok(channel_id)
 }
 
-async fn write_forward_channel(
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
+/// Queues one item for a forward channel's writer task. Only ever awaits the map lock, never the
+/// network, so callers on the session worker's select loop cannot be stalled by a slow peer.
+async fn queue_forward_write(
+    forward_channels: &ForwardChannels,
     channel_id: u32,
-    data: Vec<u8>,
-) -> anyhow::Result<()> {
-    let writer = {
-        let channels = forward_channels.lock().await;
-        channels.get(&channel_id).cloned()
-    };
-
-    if let Some(writer) = writer {
-        writer.data(Cursor::new(data)).await?;
-    }
-
-    Ok(())
-}
-
-async fn send_forward_channel_eof(
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
-    channel_id: u32,
-) -> anyhow::Result<()> {
-    let writer = {
-        let channels = forward_channels.lock().await;
-        channels.get(&channel_id).cloned()
-    };
-
-    if let Some(writer) = writer {
-        writer.eof().await?;
-    }
-
-    Ok(())
-}
-
-async fn close_forward_channel(
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
-    channel_id: u32,
-) -> anyhow::Result<()> {
-    let writer = forward_channels.lock().await.remove(&channel_id);
-    if let Some(writer) = writer {
-        writer.close().await?;
-    }
-
-    Ok(())
-}
-
-async fn close_all_forward_channels(
-    forward_channels: Arc<
-        tokio::sync::Mutex<HashMap<u32, Arc<russh::ChannelWriteHalf<client::Msg>>>>,
-    >,
+    write: ForwardWrite,
 ) {
-    let writers = {
+    let sender = {
+        let channels = forward_channels.lock().await;
+        channels
+            .get(&channel_id)
+            .map(|handle| handle.writes.clone())
+    };
+
+    if let Some(sender) = sender {
+        // A send error means the writer task already ended (the channel died under us); the
+        // subsequent ForwardChannelClosed event is what the managed side acts on.
+        let _ = sender.send(write);
+    }
+}
+
+async fn write_forward_channel(forward_channels: &ForwardChannels, channel_id: u32, data: Vec<u8>) {
+    queue_forward_write(forward_channels, channel_id, ForwardWrite::Data(data)).await;
+}
+
+async fn send_forward_channel_eof(forward_channels: &ForwardChannels, channel_id: u32) {
+    queue_forward_write(forward_channels, channel_id, ForwardWrite::Eof).await;
+}
+
+async fn close_forward_channel(forward_channels: &ForwardChannels, channel_id: u32) {
+    // Removed from the map first so nothing can be queued behind the close, but the close itself is
+    // handed to the writer task so it lands *after* the data already queued ahead of it. Closing the
+    // write half here directly would truncate whatever was still in flight.
+    let handle = forward_channels.lock().await.remove(&channel_id);
+    if let Some(handle) = handle {
+        let _ = handle.writes.send(ForwardWrite::Close);
+    }
+}
+
+async fn close_all_forward_channels(forward_channels: &ForwardChannels) {
+    let handles = {
         let mut channels = forward_channels.lock().await;
         channels
             .drain()
-            .map(|(_, writer)| writer)
+            .map(|(_, handle)| handle)
             .collect::<Vec<_>>()
     };
 
-    for writer in writers {
-        let _ = writer.close().await;
+    let mut writer_tasks = Vec::with_capacity(handles.len());
+    for handle in handles {
+        let _ = handle.writes.send(ForwardWrite::Close);
+        writer_tasks.push(handle.writer_task);
     }
+
+    // Give the writer tasks a bounded chance to flush their close. Bounded because a task blocked
+    // writing to a remote that has stopped reading would otherwise hang session teardown, which is
+    // reached from nova_ssh_close and must not block the .NET finalizer thread (#155).
+    let drain = async {
+        for writer_task in writer_tasks {
+            let _ = writer_task.await;
+        }
+    };
+    let _ = tokio::time::timeout(FORWARD_CHANNEL_DRAIN_TIMEOUT, drain).await;
 }
 
 async fn authenticate(
@@ -4737,5 +4879,316 @@ mod connect_arg_encoding_tests {
 
         assert!(config.identity_file.is_none());
         assert_eq!("xterm-256color", config.term);
+    }
+}
+
+/// Forward-channel write queueing (#173 item 2).
+///
+/// These exercise the queue in front of a forward channel's writer task, which is the part that keeps
+/// a stalled forward off the session worker's select loop. The writer task itself owns a russh
+/// `ChannelWriteHalf` that cannot be fabricated without a live server, so the tests stand in their own
+/// task behind an identical sender — the queueing, ordering and teardown rules are what they pin.
+#[cfg(test)]
+mod forward_channel_queue_tests {
+    use super::*;
+
+    /// Snapshot of what a recording channel's writer task has seen.
+    ///
+    /// Poison-tolerant, like every other lock in this file: the crate deliberately recovers the guard
+    /// rather than propagating a poisoned lock (see the ffi_guard work), so that one panicking thread
+    /// cannot turn every later acquisition into a second panic. A test is no reason to break that.
+    fn seen_labels(seen: &Arc<Mutex<Vec<&'static str>>>) -> Vec<&'static str> {
+        seen.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// A forward channel whose "writer task" just records what it received, in order.
+    fn recording_channel() -> (
+        ForwardChannelHandle,
+        Arc<Mutex<Vec<&'static str>>>,
+        Arc<tokio::sync::Notify>,
+    ) {
+        let (writes, mut write_rx) = mpsc::unbounded_channel::<ForwardWrite>();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let finished = Arc::new(tokio::sync::Notify::new());
+
+        let task_seen = seen.clone();
+        let task_finished = finished.clone();
+        let writer_task = tokio::spawn(async move {
+            while let Some(write) = write_rx.recv().await {
+                let label = match write {
+                    ForwardWrite::Data(_) => "data",
+                    ForwardWrite::Eof => "eof",
+                    ForwardWrite::Close => "close",
+                };
+                task_seen
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(label);
+                if label == "close" {
+                    break;
+                }
+            }
+            task_finished.notify_waiters();
+        });
+
+        (
+            ForwardChannelHandle {
+                writes,
+                writer_task,
+            },
+            seen,
+            finished,
+        )
+    }
+
+    async fn channels_with(channel_id: u32, handle: ForwardChannelHandle) -> ForwardChannels {
+        let channels: ForwardChannels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+        channels.lock().await.insert(channel_id, handle);
+        channels
+    }
+
+    #[tokio::test]
+    async fn writes_eof_and_close_reach_the_writer_in_order() {
+        let (handle, seen, finished) = recording_channel();
+        let channels = channels_with(7, handle).await;
+
+        write_forward_channel(&channels, 7, vec![1, 2, 3]).await;
+        write_forward_channel(&channels, 7, vec![4]).await;
+        send_forward_channel_eof(&channels, 7).await;
+        close_forward_channel(&channels, 7).await;
+
+        finished.notified().await;
+        assert_eq!(vec!["data", "data", "eof", "close"], seen_labels(&seen));
+    }
+
+    #[tokio::test]
+    async fn close_removes_the_channel_so_later_writes_are_dropped_not_reordered() {
+        let (handle, seen, finished) = recording_channel();
+        let channels = channels_with(9, handle).await;
+
+        write_forward_channel(&channels, 9, vec![1]).await;
+        close_forward_channel(&channels, 9).await;
+        // Arrives after the close was queued: it must not slip in front of it, and must not resurrect
+        // the channel either.
+        write_forward_channel(&channels, 9, vec![2]).await;
+
+        finished.notified().await;
+        assert_eq!(vec!["data", "close"], seen_labels(&seen));
+        assert!(channels.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn writes_to_an_unknown_channel_are_ignored() {
+        let channels: ForwardChannels = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+
+        // No channel 42: the managed side can legitimately still be draining events for a channel the
+        // reader task already removed. Must be a no-op, not a panic.
+        write_forward_channel(&channels, 42, vec![1]).await;
+        send_forward_channel_eof(&channels, 42).await;
+        close_forward_channel(&channels, 42).await;
+
+        assert!(channels.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn dropping_the_handle_still_delivers_what_was_already_queued() {
+        // Removing a channel drops its sender. Anything queued before that must still reach the writer
+        // rather than being discarded mid-stream.
+        let (handle, seen, finished) = recording_channel();
+        let channels = channels_with(11, handle).await;
+
+        write_forward_channel(&channels, 11, vec![1]).await;
+        write_forward_channel(&channels, 11, vec![2]).await;
+        let removed = channels.lock().await.remove(&11).expect("channel present");
+        drop(removed.writes);
+
+        let _ = tokio::time::timeout(Duration::from_secs(5), finished.notified()).await;
+        assert_eq!(vec!["data", "data"], seen_labels(&seen));
+    }
+
+    #[tokio::test]
+    async fn close_all_drains_every_channel() {
+        let (first, first_seen, _first_done) = recording_channel();
+        let (second, second_seen, _second_done) = recording_channel();
+        let channels = channels_with(1, first).await;
+        channels.lock().await.insert(2, second);
+
+        close_all_forward_channels(&channels).await;
+
+        assert!(channels.lock().await.is_empty());
+        assert_eq!(vec!["close"], seen_labels(&first_seen));
+        assert_eq!(vec!["close"], seen_labels(&second_seen));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_all_gives_up_on_a_writer_that_never_finishes() {
+        // Teardown is reached from nova_ssh_close, so it must not wait on a writer task blocked
+        // against a remote that stopped reading (#155). The map is still emptied.
+        let (writes, mut write_rx) = mpsc::unbounded_channel::<ForwardWrite>();
+        let writer_task = tokio::spawn(async move {
+            // Takes the close but never returns, standing in for a blocked network write.
+            let _ = write_rx.recv().await;
+            std::future::pending::<()>().await;
+        });
+        let channels = channels_with(
+            3,
+            ForwardChannelHandle {
+                writes,
+                writer_task,
+            },
+        )
+        .await;
+
+        // start_paused auto-advances time when nothing is runnable, so the drain timeout elapses
+        // instantly rather than costing two real seconds.
+        close_all_forward_channels(&channels).await;
+
+        assert!(channels.lock().await.is_empty());
+    }
+}
+
+/// Forward-write backpressure (Codex review on #325).
+///
+/// The per-channel writer queue is unbounded by design; the bound lives at the FFI door, where the
+/// caller can be told to retry. Retrying is what stops it reading its local socket, which is the only
+/// mechanism that throttles the local peer without dropping bytes or closing a merely-slow channel.
+#[cfg(test)]
+mod forward_write_backpressure_tests {
+    use super::*;
+
+    /// A registered session whose command channel accepts sends, plus a budget for `channel_id`.
+    ///
+    /// The receiver comes back with it and must stay bound for the test's duration: dropping it closes
+    /// the channel, and every send then fails with CLOSED instead of exercising the budget.
+    fn session_with_budget(
+        channel_id: u32,
+    ) -> (
+        usize,
+        Arc<AtomicUsize>,
+        Arc<SharedState>,
+        mpsc::UnboundedReceiver<WorkerCommand>,
+    ) {
+        let shared = Arc::new(SharedState::new());
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
+
+        let budget = Arc::new(AtomicUsize::new(0));
+        shared.register_forward_write_budget(channel_id, budget.clone());
+
+        let handle = registry_insert(NovaSshSession {
+            shared: shared.clone(),
+            command_tx: Mutex::new(Some(command_tx)),
+            worker: Mutex::new(None),
+        }) as usize;
+
+        (handle, budget, shared, command_rx)
+    }
+
+    fn write(handle: usize, channel_id: u32, len: usize) -> c_int {
+        let data = vec![7u8; len];
+        nova_ssh_channel_write(handle, channel_id, data.as_ptr(), data.len())
+    }
+
+    #[test]
+    fn writes_within_the_budget_are_accepted_and_reserve_their_bytes() {
+        let (handle, budget, _shared, _command_rx) = session_with_budget(1);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 1, 4096));
+        assert_eq!(4096, budget.load(Ordering::Acquire));
+
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 1, 1024));
+        assert_eq!(5120, budget.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_write_past_the_budget_reports_would_block_and_reserves_nothing() {
+        let (handle, budget, _shared, _command_rx) = session_with_budget(2);
+
+        // Fill the budget exactly, then ask for one more byte.
+        assert_eq!(
+            NOVA_SSH_RESULT_OK,
+            write(handle, 2, MAX_QUEUED_FORWARD_WRITE_BYTES)
+        );
+        assert_eq!(
+            MAX_QUEUED_FORWARD_WRITE_BYTES,
+            budget.load(Ordering::Acquire)
+        );
+
+        assert_eq!(NOVA_SSH_RESULT_WOULD_BLOCK, write(handle, 2, 1));
+
+        // The refused payload must not have been counted, or the queue would never recover.
+        assert_eq!(
+            MAX_QUEUED_FORWARD_WRITE_BYTES,
+            budget.load(Ordering::Acquire)
+        );
+    }
+
+    #[test]
+    fn an_oversized_payload_is_admitted_into_an_empty_queue() {
+        // Refusing it would wedge the channel: nothing is draining, so the queue can never get
+        // emptier than empty, and the caller would retry forever.
+        let (handle, budget, _shared, _command_rx) = session_with_budget(3);
+
+        let oversized = MAX_QUEUED_FORWARD_WRITE_BYTES * 2;
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 3, oversized));
+        assert_eq!(oversized, budget.load(Ordering::Acquire));
+
+        // But it does not become a licence for the next one.
+        assert_eq!(NOVA_SSH_RESULT_WOULD_BLOCK, write(handle, 3, 1));
+    }
+
+    #[test]
+    fn releasing_budget_lets_a_refused_write_through_on_retry() {
+        let (handle, budget, _shared, _command_rx) = session_with_budget(4);
+
+        assert_eq!(
+            NOVA_SSH_RESULT_OK,
+            write(handle, 4, MAX_QUEUED_FORWARD_WRITE_BYTES)
+        );
+        assert_eq!(NOVA_SSH_RESULT_WOULD_BLOCK, write(handle, 4, 64));
+
+        // What the writer task does once a write reaches the remote.
+        budget.fetch_sub(MAX_QUEUED_FORWARD_WRITE_BYTES, Ordering::AcqRel);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 4, 64));
+        assert_eq!(64, budget.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn a_channel_with_no_budget_is_never_throttled() {
+        // An id the session does not know is either already torn down or never ours. Throttling it
+        // would leave a managed pump retrying against a channel that will never drain.
+        let (handle, _budget, shared, _command_rx) = session_with_budget(5);
+
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 99, 8));
+
+        // Same once a known channel's budget is unregistered, which is how teardown releases a
+        // caller that is mid-retry.
+        assert_eq!(
+            NOVA_SSH_RESULT_OK,
+            write(handle, 5, MAX_QUEUED_FORWARD_WRITE_BYTES)
+        );
+        assert_eq!(NOVA_SSH_RESULT_WOULD_BLOCK, write(handle, 5, 1));
+
+        shared.unregister_forward_write_budget(5);
+        assert_eq!(NOVA_SSH_RESULT_OK, write(handle, 5, 1));
+    }
+
+    #[test]
+    fn a_write_that_cannot_be_queued_releases_its_reservation() {
+        // send_command fails once the session is closed. If the reservation survived that, the budget
+        // would be permanently short by the size of a payload nothing will ever write.
+        let shared = Arc::new(SharedState::new());
+        let budget = Arc::new(AtomicUsize::new(0));
+        shared.register_forward_write_budget(6, budget.clone());
+
+        let handle = registry_insert(NovaSshSession {
+            shared: shared.clone(),
+            // No sender: stands in for a session whose worker has gone.
+            command_tx: Mutex::new(None),
+            worker: Mutex::new(None),
+        }) as usize;
+
+        assert_eq!(NOVA_SSH_RESULT_CLOSED, write(handle, 6, 2048));
+        assert_eq!(0, budget.load(Ordering::Acquire));
     }
 }

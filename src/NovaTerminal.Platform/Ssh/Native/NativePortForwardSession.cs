@@ -2,12 +2,27 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading.Channels;
 using NovaTerminal.Platform.Ssh.Models;
 
 namespace NovaTerminal.Platform.Ssh.Native;
 
 public sealed class NativePortForwardSession : IDisposable
 {
+    /// <summary>
+    /// Per-channel ceiling on bytes waiting to reach the local socket. Exceeding it closes that one
+    /// forward channel — see <see cref="EnqueueOutbound"/> for why neither waiting nor dropping is an
+    /// option. Sized so a stalled channel costs about a megabyte rather than the whole stream.
+    /// </summary>
+    private const int MaxQueuedOutboundBytesPerChannel = 1024 * 1024;
+
+    /// <summary>
+    /// How long to wait before retrying a forward-channel write the native side refused for want of
+    /// queue space. Polling because the FFI has no completion signal to await; short enough that it
+    /// costs throughput only while a forward is genuinely backed up.
+    /// </summary>
+    private static readonly TimeSpan ForwardWriteRetryDelay = TimeSpan.FromMilliseconds(5);
+
     private const byte SocksVersion5 = 0x05;
     private const byte SocksCommandConnect = 0x01;
     private const byte SocksAuthNoAuthentication = 0x00;
@@ -58,15 +73,19 @@ public sealed class NativePortForwardSession : IDisposable
         _log = log ?? (_ => { });
         _socksReplyWriter = socksReplyWriter ?? throw new ArgumentNullException(nameof(socksReplyWriter));
 
+        // Checked up front rather than per-forward inside the loop: an unsupported kind is a property
+        // of the profile, not of a bind, so there is no reason to open listeners we are about to tear
+        // down again. Wording comes from NativeSshCapability so it matches what the editor showed.
+        NativeSshCapabilityResult capability = NativeSshCapability.Evaluate(forwards, jumpHops: null);
+        if (!capability.IsSupported)
+        {
+            throw new NotSupportedException(capability.Explanation);
+        }
+
         try
         {
             foreach (PortForward forward in forwards)
             {
-                if (forward.Kind is not PortForwardKind.Local and not PortForwardKind.Dynamic)
-                {
-                    throw new NotSupportedException("Native SSH currently supports local and dynamic port forwards only.");
-                }
-
                 StartListener(forward);
             }
         }
@@ -77,6 +96,13 @@ public sealed class NativePortForwardSession : IDisposable
         }
     }
 
+    /// <summary>
+    /// Hands a forward-channel event to the owning channel's outbound queue. Called from
+    /// <c>NativeSshSession.PollLoopAsync</c>, so it must never block: this used to write straight to
+    /// the local socket, which meant one slow consumer of a forwarded port froze *all* terminal output
+    /// for the session until it drained (#173 item 2). Enqueueing keeps the poll loop moving and lets
+    /// a dedicated pump per channel absorb the blocking write.
+    /// </summary>
     public void HandleEvent(NativeSshEvent nextEvent)
     {
         if (nextEvent == null)
@@ -89,26 +115,45 @@ public sealed class NativePortForwardSession : IDisposable
             return;
         }
 
-        try
+        // EOF and close travel through the same queue as the data rather than acting immediately.
+        // Ordering is the whole point: shutting the send side down (or disposing the socket) while
+        // bytes were still queued behind it would truncate the proxied stream.
+        switch (nextEvent.Kind)
         {
-            switch (nextEvent.Kind)
-            {
-                case NativeSshEventKind.ForwardChannelData:
-                    channel.Stream.Write(nextEvent.Payload, 0, nextEvent.Payload.Length);
-                    break;
-                case NativeSshEventKind.ForwardChannelEof:
-                    TryShutdown(channel.Client, SocketShutdown.Send);
-                    break;
-                case NativeSshEventKind.ForwardChannelClosed:
-                    RemoveChannel(channel.ChannelId, closeInteropChannel: false);
-                    break;
-            }
+            case NativeSshEventKind.ForwardChannelData:
+                EnqueueOutbound(channel, new ForwardOutbound(ForwardOutboundKind.Data, nextEvent.Payload));
+                break;
+            case NativeSshEventKind.ForwardChannelEof:
+                EnqueueOutbound(channel, new ForwardOutbound(ForwardOutboundKind.Eof, []));
+                break;
+            case NativeSshEventKind.ForwardChannelClosed:
+                EnqueueOutbound(channel, new ForwardOutbound(ForwardOutboundKind.Closed, []));
+                break;
         }
-        catch (Exception ex)
+    }
+
+    private void EnqueueOutbound(ForwardChannelState channel, ForwardOutbound item)
+    {
+        if (channel.TryEnqueueOutbound(item, MaxQueuedOutboundBytesPerChannel))
         {
-            _log($"[NativePortForwardSession] Forward channel {channel.ChannelId} failed: {ex.Message}");
-            RemoveChannel(channel.ChannelId, closeInteropChannel: true);
+            return;
         }
+
+        // Two ways to land here: the queue is over budget, or teardown completed it between the
+        // lookup and the write. Both end with the channel gone, but only the first is a real event —
+        // RemoveChannel drops the channel from _channels before completing the queue, so a still-
+        // present channel means genuine overflow.
+        //
+        // Closing the channel is the only honest response to overflow: waiting would reintroduce the
+        // poll-loop stall this queue exists to remove, and discarding bytes mid-stream would silently
+        // corrupt what is, from the peer's view, a plain TCP connection. A dead forward is
+        // diagnosable; a corrupted one is not.
+        if (_channels.ContainsKey(channel.ChannelId))
+        {
+            _log($"[NativePortForwardSession] Forward channel {channel.ChannelId} exceeded its {MaxQueuedOutboundBytesPerChannel}-byte outbound budget ({channel.QueuedOutboundBytes} queued); closing it.");
+        }
+
+        RemoveChannel(channel.ChannelId, closeInteropChannel: true);
     }
 
     public void Dispose()
@@ -158,7 +203,8 @@ public sealed class NativePortForwardSession : IDisposable
         {
             PortForwardKind.Local => Task.Run(() => AcceptLocalLoopAsync(listener, forward, _lifetimeCts.Token)),
             PortForwardKind.Dynamic => Task.Run(() => AcceptDynamicLoopAsync(listener, forward, _lifetimeCts.Token)),
-            _ => throw new NotSupportedException("Native SSH currently supports local and dynamic port forwards only.")
+            _ => throw new NotSupportedException(
+                NativeSshCapability.Evaluate([forward], jumpHops: null).Explanation)
         };
     }
 
@@ -190,7 +236,11 @@ public sealed class NativePortForwardSession : IDisposable
                     continue;
                 }
 
-                _ = Task.Run(() => PumpClientToSshAsync(state, cancellationToken));
+                // Token passed to Task.Run as well as into the pump: once the session is being torn
+                // down there is no reason to schedule a pump at all, and it matches what the dynamic
+                // accept path already does for the same two calls.
+                _ = Task.Run(() => PumpClientToSshAsync(state, cancellationToken), cancellationToken);
+                _ = Task.Run(() => PumpSshToClientAsync(state, cancellationToken), cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -304,6 +354,7 @@ public sealed class NativePortForwardSession : IDisposable
             }
 
             _ = Task.Run(() => PumpClientToSshAsync(state, cancellationToken), cancellationToken);
+            _ = Task.Run(() => PumpSshToClientAsync(state, cancellationToken), cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -338,6 +389,58 @@ public sealed class NativePortForwardSession : IDisposable
         }
     }
 
+    /// <summary>
+    /// Drains one channel's outbound queue into its local socket. Runs on its own task so a blocking
+    /// write here cannot reach the SSH poll loop; the queue in front of it is what makes that safe.
+    /// </summary>
+    private async Task PumpSshToClientAsync(ForwardChannelState channel, CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (await channel.Outbound.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                while (channel.Outbound.Reader.TryRead(out ForwardOutbound item))
+                {
+                    if (item.Kind == ForwardOutboundKind.Data)
+                    {
+                        await channel.Stream.WriteAsync(item.Payload, cancellationToken).ConfigureAwait(false);
+                        channel.OnOutboundWritten(item.Payload.Length);
+                        continue;
+                    }
+
+                    // Everything queued ahead of this marker has now been written.
+                    await channel.Stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+                    if (item.Kind == ForwardOutboundKind.Eof)
+                    {
+                        TryShutdown(channel.Client, SocketShutdown.Send);
+                        continue;
+                    }
+
+                    // Closed: the remote end is gone and the local socket has seen everything it was
+                    // owed. closeInteropChannel: false — the SSH channel closed on its own.
+                    RemoveChannel(channel.ChannelId, closeInteropChannel: false);
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Dispose() is tearing every channel down already.
+        }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or SocketException)
+        {
+            // Local peer went away mid-write. Close the SSH side too, so the remote is not left
+            // holding a half-open channel.
+            RemoveChannel(channel.ChannelId, closeInteropChannel: true);
+        }
+        catch (Exception ex)
+        {
+            _log($"[NativePortForwardSession] Outbound pump for channel {channel.ChannelId} failed: {ex.Message}");
+            RemoveChannel(channel.ChannelId, closeInteropChannel: true);
+        }
+    }
+
     private async Task PumpClientToSshAsync(ForwardChannelState channel, CancellationToken cancellationToken)
     {
         byte[] buffer = new byte[16 * 1024];
@@ -352,7 +455,15 @@ public sealed class NativePortForwardSession : IDisposable
                     break;
                 }
 
-                _interop.WriteChannel(_sessionHandle, channel.ChannelId, buffer.AsSpan(0, bytesRead));
+                // Retry rather than force the write through. A refusal means the native side already
+                // has more queued toward the remote than its budget allows, so the right response is
+                // to stop reading this socket — which is exactly what looping here does, and which
+                // lets TCP flow control throttle the local peer. Neither bytes nor the channel are
+                // sacrificed for a remote that is merely slow.
+                while (!_interop.TryWriteChannel(_sessionHandle, channel.ChannelId, buffer.AsSpan(0, bytesRead)))
+                {
+                    await Task.Delay(ForwardWriteRetryDelay, cancellationToken).ConfigureAwait(false);
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -387,6 +498,10 @@ public sealed class NativePortForwardSession : IDisposable
         {
             return;
         }
+
+        // Releases the outbound pump's WaitToReadAsync so the task ends instead of lingering until
+        // session teardown. Anything still queued is deliberately abandoned — the socket is going.
+        channel.CompleteOutbound();
 
         if (closeInteropChannel)
         {
@@ -552,17 +667,85 @@ public sealed class NativePortForwardSession : IDisposable
         public byte ReplyCode { get; }
     }
 
+    private enum ForwardOutboundKind
+    {
+        Data = 0,
+        Eof = 1,
+        Closed = 2
+    }
+
+    private readonly record struct ForwardOutbound(ForwardOutboundKind Kind, byte[] Payload);
+
     private sealed class ForwardChannelState
     {
+        private int _queuedOutboundBytes;
+
         public ForwardChannelState(int channelId, TcpClient client)
         {
             ChannelId = channelId;
             Client = client;
             Stream = client.GetStream();
+
+            // Unbounded channel with our own byte budget, rather than a bounded channel: the budget
+            // has to apply to data only. Eof/Closed markers must always be admittable, or a channel
+            // that hit its cap could never be told the stream ended — the same control-event carve-out
+            // the native event queue needs (#173 item 1).
+            Outbound = Channel.CreateUnbounded<ForwardOutbound>(new UnboundedChannelOptions
+            {
+                // Exactly one reader: this channel's outbound pump.
+                SingleReader = true
+
+                // SingleWriter deliberately left false. Writes only ever come from the poll loop, but
+                // CompleteOutbound is also a writer-side operation and is called from teardown on other
+                // threads (Dispose, the pump itself), so the single-writer guarantee would not hold.
+            });
         }
 
         public int ChannelId { get; }
         public TcpClient Client { get; }
         public NetworkStream Stream { get; }
+        public Channel<ForwardOutbound> Outbound { get; }
+
+        public int QueuedOutboundBytes => Volatile.Read(ref _queuedOutboundBytes);
+
+        public bool TryEnqueueOutbound(ForwardOutbound item, int maxQueuedBytes)
+        {
+            bool isData = item.Kind == ForwardOutboundKind.Data;
+
+            if (isData)
+            {
+                // Check-then-add without a CAS loop is safe here: HandleEvent is the only writer, and
+                // the reader only ever decreases the counter, so a concurrent decrement can make this
+                // admit a payload it would otherwise refuse — never the other way round.
+                int queued = Volatile.Read(ref _queuedOutboundBytes);
+
+                // Always admit into an empty queue, even an oversized payload: refusing it forever
+                // would kill a channel for a chunk that nothing is actually blocking.
+                if (queued > 0 && queued + item.Payload.Length > maxQueuedBytes)
+                {
+                    return false;
+                }
+
+                Interlocked.Add(ref _queuedOutboundBytes, item.Payload.Length);
+            }
+
+            if (Outbound.Writer.TryWrite(item))
+            {
+                return true;
+            }
+
+            // The queue was completed by teardown between the lookup and here.
+            if (isData)
+            {
+                Interlocked.Add(ref _queuedOutboundBytes, -item.Payload.Length);
+            }
+
+            return false;
+        }
+
+        public void OnOutboundWritten(int byteCount) =>
+            Interlocked.Add(ref _queuedOutboundBytes, -byteCount);
+
+        public void CompleteOutbound() => Outbound.Writer.TryComplete();
     }
 }
