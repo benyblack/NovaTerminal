@@ -726,7 +726,7 @@ The signing template is also passed via the step's `env:` rather than interpolat
 body — `${{ }}` substitution happens before PowerShell parses, so a quote in the secret breaks
 parsing and a semicolon executes.
 
-**Spike status.** Steps 1-4 and 6 are done and passed: the NativeAOT self-contained publish packs
+**Spike status.** Steps 1-3 and 6 passed; step 4's install caused the incident below: the NativeAOT self-contained publish packs
 cleanly (`vpk pack` on `-p:PublishAot=true` output produced Setup.exe, RELEASES and the nupkgs),
 Velopack introduced **no new IL2026/IL3050 warnings**, and a second pack at 0.0.2 built a working
 delta (`0001 patched, 0019 unchanged`, 0.11 MB against a 28.7 MB full package). Artifacts are in
@@ -736,6 +736,36 @@ Note for anyone reproducing the AOT publish locally: the ILC native link step in
 bare, so `C:\Program Files (x86)\Microsoft Visual Studio\Installer` must be on `PATH` or the link
 fails with `MSB3073 ... exited with code 123`. This is a local environment quirk, not a project one;
 CI's `windows-latest` image has it on PATH already.
+
+**INCIDENT: the spike's install destroyed user config on two machines.** Recorded here because
+the cause was a decision in this plan, not a mistake in carrying it out.
+
+Task 0 Step 4 says to pack with `--packId NovaTerminal`. Velopack installs to
+`%LocalAppData%\<packId>` and clears that directory as part of installing. `AppPaths.RootDirectory`
+is `%LocalAppData%\NovaTerminal`. They are the same path, so running the spike's `Setup.exe` aimed
+the installer at the user's own config store and deleted it: `workspaces`, `workspace_templates`,
+`policy` and `recordings` were emptied, and `settings.json`, `themes/` and `ssh/profiles.json` were
+lost and later recreated as defaults. It happened on two machines before anyone noticed, because
+the app silently rebuilds an empty tree on next launch (`AppPaths.EnsureInitialized` only ever
+calls `CreateDirectory`, so nothing surfaced an error).
+
+Fix: pack as `--packId NovaTerminalApp --packTitle NovaTerminal`. The install root becomes
+`%LocalAppData%\NovaTerminalApp` and the config store is untouched; `--packTitle` keeps the
+shortcut and Add/Remove Programs entry reading "NovaTerminal". Changing packId was free because no
+Velopack release had been published, so no update lineage existed to break -- had one existed, this
+would have been a far uglier migration.
+
+Moving `AppPaths.RootDirectory` instead was rejected: every existing portable-zip user has config
+at `%LocalAppData%\NovaTerminal`, so relocating it would orphan all of them. Note also that a
+config *subdirectory* would not have helped -- Velopack clears the whole install root.
+
+`VelopackPackIdTests` (Architecture.Tests, gating in both ci.yml and release.yml) now fails the
+build if packId ever equals the AppPaths directory name again.
+
+**Uninstall is still destructive on any machine that installed the bad spike build**, because for
+those installs the two directories really are the same folder. Do not uninstall there; delete the
+Velopack artifacts (`current/`, `packages/`, `Update.exe`, the stub `NovaTerminal.exe`) by hand
+instead, or the uninstaller will take the config with it.
 
 **Still outstanding:** spike steps 5's actual apply (install Setup.exe, launch, confirm an update is
 detected and applied on restart) and all of Task 7, both of which need a real install and a real
