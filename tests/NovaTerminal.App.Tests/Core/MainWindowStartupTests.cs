@@ -1,4 +1,5 @@
 using NovaTerminal.Shell;
+using NovaTerminal.Pty;
 using Avalonia.Headless.XUnit;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -367,6 +368,125 @@ public sealed class MainWindowStartupTests
         Assert.Equal(Colors.Black.B, idleColor.B);
         Assert.True(idleColor.A < hoverColor.A);
         Assert.True(hoverColor.A < draggingColor.A);
+    }
+
+
+    /// <summary>
+    /// Deferred startup restore hydrates the placeholder that belongs to a saved tab, not
+    /// whatever tab currently occupies that tab's original index (#326 review, P1).
+    ///
+    /// Restore materializes every saved tab up front — the selected one live, the rest as
+    /// placeholders — then hydrates the placeholders on a later background dispatcher pass.
+    /// Anything that removes a tab in between shifts every later index by one, so an
+    /// index-addressed lookup either writes a tab's content into its neighbour's placeholder
+    /// or falls out of range and leaves a permanently blank tab. Since ShellExitPolicy
+    /// defaults to "Graceful", the removal is reachable without the user doing anything: the
+    /// restored selected tab's shell exits 0 during startup and the pane closes itself, and
+    /// the exit is posted at normal dispatcher priority while hydration is posted at
+    /// background priority, so the close always wins the race.
+    /// </summary>
+    [AvaloniaFact]
+    public void DeferredHydration_AfterAnEarlierTabClosed_StillReachesTheLastTabsPlaceholder()
+    {
+        var window = TestMainWindowFactory.Create();
+        try
+        {
+            TabControl tabs = window.FindControl<TabControl>("Tabs")!;
+            var (immediate, placeholderB, placeholderC, sessionB, sessionC) = BuildRestoredTabStrip(tabs);
+            object? contentBeforeB = placeholderB.Content;
+            object? contentBeforeC = placeholderC.Content;
+
+            // The selected tab's shell exited 0 and the pane closed itself.
+            tabs.Items.Remove(immediate);
+
+            // Its own OriginalIndex is now out of range: 2 items left, index 2.
+            HydrateDeferred(window, tabs, new StartupRestoreTab(2, sessionC));
+
+            Assert.NotSame(contentBeforeC, placeholderC.Content);
+            Assert.Same(contentBeforeB, placeholderB.Content);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// The other half of the same shift: an index that still resolves now resolves to the
+    /// wrong tab, which is worse than the blank tab above because it looks like a success.
+    /// </summary>
+    [AvaloniaFact]
+    public void DeferredHydration_AfterAnEarlierTabClosed_DoesNotHydrateTheNeighbourAtThatIndex()
+    {
+        var window = TestMainWindowFactory.Create();
+        try
+        {
+            TabControl tabs = window.FindControl<TabControl>("Tabs")!;
+            var (immediate, placeholderB, placeholderC, sessionB, _) = BuildRestoredTabStrip(tabs);
+            object? contentBeforeB = placeholderB.Content;
+            object? contentBeforeC = placeholderC.Content;
+
+            tabs.Items.Remove(immediate);
+
+            // Index 1 now holds C's placeholder, so an index lookup would hydrate C with B's
+            // session and leave B blank forever.
+            HydrateDeferred(window, tabs, new StartupRestoreTab(1, sessionB));
+
+            Assert.NotSame(contentBeforeB, placeholderB.Content);
+            Assert.Same(contentBeforeC, placeholderC.Content);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
+    /// Three restored tabs in saved order: index 0 selected (live), 1 and 2 placeholders
+    /// carrying their <see cref="TabSession"/> in Tag exactly as CreateStartupPlaceholderTab does.
+    /// </summary>
+    private static (TabItem Immediate, TabItem PlaceholderB, TabItem PlaceholderC, TabSession SessionB, TabSession SessionC)
+        BuildRestoredTabStrip(TabControl tabs)
+    {
+        TabSession sessionA = NewTabSession("A");
+        TabSession sessionB = NewTabSession("B");
+        TabSession sessionC = NewTabSession("C");
+
+        tabs.Items.Clear();
+        TabItem immediate = NewPlaceholder(sessionA);
+        TabItem placeholderB = NewPlaceholder(sessionB);
+        TabItem placeholderC = NewPlaceholder(sessionC);
+        tabs.Items.Add(immediate);
+        tabs.Items.Add(placeholderB);
+        tabs.Items.Add(placeholderC);
+
+        return (immediate, placeholderB, placeholderC, sessionB, sessionC);
+    }
+
+    private static TabSession NewTabSession(string title) => new()
+    {
+        Title = title,
+        Root = new PaneNode
+        {
+            Type = NodeType.Leaf,
+            Command = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/sh",
+            Arguments = string.Empty,
+            PaneId = Guid.NewGuid().ToString()
+        }
+    };
+
+    private static TabItem NewPlaceholder(TabSession session) => new()
+    {
+        Header = new TextBlock { Text = session.Title },
+        Content = new Border { Background = Brushes.Transparent },
+        Tag = session
+    };
+
+    private static void HydrateDeferred(NovaTerminal.MainWindow window, TabControl tabs, StartupRestoreTab deferredTab)
+    {
+        typeof(NovaTerminal.MainWindow)
+            .GetMethod("HydrateDeferredStartupTab", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, [tabs, deferredTab]);
     }
 
     private sealed class RecordingCommandProbeWindow : NovaTerminal.MainWindow

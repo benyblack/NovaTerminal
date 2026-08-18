@@ -1240,12 +1240,32 @@ namespace NovaTerminal
 
         private void HydrateDeferredStartupTab(TabControl tabs, StartupRestoreTab deferredTab)
         {
-            if (deferredTab.OriginalIndex < 0 || deferredTab.OriginalIndex >= tabs.Items.Count)
+            // Find the placeholder by identity rather than by OriginalIndex (#326 review). Restore
+            // materializes every saved tab up front and hydrates the placeholders on a later
+            // background dispatcher pass; anything that removes a tab in between shifts every later
+            // index by one, and an index lookup then either writes this tab's content into its
+            // neighbour's placeholder or falls out of range and leaves a permanently blank tab whose
+            // null root can be persisted over the saved session. That became reachable without any
+            // user action when ShellExitPolicy started defaulting to "Graceful": the restored
+            // selected tab's shell can exit 0 during startup and close its own pane, and the exit is
+            // posted at normal dispatcher priority while this pass is posted at background priority,
+            // so the close always gets there first.
+            //
+            // Placeholders carry their TabSession in Tag (CreateStartupPlaceholderTab) and the
+            // deferred entry carries the same instance out of NovaSession.Tabs, so reference
+            // equality names the right tab no matter where it has drifted to. OriginalIndex stays on
+            // the record: it is what the deferred plan is built and logged against.
+            TabItem? tabItem = null;
+            foreach (object? item in tabs.Items)
             {
-                return;
+                if (item is TabItem candidate && ReferenceEquals(candidate.Tag, deferredTab.Tab))
+                {
+                    tabItem = candidate;
+                    break;
+                }
             }
 
-            if (tabs.Items[deferredTab.OriginalIndex] is not TabItem tabItem)
+            if (tabItem == null)
             {
                 return;
             }
