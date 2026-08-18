@@ -640,29 +640,29 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     {
         if (string.IsNullOrWhiteSpace(options.Host))
         {
-            throw new ArgumentException("A host is required for native SSH operations.", nameof(options.Host));
+            throw new ArgumentException("A host is required for native SSH operations.", nameof(options));
         }
 
         if (string.IsNullOrWhiteSpace(options.User))
         {
-            throw new ArgumentException("A user is required for native SSH operations.", nameof(options.User));
+            throw new ArgumentException("A user is required for native SSH operations.", nameof(options));
         }
 
         if (options.Port is < 1 or > 65535)
         {
-            throw new ArgumentOutOfRangeException(nameof(options.Port), "The SSH port must be between 1 and 65535.");
+            throw new ArgumentOutOfRangeException(nameof(options), "The SSH port must be between 1 and 65535.");
         }
 
         foreach (SshJumpHop jumpHop in options.JumpHops)
         {
             if (string.IsNullOrWhiteSpace(jumpHop.Host))
             {
-                throw new ArgumentException("A jump-host name is required for every jump hop.", nameof(options.JumpHops));
+                throw new ArgumentException("A jump-host name is required for every jump hop.", nameof(options));
             }
 
             if (jumpHop.Port is < 1 or > 65535)
             {
-                throw new ArgumentOutOfRangeException(nameof(options.JumpHops), "Every jump-hop port must be between 1 and 65535.");
+                throw new ArgumentOutOfRangeException(nameof(options), "Every jump-hop port must be between 1 and 65535.");
             }
         }
     }
@@ -969,7 +969,7 @@ public sealed partial class NativeSshInterop : INativeSshInterop
     [JsonSerializable(typeof(NativeSftpTransferResponse))]
     [JsonSerializable(typeof(RemotePathListResponse))]
     [JsonSerializable(typeof(RemotePathListResponseEntry))]
-    private partial class NativeSshJsonContext : JsonSerializerContext
+    private sealed partial class NativeSshJsonContext : JsonSerializerContext
     {
     }
 
