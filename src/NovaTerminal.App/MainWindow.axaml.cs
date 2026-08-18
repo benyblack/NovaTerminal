@@ -5857,27 +5857,25 @@ namespace NovaTerminal
 
         private TerminalPane? ResolvePaneForTab(TabItem tabItem)
         {
-            if (_activePaneByTab.TryGetValue(tabItem, out var pane))
+            // Ignore stale mappings when pane was removed/disposed.
+            //
+            // The logical tree answers this, not the visual one (#319): MainWindow.axaml's
+            // TabControl template hosts content in PART_SelectedContentHost, a sibling of the
+            // header presenter, so a TabItem is never a *visual* ancestor of its own content
+            // and the old check compared null == tabItem — always false. Every call therefore
+            // discarded the cache and fell through to FindFirstPane below, so a split tab
+            // resolved its FIRST pane instead of the active one: leaving such a tab and
+            // returning activated the wrong pane, and CloseTabAsync attributed the close to
+            // the wrong pane in the agent journal.
+            //
+            // Zoom needs no special case: while a tab is zoomed its Content *is* the zoomed
+            // pane, so that pane validates here, and a cached non-zoomed pane correctly reads
+            // as stale — the fallback then returns the zoomed pane, which is the right answer
+            // while zoomed.
+            if (_activePaneByTab.TryGetValue(tabItem, out var pane)
+                && pane.FindLogicalAncestorOfType<TabItem>() == tabItem)
             {
-                // Ignore stale mappings when pane was removed/disposed.
-                //
-                // The logical tree answers this, not the visual one (#319): MainWindow.axaml's
-                // TabControl template hosts content in PART_SelectedContentHost, a sibling of the
-                // header presenter, so a TabItem is never a *visual* ancestor of its own content
-                // and the old check compared null == tabItem — always false. Every call therefore
-                // discarded the cache and fell through to FindFirstPane below, so a split tab
-                // resolved its FIRST pane instead of the active one: leaving such a tab and
-                // returning activated the wrong pane, and CloseTabAsync attributed the close to
-                // the wrong pane in the agent journal.
-                //
-                // Zoom needs no special case: while a tab is zoomed its Content *is* the zoomed
-                // pane, so that pane validates here, and a cached non-zoomed pane correctly reads
-                // as stale — the fallback then returns the zoomed pane, which is the right answer
-                // while zoomed.
-                if (pane.FindLogicalAncestorOfType<TabItem>() == tabItem)
-                {
-                    return pane;
-                }
+                return pane;
             }
 
             if (tabItem.Content is Control content)
