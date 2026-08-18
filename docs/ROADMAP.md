@@ -10,9 +10,9 @@ It applies to:
 - automated agents (Antigravity / Codex)
 
 Related execution plans:
-- `docs/PRODUCTION_EXECUTION_PLAN.md`
-- `docs/MULTI_PANE_EXECUTION_PLAN.md`
-- `docs/TABS_EXECUTION_PLAN.md`
+- `docs/archive/PRODUCTION_EXECUTION_PLAN.md`
+- `docs/archive/MULTI_PANE_EXECUTION_PLAN.md`
+- `docs/archive/TABS_EXECUTION_PLAN.md`
 - `docs/agent-host/DIRECTION.md` — **accepted strategic direction (2026-07-07)**:
   NovaTerminal as an agent host ("enable, don't embed"). Reframes Phases 4–5
   and demotes Ghostty gap closure to a regression gate.

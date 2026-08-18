@@ -3,7 +3,7 @@ Product: NovaTerminal
 Audience: Desktop power users (developers, DevOps, SRE)
 Scope: Cross-platform (Windows, Linux, macOS)
 
-Implementation plan: `docs/MULTI_PANE_EXECUTION_PLAN.md`
+Implementation plan: `docs/archive/MULTI_PANE_EXECUTION_PLAN.md`
 
 ---
 

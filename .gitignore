@@ -515,3 +515,6 @@ src/NovaTerminal.App/native/rusty_ssh/target/
 
 # claude
 .claude/
+
+# local research scratch
+.research/
