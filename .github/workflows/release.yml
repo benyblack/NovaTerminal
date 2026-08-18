@@ -238,6 +238,70 @@ jobs:
           tag_name: ${{ needs.release_metadata.outputs.release_tag }}
           files: artifacts/release/NovaTerminal-${{ matrix.rid }}-${{ needs.release_metadata.outputs.release_tag }}.zip
 
+      # Velopack installer + auto-update, win-x64 only (#91). These steps supplement the
+      # portable zip above -- they never replace it. Both end up on the same release.
+      #
+      # The vpk version is pinned and must stay in lockstep with the Velopack PackageVersion in
+      # Directory.Packages.props: the library and the tool agree an on-disk release format, and a
+      # mismatch produces packages the installed app cannot read.
+      - name: Install Velopack CLI (vpk)
+        if: matrix.rid == 'win-x64'
+        run: dotnet tool install -g vpk --version 1.2.0
+
+      # Fetches the previous release's Velopack assets so pack can compute a delta against them.
+      # Tolerated failure: the first Velopack release has no predecessor, and a delta is an
+      # optimisation -- a full package still installs and still updates.
+      - name: Download prior Velopack release (for deltas)
+        if: matrix.rid == 'win-x64'
+        continue-on-error: true
+        run: >
+          vpk download github
+          --repoUrl https://github.com/benyblack/NovaTerminal
+          --outputDir artifacts/velopack
+          --token ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Velopack pack
+        if: matrix.rid == 'win-x64'
+        shell: pwsh
+        env:
+          # Read through the environment, never interpolated into the script body: a template
+          # containing a quote would otherwise break parsing, and one containing a semicolon
+          # would run as a second command.
+          VPK_SIGN_TEMPLATE: ${{ secrets.VPK_SIGN_TEMPLATE }}
+        run: |
+          $version = "${{ needs.release_metadata.outputs.release_tag }}".TrimStart('v')
+
+          # Signing seam. Absent secret => empty array => vpk packs unsigned and succeeds.
+          # See docs/packaging/windows-signing.md.
+          $signArgs = @()
+          if (-not [string]::IsNullOrWhiteSpace($env:VPK_SIGN_TEMPLATE)) {
+            $signArgs = @('--signTemplate', $env:VPK_SIGN_TEMPLATE)
+          }
+
+          vpk pack `
+            --packId NovaTerminal `
+            --packVersion $version `
+            --packDir artifacts/publish/win-x64 `
+            --mainExe NovaTerminal.exe `
+            --icon src/NovaTerminal.App/Assets/nova_icon.ico `
+            --outputDir artifacts/velopack `
+            @signArgs
+
+      # --outputDir must match the pack step: it defaults to "Releases", so omitting it here
+      # would upload nothing. --merge is required because the release already exists by this
+      # point -- create_release made it and the portable zips are already attached.
+      - name: Publish Velopack assets to the GitHub release
+        if: matrix.rid == 'win-x64'
+        run: >
+          vpk upload github
+          --repoUrl https://github.com/benyblack/NovaTerminal
+          --outputDir artifacts/velopack
+          --token ${{ secrets.GITHUB_TOKEN }}
+          --tag ${{ needs.release_metadata.outputs.release_tag }}
+          --releaseName ${{ needs.release_metadata.outputs.release_tag }}
+          --merge
+          --publish
+
   # Opens a submission PR to microsoft/winget-pkgs for the just-published Windows
   # zip (portable package; see packaging/winget/). Optional and self-skipping:
   # runs only on real tag pushes and only when the WINGET_PAT secret is set.
