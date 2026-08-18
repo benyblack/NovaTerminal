@@ -28,31 +28,43 @@ Verified by automated tests:
 - native rollout gating and failure classification
 - native session input, resize, output decoding, and exit behavior
 - Dockerized native SSH connect/auth, command execution, alternate-screen recovery, resize-burst recovery, and `vim` downward-scroll behavior
+- Dockerized private-key auth (unencrypted and passphrase-protected) and keyboard-interactive auth
+  against a server that refuses every other method for that user
+- Dockerized host-key reporting: the algorithm and fingerprint the backend surfaces are compared
+  against what `ssh-keygen` says the server's key is, and a refused key is proven to stop the
+  connection before any credential is solicited
+- Dockerized local and dynamic (SOCKS5) forwarding carrying real bytes to an in-container echo
+  service, rather than only opening a channel
 
 ## Manual Matrix
 
-The following checks still require manual validation against real SSH endpoints.
+Rows marked Automated run in the `Native SSH Docker E2E` CI job (Linux), which sets
+`NOVATERM_ENABLE_DOCKER_E2E=1`. Everything else still needs a human against a real endpoint.
 
 | Area | Scenario | Status | Notes |
 | --- | --- | --- | --- |
 | OpenSSH parity | Existing OpenSSH backend connects exactly as before | Pending manual | No code path fallback was added; validate with a known-good host |
 | Native auth | Password auth | Pending manual | Dialog path is automated, endpoint still needs live verification |
-| Native auth | Private key auth | Pending manual | Test with an unencrypted key |
-| Native auth | Encrypted private key auth | Pending manual | Test passphrase prompt path with a real key |
-| Native auth | Keyboard-interactive auth | Pending manual | Test against a host that requires challenge-response |
-| Host keys | First trust flow | Pending manual | Confirm dialog copy and persistence path |
+| Native auth | Private key auth | Automated | `NativeSshDockerAuthE2eTests.PrivateKeyAuth_WithUnencryptedKey_...` |
+| Native auth | Encrypted private key auth | Automated | `NativeSshDockerAuthE2eTests.PrivateKeyAuth_WithEncryptedKey_...` |
+| Native auth | Keyboard-interactive auth | Automated | `NativeSshDockerAuthE2eTests.KeyboardInteractiveAuth_...`; the image's `kbdnova` user refuses password and pubkey |
+| Host keys | First trust flow | Automated + pending manual | `HostKeyPrompt_CarriesTheAlgorithmAndFingerprintTheServerActuallyHas` covers the reported key; dialog copy is still a UI check |
 | Host keys | Trusted reconnect | Pending manual | Confirm no dialog after trust is recorded |
-| Host keys | Changed key path | Pending manual | Confirm changed-host-key warning copy and replacement trust |
+| Host keys | Changed key path | Automated + pending manual | Store logic is unit-tested and `HostKeyPrompt_WhenRefused_NeverReachesTheCredentialPrompt` pins fail-closed; warning copy is still a UI check |
 | Terminal behavior | Resize handling | Pending manual | Verify shell survives repeated resize |
 | Terminal behavior | Fullscreen/alt-screen TUI | Automated + pending manual | Dockerized native SSH validates alternate-screen recovery and `vim` downward scrolling; still validate against a real host |
-| Forwarding | One local forward | Pending manual | Validate actual traffic through the forwarded port |
-| Forwarding | One direct-host dynamic forward | Pending manual | Validate actual SOCKS5 traffic through the forwarded port |
+| Forwarding | One local forward | Automated | `LocalForward_CarriesRealBytesToTheEchoService` |
+| Forwarding | One direct-host dynamic forward | Automated | `DynamicForward_CarriesRealBytesThroughSocks5ToTheEchoService` |
 | Forwarding | One-hop jump-host dynamic forward | Follow-up | Not implemented in the native backend yet |
-| Jump host | One-hop jump host | Pending manual | Validate end-to-end session through a real bastion |
+| Jump host | One-hop jump host | Pending manual | Needs a second container as bastion on a shared docker network; fixture is single-container today |
 | Rollback | Broken native profile switched back to OpenSSH | Pending manual | Confirm backend selector flow is obvious and safe |
 
 ## Rollout Notes
 
+- The Dockerized suite runs in CI as the `Native SSH Docker E2E` job (Linux, blocking).
+  Before that job existed the suite was `[DockerFact]`-gated on `NOVATERM_ENABLE_DOCKER_E2E`
+  and nothing in CI set it, so it was written and then never executed — the reason auth and
+  forwarding rows above stayed "pending manual" while a Dockerized suite sat beside them.
 - Native SSH remains opt-in through `TerminalSettings.ExperimentalNativeSshEnabled`.
 - `OpenSsh` remains the default backend for new profiles.
 - Native backend refusal is explicit when the global experimental toggle is disabled.

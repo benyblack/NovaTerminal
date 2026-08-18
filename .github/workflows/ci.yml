@@ -310,6 +310,97 @@ jobs:
             **/*.trx
             **/*.dmp
 
+  # Native SSH end-to-end against a real sshd in a container.
+  #
+  # These tests existed before this job did, and never ran anywhere: every one is a
+  # [DockerFact], which self-skips unless NOVATERM_ENABLE_DOCKER_E2E=1, and nothing in CI set
+  # it. The suite was written, committed, skipped, and counted as coverage — which is why the
+  # test matrix still listed auth, host-key and forwarding as "pending manual" while a
+  # Dockerized suite sat next to it. This job is what makes the difference between the two
+  # visible.
+  #
+  # Deliberately blocking rather than continue-on-error. A non-blocking lane here would repeat
+  # the mistake #127 caught in the Render Metrics job: a check whose name claims coverage it
+  # does not enforce. If it turns flaky, the fix is to stabilise the fixture, not to silence
+  # the gate.
+  #
+  # Linux only: the tests drive `docker` through the CLI, and ubuntu-latest is the runner image
+  # with a working Linux Docker daemon. The Windows runners would need Linux-container support
+  # that is not available there, and nothing under test is platform-specific — the fixture
+  # exercises the same rusty_ssh library either way.
+  native_ssh_docker_e2e:
+    name: Native SSH Docker E2E (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [build]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache .NET SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.dotnet
+          key: dotnet-sdk-${{ runner.os }}-${{ hashFiles('global.json') }}
+          restore-keys: dotnet-sdk-${{ runner.os }}-
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        env:
+          DOTNET_INSTALL_DIR: ~/.dotnet
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: "**/*.csproj"
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dotnet-build-ubuntu-latest
+          path: tests
+
+      # zip artifacts drop Unix execute bits; the test host needs them back. librusty_ssh.so
+      # travels in this artifact too (Platform.Tests copies it as Content), so the P/Invoke
+      # surface these tests exercise is already in place — no Rust rebuild needed.
+      - name: Restore execute permissions
+        run: |
+          find tests -path "*/bin/Release/net*" -type f \
+            ! -name "*.dll" ! -name "*.json" ! -name "*.pdb" ! -name "*.xml" \
+            ! -name "*.so" ! -name "*.dylib" ! -name "*.a" ! -name "*.txt" \
+            | xargs chmod +x
+
+      - name: Docker preflight
+        run: docker info --format 'server={{.ServerVersion}}'
+
+      - name: Restore
+        run: dotnet restore
+
+      # The fixture builds the image itself on first use (DockerSshFixture.EnsureImageBuiltAsync),
+      # so there is no separate build step here; a failure to build surfaces as a test failure
+      # with the docker output attached.
+      - name: Test (native SSH Docker E2E)
+        env:
+          NOVATERM_ENABLE_DOCKER_E2E: '1'
+          SKIP_RUST_NATIVE_BUILD: '1'
+        shell: bash
+        run: |
+          dotnet test tests/NovaTerminal.Platform.Tests -c "$CONFIGURATION" --no-build --no-restore \
+            --filter "Category=DockerE2E" \
+            --logger "trx;LogFileName=native_ssh_docker_e2e.trx"
+
+      # No "collect container logs" step on purpose: the fixture runs containers with --rm and
+      # removes them in DisposeAsync, which still executes when a test fails, so by the time a
+      # post-step ran there would be nothing left to read. The diagnostics live where they are
+      # actually available instead — DockerSshFixture attaches `docker logs` output to the
+      # readiness timeouts it throws, so the failure reaches the .trx with the logs in it.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-ssh-docker-e2e
+          retention-days: 5
+          path: "**/native_ssh_docker_e2e.trx"
+
   # Coverage measurement (#117). coverlet.collector was pinned in
   # Directory.Packages.props and referenced by all five test projects, but nothing ever
   # enabled it - no invocation passed a collect switch and no report was produced.
