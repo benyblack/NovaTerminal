@@ -28,8 +28,51 @@ fi
 # in ways that make a generic insert here unsafe.
 verb="$1"
 shift
+
+# Sweep processes that lock this tree's build output before compiling: MCP servers that
+# clients left running, and test hosts from an interrupted `test` run. On Windows those hold
+# the DLLs open, so the next run fails with "file is in use" or sits there looking hung
+# (#317) - the same sweep build.ps1 does, which this wrapper was missing entirely, so which
+# wrapper you happened to use decided whether you got the protection.
+#
+# Windows-only by nature: this is a file-locking problem. Delegated to PowerShell because the
+# match needs each process's command line to scope it to THIS tree. NOVA_KEEP_STALE_HOSTS=1
+# opts out (a genuinely concurrent `test` run from this tree would otherwise be killed too).
+sweep_stale_hosts() {
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) ;;
+        *) return 0 ;;
+    esac
+    command -v powershell.exe >/dev/null 2>&1 || return 0
+
+    local repo_root
+    repo_root="$(cd "$(dirname "$0")/.." && pwd -W 2>/dev/null || cd "$(dirname "$0")/.." && pwd)"
+
+    KEEP_STALE="${NOVA_KEEP_STALE_HOSTS:-0}" REPO_ROOT="$repo_root" powershell.exe -NoProfile -NonInteractive -Command '
+        # pwd -W hands us forward slashes; process command lines carry backslashes, so a
+        # -like match on the raw value would never fire and the sweep would be a silent no-op.
+        $repoRoot = ($env:REPO_ROOT -replace "/", "\\")
+        $keepStale = $env:KEEP_STALE -eq "1"
+        try {
+            $stale = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+                $_.CommandLine -and $_.CommandLine -like "*$repoRoot*" -and (
+                    ($_.Name -eq "dotnet.exe" -and $_.CommandLine -like "*NovaTerminal.McpServer.dll*") -or
+                    (-not $keepStale -and ($_.Name -eq "testhost.exe" -or $_.Name -like "*.Tests.exe"))
+                )
+            })
+            foreach ($p in $stale) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+            if ($stale.Count -gt 0) {
+                Write-Output ("build.sh: killed {0} stale process(es) locking this tree''s bin outputs: {1}." -f $stale.Count, (($stale | ForEach-Object { $_.Name }) -join ", "))
+            }
+        } catch {
+            Write-Output "build.sh: stale-host sweep skipped ($($_.Exception.Message))"
+        }
+    ' 2>/dev/null || true
+}
+
 case "$verb" in
     build|test|publish|pack|msbuild|clean)
+        sweep_stale_hosts
         exec dotnet "$verb" -nodeReuse:false "$@"
         ;;
     *)
