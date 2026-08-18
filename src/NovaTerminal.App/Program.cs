@@ -16,6 +16,13 @@ class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        // Velopack hook. Setup.exe/Update.exe re-invoke this same binary with --veloapp-*
+        // arguments to run install/uninstall/update lifecycle work; Run() handles those and
+        // exits the process. It must therefore precede everything -- the CLI-mode checks
+        // below, Avalonia, and the try block -- or a hook invocation would be misread as a
+        // normal launch. On a normal launch it is a cheap no-op and returns.
+        Velopack.VelopackApp.Build().Run();
+
         try
         {
             if (VtReportCommand.IsSupportedCliMode(args))
