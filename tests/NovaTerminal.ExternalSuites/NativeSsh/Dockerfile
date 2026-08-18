@@ -21,18 +21,19 @@ RUN useradd -m -s /bin/bash nova \
     && useradd -m -s /bin/bash kbdnova \
     && echo "kbdnova:kbd-pass" | chpasswd
 
-# Key material is generated during the build, never committed. A private key literal in the
-# repository would be a secret-scanning finding on every clone and every fork, and these keys only
-# need to be consistent within a single image build — DockerSshFixture copies them out of the
-# container at test time. Both public halves authorize `nova`, so which key a test presents decides
-# whether it exercises the plain or the passphrase-protected path.
+# No key material is generated here, and none is committed either.
+#
+# The obvious middle ground — generate the test keys during the build — is what the first version of
+# this file did, and it is wrong: it puts a private key inside the image, which travels with the image
+# to anyone who ever pulls or exports it. SonarCloud flags exactly that ("Credentials should not be
+# hard-coded: change this code not to store a secret in the image"), and it is right to.
+#
+# So the image only prepares the directories. DockerSshFixture generates the keypairs inside the
+# running container and copies the private halves out — the container is started with --rm, so the
+# keys live and die with one test. See ProvisionTestKeysAsync.
 RUN mkdir -p /novaterm-keys \
-    && ssh-keygen -q -t ed25519 -N '' -C novaterm-plain -f /novaterm-keys/id_ed25519 \
-    && ssh-keygen -q -t ed25519 -N 'nova-key-pass' -C novaterm-encrypted -f /novaterm-keys/id_ed25519_encrypted \
     && mkdir -p /home/nova/.ssh \
-    && cat /novaterm-keys/id_ed25519.pub /novaterm-keys/id_ed25519_encrypted.pub > /home/nova/.ssh/authorized_keys \
     && chmod 700 /home/nova/.ssh \
-    && chmod 600 /home/nova/.ssh/authorized_keys \
     && chown -R nova:nova /home/nova/.ssh
 
 # Global block first, then the Match block: sshd applies Match sections in file order, and anything

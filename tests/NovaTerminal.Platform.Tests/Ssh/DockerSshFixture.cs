@@ -3,7 +3,7 @@ using System.Net.Sockets;
 
 namespace NovaTerminal.Platform.Tests.Ssh;
 
-/// <summary>Which of the image's build-time test keys to use.</summary>
+/// <summary>Which of the per-container test keys to use. Both are generated when the fixture starts.</summary>
 internal enum NativeSshTestKey
 {
     /// <summary>Unencrypted; authenticates without any passphrase prompt.</summary>
@@ -20,6 +20,10 @@ internal sealed class DockerSshFixture : IAsyncDisposable
     // would silently serve the new tests a server that rejects the methods they are testing.
     private const string ImageTag = "novaterm-native-ssh-e2e:v3";
     private const int EchoServicePortValue = 9001;
+
+    // Needed as a constant because ProvisionTestKeysAsync is static (it runs before the fixture
+    // instance exists) and has to pass the same passphrase to ssh-keygen that tests will answer with.
+    private const string PrivateKeyPassphraseValue = "nova-key-pass";
     private string _containerName = string.Empty;
     private bool _started;
 
@@ -43,7 +47,7 @@ internal sealed class DockerSshFixture : IAsyncDisposable
     public string KeyboardInteractivePassword => "kbd-pass";
 
     /// <summary>Passphrase for <see cref="NativeSshTestKey.PassphraseProtected"/>.</summary>
-    public string PrivateKeyPassphrase => "nova-key-pass";
+    public string PrivateKeyPassphrase => PrivateKeyPassphraseValue;
 
     /// <summary>
     /// Port of the in-container TCP echo service, as seen from the SSH server itself. Forward tests
@@ -119,9 +123,10 @@ internal sealed class DockerSshFixture : IAsyncDisposable
     }
 
     /// <summary>
-    /// Copies one of the image's build-time private keys to <paramref name="destinationPath"/> on the
-    /// host, so a test can point <c>IdentityFilePath</c> at it. The keys are generated per image build
-    /// rather than committed — see the Dockerfile for why.
+    /// Copies one of the container's private keys to <paramref name="destinationPath"/> on the host, so
+    /// a test can point <c>IdentityFilePath</c> at it. The keys are generated per container by
+    /// <see cref="ProvisionTestKeysAsync"/> — never committed, and never stored in the image. See the
+    /// Dockerfile for why.
     /// </summary>
     public async Task<string> CopyPrivateKeyAsync(NativeSshTestKey key, string destinationPath)
     {
@@ -157,6 +162,7 @@ internal sealed class DockerSshFixture : IAsyncDisposable
         int mappedPort = await ResolveMappedPortAsync(containerName).ConfigureAwait(false);
         await WaitForPortAsync(containerName, mappedPort).ConfigureAwait(false);
         await WaitForEchoServiceAsync(containerName).ConfigureAwait(false);
+        await ProvisionTestKeysAsync(containerName).ConfigureAwait(false);
 
         var fixture = new DockerSshFixture(mappedPort)
         {
@@ -259,6 +265,38 @@ internal sealed class DockerSshFixture : IAsyncDisposable
         string finalLogs = await RunDockerCommandAsync($"logs {containerName}", throwOnFailure: false).ConfigureAwait(false);
         throw new TimeoutException(
             $"Docker SSH server on port {port} did not become ready within 30 seconds. State: {finalStatus}. Logs: {finalLogs}");
+    }
+
+    /// <summary>
+    /// Generates the two test keypairs inside the running container and authorizes them for
+    /// <see cref="UserName"/>.
+    ///
+    /// Done here rather than in the Dockerfile so no private key is ever stored in the image — an
+    /// image carries its contents to anyone who pulls or exports it, and a build-time key would be a
+    /// secret baked in for the image's whole life. The container runs with <c>--rm</c>, so these keys
+    /// exist only for the duration of one test.
+    /// </summary>
+    private static async Task ProvisionTestKeysAsync(string containerName)
+    {
+        // One exec so the keys, the authorized_keys file and its permissions cannot be half-applied.
+        // sshd refuses to honour authorized_keys unless it is owned by the user and not group/world
+        // writable, so the chown/chmod are load-bearing rather than tidiness.
+        string script =
+            "ssh-keygen -q -t ed25519 -N '' -C novaterm-plain -f /novaterm-keys/id_ed25519 && " +
+            $"ssh-keygen -q -t ed25519 -N '{PrivateKeyPassphraseValue}' -C novaterm-encrypted -f /novaterm-keys/id_ed25519_encrypted && " +
+            "cat /novaterm-keys/id_ed25519.pub /novaterm-keys/id_ed25519_encrypted.pub > /home/nova/.ssh/authorized_keys && " +
+            "chown nova:nova /home/nova/.ssh/authorized_keys && " +
+            "chmod 600 /home/nova/.ssh/authorized_keys && " +
+            "echo keys-provisioned";
+
+        string output = await RunDockerCommandAsync($"exec {containerName} sh -c \"{script}\"")
+            .ConfigureAwait(false);
+
+        if (!output.Contains("keys-provisioned", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Failed to provision test keys in container '{containerName}'. Output: {output}");
+        }
     }
 
     /// <summary>
